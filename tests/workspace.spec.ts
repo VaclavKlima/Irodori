@@ -1,6 +1,6 @@
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
-import type { LumaApi } from '../src/shared/contracts'
+import type { LumaApi, Photo } from '../src/shared/contracts'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 
@@ -67,6 +67,18 @@ test('starts the built desktop application with its isolated preload bridge', as
   expect(bridge).toEqual({
     info: { version: nativeInfo.version, platform: nativeInfo.platform },
     keys: [
+      'listStacks',
+      'getPhotoStack',
+      'getStackMembers',
+      'groupPhotos',
+      'ungroupStack',
+      'removeFromStack',
+      'setStackCover',
+      'setStackExpanded',
+      'listGallery',
+      'locateGalleryPhoto',
+      'getGalleryRange',
+      'groupCaptureSequences',
       'getActiveMergeReview',
       'getMergeDiagnostics',
       'createMergeReview',
@@ -86,6 +98,7 @@ test('starts the built desktop application with its isolated preload bridge', as
       'onFlushEdits',
       'getPhotoStatistics',
       'getEdits',
+      'getPhotoPixel',
       'updateEdits',
       'getEditHistory',
       'undoEdit',
@@ -121,6 +134,178 @@ test('starts the built desktop application with its isolated preload bridge', as
   await expect(page.getByTestId('empty-library')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Import photos', exact: true })).toBeEnabled()
   expect(await page.evaluate(() => window.luma.listPhotos())).toEqual({ photos: [], total: 0 })
+})
+
+test('compact metadata handles missing fields, long names and merged photos while panels scroll independently', async ({
+  luma,
+}, info) => {
+  const { app, page } = luma
+  const longCamera = 'Long camera name '.repeat(18),
+    longLens = 'Long lens name '.repeat(22)
+  const cases: {
+    filename: string
+    metadata: Partial<Photo>
+    equipment: string[]
+    exposure: string[]
+  }[] = [
+    {
+      filename: 'alpine-lake.jpg',
+      metadata: {
+        camera: 'Camera body',
+        lens: 'Zoom lens',
+        shutter: '1/250 s',
+        aperture: 'f/2.8',
+        iso: '100',
+      },
+      equipment: ['Camera body', 'Zoom lens'],
+      exposure: ['1/250 s', 'f/2.8', 'ISO 100'],
+    },
+    {
+      filename: 'mountain-ridge.jpg',
+      metadata: { lens: 'Prime lens', aperture: 'f/8' },
+      equipment: ['Prime lens'],
+      exposure: ['f/8'],
+    },
+    { filename: 'forest-light.jpg', metadata: {}, equipment: [], exposure: [] },
+    {
+      filename: 'coastal-dunes.jpg',
+      metadata: {
+        camera: longCamera,
+        lens: longLens,
+        shutter: '1/8000 s',
+        aperture: 'f/22',
+        iso: '12800',
+      },
+      equipment: [longCamera, longLens],
+      exposure: ['1/8000 s', 'f/22', 'ISO 12800'],
+    },
+    {
+      filename: 'quiet-valley.jpg',
+      metadata: {
+        assetKind: 'derived',
+        camera: 'Merge camera',
+        shutter: '1/60 s',
+        aperture: 'f/4',
+        iso: '400',
+      },
+      equipment: ['Merge camera'],
+      exposure: ['Merged photo'],
+    },
+  ]
+  // Inject presentation metadata only; the real imports, edit service and preview remain in this isolated profile.
+  await app.evaluate(({ ipcMain }, cases) => {
+    const handlers = (
+      ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
+    )._invokeHandlers
+    const photoMetadata = (photo: Photo) => {
+      const metadata = cases.find((c) => c.filename === photo.filename)?.metadata
+      return {
+        ...photo,
+        camera: undefined,
+        lens: undefined,
+        shutter: undefined,
+        aperture: undefined,
+        iso: undefined,
+        ...metadata,
+      }
+    }
+    for (const channel of ['gallery:list', 'gallery:locate']) {
+      const original = handlers.get(channel)!
+      ipcMain.removeHandler(channel)
+      ipcMain.handle(channel, async (...args) => {
+        const result = (await original(...args)) as {
+          photo?: Photo
+          entries: { photo: Photo }[]
+        } | null
+        if (!result) return result
+        return {
+          ...result,
+          ...(result.photo ? { photo: photoMetadata(result.photo) } : {}),
+          entries: result.entries.map((entry) => ({ ...entry, photo: photoMetadata(entry.photo) })),
+        }
+      })
+    }
+  }, cases)
+  await importPhotos(
+    app,
+    page,
+    cases.map((c) => `tests/fixtures/photos/${c.filename}`),
+  )
+  await resizeWindow(app, page, 1100, 700)
+  await page.getByTestId('console-toggle').click()
+  const metadata = page.getByTestId('preview-metadata')
+  const lens = page.getByRole('button', { name: 'Lens corrections', exact: true })
+  await expect(lens).toHaveAttribute('aria-expanded', 'false')
+  await lens.press('Enter')
+  for (const c of cases) {
+    await page.getByRole('button', { name: `Select ${c.filename}`, exact: true }).click()
+    await expect(page.getByTestId('preview-filename')).toHaveText(c.filename)
+    await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
+    await expect(lens).toHaveAttribute('aria-expanded', 'true')
+    await expectInsideWindow(metadata, 1100, 700)
+    await expect(metadata.getByTestId('preview-equipment').locator('span')).toHaveText(c.equipment)
+    await expect(metadata.getByTestId('preview-exposure').locator('span')).toHaveText(c.exposure)
+    if (!c.equipment.length && !c.exposure.length)
+      await expect(metadata).toHaveText('Metadata unavailable')
+    if (c.filename === 'coastal-dunes.jpg') {
+      for (const name of c.equipment) {
+        const field = metadata.getByText(name, { exact: true })
+        await expect(field).toHaveAttribute('title', name)
+        expect(await field.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true)
+      }
+      await page.screenshot({ path: info.outputPath('compact-metadata-1100-console.png') })
+    }
+    expect(await metadata.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true)
+    await expectInsideWindow(page.getByTestId('zoom-controls'), 1100, 700)
+  }
+  const order = await page
+    .getByTestId('adjustments-panel')
+    .locator('section > :first-child')
+    .allTextContents()
+  expect(order.map((s) => s.trim())).toEqual([
+    'Histogram · After',
+    'Light',
+    'Color',
+    'Lens corrections',
+    'Metadata',
+  ])
+  const scrolling = await page.evaluate(() => {
+    const inspector = document.querySelector<HTMLElement>('[data-testid="adjustments-panel"]')!
+      .lastElementChild as HTMLElement
+    const candidates = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-testid="photo-library"] *'),
+    )
+    const libraryScroll = candidates.find((e) => getComputedStyle(e).overflowY === 'auto')!
+    const preview = document.querySelector<HTMLElement>('[data-testid="preview-viewport"]')!
+    const before = preview.getBoundingClientRect().toJSON()
+    const libraryTop = libraryScroll.scrollTop
+    inspector.scrollTop = inspector.scrollHeight
+    const inspectorTop = inspector.scrollTop
+    libraryScroll.scrollTop = libraryScroll.scrollHeight
+    return {
+      libraryTop,
+      inspectorTop,
+      inspectorAfter: inspector.scrollTop,
+      libraryAfter: libraryScroll.scrollTop,
+      before,
+      after: preview.getBoundingClientRect().toJSON(),
+    }
+  })
+  expect(scrolling.inspectorTop).toBeGreaterThan(0)
+  expect(scrolling.inspectorAfter).toBe(scrolling.inspectorTop)
+  expect(scrolling.libraryAfter).toBeGreaterThan(scrolling.libraryTop)
+  expect(scrolling.after).toEqual(scrolling.before)
+  await page.getByTestId('console-toggle').click()
+  await expectInsideWindow(metadata, 1100, 700)
+  await page.getByTestId('console-toggle').click()
+  await expectInsideWindow(metadata, 1100, 700)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Lens corrections', exact: true })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  )
+  await expect(page.getByTestId('lens-corrections')).toBeHidden()
 })
 
 for (const [width, height] of [
@@ -202,4 +387,68 @@ test('supports visible keyboard focus, photo selection, and adjustment groups', 
   await lightGroup.press('Enter')
   await expect(lightGroup).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByRole('slider', { name: 'Exposure', exact: true })).toBeVisible()
+})
+
+test('histogram shows compact preparation failures inside the section', async ({ luma }) => {
+  const held = await luma.app.evaluateHandle(({ ipcMain }) => {
+    const handlers = (
+      ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
+    )._invokeHandlers
+    const original = handlers.get('preview:editing')!
+    ipcMain.removeHandler('preview:editing')
+    ipcMain.handle('preview:editing', () => ({ error: 'Preparation failed for test.' }))
+    return {
+      restore: () => {
+        ipcMain.removeHandler('preview:editing')
+        ipcMain.handle('preview:editing', original)
+      },
+    }
+  })
+  await expect(luma.page.locator('#histogram').getByRole('status')).toHaveText(
+    'Preparing histogram…',
+  )
+  await importPhotos(luma.app, luma.page)
+  await expect(luma.page.locator('#histogram').getByRole('status')).toHaveText(
+    'Histogram unavailable',
+  )
+  await expect(luma.page.locator('#histogram').getByRole('status')).toHaveAttribute(
+    'title',
+    'Live adjustments could not be prepared.',
+  )
+  await expect(luma.page.getByRole('slider', { name: 'Histogram tonal value' })).toBeVisible()
+  await expect(luma.page.getByRole('button', { name: 'Inspect center pixel' })).toHaveCount(0)
+  await expect(luma.page.locator('#histogram details')).toHaveCount(0)
+  await held.evaluate((gate) => gate.restore())
+  await held.dispose()
+  await luma.page.addInitScript(() => {
+    const NativeWorker = window.Worker
+    window.Worker = class extends NativeWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options)
+        if (String(url).includes('analysis-worker'))
+          this.addEventListener('message', (event) => {
+            if (!event.data.statistics) return
+            event.stopImmediatePropagation()
+            this.dispatchEvent(
+              new MessageEvent('message', {
+                data: {
+                  generation: event.data.generation,
+                  identity: event.data.identity,
+                  error: 'Analysis failed for test.',
+                  done: true,
+                },
+              }),
+            )
+          })
+      }
+    }
+  })
+  await luma.page.reload()
+  await expect(luma.page.locator('#histogram').getByRole('status')).toHaveText(
+    'Histogram unavailable',
+  )
+  await expect(luma.page.locator('#histogram').getByRole('status')).toHaveAttribute(
+    'title',
+    'Analysis failed for test.',
+  )
 })

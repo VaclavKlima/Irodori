@@ -17,11 +17,10 @@ for (const adjustment of ['exposure'] as const)
     await expect(luma.page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
       timeout: 45000,
     })
-    await luma.page.getByText('Analysis details · sampled').click()
-    await expect(luma.page.getByText('Above white:', { exact: false })).toBeVisible({
-      timeout: 45000,
-    })
-    await luma.page.getByRole('button', { name: /^Above white:/ }).click()
+    await expect(
+      luma.page.getByRole('button', { name: 'Output clipping', exact: true }),
+    ).toBeVisible({ timeout: 45000 })
+    await luma.page.getByRole('button', { name: 'Output clipping', exact: true }).click()
     const result = await luma.page.evaluate(async (adjustment) => {
       const label = Array.from(document.querySelectorAll('label')).find(
         (label) => label.textContent === adjustment[0].toUpperCase() + adjustment.slice(1),

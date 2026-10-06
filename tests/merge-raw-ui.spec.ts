@@ -20,6 +20,16 @@ test('supplied Sony brackets review, publish, open and survive source deletion t
   await importPhotos(luma.app, luma.page, paths, false)
   const { page } = luma,
     photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  for (const stack of (await page.evaluate(() => window.luma.listStacks())).stacks) {
+    if (stack.expanded) continue
+    const cover = photos.find((photo) => photo.id === stack.coverId)!
+    await page
+      .getByRole('button', {
+        name: `Expand stack for ${cover.filename}, ${stack.count} photos`,
+        exact: true,
+      })
+      .click()
+  }
   await page.getByTestId(`photo-card-${photos[0].id}`).click()
   await page
     .getByTestId(`photo-card-${photos[photos.length - 1].id}`)
@@ -132,12 +142,16 @@ test('supplied Sony brackets review, publish, open and survive source deletion t
       { timeout: 120000 },
     )
     .toBeTruthy()
-  await page.getByTestId('task-progress').click()
-  await page.getByRole('button', { name: 'Open result', exact: true }).click()
   const result = (await page.evaluate(() => window.luma.listPhotos())).photos.find(
     (p) => p.assetKind === 'derived',
   )!
   expect(result).toBeTruthy()
+  await expect(page.getByTestId('preview-filename')).toHaveText(result.filename)
+  await expect(page.getByTestId('selection-count')).toHaveText('1 selected')
+  const resultCard = page.getByTestId(`photo-card-${result.id}`)
+  await expect(resultCard).toHaveAttribute('aria-current', 'true')
+  await expect(resultCard).toHaveAttribute('aria-pressed', 'true')
+  await expect(resultCard).toBeInViewport({ ratio: 1 })
   await cp(
     join(luma.userDataDir, 'library', 'originals', result.id),
     info.outputPath('published-master'),

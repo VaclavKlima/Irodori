@@ -56,6 +56,7 @@ test('stdio editing tools share persisted history with UI without a development 
       'luma_set_preview_preference',
       'luma_upgrade_photo_processing',
       'luma_get_photo_statistics',
+      'luma_get_photo_pixel',
       'luma_list_photos',
       'luma_get_edits',
       'luma_get_edit_history',
@@ -76,6 +77,18 @@ test('stdio editing tools share persisted history with UI without a development 
     expect(missingDiagnostics.isError).toBe(true)
     const page = await call('luma_list_photos')
     const photoId = (page.photos as { id: string }[])[0].id
+    const unsupportedPixel = await client.callTool({
+      name: 'luma_get_photo_pixel',
+      arguments: {
+        photoId,
+        expectedRevision: 0,
+        x: 0,
+        y: 0,
+        domain: 'working-hdr',
+      },
+    })
+    expect(unsupportedPixel.isError).toBe(true)
+    expect(JSON.stringify(unsupportedPixel.content)).toContain('processing unavailable')
     expect(await call('luma_get_edits', { photoId })).toMatchObject({ revision: 0 })
     expect(await call('luma_list_tasks')).toMatchObject({ tasks: expect.any(Array) })
     const invalidMerge = await client.callTool({

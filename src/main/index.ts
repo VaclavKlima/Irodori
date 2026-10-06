@@ -412,6 +412,13 @@ app
       trusted(event)
       return library!.getEdits(id)
     })
+    ipcMain.handle('pixel:get', (event, id, revision, x, y, request) => {
+      trusted(event)
+      return library!.getPhotoPixel(id, revision, x, y, request).then(
+        (pixel) => ({ pixel }),
+        (error) => ({ error: String(error) }),
+      )
+    })
     ipcMain.handle('edits:update', (event, id, patch, revision) => {
       trusted(event)
       return library!.updateEdits(id, patch, revision)

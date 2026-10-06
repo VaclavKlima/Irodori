@@ -5,6 +5,7 @@ test('toolbar history restores mixed light and lens edits across restart', async
   test.setTimeout(90000)
   let { page } = luma
   await importPhotos(luma.app, page, ['tests/fixtures/sony-zv1.ARW'])
+  await page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
   const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
   const enter = async (value: string) => {
     const field = page.getByRole('spinbutton', { name: 'Exposure value' })
@@ -37,6 +38,7 @@ test('toolbar history restores mixed light and lens edits across restart', async
   await enter('-0.5')
   await confirm(-0.5, false)
   ;({ page } = await luma.restart())
+  await page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
   await confirm(-0.5, false)
   for (const [exposure, lens, contrast] of [
     [0.5, false, 40],

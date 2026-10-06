@@ -1,4 +1,5 @@
 import type { HdrAnalysisRequest, HdrPhotoStatistics } from './hdr-statistics'
+import type { HdrPhotoPixel } from './hdr-pixel'
 import type { PhotoStatistics } from './statistics'
 import type { AdjustmentParameters } from './adjustments'
 import type { DisplayTransform } from './adjustments'
@@ -78,6 +79,13 @@ export interface LumaApi {
     request: HdrAnalysisRequest,
   ): Promise<HdrPhotoStatistics>
   getEdits(photoId: string): Promise<EditState>
+  getPhotoPixel(
+    photoId: string,
+    expectedRevision: number,
+    x: number,
+    y: number,
+    request: HdrAnalysisRequest,
+  ): Promise<HdrPhotoPixel>
   updateEdits(photoId: string, patch: EditPatch, expectedRevision: number): Promise<EditState>
   getEditHistory(photoId: string): Promise<EditHistory>
   undoEdit(photoId: string, expectedRevision: number): Promise<EditState>

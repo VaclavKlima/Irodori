@@ -16,6 +16,8 @@ test('histogram, clipping and comparison preserve edits and view, with accessibl
   const histogram = page.getByRole('slider', { name: 'Histogram tonal value' })
   await expect(histogram).toHaveAttribute('aria-valuetext', /Value 128/)
   const readout = await histogram.getAttribute('aria-valuetext')
+  await expect(page.getByText(readout!, { exact: true })).toHaveCount(0)
+  await expect(page.locator('#histogram details')).toHaveCount(0)
   await page.getByRole('combobox', { name: 'Preview zoom' }).selectOption('1')
   await expect(histogram).toHaveAttribute('aria-valuetext', readout!)
   await histogram.focus()
@@ -89,9 +91,11 @@ test('histogram, clipping and comparison preserve edits and view, with accessibl
   await canvas.focus()
   await canvas.press('y')
   await expect(canvas).toHaveAttribute('data-comparison', 'split')
-  await luma.app.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0].setContentSize(1100, 700),
-  )
+  await luma.app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    window.unmaximize()
+    window.setContentSize(1100, 700)
+  })
   await page.getByTestId('console-toggle').click()
   await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
   await page.screenshot({ path: info.outputPath('comparison.png') })

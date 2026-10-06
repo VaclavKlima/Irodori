@@ -172,26 +172,3 @@
 .afterLabel {
   right: 12px;
 }
-
-.pixelReadout {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 12px;
-  color: #999;
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-.pixelReadout output {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pixelReadout button {
-  flex-shrink: 0;
-  color: inherit;
-  background: transparent;
-  border: 1px solid #393939;
-  border-radius: 3px;
-  padding: 3px 5px;
-}

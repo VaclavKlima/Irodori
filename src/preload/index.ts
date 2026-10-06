@@ -80,6 +80,11 @@ const api: LumaApi = {
     return result.statistics
   },
   getEdits: (id) => ipcRenderer.invoke('edits:get', id),
+  getPhotoPixel: async (id, revision, x, y, request) => {
+    const result = await ipcRenderer.invoke('pixel:get', id, revision, x, y, request)
+    if (result.error) throw new Error(result.error)
+    return result.pixel
+  },
   updateEdits: (id, patch, revision) => ipcRenderer.invoke('edits:update', id, patch, revision),
   getEditHistory: (id) => ipcRenderer.invoke('edits:history', id),
   undoEdit: (id, revision) => ipcRenderer.invoke('edits:undo', id, revision),

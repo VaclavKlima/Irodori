@@ -1,5 +1,6 @@
 import type { PhotoStatistics } from '../shared/statistics'
 import type { HdrPhotoStatistics, HdrAnalysisDomain } from '../shared/hdr-statistics'
+import type { HdrPhotoPixel } from '../shared/hdr-pixel'
 import {
   validateHdrSource,
   HDR_SOURCE_VERSION,
@@ -18,7 +19,7 @@ import { mkdir, readFile, readdir, rename, rm, stat, utimes, writeFile } from 'n
 import { join } from 'node:path'
 import { createReadStream } from 'node:fs'
 import type { FullPreview, HdrPreview, DisplayPreview } from '../shared/contracts'
-import type { FullPreviewProcessor, FullPreviewResult } from './preview-types'
+import type { FullPreviewProcessor, FullPreviewResult, HdrStatisticsJob } from './preview-types'
 
 // Bump whenever decoding, color, or output policy changes.
 export const PREVIEW_VERSION = 'v8'
@@ -583,12 +584,41 @@ export class FullPreviews {
     if (this.active?.id === id) this.detach(false)
   }
 
-  async hdrStatistics(
+  hdrStatistics(
     id: string,
     expectedRevision: number,
     domain: HdrAnalysisDomain,
     target: DisplayTarget,
   ): Promise<HdrPhotoStatistics> {
+    return this.hdrAnalysis(id, expectedRevision, domain, target, (path, job, signal) => {
+      if (!this.processor.hdrStatistics) throw new Error('HDR analysis worker unavailable.')
+      return this.processor.hdrStatistics(path, job, signal)
+    })
+  }
+
+  hdrPixel(
+    id: string,
+    expectedRevision: number,
+    x: number,
+    y: number,
+    domain: HdrAnalysisDomain,
+    target: DisplayTarget,
+  ): Promise<HdrPhotoPixel> {
+    if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y) || x < 0 || y < 0)
+      return Promise.reject(new Error('Invalid native pixel coordinates.'))
+    return this.hdrAnalysis(id, expectedRevision, domain, target, (path, job, signal) => {
+      if (!this.processor.hdrPixel) throw new Error('HDR pixel worker unavailable.')
+      return this.processor.hdrPixel(path, { ...job, x, y }, signal)
+    })
+  }
+
+  private async hdrAnalysis<T>(
+    id: string,
+    expectedRevision: number,
+    domain: HdrAnalysisDomain,
+    target: DisplayTarget,
+    work: (path: string, job: HdrStatisticsJob, signal: AbortSignal) => Promise<T>,
+  ): Promise<T & { photoId: string; revision: number; renderingIdentity: string }> {
     const controller = new AbortController()
     const check = async () => {
       controller.signal.throwIfAborted()
@@ -602,7 +632,7 @@ export class FullPreviews {
         this.blocked.has(id) ||
         !this.original(id)
       )
-        throw new Error('HDR statistics revision conflict or processing unavailable.')
+        throw new Error('HDR analysis revision conflict or processing unavailable.')
       return options
     }
     await check()
@@ -615,8 +645,7 @@ export class FullPreviews {
     try {
       return await this.enqueue(async () => {
         const options = await check()
-        if (!this.processor.hdrStatistics) throw new Error('HDR analysis worker unavailable.')
-        const result = await this.processor.hdrStatistics(
+        const result = await work(
           lease.path,
           {
             asset: preview.linear!.hdr!,

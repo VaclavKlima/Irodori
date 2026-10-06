@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AdjustmentParameters, WorkingFrame } from '../../../shared/adjustments'
 import {
   sampleWorking,
@@ -16,6 +16,7 @@ export function usePreviewAnalysis(
   onStatistics: (value?: ImageStatistics) => void,
   onMask: (mask?: ClippingMask) => void,
 ) {
+  const [failure, setFailure] = useState<{ identity: string; message: string }>()
   const histogram = useRef<AnalysisQueue | null>(null),
     clipping = useRef<AnalysisQueue | null>(null)
   useEffect(() => {
@@ -32,9 +33,16 @@ export function usePreviewAnalysis(
       { transfer: [sample.buffer] },
     )
     worker.onmessage = ({ data }) => {
-      if (queue.accepts(data) && data.statistics) onStatistics(data.statistics)
+      if (queue.accepts(data)) {
+        if (data.error) setFailure({ identity, message: data.error })
+        if (data.statistics) {
+          setFailure(undefined)
+          onStatistics(data.statistics)
+        }
+      }
       if (data.done) queue.finished()
     }
+    worker.onerror = (event) => setFailure({ identity, message: event.message })
     return () => {
       histogram.current = null
       queue.close()
@@ -66,4 +74,5 @@ export function usePreviewAnalysis(
     onMask(undefined)
     clipping.current?.update(JSON.parse(key), !gesturing)
   }, [frame, identity, key, masks, gesturing, onMask])
+  return frame && failure?.identity === identity ? failure.message : undefined
 }

@@ -58,6 +58,7 @@ export function App() {
     select,
     navigate,
     changePage,
+    openPhoto,
     getSelection,
   } = library
   const edits = useEdits(photo?.id)
@@ -142,15 +143,28 @@ export function App() {
       .catch((error) => setError(String(error)))
   }
 
+  const completedMerges = useRef<Set<string> | null>(null)
   const refreshTasks = useCallback(async () => {
     try {
       const current = await window.luma.listTasks()
       setTasks(current)
       if (!current.length) setTasksOpen(false)
+      const completed = current.filter(
+        (task) => task.kind === 'merge' && task.status === 'completed' && task.resultPhotoId,
+      )
+      if (!completedMerges.current) {
+        completedMerges.current = new Set(completed.map((task) => task.id))
+      } else {
+        for (const task of completed) {
+          if (completedMerges.current.has(task.id)) continue
+          completedMerges.current.add(task.id)
+          void openPhoto(task.resultPhotoId!)
+        }
+      }
     } catch (error) {
       setError(String(error))
     }
-  }, [])
+  }, [openPhoto])
   const dismissTask = useCallback(
     async (id: string) => {
       await window.luma.dismissTask(id)
@@ -258,12 +272,8 @@ export function App() {
     setContextMenu(null)
   }
   async function openResult(id: string) {
-    const result = await window.luma.locateGalleryPhoto(id)
-    if (result) {
-      await changePage(result.offset)
-      await select(result.photo)
-      setTasksOpen(false)
-    }
+    await openPhoto(id)
+    setTasksOpen(false)
   }
 
   async function openImport() {
@@ -339,6 +349,7 @@ export function App() {
           }}
           selectedIds={selected}
           activeId={photo?.id ?? null}
+          reveal={library.reveal}
           onSelect={(photo, modifiers) => {
             void select(photo, modifiers)
           }}

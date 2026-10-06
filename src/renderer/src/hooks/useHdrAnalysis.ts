@@ -13,9 +13,22 @@ export function useHdrAnalysis(
   statistics: (result?: HdrStatistics) => void,
   mask: (result?: ClippingMask) => void,
 ) {
-  const [failure, setFailure] = useState<{ generation: number; message: string }>()
+  const [failure, setFailure] = useState<{ identity: string; message: string }>()
   const worker = useRef<Worker | null>(null),
-    generation = useRef(0)
+    generation = useRef(0),
+    requestIdentity = useRef('')
+  const key = JSON.stringify(parameters)
+  const selectedTarget = domain === 'working-hdr' ? SDR_TARGET : target
+  const identity = JSON.stringify([
+    frame?.identity,
+    key,
+    selectedTarget.generation,
+    selectedTarget.mode,
+    selectedTarget.colorSpace,
+    selectedTarget.peak,
+    domain,
+    masks,
+  ])
   useEffect(() => {
     if (!frame?.hdr) return
     const instance = new Worker(new URL('../preview/hdr-analysis-worker.ts', import.meta.url), {
@@ -28,7 +41,10 @@ export function useHdrAnalysis(
     instance.postMessage({ asset: frame.hdr })
     instance.onmessage = ({ data }) => {
       if (data.error && (data.generation === undefined || data.generation === generation.current))
-        setFailure({ generation: generation.current, message: data.error })
+        setFailure({
+          identity: requestIdentity.current,
+          message: data.error,
+        })
       if (data.generation !== generation.current) return
       if (data.statistics) {
         setFailure(undefined)
@@ -36,17 +52,21 @@ export function useHdrAnalysis(
       }
       if (data.mask) mask(data.mask)
     }
+    instance.onerror = (event) =>
+      setFailure({
+        identity: requestIdentity.current,
+        message: event.message,
+      })
     return () => {
       unsubscribe()
       instance.terminate()
       worker.current = null
     }
   }, [frame, statistics, mask])
-  const key = JSON.stringify(parameters)
-  const selectedTarget = domain === 'working-hdr' ? SDR_TARGET : target
   useEffect(() => {
     if (!frame?.hdr) return
     const current = ++generation.current
+    requestIdentity.current = identity
     mask(undefined)
     statistics(undefined)
     const timer = setTimeout(
@@ -63,6 +83,6 @@ export function useHdrAnalysis(
       100,
     )
     return () => clearTimeout(timer)
-  }, [frame, key, selectedTarget, domain, masks, mask, statistics])
-  return failure?.message
+  }, [frame, key, selectedTarget, domain, masks, mask, statistics, identity])
+  return frame?.hdr && failure && failure.identity === identity ? failure.message : undefined
 }

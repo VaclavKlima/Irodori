@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Aperture, ChevronDown, ChevronRight } from 'lucide-react'
 import { correctionKinds, type CorrectionKind, type LensState } from '../../../shared/lens'
 import styles from '../App.module.css'
 
@@ -11,9 +12,13 @@ const labels: Record<CorrectionKind, string> = {
 export function LensCorrections({
   photoId,
   flushEdits,
+  expanded,
+  onToggle,
 }: {
   photoId: string
   flushEdits: () => Promise<void>
+  expanded: boolean
+  onToggle: () => void
 }) {
   const [state, setState] = useState<LensState | null>(null)
   const [error, setError] = useState('')
@@ -71,10 +76,19 @@ export function LensCorrections({
 
   return (
     <section className={styles.adjustmentSection} aria-labelledby="lens-heading">
-      <h3 id="lens-heading" className={styles.lensHeading}>
-        Lens corrections
-      </h3>
+      <button
+        id="lens-heading"
+        className={styles.sectionToggle}
+        aria-expanded={expanded}
+        aria-controls="lens-controls"
+        onClick={onToggle}
+      >
+        <Aperture size={14} />
+        Lens corrections{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+      </button>
       <div
+        id="lens-controls"
+        hidden={!expanded}
         className={styles.sectionContent}
         data-testid="lens-corrections"
         data-revision={state?.revision}

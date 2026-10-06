@@ -317,6 +317,7 @@ try {
     await waitForText('Ready to import')
     await clickButton('Import 1 photos')
     await waitForText('Lens corrections')
+    await clickButton('Lens corrections')
     await call('browser_evaluate', {
       function: `async () => {
       for (let i=0;i<120;i++) {
@@ -347,6 +348,7 @@ try {
     // Reload the existing Electron document; MCP intentionally disallows file-URL navigation.
     await (await desktop.firstWindow()).reload({ waitUntil: 'domcontentloaded' })
     await waitForText('Lens corrections')
+    await clickButton('Lens corrections')
     await call('browser_evaluate', {
       function: `async () => {
       const id=(await window.luma.listPhotos()).photos[0].id;

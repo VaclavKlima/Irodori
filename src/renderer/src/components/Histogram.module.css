@@ -20,10 +20,10 @@
   outline: 1px solid #aaa;
   outline-offset: 2px;
 }
-.readout {
-  font-size: 9px;
-  font-variant-numeric: tabular-nums;
-  min-height: 24px;
+.status {
+  margin: 4px 0 8px;
+  font-size: 10px;
+  color: var(--text-muted);
 }
 .indicators button {
   font-size: 10px;
@@ -36,16 +36,4 @@
 .indicators button[aria-pressed='true'] {
   background: #444;
   color: #fff;
-}
-
-.content details {
-  font-size: 10px;
-  color: var(--text-muted);
-}
-.content summary {
-  cursor: pointer;
-  padding: 6px 0;
-}
-.content details .indicators {
-  flex-wrap: wrap;
 }

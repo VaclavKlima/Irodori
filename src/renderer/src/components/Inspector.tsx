@@ -27,6 +27,7 @@ export function Inspector({
 }) {
   const [lightOpen, setLightOpen] = useState(true)
   const [metadataOpen, setMetadataOpen] = useState(true)
+  const [lensOpen, setLensOpen] = useState(false)
   return (
     <aside className={styles.inspector} aria-label="Adjustments" data-testid="adjustments-panel">
       <div className={styles.panelHeading}>
@@ -40,7 +41,6 @@ export function Inspector({
           Exposure, contrast, highlights, shadows, whites, blacks, white balance for verified RAWs,
           and lens corrections are available. Other adjustments are coming later.
         </p>
-        {photo && <LensCorrections key={photo.id} photoId={photo.id} flushEdits={edits.flush} />}
         <section className={styles.adjustmentSection}>
           <button
             className={styles.sectionToggle}
@@ -71,6 +71,15 @@ export function Inspector({
             <WhiteBalance edits={edits} previewReady={previewReady} />
           </div>
         </section>
+        {photo && (
+          <LensCorrections
+            key={photo.id}
+            photoId={photo.id}
+            flushEdits={edits.flush}
+            expanded={lensOpen}
+            onToggle={() => setLensOpen(!lensOpen)}
+          />
+        )}
         <section className={styles.adjustmentSection}>
           <button
             className={styles.sectionToggle}

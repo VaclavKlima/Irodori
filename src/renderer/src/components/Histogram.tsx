@@ -142,7 +142,11 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
               strokeWidth="0.5"
             />
           </svg>
-          <div className={styles.readout}>{readout}</div>
+          {(tools.analysisError || !channels) && (
+            <p className={styles.status} role="status" title={tools.analysisError}>
+              {tools.analysisError ? 'Histogram unavailable' : 'Preparing histogram…'}
+            </p>
+          )}
           {hdr && (
             <div className={styles.indicators}>
               <button
@@ -152,42 +156,6 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
                 Output clipping
               </button>
             </div>
-          )}
-          {hdr && (
-            <details>
-              <summary>Analysis details · sampled</summary>
-              <div className={styles.readout}>
-                Zero {hdr.zero} · Negative {hdr.negative} · Below range {hdr.underflow} · Overflow{' '}
-                {hdr.overflow}
-              </div>
-              <div className={styles.indicators}>
-                {(
-                  [
-                    [4, 'Above white', hdr.aboveWhite],
-                    [2, 'Exceeds headroom', hdr.exceedingHeadroom],
-                    [8, 'Gamut compression', hdr.gamutCompressed],
-                    [1, 'Output clipping', hdr.outputClipped],
-                  ] as const
-                )
-                  .filter(([, , count]) => count !== null)
-                  .map(([bit, label, count]) => (
-                    <button
-                      key={bit}
-                      aria-pressed={!!(tools.hdrOverlay & bit)}
-                      title={`${count} sampled pixels. Patterned overlay preserves isolated events.`}
-                      onClick={() => tools.update({ hdrOverlay: tools.hdrOverlay ^ bit })}
-                    >
-                      {label}: {count}
-                    </button>
-                  ))}
-              </div>
-              <div className={styles.readout}>
-                RAW saturation:{' '}
-                {hdr.sourceSaturation
-                  ? `${hdr.sourceSaturation.saturatedSites} / ${hdr.sourceSaturation.totalSites} sensor sites (decoder thresholds)`
-                  : 'unavailable'}
-              </div>
-            </details>
           )}
           {!tools.hdr && (
             <div className={styles.indicators}>

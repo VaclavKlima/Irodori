@@ -1,0 +1,38 @@
+.metadata {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 38px;
+  padding: 3px 19px 5px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 14px;
+}
+.equipment,
+.exposure {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+.equipmentField {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.equipmentField + .equipmentField::before,
+.exposure span + span::before {
+  content: '·';
+  margin-right: 7px;
+  color: var(--quiet);
+}
+.exposure {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

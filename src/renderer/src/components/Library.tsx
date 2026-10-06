@@ -1,4 +1,5 @@
 import { Images, Plus, ChevronRight, ChevronDown } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import type { GalleryEntry, StackSummary } from '../../../shared/stacks'
 import { PAGE_SIZE, type Photo, type PhotoReference } from '../../../shared/contracts'
 import type { SelectionModifiers } from '../hooks/useLibrary'
@@ -13,6 +14,7 @@ interface LibraryProps {
   offset: number
   selectedIds: Map<string, PhotoReference>
   activeId: string | null
+  reveal: { id: string; request: number } | null
   onSelect: (photo: Photo, modifiers: SelectionModifiers) => void
   onContextMenu: (photo: Photo, element: HTMLElement, x: number, y: number) => void
   onImport: () => void
@@ -29,12 +31,17 @@ export function Library({
   offset,
   selectedIds,
   activeId,
+  reveal,
   onContextMenu,
   onSelect,
   onImport,
   onPage,
   onExpand,
 }: LibraryProps) {
+  const revealedCard = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    revealedCard.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [reveal])
   return (
     <aside
       className={styles.library}
@@ -86,6 +93,7 @@ export function Library({
                 <p className={styles.stackContinuation}>Stack: {cover?.filename} (continued)</p>
               )}
               <button
+                ref={photo.id === reveal?.id ? revealedCard : undefined}
                 className={`${styles.photoCard} ${selectedIds.has(photo.id) ? styles.selectedPhoto : ''} ${activeId === photo.id ? styles.activePhoto : ''}`}
                 aria-label={`Select ${photo.filename}`}
                 aria-pressed={selectedIds.has(photo.id)}

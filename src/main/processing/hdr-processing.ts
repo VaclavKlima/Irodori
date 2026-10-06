@@ -3,7 +3,8 @@ import { copyFile, open, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import sharp from 'sharp'
 import { analyzeHdr, hdrStatistics } from '../../shared/hdr-statistics'
-import type { HdrStatisticsJob } from '../preview-types'
+import type { HdrStatisticsJob, HdrPixelJob } from '../preview-types'
+import type { HdrPixel } from '../../shared/hdr-pixel'
 import { rawDecoder } from './decoders'
 import { cameraProfile } from './cameras'
 import { correctionPlan, cubic, radial } from './lens-correction'
@@ -24,6 +25,7 @@ import {
   hdrWhiteBalance,
   hdrAdjustmentMatrix,
   adjustHdr,
+  luminance,
   outputHdr,
   encodeHdr,
   SDR_TARGET,
@@ -39,23 +41,75 @@ export async function scanHdr(path: string, job: HdrStatisticsJob) {
   return result
 }
 
+export async function sampleHdrPixel(path: string, job: HdrPixelJob): Promise<HdrPixel> {
+  const { asset, x, y, domain, target } = job
+  if (
+    !Number.isSafeInteger(x) ||
+    !Number.isSafeInteger(y) ||
+    x < 0 ||
+    y < 0 ||
+    x >= asset.width ||
+    y >= asset.height
+  )
+    throw new Error('Invalid native pixel coordinates.')
+  const stripIndex = Math.floor(y / 64)
+  for await (const data of readHdrStrips(path, asset, stripIndex)) {
+    const index = ((y - stripIndex * 64) * asset.width + x) * 4
+    const adjusted = adjustHdr(
+      [data[index], data[index + 1], data[index + 2]],
+      job.adjustments,
+      hdrAdjustmentMatrix(job.adjustments, asset.whiteBalance) ?? undefined,
+    )
+    const output = domain === 'output' ? outputHdr(adjusted, target) : undefined
+    const rgb = output?.rgb ?? adjusted
+    const relativeLuminance = output?.luminance ?? luminance(adjusted)
+    if (!rgb.every(Number.isFinite) || !Number.isFinite(relativeLuminance))
+      throw new Error('Invalid HDR pixel result.')
+    return {
+      width: asset.width,
+      height: asset.height,
+      x,
+      y,
+      domain,
+      colorSpace: domain === 'working-hdr' ? 'rec2020' : target.colorSpace,
+      referenceWhite: 1,
+      rgb,
+      alpha: data[index + 3],
+      relativeLuminance,
+      stopsAboveReferenceWhite: relativeLuminance > 0 ? Math.log2(relativeLuminance) : null,
+      target: domain === 'output' ? target : undefined,
+    }
+  }
+  throw new Error('HDR pixel unavailable.')
+}
+
 /** Disk strips keep corrections, presentation and analysis independent of full float copies. */
-export async function* readHdrStrips(path: string, asset: HdrWorkingAsset) {
+export async function* readHdrStrips(path: string, asset: HdrWorkingAsset, onlyStrip?: number) {
   validateHdrSource(asset?.source)
   if (
     asset.kind !== 'hdr-working-v1' ||
     asset.source.processing !== 'hdr-v1' ||
     asset.byteLength !== frameByteLength(asset.width, asset.height) * 4 ||
     asset.byteLength > 512 * 1024 ** 2 ||
-    asset.strips.length !== Math.ceil(asset.height / 64)
+    !Array.isArray(asset.strips) ||
+    asset.strips.length !== Math.ceil(asset.height / 64) ||
+    !/^[a-f0-9]{64}$/.test(asset.sha256) ||
+    asset.strips.some(
+      (strip, index) =>
+        strip.byteLength !== Math.min(64, asset.height - index * 64) * asset.width * 16 ||
+        !/^[a-f0-9]{64}$/.test(strip.sha256),
+    ) ||
+    (onlyStrip !== undefined &&
+      (!Number.isSafeInteger(onlyStrip) || onlyStrip < 0 || onlyStrip >= asset.strips.length))
   )
     throw new Error('Invalid HDR asset.')
   const file = await open(path, 'r')
   const digest = createHash('sha256')
-  let offset = 0
+  let offset = (onlyStrip ?? 0) * 64 * asset.width * 16
   try {
     if ((await file.stat()).size !== asset.byteLength) throw new Error('Incomplete HDR asset.')
-    for (const strip of asset.strips) {
+    const strips = onlyStrip === undefined ? asset.strips : [asset.strips[onlyStrip]]
+    for (const strip of strips) {
       const expected = Math.min(64 * asset.width * 16, asset.byteLength - offset)
       if (strip.byteLength !== expected) throw new Error('Invalid HDR strip size.')
       const bytes = Buffer.alloc(expected)
@@ -74,7 +128,10 @@ export async function* readHdrStrips(path: string, asset: HdrWorkingAsset) {
       yield data
       offset += expected
     }
-    if (offset !== asset.byteLength || digest.digest('hex') !== asset.sha256)
+    if (
+      onlyStrip === undefined &&
+      (offset !== asset.byteLength || digest.digest('hex') !== asset.sha256)
+    )
       throw new Error('Damaged HDR asset.')
   } finally {
     await file.close()

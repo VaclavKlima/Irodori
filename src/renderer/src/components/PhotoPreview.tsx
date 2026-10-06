@@ -1,4 +1,3 @@
-import { useHdrPixel } from '../hooks/useHdrPixel'
 import { useHdrAnalysis } from '../hooks/useHdrAnalysis'
 import { SDR_TARGET } from '../../../shared/hdr'
 import type { DisplayTarget } from '../../../shared/hdr'
@@ -39,6 +38,7 @@ import styles from './PhotoPreview.module.css'
 import { useFullPreview } from '../hooks/useFullPreview'
 import { usePanDrag } from '../hooks/usePanDrag'
 import { ProgressSpinner } from './ProgressSpinner'
+import { PreviewMetadata } from './PreviewMetadata'
 
 interface Model {
   loaded: boolean
@@ -129,7 +129,7 @@ export function PhotoPreview({
   const hdrOverlay = tools.domain === 'working-hdr' ? tools.hdrOverlay & 4 : tools.hdrOverlay
   const shadows = tools.shadows || tools.hover === 'shadows'
   const highlights = tools.highlights || tools.hover === 'highlights'
-  usePreviewAnalysis(
+  const sdrAnalysisError = usePreviewAnalysis(
     working?.hdr || suspended ? null : working,
     `${photo?.id}-${working?.identity ?? 'pending'}-${generation}`,
     mode === 'before' ? neutralAdjustments : adjustments,
@@ -150,12 +150,9 @@ export function PhotoPreview({
   useEffect(() => {
     if (gesturing && mode === 'before') update({ mode: 'after' })
   }, [gesturing, mode, update])
-  const pixel = useHdrPixel(
-    suspended ? null : working,
-    mode === 'before' ? neutralAdjustments : adjustments,
-    actualTarget,
-    tools.domain,
-  )
+  const histogramError =
+    full.error || live.error || (working?.hdr ? analysisError : sdrAnalysisError)
+  useEffect(() => update({ analysisError: histogramError }), [histogramError, update])
   useEffect(() => update({ hdr: !!working?.hdr }), [working?.hdr, update])
   useEffect(() => {
     const preview = full.preview
@@ -611,18 +608,6 @@ export function PhotoPreview({
     pan.start(event.nativeEvent)
   }
   function pointerMove(event: PointerEvent<HTMLDivElement>) {
-    if (event.altKey && !event.buttons && working?.hdr) {
-      const box = event.currentTarget.getBoundingClientRect()
-      const m = current.current
-      pixel.inspect(
-        (event.clientX - box.left - m.viewport.width / 2 - m.view.x) / m.view.scale +
-          m.image.width / 2,
-        (event.clientY - box.top - m.viewport.height / 2 - m.view.y) / m.view.scale +
-          m.image.height / 2,
-        mode === 'before' ||
-          (mode === 'split' && event.clientX - box.left < m.viewport.width * split),
-      )
-    }
     pan.move(event.nativeEvent)
   }
   const exactPreset = ZOOM_STOPS.some((stop) => Math.abs(stop - view.scale) < 0.00001)
@@ -852,26 +837,7 @@ export function PhotoPreview({
           </div>
         )}
       </div>
-      {working?.hdr && (
-        <div className={styles.pixelReadout}>
-          {analysisError && <span role="status">Analysis unavailable: {analysisError}</span>}
-          <button
-            onClick={() =>
-              pixel.inspect(
-                model.image.width / 2 - model.view.x / model.view.scale,
-                model.image.height / 2 - model.view.y / model.view.scale,
-                mode === 'before' || (mode === 'split' && split > 0.5),
-              )
-            }
-          >
-            Inspect center pixel
-          </button>
-          <output>
-            {pixel.readout ||
-              'Alt-hover to inspect a pixel. Brightness is relative to reference white.'}
-          </output>
-        </div>
-      )}
+      {photo && <PreviewMetadata photo={photo} />}
       <div className={`${layout.canvasToolbar} ${styles.toolbar}`}>
         <div className={layout.photoPagination}>
           <button

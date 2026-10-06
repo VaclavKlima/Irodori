@@ -21,6 +21,7 @@ interface LibraryState {
   selected: Map<string, PhotoReference>
   anchor: string | null
   activeId: string | null
+  reveal: { id: string; request: number } | null
 }
 export interface SelectionModifiers {
   shift?: boolean
@@ -42,6 +43,7 @@ export function useLibrary(onError: (error: string) => void) {
     selected: new Map(),
     anchor: null,
     activeId: null,
+    reveal: null,
   })
   const current = useRef(state)
   const request = useRef(0)
@@ -259,6 +261,44 @@ export function useLibrary(onError: (error: string) => void) {
     [onError, refresh, update],
   )
 
+  const openPhoto = useCallback(
+    async (id: string) => {
+      const ticket = ++request.current
+      navigating.current = true
+      try {
+        const result = await window.luma.locateGalleryPhoto(id)
+        if (!result || ticket !== request.current) return
+        const photo = result.photo
+        const entry = result.entries[result.index - result.offset]
+        const hidden = entry.photo.id !== photo.id
+        update({
+          photos: result.entries.map((e) => e.photo),
+          entries: result.entries,
+          storedTotal: result.storedTotal,
+          revision: result.revision,
+          hiddenSelectedIds: hidden ? [photo.id] : [],
+          hiddenActiveCover: hidden ? (entry.cover ?? null) : null,
+          total: result.total,
+          offset: result.offset,
+          position: result.index,
+          photo,
+          activeId: photo.id,
+          anchor: photo.id,
+          selected: new Map([[photo.id, photo]]),
+          reveal: { id: entry.photo.id, request: ticket },
+        })
+      } catch (error) {
+        if (ticket === request.current) onError(String(error))
+      } finally {
+        if (ticket === request.current) {
+          navigating.current = false
+          void refresh()
+        }
+      }
+    },
+    [onError, refresh, update],
+  )
+
   const selectStack = useCallback(
     (stackId: string) => {
       const previousWork = pendingSelection.current
@@ -309,6 +349,7 @@ export function useLibrary(onError: (error: string) => void) {
     contextSelect,
     navigate,
     changePage,
+    openPhoto,
     selectStack,
   }
 }

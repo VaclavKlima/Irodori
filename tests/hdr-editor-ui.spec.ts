@@ -259,6 +259,62 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
       presentation: { photoId: id, stage: 'presented', backend: 'webgpu-hdr' },
     })
     const revision = (await page.evaluate((id) => window.luma.getEdits(id), id)).revision
+    const pixelArguments = {
+      photoId: id,
+      expectedRevision: revision,
+      x: 100,
+      y: 100,
+      domain: 'working-hdr',
+    }
+    const pixel = await client.callTool({ name: 'luma_get_photo_pixel', arguments: pixelArguments })
+    expect(pixel.isError).not.toBe(true)
+    const bridgePixel = await page.evaluate(
+      ({ id, revision }) =>
+        window.luma.getPhotoPixel(id, revision, 100, 100, { domain: 'working-hdr' }),
+      { id, revision },
+    )
+    expect(pixel.structuredContent).toEqual(bridgePixel)
+    expect(bridgePixel).toMatchObject({
+      photoId: id,
+      revision,
+      x: 100,
+      y: 100,
+      width: 5422,
+      height: 3622,
+      domain: 'working-hdr',
+      colorSpace: 'rec2020',
+      alpha: 1,
+    })
+    expect(bridgePixel.rgb.every(Number.isFinite)).toBe(true)
+    expect(bridgePixel.relativeLuminance).toBeGreaterThan(0)
+    expect(bridgePixel.stopsAboveReferenceWhite).toBeCloseTo(
+      Math.log2(bridgePixel.relativeLuminance),
+      10,
+    )
+    const outputPixel = await client.callTool({
+      name: 'luma_get_photo_pixel',
+      arguments: { ...pixelArguments, domain: 'output', target: 'sdr' },
+    })
+    expect(outputPixel.isError).not.toBe(true)
+    expect(outputPixel.structuredContent).toMatchObject({
+      domain: 'output',
+      colorSpace: 'srgb',
+      target: { peak: 1 },
+    })
+    for (const patch of [
+      { expectedRevision: revision - 1 },
+      { x: 5422 },
+      { x: 0.5 },
+      { domain: 'output', target: 'current', targetGeneration: 0 },
+    ])
+      expect(
+        (
+          await client.callTool({
+            name: 'luma_get_photo_pixel',
+            arguments: { ...pixelArguments, ...patch },
+          })
+        ).isError,
+      ).toBe(true)
     const exact = await client.callTool({
       name: 'luma_get_photo_statistics',
       arguments: { photoId: id, expectedRevision: revision, domain: 'working-hdr' },
@@ -302,8 +358,12 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   } finally {
     await client.close()
   }
-  await page.getByRole('button', { name: 'Inspect center pixel' }).click()
-  await expect(page.getByText(/× white · .*stops/)).toBeVisible({ timeout: 10000 })
+  await expect(page.getByRole('button', { name: 'Inspect center pixel' })).toHaveCount(0)
+  await expect(page.getByText('Analysis details · sampled')).toHaveCount(0)
+  const outputClipping = page.getByRole('button', { name: 'Output clipping', exact: true })
+  await outputClipping.click()
+  await expect(outputClipping).toHaveAttribute('aria-pressed', 'true')
+  await outputClipping.click()
   await info.attach('display-state', {
     body: JSON.stringify(display),
     contentType: 'application/json',

@@ -61,6 +61,8 @@ export async function startEditorEndpoint(
         fromId,
         toId,
         direction,
+        x,
+        y,
       } = JSON.parse(body) as {
         domain?: import('../shared/hdr-statistics').HdrAnalysisDomain
         target?: 'sdr' | 'current'
@@ -82,6 +84,8 @@ export async function startEditorEndpoint(
         fromId: string
         toId: string
         direction?: -1 | 0 | 1
+        x: number
+        y: number
       }
       let result: unknown
       switch (operation) {
@@ -190,6 +194,13 @@ export async function startEditorEndpoint(
           break
         case 'luma_get_edits':
           result = await library.getEdits(photoId)
+          break
+        case 'luma_get_photo_pixel':
+          result = await library.getPhotoPixel(photoId, expectedRevision, x, y, {
+            domain: domain!,
+            target,
+            targetGeneration,
+          })
           break
         case 'luma_get_edit_history':
           result = await library.getEditHistory(photoId)

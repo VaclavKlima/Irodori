@@ -37,6 +37,7 @@ const definitions: Suite[] = [
   { file: 'merge-engine', group: 'service', scopes: ['preview', 'library'] },
   { file: 'hdr', group: 'node', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-assets', group: 'service', scopes: ['preview', 'adjustments'] },
+  { file: 'hdr-pixel', group: 'service', scopes: ['preview', 'mcp'] },
   { file: 'hdr-migration', group: 'service', scopes: ['library', 'adjustments'] },
   { file: 'hdr-math-gpu', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-raw', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },

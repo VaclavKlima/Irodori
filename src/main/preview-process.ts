@@ -1,6 +1,7 @@
 import type { ImageStatistics } from '../shared/statistics'
 import type { HdrStatistics } from '../shared/hdr-statistics'
-import type { HdrStatisticsJob } from './preview-types'
+import type { HdrStatisticsJob, HdrPixelJob, PreviewWorkerRequest } from './preview-types'
+import type { HdrPixel } from '../shared/hdr-pixel'
 import type { ProcessingMetadata, ProcessingOptions } from '../shared/lens'
 import { fork, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -128,17 +129,27 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor {
     })
   }
 
+  hdrPixel(path: string, job: HdrPixelJob, signal: AbortSignal): Promise<HdrPixel> {
+    return this.run<HdrPixel>('pixel', path, '', signal, undefined, undefined, job).finally(() => {
+      this.idle = setTimeout(() => {
+        void this.close()
+      }, 30_000)
+      this.idle.unref()
+    })
+  }
+
   releaseFrame(): void {
     if (!this.busy && this.child?.connected) this.child.send({ type: 'release' }, () => {})
   }
 
   private async run<T>(
-    mode: 'process' | 'full' | 'metadata' | 'capture-metadata' | 'statistics',
+    mode: Exclude<PreviewWorkerRequest['type'], 'close' | 'release'>,
     path: string,
     output: string,
     signal: AbortSignal,
     options?: ProcessingOptions,
     frame?: { width: number; height: number; sha256: string; hdr?: HdrStatisticsJob },
+    pixel?: HdrPixelJob,
   ): Promise<T> {
     signal.throwIfAborted()
     clearTimeout(this.idle)
@@ -195,7 +206,7 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor {
         worker.once('exit', exited)
         worker.once('error', failed)
         signal.addEventListener('abort', aborted, { once: true })
-        worker.send({ type: mode, path, output, options, frame }, (error) => {
+        worker.send({ type: mode, path, output, options, frame, pixel }, (error) => {
           if (error) failed(error)
         })
       })

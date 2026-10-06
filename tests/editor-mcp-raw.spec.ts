@@ -44,6 +44,9 @@ test('RAW editing MCP combines white balance, lens and light history, statistics
       ['Highlights', '-65'],
     ])
       await expect(luma.page.getByRole('spinbutton', { name: `${label} value` })).toHaveValue(value)
+    await expect(luma.page.getByTestId('lens-corrections')).toBeHidden()
+    await expect(luma.page.getByTestId('lens-corrections')).toHaveAttribute('data-revision', '1')
+    await luma.page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
     await expect(
       luma.page.getByRole('checkbox', { name: 'Distortion', exact: true }),
     ).not.toBeChecked()

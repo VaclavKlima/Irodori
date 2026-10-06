@@ -213,6 +213,23 @@ const tools = [
     ),
   },
   {
+    name: 'luma_get_photo_pixel',
+    description:
+      'Sample committed HDR edits at integer native-image coordinates, including merged masters. Returns linear RGB, alpha and brightness relative to reference white. Current output requires targetGeneration from display state.',
+    inputSchema: schema(
+      {
+        photoId,
+        expectedRevision,
+        x: { type: 'integer', minimum: 0 },
+        y: { type: 'integer', minimum: 0 },
+        domain: { enum: ['working-hdr', 'output'] },
+        target: { enum: ['sdr', 'current'] },
+        targetGeneration: { type: 'integer', minimum: 0 },
+      },
+      ['photoId', 'expectedRevision', 'x', 'y', 'domain'],
+    ),
+  },
+  {
     name: 'luma_list_photos',
     description: 'List imported photos, 60 per page.',
     inputSchema: schema({ offset: { type: 'integer', minimum: 0 } }, []),

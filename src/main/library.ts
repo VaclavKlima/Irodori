@@ -10,6 +10,7 @@ import {
 } from '../shared/merge'
 import { srgbTransform } from '../shared/adjustments'
 import type { HdrAnalysisRequest, HdrPhotoStatistics } from '../shared/hdr-statistics'
+import type { HdrPhotoPixel } from '../shared/hdr-pixel'
 import type { PhotoStatistics } from '../shared/statistics'
 import { SDR_TARGET, type DisplayTarget, HDR_IMPORT_DEFAULT } from '../shared/hdr'
 import {
@@ -400,11 +401,35 @@ export class PhotoLibrary {
     request?: HdrAnalysisRequest,
   ): Promise<PhotoStatistics | HdrPhotoStatistics> {
     if (request === undefined) return this.fullPreviews.statistics(id, expectedRevision)
+    return this.withHdrTarget(id, request, (target) =>
+      this.fullPreviews.hdrStatistics(id, expectedRevision, request.domain, target),
+    )
+  }
+
+  getPhotoPixel(
+    id: string,
+    expectedRevision: number,
+    x: number,
+    y: number,
+    request: HdrAnalysisRequest,
+  ): Promise<HdrPhotoPixel> {
+    return this.withHdrTarget(id, request, (target) =>
+      this.fullPreviews.hdrPixel(id, expectedRevision, x, y, request.domain, target),
+    )
+  }
+
+  private async withHdrTarget<T>(
+    id: string,
+    request: HdrAnalysisRequest,
+    work: (target: DisplayTarget) => Promise<T>,
+  ): Promise<T> {
     if (
       !request ||
       !['working-hdr', 'output'].includes(request.domain) ||
       Object.keys(request).some((key) => !['domain', 'target', 'targetGeneration'].includes(key)) ||
-      (request.target !== undefined && !['sdr', 'current'].includes(request.target))
+      (request.target !== undefined && !['sdr', 'current'].includes(request.target)) ||
+      (request.targetGeneration !== undefined &&
+        (!Number.isSafeInteger(request.targetGeneration) || request.targetGeneration < 0))
     )
       throw new Error('Invalid HDR analysis request.')
     const current = request.domain === 'output' && request.target !== 'sdr'
@@ -418,12 +443,7 @@ export class PhotoLibrary {
       target.presentation.backend === 'canvas2d-hdr-sdr'
     )
       target = { ...target, mode: 'sdr', colorSpace: 'srgb', peak: 1 }
-    const result = await this.fullPreviews.hdrStatistics(
-      id,
-      expectedRevision,
-      request.domain,
-      target,
-    )
+    const result = await work(target)
     if (
       current &&
       (this.displayTarget?.().generation !== target.generation ||
