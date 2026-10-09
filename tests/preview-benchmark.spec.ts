@@ -1,5 +1,5 @@
 import { build } from 'esbuild'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { PreviewProcess } from '../src/main/preview-process'
@@ -13,7 +13,8 @@ test('benchmarks RAW processing and actual Electron frame presentation', async (
     process.env.LUMA_PREVIEW_BENCHMARK !== '1',
     'Run npm run benchmark:preview for the hardware benchmark.',
   )
-  test.setTimeout(300_000)
+  // Direct CPU ACES proofs are deliberately included; preserve every cold/revisit sample.
+  test.setTimeout(600_000)
   const root = info.outputPath('frames')
   await mkdir(root, { recursive: true })
   const legacyPath = join(root, 'legacy.mjs')
@@ -64,8 +65,16 @@ process.on('message',async ({path,output,type})=>{
     const path = process.getBuiltinModule('path')
     protocol.unhandle('luma-photo')
     protocol.handle('luma-photo', async (request) => {
-      const legacy = new URL(request.url).pathname === '/legacy'
-      const file = path.join(root, legacy ? 'legacy.png' : 'full.rgba')
+      const match = new URL(request.url).pathname.match(
+        /^\/(legacy|current)\/([0-3])-(legacy|cpu|gpu|cpu-corrected|gpu-corrected)$/,
+      )
+      if (!match) return new Response('Not found', { status: 404 })
+      const legacy = match[1] === 'legacy'
+      const file = path.join(
+        root,
+        `${match[2]}-${match[3]}`,
+        match[1] === 'legacy' ? 'legacy.png' : 'full.rgba',
+      )
       return new Response(
         streams.Readable.toWeb(fs.createReadStream(file)) as ReadableStream<Uint8Array>,
         {
@@ -113,10 +122,12 @@ process.on('message',async ({path,output,type})=>{
                   ? correctedCpu
                   : correctedGpu
         processor.releaseFrame()
+        const directory = join(root, `${repetition}-${kind}`)
+        await mkdir(directory)
         const start = performance.now()
         const result = await processor.renderFull(
           sample,
-          root,
+          directory,
           new AbortController().signal,
           kind.endsWith('-corrected') ? options : undefined,
         )
@@ -129,7 +140,7 @@ process.on('message',async ({path,output,type})=>{
         // one compositor delay or collection does not dominate the comparison.
         for (let cached = 0; cached <= 8; cached++) {
           const presentationMs = await luma.page.evaluate(
-            async ({ kind, result, cached }) => {
+            async ({ kind, result, cached, repetition }) => {
               // Start on the same animation-frame boundary. Otherwise the short warm
               // samples mostly measure a random wait until the next refresh.
               await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
@@ -141,15 +152,18 @@ process.on('message',async ({path,output,type})=>{
               let presenter: PreviewPresenter | undefined
               if (kind === 'legacy') {
                 const image = new Image()
-                image.src = 'luma-photo://library/legacy'
+                image.src = `luma-photo://library/legacy/${repetition}-${kind}`
                 await image.decode()
                 canvas.getContext('2d', { colorSpace: 'srgb' })!.drawImage(image, 0, 0)
               } else {
                 const cache = window as unknown as { benchmarkBitmap?: ImageBitmap }
                 if (!cached || !cache.benchmarkBitmap) {
-                  const response = await fetch('luma-photo://library/current', {
-                    cache: 'no-store',
-                  })
+                  const response = await fetch(
+                    `luma-photo://library/current/${repetition}-${kind}`,
+                    {
+                      cache: 'no-store',
+                    },
+                  )
                   const bytes = await response.arrayBuffer()
                   const digest = await crypto.subtle.digest('SHA-256', bytes)
                   const hash = [...new Uint8Array(digest)]
@@ -198,7 +212,7 @@ process.on('message',async ({path,output,type})=>{
               canvas.height = 0
               return performance.now() - start
             },
-            { kind, result, cached },
+            { kind, result, cached, repetition },
           )
           results.push({
             kind: `${kind}${cached ? '-cached' : ''}`,
@@ -208,6 +222,7 @@ process.on('message',async ({path,output,type})=>{
             totalMs: (cached ? 0 : generationMs) + presentationMs,
           })
         }
+        await rm(directory, { recursive: true, force: true })
       }
     const median = (values: number[]) => {
       const sorted = [...values].sort((a, b) => a - b)

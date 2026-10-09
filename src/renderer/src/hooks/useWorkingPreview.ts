@@ -73,6 +73,7 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
               )
                 throw new Error('HDR descriptor does not match its frame.')
               if (!cancelled) {
+                preparedIdentity.current = `${asset.url}:${asset.sha256}`
                 prepared.current = true
                 setError('')
                 setWorking({

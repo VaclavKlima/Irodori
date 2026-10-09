@@ -54,7 +54,6 @@ test('stdio editing tools share persisted history with UI without a development 
       'luma_get_preview_diagnostics',
       'luma_get_display_state',
       'luma_set_preview_preference',
-      'luma_upgrade_photo_processing',
       'luma_get_photo_statistics',
       'luma_get_photo_pixel',
       'luma_list_photos',

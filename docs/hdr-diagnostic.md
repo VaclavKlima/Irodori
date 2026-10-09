@@ -2,7 +2,7 @@
 
 ## Status
 
-The isolated display diagnostic established the Linux Wayland hardware candidate used by the [experimental Sony RAW HDR pipeline](hdr-processing.md). The owner visually confirmed HDR/SDR differences and chose to proceed without a meter. Physical luminance remains unverified; MacBook Pro M4 and Windows have not been tested. This is an experimental rollout, not completion of the original calibrated, cross-platform acceptance gate.
+The isolated display diagnostic established the Linux Wayland hardware candidate used by the [experimental Sony RAW HDR pipeline](hdr-processing.md). The owner visually confirmed HDR/SDR differences and chose to proceed without a meter. Local MacBook Pro M4 Pro hardware presentation and native full-screen evidence is now recorded in that processing document. Physical luminance, Windows and broader platform certification remain unverified. This is an experimental rollout, not completion of the original calibrated, cross-platform acceptance gate.
 
 The diagnostic does not open a catalog, start the editor endpoint, or change photo settings. The application now keeps legacy SDR and experimental HDR processing identities separate. The renderer uses context isolation, sandboxing, no Node integration, and an isolated preload that only forwards resume notifications. Window-management permission is allowed only for the diagnostic's exact top-level document; all other permissions are denied.
 
@@ -62,7 +62,7 @@ Verification: `npm run verify -- ui preview` passed 104 tests, with zero failure
 
 ## Deferred physical and platform acceptance
 
-The user approved a Linux-first experimental rollout without an instrument. Physical readings, calibrated brightness and MacBook Pro M4 validation remain deferred. Before claiming verified physical output, record instrument, display mode and brightness settings, reference-white luminance, patch size/position, patch readings, uncertainty, runtime, GPU/driver, OS HDR on/off, mixed-monitor movement, scaling and sleep/wake. Establish numerical luminance tolerances before measurement. Windows remains unverified.
+The user approved a Linux-first experimental rollout without an instrument. Local macOS presentation checks supplement that evidence; physical readings, calibrated brightness and broader MacBook certification remain deferred. Before claiming verified physical output, record instrument, display mode and brightness settings, reference-white luminance, patch size/position, patch readings, uncertainty, runtime, GPU/driver, OS HDR on/off, mixed-monitor movement, scaling and sleep/wake. Establish numerical luminance tolerances before measurement. Windows remains unverified.
 
 The integrated versioned processing, migration, output, analysis, UI/MCP and resource contracts are described in [HDR processing](hdr-processing.md). Diagnostic submissions and screenshots do not replace measurements. The initial GPU-process sandbox report remains an explicit limitation of the platform evidence.
 

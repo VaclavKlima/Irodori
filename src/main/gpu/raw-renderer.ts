@@ -13,6 +13,7 @@ import { displayCurve, displayTransform, type RawSource } from './raw-source'
 import { frameByteLength } from '../../shared/preview-frame'
 import { mergePrepareShader } from './merge-prepare-shader'
 import { mergePreparationParameters } from './merge-parameters'
+import { sensorBlendParameters } from './sensor-blend'
 
 export const GPU_RENDER_ID = 'bayer-ahd-srgb-gpu-2'
 export interface GpuFrame {
@@ -186,7 +187,7 @@ export class RawGpuRenderer {
     try {
       const upload = performance.now()
       const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-      const uniform = makeBuffer(240, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
+      const uniform = makeBuffer(272, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
       const raw = makeBuffer(source.pixels.byteLength, storage, source.pixels)
       const green = makeBuffer(stripePixels * 8, storage)
       const rgb = makeBuffer(stripePixels * 32, storage)
@@ -242,7 +243,7 @@ export class RawGpuRenderer {
           }),
         ]),
       )
-      const params = new ArrayBuffer(240)
+      const params = new ArrayBuffer(272)
       const ints = new Uint32Array(params),
         floats = new Float32Array(params)
       ints.set([width, height, source.rawWidth, source.flip, source.left, source.top, 0, rows])
@@ -264,6 +265,15 @@ export class RawGpuRenderer {
         }
       floats[31] = correction || cameraOnly || merge || consumer ? 1 : 0
       floats[35] = source.normalization?.restoreGain ?? 1
+      floats[39] = Number(!!source.normalization)
+      // Reference demosaics, merge preparation and camera consumers remain unclipped.
+      const blend =
+        correction && !cameraOnly && !merge && !consumer
+          ? sensorBlendParameters(source.normalization)
+          : null
+      if (blend) {
+        floats.set([...blend.saturation, blend.clip, ...blend.white, 1], 60)
+      }
       floats[40] = adjustments.exposureEv
       floats[41] = adjustments.contrast
       floats[43] = adjustments.highlights
@@ -514,13 +524,7 @@ export class RawGpuRenderer {
         }
       }
       let corrected: GPUTexture | undefined
-      if (source.normalization) {
-        const neutralHistogram = new Uint32Array(await readBuffer(histogram, 3 * 8192 * 4))
-        source.normalization.referenceWhite = displayTransform(
-          neutralHistogram,
-          width * height,
-        ).white
-      }
+      if (source.normalization) source.normalization.referenceWhite = 1
       if (correction) {
         const correctionStart = performance.now()
         // Demosaic resources are no longer needed before allocating the second float texture.
@@ -543,7 +547,7 @@ export class RawGpuRenderer {
           correction.height,
           correction.left,
           correction.top,
-          0,
+          Number(!!source.normalization),
           0,
         ])
         new Float32Array(lensParams).set(source.matrix, 8)
@@ -605,23 +609,25 @@ export class RawGpuRenderer {
       }
       const outWidth = correction?.width ?? width,
         outHeight = correction?.height ?? height
-      const histogramData =
-        reuse && !correction && this.histogram
+      const histogramData = source.normalization
+        ? new Uint32Array(0)
+        : reuse && !correction && this.histogram
           ? this.histogram
           : new Uint32Array(await readBuffer(histogram, 3 * 8192 * 4))
       this.histogram = histogramData
       timings.reusedLinear = Number(reuse)
       timings.processingMs = performance.now() - processing
       const display = performance.now()
-      floats[42] = displayTransform(histogramData, outWidth * outHeight).white
-      device.queue.writeBuffer(uniform, 0, params)
-      device.queue.writeBuffer(curve, 0, displayCurve(histogramData, outWidth * outHeight))
-      const encoder = device.createCommandEncoder()
-      if (!source.normalization) dispatch(encoder, 'display', height)
-      device.queue.submit([encoder.finish()])
-      const data = source.normalization
-        ? Buffer.alloc(0)
-        : Buffer.from(await readBuffer(output, outWidth * outHeight * 4))
+      let data = Buffer.alloc(0)
+      if (!source.normalization) {
+        floats[42] = displayTransform(histogramData, outWidth * outHeight).white
+        device.queue.writeBuffer(uniform, 0, params)
+        device.queue.writeBuffer(curve, 0, displayCurve(histogramData, outWidth * outHeight))
+        const encoder = device.createCommandEncoder()
+        dispatch(encoder, 'display', height)
+        device.queue.submit([encoder.finish()])
+        data = Buffer.from(await readBuffer(output, outWidth * outHeight * 4))
+      }
       let working: WorkingFrame | undefined
       if (exportLinear) {
         for (const resource of [output, curve, histogram, uniform]) resource.destroy()

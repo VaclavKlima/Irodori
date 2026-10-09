@@ -32,6 +32,6 @@ fn cubic(v: f32) -> f32 {
   for(var c=0u;c<3u;c++) { converted[c]=dot(p.camera[c].xyz,rgb)*65535.0; }
   let clipped=vec3u(clamp(converted,vec3f(0),vec3f(65535)));
   textureStore(correctedOutput,vec2i(id.xy),vec4f(converted/65535.0,1));
-  for(var c=0u;c<3u;c++) { atomicAdd(&histogram[c*8192u+(clipped[c] >> 3u)],1u); }
+  if(p.crop.z==0u) { for(var c=0u;c<3u;c++) { atomicAdd(&histogram[c*8192u+(clipped[c] >> 3u)],1u); } }
 }
 `

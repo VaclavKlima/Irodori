@@ -8,9 +8,9 @@ import { neutralAdjustments, type AdjustmentParameters } from './adjustments'
 import { automaticLensSettings, correctionKinds, type LensSettings } from './lens'
 import type { ProcessingIdentity } from './hdr'
 
-export const SETTINGS_VERSION = 6
+export const SETTINGS_VERSION = 7
 export interface EditSettings extends AdjustmentParameters {
-  version: 6
+  version: 7
   processing: ProcessingIdentity
   whiteBalance: WhiteBalance
   lens: LensSettings
@@ -39,7 +39,7 @@ export interface EditHistory extends EditState {
 export function initialSettings(lens = automaticLensSettings): EditSettings {
   return {
     version: SETTINGS_VERSION,
-    processing: 'legacy-sdr-v1',
+    processing: 'display-referred-v1',
     ...neutralAdjustments,
     whiteBalance: asShot,
     lens: { ...lens },

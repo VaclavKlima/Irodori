@@ -179,9 +179,6 @@ export async function startEditorEndpoint(
           if (!display || !preference) throw new Error('Display preference unavailable.')
           result = await display.set(preference)
           break
-        case 'luma_upgrade_photo_processing':
-          result = await library.upgradePhotoProcessing(photoId, expectedRevision)
-          break
         case 'luma_list_photos':
           result = library.list(offset)
           break

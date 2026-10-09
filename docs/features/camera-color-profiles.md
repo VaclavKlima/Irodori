@@ -2,7 +2,7 @@
 
 ## Status
 
-**Planned.** Existing camera matrices and verified Sony white balance remain supported; this brief adds validated characterization and rendering profiles. [Shared requirements](README.md#shared-implementation-requirements) apply.
+**Planned.** Existing camera matrices and verified Sony white balance remain supported; this brief adds validated characterization and rendering profiles. The current [ACES 2 renderer](../display-rendering.md) is separate from measured camera characterization and has no profile selector. Existing LibRaw color and exposure calibration remain approximations. [Shared requirements](README.md#shared-implementation-requirements) apply.
 
 ## Goal
 

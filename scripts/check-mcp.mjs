@@ -237,11 +237,33 @@ try {
         return {scale: viewport.dataset.scale, x: viewport.dataset.panX, y: viewport.dataset.panY};
       }`,
     })
-    await call('browser_mouse_wheel', { deltaX: 0, deltaY: -100 })
+    await call('browser_mouse_wheel', { deltaX: 20, deltaY: 15 })
     await call('browser_evaluate', {
       function: `() => {
         const viewport = document.querySelector('[data-testid="preview-viewport"]');
-        if (Number(viewport.dataset.scale) <= 1) throw new Error('Wheel zoom was not applied');
+        if (Number(viewport.dataset.scale) !== 1 || Math.abs(Number(viewport.dataset.panX) + 90) > 1 || Math.abs(Number(viewport.dataset.panY) + 55) > 1)
+          throw new Error('Scroll did not pan without zooming');
+        return {scale: viewport.dataset.scale, x: viewport.dataset.panX, y: viewport.dataset.panY};
+      }`,
+    })
+    // Chromium exposes native touchpad pinches as Ctrl-wheel events.
+    await call('browser_evaluate', {
+      function: `async () => {
+        const viewport = document.querySelector('[data-testid="preview-viewport"]');
+        const box = viewport.getBoundingClientRect();
+        viewport.dispatchEvent(new WheelEvent('wheel', {
+          cancelable: true, ctrlKey: true, deltaY: -100,
+          clientX: box.x + box.width / 2, clientY: box.y + box.height / 2,
+        }));
+        await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        return {scale: viewport.dataset.scale};
+      }`,
+    })
+    await call('browser_evaluate', {
+      function: `() => {
+        const viewport = document.querySelector('[data-testid="preview-viewport"]');
+        if (Math.abs(Number(viewport.dataset.scale) - Math.exp(1)) > 0.00001)
+          throw new Error('Pinch zoom did not follow the gesture scale');
         return {scale: viewport.dataset.scale};
       }`,
     })
@@ -296,7 +318,7 @@ try {
       modifiers: ['Shift'],
     })
     await waitForText('2 selected')
-    await call('browser_press_key', { key: 'Delete' })
+    await call('browser_press_key', { key: 'Backspace' })
     await waitForText('Delete 2 photos?')
     await clickButton('Move to Trash')
     await waitForText('Your photographs, at home.')

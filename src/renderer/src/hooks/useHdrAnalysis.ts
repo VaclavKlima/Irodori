@@ -1,4 +1,4 @@
-import { observeHdrSample } from '../preview/hdr-sample'
+import { observeHdrSample, reuseHdrContent } from '../preview/hdr-sample'
 import { useEffect, useRef, useState } from 'react'
 import type { WorkingFrame, AdjustmentParameters } from '../../../shared/adjustments'
 import { SDR_TARGET, type DisplayTarget } from '../../../shared/hdr'
@@ -12,6 +12,8 @@ export function useHdrAnalysis(
   masks: boolean,
   statistics: (result?: HdrStatistics) => void,
   mask: (result?: ClippingMask) => void,
+  gesturing = false,
+  sampleStatistics = true,
 ) {
   const [failure, setFailure] = useState<{ identity: string; message: string }>()
   const worker = useRef<Worker | null>(null),
@@ -34,8 +36,8 @@ export function useHdrAnalysis(
     const instance = new Worker(new URL('../preview/hdr-analysis-worker.ts', import.meta.url), {
       type: 'module',
     })
-    const unsubscribe = observeHdrSample(frame.hdr.sha256, (sample) =>
-      instance.postMessage({ sample }),
+    const unsubscribe = observeHdrSample(frame.hdr.sha256, (sample, draftSample) =>
+      instance.postMessage({ sample, draftSample }),
     )
     worker.current = instance
     instance.postMessage({ asset: frame.hdr })
@@ -46,9 +48,13 @@ export function useHdrAnalysis(
           message: data.error,
         })
       if (data.generation !== generation.current) return
-      if (data.statistics) {
+      if (data.statistics && sampleStatistics) {
         setFailure(undefined)
-        statistics(data.statistics)
+        statistics(
+          domain === 'content-hdr'
+            ? reuseHdrContent(frame.hdr!.sha256, data.parameters, data.statistics)
+            : data.statistics,
+        )
       }
       if (data.mask) mask(data.mask)
     }
@@ -62,27 +68,35 @@ export function useHdrAnalysis(
       instance.terminate()
       worker.current = null
     }
-  }, [frame, statistics, mask])
+  }, [frame, statistics, mask, sampleStatistics, domain])
   useEffect(() => {
     if (!frame?.hdr) return
     const current = ++generation.current
     requestIdentity.current = identity
     mask(undefined)
-    statistics(undefined)
-    const timer = setTimeout(
-      () =>
-        worker.current?.postMessage({
-          request: {
-            parameters: JSON.parse(key),
-            target: selectedTarget,
-            domain,
-            masks,
-            generation: current,
-          },
-        }),
-      100,
-    )
-    return () => clearTimeout(timer)
-  }, [frame, key, selectedTarget, domain, masks, mask, statistics, identity])
+    if (!sampleStatistics && !masks) return
+    worker.current?.postMessage({
+      request: {
+        parameters: JSON.parse(key),
+        target: selectedTarget,
+        domain,
+        masks,
+        generation: current,
+        sampleCount: gesturing ? 8192 : 65536,
+        sampleStatistics,
+      },
+    })
+  }, [
+    frame,
+    key,
+    selectedTarget,
+    domain,
+    masks,
+    mask,
+    statistics,
+    gesturing,
+    sampleStatistics,
+    identity,
+  ])
   return frame?.hdr && failure && failure.identity === identity ? failure.message : undefined
 }

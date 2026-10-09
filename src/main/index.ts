@@ -1,5 +1,4 @@
 import { mergeFailure } from '../shared/merge'
-import { HDR_IMPORT_DEFAULT } from '../shared/hdr'
 import { DisplayState } from './display-state'
 import { installWaylandDisplayRefresh } from './wayland-display'
 import { pathToFileURL } from 'node:url'
@@ -322,10 +321,6 @@ app
       trusted(event)
       return mergeReply(() => library!.getMergeProvenance(id))
     })
-    ipcMain.handle('edits:upgrade-processing', (event, id, revision) => {
-      trusted(event)
-      return library!.upgradePhotoProcessing(id, revision)
-    })
     library = new PhotoLibrary(
       join(app.getPath('userData'), 'library'),
       new PreviewProcess(),
@@ -336,7 +331,6 @@ app
       undefined,
       (path) => shell.trashItem(path),
       undefined,
-      process.env.LUMA_TEST_LEGACY_IMPORTS !== '1' && HDR_IMPORT_DEFAULT,
     )
     library.displayTarget = () => displayState.get()
     await library.open()

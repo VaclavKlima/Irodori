@@ -39,7 +39,7 @@ test('warmed native merge wheel and drag presentation with deghost overlay', asy
                     ctrlKey: true,
                     clientX: bounds.x + bounds.width / 2 + 40,
                     clientY: bounds.y + bounds.height / 2 + 25,
-                    deltaY: i % 2 ? 8 : -8,
+                    deltaY: i % 2 ? 1.6 : -1.6,
                   }),
                 )
               } else {

@@ -3,7 +3,7 @@ import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { recordBenchmark } from './benchmark.helpers'
 
-test.use({ hdrDisplay: true, hdrImports: true })
+test.use({ hdrDisplay: true })
 for (const adjustment of ['exposure'] as const)
   test(`benchmarks warmed HDR ${adjustment} gestures through the actual editor`, async ({
     luma,
@@ -18,9 +18,9 @@ for (const adjustment of ['exposure'] as const)
       timeout: 45000,
     })
     await expect(
-      luma.page.getByRole('button', { name: 'Output clipping', exact: true }),
+      luma.page.getByRole('button', { name: 'Canvas channel clipping', exact: true }),
     ).toBeVisible({ timeout: 45000 })
-    await luma.page.getByRole('button', { name: 'Output clipping', exact: true }).click()
+    await luma.page.getByRole('button', { name: 'Canvas channel clipping', exact: true }).click()
     const result = await luma.page.evaluate(async (adjustment) => {
       const label = Array.from(document.querySelectorAll('label')).find(
         (label) => label.textContent === adjustment[0].toUpperCase() + adjustment.slice(1),

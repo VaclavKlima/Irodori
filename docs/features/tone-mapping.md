@@ -2,7 +2,7 @@
 
 ## Status
 
-A limited experimental Sony RAW implementation now exists; see [the versioned implementation contract](../hdr-processing.md). This brief retains the broader destination and acceptance criteria, including work deferred beyond the Linux preview milestone.
+The automatic ACES 2 default is implemented for supported Sony RAWs and merge masters; see [the versioned implementation contract](../hdr-processing.md). This brief retains the broader destination and acceptance criteria, including work deferred beyond the Linux preview milestone.
 
 ## Goal
 
@@ -18,7 +18,7 @@ Provide a neutral default rendering policy and a compact advanced section for su
 
 ## Processing approach
 
-Research a global luminance operator with a smooth shoulder and controlled toe before considering spatial tone mapping. Compare candidates on HDR ramps, bright colored lights, backlit faces, dark gradients, and specular highlights. Measure monotonicity, derivative continuity, hue/chroma change, and gamut boundary behavior. Local contrast halos and scene-dependent pumping are unacceptable defaults.
+The default uses the complete pinned ACES 2 transform described in [the rendering decision](../display-rendering.md). Future creative or spatial operators require separate research and a versioned design. Compare candidates on HDR ramps, bright colored lights, backlit faces, dark gradients, and specular highlights. Measure monotonicity, derivative continuity, hue/chroma change, and gamut boundary behavior. Local contrast halos and scene-dependent pumping are unacceptable defaults.
 
 Specify the order between existing light controls, new creative operators, gamut mapping, target brightness mapping, and output encoding. SDR maps to its reference white and bounded output gamut; HDR uses an explicit diffuse-white/peak relation and available headroom. Separate luminance compression from gamut compression, with defined treatment of negative channels, zero luminance, and alpha. Do not independently clip RGB channels before hue-preserving mapping is evaluated.
 
@@ -30,7 +30,7 @@ Add typed rendition settings and target descriptors with reference white, target
 
 ## Persistence
 
-Persist creative tone/gamut policy and version in shared history. Keep monitor capabilities in workspace state. Legacy defaults must preserve existing pixels; an explicit processing upgrade activates the new transform. Include all output parameters in downstream render identities and exact placeholders.
+Persist creative tone/gamut policy and version in shared history. Keep monitor capabilities in workspace state. The current default applies automatically and preserves numeric history, originals and master bytes. There is no previous-look branch or per-photo upgrade. Include all output parameters in downstream render identities and exact placeholders.
 
 ## Dependencies
 
@@ -44,7 +44,7 @@ Reject invalid target peaks or missing color descriptors. If HDR presentation fa
 
 - Neutral and colored ramps through 16× reference white remain finite; the neutral ramp is monotonic with no shoulder discontinuity or unintended shadow plateau.
 - Freeze measurable hue, gamut, and gradient-error limits in the research record; pass them on independent references for SDR and at least two HDR headrooms.
-- Verify neutral defaults, extreme combined adjustments, alpha, CPU/GPU agreement, history/restart, and legacy pixel compatibility.
+- Verify neutral defaults, extreme combined adjustments, alpha, CPU/GPU agreement, history/restart, and byte preservation of originals and masters.
 - Preview and export agree for the same target within the codec's declared tolerance; switching monitors does not change master bytes or edit revisions.
 - Publish comparison images and brightness plots showing preserved shadow separation and smooth highlights, with no unreported channel clipping.
 

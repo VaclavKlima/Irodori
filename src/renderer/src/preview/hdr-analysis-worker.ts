@@ -13,9 +13,12 @@ interface Request {
   domain: HdrAnalysisDomain
   generation: number
   masks: boolean
+  sampleCount: number
+  sampleStatistics: boolean
 }
 let asset: HdrWorkingAsset | undefined,
   sample: Float32Array<ArrayBuffer> | undefined,
+  draftSample: Float32Array<ArrayBuffer> | undefined,
   latest: Request | undefined
 let running = false
 self.onmessage = ({
@@ -24,12 +27,14 @@ self.onmessage = ({
   asset?: HdrWorkingAsset
   request?: Request
   sample?: Float32Array<ArrayBuffer>
+  draftSample?: Float32Array<ArrayBuffer>
 }>) => {
   if (data.asset) {
     asset = data.asset
   }
   if (data.sample) {
     sample = data.sample
+    draftSample = data.draftSample
     if (!running) void run()
   }
   if (data.request) {
@@ -43,9 +48,16 @@ async function run() {
     const request = latest
     latest = undefined
     try {
-      const statistics = hdrStatistics(request.domain, request.target, asset, false)
-      analyzeHdr(sample, request.parameters, asset, request.target, statistics)
-      self.postMessage({ statistics, generation: request.generation })
+      if (request.sampleStatistics) {
+        const selected = request.sampleCount === 8192 ? draftSample! : sample
+        const statistics = hdrStatistics(request.domain, request.target, asset, false)
+        analyzeHdr(selected, request.parameters, asset, request.target, statistics)
+        self.postMessage({
+          statistics,
+          parameters: request.parameters,
+          generation: request.generation,
+        })
+      }
       if (request.masks) {
         const mask = new Uint8Array(asset.width * asset.height)
         const ignored = hdrStatistics(request.domain, request.target, asset)

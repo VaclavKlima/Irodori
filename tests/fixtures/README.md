@@ -20,3 +20,12 @@ The photographs in `photos/` were moved from the original visual scaffold. See [
 ## HDR+ engine fixtures
 
 Three original mobile-camera DNG frames and their attribution are in [hdrplus](hdrplus/README.md). They are licensed CC BY-SA 4.0 and remain separate from supported Sony RAW acceptance.
+
+## ACES synthetic reference vectors
+
+`aces-reference.json` contains synthetic numeric results from unmodified ACES 2
+CTL at revision `069b0bc3e1f6c62820f19fdae2fecec3f4fc0f80`, adapted independently
+to C++ Float64 by `scripts/aces-reference.py`. It records revision and source
+hashes, uses no photographs, and is reproducible with
+`node scripts/generate-aces-reference.mjs`. The retained reference and license
+are in `third_party/aces-core/` (Apache-2.0, Contributors to the ACES Project).

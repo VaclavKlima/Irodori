@@ -1,9 +1,11 @@
-import { hdrShader } from '../../renderer/src/preview/hdr-shader'
-import { REC2020_TO_SRGB } from '../../shared/hdr'
+import { displayRenderingWgsl } from '../../shared/display-rendering-wgsl'
+import { prepareDisplayRendering } from '../../shared/display-rendering'
+import { packAces, ACES_DATA_BYTES } from '../../shared/aces-data'
+import { SDR_TARGET } from '../../shared/hdr'
 import type { RawGpuRenderer } from '../gpu/raw-renderer'
 
 /** The same Float32 SDR conversion as HDR presentation, with bounded readback. */
-export async function gpuOutput(gpu: RawGpuRenderer, capacity: number) {
+export async function gpuOutput(gpu: Pick<RawGpuRenderer, 'mergeDevice'>, capacity: number) {
   const { device } = await gpu.mergeDevice(),
     resources: GPUBuffer[] = []
   const buffer = (size: number, usage: number) => {
@@ -15,20 +17,23 @@ export async function gpuOutput(gpu: RawGpuRenderer, capacity: number) {
     const uniform = buffer(176, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST),
       input = buffer(capacity * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
       output = buffer(capacity * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC),
+      tables = buffer(ACES_DATA_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
       staging = buffer(capacity * 4, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ)
     const values = new Float32Array(44)
     values[14] = 1
-    for (let r = 0; r < 3; r++) values.set(REC2020_TO_SRGB.slice(r * 3, r * 3 + 3), 32 + r * 4)
+    device.queue.writeBuffer(tables, 0, packAces(prepareDisplayRendering(SDR_TARGET)))
     device.queue.writeBuffer(uniform, 0, values)
     const module = device.createShaderModule({
       code:
-        hdrShader +
+        displayRenderingWgsl +
         `
+struct Params { values:array<vec4f,11> }
+@group(0) @binding(0) var<uniform> u:Params;
 @group(0) @binding(2) var<storage,read> input:array<vec4f>;
 @group(0) @binding(3) var<storage,read_write> output:array<u32>;
 @compute @workgroup_size(256) fn convert(@builtin(global_invocation_id) id:vec3u) {
  if(id.x>=u32(u.values[0].x)) {return;}
- let pixel=input[id.x]; let rgba=vec4u(vec4f(round(clamp(encoded(outputRgb(pixel.rgb)),vec3f(0),vec3f(1))*255.),round(pixel.a*255.)));
+ let pixel=input[id.x]; let rgba=vec4u(vec4f(round(clamp(encodeDisplayRgb(renderDisplayRgb(pixel.rgb,1.)),vec3f(0),vec3f(1))*255.),round(pixel.a*255.)));
  output[id.x]=rgba.x | (rgba.y << 8u) | (rgba.z << 16u) | (rgba.w << 24u);
 }`,
     })
@@ -47,6 +52,7 @@ export async function gpuOutput(gpu: RawGpuRenderer, capacity: number) {
           { binding: 0, resource: { buffer: uniform } },
           { binding: 2, resource: { buffer: input } },
           { binding: 3, resource: { buffer: output } },
+          { binding: 4, resource: { buffer: tables } },
         ],
       })
     return {

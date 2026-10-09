@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
-test.use({ hdrImports: true })
+test.use({})
 test('supplied Sony brackets review, publish, open and survive source deletion through the UI', async ({
   luma,
 }, info) => {

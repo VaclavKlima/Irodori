@@ -1,4 +1,5 @@
 /// <reference types="@webgpu/types" />
+import { HDR_CACHE_MAX_TILES } from './hdr-render-cache'
 let pending: Promise<GPUDevice> | undefined
 export function hdrDevice(): Promise<GPUDevice> {
   return (pending ??= (async () => {
@@ -9,6 +10,7 @@ export function hdrDevice(): Promise<GPUDevice> {
       requiredLimits: {
         maxTextureDimension2D: Math.min(16384, adapter.limits.maxTextureDimension2D),
         maxBufferSize: Math.min(512 * 1024 ** 2, adapter.limits.maxBufferSize),
+        maxTextureArrayLayers: Math.min(HDR_CACHE_MAX_TILES, adapter.limits.maxTextureArrayLayers),
       },
     })
     void device.lost.then(() => {

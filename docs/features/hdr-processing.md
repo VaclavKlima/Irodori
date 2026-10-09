@@ -22,7 +22,7 @@ Introduce a distinct master descriptor with dimensions, orientation, alpha conve
 
 Use scene-linear relative RGB for RAW/merge data, with explicitly defined exposure normalization. Retain values above 1 and valid negative conversion values until a documented operator requires special handling. Import display-referred PQ/HLG or gain-map data through an adapter that records its original reference and conversion; do not pretend it is recoverable scene radiance. Define diffuse white and target peak separately. Stops are `log2(Y / referenceY)` only for positive Y; zero and negative values need separate handling. Nits are cd/m² and require an explicit absolute mapping, never a guessed camera calibration.
 
-Version the stage graph: decode/characterize → linear preparation and lens geometry → ordered nondestructive edits → output transform → encoding/presentation. Research noise-reduction and merge placement with their briefs before freezing order. Preserve the legacy graph for existing settings. The current CPU decoder's 16-bit linear output must be audited for upstream clipping; float conversion cannot restore discarded values. Keep native decoders, sharp, and Dawn outside Electron.
+Version the stage graph: decode/characterize → linear preparation and lens geometry → ordered nondestructive edits → output transform → encoding/presentation. Research noise-reduction and merge placement with their briefs before freezing order. Use the automatic current scene-rendering graph; preserve numeric history during catalog cutover. The current CPU decoder's 16-bit linear output must be audited for upstream clipping; float conversion cannot restore discarded values. Keep native decoders, sharp, and Dawn outside Electron.
 
 Start from current 384 MiB retained CPU, 1 GiB native GPU, 512 MiB float-asset and renderer allocation limits, and 2 GiB preview disk LRU. Account for masks, mipmaps, tile overlap, and streams. Research tiled processing and cancellation with peak allocation measurements; reject inputs safely when no bounded path exists. Durable merged data is never evicted as preview cache.
 
@@ -32,7 +32,7 @@ Extend typed asset and render descriptors with processing version, dynamic range
 
 ## Persistence
 
-Store processing version and source interpretation with edits; migrate all snapshots transactionally with legacy-preserving defaults. Cache identities include master schema, decoder/profile versions, stage order, and output policy. Bump rendering versions for changed pixels and rebuild disposable assets. Originals and durable merge masters remain readable even if a newer renderer is unavailable.
+Store processing version and source interpretation with edits; migrate all snapshots transactionally while preserving numeric edits and revisions. Cache identities include master schema, decoder/profile versions, stage order, and output policy. Bump rendering versions for changed pixels and rebuild disposable assets. Originals and durable merge masters remain readable even if a newer renderer is unavailable.
 
 ## Dependencies
 
@@ -47,7 +47,7 @@ Reject malformed descriptors, nonfinite samples, resource overflow, and unsuppor
 - Preserve distinct synthetic values at 0, 0.18, 1, 2, 4, and 16 through edit/save/reload; exposure +1 then −1 recovers inputs within the recorded precision tolerance before output conversion.
 - Validate a single RAW, a merged fixture, and imported HDR against independent linear references; report any source clipping separately from display clipping.
 - CPU/GPU results pass fixed absolute/relative float tolerances, including negative channels and alpha; define tolerances and precision choice in the foundation decision record before acceptance.
-- Legacy histories reproduce their saved appearance; upgrade, Undo/Redo, migration rollback, cache invalidation, stale requests, and crash recovery pass.
+- Existing numeric histories remain intact through automatic rendering cutover; Undo/Redo, migration rollback, cache invalidation, stale requests, and crash recovery pass.
 - Peak allocations stay within declared bounds on maximum supported dimensions and concurrent import; cancellation releases resources. Preserve the roadmap's SDR performance gates and record separate HDR timings.
 
 ## References

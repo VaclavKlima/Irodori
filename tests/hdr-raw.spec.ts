@@ -9,6 +9,9 @@ import { PreviewEngine } from '../src/main/preview-engine'
 import { readHdrStrips, scanHdr } from '../src/main/processing/hdr-processing'
 import { mkdir, mkdtemp, rm, readdir, chmod, stat, writeFile, readFile } from 'node:fs/promises'
 import { analyzeHdr, hdrStatistics } from '../src/shared/hdr-statistics'
+import { noLensSettings } from '../src/shared/lens'
+import { correctionPlan } from '../src/main/processing/lens-correction'
+import { unavailableProfile } from '../src/main/processing/metadata'
 import { SDR_TARGET } from '../src/shared/hdr'
 
 // Only the two read-only correction checks share preparation. Cold decoding,
@@ -121,6 +124,8 @@ test('HDR lens preparation streams validated working data and an SDR proof', asy
   test.setTimeout(120000)
   const { output, result } = correctedHdr
   const asset = result.linear!.hdr!
+  expect(asset.source.highlightBlend).toBe('sensor-blend-v1')
+  expect(result.renderId).toContain('sensor-blend-v1')
   await writeFile(info.outputPath('working-descriptor.json'), JSON.stringify(asset, null, 2))
   expect((await stat(`${output}/linear.f32`)).size).toBe(asset.byteLength)
   let above = 0,
@@ -339,5 +344,54 @@ test('direct HDR cache has no SDR proof, reuses edits, validates restart and pro
     await cache.release()
   } finally {
     await cache.close()
+  }
+})
+
+test('changing scene content cannot normalize RAW capture exposure', async () => {
+  const session = await librawDecoder.open('tests/fixtures/sony-zv1.ARW'),
+    gpu = new RawGpuRenderer()
+  try {
+    session.unpack()
+    const real = session.gpuSource(true)!,
+      width = 96,
+      height = 96
+    const values: number[][] = []
+    for (const background of [0.001, 0.9]) {
+      const source = {
+        ...real,
+        width,
+        height,
+        rawWidth: width,
+        left: 0,
+        top: 0,
+        flip: 0,
+        normalization: structuredClone(real.normalization!),
+        pixels: new Uint16Array(width * height),
+      }
+      for (let y = 0; y < height; y++)
+        for (let x = 0; x < width; x++) {
+          const c = real.cfa[(y % 2) * 2 + (x % 2)],
+            fixed = x >= 32 && x < 64 && y >= 32 && y < 64
+          source.pixels[y * width + x] =
+            real.black[c] + Math.floor(real.normalization!.maximum * (fixed ? 0.1 : background))
+        }
+      const result = await gpu.render(
+        source,
+        correctionPlan(width, height, unavailableProfile, noLensSettings),
+        neutralAdjustments,
+        true,
+      )
+      expect(result.hdrPrepared).toBe(true)
+      expect(source.normalization.referenceWhite).toBe(1)
+      expect(source.normalization.maximum).toBe(real.normalization!.maximum)
+      values.push(
+        Array.from(result.working!.data.slice((48 * width + 48) * 4, (48 * width + 48) * 4 + 4)),
+      )
+      gpu.releaseFrame()
+    }
+    expect(values[0]).toEqual(values[1])
+  } finally {
+    session.close()
+    gpu.close()
   }
 })

@@ -8,7 +8,6 @@ import {
   minimumScale,
   replaceDimensions,
   stepScale,
-  wheelScale,
   zoomAt,
   ZOOM_STOPS,
   type Size,
@@ -17,6 +16,8 @@ import {
 import styles from './MergeViewport.module.css'
 import { MergePresenter } from '../preview/merge-presenter'
 import { usePanDrag } from '../hooks/usePanDrag'
+import { usePreviewFrame } from '../hooks/usePreviewFrame'
+import { usePreviewWheel } from '../hooks/usePreviewWheel'
 
 interface Model {
   image: Size
@@ -44,7 +45,6 @@ export function MergeViewport({
   const viewport = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const presenter = useRef<MergePresenter | null>(null)
-  const frame = useRef(0)
   const [fallback, setFallback] = useState(false)
   const [model, setModel] = useState<Model>({
     image: { width: 0, height: 0 },
@@ -61,34 +61,18 @@ export function MergeViewport({
     decoded.fallback === fallback &&
     failed !== preview &&
     !busy
-  const interactive = useRef(ready)
-  const presentation = useRef({ comparison, overlay })
-  const schedule = useCallback(() => {
-    if (frame.current) return
-    frame.current = requestAnimationFrame(() => {
-      frame.current = 0
-      const model = current.current
-      setModel(model)
-      presenter.current?.draw(
-        model.image,
-        model.viewport,
-        model.view,
-        presentation.current.comparison,
-        presentation.current.overlay,
-      )
-    })
-  }, [])
+  const { schedule, cancel } = usePreviewFrame(() => {
+    const model = current.current
+    setModel(model)
+    if (ready) presenter.current?.draw(model.image, model.viewport, model.view, comparison, overlay)
+  })
   useEffect(() => {
-    presentation.current = { comparison, overlay }
     schedule()
-  }, [comparison, overlay, schedule])
-  useEffect(() => () => cancelAnimationFrame(frame.current), [])
-  useEffect(() => {
-    interactive.current = ready
-  }, [ready])
+  }, [comparison, overlay, ready, schedule])
   const change = useCallback(
     (action: (model: Model) => Model, immediate = true) => {
       const next = action(current.current)
+      if (next === current.current) return
       next.view = constrain(next.view, next.image, next.viewport)
       current.current = next
       if (immediate) setModel(next)
@@ -110,11 +94,11 @@ export function MergeViewport({
   )
   const pan = usePanDrag(viewport, panBy)
   const { dragging, dragged, stop: stopDrag } = pan
+  usePreviewWheel(viewport, ready, change, stopDrag)
 
   useEffect(() => {
     stopDrag()
-    cancelAnimationFrame(frame.current)
-    frame.current = 0
+    cancel()
     onReady(null)
     if (!preview || busy) return
     let active = true
@@ -154,14 +138,6 @@ export function MergeViewport({
             setFallback(true),
           )
           presenter.current = renderer
-          const model = current.current
-          renderer.draw(
-            model.image,
-            model.viewport,
-            model.view,
-            presentation.current.comparison,
-            presentation.current.overlay,
-          )
         } catch {
           if (!fallback) setFallback(true)
           else {
@@ -182,13 +158,12 @@ export function MergeViewport({
     )
     return () => {
       active = false
-      cancelAnimationFrame(frame.current)
-      frame.current = 0
+      cancel()
       presenter.current?.dispose()
       presenter.current = null
       for (const image of images) image.src = ''
     }
-  }, [preview, busy, change, stopDrag, onReady, onError, fallback])
+  }, [preview, busy, change, cancel, stopDrag, onReady, onError, fallback])
 
   useEffect(() => {
     const element = viewport.current!
@@ -203,34 +178,10 @@ export function MergeViewport({
       )
     })
     observer.observe(element)
-    const wheel = (event: WheelEvent) => {
-      event.preventDefault()
-      if (!interactive.current) return
-      stopDrag()
-      const box = element.getBoundingClientRect()
-      change(
-        (model) => ({
-          ...model,
-          view: zoomAt(
-            model.view,
-            wheelScale(model.view.scale, event.deltaY, event.deltaMode, model.viewport.height),
-            {
-              x: event.clientX - box.left - box.width / 2,
-              y: event.clientY - box.top - box.height / 2,
-            },
-            model.image,
-            model.viewport,
-          ),
-        }),
-        false,
-      )
-    }
-    element.addEventListener('wheel', wheel, { passive: false })
     window.addEventListener('blur', stopDrag)
     return () => {
       stopDrag()
       observer.disconnect()
-      element.removeEventListener('wheel', wheel)
       window.removeEventListener('blur', stopDrag)
     }
   }, [change, stopDrag])

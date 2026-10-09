@@ -56,8 +56,6 @@ const api: LumaApi = {
       ipcRenderer.removeListener('display:refresh', handler)
     }
   },
-  upgradePhotoProcessing: (id, revision) =>
-    ipcRenderer.invoke('edits:upgrade-processing', id, revision),
   onFlushEdits: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, token: string) => {
       void listener().then(

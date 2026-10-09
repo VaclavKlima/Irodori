@@ -15,7 +15,7 @@ export function DisplayDetails({
       ? target.presentation
       : undefined
   const mode = presentation?.stage === 'presented' ? presentation.mode : undefined
-  const reason = !hdr ? 'Legacy SDR processing.' : presentation?.reason || target.reason
+  const reason = !hdr ? 'Display-referred image.' : presentation?.reason || target.reason
   const caps = target.capabilities
   return (
     <div className={styles.container}>

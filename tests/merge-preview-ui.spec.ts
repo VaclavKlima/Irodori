@@ -1,6 +1,14 @@
 import { test, expect } from './electron.fixture'
 import { setupMergePreview as setup } from './merge-preview.helpers'
 import { focusPreviewWindow, verifyLockedPan } from './preview-pan.helpers'
+import { holdPreviewFrame, verifyPreviewWheel } from './preview-wheel.helpers'
+
+test('scroll pans without zooming and mixed gesture bursts present once in merge review', async ({
+  luma,
+}) => {
+  const { viewport, zoom } = await setup(luma.app, luma.page)
+  await verifyPreviewWheel(luma.page, viewport, zoom)
+})
 
 test('mouse panning hides and locks the cursor without dismissing merge on Escape', async ({
   luma,
@@ -39,9 +47,12 @@ test('native pixel scale, pointer anchoring, bounded drag and scoped zoom shortc
       { once: true },
     ),
   )
+  await page.keyboard.down('Control')
   await page.mouse.wheel(0, -140)
+  await page.keyboard.up('Control')
   await expect.poll(async () => (await view()).scale).toBeGreaterThan(1)
   const after = await view()
+  expect(after.scale).toBeCloseTo(Math.exp(1.4), 5)
   const anchor = await viewport.evaluate((el) => ({
     x: Number(el.dataset.anchorX),
     y: Number(el.dataset.anchorY),
@@ -116,7 +127,12 @@ test('comparison, overlay and native revisions retain zoom and normalized framin
   await expect(image).toBeHidden()
   await expect(zoom).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Merge', exact: true })).toBeDisabled()
-  await viewport.dispatchEvent('wheel', { deltaY: -200 })
+  const consumed = await viewport.evaluate((el) => {
+    const wheel = new WheelEvent('wheel', { cancelable: true, deltaY: -200, ctrlKey: true })
+    el.dispatchEvent(wheel)
+    return wheel.defaultPrevented
+  })
+  expect(consumed).toBe(false)
   expect(await view()).toEqual(before)
   await expect.poll(async () => (await control.evaluate((c) => c.state())).calls.length).toBe(2)
   await control.evaluate((c) => c.release(1))
@@ -370,6 +386,18 @@ test('a burst of anchored wheel events draws once and closing merge restores the
   const { viewport, zoom } = await setup(app, page)
   const main = page.getByTestId('main-preview')
   await expect(main).toHaveAttribute('data-suspended', 'true')
+  const suspended = await page.getByTestId('preview-viewport').evaluate((el) => {
+    const before = { scale: el.dataset.scale, x: el.dataset.panX, y: el.dataset.panY }
+    const wheel = new WheelEvent('wheel', { cancelable: true, ctrlKey: true, deltaY: -20 })
+    el.dispatchEvent(wheel)
+    return {
+      before,
+      after: { scale: el.dataset.scale, x: el.dataset.panX, y: el.dataset.panY },
+      consumed: wheel.defaultPrevented,
+    }
+  })
+  expect(suspended.consumed).toBe(false)
+  expect(suspended.after).toEqual(suspended.before)
   await zoom.selectOption('1')
   const canvas = page.getByTestId('merge-preview')
   await expect(canvas).toHaveAttribute('data-scale', '1')
@@ -402,18 +430,36 @@ test('a burst of anchored wheel events draws once and closing merge restores the
     }
   })
   expect(burst.draws).toBe(1)
-  expect(burst.scale).toBeCloseTo(burst.before * Math.exp(0.08), 5)
+  expect(burst.scale).toBeCloseTo(burst.before * Math.exp(0.4), 5)
   expect((burst.anchor - burst.x) / burst.scale).toBeCloseTo(burst.anchor / burst.before, 5)
   await viewport.press('Escape')
   await expect(main).toHaveAttribute('data-suspended', 'false')
   await expect(main).toBeVisible()
   const normal = page.getByRole('combobox', { name: 'Preview zoom', exact: true })
   await normal.selectOption('2')
-  await page.getByRole('button', { name: 'Actions', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Merge to HDR…', exact: true }).click()
-  await expect(main).toHaveAttribute('data-suspended', 'true')
+  const pending = await holdPreviewFrame(page.getByTestId('preview-viewport'))
+  try {
+    expect(await pending.evaluate((state) => state.held)).toBe(true)
+    await page.getByRole('button', { name: 'Actions', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Merge to HDR…', exact: true }).click()
+    await expect(main).toHaveAttribute('data-suspended', 'true')
+    await expect.poll(() => pending.evaluate((state) => state.cancelled)).toBe(true)
+  } finally {
+    await pending.evaluate((state) => state.restore())
+    await pending.dispose()
+  }
   await expect(viewport).toHaveAttribute('data-ready', 'true')
-  await viewport.press('Escape')
+  await zoom.selectOption('1')
+  const closing = await holdPreviewFrame(viewport)
+  try {
+    expect(await closing.evaluate((state) => state.held)).toBe(true)
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect.poll(() => closing.evaluate((state) => state.cancelled)).toBe(true)
+  } finally {
+    await closing.evaluate((state) => state.restore())
+    await closing.dispose()
+  }
   await expect(main).toHaveAttribute('data-suspended', 'false')
   await expect(normal).toHaveValue('2')
 })

@@ -8,16 +8,20 @@ import type { HdrPixel } from '../../shared/hdr-pixel'
 import { rawDecoder } from './decoders'
 import { cameraProfile } from './cameras'
 import { correctionPlan, cubic, radial } from './lens-correction'
-import { displayTransform } from '../gpu/raw-source'
+import { sensorBlendParameters, sensorBlendRgb } from '../gpu/sensor-blend'
 import type { RawGpuRenderer } from '../gpu/raw-renderer'
+import { gpuOutput } from '../merge/gpu-output'
 import type { LinearFrame } from './contracts'
 import type { ProcessingOptions } from '../../shared/lens'
 import type { FullPreviewResult } from '../preview-types'
 import { frameByteLength } from '../../shared/preview-frame'
-import { neutralAdjustments, srgbTransform } from '../../shared/adjustments'
+import { neutralAdjustments, sameAdjustments, srgbTransform } from '../../shared/adjustments'
+import { renderHdrContent } from '../../shared/display-rendering'
 import {
   validateHdrSource,
   HDR_SOURCE_VERSION,
+  HDR_RAW_SOURCE_VERSION,
+  SENSOR_BLEND_VERSION,
   HDR_OUTPUT_VERSION,
   HDR_ADJUSTMENT_VERSION,
   SRGB_TO_2020,
@@ -61,8 +65,9 @@ export async function sampleHdrPixel(path: string, job: HdrPixelJob): Promise<Hd
       hdrAdjustmentMatrix(job.adjustments, asset.whiteBalance) ?? undefined,
     )
     const output = domain === 'output' ? outputHdr(adjusted, target) : undefined
-    const rgb = output?.rgb ?? adjusted
-    const relativeLuminance = output?.luminance ?? luminance(adjusted)
+    const content = domain === 'content-hdr' ? renderHdrContent(adjusted) : undefined
+    const rgb = output?.rgb ?? content?.rgb ?? adjusted
+    const relativeLuminance = output?.luminance ?? content?.luminance ?? luminance(adjusted)
     if (!rgb.every(Number.isFinite) || !Number.isFinite(relativeLuminance))
       throw new Error('Invalid HDR pixel result.')
     return {
@@ -71,7 +76,7 @@ export async function sampleHdrPixel(path: string, job: HdrPixelJob): Promise<Hd
       x,
       y,
       domain,
-      colorSpace: domain === 'working-hdr' ? 'rec2020' : target.colorSpace,
+      colorSpace: domain === 'output' ? target.colorSpace : 'rec2020',
       referenceWhite: 1,
       rgb,
       alpha: data[index + 3],
@@ -142,7 +147,8 @@ async function prepare(
   path: string,
   output: string,
   options: ProcessingOptions,
-  gpu: Pick<RawGpuRenderer, 'render' | 'releaseFrame'>,
+  gpu: Pick<RawGpuRenderer, 'render' | 'releaseFrame'> &
+    Partial<Pick<RawGpuRenderer, 'mergeDevice'>>,
   backend: string,
 ) {
   const decoder = rawDecoder(path)
@@ -190,19 +196,15 @@ async function prepare(
   }
   if (!frame.normalization || !profile) throw new Error('Missing HDR normalization.')
   const normal = frame.normalization
-  const histogram = new Uint32Array(3 * 8192)
-  // The legacy neutral-source white policy is measured once, before lens and user edits.
-  for (let i = 0; !gpuPrepared && i < frame.data.length; i += 4)
-    for (let c = 0; c < 3; c++) {
-      const v =
-        (frame.matrix[c * 4] * frame.data[i] +
-          frame.matrix[c * 4 + 1] * frame.data[i + 1] +
-          frame.matrix[c * 4 + 2] * frame.data[i + 2]) *
-        normal.restoreGain
-      histogram[c * 8192 + (Math.max(0, Math.min(65535, Math.trunc(v * 65535))) >> 3)]++
-    }
-  if (!gpuPrepared)
-    normal.referenceWhite = displayTransform(histogram, frame.width * frame.height).white
+  // Capture scale is fixed at 1; image contents never determine exposure.
+  normal.referenceWhite = 1
+  const blend = sensorBlendParameters(normal)
+  if (!gpuPrepared && blend)
+    for (let i = 0; i < frame.data.length; i += 4)
+      frame.data.set(
+        sensorBlendRgb([frame.data[i], frame.data[i + 1], frame.data[i + 2]], blend),
+        i,
+      )
   const plan = gpuPrepared
     ? { ...gpuPlan!, width: frame.width, height: frame.height }
     : correctionPlan(frame.width, frame.height, options.metadata.lensProfile, options.settings)
@@ -221,6 +223,7 @@ async function prepare(
     whiteBalance: hdrWhiteBalance(options.metadata.whiteBalance),
     source: {
       version: HDR_SOURCE_VERSION,
+      highlightBlend: SENSOR_BLEND_VERSION,
       processing: 'hdr-v1',
       colorSpace: 'rec2020',
       whitePoint: 'D65',
@@ -308,13 +311,15 @@ export async function renderHdr(
   path: string,
   output: string,
   options: ProcessingOptions,
-  gpu: Pick<RawGpuRenderer, 'render' | 'releaseFrame'>,
+  gpu: Pick<RawGpuRenderer, 'render' | 'releaseFrame'> &
+    Partial<Pick<RawGpuRenderer, 'mergeDevice'>>,
   backend: string,
 ): Promise<FullPreviewResult> {
   const start = performance.now()
   const cached = options.workingAsset?.hdr
   const prepared = cached ? undefined : await prepare(path, output, options, gpu, backend)
   const asset = prepared?.asset ?? cached!
+  const sourceVersion = asset.source.highlightBlend ? HDR_RAW_SOURCE_VERSION : HDR_SOURCE_VERSION
   const sourcePath = prepared ? join(output, 'linear.f32') : options.workingAsset!.path
   const permanentCopy = !!(
     cached &&
@@ -340,7 +345,7 @@ export async function renderHdr(
       adjustments,
       settingsRevision: options.revision,
       appliedCorrections: prepared?.applied,
-      renderId: `${HDR_SOURCE_VERSION}-${asset.sha256}`,
+      renderId: `${sourceVersion}-${asset.sha256}`,
       diagnostics: {
         backend: prepared?.backend ?? 'cpu',
         fallback: prepared?.fallback,
@@ -348,7 +353,18 @@ export async function renderHdr(
       },
     }
   const wb = hdrAdjustmentMatrix(adjustments, asset.whiteBalance) ?? undefined
+  const neutral = sameAdjustments(adjustments, neutralAdjustments)
   const file = await open(join(output, 'full.rgba'), 'wx')
+  const proofStarted = performance.now()
+  let converter: Awaited<ReturnType<typeof gpuOutput>> | undefined
+  let proofFallback: string | undefined
+  if (gpu.mergeDevice && (prepared?.backend === 'gpu' || backend === 'gpu')) {
+    try {
+      converter = await gpuOutput({ mergeDevice: gpu.mergeDevice.bind(gpu) }, asset.width * 64)
+    } catch (error) {
+      proofFallback = `SDR proof CPU fallback: ${String(error)}`
+    }
+  }
   const digest = createHash('sha256')
   const ratio = Math.min(1, 96 / Math.max(asset.width, asset.height))
   const thumbWidth = Math.max(1, Math.round(asset.width * ratio)),
@@ -357,13 +373,31 @@ export async function renderHdr(
   let top = 0
   try {
     for await (const strip of readHdrStrips(sourcePath, asset)) {
-      const data = Buffer.alloc(strip.length)
+      let data: Buffer
+      if (converter) {
+        const adjusted = neutral ? strip : new Float32Array(strip.length)
+        for (let i = 0; !neutral && i < strip.length; i += 4) {
+          adjusted.set(adjustHdr([strip[i], strip[i + 1], strip[i + 2]], adjustments, wb), i)
+          adjusted[i + 3] = strip[i + 3]
+        }
+        try {
+          data = await converter.convert(adjusted)
+        } catch (error) {
+          proofFallback = `SDR proof CPU fallback: ${String(error)}`
+          converter.close()
+          converter = undefined
+          data = Buffer.alloc(strip.length)
+        }
+      } else data = Buffer.alloc(strip.length)
       for (let i = 0; i < strip.length; i += 4) {
-        const rgb = outputHdr(
-          adjustHdr([strip[i], strip[i + 1], strip[i + 2]], adjustments, wb),
-          SDR_TARGET,
-        ).rgb
-        for (let c = 0; c < 3; c++) data[i + c] = Math.round(encodeHdr(rgb[c]) * 255)
+        if (!converter) {
+          const rgb = outputHdr(
+            adjustHdr([strip[i], strip[i + 1], strip[i + 2]], adjustments, wb),
+            SDR_TARGET,
+          ).rgb
+          for (let c = 0; c < 3; c++) data[i + c] = Math.round(encodeHdr(rgb[c]) * 255)
+        }
+        // Preserve source alpha's existing CPU quantization exactly.
         data[i + 3] = Math.round(strip[i + 3] * 255)
       }
       digest.update(data)
@@ -380,6 +414,7 @@ export async function renderHdr(
     }
   } finally {
     await file.close()
+    converter?.close()
   }
   const placeholder = await sharp(thumb, {
     raw: { width: thumbWidth, height: thumbHeight, channels: 4 },
@@ -407,11 +442,11 @@ export async function renderHdr(
     adjustments,
     settingsRevision: options.revision,
     appliedCorrections: prepared?.applied,
-    renderId: `${HDR_SOURCE_VERSION}-${HDR_ADJUSTMENT_VERSION}-${HDR_OUTPUT_VERSION}-${JSON.stringify(adjustments)}`,
+    renderId: `${sourceVersion}-${HDR_ADJUSTMENT_VERSION}-${HDR_OUTPUT_VERSION}-${JSON.stringify(adjustments)}`,
     diagnostics: {
       backend: prepared?.backend ?? 'cpu',
-      fallback: prepared?.fallback,
-      timings: { totalMs: performance.now() - start },
+      fallback: proofFallback ?? prepared?.fallback,
+      timings: { totalMs: performance.now() - start, proofMs: performance.now() - proofStarted },
     },
   }
 }

@@ -15,6 +15,7 @@ export async function* uploadHdr(asset: HdrWorkingAsset, signal: AbortSignal) {
     done = false,
     failure: Error | undefined
   let sample: Float32Array | undefined
+  let draftSample: Float32Array | undefined
   const abort = () => {
     worker.terminate()
     wake?.()
@@ -25,6 +26,7 @@ export async function* uploadHdr(asset: HdrWorkingAsset, signal: AbortSignal) {
     else if (data.done) {
       done = true
       sample = data.sample
+      draftSample = data.draftSample
     } else queue.push(data)
     wake?.()
   }
@@ -48,7 +50,7 @@ export async function* uploadHdr(asset: HdrWorkingAsset, signal: AbortSignal) {
         wake = resolve
       })
     }
-    if (sample) publishHdrSample(asset.sha256, sample)
+    if (sample && draftSample) publishHdrSample(asset.sha256, sample, draftSample)
     complete = true
   } finally {
     if (complete && !signal.aborted && !idleWorker) {

@@ -45,8 +45,8 @@ function load(asset: HdrWorkingAsset) {
               .next()
               .then(() =>
                 self.postMessage(
-                  { sample: sample.sample, done: true },
-                  { transfer: [sample.sample.buffer] },
+                  { sample: sample.sample, draftSample: sample.draft, done: true },
+                  { transfer: [sample.sample.buffer, sample.draft.buffer] },
                 ),
               )
         })

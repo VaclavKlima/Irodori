@@ -12,14 +12,12 @@ import {
 } from '../shared/adjustments'
 import { createHash } from 'node:crypto'
 import { frameByteLength } from '../shared/preview-frame'
-import { RawGpuRenderer, GPU_RENDER_ID } from './gpu/raw-renderer'
-import type { RawSource } from './gpu/raw-source'
+import { RawGpuRenderer } from './gpu/raw-renderer'
 import { rawDecoder } from './processing/decoders'
 import { processingMetadata } from './processing/metadata'
-import type { LinearFrame } from './processing/contracts'
-import { correctionPlan, correctLinearCpu, LENS_RENDER_VERSION } from './processing/lens-correction'
+import { LENS_RENDER_VERSION } from './processing/lens-correction'
 import type { ProcessingMetadata, ProcessingOptions } from '../shared/lens'
-import { appliedCorrections } from '../shared/lens'
+import { appliedCorrections, automaticLensSettings } from '../shared/lens'
 import { readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import sharp from 'sharp'
@@ -46,7 +44,6 @@ export class PreviewEngine {
   private tool = new ExifTool({ maxProcs: 1, taskTimeoutMillis: 20_000 })
 
   private working?: { key: string; frame: WorkingFrame }
-  private retained?: { path: string; source?: RawSource; linear?: LinearFrame }
 
   async inspectCapture(path: string): Promise<CaptureMetadata> {
     if (this.tool.ended) this.tool = new ExifTool({ maxProcs: 1, taskTimeoutMillis: 20_000 })
@@ -84,7 +81,8 @@ export class PreviewEngine {
   constructor(
     private extract: ExtractEmbedded = extractEmbedded,
     private backend = process.env.LUMA_PREVIEW_BACKEND ?? 'auto',
-    private gpu: Pick<RawGpuRenderer, 'render' | 'close' | 'releaseFrame'> = new RawGpuRenderer(),
+    private gpu: Pick<RawGpuRenderer, 'render' | 'close' | 'releaseFrame'> &
+      Partial<Pick<RawGpuRenderer, 'mergeDevice'>> = new RawGpuRenderer(),
   ) {
     sharp.concurrency(1)
     sharp.cache({ memory: 32, files: 0, items: 20 })
@@ -178,7 +176,13 @@ export class PreviewEngine {
     onStage?: (stage: PreviewStage) => void,
     options?: ProcessingOptions,
   ): Promise<FullPreviewResult> {
-    if (options?.processing === 'hdr-v1') {
+    if (rawDecoder(path) || options?.metadata.mergeMaster) {
+      options ??= {
+        metadata: await this.inspect(path),
+        settings: automaticLensSettings,
+        revision: 0,
+      }
+      onStage?.('unpack')
       this.releaseFrame()
       return renderHdr(path, output, options, this.gpu, this.backend)
     }
@@ -214,11 +218,9 @@ export class PreviewEngine {
         transform: asset.transform,
       }
     }
-    let input = sharp(path).autoOrient()
+    const input = sharp(path).autoOrient()
     let frame: { data: Buffer; width: number; height: number } | undefined
-    let backend: 'cpu' | 'gpu' = 'cpu'
-    let adapter: string | undefined
-    let fallback: string | undefined
+    const backend: 'cpu' | 'gpu' = 'cpu'
     if (working) {
       frame = {
         data: Buffer.from(renderAdjustments(working.data, adjustments, working.transform)),
@@ -226,102 +228,6 @@ export class PreviewEngine {
         height: working.height,
       }
       timings.reusedWorking = 1
-    } else if (rawDecoder(path)) {
-      onStage?.('unpack')
-      const applied = options && appliedCorrections(options.metadata.lensProfile, options.settings)
-      const corrected = applied && Object.values(applied).some(Boolean)
-      if (this.retained?.path !== path) this.releaseFrame()
-      const retained = this.retained
-      const session = retained ? undefined : await rawDecoder(path)!.open(path)
-      try {
-        session?.unpack()
-        timings.unpackMs = performance.now() - started
-        const source =
-          retained?.source ?? (this.backend !== 'cpu' ? session?.gpuSource() : undefined)
-        if (source)
-          source.whiteBalance =
-            options?.metadata.whiteBalance ??
-            (session ? resolveWhiteBalance(session.metadata) : undefined)
-        if (this.backend !== 'cpu' && source) {
-          try {
-            onStage?.('gpu')
-            const plan = corrected
-              ? correctionPlan(
-                  source.width,
-                  source.height,
-                  options!.metadata.lensProfile,
-                  options!.settings,
-                )
-              : undefined
-            const rendered = await this.gpu.render(
-              source,
-              plan,
-              adjustments,
-              options?.prepareLinear,
-            )
-            frame = rendered
-            working = rendered.working
-            backend = 'gpu'
-            adapter = rendered.adapter
-            Object.assign(timings, rendered.timings)
-            this.retained = { path, source }
-          } catch (error) {
-            fallback = error instanceof Error ? error.message : String(error)
-          }
-        } else if (this.backend !== 'cpu')
-          fallback = 'This camera RAW layout has not been verified for GPU processing.'
-        if (!frame) {
-          onStage?.('cpu')
-          const processing = performance.now()
-          const fallbackSession =
-            !session && !retained?.linear ? await rawDecoder(path)!.open(path) : undefined
-          try {
-            if (
-              corrected ||
-              adjustments.whiteBalance?.mode === 'custom' ||
-              adjustments.exposureEv !== 0 ||
-              adjustments.contrast !== 0 ||
-              adjustments.highlights !== 0 ||
-              adjustments.shadows !== 0 ||
-              adjustments.whites !== 0 ||
-              adjustments.blacks !== 0 ||
-              options?.prepareLinear
-            ) {
-              const linear = retained?.linear ?? (session ?? fallbackSession)!.linear()
-              this.retained = { path, linear }
-              this.gpu.releaseFrame()
-              const plan = correctionPlan(
-                linear.width,
-                linear.height,
-                options!.metadata.lensProfile,
-                options!.settings,
-              )
-              const correctionStart = performance.now()
-              working = correctLinearCpu(linear, plan)
-              working.transform.whiteBalance =
-                options?.metadata.whiteBalance ??
-                (session ? resolveWhiteBalance(session.metadata) : undefined)
-              frame = {
-                data: Buffer.from(renderAdjustments(working.data, adjustments, working.transform)),
-                width: working.width,
-                height: working.height,
-              }
-              timings.correctionMs = performance.now() - correctionStart
-              timings.reusedLinear = Number(!!retained?.linear)
-            } else {
-              const decoded = session!.display()
-              input = sharp(decoded.data, {
-                raw: { width: decoded.width, height: decoded.height, channels: 3 },
-              })
-            }
-          } finally {
-            fallbackSession?.close()
-          }
-          timings.processingMs = performance.now() - processing
-        }
-      } finally {
-        session?.close()
-      }
     }
 
     if (!frame && !rawDecoder(path)) {
@@ -346,23 +252,8 @@ export class PreviewEngine {
         height: info.height,
       }
     }
-    if (working && working.data.byteLength <= 384 * 1024 ** 2) {
-      if (
-        this.retained?.linear &&
-        this.retained.linear.data.byteLength + working.data.byteLength > 384 * 1024 ** 2 &&
-        !options?.prepareLinear &&
-        !options?.workingAsset
-      ) {
-        this.working = undefined
-      } else {
-        this.working = { key: workingKey, frame: working }
-        if (
-          this.retained?.linear &&
-          this.retained.linear.data.byteLength + working.data.byteLength > 384 * 1024 ** 2
-        )
-          this.retained = undefined
-      }
-    }
+    if (working && working.data.byteLength <= 384 * 1024 ** 2)
+      this.working = { key: workingKey, frame: working }
     if (!frame) {
       const dimensions = await input.metadata()
       frameByteLength(dimensions.width, dimensions.height)
@@ -414,7 +305,7 @@ export class PreviewEngine {
       byteLength,
       sha256,
       renderId:
-        (backend === 'gpu' ? GPU_RENDER_ID : 'libraw-ahd-srgb-cpu-1') +
+        'raster-display-referred-v1' +
         '-' +
         ADJUSTMENT_VERSION +
         '-' +
@@ -431,7 +322,7 @@ export class PreviewEngine {
         ? appliedCorrections(options.metadata.lensProfile, options.settings)
         : undefined,
       placeholderBytes: placeholder.byteLength,
-      diagnostics: { backend, adapter, fallback, timings },
+      diagnostics: { backend, timings },
     }
   }
 
@@ -449,13 +340,11 @@ export class PreviewEngine {
 
   releaseFrame(): void {
     this.working = undefined
-    this.retained = undefined
     this.gpu.releaseFrame()
   }
 
   async close(): Promise<void> {
     this.working = undefined
-    this.retained = undefined
     this.gpu.close()
     await this.tool.end()
   }

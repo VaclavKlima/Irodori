@@ -101,17 +101,20 @@ test('pixel grid follows fractional pan at multiple display scale factors', asyn
   await importPhotos(app, page, [source])
   const preview = page.getByTestId('main-preview')
   await expect(preview).toHaveAttribute('data-editing', 'ready')
+  const nativeDpr = await page.evaluate(() => devicePixelRatio)
   for (const factor of [1, 1.5, 2]) {
     await app.evaluate(
       ({ BrowserWindow }, factor) =>
         BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor),
       factor,
     )
-    await expect.poll(() => page.evaluate(() => devicePixelRatio)).toBe(factor)
+    await expect.poll(() => page.evaluate(() => devicePixelRatio)).toBe(nativeDpr * factor)
     await page.getByRole('combobox', { name: 'Preview zoom' }).selectOption('16')
     const box = (await page.getByTestId('preview-viewport').boundingBox())!
     await page.mouse.move(box.x + box.width / 2 + 13, box.y + box.height / 2 + 7)
+    await page.keyboard.down('Control')
     await page.mouse.wheel(0, -35)
+    await page.keyboard.up('Control')
     await expect
       .poll(() => page.getByTestId('preview-viewport').getAttribute('data-scale'))
       .not.toBe('16')

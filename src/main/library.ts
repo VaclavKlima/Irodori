@@ -12,7 +12,7 @@ import { srgbTransform } from '../shared/adjustments'
 import type { HdrAnalysisRequest, HdrPhotoStatistics } from '../shared/hdr-statistics'
 import type { HdrPhotoPixel } from '../shared/hdr-pixel'
 import type { PhotoStatistics } from '../shared/statistics'
-import { SDR_TARGET, type DisplayTarget, HDR_IMPORT_DEFAULT } from '../shared/hdr'
+import { SDR_TARGET, type DisplayTarget } from '../shared/hdr'
 import {
   initialSettings,
   SETTINGS_VERSION,
@@ -21,7 +21,7 @@ import {
   type EditPatch,
   type EditHistory,
 } from '../shared/edits'
-import { photoExtensions } from './processing/formats'
+import { photoExtensions, rawDecoderId } from './processing/formats'
 import {
   automaticLensSettings,
   PROCESSING_METADATA_VERSION,
@@ -106,7 +106,7 @@ export class PhotoLibrary {
       throw new Error('System Trash is unavailable.')
     },
     private metadataProcessor: Pick<PreviewProcess, 'inspect' | 'close'> = new PreviewProcess(),
-    private hdrImports = HDR_IMPORT_DEFAULT,
+    obsoleteImportPreference?: boolean,
     mergeWorkerPath?: string,
     private mergeBoundary?: (
       boundary: 'staged' | 'journaled' | 'published' | 'committed',
@@ -116,6 +116,8 @@ export class PhotoLibrary {
       'inspectCapture' | 'close'
     > = new PreviewProcess(),
   ) {
+    void obsoleteImportPreference // Old internal callers cannot select a previous rendering path.
+
     this.merges = new MergeReviews(
       root,
       async (id) => {
@@ -169,7 +171,7 @@ export class PhotoLibrary {
     this.db = new DatabaseSync(join(this.root, 'catalog.sqlite'))
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;')
     const version = this.db.prepare('PRAGMA user_version').get() as { user_version: number }
-    if (version.user_version > 11) throw new Error('This library requires a newer version of Luma.')
+    if (version.user_version > 12) throw new Error('This library requires a newer version of Luma.')
     this.stacks = new StackStore(this.db)
     this.db.exec(
       'BEGIN; CREATE TABLE IF NOT EXISTS photos (id TEXT PRIMARY KEY, imported_at TEXT NOT NULL, photo TEXT NOT NULL); CREATE TABLE IF NOT EXISTS removals (id TEXT PRIMARY KEY, staged TEXT NOT NULL); CREATE TABLE IF NOT EXISTS processing (id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TRIGGER IF NOT EXISTS remove_processing AFTER DELETE ON photos BEGIN DELETE FROM processing WHERE id = old.id; END; CREATE TABLE IF NOT EXISTS edits (id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TRIGGER IF NOT EXISTS remove_edits AFTER DELETE ON photos BEGIN DELETE FROM edits WHERE id = old.id; END;',
@@ -179,6 +181,27 @@ export class PhotoLibrary {
         this.db.exec(
           "ALTER TABLE photos ADD COLUMN processing_identity TEXT NOT NULL DEFAULT 'legacy-sdr-v1'",
         )
+      const identities = new Map<string, 'hdr-v1' | 'display-referred-v1'>()
+      for (const row of this.db.prepare('SELECT id, photo FROM photos').all() as {
+        id: string
+        photo: string
+      }[]) {
+        const photo = JSON.parse(row.photo) as Photo
+        const existing = this.db.prepare('SELECT data FROM processing WHERE id = ?').get(row.id) as
+          { data: string } | undefined
+        const metadata = existing
+          ? (JSON.parse(existing.data) as ProcessingOptions).metadata
+          : undefined
+        const identity =
+          metadata?.mergeMaster || metadata?.hdrEligible || rawDecoderId(photo.filename)
+            ? 'hdr-v1'
+            : 'display-referred-v1'
+        identities.set(row.id, identity)
+        if (version.user_version < 12)
+          this.db
+            .prepare('UPDATE photos SET processing_identity = ? WHERE id = ?')
+            .run(identity, row.id)
+      }
       for (const row of this.db.prepare('SELECT id, data FROM edits').all() as {
         id: string
         data: string
@@ -214,8 +237,13 @@ export class PhotoLibrary {
             migrated = true
           }
           if (settings.version === 5) {
-            settings.version = SETTINGS_VERSION
+            settings.version = 6
             settings.processing = 'legacy-sdr-v1'
+            migrated = true
+          }
+          if (settings.version === 6) {
+            settings.version = SETTINGS_VERSION
+            settings.processing = identities.get(row.id) ?? 'display-referred-v1'
             migrated = true
           } else if (settings.version !== SETTINGS_VERSION) {
             throw new Error('These edits require a newer version of Luma.')
@@ -238,7 +266,7 @@ export class PhotoLibrary {
       )
       this.stacks.migrate()
       if (version.user_version < 11) this.stacks.backfillMerges()
-      this.db.exec('PRAGMA user_version = 11; COMMIT;')
+      this.db.exec('PRAGMA user_version = 12; COMMIT;')
     } catch (error) {
       this.db.exec('ROLLBACK')
       throw error
@@ -362,8 +390,9 @@ export class PhotoLibrary {
     }
     const settings = initialSettings(data.settings)
     const seed = this.db.prepare('SELECT processing_identity FROM photos WHERE id = ?').get(id) as
-      { processing_identity: 'legacy-sdr-v1' | 'hdr-v1' } | undefined
-    settings.processing = seed?.processing_identity ?? 'legacy-sdr-v1'
+      { processing_identity: 'display-referred-v1' | 'hdr-v1' } | undefined
+    settings.processing =
+      seed?.processing_identity ?? (data.metadata.hdrEligible ? 'hdr-v1' : 'display-referred-v1')
     const history: EditHistory = {
       photoId: id,
       revision: data.revision,
@@ -425,14 +454,16 @@ export class PhotoLibrary {
   ): Promise<T> {
     if (
       !request ||
-      !['working-hdr', 'output'].includes(request.domain) ||
+      !['working-hdr', 'content-hdr', 'output'].includes(request.domain) ||
       Object.keys(request).some((key) => !['domain', 'target', 'targetGeneration'].includes(key)) ||
       (request.target !== undefined && !['sdr', 'current'].includes(request.target)) ||
       (request.targetGeneration !== undefined &&
         (!Number.isSafeInteger(request.targetGeneration) || request.targetGeneration < 0))
     )
       throw new Error('Invalid HDR analysis request.')
-    const current = request.domain === 'output' && request.target !== 'sdr'
+    const current =
+      request.domain !== 'working-hdr' &&
+      (request.target === 'current' || (request.domain === 'output' && request.target !== 'sdr'))
     let target = current ? this.displayTarget?.() : SDR_TARGET
     if (!target || (current && request.targetGeneration !== target.generation))
       throw new Error('Display target generation conflict.')
@@ -535,23 +566,6 @@ export class PhotoLibrary {
     history.settings = settings
     history.snapshots = history.snapshots.slice(0, history.cursor + 1)
     history.snapshots.push({ settings, createdAt: new Date().toISOString() })
-    history.cursor++
-    return this.publishEdit(history, expectedRevision)
-  }
-
-  async upgradePhotoProcessing(id: string, expectedRevision: number): Promise<EditState> {
-    await this.processingOptions(id)
-    if (this.closed || !this.find(id)) throw new Error('This photo is unavailable.')
-    const data = this.readProcessing(id)!
-    const history = this.ensureEdits(id, data)
-    if (history.revision !== expectedRevision || !Number.isSafeInteger(expectedRevision))
-      throw new Error('Edit conflict: reload the confirmed settings and try again.')
-    if (!data.metadata.hdrEligible)
-      throw new Error('HDR processing is unavailable for this RAW mode.')
-    if (history.settings.processing === 'hdr-v1') return this.editState(history)
-    history.settings = { ...history.settings, processing: 'hdr-v1' }
-    history.snapshots = history.snapshots.slice(0, history.cursor + 1)
-    history.snapshots.push({ settings: history.settings, createdAt: new Date().toISOString() })
     history.cursor++
     return this.publishEdit(history, expectedRevision)
   }
@@ -1283,7 +1297,7 @@ export class PhotoLibrary {
               photo.id,
               photo.importedAt,
               JSON.stringify(photo),
-              this.hdrImports && c.preview.processing?.hdrEligible ? 'hdr-v1' : 'legacy-sdr-v1',
+              c.preview.processing?.hdrEligible ? 'hdr-v1' : 'display-referred-v1',
             )
           if (c.preview.processing)
             this.db.prepare('INSERT OR REPLACE INTO processing (id, data) VALUES (?, ?)').run(

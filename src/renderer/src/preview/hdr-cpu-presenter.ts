@@ -11,11 +11,15 @@ export class HdrCpuPresenter {
   private context: CanvasRenderingContext2D
   private frame?: WorkingFrame
   private bitmap?: ImageBitmap
+  private completedParameters?: AdjustmentParameters
+  private completedRanges = false
   private neutral?: ImageBitmap
   private generation = 0
   private key = ''
   private mode = 'after'
   private split = 0.5
+  private hdrRanges = false
+  private target?: DisplayTarget
   private release = reservePresentationBitmaps(256 * 1024 ** 2)
   private view?: { image: Size; viewport: Size; view: View; parameters: AdjustmentParameters }
   constructor(
@@ -41,16 +45,21 @@ export class HdrCpuPresenter {
       this.neutral?.close()
       this.bitmap = data.bitmap
       this.neutral = data.neutral
-      if (data.sample && this.frame?.hdr) publishHdrSample(this.frame.hdr.sha256, data.sample)
+      this.completedParameters = data.parameters
+      this.completedRanges = data.hdrRanges
+      this.canvas.dataset.quality = data.draft ? 'draft' : 'normal'
+      if (data.sample && data.draftSample && this.frame?.hdr)
+        publishHdrSample(this.frame.hdr.sha256, data.sample, data.draftSample)
       this.loaded()
       if (this.view)
         this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
     }
   }
   setTarget(target: DisplayTarget) {
-    void target /* No HDR canvas: use the explicit SDR target. */
+    this.target = target
   }
   setWorking(frame: WorkingFrame) {
+    if (this.frame?.identity === frame.identity) return
     this.frame = frame
     this.key = ''
   }
@@ -61,17 +70,22 @@ export class HdrCpuPresenter {
     this.mode = mode
     this.split = split
   }
+  setHdrRanges(enabled: boolean) {
+    this.hdrRanges = enabled
+  }
   draw(image: Size, viewport: Size, view: View, parameters: AdjustmentParameters) {
     this.view = { image, viewport, view, parameters }
     if (!this.frame?.hdr || !viewport.width || !viewport.height) return
-    const key = JSON.stringify(parameters)
+    const key = JSON.stringify([parameters, this.hdrRanges, this.target?.headroom])
     if (key !== this.key) {
       this.key = key
-      this.bitmap?.close()
-      this.neutral?.close()
-      this.bitmap = undefined
-      this.neutral = undefined
-      this.worker.postMessage({ asset: this.frame.hdr, parameters, generation: ++this.generation })
+      this.worker.postMessage({
+        asset: this.frame.hdr,
+        parameters,
+        hdrRanges: this.hdrRanges,
+        generation: ++this.generation,
+        target: this.target,
+      })
     }
     if (!this.bitmap || !this.neutral) return
     const dpr = devicePixelRatio || 1
@@ -131,16 +145,18 @@ export class HdrCpuPresenter {
       context.stroke()
     }
     this.canvas.style.visibility = 'visible'
+    const completed = this.completedParameters!
     Object.assign(this.canvas.dataset, {
       editing: 'ready',
-      exposure: String(parameters.exposureEv),
-      contrast: String(parameters.contrast),
-      highlights: String(parameters.highlights),
-      shadows: String(parameters.shadows),
-      whites: String(parameters.whites),
-      blacks: String(parameters.blacks),
-      whiteBalance: JSON.stringify(parameters.whiteBalance),
+      exposure: String(completed.exposureEv),
+      contrast: String(completed.contrast),
+      highlights: String(completed.highlights),
+      shadows: String(completed.shadows),
+      whites: String(completed.whites),
+      blacks: String(completed.blacks),
+      whiteBalance: JSON.stringify(completed.whiteBalance),
       comparison: this.mode,
+      hdrRanges: String(this.completedRanges),
     })
   }
   dispose() {

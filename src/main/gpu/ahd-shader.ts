@@ -6,6 +6,7 @@ import {
   whitesModule,
   blacksModule,
 } from '../../shared/adjustments'
+import { sensorBlendWgsl } from './sensor-blend'
 // AHD stages adapted from LibRaw 0.22.1 (CDDL-1.0).
 // Copyright 2019-2025 LibRaw LLC; dcraw portions Copyright 1997-2018 Dave Coffin.
 // See third_party/libraw/ for license, attribution, and the upstream source reference.
@@ -16,6 +17,7 @@ ${highlightsModule.wgsl}
 ${shadowsModule.wgsl}
 ${whitesModule.wgsl}
 ${blacksModule.wgsl}
+${sensorBlendWgsl}
 struct Params {
   size: vec4u, // active width, height, stored width, flip
   crop: vec4u, // left, top, stripe start, stripe rows
@@ -26,6 +28,7 @@ struct Params {
   adjustments: vec4f, // exposure, contrast, neutral display white, highlights
   tonalEndpoints: vec4f, // shadows, whites, blacks, custom white balance
   wb0: vec4f, wb1: vec4f, wb2: vec4f,
+  blendSaturation: vec4f, blendWhite: vec4f,
 }
 @group(0) @binding(0) var<uniform> p: Params;
 @group(0) @binding(1) var<storage, read> raw: array<u32>;
@@ -136,10 +139,14 @@ fn border(q:vec2i) -> vec3i {
   }
   var converted:vec3f;
   for(var c=0u;c<3u;c++) { converted[c]=p.camera[c].x*f32(rgb.x)+p.camera[c].y*f32(rgb.y)+p.camera[c].z*f32(rgb.z); }
-  if (p.xyz[0].w > 0.0) { textureStore(linear,q,vec4f(vec3f(rgb)/65535.0,1.0)); }
+  if (p.xyz[0].w > 0.0) {
+    var camera=vec3f(rgb)/65535.0;
+    if(p.blendWhite.w>0.) { camera=sensorBlendRgb(camera,p.blendSaturation.xyz,p.blendWhite.xyz,p.blendSaturation.w); }
+    textureStore(linear,q,vec4f(camera,1.0));
+  }
   else { textureStore(linear,q,vec4f(converted/65535.0,1.0)); }
   let clipped=vec3u(clamp(converted*p.xyz[1].w,vec3f(0),vec3f(65535)));
-  for(var c=0u;c<3u;c++) { atomicAdd(&histogram[c*8192u+(clipped[c] >> 3u)],1u); }
+  if(p.xyz[2].w==0.) { for(var c=0u;c<3u;c++) { atomicAdd(&histogram[c*8192u+(clipped[c] >> 3u)],1u); } }
 }
 @compute @workgroup_size(16, 16) fn display(@builtin(global_invocation_id) id: vec3u) {
   if(any(id.xy>=p.size.xy)) { return; }

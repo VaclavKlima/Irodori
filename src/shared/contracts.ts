@@ -70,7 +70,6 @@ export interface LumaApi {
   reportDisplayCapabilities(capabilities: DisplayCapabilities): Promise<DisplayTarget>
   onDisplayState(listener: (state: DisplayTarget) => void): () => void
   onDisplayRefresh(listener: () => void): () => void
-  upgradePhotoProcessing(photoId: string, expectedRevision: number): Promise<EditState>
   onFlushEdits(listener: () => Promise<void>): () => void
   getPhotoStatistics(photoId: string, expectedRevision: number): Promise<PhotoStatistics>
   getPhotoStatistics(

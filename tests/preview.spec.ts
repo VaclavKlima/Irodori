@@ -3,6 +3,7 @@ import sharp from 'sharp'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { focusPreviewWindow, verifyLockedPan } from './preview-pan.helpers'
+import { holdPreviewFrame, verifyPreviewWheel } from './preview-wheel.helpers'
 
 async function geometry(page: Page) {
   return page.getByTestId('preview-viewport').evaluate((element) => {
@@ -31,6 +32,30 @@ async function geometry(page: Page) {
   })
 }
 
+test('scroll pans without zooming and mixed gesture bursts present once with matching overlays', async ({
+  luma,
+}) => {
+  await importPhotos(luma.app, luma.page)
+  await luma.page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }).click()
+  await expect(luma.page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
+  await verifyPreviewWheel(
+    luma.page,
+    luma.page.getByTestId('preview-viewport'),
+    luma.page.getByRole('combobox', { name: 'Preview zoom', exact: true }),
+  )
+  const pending = await holdPreviewFrame(luma.page.getByTestId('preview-viewport'))
+  try {
+    expect(await pending.evaluate((state) => state.held)).toBe(true)
+    await luma.page.getByRole('button', { name: 'Select mountain-ridge.jpg', exact: true }).click()
+    await expect(luma.page.getByTestId('preview-filename')).toHaveText('mountain-ridge.jpg')
+    await expect(luma.page.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue('fit')
+    await expect.poll(() => pending.evaluate((state) => state.cancelled)).toBe(true)
+  } finally {
+    await pending.evaluate((state) => state.restore())
+    await pending.dispose()
+  }
+})
+
 test('mouse panning hides and locks the cursor until release or interruption', async ({ luma }) => {
   await importPhotos(luma.app, luma.page)
   await verifyLockedPan(
@@ -55,9 +80,12 @@ test('zooms at the pointer, pans with capture, and retains keyboard and context-
   expect(before.imageWidth).toBeCloseTo(before.naturalWidth, 1)
   const point = { x: before.left + before.width / 2 + 65, y: before.top + before.height / 2 + 35 }
   await page.mouse.move(point.x, point.y)
+  await page.keyboard.down('Control')
   await page.mouse.wheel(0, -100)
+  await page.keyboard.up('Control')
   await expect.poll(async () => (await geometry(page)).scale).toBeGreaterThan(1)
   const after = await geometry(page)
+  expect(after.scale).toBeCloseTo(Math.exp(1), 5)
   expect((65 - after.x) / after.scale).toBeCloseTo((65 - before.x) / before.scale, 3)
   expect((35 - after.y) / after.scale).toBeCloseTo((35 - before.y) / before.scale, 3)
   await page.mouse.down()
@@ -251,9 +279,23 @@ test('keeps controls disabled after invalid frame metadata and recovers through 
     await page.reload()
     await expect(page.getByText('Loading preview…', { exact: true })).toBeVisible()
     await expect(page.getByRole('combobox', { name: 'Preview zoom' })).toBeDisabled()
+    expect(
+      await page.getByTestId('preview-viewport').evaluate((el) => {
+        const wheel = new WheelEvent('wheel', { cancelable: true, ctrlKey: true, deltaY: -20 })
+        el.dispatchEvent(wheel)
+        return wheel.defaultPrevented
+      }),
+    ).toBe(false)
     await gate.evaluate((control) => control.release())
     await expect(page.getByRole('alert')).toContainText('Could not load this preview.')
     await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toBeDisabled()
+    expect(
+      await page.getByTestId('preview-viewport').evaluate((el) => {
+        const wheel = new WheelEvent('wheel', { cancelable: true, deltaX: 20, deltaY: 30 })
+        el.dispatchEvent(wheel)
+        return wheel.defaultPrevented
+      }),
+    ).toBe(false)
     await page.getByRole('button', { name: 'Retry', exact: true }).click()
     await expect(page.getByTestId('main-preview')).toBeVisible()
     await expect(page.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue('fit')

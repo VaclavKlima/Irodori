@@ -74,6 +74,36 @@ export function wheelScale(
   mode: number,
   viewportHeight: number,
 ): number {
-  const pixels = delta * (mode === 1 ? 16 : mode === 2 ? viewportHeight : 1)
-  return scale * Math.exp(-Math.max(-200, Math.min(200, pixels)) * 0.002)
+  return scale * Math.exp(-wheelPixels(delta, mode, viewportHeight) / 100)
+}
+export function wheelPixels(delta: number, mode: number, viewportExtent: number): number {
+  return delta * (mode === 1 ? 16 : mode === 2 ? viewportExtent : 1)
+}
+export function wheelView(
+  view: View,
+  event: Pick<WheelEvent, 'deltaX' | 'deltaY' | 'deltaMode' | 'ctrlKey'>,
+  point: { x: number; y: number },
+  image: Size,
+  viewport: Size,
+): View {
+  if (event.ctrlKey)
+    return event.deltaY
+      ? zoomAt(
+          view,
+          wheelScale(view.scale, event.deltaY, event.deltaMode, viewport.height),
+          point,
+          image,
+          viewport,
+        )
+      : view
+  if (view.fit || (!event.deltaX && !event.deltaY)) return view
+  return constrain(
+    {
+      ...view,
+      x: view.x - wheelPixels(event.deltaX, event.deltaMode, viewport.width),
+      y: view.y - wheelPixels(event.deltaY, event.deltaMode, viewport.height),
+    },
+    image,
+    viewport,
+  )
 }

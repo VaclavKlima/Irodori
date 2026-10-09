@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Eye } from 'lucide-react'
 import type { PreviewTools } from '../hooks/usePreviewTools'
 import layout from '../App.module.css'
 import styles from './Histogram.module.css'
@@ -10,9 +11,40 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
     !tools.hdr && tools.analysis && !('domain' in tools.analysis) ? tools.analysis : undefined
   const descriptor = hdr?.rgbHistogram
   const channels = descriptor?.rgb ?? data?.rgb
-  const bins = channels?.[0].length ?? 256
+  const bins = channels?.[0].length ?? (tools.hdr ? 512 : 256)
   const activeBin = Math.min(bin, bins - 1)
-  const max = channels ? Math.max(1, ...channels.flat()) : 1
+  const paths = useRef<(SVGPathElement | null)[]>([])
+  const curves = useRef<number[][]>([])
+  useEffect(() => {
+    if (!open || !channels) return
+    const max = Math.max(1, ...channels.flat())
+    const target = channels.map((values) => values.map((count) => 96 - (count / max) * 94))
+    const from =
+      curves.current.length && curves.current[0].length === bins
+        ? curves.current.map((v) => v.slice())
+        : target
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+    let frame = 0
+    const started = performance.now()
+    const animate = (time: number) => {
+      const fraction = reduced ? 1 : Math.min(1, (time - started) / 80)
+      curves.current = target.map((values, c) =>
+        values.map((v, i) => from[c][i] + (v - from[c][i]) * fraction),
+      )
+      curves.current.forEach((values, c) =>
+        paths.current[c]?.setAttribute(
+          'd',
+          `M0,96 ${values.map((y, i) => `L${(i * 256) / bins},${y}`).join(' ')} L255,96Z`,
+        ),
+      )
+      const plot = paths.current[0]?.ownerSVGElement
+      if (plot && hdr?.editSerial !== undefined)
+        plot.dataset.curveEditSerial = String(hdr.editSerial)
+      if (fraction < 1) frame = requestAnimationFrame(animate)
+    }
+    frame = requestAnimationFrame(animate)
+    return () => cancelAnimationFrame(frame)
+  }, [channels, bins, open, hdr?.editSerial])
   const label = tools.mode === 'before' ? 'Before' : 'After'
   const percent = (count: number) =>
     `${((100 * count) / (data?.visiblePixels || descriptor?.visiblePixels || 1)).toFixed(2)}%`
@@ -30,15 +62,26 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
         Histogram · {label}
       </button>
       {open && (
-        <div id="histogram" className={styles.content}>
+        <div
+          id="histogram"
+          className={styles.content}
+          data-edit-serial={hdr?.editSerial}
+          data-samples={hdr?.visiblePixels}
+        >
           <div className={styles.heading}>
-            <span>
-              {hdr
-                ? `${hdr.colorSpace} · ${descriptor?.mode === 'hdr' ? 'HDR' : 'SDR'}`
-                : tools.hdr
-                  ? 'Preparing HDR analysis…'
-                  : 'sRGB · SDR'}
-            </span>
+            <span>{tools.hdr ? 'Rec.2020 · HDR content' : 'sRGB · SDR'}</span>
+            {tools.hdr && (
+              <button
+                className={styles.eye}
+                aria-label="Show HDR ranges"
+                aria-pressed={tools.hdrRanges}
+                disabled={!ready}
+                title="Show HDR content brightness ranges. Red indicates content luminance above reported display headroom."
+                onClick={() => tools.update({ hdrRanges: !tools.hdrRanges })}
+              >
+                <Eye size={14} aria-hidden="true" />
+              </button>
+            )}
           </div>
           <svg
             className={styles.plot}
@@ -79,22 +122,22 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
             {[24, 48, 72].map((y) => (
               <line key={y} x1="0" x2="256" y1={y} y2={y} stroke="#333" strokeWidth="0.5" />
             ))}
-            {descriptor?.mode === 'hdr' && (
+            {tools.hdr && (
               <>
                 <rect x="128" y="0" width="128" height="96" fill="#fff" fillOpacity="0.025" />
                 <line x1="128" x2="128" y1="0" y2="96" stroke="#888" strokeWidth="0.6" />
-                {Array.from({ length: descriptor.maxStops }, (_, i) => i + 1).map((stop) => (
+                {[1, 2, 3, 4].map((stop) => (
                   <g key={stop}>
                     <line
-                      x1={128 + (stop / descriptor.maxStops) * 128}
-                      x2={128 + (stop / descriptor.maxStops) * 128}
+                      x1={128 + (stop / 4) * 128}
+                      x2={128 + (stop / 4) * 128}
                       y1="0"
                       y2="96"
                       stroke="#555"
                       strokeWidth="0.4"
                     />
                     <text
-                      x={126 + (stop / descriptor.maxStops) * 128}
+                      x={126 + (stop / 4) * 128}
                       y="10"
                       textAnchor="end"
                       fill="#aaa"
@@ -104,17 +147,19 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
                     </text>
                   </g>
                 ))}
-                <line
-                  x1={128 + (descriptor.displayLimitStops / descriptor.maxStops) * 128}
-                  x2={128 + (descriptor.displayLimitStops / descriptor.maxStops) * 128}
-                  y1="12"
-                  y2="96"
-                  stroke="#ddd"
-                  strokeDasharray="2 2"
-                  strokeWidth="0.7"
-                >
-                  <title>Current display limit</title>
-                </line>
+                {descriptor?.displayLimitStops != null && (
+                  <line
+                    x1={128 + (Math.min(4, descriptor.displayLimitStops) / 4) * 128}
+                    x2={128 + (Math.min(4, descriptor.displayLimitStops) / 4) * 128}
+                    y1="12"
+                    y2="96"
+                    stroke="#ddd"
+                    strokeDasharray="2 2"
+                    strokeWidth="0.7"
+                  >
+                    <title>Current display limit</title>
+                  </line>
+                )}
                 <text x="126" y="92" textAnchor="end" fill="#aaa" fontSize="8">
                   White
                 </text>
@@ -123,14 +168,16 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
                 </text>
               </>
             )}
-            {channels?.map((values, c) => (
+            {[0, 1, 2].map((c) => (
               <path
                 key={c}
+                ref={(path) => {
+                  paths.current[c] = path
+                }}
                 fill={['#d97676', '#75b483', '#779aca'][c]}
                 fillOpacity="0.3"
                 stroke={['#d97676', '#75b483', '#779aca'][c]}
                 strokeWidth="0.8"
-                d={`M0,96 ${values.map((count, i) => `L${(i * 256) / bins},${96 - (count / max) * 94}`).join(' ')} L255,96Z`}
               />
             ))}
             <line
@@ -147,13 +194,37 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
               {tools.analysisError ? 'Histogram unavailable' : 'Preparing histogram…'}
             </p>
           )}
-          {hdr && (
+          {tools.hdr && tools.hdrRanges && (
+            <div className={styles.legend} aria-label="HDR range legend">
+              <span>
+                <i style={{ background: '#00ffff' }} />
+                White–+1 stop
+              </span>
+              <span>
+                <i style={{ background: '#0000ff' }} />
+                +1–+2 stops
+              </span>
+              <span>
+                <i style={{ background: '#9900ff' }} />
+                +2–+3 stops
+              </span>
+              <span>
+                <i style={{ background: '#ff00ff' }} />
+                Above +3 stops
+              </span>
+              <span className={styles.displayLimit}>
+                <i />
+                Red: above current display headroom
+              </span>
+            </div>
+          )}
+          {tools.hdr && (
             <div className={styles.indicators}>
               <button
                 aria-pressed={!!(tools.hdrOverlay & 1)}
                 onClick={() => tools.update({ hdrOverlay: tools.hdrOverlay ^ 1 })}
               >
-                Output clipping
+                Canvas channel clipping
               </button>
             </div>
           )}

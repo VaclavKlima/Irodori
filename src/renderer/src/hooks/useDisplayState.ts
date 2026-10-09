@@ -112,7 +112,7 @@ export function useDisplayState() {
             ...caps,
             hardware: true,
             extended,
-            p3,
+            p3: p3 && window.matchMedia('(color-gamut: p3)').matches,
             failure:
               caps.permission === 'denied'
                 ? 'permission-denied'

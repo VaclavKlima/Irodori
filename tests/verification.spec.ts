@@ -155,6 +155,9 @@ test('explicit scope unions and benchmark families preserve gates without overla
   ])
     expect(files([mode])).toEqual([
       `tests/${file}-benchmark.spec.ts`,
+      ...(file === 'hdr'
+        ? ['tests/hdr-interaction-benchmark.spec.ts', 'tests/hdr-slider-benchmark.spec.ts']
+        : []),
       ...(file === 'merge' ? ['tests/merge-preview-benchmark.spec.ts'] : []),
     ])
   expect(selectPlan(['--benchmark-all']).groups).toHaveLength(4)

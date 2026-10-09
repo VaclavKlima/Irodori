@@ -89,15 +89,14 @@ export class DisplayState {
   private recompute() {
     const caps = this.capabilities,
       headroom = linearHeadroom(caps.headroomStops)
-    const available =
-      caps.hardware && caps.extended && headroom !== null && headroom > 1 && headroom <= 65504
+    const available = caps.hardware && caps.extended && headroom !== null && headroom > 1
     const hdr = this.preference !== 'sdr' && available
     this.state = {
       generation: this.state.generation + 1,
       requested: this.preference,
       mode: hdr ? 'hdr' : 'sdr',
       colorSpace: caps.p3 && caps.hardware ? 'display-p3' : 'srgb',
-      peak: hdr ? headroom! : 1,
+      peak: hdr ? Math.min(100, headroom!) : 1,
       headroom,
       reason: hdr
         ? 'Experimental HDR; physical luminance is unverified.'

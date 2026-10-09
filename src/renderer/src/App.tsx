@@ -115,7 +115,8 @@ export function App() {
     const keydown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
       if (
-        event.key !== 'Delete' ||
+        (event.key !== 'Delete' && event.key !== 'Backspace') ||
+        event.defaultPrevented ||
         event.repeat ||
         event.ctrlKey ||
         event.metaKey ||
@@ -380,20 +381,6 @@ export function App() {
                 photoId={photo?.id}
                 hdr={edits.state?.settings.processing === 'hdr-v1'}
               />
-              {edits.state?.settings.processing === 'legacy-sdr-v1' && edits.state.hdrEligible && (
-                <button
-                  disabled={edits.saving}
-                  onClick={() => {
-                    void (async () => {
-                      await edits.flush()
-                      const current = await window.luma.getEdits(photo!.id)
-                      await window.luma.upgradePhotoProcessing(photo!.id, current.revision)
-                    })().catch((error) => setError(String(error)))
-                  }}
-                >
-                  Upgrade to HDR
-                </button>
-              )}
             </div>
             <div className={styles.previewActions}>
               <button
@@ -462,6 +449,7 @@ export function App() {
             adjustments={edits.adjustments}
             tools={previewTools}
             gesturing={edits.gesturing}
+            editingEpoch={edits.epoch}
             onEditingReady={setInteractivePhoto}
             total={total}
             position={position}

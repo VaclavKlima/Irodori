@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 
-test('RAW editing MCP combines white balance, lens and light history, statistics and processing upgrades', async ({
+test('RAW editing MCP combines white balance, lens and light history, statistics and automatic scene rendering', async ({
   luma,
 }) => {
   test.setTimeout(90000)
@@ -74,14 +74,13 @@ test('RAW editing MCP combines white balance, lens and light history, statistics
       revision: 3,
       settings: patch,
     })
-    await call('luma_undo_edit', { photoId, expectedRevision: 3 })
-    expect(
-      await call('luma_upgrade_photo_processing', { photoId, expectedRevision: 4 }),
-    ).toMatchObject({ revision: 5, settings: { processing: 'hdr-v1' } })
-    expect(await call('luma_undo_edit', { photoId, expectedRevision: 5 })).toMatchObject({
-      revision: 6,
-      settings: { processing: 'legacy-sdr-v1' },
+    expect(await call('luma_undo_edit', { photoId, expectedRevision: 3 })).toMatchObject({
+      revision: 4,
+      settings: { processing: 'hdr-v1', exposureEv: 0 },
     })
+    expect((await client.listTools()).tools.map((tool) => tool.name)).not.toContain(
+      'luma_upgrade_photo_processing',
+    )
   } finally {
     await client.close()
     await transport.close()

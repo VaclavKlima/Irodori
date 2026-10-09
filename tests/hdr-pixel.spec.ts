@@ -9,14 +9,37 @@ import { FullPreviews } from '../src/main/full-previews'
 import { PhotoLibrary } from '../src/main/library'
 import type { FullPreviewProcessor, HdrPixelJob } from '../src/main/preview-types'
 import { neutralAdjustments, srgbTransform } from '../src/shared/adjustments'
-import { SDR_TARGET, type DisplayTarget, type HdrWorkingAsset } from '../src/shared/hdr'
+import {
+  HDR_SOURCE_VERSION,
+  SDR_TARGET,
+  type DisplayTarget,
+  type HdrWorkingAsset,
+} from '../src/shared/hdr'
 import { noLensSettings, type ProcessingOptions } from '../src/shared/lens'
 import { unavailableProfile } from '../src/main/processing/metadata'
-import { referenceAdjust, referenceOutput } from './hdr-reference'
+import { referenceAdjust } from './hdr-reference'
+import reference from './fixtures/aces-reference.json' with { type: 'json' }
 import { syntheticMerge } from './merge.helpers'
 
 const id = 'a'.repeat(64)
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+
+// CSS Color 4 D65 Rec.2020-to-P3 conversion, independent of application math.
+function referenceP3Proof(rgb: number[], peak: number) {
+  return [
+    [1.34357825258433, -0.28217967052615, -0.06139858205818],
+    [-0.06529745278996, 1.07578791584857, -0.01049046305861],
+    [0.00282178726144, -0.01959849452449, 1.01677670726305],
+  ].map((row) =>
+    Math.max(
+      0,
+      Math.min(
+        peak,
+        row.reduce((sum, v, c) => sum + v * rgb[c], 0),
+      ),
+    ),
+  )
+}
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'luma-hdr-pixel-'))
@@ -41,7 +64,7 @@ async function fixture() {
       return { byteLength: strip.length, sha256: sha(strip) }
     }),
     source: {
-      version: 'hdr-source-v1',
+      version: HDR_SOURCE_VERSION,
       processing: 'hdr-v1',
       colorSpace: 'rec2020',
       whitePoint: 'D65',
@@ -121,23 +144,63 @@ test('worker samples known native pixels, signed luminance, straight alpha and i
     ]) {
       const input = Array.from(f.data.slice((y * 3 + x) * 4, (y * 3 + x) * 4 + 3))
       const expected = referenceAdjust(input, adjustments)
-      for (const domain of ['working-hdr', 'output'] as const)
+      const result = await worker.hdrPixel(f.path, { ...job(x, y), adjustments }, signal)
+      result.rgb.forEach((v, c) => expect(v).toBeCloseTo(expected[c], 6))
+      expect(result.relativeLuminance).toBeCloseTo(
+        expected.reduce(
+          (sum, v, c) => sum + v * [0.2627002120112671, 0.6779980715188708, 0.059301716469862][c],
+          0,
+        ),
+        6,
+      )
+      expect(result.alpha).toBe(0.5)
+    }
+    const cases = [0, 3, 4, reference.inputs.findIndex((rgb) => rgb.every((v) => v === 4))]
+    const contentReference = reference.targets.find(
+      (target) => target.peak === 10 && target.colorSpace === 'rec2020',
+    )!
+    const sdrReference = reference.targets.find(
+      (target) => target.peak === 1 && target.colorSpace === 'srgb',
+    )!
+    for (const [index, sourceIndex] of cases.entries()) {
+      expect(sourceIndex).toBeGreaterThanOrEqual(0)
+      // +1 EV must restore the independent CTL input before the rendering stage.
+      f.data.set([...reference.inputs[sourceIndex].map((v) => v / 2), 0.5], (64 * 3 + index) * 4)
+    }
+    await writeFile(f.path, f.bytes)
+    const renderedAsset = f.describe()
+    for (const [index, sourceIndex] of cases.entries()) {
+      const x = index % 3,
+        y = 64 + Math.floor(index / 3)
+      const expected = reference.inputs[sourceIndex],
+        content = contentReference.rgb[sourceIndex]
+      for (const domain of ['working-hdr', 'content-hdr', 'output'] as const)
         for (const target of [
           SDR_TARGET,
           { ...SDR_TARGET, mode: 'hdr' as const, colorSpace: 'display-p3' as const, peak: 4 },
         ]) {
           const result = await worker.hdrPixel(
             f.path,
-            { ...job(x, y), domain, target, adjustments },
+            {
+              ...job(x, y),
+              asset: renderedAsset,
+              domain,
+              target,
+              adjustments: { ...neutralAdjustments, exposureEv: 1 },
+            },
             signal,
           )
           const rgb =
             domain === 'working-hdr'
               ? expected
-              : referenceOutput(expected, target.peak, target.colorSpace)
+              : domain === 'content-hdr'
+                ? content
+                : target.mode === 'sdr'
+                  ? sdrReference.rgb[sourceIndex]
+                  : referenceP3Proof(content, target.peak)
           result.rgb.forEach((v, c) => expect(v).toBeCloseTo(rgb[c], 6))
           const weights =
-            domain === 'working-hdr'
+            domain !== 'output'
               ? [0.2627002120112671, 0.6779980715188708, 0.059301716469862]
               : target.colorSpace === 'srgb'
                 ? [0.2126390058715104, 0.715168678767756, 0.0721923153607337]
@@ -146,11 +209,14 @@ test('worker samples known native pixels, signed luminance, straight alpha and i
             rgb.reduce((sum, v, c) => sum + v * weights[c], 0),
             6,
           )
-          expect(result.stopsAboveReferenceWhite).toBeCloseTo(
-            Math.log2(result.relativeLuminance),
-            12,
-          )
+          if (result.relativeLuminance > 0)
+            expect(result.stopsAboveReferenceWhite).toBeCloseTo(
+              Math.log2(result.relativeLuminance),
+              12,
+            )
+          else expect(result.stopsAboveReferenceWhite).toBeNull()
           expect(result.alpha).toBe(0.5)
+          expect(result.colorSpace).toBe(domain === 'output' ? target.colorSpace : 'rec2020')
           expect(result.target).toEqual(domain === 'output' ? target : undefined)
         }
     }
@@ -246,7 +312,7 @@ async function serviceFixture() {
           byteLength: 0,
           sha256: asset.sha256,
           placeholderBytes: 0,
-          renderId: `hdr-source-v1-${asset.sha256}`,
+          renderId: `${HDR_SOURCE_VERSION}-${asset.sha256}`,
           linear: {
             byteLength: asset.byteLength,
             sha256: asset.sha256,
@@ -372,7 +438,7 @@ test('application pixel requests retain source identity and reject stale revisio
     await expect(
       f.library.getPhotoPixel(id, 1, 1, 64, { domain: 'output', targetGeneration: 5 }),
     ).rejects.toThrow('target generation conflict')
-    f.edit({ processing: 'legacy-sdr-v1', revision: 2 })
+    f.edit({ processing: 'display-referred-v1', revision: 2 })
     await expect(pixel(2)).rejects.toThrow('processing unavailable')
   } finally {
     await f.close()

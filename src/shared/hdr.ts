@@ -1,14 +1,17 @@
 import type { AdjustmentParameters } from './adjustments'
 import { whiteBalanceMatrix, type WhiteBalanceProfile } from './white-balance'
 import type { PreviewPreference } from './hdr-display'
+import { renderDisplay, renderHdrContent, DISPLAY_RENDERING_VERSION } from './display-rendering'
+import { encodeDiagnosticChannel } from './hdr-display'
 
-export type ProcessingIdentity = 'legacy-sdr-v1' | 'hdr-v1'
-export const HDR_SOURCE_VERSION = 'hdr-source-v1'
+export type ProcessingIdentity = 'display-referred-v1' | 'hdr-v1'
+export const HDR_SOURCE_VERSION = 'hdr-source-v2-capture-scale-1'
+export const SENSOR_BLEND_VERSION = 'sensor-blend-v1'
+export const HDR_RAW_SOURCE_VERSION = `${HDR_SOURCE_VERSION}-${SENSOR_BLEND_VERSION}`
 export const HDR_ADJUSTMENT_VERSION = 'hdr-adjustments-v1'
-export const HDR_OUTPUT_VERSION = 'hdr-output-v1'
-export const HDR_ANALYSIS_VERSION = 'hdr-analysis-v1'
-// Experimental Linux rollout; physical luminance and other platforms remain unverified.
-export const HDR_IMPORT_DEFAULT = true
+export const HDR_OUTPUT_VERSION =
+  `hdr-output-v6-content-proof-${DISPLAY_RENDERING_VERSION}` as const
+export const HDR_ANALYSIS_VERSION = `hdr-analysis-v4-content-${DISPLAY_RENDERING_VERSION}` as const
 export type RGB = [number, number, number]
 export const REC2020_LUMA: RGB = [0.2627002120112671, 0.6779980715188708, 0.059301716469862]
 export const SRGB_TO_2020 = [
@@ -34,7 +37,8 @@ export interface HdrNormalization {
 }
 export interface HdrSource {
   composite?: { kind: 'hdr' | 'noise'; sourceCount: number }
-  version: typeof HDR_SOURCE_VERSION
+  highlightBlend?: typeof SENSOR_BLEND_VERSION
+  version: typeof HDR_SOURCE_VERSION | 'hdr-source-v1'
   processing: 'hdr-v1'
   colorSpace: 'rec2020'
   whitePoint: 'D65'
@@ -116,7 +120,7 @@ export function validateTarget(target: DisplayTarget): void {
     target.generation < 0 ||
     !Number.isFinite(target.peak) ||
     target.peak < 1 ||
-    target.peak > 65504 ||
+    target.peak > 100 ||
     (target.mode === 'sdr' && target.peak !== 1)
   )
     throw new Error('Invalid display target.')
@@ -192,41 +196,32 @@ export function adjustHdr(rgb: RGB, p: AdjustmentParameters, wb?: readonly numbe
   return out
 }
 export function outputHdr(rgb: RGB, target: DisplayTarget) {
-  const y = luminance(rgb),
-    h = target.peak
-  const mapped = y <= 0.75 ? Math.max(0, y) : 0.75 + (h - 0.75) / (1 + (h - 0.75) / (y - 0.75))
-  if (y <= 0)
-    return {
-      rgb: [0, 0, 0] as RGB,
-      luminance: 0,
-      gamutCompressed: false,
-      clipped: rgb.some((v) => v !== 0),
-    }
-  const converted = matrixRgb(
+  if (target.mode === 'sdr') {
+    const rendered = renderDisplay(rgb, target)
+    return { ...rendered, gamutLimited: false }
+  }
+  return { ...presentHdrContent(renderHdrContent(rgb).rgb, target), gamutCompressed: false }
+}
+/** Reference proof: convert primaries, limit representable channels, then encode once. */
+export function presentHdrContent(content: RGB, target: DisplayTarget) {
+  const rendered = matrixRgb(
     target.colorSpace === 'display-p3' ? REC2020_TO_P3 : REC2020_TO_SRGB,
-    rgb.map((v) => (v * mapped) / y),
+    content,
   )
-  const delta = converted.map((v) => v - mapped)
-  let q = 0
-  for (const d of delta) q = Math.max(q, d > 0 ? d / (h - mapped) : -d / mapped)
-  const compressed = q > 0.9
-  const factor = !Number.isFinite(q)
-    ? 0
-    : compressed
-      ? (0.9 + (0.1 * (q - 0.9)) / (q - 0.8)) / q
-      : 1
-  const result = delta.map((d) => mapped + d * factor) as RGB
-  const clipped = result.some((v) => v < -2e-6 || v > h + 2e-6)
+  const rgb = rendered.map((v) => Math.max(0, Math.min(target.peak, v))) as RGB
+  const weights =
+    target.colorSpace === 'display-p3'
+      ? [0.2289745640697488, 0.6917385218365064, 0.0792869140937448]
+      : [0.2126390058715103, 0.715168678767756, 0.0721923153607337]
   return {
-    rgb: result.map((v) => Math.max(0, Math.min(h, v))) as RGB,
-    luminance: mapped,
-    gamutCompressed: compressed,
-    clipped,
+    rgb,
+    rendered,
+    luminance: rgb.reduce((sum, v, c) => sum + v * weights[c], 0),
+    clipped: rendered.some((v) => v < -2e-6 || v > target.peak + 2e-6),
+    gamutLimited: rendered.some((v) => v < -2e-6),
   }
 }
-export function encodeHdr(v: number): number {
-  return v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055
-}
+export const encodeHdr = encodeDiagnosticChannel
 
 /** Validate provenance before a working asset can enter any HDR processing stage. */
 export function validateHdrSource(source: HdrSource): void {
@@ -242,7 +237,10 @@ export function validateHdrSource(source: HdrSource): void {
   const normalization = source?.normalization
   if (
     !source ||
-    source.version !== HDR_SOURCE_VERSION ||
+    (source.highlightBlend !== undefined &&
+      (source.highlightBlend !== SENSOR_BLEND_VERSION || !!source.composite)) ||
+    (source.version !== HDR_SOURCE_VERSION &&
+      !(source.composite && source.version === 'hdr-source-v1')) ||
     source.processing !== 'hdr-v1' ||
     source.colorSpace !== 'rec2020' ||
     source.whitePoint !== 'D65' ||

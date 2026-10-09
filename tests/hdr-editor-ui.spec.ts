@@ -1,9 +1,15 @@
+import { HDR_SOURCE_VERSION, HDR_OUTPUT_VERSION } from '../src/shared/hdr'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { resolve } from 'node:path'
+import { readdir } from 'node:fs/promises'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
-test.use({ hdrDisplay: true, hdrImports: true })
+import { HDR_PRESENTATION_BUDGET } from '../src/renderer/src/preview/hdr-memory'
+import { encodeHdr, outputHdr, SDR_TARGET, type RGB } from '../src/shared/hdr'
+import { renderHdrContent } from '../src/shared/display-rendering'
+import { hdrRangeColor } from '../src/renderer/src/preview/hdr-ranges'
+test.use({ hdrDisplay: true })
 
 test('Wayland refresh updates native screen metadata without disturbing the editor', async ({
   luma,
@@ -181,6 +187,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
 }, info) => {
   test.setTimeout(180000)
   const { page } = luma
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   await importPhotos(luma.app, page, ['tests/fixtures/sony-zv1.ARW'], false)
   const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
   expect((await page.evaluate((id) => window.luma.getEdits(id), id)).settings.processing).toBe(
@@ -193,10 +200,52 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     timeout: 60000,
   })
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'webgpu-hdr')
+  await expect(page.getByTestId('main-preview')).toHaveAttribute('data-quality', 'normal')
+  await expect(page.locator('#histogram')).toHaveAttribute('data-samples', '65536')
   await expect(page.getByRole('slider', { name: 'Histogram tonal value' })).toBeVisible({
     timeout: 45000,
   })
   await expect(page.getByLabel('Analysis domain')).toHaveCount(0)
+  const ranges = page.getByRole('button', { name: 'Show HDR ranges' })
+  const histogramPaths = page.getByRole('slider', { name: 'Histogram tonal value' }).locator('path')
+  await expect(histogramPaths).toHaveCount(3)
+  const unchangedHistogram = await histogramPaths.evaluateAll((paths) =>
+    paths.map((path) => path.getAttribute('d')),
+  )
+  await expect(ranges).toHaveAttribute('aria-pressed', 'false')
+  const clipping = page.getByRole('button', { name: 'Canvas channel clipping', exact: true })
+  await clipping.focus()
+  await expect(clipping).toBeFocused()
+  await clipping.press('Space')
+  await expect(clipping).toHaveAttribute('aria-pressed', 'true')
+  const unchangedEdits = await page.evaluate((id) => window.luma.getEdits(id), id)
+  await ranges.focus()
+  await ranges.press('Space')
+  await expect(ranges).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('main-preview')).toHaveAttribute('data-hdr-ranges', 'true')
+  await expect(page.getByLabel('HDR range legend')).toContainText(
+    'Red: above current display headroom',
+  )
+  for (const mode of ['before', 'split', 'after']) {
+    await page
+      .getByRole('button', {
+        name: mode === 'before' ? 'Before' : 'Compare before and after',
+        exact: true,
+      })
+      .click()
+    await expect(page.getByTestId('main-preview')).toHaveAttribute('data-comparison', mode)
+    await expect(page.getByTestId('main-preview')).toHaveAttribute('data-hdr-ranges', 'true')
+  }
+  await expect
+    .poll(() => histogramPaths.evaluateAll((paths) => paths.map((path) => path.getAttribute('d'))))
+    .toEqual(unchangedHistogram)
+  expect(await page.evaluate((id) => window.luma.getEdits(id), id)).toEqual(unchangedEdits)
+  await ranges.press('Enter')
+  await expect(ranges).toHaveAttribute('aria-pressed', 'false')
+  await expect(clipping).toHaveAttribute('aria-pressed', 'true')
+  await clipping.focus()
+  await expect(clipping).toBeFocused()
+  await clipping.press('Space')
   await info.attach('available-screens', {
     body: JSON.stringify(
       await page.evaluate(async () => {
@@ -212,7 +261,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   })
   await page.getByLabel('Preview display mode').selectOption('sdr')
   expect((await page.evaluate(() => window.luma.getDisplayState())).mode).toBe('sdr')
-  await expect(page.getByText(/(?:srgb|display-p3) · SDR/)).toBeVisible()
+  await expect(page.getByText('Rec.2020 · HDR content')).toBeVisible()
   const state = await page.evaluate((id) => window.luma.getEdits(id), id)
   await page.getByRole('spinbutton', { name: 'Exposure value' }).fill('1')
   await page.getByRole('spinbutton', { name: 'Exposure value' }).press('Enter')
@@ -339,7 +388,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
       domain: 'output',
       colorSpace: 'srgb',
       exact: true,
-      target: { peak: 1, outputVersion: 'hdr-output-v1' },
+      target: { peak: 1, outputVersion: HDR_OUTPUT_VERSION },
     })
     const stale = await client.callTool({
       name: 'luma_get_photo_statistics',
@@ -360,7 +409,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   }
   await expect(page.getByRole('button', { name: 'Inspect center pixel' })).toHaveCount(0)
   await expect(page.getByText('Analysis details · sampled')).toHaveCount(0)
-  const outputClipping = page.getByRole('button', { name: 'Output clipping', exact: true })
+  const outputClipping = page.getByRole('button', { name: 'Canvas channel clipping', exact: true })
   await outputClipping.click()
   await expect(outputClipping).toHaveAttribute('aria-pressed', 'true')
   await outputClipping.click()
@@ -373,6 +422,9 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   )
   await page.getByTestId('console-toggle').click()
   await expect(page.getByLabel('Preview display mode')).toBeInViewport()
+  await ranges.click()
+  await expect(ranges).toBeInViewport()
+  await expect(page.getByLabel('HDR range legend')).toBeInViewport()
   await page.screenshot({ path: info.outputPath('hdr-editor-layout-sdr-capture.png') })
   await luma.app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setContentSize(3440, 1080),
@@ -390,10 +442,17 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     )
     .toBeGreaterThan(0)
   await page.screenshot({ path: info.outputPath('hdr-ultrawide.png') })
-  // Force backing allocations independently of compositor window-size limits.
+  // Force an eligible Retina surface independently of compositor window-size limits.
+  await luma.app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].setContentSize(1100, 700),
+  )
   const viewport = page.getByTestId('preview-viewport')
+  const dpr = await page.evaluate(() => devicePixelRatio)
   await viewport.evaluate((element) => {
-    Object.assign(element.style, { minWidth: '2900px', minHeight: '1000px' })
+    Object.assign(element.style, {
+      minWidth: `${4800 / devicePixelRatio}px`,
+      minHeight: `${1800 / devicePixelRatio}px`,
+    })
   })
   await expect
     .poll(() =>
@@ -401,13 +460,14 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
         .getByTestId('main-preview')
         .evaluate((canvas: HTMLCanvasElement) => [canvas.width, canvas.height]),
     )
-    .toEqual([2900, 1000])
+    .toEqual([4800, 1800])
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'webgpu-hdr')
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
   // A genuinely over-budget surface falls back; shrinking it must recover without a monitor change.
-  await viewport.evaluate((element) => {
-    element.style.minWidth = '4400px'
-  })
+  await viewport.evaluate((element, dpr) => {
+    element.style.minWidth = `${Math.ceil(5000 / dpr)}px`
+    element.style.minHeight = `${Math.ceil(4000 / dpr)}px`
+  }, dpr)
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'canvas2d-hdr-sdr')
   await viewport.evaluate((element) => {
     element.style.minWidth = ''
@@ -417,6 +477,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     timeout: 15000,
   })
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
+  await expect(page.getByTestId('main-preview')).toHaveAttribute('data-hdr-ranges', 'true')
   // Simulated monitor events exercise stale probes without claiming a physical HDR transition.
   await page.evaluate(() => {
     const monitor = Object.assign(new EventTarget(), {
@@ -504,6 +565,11 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     BrowserWindow.getAllWindows()[0].setContentSize(1100, 700),
   )
   const beforeLoss = await page.evaluate((id) => window.luma.getEdits(id), id)
+  await expect(page.locator('#histogram')).toHaveAttribute('data-samples', '65536')
+  await page.waitForTimeout(100)
+  const contentBeforeLoss = await histogramPaths.evaluateAll((paths) =>
+    paths.map((path) => path.getAttribute('d')),
+  )
   await page.evaluate(() => {
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
     const device = canvas.getContext('webgpu')!.getConfiguration()!.device
@@ -521,15 +587,190 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
     timeout: 60000,
   })
+  await expect(page.getByTestId('main-preview')).toHaveAttribute('data-hdr-ranges', 'true')
+  await expect
+    .poll(() => histogramPaths.evaluateAll((paths) => paths.map((path) => path.getAttribute('d'))))
+    .toEqual(contentBeforeLoss)
   expect(await page.evaluate((id) => window.luma.getEdits(id), id)).toEqual(beforeLoss)
   expect((await page.evaluate(() => window.luma.getDisplayState())).mode).toBe('sdr')
-  const { page: reopened } = await luma.restart()
+  const { page: reopened, app: reopenedApp } = await luma.restart()
   await expect(reopened.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
     timeout: 60000,
   })
   await expect(reopened.getByTestId('main-preview')).toHaveAttribute('data-backend', 'webgpu-hdr')
+  await expect(reopened.getByRole('button', { name: 'Show HDR ranges' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
   expect(await reopened.evaluate((id) => window.luma.getEdits(id), id)).toEqual(beforeLoss)
   await expect(reopened.getByLabel('Preview display mode')).toHaveValue('sdr')
+  await reopened.getByRole('button', { name: 'Show HDR ranges' }).click()
+  await importPhotos(reopenedApp, reopened, ['tests/fixtures/photos/mountain-ridge.jpg'], false)
+  await reopened.getByRole('button', { name: 'Select mountain-ridge.jpg', exact: true }).click()
+  await expect(reopened.getByTestId('preview-filename')).toHaveText('mountain-ridge.jpg')
+  await expect(reopened.getByRole('button', { name: 'Show HDR ranges' })).toHaveCount(0)
+  await reopened.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }).click()
+  await expect(reopened.getByRole('button', { name: 'Show HDR ranges' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
+  await expect(reopened.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
+    timeout: 60000,
+  })
+  // A hot-refreshed renderer can receive the previous main process's output version.
+  // Keep the workspace and save listener mounted while falling back to SDR.
+  await reopenedApp.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].setContentSize(1100, 700),
+  )
+  const currentTarget = await reopened.evaluate(() => window.luma.getDisplayState())
+  await reopenedApp.evaluate(({ BrowserWindow }, target) => {
+    BrowserWindow.getAllWindows()[0].webContents.send('display:state', {
+      ...target,
+      generation: target.generation + 1,
+      outputVersion: 'hdr-output-v1',
+    })
+  }, currentTarget)
+  await expect(reopened.getByTestId('workspace')).toBeVisible()
+  await expect(reopened.getByTestId('main-preview')).toHaveAttribute(
+    'data-backend',
+    'canvas2d-hdr-sdr',
+  )
+  await expect(reopened.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
+    timeout: 60000,
+  })
+  const beforeClose = await reopened.evaluate((id) => window.luma.getEdits(id), id)
+  await reopened.getByRole('spinbutton', { name: 'Exposure value' }).fill('0.25')
+  await expect(reopened.getByRole('slider', { name: 'Exposure', exact: true })).toHaveValue('0.25')
+  expect(await reopened.evaluate((id) => window.luma.getEdits(id), id)).toEqual(beforeClose)
+  // Closing must flush the draft even while its CPU preview is still processing.
+  await luma.expectQuit(async () => {
+    await reopenedApp.evaluate(({ BrowserWindow }) => {
+      setImmediate(() => BrowserWindow.getAllWindows()[0].close())
+    })
+  })
+  const saved = await luma.restart()
+  await expect
+    .poll(() => saved.page.evaluate((id) => window.luma.getEdits(id), id))
+    .toMatchObject({ revision: beforeClose.revision + 1, settings: { exposureEv: 0.25 } })
+  await expect(saved.page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
+    timeout: 60000,
+  })
+})
+
+test('CPU presentation worker preserves SDR pixels, Before/After range colors, warning stripes and analysis samples', async ({
+  luma,
+}) => {
+  const workerFile = (await readdir(resolve('out/renderer/assets'))).find((name) =>
+    /^hdr-presentation-worker-.*\.js$/.test(name),
+  )!
+  expect(workerFile).toBeTruthy()
+  const actual = await luma.page.evaluate(
+    async ({ workerFile, sourceVersion }) => {
+      const values = [0.5, 1, 1.01, 2, 4, 8, 16, 0]
+      const data = new Float32Array(
+        [...values, ...values].flatMap((v, i) => [v, v, v, i === 15 ? 0 : 1]),
+      )
+      data.set([0.9, 0.2, 0.1, 1], 0)
+      data.set([0.05, 0.5, 0.9, 1], 12 * 4)
+      const hash = Array.from(
+        new Uint8Array(await crypto.subtle.digest('SHA-256', data.buffer)),
+        (v) => v.toString(16).padStart(2, '0'),
+      ).join('')
+      const url = URL.createObjectURL(new Blob([data.buffer]))
+      const worker = new Worker(new URL(`assets/${workerFile}`, location.href), { type: 'module' })
+      const asset = {
+        kind: 'hdr-working-v1',
+        url,
+        width: 8,
+        height: 2,
+        byteLength: data.byteLength,
+        sha256: hash,
+        strips: [{ byteLength: data.byteLength, sha256: hash }],
+        source: {
+          version: sourceVersion,
+          processing: 'hdr-v1',
+          colorSpace: 'rec2020',
+          whitePoint: 'D65',
+          transfer: 'linear',
+          alpha: 'straight',
+          decoder: 'synthetic',
+          cameraProfile: 'synthetic',
+          orientation: 'applied-once',
+          normalization: {
+            black: [64, 64, 64, 64],
+            gains: [1, 1, 1, 1],
+            maximum: 1000,
+            restoreGain: 1,
+            referenceWhite: 1,
+            sourceSaturation: null,
+          },
+        },
+      }
+      const parameters = {
+        exposureEv: 1,
+        contrast: 0,
+        highlights: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        whiteBalance: { mode: 'as-shot' },
+      }
+      const request = (hdrRanges: boolean, generation: number) =>
+        new Promise<{ after: number[]; before: number[]; sample: number[] }>((resolve, reject) => {
+          worker.onerror = (event) => reject(new Error(event.message))
+          worker.onmessage = ({ data }) => {
+            if (data.error) {
+              reject(new Error(data.error))
+              return
+            }
+            const read = (bitmap: ImageBitmap) => {
+              const canvas = new OffscreenCanvas(8, 2),
+                context = canvas.getContext('2d')!
+              context.drawImage(bitmap, 0, 0)
+              bitmap.close()
+              return Array.from(context.getImageData(0, 0, 8, 2).data)
+            }
+            resolve({
+              after: read(data.bitmap),
+              before: read(data.neutral),
+              sample: Array.from(data.sample),
+            })
+          }
+          worker.postMessage({ asset, parameters, hdrRanges, generation })
+        })
+      try {
+        return { off: await request(false, 1), on: await request(true, 2), data: Array.from(data) }
+      } finally {
+        worker.terminate()
+        URL.revokeObjectURL(url)
+      }
+    },
+    { workerFile, sourceVersion: HDR_SOURCE_VERSION },
+  )
+  expect(actual.off.sample).toEqual(actual.on.sample)
+  expect(actual.on.sample).toEqual(actual.data)
+  for (let i = 0; i < 15; i++) {
+    const rgb = actual.data.slice(i * 4, i * 4 + 3) as RGB
+    for (const [name, gain] of [
+      ['before', 1],
+      ['after', 2],
+    ] as const) {
+      const output = outputHdr(rgb.map((v) => v * gain) as RGB, SDR_TARGET)
+      const normal = output.rgb.map((v) => Math.round(encodeHdr(v) * 255))
+      const ranges = hdrRangeColor(
+        renderHdrContent(rgb.map((v) => v * gain) as RGB).rgb,
+        SDR_TARGET,
+        i % 8,
+        Math.floor(i / 8),
+      )
+      expect(actual.off[name].slice(i * 4, i * 4 + 3)).toEqual(normal)
+      expect(actual.on[name].slice(i * 4, i * 4 + 3)).toEqual(
+        ranges ? ranges.slice(0, 3).map((v) => Math.round(v * 255)) : normal,
+      )
+    }
+  }
+  expect(actual.on.before.slice(60)).toEqual([0, 0, 0, 0])
+  expect(actual.on.after.slice(60)).toEqual([0, 0, 0, 0])
 })
 
 test('monitor tracking survives pending GPU probes and missed compositor events', async ({
@@ -634,4 +875,168 @@ test('monitor tracking survives pending GPU probes and missed compositor events'
       mode: 'sdr',
       capabilities: { monitor: { label: 'HDR monitor' }, headroomStops: 0 },
     })
+})
+
+test('Mac built-in display retains HDR presentation in native full screen with console, headroom and device changes', async ({
+  luma,
+}, info) => {
+  test.skip(process.platform !== 'darwin', 'Native macOS full-screen coverage requires macOS.')
+  test.setTimeout(150000)
+  const { app, page } = luma
+  const display = await app.evaluate(({ screen }) =>
+    screen.getAllDisplays().find((display) => display.internal),
+  )
+  test.skip(!display, 'No built-in display is available.')
+  const nativeWindow = await app.browserWindow(page)
+  await nativeWindow.evaluate((window, bounds) => {
+    window.setContentSize(1100, 700)
+    window.setPosition(bounds.x + 20, bounds.y + 20)
+    window.focus()
+  }, display!.bounds)
+  await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
+  const canvas = page.getByTestId('main-preview'),
+    viewport = page.getByTestId('preview-viewport')
+  await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr', { timeout: 90000 })
+  await expect(canvas).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
+  const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
+  const edits = await page.evaluate((id) => window.luma.getEdits(id), id)
+  const nativeTarget = await page.evaluate(() => window.luma.getDisplayState())
+  expect(nativeTarget.mode).toBe('hdr')
+  expect(nativeTarget.peak).toBeGreaterThan(1)
+  await canvas.focus()
+  await canvas.press('1')
+  await canvas.press('ArrowRight')
+  const pan = await viewport.getAttribute('data-pan-x')
+  try {
+    await nativeWindow.evaluate(
+      (window) =>
+        new Promise<void>((resolve) => {
+          window.once('enter-full-screen', () => resolve())
+          window.setFullScreen(true)
+        }),
+    )
+    await expect.poll(() => nativeWindow.evaluate((window) => window.isFullScreen())).toBe(true)
+    for (const consoleOpen of [false, true, false]) {
+      if (
+        ((await page.getByTestId('console-toggle').getAttribute('aria-expanded')) === 'true') !==
+        consoleOpen
+      )
+        await page.getByTestId('console-toggle').click()
+      await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr')
+      await expect(canvas).toHaveAttribute('data-editing', 'ready')
+      await expect(viewport).toHaveAttribute('data-scale', '1')
+      await expect(viewport).toHaveAttribute('data-pan-x', pan!)
+      await expect
+        .poll(async () => {
+          const box = (await viewport.boundingBox())!
+          return canvas.evaluate(
+            (canvas: HTMLCanvasElement, box) =>
+              canvas.width === Math.round(box.width * devicePixelRatio) &&
+              canvas.height === Math.round(box.height * devicePixelRatio),
+            box,
+          )
+        })
+        .toBe(true)
+      const allocated = Number(await canvas.getAttribute('data-allocated-bytes'))
+      expect(allocated).toBeGreaterThan(0)
+      expect(allocated).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
+    }
+    await page.getByRole('button', { name: 'Show HDR ranges' }).click()
+    await expect(canvas).toHaveAttribute('data-hdr-ranges', 'true')
+    await page.evaluate(async () => {
+      const current = (await window.getScreenDetails!()).currentScreen
+      const monitor = Object.assign(new EventTarget(), {
+        label: 'Built-in display synthetic headroom event',
+        width: current.width,
+        height: current.height,
+        left: current.left,
+        top: current.top,
+        devicePixelRatio: current.devicePixelRatio,
+        hdrHeadroom: 0,
+      })
+      const details = Object.assign(new EventTarget(), {
+        currentScreen: monitor,
+        screens: [monitor],
+      })
+      Object.defineProperty(window, 'getScreenDetails', {
+        configurable: true,
+        value: async () => details,
+      })
+      Object.assign(window, { nativeHdrTest: monitor })
+      window.dispatchEvent(new Event('focus'))
+    })
+    await expect
+      .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+      .toMatchObject({ mode: 'sdr', peak: 1 })
+    await page.evaluate(() => {
+      const monitor = (
+        window as unknown as { nativeHdrTest: EventTarget & { hdrHeadroom: number } }
+      ).nativeHdrTest
+      monitor.hdrHeadroom = 3
+      monitor.dispatchEvent(new Event('hdrheadroomchange'))
+    })
+    await expect
+      .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+      .toMatchObject({ mode: 'hdr', peak: 8 })
+    await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr')
+    await expect(viewport).toHaveAttribute('data-scale', '1')
+    await expect(viewport).toHaveAttribute('data-pan-x', pan!)
+    await page.screenshot({ path: info.outputPath('mac-native-full-screen.png') })
+  } finally {
+    if (await nativeWindow.evaluate((window) => window.isFullScreen()))
+      await nativeWindow.evaluate(
+        (window) =>
+          new Promise<void>((resolve) => {
+            window.once('leave-full-screen', () => resolve())
+            window.setFullScreen(false)
+          }),
+      )
+  }
+  await nativeWindow.evaluate((window) => window.setContentSize(1100, 700))
+  await expect
+    .poll(() =>
+      canvas.evaluate((canvas: HTMLCanvasElement) => {
+        const viewport = canvas.parentElement!.getBoundingClientRect()
+        return (
+          canvas.width === Math.round(viewport.width * devicePixelRatio) &&
+          canvas.height === Math.round(viewport.height * devicePixelRatio) &&
+          canvas.dataset.quality === 'normal' &&
+          canvas.dataset.completedEditSerial === canvas.dataset.requestedSerial
+        )
+      }),
+    )
+    .toBe(true)
+  await page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
+    const device = canvas.getContext('webgpu')!.getConfiguration()!.device
+    Object.defineProperty(navigator, 'gpu', {
+      configurable: true,
+      value: { requestAdapter: async () => null },
+    })
+    device.destroy()
+  })
+  await expect(canvas).toHaveAttribute('data-backend', 'canvas2d-hdr-sdr', { timeout: 10000 })
+  const retained = page.getByTestId('retained-preview')
+  await expect(retained).toBeVisible()
+  expect(
+    await retained.evaluate((canvas: HTMLCanvasElement) => {
+      const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data
+      return pixels.some((value, i) => i % 4 !== 3 && value > 0)
+    }),
+    'The retained photograph must contain completed pixels after device loss.',
+  ).toBe(true)
+  await expect(canvas).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
+  await expect(canvas).toHaveAttribute('data-hdr-ranges', 'true')
+  await expect(viewport).toHaveAttribute('data-scale', '1')
+  await expect(viewport).toHaveAttribute('data-pan-x', pan!)
+  expect(await page.evaluate((id) => window.luma.getEdits(id), id)).toEqual(edits)
+  await info.attach('mac-display-evidence', {
+    body: JSON.stringify({
+      display,
+      nativeTarget,
+      syntheticHeadroomEvents: true,
+      physicalLuminanceMeasured: false,
+    }),
+    contentType: 'application/json',
+  })
 })

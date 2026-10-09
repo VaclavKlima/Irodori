@@ -1,4 +1,10 @@
-import { rgbHistogram, addRgbHistogram, type RgbHistogram } from './rgb-histogram'
+import {
+  rgbHistogram,
+  contentRgbHistogram,
+  addRgbHistogram,
+  type RgbHistogram,
+} from './rgb-histogram'
+import { HDR_CONTENT, renderHdrContent } from './display-rendering'
 import type { AdjustmentParameters } from './adjustments'
 import {
   HDR_ANALYSIS_VERSION,
@@ -6,16 +12,19 @@ import {
   hdrAdjustmentMatrix,
   luminance,
   outputHdr,
+  presentHdrContent,
   type DisplayTarget,
   type HdrWorkingAsset,
 } from './hdr'
-export type HdrAnalysisDomain = 'working-hdr' | 'output'
+export type HdrAnalysisDomain = 'working-hdr' | 'content-hdr' | 'output'
 export interface HdrAnalysisRequest {
   domain: HdrAnalysisDomain
   target?: 'current' | 'sdr'
   targetGeneration?: number
 }
 export interface HdrStatistics {
+  content: typeof HDR_CONTENT
+  editSerial?: number
   rgbHistogram?: RgbHistogram
   analysisVersion: typeof HDR_ANALYSIS_VERSION
   domain: HdrAnalysisDomain
@@ -33,6 +42,7 @@ export interface HdrStatistics {
   aboveWhite: number
   exceedingHeadroom: number | null
   gamutCompressed: number | null
+  gamutLimited: number | null
   outputClipped: number | null
   exact: boolean
   sourceSaturation: HdrWorkingAsset['source']['normalization']['sourceSaturation']
@@ -50,11 +60,17 @@ export function hdrStatistics(
   exact = true,
 ): HdrStatistics {
   return {
-    rgbHistogram: domain === 'output' ? rgbHistogram(target) : undefined,
+    content: HDR_CONTENT,
+    rgbHistogram:
+      domain === 'content-hdr'
+        ? contentRgbHistogram(target)
+        : domain === 'output'
+          ? rgbHistogram(target)
+          : undefined,
     analysisVersion: HDR_ANALYSIS_VERSION,
     domain,
     dynamicRange: 'hdr',
-    colorSpace: domain === 'working-hdr' ? 'rec2020' : target.colorSpace,
+    colorSpace: domain !== 'output' ? 'rec2020' : target.colorSpace,
     referenceWhite: 1,
     units: 'stops-relative-to-white',
     bins: Array(256).fill(0),
@@ -65,12 +81,13 @@ export function hdrStatistics(
     underflow: 0,
     overflow: 0,
     aboveWhite: 0,
-    exceedingHeadroom: domain === 'output' ? 0 : null,
-    gamutCompressed: domain === 'output' ? 0 : null,
-    outputClipped: domain === 'output' ? 0 : null,
+    exceedingHeadroom: domain !== 'working-hdr' && target.headroom !== null ? 0 : null,
+    gamutCompressed: domain !== 'working-hdr' ? 0 : null,
+    gamutLimited: domain !== 'working-hdr' ? 0 : null,
+    outputClipped: domain !== 'working-hdr' ? 0 : null,
     exact,
     sourceSaturation: asset.source.normalization.sourceSaturation,
-    target: domain === 'output' ? target : undefined,
+    target: domain !== 'working-hdr' ? target : undefined,
   }
 }
 export function analyzeHdr(
@@ -89,18 +106,31 @@ export function analyzeHdr(
     if (data[i + 3] === 0) continue
     const rgb = adjustHdr([data[i], data[i + 1], data[i + 2]], p, wb),
       y = luminance(rgb)
-    const output = result.domain === 'output' || mask ? outputHdr(rgb, target) : undefined
-    const above = y > 1,
-      beyond = y > target.peak
-    if (result.rgbHistogram) addRgbHistogram(result.rgbHistogram, output!.rgb, data[i + 3])
+    const content = result.domain !== 'working-hdr' || mask ? renderHdrContent(rgb) : undefined
+    const proof = content ? presentHdrContent(content.rgb, target) : undefined
+    const output = result.domain === 'output' ? outputHdr(rgb, target) : undefined
+    const renderedY = content?.luminance ?? y
+    const beyond = target.headroom !== null && renderedY > target.headroom
+    const value =
+      result.domain === 'working-hdr'
+        ? y
+        : result.domain === 'content-hdr'
+          ? renderedY
+          : output!.luminance
+    if (result.rgbHistogram)
+      addRgbHistogram(
+        result.rgbHistogram,
+        result.domain === 'content-hdr' ? content!.rgb : output!.rgb,
+        data[i + 3],
+      )
     result.visiblePixels++
-    result.aboveWhite += Number(above)
-    if (result.domain === 'output') {
-      result.exceedingHeadroom! += Number(beyond)
-      result.gamutCompressed! += Number(output!.gamutCompressed)
-      result.outputClipped! += Number(output!.clipped)
+    result.aboveWhite += Number(value > 1)
+    if (result.domain !== 'working-hdr') {
+      if (result.exceedingHeadroom !== null) result.exceedingHeadroom += Number(beyond)
+      result.gamutCompressed! += Number(content!.gamutCompressed)
+      result.gamutLimited! += Number(proof!.gamutLimited)
+      result.outputClipped! += Number(proof!.clipped)
     }
-    const value = result.domain === 'working-hdr' ? y : output!.luminance
     if (value === 0) result.zero++
     else if (value < 0) result.negative++
     else {
@@ -111,10 +141,10 @@ export function analyzeHdr(
     }
     if (mask)
       mask[maskOffset + i / 4] =
-        Number(output!.clipped) |
+        Number(proof!.clipped) |
         (Number(beyond) << 1) |
-        (Number(above) << 2) |
-        (Number(output!.gamutCompressed) << 3)
+        (Number(renderedY > 1) << 2) |
+        (Number(proof!.gamutLimited) << 3)
   }
 }
 export function reduceHdrMask(data: Uint8Array<ArrayBuffer>, width: number, height: number) {

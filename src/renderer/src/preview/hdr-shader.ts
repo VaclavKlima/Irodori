@@ -1,7 +1,24 @@
-export const hdrShader = `
+import { hdrRangesWgsl } from './hdr-ranges'
+import { displayRenderingWgsl, displayEncodingWgsl } from '../../../shared/display-rendering-wgsl'
+import { REC2020_TO_P3, REC2020_TO_SRGB } from '../../../shared/hdr'
+const primaryMatrix = (m: number[]) =>
+  [0, 1, 2].map((c) => `vec3f(${m[c]},${m[c + 3]},${m[c + 6]})`).join(',')
+export const hdrPresentationWgsl = `
+fn canvasRgb(rgb:vec3f)->vec3f {
+  let srgb=mat3x3f(${primaryMatrix(REC2020_TO_SRGB)});
+  let p3=mat3x3f(${primaryMatrix(REC2020_TO_P3)});
+  return select(srgb*rgb,p3*rgb,u.values[9].z>1.);
+}
+fn presentationRgb(rgb:vec3f)->vec3f {
+  if(u.values[9].w==0.) { return rgb; }
+  return clamp(canvasRgb(rgb),vec3f(0.),vec3f(u.values[9].y));
+}`
+
+export const hdrRenderingWgsl = `
 struct Params { values: array<vec4f, 11> }
 @group(0) @binding(0) var<uniform> u: Params;
 @group(0) @binding(1) var pixels: texture_2d<f32>;
+${displayRenderingWgsl}
 const luma = vec3f(.2627002120112671, .6779980715188708, .059301716469862);
 fn adjusted(input: vec3f) -> vec3f {
   var rgb = input;
@@ -29,46 +46,80 @@ fn adjusted(input: vec3f) -> vec3f {
   }
   return rgb;
 }
-fn outputRgb(rgb: vec3f) -> vec3f {
-  let y = dot(rgb,luma);
-  if (y <= 0.) { return vec3f(0.); }
-  let h = u.values[3].z;
-  var mapped = y;
-  if (y > .75) { mapped = .75+(h-.75)/(1.+(h-.75)/(y-.75)); }
-  let room = select(h-y,(h-.75)*(h-.75)/(h+y-1.5),y>.75);
-  let d = vec3f(dot(u.values[8].xyz-luma,rgb),dot(u.values[9].xyz-luma,rgb),dot(u.values[10].xyz-luma,rgb)) * (mapped/y);
-  var q = 0.;
-  for(var c=0u;c<3u;c++) { q = max(q, select(-d[c]/mapped,d[c]/max(room,1e-20),d[c]>0.)); }
-  var factor = 1.;
-  if (q > .9) { factor = (.9+.1*(q-.9)/(q-.8))/q; }
-  return clamp(fma(d,vec3f(factor),vec3f(mapped)),vec3f(0.),vec3f(h));
-}
-fn encoded(v: vec3f) -> vec3f { return select(1.055*pow(max(v,vec3f(0.)),vec3f(1./2.4))-.055,12.92*v,v<=vec3f(.0031308)); }
+fn outputRgb(rgb: vec3f) -> vec3f {return renderDisplayRgb(rgb,u.values[3].z);}
+fn encoded(v:vec3f)->vec3f {return encodeDisplayRgb(v);}
+`
+
+export const hdrCacheShader = `
+${hdrRenderingWgsl}
+@group(0) @binding(3) var cached: texture_storage_2d_array<rgba32float,write>;
+@group(0) @binding(5) var<storage,read> jobs:array<vec4u>;
+@compute @workgroup_size(8,8) fn renderTile(@builtin(global_invocation_id) p:vec3u) {
+  let size=vec2i(textureDimensions(cached));
+  if(any(vec2i(p.xy)>=size)) { return; }
+  let job=jobs[p.z];
+  let point=vec2i(job.xy)*(size-2)+vec2i(p.xy)-1;
+  let pixel=textureLoad(pixels,clamp(point,vec2i(0),vec2i(textureDimensions(pixels))-1),0);
+  var rgb=pixel.rgb;
+  if(job.w==0u) { rgb=adjusted(rgb); }
+  textureStore(cached,vec2i(p.xy),i32(job.z),vec4f(outputRgb(rgb),pixel.a));
+}`
+
+// Pan/zoom presentation deliberately contains no ACES evaluation.
+export const hdrShader = `
+struct Params { values: array<vec4f, 11> }
+@group(0) @binding(0) var<uniform> u:Params;
+@group(0) @binding(2) var<storage,read> lookup:array<i32>;
+@group(0) @binding(3) var cached:texture_2d_array<f32>;
+${hdrRangesWgsl}
+${displayEncodingWgsl}
+${hdrPresentationWgsl}
+fn encoded(v:vec3f)->vec3f { return encodeDisplayRgb(v); }
 @vertex fn vs(@builtin(vertex_index) i:u32)->@builtin(position) vec4f {
-  let positions = array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.));
+  let positions=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.));
   return vec4f(positions[i],0.,1.);
 }
-fn fetch(p:vec2i, level:i32)->vec4f { return textureLoad(pixels,clamp(p,vec2i(0),vec2i(textureDimensions(pixels,level))-1),level); }
-fn sampleImage(p:vec2f)->vec4f {
-  if (u.values[1].z >= 1.) { return fetch(vec2i(floor(p)),0); }
-  let level = i32(clamp(floor(log2(1./u.values[1].z)),0.,u.values[4].z-1.));
-  let point = p/u.values[0].zw*vec2f(textureDimensions(pixels,level))-.5;
-  let base = vec2i(floor(point)); let f = fract(point);
-  return mix(mix(fetch(base,level),fetch(base+vec2i(1,0),level),f.x),mix(fetch(base+vec2i(0,1),level),fetch(base+vec2i(1,1),level),f.x),f.y);
+fn sampleCached(point:vec2f,before:bool)->vec4f {
+  let size=vec2i(textureDimensions(cached))-2;
+  let base=vec2i(floor(point));
+  let tile=clamp(base,vec2i(0),vec2i(u.values[8].zw)-1)/size;
+  let index=tile.y*i32(u.values[8].x)+tile.x+select(0,i32(u.values[8].y),before);
+  let layer=lookup[index];
+  if(layer<0) { return vec4f(0.,0.,0.,-1.); }
+  let local=base-tile*size+1;
+  let a=textureLoad(cached,local,layer,0);
+  if(u.values[1].z>=1. && u.values[10].x==0.) { return a; }
+  let b=textureLoad(cached,local+vec2i(1,0),layer,0);
+  let c=textureLoad(cached,local+vec2i(0,1),layer,0);
+  let d=textureLoad(cached,local+vec2i(1,1),layer,0);
+  let f=fract(point);
+  let pixel=mix(mix(vec4f(a.rgb*a.a,a.a),vec4f(b.rgb*b.a,b.a),f.x),mix(vec4f(c.rgb*c.a,c.a),vec4f(d.rgb*d.a,d.a),f.x),f.y);
+  return vec4f(select(vec3f(0.),pixel.rgb/max(pixel.a,1e-20),pixel.a>0.),pixel.a);
 }
 @fragment fn fs(@builtin(position) position:vec4f)->@location(0) vec4f {
-  let css = position.xy/u.values[1].w;
-  let source = (css-u.values[0].xy*.5-u.values[1].xy)/u.values[1].z+u.values[0].zw*.5;
-  if (any(source<vec2f(0.)) || any(source>=u.values[0].zw)) { return vec4f(.059,.063,.067,1.); }
-  let pixel = sampleImage(source);
-  let before = u.values[4].x == 1. || (u.values[4].x == 2. && css.x < u.values[0].x*u.values[4].y);
-  var rgb = pixel.rgb;
-  if (!before) { rgb = adjusted(rgb); }
-  var result = encoded(mix(vec3f(.00478,.0052,.00563),outputRgb(rgb),pixel.a));
-  if (u.values[1].z >= 8.) {
-    let edge = min(fract(source),1.-fract(source))*u.values[1].z;
-    let coverage = clamp((.5+.5/u.values[1].w-min(edge.x,edge.y))*u.values[1].w,0.,1.);
-    result = mix(result,vec3f(.5),clamp((u.values[1].z-4.)/12.,0.,1.)*.22*coverage);
+  let css=position.xy/u.values[1].w;
+  let source=(css-u.values[0].xy*.5-u.values[1].xy)/u.values[1].z+u.values[0].zw*.5;
+  if(any(source<vec2f(0.)) || any(source>=u.values[0].zw)) { return vec4f(.059,.063,.067,1.); }
+  let before=u.values[4].x==1. || (u.values[4].x==2. && css.x<u.values[0].x*u.values[4].y);
+  var point=source;
+  if(u.values[1].z<1. || u.values[10].x>0.) { point=source/u.values[0].zw*u.values[8].zw-.5; }
+  let pixel=sampleCached(point,before);
+  if(pixel.a<0.) { discard; }
+  let rgb=pixel.rgb;
+  var result=encoded(mix(vec3f(.00478,.0052,.00563),presentationRgb(rgb),pixel.a));
+  if(u.values[10].y>0.) {
+    let range=hdrRangeColor(rgb,source);
+    if(range.a==0. || pixel.a==0.) { discard; }
+    return vec4f(range.rgb,1.);
+  }
+  if(u.values[3].w>0. && pixel.a>0.) {
+    let range=hdrRangeColor(rgb,source);
+    result=mix(result,range.rgb,range.a*pixel.a);
+  }
+  if(u.values[1].z>=8.) {
+    let edge=min(fract(source),1.-fract(source))*u.values[1].z;
+    let coverage=clamp((.5+.5/u.values[1].w-min(edge.x,edge.y))*u.values[1].w,0.,1.);
+    result=mix(result,vec3f(.5),clamp((u.values[1].z-4.)/12.,0.,1.)*.22*coverage);
   }
   return vec4f(result,1.);
 }`

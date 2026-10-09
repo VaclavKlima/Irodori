@@ -149,7 +149,7 @@ export function renderSummary(result) {
     ),
     '```',
     '',
-    'Local Linux evidence only. This run does not certify physical HDR luminance, native picker interaction, Windows/macOS, packaging, or a particular client MCP connection.',
+    `Local ${{ darwin: 'macOS', linux: 'Linux', win32: 'Windows' }[result.runtime?.platform] ?? 'runtime'} evidence only. This run does not certify physical HDR luminance, other platforms, packaging, or a particular client MCP connection. Native picker interaction requires separate manual evidence.`,
     '',
   )
   return lines.join('\n')

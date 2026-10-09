@@ -27,7 +27,6 @@ import {
   minimumScale,
   replaceDimensions,
   stepScale,
-  wheelScale,
   zoomAt,
   ZOOM_STOPS,
   type Size,
@@ -37,6 +36,8 @@ import layout from '../App.module.css'
 import styles from './PhotoPreview.module.css'
 import { useFullPreview } from '../hooks/useFullPreview'
 import { usePanDrag } from '../hooks/usePanDrag'
+import { usePreviewFrame } from '../hooks/usePreviewFrame'
+import { usePreviewWheel } from '../hooks/usePreviewWheel'
 import { ProgressSpinner } from './ProgressSpinner'
 import { PreviewMetadata } from './PreviewMetadata'
 
@@ -51,6 +52,7 @@ interface Props {
   displayTarget: DisplayTarget
   tools: PreviewTools
   gesturing: boolean
+  editingEpoch?: number
   adjustments: AdjustmentParameters
   onEditingReady: (photoId: string | null) => void
   photo: Photo | null
@@ -69,6 +71,7 @@ export function PhotoPreview({
   adjustments,
   tools,
   gesturing,
+  editingEpoch = 0,
   onEditingReady,
   total,
   position,
@@ -83,9 +86,33 @@ export function PhotoPreview({
   const [mask, setMask] = useState<ClippingMask>()
   const viewport = useRef<HTMLDivElement>(null)
   const image = useRef<HTMLCanvasElement>(null)
+  const retainedSurface = useRef<HTMLCanvasElement>(null)
+  const [retained, setRetained] = useState(false)
   const restoreCanvasFocus = useRef(false)
   const attachCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
-    if (!canvas) restoreCanvasFocus.current = document.activeElement === image.current
+    if (!canvas) {
+      restoreCanvasFocus.current = document.activeElement === image.current
+      const previous = image.current,
+        surface = retainedSurface.current
+      if (surface && previous?.dataset.editing === 'ready') {
+        try {
+          if (previous.dataset.backend === 'webgpu-hdr') {
+            // A lost device's drawing buffer is unavailable. The presenter saved
+            // this bounded copy while the completed frame was still readable.
+            if (surface.dataset.presentationSerial === previous.dataset.presentationSerial)
+              setRetained(true)
+          } else {
+            const scale = Math.min(1, 1024 / Math.max(previous.width, previous.height))
+            surface.width = Math.max(1, Math.round(previous.width * scale))
+            surface.height = Math.max(1, Math.round(previous.height * scale))
+            surface.getContext('2d')!.drawImage(previous, 0, 0, surface.width, surface.height)
+            setRetained(true)
+          }
+        } catch {
+          /* Keep first-render loading explicit if a lost device cannot be copied. */
+        }
+      }
+    }
     image.current = canvas
     if (canvas && restoreCanvasFocus.current) {
       canvas.focus({ preventScroll: true })
@@ -104,6 +131,11 @@ export function PhotoPreview({
   const [fallback, setFallback] = useState(false)
   const presenter = useRef<PreviewPresenter | HdrPresenter | HdrCpuPresenter | null>(null)
   const [hdrReady, setHdrReady] = useState(false)
+  useEffect(() => {
+    if (!hdrReady) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRetained(false)
+  }, [hdrReady])
   const selectedAt = useRef(0)
   const firstPresentedMs = useRef<number | undefined>(undefined)
   useEffect(() => {
@@ -114,7 +146,7 @@ export function PhotoPreview({
   const fullVisible = Boolean(full.preview && (displayedUrl || full.preview.linear?.hdr))
   const live = useWorkingPreview(full.preview, fullVisible && !suspended)
   const { working, generation } = live
-  const { mode, split, analyze, update } = tools
+  const { mode, split, hdrRanges, analyze, update } = tools
   const actualTarget = useMemo(
     () =>
       fallback
@@ -122,11 +154,16 @@ export function PhotoPreview({
             ...SDR_TARGET,
             generation: displayTarget.generation,
             requested: displayTarget.requested,
+            headroom: displayTarget.headroom,
           }
         : displayTarget,
     [fallback, displayTarget],
   )
-  const hdrOverlay = tools.domain === 'working-hdr' ? tools.hdrOverlay & 4 : tools.hdrOverlay
+  const hdrOverlay = hdrRanges
+    ? 0
+    : tools.domain === 'working-hdr'
+      ? tools.hdrOverlay & 4
+      : tools.hdrOverlay
   const shadows = tools.shadows || tools.hover === 'shadows'
   const highlights = tools.highlights || tools.hover === 'highlights'
   const sdrAnalysisError = usePreviewAnalysis(
@@ -142,10 +179,12 @@ export function PhotoPreview({
     hdrReady && !suspended ? working : null,
     mode === 'before' ? neutralAdjustments : adjustments,
     actualTarget,
-    'output',
+    'content-hdr',
     !!hdrOverlay,
     analyze,
     setMask,
+    gesturing,
+    fallback,
   )
   useEffect(() => {
     if (gesturing && mode === 'before') update({ mode: 'after' })
@@ -201,12 +240,119 @@ export function PhotoPreview({
   ])
   const editingSurface = !!working
   const placeholderView = constrain(model.view, full.placeholder ?? model.image, model.viewport)
-  const change = useCallback((action: (model: Model) => Model) => {
-    const next = action(current.current)
-    next.view = constrain(next.view, next.image, next.viewport)
-    current.current = next
-    setModel(next)
-  }, [])
+  function draw(model: Model) {
+    const started = performance.now()
+    presenter.current?.setComparison(mode, split)
+    if (presenter.current instanceof HdrPresenter || presenter.current instanceof HdrCpuPresenter)
+      presenter.current.setHdrRanges(hdrRanges)
+    if (presenter.current instanceof HdrPresenter)
+      presenter.current.setEditing(gesturing, editingEpoch)
+    presenter.current?.draw(model.image, model.viewport, model.view, {
+      whiteBalance: adjustments.whiteBalance,
+      exposureEv: adjustments.exposureEv,
+      contrast: adjustments.contrast,
+      highlights: adjustments.highlights,
+      shadows: adjustments.shadows,
+      whites: adjustments.whites,
+      blacks: adjustments.blacks,
+    })
+    performance.measure('luma.preview.presentation', {
+      start: started,
+      detail: {
+        exposureEv: adjustments.exposureEv,
+        contrast: adjustments.contrast,
+        highlights: adjustments.highlights,
+        shadows: adjustments.shadows,
+        whites: adjustments.whites,
+        blacks: adjustments.blacks,
+        scale: model.view.scale,
+      },
+    })
+  }
+
+  function drawOverlay(model: Model) {
+    const canvas = overlay.current,
+      context = canvas?.getContext('2d')
+    if (!canvas || !context) return
+    canvas.width = Math.max(1, Math.round(model.viewport.width))
+    canvas.height = Math.max(1, Math.round(model.viewport.height))
+    context.clearRect(0, 0, canvas.width, canvas.height)
+    if (!mask || !working) return
+    const { image, viewport, view } = model
+    let levelIndex = 0
+    while (levelIndex + 1 < mask.levels.length && view.scale * 2 ** levelIndex < 1) levelIndex++
+    const level = mask.levels[levelIndex]
+    const left = (viewport.width - image.width * view.scale) / 2 + view.x,
+      top = (viewport.height - image.height * view.scale) / 2 + view.y
+    const pixelWidth = (image.width * view.scale) / level.width,
+      pixelHeight = (image.height * view.scale) / level.height
+    const sx = Math.max(0, Math.floor(-left / pixelWidth)),
+      sy = Math.max(0, Math.floor(-top / pixelHeight))
+    const width = Math.max(
+      0,
+      Math.min(level.width, Math.ceil((viewport.width - left) / pixelWidth)) - sx,
+    )
+    const height = Math.max(
+      0,
+      Math.min(level.height, Math.ceil((viewport.height - top) / pixelHeight)) - sy,
+    )
+    if (!width || !height) return
+    const compact = document.createElement('canvas')
+    compact.width = width
+    compact.height = height
+    const pixels = new Uint8ClampedArray(width * height * 4)
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const bits = level.data[(sy + y) * level.width + sx + x],
+          i = (y * width + x) * 4
+        if (working.hdr && bits & hdrOverlay) {
+          pixels[i] = 255
+          pixels[i + 1] = 160
+          pixels[i + 3] = (x + y) % 4 < 2 ? 220 : 140
+        } else if (!working.hdr && highlights && bits & 2) {
+          pixels[i] = 255
+          pixels[i + 3] = 180
+        } else if (!working.hdr && shadows && bits & 1) {
+          pixels[i + 2] = 255
+          pixels[i + 3] = 180
+        }
+      }
+    compact.getContext('2d')!.putImageData(new ImageData(pixels, width, height), 0, 0)
+    context.save()
+    if (mode === 'split') {
+      context.beginPath()
+      context.rect(canvas.width * split, 0, canvas.width, canvas.height)
+      context.clip()
+    }
+    context.imageSmoothingEnabled = false
+    context.drawImage(
+      compact,
+      left + sx * pixelWidth,
+      top + sy * pixelHeight,
+      width * pixelWidth,
+      height * pixelHeight,
+    )
+    context.restore()
+  }
+
+  const { schedule, cancel, flush } = usePreviewFrame(() => {
+    if (suspended) return
+    const model = current.current
+    setModel(model)
+    draw(model)
+    drawOverlay(model)
+  })
+  const change = useCallback(
+    (action: (model: Model) => Model, immediate = true) => {
+      const next = action(current.current)
+      if (next === current.current) return
+      next.view = constrain(next.view, next.image, next.viewport)
+      current.current = next
+      if (immediate) setModel(next)
+      schedule()
+    },
+    [schedule],
+  )
   const ready = Boolean(
     !suspended &&
     photo &&
@@ -214,6 +360,7 @@ export function PhotoPreview({
     model.image.width &&
     model.viewport.width &&
     model.viewport.height &&
+    (!full.preview?.linear?.hdr || hdrReady) &&
     !full.error,
   )
   const { view } = model
@@ -223,10 +370,13 @@ export function PhotoPreview({
 
   const panBy = useCallback(
     (x: number, y: number) => {
-      change((model) => ({
-        ...model,
-        view: { ...model.view, x: model.view.x + x, y: model.view.y + y },
-      }))
+      change(
+        (model) => ({
+          ...model,
+          view: { ...model.view, x: model.view.x + x, y: model.view.y + y },
+        }),
+        false,
+      )
     },
     [change],
   )
@@ -241,6 +391,7 @@ export function PhotoPreview({
     dividerPointer.current = null
     stopPan()
   }, [stopPan])
+  usePreviewWheel(viewport, ready, change, stopDrag)
   useEffect(() => {
     if (!ready) stopDrag()
   }, [ready, stopDrag])
@@ -263,32 +414,9 @@ export function PhotoPreview({
       }))
     })
     observer.observe(element)
-    const wheel = (event: WheelEvent) => {
-      event.preventDefault()
-      const model = current.current
-      if (!model.loaded || !model.image.width || !model.viewport.width || !model.viewport.height)
-        return
-      stopDrag()
-      const box = element.getBoundingClientRect()
-      change((model) => ({
-        ...model,
-        view: zoomAt(
-          model.view,
-          wheelScale(model.view.scale, event.deltaY, event.deltaMode, model.viewport.height),
-          {
-            x: event.clientX - box.left - box.width / 2,
-            y: event.clientY - box.top - box.height / 2,
-          },
-          model.image,
-          model.viewport,
-        ),
-      }))
-    }
-    element.addEventListener('wheel', wheel, { passive: false })
     window.addEventListener('blur', stopDrag)
     return () => {
       observer.disconnect()
-      element.removeEventListener('wheel', wheel)
       window.removeEventListener('blur', stopDrag)
     }
   }, [change, stopDrag])
@@ -312,6 +440,8 @@ export function PhotoPreview({
                 setFallback(true)
               },
               () => setHdrReady(true),
+              analyze,
+              retainedSurface.current ?? undefined,
             )
       } else
         presenter.current = new PreviewPresenter(canvas, fallback || !editingSurface, () =>
@@ -325,7 +455,7 @@ export function PhotoPreview({
       presenter.current?.dispose()
       presenter.current = null
     }
-  }, [fallback, generation, editingSurface, working?.hdr, displayFailed, suspended])
+  }, [fallback, generation, editingSurface, working?.hdr, displayFailed, suspended, analyze])
 
   useEffect(() => {
     if (
@@ -420,36 +550,15 @@ export function PhotoPreview({
   }, [model.viewport.width, model.viewport.height, working?.width, working?.height])
 
   useEffect(() => {
-    if (suspended) return
-    const started = performance.now()
-    const id = requestAnimationFrame(() => {
-      presenter.current?.setComparison(mode, split)
-      presenter.current?.draw(model.image, model.viewport, model.view, {
-        whiteBalance: adjustments.whiteBalance,
-        exposureEv: adjustments.exposureEv,
-        contrast: adjustments.contrast,
-        highlights: adjustments.highlights,
-        shadows: adjustments.shadows,
-        whites: adjustments.whites,
-        blacks: adjustments.blacks,
-      })
-      performance.measure('luma.preview.presentation', {
-        start: started,
-        detail: {
-          exposureEv: adjustments.exposureEv,
-          contrast: adjustments.contrast,
-          highlights: adjustments.highlights,
-          shadows: adjustments.shadows,
-          whites: adjustments.whites,
-          blacks: adjustments.blacks,
-          scale: model.view.scale,
-        },
-      })
-    })
-    return () => cancelAnimationFrame(id)
+    if (suspended) cancel()
+    // Edit submission remains immediate; gestures use the shared animation-frame callback.
+    else if (presenter.current instanceof HdrPresenter) flush()
+    else schedule()
   }, [
     suspended,
-    model,
+    cancel,
+    flush,
+    schedule,
     adjustments.exposureEv,
     adjustments.contrast,
     adjustments.highlights,
@@ -459,75 +568,17 @@ export function PhotoPreview({
     adjustments.whiteBalance,
     mode,
     split,
+    hdrRanges,
     working,
     fallback,
     generation,
+    gesturing,
+    editingEpoch,
+    mask,
+    shadows,
+    highlights,
+    hdrOverlay,
   ])
-
-  useEffect(() => {
-    const canvas = overlay.current,
-      context = canvas?.getContext('2d')
-    if (!canvas || !context) return
-    canvas.width = Math.max(1, Math.round(model.viewport.width))
-    canvas.height = Math.max(1, Math.round(model.viewport.height))
-    context.clearRect(0, 0, canvas.width, canvas.height)
-    if (!mask || !working) return
-    const { image, viewport, view } = model
-    let levelIndex = 0
-    while (levelIndex + 1 < mask.levels.length && view.scale * 2 ** levelIndex < 1) levelIndex++
-    const level = mask.levels[levelIndex]
-    const left = (viewport.width - image.width * view.scale) / 2 + view.x,
-      top = (viewport.height - image.height * view.scale) / 2 + view.y
-    const pixelWidth = (image.width * view.scale) / level.width,
-      pixelHeight = (image.height * view.scale) / level.height
-    const sx = Math.max(0, Math.floor(-left / pixelWidth)),
-      sy = Math.max(0, Math.floor(-top / pixelHeight))
-    const width = Math.max(
-      0,
-      Math.min(level.width, Math.ceil((viewport.width - left) / pixelWidth)) - sx,
-    )
-    const height = Math.max(
-      0,
-      Math.min(level.height, Math.ceil((viewport.height - top) / pixelHeight)) - sy,
-    )
-    if (!width || !height) return
-    const compact = document.createElement('canvas')
-    compact.width = width
-    compact.height = height
-    const pixels = new Uint8ClampedArray(width * height * 4)
-    for (let y = 0; y < height; y++)
-      for (let x = 0; x < width; x++) {
-        const bits = level.data[(sy + y) * level.width + sx + x],
-          i = (y * width + x) * 4
-        if (working.hdr && bits & hdrOverlay) {
-          pixels[i] = 255
-          pixels[i + 1] = 160
-          pixels[i + 3] = (x + y) % 4 < 2 ? 220 : 140
-        } else if (!working.hdr && highlights && bits & 2) {
-          pixels[i] = 255
-          pixels[i + 3] = 180
-        } else if (!working.hdr && shadows && bits & 1) {
-          pixels[i + 2] = 255
-          pixels[i + 3] = 180
-        }
-      }
-    compact.getContext('2d')!.putImageData(new ImageData(pixels, width, height), 0, 0)
-    context.save()
-    if (mode === 'split') {
-      context.beginPath()
-      context.rect(canvas.width * split, 0, canvas.width, canvas.height)
-      context.clip()
-    }
-    context.imageSmoothingEnabled = false
-    context.drawImage(
-      compact,
-      left + sx * pixelWidth,
-      top + sy * pixelHeight,
-      width * pixelWidth,
-      height * pixelHeight,
-    )
-    context.restore()
-  }, [mask, model, mode, split, shadows, highlights, working, hdrOverlay])
 
   function fit() {
     stopDrag()
@@ -674,6 +725,8 @@ export function PhotoPreview({
                 aria-label={photo.filename}
                 data-testid="main-preview"
                 data-suspended={suspended}
+                data-gesturing={gesturing}
+                data-editing-epoch={editingEpoch}
                 data-src={full.preview?.url}
                 tabIndex={0}
                 aria-keyshortcuts="+ - 0 1 ArrowLeft ArrowRight ArrowUp ArrowDown"
@@ -684,6 +737,18 @@ export function PhotoPreview({
                     fullVisible && ready && (!full.preview?.linear?.hdr || hdrReady)
                       ? 'visible'
                       : 'hidden',
+                }}
+              />
+              <canvas
+                ref={retainedSurface}
+                className={styles.canvas}
+                aria-hidden="true"
+                data-testid="retained-preview"
+                style={{
+                  width: model.viewport.width || undefined,
+                  height: model.viewport.height || undefined,
+                  visibility: retained && !hdrReady ? 'visible' : 'hidden',
+                  pointerEvents: 'none',
                 }}
               />
               <canvas
@@ -767,7 +832,7 @@ export function PhotoPreview({
                   }}
                 />
               )}
-              {(!fullVisible || (!!full.preview?.linear?.hdr && !hdrReady)) && (
+              {(!fullVisible || (!!full.preview?.linear?.hdr && !hdrReady && !retained)) && (
                 <div className={styles.message} role={full.error ? 'alert' : 'status'}>
                   {full.error ? (
                     <span>Could not load this preview.</span>

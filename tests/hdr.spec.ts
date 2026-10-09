@@ -1,14 +1,10 @@
 import { expect, test } from '@playwright/test'
-import {
-  adjustHdr,
-  outputHdr,
-  encodeHdr,
-  SDR_TARGET,
-  type RGB,
-  type HdrWorkingAsset,
-} from '../src/shared/hdr'
+import { adjustHdr, outputHdr, SDR_TARGET, type RGB, type HdrWorkingAsset } from '../src/shared/hdr'
 import { neutralAdjustments } from '../src/shared/adjustments'
 import { analyzeHdr, hdrStatistics, reduceHdrMask } from '../src/shared/hdr-statistics'
+import { sensorBlendParameters, sensorBlendRgb } from '../src/main/gpu/sensor-blend'
+import { hdrRangeColor } from '../src/renderer/src/preview/hdr-ranges'
+import { renderHdrContent } from '../src/shared/display-rendering'
 
 test('HDR values and signed channels survive exposure round trips; alpha is separate', () => {
   for (const value of [0, 0.18, 1, 2, 4, 16, -0.1]) {
@@ -17,37 +13,7 @@ test('HDR values and signed channels survive exposure round trips; alpha is sepa
     expect(adjustHdr(brighter, { ...neutralAdjustments, exposureEv: -1 })).toEqual(input)
   }
 })
-test('HDR shoulder agrees with independent scalar reference and preserves neutral ramps', () => {
-  for (const peak of [1, 2, 4, 16]) {
-    let previous = -1,
-      maximumError = 0,
-      monotonic = true,
-      clipped = false
-    for (let i = 0; i <= 2048; i++) {
-      const value = i / 128
-      const reference =
-        value <= 0.75 ? value : 0.75 + ((peak - 0.75) * (value - 0.75)) / (peak + value - 1.5)
-      const result = outputHdr([value, value, value], {
-        ...SDR_TARGET,
-        peak,
-        mode: peak === 1 ? 'sdr' : 'hdr',
-      })
-      monotonic &&= result.luminance >= previous
-      for (const channel of result.rgb)
-        maximumError = Math.max(
-          maximumError,
-          Math.abs(channel - reference) / (2e-6 + 2e-5 * Math.abs(reference)),
-        )
-      clipped ||= result.clipped
-      previous = result.luminance
-    }
-    expect(monotonic).toBe(true)
-    expect(clipped).toBe(false)
-    expect(maximumError).toBeLessThanOrEqual(1)
-  }
-  expect(encodeHdr(1)).toBeCloseTo(1, 12)
-})
-test('gamut compression preserves equal-luminance neutral and bounds extreme colors', () => {
+test('ACES gamut handling and reference white limiting bound extreme colors', () => {
   for (const rgb of [
     [16, -0.1, 4],
     [-2, 4, 1],
@@ -57,13 +23,12 @@ test('gamut compression preserves equal-luminance neutral and bounds extreme col
     for (const colorSpace of ['srgb', 'display-p3'] as const) {
       const result = outputHdr(rgb, { ...SDR_TARGET, colorSpace, peak: 4, mode: 'hdr' })
       expect(result.rgb.every((v) => Number.isFinite(v) && v >= 0 && v <= 4)).toBe(true)
-      expect(result.clipped).toBe(false)
     }
   }
 })
 test('HDR histograms have exact boundaries, alpha exclusion and distinct warnings', () => {
   const asset = { source: { normalization: { sourceSaturation: null } } } as HdrWorkingAsset
-  const target = { ...SDR_TARGET, peak: 4, mode: 'hdr' as const }
+  const target = { ...SDR_TARGET, peak: 4, headroom: 4, mode: 'hdr' as const }
   const result = hdrStatistics('working-hdr', target, asset)
   const values = [0, -1, 2 ** -17, 2 ** -16, 1, 2, 4, 16, 65536]
   const data = new Float32Array(values.flatMap((v) => [v, v, v, 1]).concat([2, 2, 2, 0]))
@@ -77,7 +42,11 @@ test('HDR histograms have exact boundaries, alpha exclusion and distinct warning
   expect(result.exceedingHeadroom).toBeNull()
   const output = hdrStatistics('output', target, asset)
   analyzeHdr(data, neutralAdjustments, asset, target, output)
-  expect(output.exceedingHeadroom).toBe(2)
+  const renderedLuminances = values.map((v) => outputHdr([v, v, v], target).luminance)
+  expect(output.exceedingHeadroom).toBe(
+    values.filter((v) => renderHdrContent([v, v, v]).luminance > target.headroom).length,
+  )
+  expect(output.aboveWhite).toBe(renderedLuminances.filter((y) => y > 1).length)
   expect(result.sourceSaturation).toBeNull()
   const mask = new Uint8Array(35)
   mask[17] = 8
@@ -110,7 +79,7 @@ test('RGB output histogram maps encoded SDR and fixed HDR stop boundaries indepe
   expect(hdr.rgb[1][320]).toBe(1)
   expect(hdr.rgb[2][384]).toBe(1)
   expect(rgbHistogramBin(-2, hdr)).toBe(0)
-  expect(rgbHistogram({ ...SDR_TARGET, mode: 'hdr', peak: 20, headroom: 20 }).maxStops).toBe(5)
+  expect(rgbHistogram({ ...SDR_TARGET, mode: 'hdr', peak: 20, headroom: 20 }).maxStops).toBe(4)
   expect(() => addRgbHistogram(hdr, [NaN, 0, 0], 1)).toThrow('Invalid')
 })
 
@@ -119,23 +88,77 @@ test('HDR presentation budgets count actual source mips and large viewport alloc
     await import('../src/renderer/src/preview/hdr-memory')
   const small = hdrPresentationMemory(2, 2, 10, 10)
   expect(small.textureBytes).toBe((4 + 1) * 16)
-  expect(small.canvasBytes).toBe(2400)
+  expect(small.canvasBytes).toBe(3200)
   expect(small.transportBytes).toBe(2 * 1024 ** 2)
+  expect(HDR_PRESENTATION_BUDGET).toBe(768 * 1024 ** 2)
   const ultrawide = hdrPresentationMemory(4000, 3000, 3440, 1440)
   expect(ultrawide.total).toBeLessThan(HDR_PRESENTATION_BUDGET)
   // A native 20 MP source and a wide canvas fit because upload and presentation do not overlap.
   const sony = hdrPresentationMemory(5472, 3648, 2900, 1000)
-  expect(
-    sony.textureBytes +
-      sony.uploadBytes +
-      sony.analysisBytes +
-      sony.canvasBytes +
-      sony.transportBytes,
-  ).toBeGreaterThan(HDR_PRESENTATION_BUDGET)
   expect(sony.uploadPeak).toBeLessThan(HDR_PRESENTATION_BUDGET)
   expect(sony.presentationPeak).toBeLessThan(HDR_PRESENTATION_BUDGET)
   expect(sony.total).toBeLessThan(HDR_PRESENTATION_BUDGET)
+  const retina = hdrPresentationMemory(5496, 3672, 4800, 1800)
+  expect(retina.total).toBeGreaterThan(512 * 1024 ** 2)
+  expect(retina.total).toBeLessThan(HDR_PRESENTATION_BUDGET)
+  expect(retina.cacheSlots).toBeLessThan(sony.cacheSlots)
+  expect(retina.cacheSlots).toBeGreaterThan(0)
+  // The offscreen completed-frame surface is included; larger surfaces use explicit fallback.
+  expect(hdrPresentationMemory(5496, 3672, 5800, 2000).total).toBeGreaterThan(
+    HDR_PRESENTATION_BUDGET,
+  )
+  const fixed = hdrPresentationMemory(5496, 3672).minimumPresentationPeak
+  const pixels = Math.floor((HDR_PRESENTATION_BUDGET - fixed) / 32)
+  expect(hdrPresentationMemory(5496, 3672, pixels, 1).total).toBeLessThanOrEqual(
+    HDR_PRESENTATION_BUDGET,
+  )
+  expect(hdrPresentationMemory(5496, 3672, pixels + 1, 1).total).toBeGreaterThan(
+    HDR_PRESENTATION_BUDGET,
+  )
   expect(hdrPresentationMemory(6000, 4000, 6880, 2880).total).toBeGreaterThan(
     HDR_PRESENTATION_BUDGET,
   )
+})
+
+test('sensor-aware highlight blending preserves intensity, smooth onset and unsaturated HDR color', () => {
+  const normal = {
+    black: [64, 64, 64, 64],
+    maximum: 1000,
+    gains: [2, 1, 1.5, 1],
+    restoreGain: 2,
+    referenceWhite: 0.5,
+    sourceSaturation: { thresholds: [964, 964, 964, 964], saturatedSites: 0, totalSites: 4 },
+  }
+  const parameters = sensorBlendParameters(normal)!
+  expect(parameters).not.toBeNull()
+  const full = sensorBlendRgb([1, 0.5, 0.75], parameters)
+  for (const v of full) expect(v).toBeCloseTo(0.75, 12)
+  const partial: RGB = [0.95, 0.475, 0.7125]
+  const blended = sensorBlendRgb(partial, parameters)
+  expect(blended.reduce((a, b) => a + b)).toBeCloseTo(
+    partial.reduce((a, b) => a + b),
+    12,
+  )
+  expect(Math.max(...blended) - Math.min(...blended)).toBeLessThan(
+    Math.max(...partial) - Math.min(...partial),
+  )
+  expect(Math.max(...blended) - Math.min(...blended)).toBeGreaterThan(0)
+  const colored: RGB = [0.85, 0.1, 0.6]
+  expect(sensorBlendRgb(colored, parameters)).toEqual(colored)
+  expect(sensorBlendParameters({ ...normal, sourceSaturation: null })).toBeNull()
+  expect(sensorBlendRgb(partial, null)).toEqual(partial)
+})
+
+test('HDR ranges classify final display-linear colors with exact stop and headroom boundaries', () => {
+  const target = { ...SDR_TARGET, mode: 'hdr' as const, peak: 16, headroom: 16 }
+  const colors = [null, [0, 1, 1], [0, 0, 1], [0.6, 0, 1], [1, 0, 1]]
+  for (const [i, v] of [1, 2, 4, 8, 16].entries())
+    expect(hdrRangeColor([v, v, v], target, 0, 0)).toEqual(colors[i])
+  expect(hdrRangeColor([4.01, 4.01, 4.01], { ...target, peak: 4, headroom: 4 }, 0, 0)).toEqual([
+    1, 0, 0,
+  ])
+  expect(hdrRangeColor([4.01, 4.01, 4.01], { ...target, peak: 4, headroom: 4 }, 4, 0)).toEqual([
+    0.35, 0.02, 0.02,
+  ])
+  expect(hdrRangeColor([0.8, 0, 0], target, 0, 0)).toBeNull()
 })

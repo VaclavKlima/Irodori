@@ -192,20 +192,14 @@ const tools = [
     inputSchema: schema({ preference: { enum: ['auto', 'hdr', 'sdr'] } }),
   },
   {
-    name: 'luma_upgrade_photo_processing',
-    description:
-      'Upgrade an eligible Sony RAW to experimental HDR processing as one undoable edit.',
-    inputSchema: schema({ photoId, expectedRevision }),
-  },
-  {
     name: 'luma_get_photo_statistics',
     description:
-      'Exact committed statistics. Omit domain for compatible SDR sRGB bins; HDR domains use stops relative to white. Current output requires targetGeneration from display state.',
+      'Exact committed statistics. Omit domain for compatible SDR sRGB bins. working-hdr is scene-linear; content-hdr is fixed Rec.2020 HDR content; output is the presented rendition. Current display diagnostics require targetGeneration from display state.',
     inputSchema: schema(
       {
         photoId,
         expectedRevision,
-        domain: { enum: ['working-hdr', 'output'] },
+        domain: { enum: ['working-hdr', 'content-hdr', 'output'] },
         target: { enum: ['sdr', 'current'] },
         targetGeneration: { type: 'integer', minimum: 0 },
       },
@@ -215,14 +209,14 @@ const tools = [
   {
     name: 'luma_get_photo_pixel',
     description:
-      'Sample committed HDR edits at integer native-image coordinates, including merged masters. Returns linear RGB, alpha and brightness relative to reference white. Current output requires targetGeneration from display state.',
+      'Sample committed HDR edits at integer native-image coordinates, including merged masters. working-hdr is scene-linear; content-hdr is fixed Rec.2020 HDR content; output is the presented rendition. Returns linear RGB, alpha and brightness relative to reference white. Current output requires targetGeneration from display state.',
     inputSchema: schema(
       {
         photoId,
         expectedRevision,
         x: { type: 'integer', minimum: 0 },
         y: { type: 'integer', minimum: 0 },
-        domain: { enum: ['working-hdr', 'output'] },
+        domain: { enum: ['working-hdr', 'content-hdr', 'output'] },
         target: { enum: ['sdr', 'current'] },
         targetGeneration: { type: 'integer', minimum: 0 },
       },

@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { validatePatch, type EditState } from '../../../shared/edits'
 
-import { neutralAdjustments, type AdjustmentParameters } from '../../../shared/adjustments'
+import {
+  neutralAdjustments,
+  sameAdjustments,
+  type AdjustmentParameters,
+} from '../../../shared/adjustments'
 type AdjustmentPatch = Partial<AdjustmentParameters>
 
 export function useEdits(photoId: string | undefined) {
@@ -9,6 +13,7 @@ export function useEdits(photoId: string | undefined) {
   const [draft, setDraft] = useState<AdjustmentPatch | null>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [epoch, setEpoch] = useState(0)
   const current = useRef<EditState | null>(null)
   const gesture = useRef<{ state: EditState; patch: AdjustmentPatch } | null>(null)
   const busy = useRef(false)
@@ -20,16 +25,12 @@ export function useEdits(photoId: string | undefined) {
     gesture.current = null
     setState(next)
     setDraft(null)
+    setEpoch((value) => value + 1)
   }, [])
   const flush = useCallback(async () => {
     const edit = gesture.current
     gesture.current = null
-    if (
-      !edit ||
-      Object.entries(edit.patch).every(
-        ([key, value]) => edit.state.settings[key as keyof AdjustmentParameters] === value,
-      )
-    ) {
+    if (!edit || sameAdjustments(edit.state.settings, { ...edit.state.settings, ...edit.patch })) {
       setDraft(null)
       return pending.current
     }
@@ -87,6 +88,7 @@ export function useEdits(photoId: string | undefined) {
   const cancel = () => {
     gesture.current = null
     setDraft(null)
+    setEpoch((value) => value + 1)
   }
   const change = async (patch: AdjustmentPatch) => {
     const photo = current.current?.photoId
@@ -162,6 +164,7 @@ export function useEdits(photoId: string | undefined) {
     error,
     saving,
     gesturing: !!draft,
+    epoch,
     change,
     cancel,
     flush,
