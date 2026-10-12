@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from './electron.fixture'
 import { choose, expectImportComplete } from './import.helpers'
@@ -20,14 +20,15 @@ test('reviews a folder, excludes photos, copies originals, persists, and marks d
   await expect(page.getByTestId('import-status')).toContainText('Ready to import', {
     timeout: 30_000,
   })
-  await expect(page.getByTestId('import-status')).toContainText('2 new · 0 duplicates · 1 errors')
+  await expect(page.getByTestId('import-status')).toContainText(
+    '3 awaiting checks · 0 duplicates · 0 errors',
+  )
   await expect(page.getByRole('checkbox', { name: 'Import výlet.jpg', exact: true })).toBeChecked()
   await expect(
     page.getByRole('checkbox', { name: 'Import exclude.jpg', exact: true }),
   ).toBeChecked()
-  await expect(
-    page.getByRole('checkbox', { name: 'Import broken.jpg', exact: true }),
-  ).toBeDisabled()
+  await expect(page.getByRole('checkbox', { name: 'Import broken.jpg', exact: true })).toBeEnabled()
+  await page.getByRole('checkbox', { name: 'Import broken.jpg', exact: true }).uncheck()
   await page.getByRole('checkbox', { name: 'Import exclude.jpg', exact: true }).uncheck()
   await expect(page.getByRole('button', { name: 'Import 1 photos', exact: true })).toBeEnabled()
   await page.screenshot({ path: testInfo.outputPath('import-review.png') })
@@ -60,11 +61,13 @@ test('reviews a folder, excludes photos, copies originals, persists, and marks d
   await restarted.page.getByRole('button', { name: 'Import photos', exact: true }).click()
   await choose(restarted.app, restarted.page, [join(source, 'renamed.jpg')])
   await expect(restarted.page.getByTestId('import-status')).toContainText('Ready to import')
-  await expect(restarted.page.getByText('Already imported', { exact: true })).toBeVisible()
-  await expect(restarted.page.getByRole('checkbox', { name: 'Import renamed.jpg' })).toBeDisabled()
-  await expect(
-    restarted.page.getByRole('button', { name: 'Import 0 photos', exact: true }),
-  ).toBeDisabled()
+  await expect(restarted.page.getByTestId('import-status')).toContainText('1 awaiting checks')
+  await expect(restarted.page.getByRole('checkbox', { name: 'Import renamed.jpg' })).toBeEnabled()
+  await restarted.page.getByRole('button', { name: 'Import 1 photos', exact: true }).click()
+  await expectImportComplete(restarted.page)
+  expect((await restarted.page.evaluate(() => window.luma.listPhotos())).total).toBe(1)
+  await restarted.page.getByTestId('task-progress').click()
+  await expect(restarted.page.getByTestId('task-details')).toContainText('1 duplicate')
 })
 
 test('supports picker cancellation, nonrecursive folders, select all and keyboard dismissal', async ({
@@ -102,10 +105,10 @@ test('reviews and browses a library across page boundaries', async ({ luma }, te
   const bytes = await readFile('tests/fixtures/photos/alpine-lake.jpg')
   for (let index = 0; index < 61; index++) {
     // Distinct JPEG files with a trailing identifier exercise content-based identity.
-    await writeFile(
-      join(source, `${String(index).padStart(2, '0')}.jpg`),
-      Buffer.concat([bytes, Buffer.from(String(index))]),
-    )
+    const path = join(source, `${String(index).padStart(2, '0')}.jpg`)
+    await writeFile(path, Buffer.concat([bytes, Buffer.from(String(index))]))
+    const date = new Date(Date.UTC(2024, 0, 1) + index * 60_000)
+    await utimes(path, date, date)
   }
   await page.getByRole('button', { name: 'Import photos', exact: true }).click()
   await choose(app, page, [source], 'folder')
@@ -113,43 +116,60 @@ test('reviews and browses a library across page boundaries', async ({ luma }, te
     timeout: 60_000,
   })
   await expect(page.getByRole('button', { name: 'Import 61 photos', exact: true })).toBeEnabled()
+  await expect(
+    page.getByRole('checkbox', { name: /^Import .*\.jpg$/ }).first(),
+  ).toHaveAccessibleName('Import 60.jpg')
   const pages = page.getByRole('navigation', { name: 'Import pages' })
   await pages.getByRole('button', { name: 'Next', exact: true }).click()
-  await expect(page.getByRole('checkbox', { name: 'Import 60.jpg', exact: true })).toBeChecked()
+  await expect(page.getByRole('checkbox', { name: 'Import 00.jpg', exact: true })).toBeChecked()
   await page.getByRole('button', { name: 'Import 61 photos', exact: true }).click()
+  await expect(page.getByTestId('preview-filename')).toHaveText(/^\d{2}\.jpg$/)
+  const initialPreview = await page.getByTestId('preview-filename').textContent()
   await expectImportComplete(page)
-  await expect(page.getByTestId('preview-filename')).toHaveText('00.jpg')
+  await expect(page.getByTestId('preview-filename')).toHaveText(initialPreview!)
+  // Parallel preparation determines publication order. Browse the actual
+  // catalog boundary while keeping the initially active photograph unchanged.
+  const [firstPage, lastPage] = await page.evaluate(async () =>
+      Promise.all([window.luma.listPhotos(), window.luma.listPhotos(60)]),
+    ),
+    newest = firstPage.photos[0].filename,
+    previous = firstPage.photos.at(-1)!.filename,
+    oldest = lastPage.photos[0].filename,
+    libraryPages = page.getByRole('navigation', { name: 'Library pages' })
+  await libraryPages.getByRole('button', { name: 'Next', exact: true }).click()
+  await expect(page.getByTestId('preview-filename')).toHaveText(initialPreview!)
+  await page.getByRole('button', { name: `Select ${oldest}`, exact: true }).click()
+  await expect(page.getByTestId('preview-filename')).toHaveText(oldest)
   await page.getByRole('button', { name: 'Previous photo', exact: true }).click()
-  await expect(page.getByTestId('preview-filename')).toHaveText('01.jpg')
+  await expect(page.getByTestId('preview-filename')).toHaveText(previous)
   await page.getByRole('button', { name: 'Next photo', exact: true }).click()
-  await expect(page.getByTestId('preview-filename')).toHaveText('00.jpg')
+  await expect(page.getByTestId('preview-filename')).toHaveText(oldest)
   await page
     .getByRole('navigation', { name: 'Library pages' })
     .getByRole('button', { name: 'Previous', exact: true })
     .click()
-  await expect(page.getByTestId('preview-filename')).toHaveText('00.jpg')
-  await page.getByRole('button', { name: 'Select 60.jpg', exact: true }).click()
-  await expect(page.getByTestId('preview-filename')).toHaveText('60.jpg')
-  const libraryPages = page.getByRole('navigation', { name: 'Library pages' })
+  await expect(page.getByTestId('preview-filename')).toHaveText(oldest)
+  await page.getByRole('button', { name: `Select ${newest}`, exact: true }).click()
+  await expect(page.getByTestId('preview-filename')).toHaveText(newest)
   await libraryPages.getByRole('button', { name: 'Next', exact: true }).click()
-  await expect(page.getByTestId('preview-filename')).toHaveText('60.jpg')
+  await expect(page.getByTestId('preview-filename')).toHaveText(newest)
   await page
-    .getByRole('button', { name: 'Select 00.jpg', exact: true })
+    .getByRole('button', { name: `Select ${oldest}`, exact: true })
     .click({ modifiers: ['Shift'] })
   await expect(page.getByTestId('selection-count')).toHaveText('61 selected')
   await page.keyboard.press('Delete')
   await expect(page.getByRole('dialog')).toContainText('Delete 61 photos?')
   await page.keyboard.press('Escape')
   await page
-    .getByRole('button', { name: 'Select 00.jpg', exact: true })
+    .getByRole('button', { name: `Select ${oldest}`, exact: true })
     .click({ modifiers: ['ControlOrMeta'] })
   await expect(page.getByTestId('selection-count')).toHaveText('60 selected')
   await isolateTrash(app)
   await page.keyboard.press('Delete')
   await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
   await expect.poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total).toBe(1)
-  await expect(page.getByTestId('preview-filename')).toHaveText('00.jpg')
-  await expect(page.getByRole('button', { name: 'Select 00.jpg', exact: true })).toBeVisible()
+  await expect(page.getByTestId('preview-filename')).toHaveText(oldest)
+  await expect(page.getByRole('button', { name: `Select ${oldest}`, exact: true })).toBeVisible()
   await expect(libraryPages).toHaveCount(0)
   await expect(page.getByTestId('selection-count')).toHaveText('0 selected')
 })

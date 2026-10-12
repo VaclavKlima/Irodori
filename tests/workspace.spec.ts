@@ -67,9 +67,11 @@ test('starts the built desktop application with its isolated preload bridge', as
   expect(bridge).toEqual({
     info: { version: nativeInfo.version, platform: nativeInfo.platform },
     keys: [
+      'reportForegroundActivity',
       'listStacks',
       'getPhotoStack',
       'getStackMembers',
+      'getStackSnapshot',
       'groupPhotos',
       'ungroupStack',
       'removeFromStack',
@@ -118,9 +120,14 @@ test('starts the built desktop application with its isolated preload bridge', as
       'cancelTask',
       'dismissTask',
       'getTaskErrors',
+      'listImportDevices',
+      'chooseDevice',
+      'requestReviewThumbnails',
       'chooseSource',
       'getReview',
       'selectCandidates',
+      'setImportOnlyMissing',
+      'setImportVerificationMode',
       'importSelected',
       'cancelImport',
       'disposeImport',
@@ -360,8 +367,11 @@ test('supports visible keyboard focus, photo selection, and adjustment groups', 
 }) => {
   const { page } = luma
   await importPhotos(luma.app, page)
-  const firstPhoto = page.getByRole('button', { name: 'Select mountain-ridge.jpg', exact: true })
-  const secondPhoto = page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true })
+  // Parallel preparation can publish either fixture first; keyboard order follows the gallery.
+  const photos = page.locator('[data-testid^="photo-card-"]')
+  await expect(photos).toHaveCount(2)
+  const firstPhoto = photos.nth(0)
+  const secondPhoto = photos.nth(1)
   await firstPhoto.focus()
   await page.keyboard.press('Tab')
   await expect(secondPhoto).toBeFocused()

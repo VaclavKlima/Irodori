@@ -18,6 +18,7 @@ import { MergePresenter } from '../preview/merge-presenter'
 import { usePanDrag } from '../hooks/usePanDrag'
 import { usePreviewFrame } from '../hooks/usePreviewFrame'
 import { usePreviewWheel } from '../hooks/usePreviewWheel'
+import { useForegroundActivity } from '../hooks/useForegroundActivity'
 
 interface Model {
   image: Size
@@ -43,6 +44,10 @@ export function MergeViewport({
   onError: (message: string) => void
 }) {
   const viewport = useRef<HTMLDivElement>(null)
+  const { begin: beginActivity, pulse: pulseActivity } = useForegroundActivity(
+    undefined,
+    preview?.reviewId,
+  )
   const canvas = useRef<HTMLCanvasElement>(null)
   const presenter = useRef<MergePresenter | null>(null)
   const [fallback, setFallback] = useState(false)
@@ -64,11 +69,17 @@ export function MergeViewport({
   const { schedule, cancel } = usePreviewFrame(() => {
     const model = current.current
     setModel(model)
-    if (ready) presenter.current?.draw(model.image, model.viewport, model.view, comparison, overlay)
+    if (ready) {
+      pulseActivity()
+      presenter.current?.draw(model.image, model.viewport, model.view, comparison, overlay)
+    }
   })
   useEffect(() => {
     schedule()
   }, [comparison, overlay, ready, schedule])
+  useEffect(() => {
+    if (preview && !ready && !failed && !busy) return beginActivity()
+  }, [preview, ready, failed, busy, beginActivity])
   const change = useCallback(
     (action: (model: Model) => Model, immediate = true) => {
       const next = action(current.current)
@@ -82,6 +93,7 @@ export function MergeViewport({
   )
   const panBy = useCallback(
     (x: number, y: number) => {
+      const before = current.current.view
       change(
         (model) => ({
           ...model,
@@ -89,12 +101,19 @@ export function MergeViewport({
         }),
         false,
       )
+      return { x: current.current.view.x - before.x, y: current.current.view.y - before.y }
     },
     [change],
   )
   const pan = usePanDrag(viewport, panBy)
   const { dragging, dragged, stop: stopDrag } = pan
+  useEffect(() => {
+    if (dragging && ready) return beginActivity()
+  }, [dragging, ready, beginActivity])
   usePreviewWheel(viewport, ready, change, stopDrag)
+  useEffect(() => {
+    stopDrag()
+  }, [stopDrag, comparison, overlay])
 
   useEffect(() => {
     stopDrag()
@@ -320,8 +339,8 @@ export function MergeViewport({
         data-dragging={dragging && ready}
         onPointerDown={pointerDown}
         onPointerMove={(event) => pan.move(event.nativeEvent)}
-        onPointerUp={stopDrag}
-        onPointerCancel={stopDrag}
+        onPointerUp={(event) => pan.release(event.nativeEvent)}
+        onPointerCancel={(event) => pan.cancel(event.nativeEvent)}
         onLostPointerCapture={pan.lostCapture}
         onDoubleClick={(event) => {
           if (!ready || dragged.current) return

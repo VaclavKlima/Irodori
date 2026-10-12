@@ -28,7 +28,7 @@ export async function importPhotos(
   await expect(page.getByTestId('import-status')).toContainText('Ready to import', {
     timeout: 30_000,
   })
-  await expect(page.getByTestId('import-status')).toContainText(`${paths.length} new`)
+  await expect(page.getByTestId('import-status')).toContainText(`${paths.length} awaiting checks`)
   await page.getByRole('button', { name: `Import ${paths.length} photos`, exact: true }).click()
   await expectImportComplete(page)
   if (!waitForPreview) return

@@ -4,8 +4,10 @@ import { useEffect, useState, useRef } from 'react'
 import type { DisplayPreview } from '../../../shared/contracts'
 import { frameByteLength } from '../../../shared/preview-frame'
 import type { WorkingFrame } from '../../../shared/adjustments'
+import { useForegroundActivity } from './useForegroundActivity'
 
 export function useWorkingPreview(preview: DisplayPreview | null, presented: boolean) {
+  const { begin } = useForegroundActivity(preview?.photoId, undefined, presented)
   const [working, setWorking] = useState<WorkingFrame | null>(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
@@ -38,9 +40,11 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
     const abort = new AbortController()
     const token = crypto.randomUUID()
     let cancelled = false
+    let releaseActivity: (() => void) | undefined
     const timer = setTimeout(
       () => {
         void (async () => {
+          releaseActivity = begin()
           try {
             const result =
               preview.format === 'hdr-working'
@@ -124,6 +128,8 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
           } catch (error) {
             if (!cancelled && !String(error).toLowerCase().includes('cancel'))
               setError('Live adjustments could not be prepared.')
+          } finally {
+            releaseActivity?.()
           }
         })()
       },
@@ -131,11 +137,12 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
     )
     return () => {
       cancelled = true
+      releaseActivity?.()
       clearTimeout(timer)
       abort.abort()
       void window.luma.releaseFullPreview(token).catch(() => undefined)
     }
-  }, [preview, presented, generation, attempt])
+  }, [preview, presented, generation, attempt, begin])
   return {
     working,
     generation,

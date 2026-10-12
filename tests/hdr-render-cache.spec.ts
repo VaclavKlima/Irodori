@@ -10,7 +10,9 @@ test('nearby pan and zoom reuse rendered texels without evaluating ACES in prese
   const first = hdrCachePlan(frame, frame, viewport, view, 'after', 0.5)
   const render = (plan: ReturnType<typeof hdrCachePlan>) =>
     [...cache.batches(plan, false)].reduce((n, b) => n + b.renderedTiles, 0)
+  expect(cache.has(first, false)).toBe(false)
   expect(render(first)).toBeGreaterThan(0)
+  expect(cache.has(first, false)).toBe(true)
   expect(render(first)).toBe(0)
   expect(render(hdrCachePlan(frame, frame, viewport, { ...view, x: 4 }, 'after', 0.5))).toBe(0)
   expect(render(hdrCachePlan(frame, frame, viewport, { ...view, scale: 1.1 }, 'after', 0.5))).toBe(

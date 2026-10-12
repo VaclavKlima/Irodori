@@ -42,7 +42,14 @@ async function startSlowImport(app: ElectronApplication, page: Page) {
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByRole('progressbar')).toBeVisible()
   await expect
-    .poll(async () => Number(await page.getByRole('progressbar').getAttribute('aria-valuenow')))
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (await window.luma.listTasks()).find(
+            (task) => task.kind === 'import' && task.status === 'running',
+          )?.transfer?.bytes ?? 0,
+      ),
+    )
     .toBeGreaterThan(0)
 }
 
@@ -68,7 +75,7 @@ test('copies in the background with usable browsing, compact progress, reload re
   const before = await page.evaluate(async () =>
     (await window.luma.listTasks()).find((task) => task.status === 'running')!,
   )
-  expect(before.progress!.completed).toBeLessThan(before.progress!.total)
+  expect(before.transfer!.bytes).toBeLessThan(before.transfer!.totalBytes)
   const nativeWindow = await app.browserWindow(page)
   await nativeWindow.evaluate((window) => {
     window.unmaximize()
@@ -111,7 +118,7 @@ test('copies in the background with usable browsing, compact progress, reload re
   )
   expect(after.id).toBe(before.id)
   expect(after.progress!.total).toBe(before.progress!.total)
-  expect(after.progress!.completed).toBeGreaterThanOrEqual(before.progress!.completed)
+  expect(after.transfer!.bytes).toBeGreaterThanOrEqual(before.transfer!.bytes)
   await page.getByTestId('task-progress').click()
   await page.getByRole('button', { name: 'Cancel task', exact: true }).click()
   await expect(page.getByTestId(`task-${before.id}`)).toHaveAttribute('data-status', 'cancelled')

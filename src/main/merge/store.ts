@@ -25,7 +25,9 @@ export async function syncDirectory(path: string) {
 }
 export async function verifyMaster(directory: string, manifest: MergeManifest) {
   if (
-    !['sony-merge-v1', 'sony-merge-v2', MERGE_VERSION].includes(manifest.version) ||
+    !['sony-merge-v1', 'sony-merge-v2', 'sony-merge-v3', MERGE_VERSION].includes(
+      manifest.version,
+    ) ||
     manifest.photo.assetKind !== 'derived' ||
     manifest.recipe.resolution !== 'native' ||
     manifest.asset.width !== manifest.recipe.crop.width ||

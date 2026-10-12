@@ -4,7 +4,7 @@ import type { RawGpuRenderer } from '../gpu/raw-renderer'
 import { mergeAccumulationShader } from '../gpu/merge-accumulation-shader'
 import { bandData, bandBounds } from './sampling'
 import { identityTransform } from './alignment'
-import { excludedBand } from './exclusions'
+import { sourceExclusionBand } from './exclusions'
 import type { PreparedSource } from './prepare'
 import type { MergeSettings, MergeSource, MergeTransform } from '../../shared/merge'
 import { accumulateSensorGpu, supportsSensorAccumulation } from './gpu-sensor-accumulation'
@@ -22,12 +22,13 @@ export async function accumulateGpu(
   native: { width: number; height: number },
   output: string,
   checkpoint: () => Promise<void>,
+  featherPixels = 0,
 ) {
   const { device, adapter } = await gpu.mergeDevice(),
     { width, height } = prepared[0],
     referenceIndex = sources.findIndex((s) => s.photo.id === settings.referenceId),
     resources: GPUBuffer[] = []
-  if (supportsSensorAccumulation(device, prepared))
+  if (supportsSensorAccumulation(device, prepared, featherPixels))
     return accumulateSensorGpu(
       gpu,
       prepared,
@@ -40,6 +41,7 @@ export async function accumulateGpu(
       native,
       output,
       checkpoint,
+      featherPixels,
     )
   const timings = { readingMs: 0, uploadMs: 0, dispatchMs: 0, readbackMs: 0, writingMs: 0 }
   const buffer = (size: number, usage: number) => {
@@ -155,7 +157,7 @@ export async function accumulateGpu(
               excluded,
               0,
               Uint32Array.from(
-                excludedBand(
+                sourceExclusionBand(
                   transforms[index],
                   width,
                   height,
@@ -163,6 +165,7 @@ export async function accumulateGpu(
                   native.height,
                   top,
                   count,
+                  featherPixels,
                 ),
               ),
             )
@@ -186,6 +189,7 @@ export async function accumulateGpu(
           )
           const matrix = transforms[index].matrix!
           for (let r = 0; r < 3; r++) floats.set(matrix.slice(r * 3, r * 3 + 3), 8 + r * 4)
+          floats[11] = Number(featherPixels > 0)
           floats.set(
             [
               scales[index],

@@ -53,7 +53,6 @@ test('real ZV-1A twelve-frame burst is positive evidence and nine shutter-varied
 test('successful shuffled imports reconcile cached sequences across batches and preserve manual overrides on scans', async () => {
   const root = await mkdtemp(join(tmpdir(), 'luma-capture-import-'))
   const fixture = resolve('tests/fixtures/photos/alpine-lake.jpg')
-  const metadataByPath = new Map<string, CaptureMetadata>()
   const processor: PreviewProcessor = {
     process: async (path, output) => {
       await copyFile(fixture, join(output, 'thumb.jpg'))
@@ -61,7 +60,9 @@ test('successful shuffled imports reconcile cached sequences across batches and 
       return {
         metadata: { width: 1200, height: 800 },
         source: 'embedded',
-        captureMetadata: metadataByPath.get(path),
+        captureMetadata: sequenceMetadata(
+          Number((await readFile(path, 'utf8')).split(' ').at(-1)) + 1,
+        ),
       }
     },
     close: async () => {},
@@ -89,7 +90,6 @@ test('successful shuffled imports reconcile cached sequences across batches and 
     for (let i = 0; i < 5; i++) {
       const path = join(root, `frame-${i}.ARW`)
       await writeFile(path, `isolated frame ${i}`)
-      metadataByPath.set(path, sequenceMetadata(i + 1))
       paths.push(path)
     }
     await commit(library, await scan(library, [paths[1], paths[0]]))

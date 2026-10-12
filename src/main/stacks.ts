@@ -15,6 +15,7 @@ import {
   type StackSummary,
   type StackOverview,
   type StackMembers,
+  type StackSnapshot,
 } from '../shared/stacks'
 
 interface StackRow {
@@ -129,6 +130,16 @@ export class StackStore {
       )
       .all(id, PAGE_SIZE, offset) as { photo: string }[]
     return { stack, photos: rows.map((r) => JSON.parse(r.photo)), total: stack.count }
+  }
+  snapshot(id: string, revision: number): StackSnapshot {
+    const stack = this.summary(this.expected(id, revision))
+    const rows = this.db
+      .prepare(
+        'SELECT photo FROM stack_members JOIN photos ON photo_id = photos.id WHERE stack_id = ? ORDER BY position',
+      )
+      .all(id) as { photo: string }[]
+    if (rows.length !== stack.count) throw new Error('This stack has unavailable photographs.')
+    return { stack, photos: rows.map((row) => JSON.parse(row.photo) as Photo) }
   }
   private remember(ids: string[], reason: string) {
     for (const id of ids)
@@ -351,17 +362,33 @@ export class StackStore {
         if (
           [...groups].some((id) => {
             const r = this.row(id)
-            return r.origin !== 'capture' || r.touched || r.automatic_key !== sequence.key
+            return (
+              r.origin !== 'capture' ||
+              r.touched ||
+              this.ids(id).some((member) => !sequence.ids.includes(member))
+            )
           })
         )
           continue
-        if (groups.size > 1) continue
-        const id = groups.values().next().value ?? randomUUID()
+        // Keep the group containing the earliest already grouped frame. A refreshed
+        // profile or newly imported start can change the key without changing intent.
+        const id =
+          sequence.ids.map((member) => this.forPhoto(member)?.id).find((id) => !!id) ?? randomUUID()
         if (groups.size) {
           const ids = this.ids(id)
-          if (ids.some((id) => !sequence.ids.includes(id))) continue
-          if (ids.length === sequence.ids.length) continue
-          this.db.prepare('UPDATE stacks SET revision = revision + 1 WHERE id = ?').run(id)
+          if (
+            groups.size === 1 &&
+            ids.length === sequence.ids.length &&
+            this.row(id).automatic_key === sequence.key
+          )
+            continue
+          for (const group of groups) {
+            this.db.prepare('DELETE FROM stack_members WHERE stack_id = ?').run(group)
+            if (group !== id) this.db.prepare('DELETE FROM stacks WHERE id = ?').run(group)
+          }
+          this.db
+            .prepare('UPDATE stacks SET automatic_key = ?, revision = revision + 1 WHERE id = ?')
+            .run(sequence.key, id)
         } else
           this.db
             .prepare(
@@ -375,13 +402,25 @@ export class StackStore {
       return changed
     })
   }
-  private projection() {
+  private galleryView() {
     const photos = (
       this.db.prepare('SELECT photo FROM photos ORDER BY imported_at DESC, rowid DESC').all() as {
         photo: string
       }[]
     ).map((r) => JSON.parse(r.photo) as Photo)
     const overview = this.overview()
+    const memberIds = new Map<string, string[]>()
+    const covers = new Map<string, string>()
+    const rows = this.db
+      .prepare('SELECT stack_id, photo_id FROM stack_members ORDER BY stack_id, position')
+      .all() as { stack_id: string; photo_id: string }[]
+    for (const row of rows) {
+      const ids = memberIds.get(row.stack_id) ?? []
+      ids.push(row.photo_id)
+      memberIds.set(row.stack_id, ids)
+    }
+    for (const stack of overview.stacks)
+      for (const id of memberIds.get(stack.id) ?? []) covers.set(id, stack.coverId)
     const counts = new Map(
       (
         this.db
@@ -393,15 +432,20 @@ export class StackStore {
     )
     const entries = projectGallery(
       photos,
-      overview.stacks.map((summary) => ({ summary, memberIds: this.ids(summary.id) })),
+      overview.stacks.map((summary) => ({ summary, memberIds: memberIds.get(summary.id) ?? [] })),
       counts,
     )
     return {
-      entries,
-      total: entries.length,
-      storedTotal: photos.length,
-      revision: overview.revision,
-      hiddenSelectedIds: [] as string[],
+      photos: new Map(photos.map((photo) => [photo.id, photo])),
+      memberIds,
+      covers,
+      page: {
+        entries,
+        total: entries.length,
+        storedTotal: photos.length,
+        revision: overview.revision,
+        hiddenSelectedIds: [] as string[],
+      },
     }
   }
   gallery(offset = 0, selectedIds: string[] = []): GalleryPage {
@@ -411,7 +455,7 @@ export class StackStore {
       selectedIds.some((id) => typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id))
     )
       throw new Error('Invalid photo selection.')
-    const page = this.projection()
+    const { page } = this.galleryView()
     const visible = new Set(page.entries.map((e) => e.photo.id))
     return {
       ...page,
@@ -424,7 +468,7 @@ export class StackStore {
   locate(photoId: string, direction: -1 | 0 | 1 = 0): GalleryLocation | null {
     if (![-1, 0, 1].includes(direction)) throw new Error('Invalid photo navigation.')
     const photo = this.photo(photoId),
-      page = this.projection()
+      page = this.galleryView().page
     const position = galleryPosition(page.entries, photoId, this.forPhoto(photoId)?.coverId)
     const index = position + direction
     if (position < 0 || index < 0 || index >= page.total) return null
@@ -440,14 +484,22 @@ export class StackStore {
   range(fromId: string, toId: string): PhotoReference[] {
     if (![fromId, toId].every((id) => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)))
       throw new Error('Invalid photo selection.')
-    this.photo(toId)
-    const { entries } = this.projection()
-    const to = galleryPosition(entries, toId, this.forPhoto(toId)?.coverId)
-    const from = this.db.prepare('SELECT 1 FROM photos WHERE id = ?').get(fromId)
-      ? galleryPosition(entries, fromId, this.forPhoto(fromId)?.coverId)
-      : to
-    return entries
-      .slice(Math.min(from, to), Math.max(from, to) + 1)
-      .map(({ photo }) => ({ id: photo.id, filename: photo.filename }))
+    const { page, photos, memberIds, covers } = this.galleryView()
+    if (!photos.has(toId)) throw new Error('This photo is unavailable.')
+    const { entries } = page
+    const to = galleryPosition(entries, toId, covers.get(toId))
+    const from = photos.has(fromId) ? galleryPosition(entries, fromId, covers.get(fromId)) : to
+    const selected = new Map<string, PhotoReference>()
+    for (const entry of entries.slice(Math.min(from, to), Math.max(from, to) + 1)) {
+      const ids =
+        entry.stack?.coverId === entry.photo.id
+          ? (memberIds.get(entry.stack.id) ?? [])
+          : [entry.photo.id]
+      for (const id of ids) {
+        const photo = photos.get(id)
+        if (photo) selected.set(id, { id, filename: photo.filename })
+      }
+    }
+    return [...selected.values()]
   }
 }

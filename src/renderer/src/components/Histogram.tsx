@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Eye } from 'lucide-react'
 import type { PreviewTools } from '../hooks/usePreviewTools'
 import layout from '../App.module.css'
@@ -15,35 +15,65 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
   const activeBin = Math.min(bin, bins - 1)
   const paths = useRef<(SVGPathElement | null)[]>([])
   const curves = useRef<number[][]>([])
-  useEffect(() => {
-    if (!open || !channels) return
+  const frame = useRef(0)
+  const animation = useRef<{
+    from: number[][]
+    target: number[][]
+    started: number
+    reduced: boolean
+    serial?: number
+  } | null>(null)
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(frame.current)
+      frame.current = 0
+      animation.current = null
+    },
+    [],
+  )
+  useLayoutEffect(() => {
+    if (!open || !channels) {
+      cancelAnimationFrame(frame.current)
+      frame.current = 0
+      animation.current = null
+      return
+    }
     const max = Math.max(1, ...channels.flat())
     const target = channels.map((values) => values.map((count) => 96 - (count / max) * 94))
     const from =
       curves.current.length && curves.current[0].length === bins
         ? curves.current.map((v) => v.slice())
         : target
-    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
-    let frame = 0
-    const started = performance.now()
+    animation.current = {
+      from,
+      target,
+      started: performance.now(),
+      reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      serial: hdr?.editSerial,
+    }
+    // Retarget the pending paint so continuous edits cannot cancel every next frame.
+    if (frame.current) return
     const animate = (time: number) => {
-      const fraction = reduced ? 1 : Math.min(1, (time - started) / 80)
-      curves.current = target.map((values, c) =>
-        values.map((v, i) => from[c][i] + (v - from[c][i]) * fraction),
+      frame.current = 0
+      const current = animation.current
+      if (!current) return
+      const fraction = current.reduced ? 1 : Math.min(1, (time - current.started) / 80)
+      curves.current = current.target.map((values, c) =>
+        values.map((v, i) => current.from[c][i] + (v - current.from[c][i]) * fraction),
       )
       curves.current.forEach((values, c) =>
         paths.current[c]?.setAttribute(
           'd',
-          `M0,96 ${values.map((y, i) => `L${(i * 256) / bins},${y}`).join(' ')} L255,96Z`,
+          `M0,96 ${values.map((y, i) => `L${(i * 256) / values.length},${y}`).join(' ')} L255,96Z`,
         ),
       )
       const plot = paths.current[0]?.ownerSVGElement
-      if (plot && hdr?.editSerial !== undefined)
-        plot.dataset.curveEditSerial = String(hdr.editSerial)
-      if (fraction < 1) frame = requestAnimationFrame(animate)
+      if (plot && current.serial !== undefined)
+        plot.dataset.curveEditSerial = String(current.serial)
+      if (fraction < 1) frame.current = requestAnimationFrame(animate)
+      else animation.current = null
     }
-    frame = requestAnimationFrame(animate)
-    return () => cancelAnimationFrame(frame)
+    frame.current = requestAnimationFrame(animate)
   }, [channels, bins, open, hdr?.editSerial])
   const label = tools.mode === 'before' ? 'Before' : 'After'
   const percent = (count: number) =>

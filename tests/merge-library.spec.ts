@@ -11,8 +11,42 @@ import { MergeReviews } from '../src/main/merge/reviews'
 import { MERGE_VERSION, type MergeManifest } from '../src/shared/merge'
 import { syntheticMerge } from './merge.helpers'
 import { verifyMaster } from '../src/main/merge/store'
+import { WorkScheduler } from '../src/main/work-scheduler'
 
-for (const version of ['sony-merge-v1', 'sony-merge-v2', MERGE_VERSION] as const)
+test('closing a queued merge inspection cancels admission and releases source pins', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'luma-merge-queued-'))
+  const scheduler = new WorkScheduler()
+  let inspected = false
+  const reviews = new MergeReviews(
+    root,
+    async () => {
+      inspected = true
+      throw new Error('Queued inspection must not start')
+    },
+    undefined,
+    scheduler,
+  )
+  const ids = ['a'.repeat(64), 'b'.repeat(64)]
+  try {
+    scheduler.activity('visible edit', true)
+    const creating = reviews.create(ids, 'noise')
+    const cancelled = expect(creating).rejects.toThrow()
+    expect(reviews.leased(ids)).toBe(true)
+    await reviews.close()
+    await cancelled
+    expect(inspected).toBe(false)
+    expect(reviews.leased(ids)).toBe(false)
+    expect(reviews.active()).toBeNull()
+    scheduler.activity('visible edit', false)
+    await scheduler.background(async () => {}, new AbortController().signal)
+  } finally {
+    scheduler.close()
+    await reviews.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+for (const version of ['sony-merge-v1', 'sony-merge-v2', 'sony-merge-v3', MERGE_VERSION] as const)
   test(`${version} journal recovery preserves derived master, neutral history, fixed lens and source-independent previews`, async () => {
     const f = await syntheticMerge([0.25, 1, 4]),
       root = await mkdtemp(join(tmpdir(), 'luma-merge-library-')),
@@ -340,6 +374,10 @@ for (const boundary of ['staged', 'journaled', 'published', 'committed'] as cons
                 ? 'ENOSPC injected before publication'
                 : 'Injected publication interruption',
             )
+        },
+        {
+          inspectCapture: async () => ({ version: 2, format: 'ARW' }),
+          close: async () => {},
         },
       )
     let library = make()

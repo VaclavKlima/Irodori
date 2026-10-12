@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import type { MergeMode, MergePreview, MergeReview, MergeSettings } from '../../../shared/merge'
+import {
+  exposure,
+  type MergeMode,
+  type MergePreview,
+  type MergeReview,
+  type MergeSettings,
+} from '../../../shared/merge'
 import { AdjustmentInput } from './AdjustmentInput'
 import { MergeViewport } from './MergeViewport'
 import styles from './MergeDialog.module.css'
@@ -186,11 +192,10 @@ export function MergeDialog({
                 </small>
                 <small>
                   {Math.log2(
-                    (source.capture.shutterSeconds * source.capture.iso) /
-                      (review.sources.find((s) => s.photo.id === settings?.referenceId)!.capture
-                        .shutterSeconds *
-                        review.sources.find((s) => s.photo.id === settings?.referenceId)!.capture
-                          .iso),
+                    exposure(source.capture) /
+                      exposure(
+                        review.sources.find((s) => s.photo.id === settings?.referenceId)!.capture,
+                      ),
                   ).toFixed(2)}{' '}
                   EV{settings?.referenceId === source.photo.id ? ' · Reference' : ''}
                 </small>

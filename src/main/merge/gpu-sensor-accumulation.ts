@@ -7,16 +7,26 @@ import { mergeSensorShader } from '../gpu/merge-sensor-shader'
 import { readSensorCache, packedBits } from './sensor-cache'
 import { bandData, noteMergeRead } from './sampling'
 import { identityTransform } from './alignment'
-import { excludedBand } from './exclusions'
+import { sourceExclusionBand, packedExclusionConfidence } from './exclusions'
 import type { PreparedSource } from './prepare'
 import type { MergeSettings, MergeSource, MergeTransform } from '../../shared/merge'
 
 const limit = 1024 ** 3
 /** Reserve all persistent merge buffers alongside the bounded 128-row AHD pipeline. */
-export function supportsSensorAccumulation(device: GPUDevice, prepared: PreparedSource[]) {
+export function supportsSensorAccumulation(
+  device: GPUDevice,
+  prepared: PreparedSource[],
+  featherPixels = 0,
+) {
   const { width, height } = prepared[0],
     n = width * height,
-    reserved = n * 24 + Math.ceil(n / 32) * 8 + 65536 + 8192 + 240
+    reserved =
+      n * 24 +
+      Math.ceil(n / 32) * 4 +
+      (featherPixels ? Math.ceil(n / 4) * 4 : Math.ceil(n / 32) * 4) +
+      65536 +
+      8192 +
+      240
   return (
     n * 16 <= device.limits.maxStorageBufferBindingSize &&
     prepared.every((p) => {
@@ -52,6 +62,7 @@ export async function accumulateSensorGpu(
   native: { width: number; height: number },
   output: string,
   checkpoint: () => Promise<void>,
+  featherPixels = 0,
 ) {
   const { device, adapter } = await gpu.mergeDevice(),
     { width, height } = prepared[0],
@@ -94,7 +105,7 @@ export async function accumulateSensorGpu(
       flags = buffer(n * 4),
       bitsSize = Math.ceil(n / 32) * 4,
       alpha = buffer(bitsSize),
-      excluded = buffer(bitsSize),
+      excluded = buffer(featherPixels ? Math.ceil(n / 4) * 4 : bitsSize),
       lut = buffer(65536),
       offsets = buffer(8192)
     const parameters = new ArrayBuffer(240),
@@ -152,6 +163,7 @@ export async function accumulateSensorGpu(
       )
       for (let r = 0; r < 3; r++)
         floats.set(transforms[s].matrix!.slice(r * 3, r * 3 + 3), 44 + r * 4)
+      floats[47] = Number(featherPixels > 0)
       floats.set(
         [
           scales[s],
@@ -173,15 +185,23 @@ export async function accumulateSensorGpu(
         settings.strength > 0 &&
         s !== referenceIndex &&
         (transforms[s].diagnostics?.movingRegions?.length ?? 0) > 0
-      if (hasExclusion)
+      if (hasExclusion) {
+        const exclusion = sourceExclusionBand(
+          transforms[s],
+          width,
+          height,
+          native.width,
+          native.height,
+          0,
+          height,
+          featherPixels,
+        )
         device.queue.writeBuffer(
           excluded,
           0,
-          packedBits(
-            excludedBand(transforms[s], width, height, native.width, native.height, 0, height),
-          ),
+          featherPixels ? packedExclusionConfidence(exclusion) : packedBits(exclusion),
         )
-      else {
+      } else {
         const clear = device.createCommandEncoder()
         clear.clearBuffer(excluded)
         device.queue.submit([clear.finish()])

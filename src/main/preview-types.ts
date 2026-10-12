@@ -21,12 +21,22 @@ export type PreviewWorkerRequest =
   | { type: 'close' }
   | { type: 'release' }
   | {
-      type: 'process' | 'full' | 'metadata' | 'capture-metadata' | 'statistics' | 'pixel'
+      type:
+        | 'process'
+        | 'thumbnail'
+        | 'thumbnail-fallback'
+        | 'full'
+        | 'metadata'
+        | 'capture-metadata'
+        | 'statistics'
+        | 'pixel'
       path: string
       output: string
       options?: ProcessingOptions
       frame?: { width: number; height: number; sha256: string; hdr?: HdrStatisticsJob }
       pixel?: HdrPixelJob
+      importMode?: 'embedded' | 'fallback'
+      importSeed?: PreviewResult
     }
 export type PreviewWorkerResponse =
   | { type: 'stage'; stage: PreviewStage }
@@ -34,6 +44,7 @@ export type PreviewWorkerResponse =
       type: 'result'
       result:
         | PreviewResult
+        | ThumbnailResult
         | FullPreviewResult
         | ProcessingMetadata
         | ImageStatistics
@@ -44,6 +55,8 @@ export type PreviewWorkerResponse =
   | { type: 'error'; error: string }
 
 export interface PreviewResult {
+  needsFallback?: boolean
+  preparation?: { timings: Record<string, number>; cpuMicros: number; rssBytes: number }
   captureMetadata?: import('../shared/capture-sequence').CaptureMetadata
   processing?: ProcessingMetadata
   metadata: PhotoMetadata
@@ -51,7 +64,28 @@ export interface PreviewResult {
 }
 
 export interface PreviewProcessor {
+  createWorker?(): PreviewProcessor
+  prepare?(
+    path: string,
+    output: string,
+    signal: AbortSignal,
+    fallback: boolean,
+    seed?: PreviewResult,
+  ): Promise<PreviewResult>
   process(path: string, output: string, signal: AbortSignal): Promise<PreviewResult>
+  close(): Promise<void>
+}
+
+export type ThumbnailResult =
+  { state: 'ready'; source: Photo['previewSource'] } | { state: 'needs-fallback' }
+
+export interface ThumbnailProcessor {
+  thumbnail(
+    path: string,
+    output: string,
+    signal: AbortSignal,
+    fallback?: boolean,
+  ): Promise<ThumbnailResult>
   close(): Promise<void>
 }
 

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
-import { PanDrag } from '../preview/pan-drag'
+import { PanDrag, type AppliedPan } from '../preview/pan-drag'
 
 export function usePanDrag(
   viewport: RefObject<HTMLDivElement | null>,
-  pan: (x: number, y: number) => void,
+  pan: (x: number, y: number) => AppliedPan,
 ) {
   const [dragging, setDragging] = useState(false)
   const dragged = useRef(false)
@@ -27,6 +27,8 @@ export function usePanDrag(
     }, []),
     start: useCallback((event: PointerEvent) => instance.current?.start(event), []),
     move: useCallback((event: PointerEvent) => instance.current?.move(event), []),
+    release: useCallback((event: PointerEvent) => instance.current?.release(event), []),
+    cancel: useCallback((event: PointerEvent) => instance.current?.cancel(event), []),
     stop: useCallback(() => instance.current?.stop(), []),
     lostCapture: useCallback(() => instance.current?.lostCapture(), []),
   }

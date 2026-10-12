@@ -125,7 +125,7 @@ test('merge relationships union complete stacks and backfill once, with newest c
     t.library.ungroupStack(stack.id, changed.revision)
     await t.restart()
     expect(t.library.listStacks().stacks).toEqual([])
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 11 })
+    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 14 })
   } finally {
     await t.close()
   }
@@ -226,6 +226,8 @@ test('gallery pagination, hidden boundaries and flat selection remain distinct',
       ids[4],
       ids[3],
       ids[2],
+      ids[0],
+      ids[1],
     ])
     t.library.setStackExpanded(stack.id, true, stack.revision)
     expect(t.library.getGalleryRange(ids[0], ids[4]).map((p) => p.id)).toEqual([
@@ -233,6 +235,7 @@ test('gallery pagination, hidden boundaries and flat selection remain distinct',
       ids[3],
       ids[2],
       ids[0],
+      ids[1],
     ])
     expect(t.library.range(ids[0], ids[4])).toHaveLength(5)
   } finally {

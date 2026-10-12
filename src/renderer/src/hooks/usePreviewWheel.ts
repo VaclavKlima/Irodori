@@ -16,6 +16,17 @@ export function usePreviewWheel<T extends Model>(
   useEffect(() => {
     const element = viewport.current
     if (!element) return
+    const document = element.ownerDocument
+    const window = document.defaultView
+    // Chromium encodes touchpad pinch as Ctrl-wheel. Only independent keyboard
+    // or pointer events can establish whether Control is physically held.
+    let physicalControl: boolean | undefined
+    const modifiers = (event: KeyboardEvent | PointerEvent) => {
+      physicalControl = event.ctrlKey
+    }
+    const clearModifiers = () => {
+      physicalControl = undefined
+    }
     const wheel = (event: WheelEvent) => {
       if (!ready || event.defaultPrevented) return
       event.preventDefault()
@@ -32,11 +43,28 @@ export function usePreviewWheel<T extends Model>(
           },
           model.image,
           model.viewport,
+          physicalControl === true,
         )
         return view === model.view ? model : { ...model, view }
       }, false)
     }
     element.addEventListener('wheel', wheel, { passive: false })
-    return () => element.removeEventListener('wheel', wheel)
+    document.addEventListener('keydown', modifiers, true)
+    document.addEventListener('keyup', modifiers, true)
+    document.addEventListener('pointerdown', modifiers, true)
+    document.addEventListener('pointermove', modifiers, true)
+    document.addEventListener('pointerup', modifiers, true)
+    document.addEventListener('visibilitychange', clearModifiers)
+    window?.addEventListener('blur', clearModifiers)
+    return () => {
+      element.removeEventListener('wheel', wheel)
+      document.removeEventListener('keydown', modifiers, true)
+      document.removeEventListener('keyup', modifiers, true)
+      document.removeEventListener('pointerdown', modifiers, true)
+      document.removeEventListener('pointermove', modifiers, true)
+      document.removeEventListener('pointerup', modifiers, true)
+      document.removeEventListener('visibilitychange', clearModifiers)
+      window?.removeEventListener('blur', clearModifiers)
+    }
   }, [viewport, ready, change, stopDrag])
 }

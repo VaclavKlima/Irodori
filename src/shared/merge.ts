@@ -1,13 +1,17 @@
 import type { Photo } from './contracts'
 import type { HdrWorkingAsset } from './hdr'
 import type { ProcessingMetadata } from './lens'
+import { verifyCaptureSequence, type CaptureMetadata } from './capture-sequence'
 
-export const MERGE_VERSION = 'sony-merge-v3'
-export type MergeVersion = 'sony-merge-v1' | 'sony-merge-v2' | typeof MERGE_VERSION
+export const MERGE_VERSION = 'sony-merge-v4'
+export type MergeVersion =
+  'sony-merge-v1' | 'sony-merge-v2' | 'sony-merge-v3' | typeof MERGE_VERSION
 export const MERGE_PIPELINE = Object.freeze({
-  preparation: 'sensor-white-rec2020-v3',
-  alignment: 'masked-tile-native-v3',
-  accumulation: 'tiled-inverse-variance-v3',
+  preparation: 'source-lens-common-crop-channel-proof-v4',
+  alignment: 'masked-tile-ecc-native-v4',
+  exposure: 'brk-tiled-radiometry-v4',
+  accumulation: 'tiled-inverse-variance-confidence-v4',
+  referenceFallback: 'sony-camera-highlight-blend-frozen-missing-reference-v4',
 })
 export interface MergeMeasurements {
   stages: Record<
@@ -28,6 +32,12 @@ export interface MergeMeasurements {
     decodingMs: number
     preparationMs: number
   }[]
+  referenceFallback?: {
+    backend: 'cpu'
+    reused: boolean
+    decodingMs: number
+    preparationMs: number
+  }
   accumulation: {
     backend: 'gpu' | 'cpu'
     kernel?: 'sensor-warp' | 'prepared-bands'
@@ -52,6 +62,8 @@ export interface MergeMeasurements {
     success: boolean
     runtimeMs: number
     patches?: { samplingMs: number; optimizationMs: number; count: number; pixels: number }
+    diagnostics?: AlignmentDiagnostics[]
+    reason?: string
   }[]
   disk: { readBytes: number; writtenBytes: number }
   peak: { workerBytes: number; gpuBytes: number; wasmBytes: number }
@@ -74,7 +86,7 @@ export const MERGE_LIMITS = Object.freeze({
   maskRadius: 3,
 })
 export const ALIGNMENT_CONSTANTS = Object.freeze({
-  version: 'opencv-4.13.0-orb-tile-ic-v3' as const,
+  version: 'opencv-4.13.0-orb-ecc-tile-ic-v4' as const,
   minimumInliers: 30,
   minimumCells: 6,
   grid: 4,
@@ -95,7 +107,43 @@ export const ALIGNMENT_CONSTANTS = Object.freeze({
   maximumTileOffsetPixels: 3,
   maximumCompetingSupport: 0.4,
   minimumNativeCells: 4,
+  eccTrainingGrid: 32,
+  eccRefinementGrid: 48,
+  eccValidationGrid: 35,
+  eccPatchEdge: 160,
+  eccConsensusPixels: 2,
+  cameraRegistrationPolicy: 'unclipped-camera-channel-v1' as const,
+  cameraRegistrationPaths: 'rgb-features-camera-features-rgb-ecc-v1' as const,
+  cameraChannelCoverageGain: 0.02,
 })
+export const BRK_EXPOSURE_POLICY = Object.freeze({
+  version: MERGE_PIPELINE.exposure,
+  grid: 48,
+  samplesPerTile: 16,
+  minimumTileSamples: 4,
+  minimumTiles: 8,
+  minimumCells: 4,
+  minimumSupport: 0.35,
+  minimumAgreement: 0.7,
+  residualEv: 0.1,
+  maximumMetadataDeltaEv: 1,
+  sourceExclusionFeatherPixels: 64,
+})
+export interface ExposureDiagnostics {
+  policy: typeof BRK_EXPOSURE_POLICY
+  referenceId: string
+  nominalEv: number
+  measuredEv: number
+  metadataDeltaEv: number
+  usableTiles: number
+  trainingTiles: number
+  trainingSamples: number
+  validationSamples: number
+  validationCells: number
+  agreement: number
+  medianResidualEv: number
+  excludedTiles: number
+}
 export type MergeMode = 'hdr' | 'noise'
 export interface MergeSettings {
   mode: MergeMode
@@ -117,6 +165,8 @@ export interface MergeSource {
   capture: MergeCapture
   relativeEv: number
   metadata: ProcessingMetadata
+  /** Read from the managed original and frozen for the lifetime of this review. */
+  captureMetadata?: CaptureMetadata
 }
 export type MergeMatrix = [number, number, number, number, number, number, number, number, number]
 export interface AlignmentDiagnostics {
@@ -135,6 +185,12 @@ export interface AlignmentDiagnostics {
   }[]
   movingRegions: { left: number; top: number; width: number; height: number }[]
   via?: string
+  method?: 'orb' | 'ecc-patches' | 'identical'
+  registrationChannel?: 'red' | 'green' | 'blue'
+  reason?: string
+  usableCoverage?: number
+  patchSupport?: number
+  motionSupport?: { observations: number; candidates: number; training: number; heldOut: number }
   runtimeMs: number
   wasmMemoryBytes: number
 }
@@ -189,6 +245,13 @@ export interface MergeCrop {
   width: number
   height: number
 }
+export interface MergePreparation {
+  policy: typeof MERGE_PIPELINE.preparation
+  capture: import('./capture-sequence').CaptureSequence
+  /** Centered crop in unrotated decoder coordinates, before registration. */
+  commonCrop: MergeCrop
+  sources: { id: string; width: number; height: number; flip: number; lensIdentity: string }[]
+}
 export interface MergeRecipe {
   resolution: 'preview' | 'native'
   maskDimensions: { width: number; height: number }
@@ -207,10 +270,12 @@ export interface MergeRecipe {
     decoder: string
     cameraProfile: string
     lensIdentity: string
+    photometry?: ExposureDiagnostics
   }[]
   width: number
   height: number
   crop: MergeCrop
+  preparation?: MergePreparation
   affectedPercent: number
   referenceClippedPercent: number
   maskSha256: string
@@ -246,6 +311,16 @@ export function mergeUnavailable(count: number): string | undefined {
       ? 'Select no more than 32 photographs.'
       : undefined
 }
+/** Early menu checks only; review validation owns camera and capture compatibility. */
+export function groupMergeUnavailable(originals: readonly Photo[]): string | undefined {
+  if (originals.length < MERGE_LIMITS.minSources)
+    return 'The group needs at least two original Sony RAW photographs.'
+  if (originals.length > MERGE_LIMITS.maxSources)
+    return 'Group merge supports no more than 32 originals.'
+  if (originals.some((photo) => photo.format.toUpperCase() !== 'ARW'))
+    return 'Every group original must be a Sony ARW. Unsupported originals cannot be omitted.'
+  return undefined
+}
 export function validateMergeSettings(value: MergeSettings, ids: string[]): void {
   if (
     !value ||
@@ -262,12 +337,20 @@ export function validateMergeSettings(value: MergeSettings, ids: string[]): void
 export function exposure(capture: MergeCapture): number {
   return (capture.shutterSeconds * capture.iso) / capture.aperture ** 2
 }
+export function verifiedBracket(sources: MergeSource[]) {
+  if (sources.some((s) => !s.captureMetadata)) return null
+  const capture = verifyCaptureSequence(
+    sources.map((s) => ({ id: s.photo.id, metadata: s.captureMetadata! })),
+  )
+  return capture?.kind === 'bracket' ? capture : null
+}
 export function validateMergeSources(sources: MergeSource[], mode: MergeMode): void {
   const unavailable = mergeUnavailable(sources.length)
   if (unavailable) throw new Error(unavailable)
   if (new Set(sources.map((s) => s.photo.id)).size !== sources.length)
     throw new Error('Duplicate merge sources.')
   const first = sources[0]
+  const bracket = mode === 'hdr' && verifiedBracket(sources)
   for (const s of sources) {
     const m = s.metadata,
       c = s.capture
@@ -283,19 +366,22 @@ export function validateMergeSources(sources: MergeSource[], mode: MergeMode): v
       throw new Error(
         `${s.photo.filename}: a verified Sony RAW with numeric capture metadata is required.`,
       )
-    if (
-      m.model !== first.metadata.model ||
-      s.photo.width !== first.photo.width ||
-      s.photo.height !== first.photo.height ||
-      c.aperture !== first.capture.aperture ||
-      c.focalLength !== first.capture.focalLength ||
-      (c.focusDistance !== undefined &&
-        first.capture.focusDistance !== undefined &&
-        c.focusDistance !== first.capture.focusDistance)
-    )
+    if (m.model !== first.metadata.model || m.make !== first.metadata.make)
+      throw new Error(`${s.photo.filename}: camera differs from ${first.photo.filename}.`)
+    if (!bracket && (s.photo.width !== first.photo.width || s.photo.height !== first.photo.height))
+      throw new Error(`${s.photo.filename}: dimensions differ from ${first.photo.filename}.`)
+    if (!bracket && c.aperture !== first.capture.aperture)
       throw new Error(
-        `${s.photo.filename}: camera, dimensions, focal length, aperture or focus differs.`,
+        `${s.photo.filename}: aperture differs from ${first.photo.filename}. Aperture changes require HDR mode and one verified continuous BRK trigger.`,
       )
+    if (c.focalLength !== first.capture.focalLength)
+      throw new Error(`${s.photo.filename}: focal length differs from ${first.photo.filename}.`)
+    if (
+      c.focusDistance !== undefined &&
+      first.capture.focusDistance !== undefined &&
+      c.focusDistance !== first.capture.focusDistance
+    )
+      throw new Error(`${s.photo.filename}: focus distance differs from ${first.photo.filename}.`)
   }
   const evs = sources.map((s) => Math.log2(exposure(s.capture)))
   if (mode === 'noise' && Math.max(...evs) - Math.min(...evs) > MERGE_LIMITS.noiseSpreadEv + 1e-9)

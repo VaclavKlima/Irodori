@@ -2,6 +2,7 @@ import { useHdrAnalysis } from '../hooks/useHdrAnalysis'
 import { SDR_TARGET } from '../../../shared/hdr'
 import type { DisplayTarget } from '../../../shared/hdr'
 import { HdrPresenter } from '../preview/hdr-presenter'
+import { useForegroundActivity } from '../hooks/useForegroundActivity'
 import { HdrCpuPresenter } from '../preview/hdr-cpu-presenter'
 import { hdrPresentationMemory, HDR_PRESENTATION_BUDGET } from '../preview/hdr-memory'
 import { neutralAdjustments } from '../../../shared/adjustments'
@@ -127,6 +128,11 @@ export function PhotoPreview({
   })
   const current = useRef(model)
   const full = useFullPreview(photo?.id, !suspended)
+  const { begin: beginActivity, pulse: pulseActivity } = useForegroundActivity(
+    photo?.id,
+    undefined,
+    !suspended,
+  )
   const [displayedUrl, setDisplayedUrl] = useState('')
   const [fallback, setFallback] = useState(false)
   const presenter = useRef<PreviewPresenter | HdrPresenter | HdrCpuPresenter | null>(null)
@@ -174,6 +180,7 @@ export function PhotoPreview({
     gesturing,
     analyze,
     setMask,
+    beginActivity,
   )
   const analysisError = useHdrAnalysis(
     hdrReady && !suspended ? working : null,
@@ -185,6 +192,7 @@ export function PhotoPreview({
     setMask,
     gesturing,
     fallback,
+    beginActivity,
   )
   useEffect(() => {
     if (gesturing && mode === 'before') update({ mode: 'after' })
@@ -241,6 +249,7 @@ export function PhotoPreview({
   const editingSurface = !!working
   const placeholderView = constrain(model.view, full.placeholder ?? model.image, model.viewport)
   function draw(model: Model) {
+    pulseActivity()
     const started = performance.now()
     presenter.current?.setComparison(mode, split)
     if (presenter.current instanceof HdrPresenter || presenter.current instanceof HdrCpuPresenter)
@@ -274,8 +283,10 @@ export function PhotoPreview({
     const canvas = overlay.current,
       context = canvas?.getContext('2d')
     if (!canvas || !context) return
-    canvas.width = Math.max(1, Math.round(model.viewport.width))
-    canvas.height = Math.max(1, Math.round(model.viewport.height))
+    const canvasWidth = Math.max(1, Math.round(model.viewport.width)),
+      canvasHeight = Math.max(1, Math.round(model.viewport.height))
+    if (canvas.width !== canvasWidth) canvas.width = canvasWidth
+    if (canvas.height !== canvasHeight) canvas.height = canvasHeight
     context.clearRect(0, 0, canvas.width, canvas.height)
     if (!mask || !working) return
     const { image, viewport, view } = model
@@ -370,6 +381,7 @@ export function PhotoPreview({
 
   const panBy = useCallback(
     (x: number, y: number) => {
+      const before = current.current.view
       change(
         (model) => ({
           ...model,
@@ -377,11 +389,17 @@ export function PhotoPreview({
         }),
         false,
       )
+      return { x: current.current.view.x - before.x, y: current.current.view.y - before.y }
     },
     [change],
   )
   const pan = usePanDrag(viewport, panBy)
   const { dragging, dragged, stop: stopPan } = pan
+  const activityPhotoId = photo?.id
+  useEffect(() => {
+    if (!suspended && activityPhotoId && !histogramError && (!ready || dragging || gesturing))
+      return beginActivity()
+  }, [activityPhotoId, suspended, histogramError, ready, dragging, gesturing, beginActivity])
   const stopDrag = useCallback(() => {
     if (
       dividerPointer.current !== null &&
@@ -392,6 +410,20 @@ export function PhotoPreview({
     stopPan()
   }, [stopPan])
   usePreviewWheel(viewport, ready, change, stopDrag)
+  const adjustmentKey = JSON.stringify(adjustments)
+  useEffect(() => {
+    stopDrag()
+  }, [
+    stopDrag,
+    adjustmentKey,
+    editingEpoch,
+    generation,
+    displayTarget.generation,
+    suspended,
+    mode,
+    split,
+    hdrRanges,
+  ])
   useEffect(() => {
     if (!ready) stopDrag()
   }, [ready, stopDrag])
@@ -431,7 +463,7 @@ export function PhotoPreview({
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setHdrReady(false)
         presenter.current = fallback
-          ? new HdrCpuPresenter(canvas, () => setHdrReady(true), displayFailed)
+          ? new HdrCpuPresenter(canvas, () => setHdrReady(true), displayFailed, beginActivity)
           : new HdrPresenter(
               canvas,
               initialTarget.current,
@@ -442,6 +474,7 @@ export function PhotoPreview({
               () => setHdrReady(true),
               analyze,
               retainedSurface.current ?? undefined,
+              beginActivity,
             )
       } else
         presenter.current = new PreviewPresenter(canvas, fallback || !editingSurface, () =>
@@ -455,7 +488,16 @@ export function PhotoPreview({
       presenter.current?.dispose()
       presenter.current = null
     }
-  }, [fallback, generation, editingSurface, working?.hdr, displayFailed, suspended, analyze])
+  }, [
+    fallback,
+    generation,
+    editingSurface,
+    working?.hdr,
+    displayFailed,
+    suspended,
+    analyze,
+    beginActivity,
+  ])
 
   useEffect(() => {
     if (
@@ -633,6 +675,7 @@ export function PhotoPreview({
     else if (event.key === '0') fit()
     else if (event.key === '1') zoom(1)
     else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+      stopDrag()
       const amount = event.shiftKey ? 120 : 40
       change((model) => ({
         ...model,
@@ -686,8 +729,8 @@ export function PhotoPreview({
           data-dragging={dragging}
           onPointerDown={pointerDown}
           onPointerMove={pointerMove}
-          onPointerUp={stopDrag}
-          onPointerCancel={stopDrag}
+          onPointerUp={(event) => pan.release(event.nativeEvent)}
+          onPointerCancel={(event) => pan.cancel(event.nativeEvent)}
           onLostPointerCapture={(event) => {
             if (event.target === divider.current) stopDrag()
             else pan.lostCapture()

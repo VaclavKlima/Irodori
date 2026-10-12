@@ -15,10 +15,18 @@ import { openCv } from './opencv'
 
 type Observation = { x: number; y: number; sx: number; sy: number }
 type Measurements = { points: Observation[]; matches: number[][] }
-// A similarity and a projective candidate share absolute native measurements.
-// Entries are owned by the prepared pair and disappear when its review is released.
-const cache = new WeakMap<PreparedSource, WeakMap<PreparedSource, Promise<Measurements>>>()
+// Measurements depend on the initial warp. Keep a bounded set per prepared pair.
+const cache = new WeakMap<
+  PreparedSource,
+  WeakMap<PreparedSource, Map<string, Promise<Measurements>>>
+>()
 const maskedPlanes = new WeakMap<PreparedSource, Float32Array>()
+const fittedEvidence = new WeakMap<
+  MergeTransform,
+  { reference: PreparedSource; source: PreparedSource; key: string; measurements: Measurements }
+>()
+const hypothesisKey = (t: MergeTransform) =>
+  JSON.stringify([t.matrix, t.tiles, t.diagnostics?.method === 'ecc-patches'])
 function maskedPlane(source: PreparedSource) {
   let pixels = maskedPlanes.get(source)
   if (!pixels) {
@@ -77,6 +85,25 @@ const coordinates = (p: Observation) => [p.x, p.y, p.sx, p.sy]
 const cell = (x: number, y: number, w: number, h: number) =>
   Math.min(3, Math.floor((x * 4) / w)) + 4 * Math.min(3, Math.floor((y * 4) / h))
 
+async function rejectCompetingPlanes(points: Observation[], t: MergeTransform) {
+  const cv = await openCv(),
+    first = cv.fit(points.map(coordinates), false, C.motionConsensusPixels)
+  if (!first) return
+  const rest = points.filter((p) => residual(first.matrix, p) > C.motionConsensusPixels),
+    second = cv.fit(rest.map(coordinates), false, C.motionConsensusPixels)
+  if (
+    second &&
+    (points.length - rest.length) / points.length >= C.maximumCompetingSupport &&
+    rest.filter((p) => residual(second.matrix, p) <= C.motionConsensusPixels).length /
+      points.length >=
+      C.maximumCompetingSupport
+  )
+    alignmentFailure(
+      'Inconsistent geometric match: two substantial scene planes have different motion. Possible parallax.',
+      [t.diagnostics!],
+    )
+}
+
 export async function motionMeasurements(
   reference: PreparedSource,
   source: PreparedSource,
@@ -85,17 +112,25 @@ export async function motionMeasurements(
 ): Promise<Measurements> {
   let sources = cache.get(reference)
   if (!sources) cache.set(reference, (sources = new WeakMap()))
-  let pending = sources.get(source)
+  let hypotheses = sources.get(source)
+  if (!hypotheses) sources.set(source, (hypotheses = new Map()))
+  const key = hypothesisKey(t)
+  let pending = hypotheses.get(key)
   if (!pending) {
     pending = (async () => {
       const measured =
-        Math.min(reference.plane.width, reference.plane.height) >= 128
-          ? await coarseMeasurements(reference, source, t, checkpoint)
-          : await patches(reference, source, t, C.motionTrainingGrid, 0.5, checkpoint, {
-              edge: C.motionPatchEdge,
+        t.diagnostics?.method === 'ecc-patches'
+          ? await patches(reference, source, t, C.eccTrainingGrid, 0.25, checkpoint, {
+              edge: C.eccPatchEdge,
               validFraction: C.motionValidFraction,
-              coarse: true,
             })
+          : Math.min(reference.plane.width, reference.plane.height) >= 128
+            ? await coarseMeasurements(reference, source, t, checkpoint)
+            : await patches(reference, source, t, C.motionTrainingGrid, 0.5, checkpoint, {
+                edge: C.motionPatchEdge,
+                validFraction: C.motionValidFraction,
+                coarse: true,
+              })
       const points = measured
         .filter((p) => p.correlation >= C.motionPatchCorrelation && Math.hypot(p.dx, p.dy) < 32)
         .map((p) => {
@@ -108,10 +143,84 @@ export async function motionMeasurements(
         matches: cv.matches(normalizedPlane(reference.plane), normalizedPlane(source.plane)),
       }
     })()
-    sources.set(source, pending)
-    pending.catch(() => sources!.delete(source))
+    if (hypotheses.size >= 4) hypotheses.delete(hypotheses.keys().next().value!)
+    hypotheses.set(key, pending)
+    pending.catch(() => hypotheses!.delete(key))
   }
   return pending
+}
+
+export async function patchRegistrationCandidate(
+  reference: PreparedSource,
+  source: PreparedSource,
+  estimate: MergeTransform,
+  checkpoint: () => Promise<void>,
+): Promise<MergeTransform> {
+  const measurements = await motionMeasurements(reference, source, estimate, checkpoint),
+    { points } = measurements,
+    cv = await openCv()
+  let model = estimate.diagnostics!.model,
+    fit = cv.fit(points.map(coordinates), model === 'projective', C.eccConsensusPixels)
+  // An ECC start does not constrain the geometry established by independent
+  // correspondences. Prefer similarity, but test projective geometry when a
+  // broad field cannot follow one similarity transform. This adds no ECC run.
+  let support = fit ? points.filter((p) => residual(fit!.matrix, p) <= C.eccConsensusPixels) : []
+  if (model === 'similarity' && support.length / points.length < C.minimumPatchAgreement) {
+    const projective = cv.fit(points.map(coordinates), true, C.eccConsensusPixels),
+      projectiveSupport = projective
+        ? points.filter((p) => residual(projective.matrix, p) <= C.eccConsensusPixels)
+        : []
+    if (
+      projective &&
+      projectiveSupport.length >= C.minimumInliers &&
+      projectiveSupport.length / points.length >= C.minimumPatchAgreement &&
+      new Set(projectiveSupport.map((p) => cell(p.x, p.y, reference.width, reference.height)))
+        .size >= C.minimumCells
+    ) {
+      try {
+        validateGeometry(projective.matrix, reference.width, reference.height)
+        fit = projective
+        support = projectiveSupport
+        model = 'projective'
+      } catch {
+        /* Keep the similarity candidate when projective geometry is unsafe. */
+      }
+    }
+  }
+  const diagnostics = {
+    ...estimate.diagnostics!,
+    model,
+    matches: points.length,
+    patchSupport: support.length,
+    inliers: support.length,
+    cells: new Set(support.map((p) => cell(p.x, p.y, reference.width, reference.height))).size,
+  }
+  if (!fit || support.length < C.minimumInliers || diagnostics.cells < C.minimumCells) {
+    diagnostics.reason =
+      'Fewer than 30 coherent patches with correlation 0.98 spanning six grid cells.'
+    alignmentFailure(diagnostics.reason, [diagnostics])
+  }
+  try {
+    validateGeometry(fit.matrix, reference.width, reference.height)
+  } catch (error) {
+    alignmentFailure((error as Error).message, [diagnostics])
+  }
+  // Independent observations must also rule out competing substantial planes.
+  const other = points.filter((p) => residual(fit.matrix, p) > C.motionConsensusPixels),
+    alternative = cv.fit(other.map(coordinates), false, C.motionConsensusPixels)
+  if (
+    alternative &&
+    support.length / points.length >= C.maximumCompetingSupport &&
+    alternative.inliers.filter(Boolean).length / points.length >= C.maximumCompetingSupport
+  )
+    alignmentFailure('Two substantial scene planes have different motion. Possible parallax.', [
+      diagnostics,
+    ])
+  const candidate = { ...estimate, matrix: fit.matrix, diagnostics }
+  // The correspondences are absolute source/reference coordinates. Preserve
+  // this fitted training evidence; subsequent native patches are independent.
+  fittedEvidence.set(candidate, { reference, source, key: hypothesisKey(candidate), measurements })
+  return candidate
 }
 
 /** Competing local motions are separated using training data, before held-out checks. */
@@ -123,26 +232,21 @@ export async function validateMotionNative(
 ): Promise<MergeTransform> {
   const start = performance.now(),
     cv = await openCv()
-  const { points, matches } = await motionMeasurements(reference, source, t, checkpoint)
+  const fitted = fittedEvidence.get(t),
+    { points, matches } =
+      fitted?.reference === reference && fitted.source === source && fitted.key === hypothesisKey(t)
+        ? fitted.measurements
+        : await motionMeasurements(reference, source, t, checkpoint)
   const { width: w, height: h } = reference
+  const consensus =
+    t.diagnostics!.method === 'ecc-patches' ? C.eccConsensusPixels : C.motionConsensusPixels
+  const trainingGrid =
+      t.diagnostics!.method === 'ecc-patches' ? C.eccRefinementGrid : C.motionTrainingGrid,
+    validationGrid =
+      t.diagnostics!.method === 'ecc-patches' ? C.eccValidationGrid : C.motionValidationGrid
   // Detect two dominant rigid motions before a homography can bend between
   // them and mask the middle of the scene as if it were a moving object.
-  const firstPlane = cv.fit(points.map(coordinates), false, C.motionConsensusPixels)
-  if (firstPlane) {
-    const rest = points.filter((p) => residual(firstPlane.matrix, p) > C.motionConsensusPixels)
-    const secondPlane = cv.fit(rest.map(coordinates), false, C.motionConsensusPixels)
-    if (
-      secondPlane &&
-      (points.length - rest.length) / points.length >= C.maximumCompetingSupport &&
-      rest.filter((p) => residual(secondPlane.matrix, p) <= C.motionConsensusPixels).length /
-        points.length >=
-        C.maximumCompetingSupport
-    )
-      alignmentFailure(
-        'Inconsistent geometric match: two substantial scene planes have different motion. Possible parallax.',
-        [t.diagnostics!],
-      )
-  }
+  await rejectCompetingPlanes(points, t)
   const candidates: MergeMatrix[] = []
   // Full-frame and peripheral samples prevent a large central subject from
   // exhausting RANSAC's hypotheses. Neither subset assumes a subject location.
@@ -155,7 +259,7 @@ export async function validateMotionNative(
       const fit = cv.fit(
         remaining.map(coordinates),
         t.diagnostics!.model === 'projective',
-        C.motionConsensusPixels,
+        consensus,
       )
       if (!fit) break
       remaining = remaining.filter((_, i) => !fit.inliers[i])
@@ -164,20 +268,23 @@ export async function validateMotionNative(
       } catch {
         continue
       }
-      if (
-        points.filter((p) => residual(fit.matrix, p) <= C.motionConsensusPixels).length >=
-        C.minimumPatches
-      )
+      if (points.filter((p) => residual(fit.matrix, p) <= consensus).length >= C.minimumPatches)
         candidates.push(fit.matrix)
     }
   }
   let best = structuredClone(t.diagnostics!),
-    bestAgreement = 0
+    bestAgreement = -1
+  best.motionSupport = {
+    observations: points.length,
+    candidates: candidates.length,
+    training: 0,
+    heldOut: 0,
+  }
   // Prefer broad training support, and avoid repeating equivalent hypotheses.
   const ranked = candidates.sort(
     (a, b) =>
-      points.filter((p) => residual(b, p) <= C.motionConsensusPixels).length -
-      points.filter((p) => residual(a, p) <= C.motionConsensusPixels).length,
+      points.filter((p) => residual(b, p) <= consensus).length -
+      points.filter((p) => residual(a, p) <= consensus).length,
   )
   const distinct = ranked.filter(
     (m, i) =>
@@ -198,22 +305,37 @@ export async function validateMotionNative(
     await checkpoint()
     if (
       new Set(
-        points
-          .filter((p) => residual(matrix, p) <= C.motionConsensusPixels)
-          .map((p) => cell(p.x, p.y, w, h)),
+        points.filter((p) => residual(matrix, p) <= consensus).map((p) => cell(p.x, p.y, w, h)),
       ).size < C.minimumNativeCells
     )
       continue
     const preview = resizeMatrix(matrix, reference.plane.width / w, reference.plane.height / h)
-    const support = matches.filter((p) => {
+    const evidence =
+      t.diagnostics!.method === 'ecc-patches' ? points.map((p) => [p.x, p.y, p.sx, p.sy]) : matches
+    const support = evidence.filter((p) => {
+      if (t.diagnostics!.method === 'ecc-patches') {
+        const q = point(matrix, p[0], p[1])
+        return Math.hypot(q[0] - p[2], q[1] - p[3]) <= consensus
+      }
       const q = point(preview, p[0], p[1])
       return Math.hypot(q[0] - p[2], q[1] - p[3]) <= C.ransacPixels
     })
     const cells = new Set(
-      support.map((p) => cell(p[0], p[1], reference.plane.width, reference.plane.height)),
+      support.map((p) =>
+        cell(
+          p[0],
+          p[1],
+          t.diagnostics!.method === 'ecc-patches' ? w : reference.plane.width,
+          t.diagnostics!.method === 'ecc-patches' ? h : reference.plane.height,
+        ),
+      ),
     )
-    if (support.length < C.minimumInliers || cells.size < C.minimumCells) continue
-    const outliers = points.filter((p) => residual(matrix, p) > C.motionConsensusPixels)
+    if (support.length < C.minimumInliers || cells.size < C.minimumCells) {
+      if (bestAgreement < 0)
+        best.reason = `Motion training has ${support.length} coherent observations across ${cells.size} cells; 30 across six are required.`
+      continue
+    }
+    const outliers = points.filter((p) => residual(matrix, p) > consensus)
     const alternative = cv.fit(outliers.map(coordinates), true, C.motionConsensusPixels)
     // Two coherent, substantial scene planes are ambiguous. Do not hide
     // unmodelled parallax by calling the less convenient plane subject motion.
@@ -239,12 +361,16 @@ export async function validateMotionNative(
     // field. Held-out validation centers never participate in this fit.
     const frozenStable = stable
     let nativeTraining: Observation[] = []
-    for (let iteration = 0; iteration < 2; iteration++) {
+    for (
+      let iteration = 0;
+      iteration < (t.diagnostics!.method === 'ecc-patches' ? 3 : 2);
+      iteration++
+    ) {
       const training = await patches(
         reference,
         source,
         { ...t, matrix },
-        C.motionTrainingGrid,
+        trainingGrid,
         0.5,
         checkpoint,
         {
@@ -270,6 +396,15 @@ export async function validateMotionNative(
     // Smooth bounded camera residuals come only from training observations.
     // Unsupported regions use the reference; competing planes were rejected above.
     const frozenMatrix = [...matrix] as MergeMatrix
+    // A poor initial warp can hide a second plane by lowering its patch
+    // correlation. Remeasure the full scene after refinement, before exclusions.
+    const refinedMeasurements = await motionMeasurements(
+      reference,
+      source,
+      { ...t, matrix: frozenMatrix, tiles: undefined },
+      checkpoint,
+    )
+    await rejectCompetingPlanes(refinedMeasurements.points, t)
     const validationStable = (x: number, y: number) => {
       if (!frozenStable(x, y)) return false
       const nearest = nativeTraining
@@ -278,7 +413,7 @@ export async function validateMotionNative(
         .slice(0, 3)
       return (
         nearest.length === 3 &&
-        nearest[0].d < 2 / C.motionTrainingGrid &&
+        nearest[0].d < 2 / trainingGrid &&
         nearest.every(({ p }) => {
           const q = warpedPoint({ ...t, matrix: frozenMatrix, tiles }, w, h, p.x, p.y)
           return Math.hypot(q[0] - p.sx, q[1] - p.sy) <= C.nativeAccuracy
@@ -289,8 +424,8 @@ export async function validateMotionNative(
       (p) => residual(frozenMatrix, p) <= C.maximumTileOffsetPixels,
     )
     const tiles = {
-      columns: C.motionTrainingGrid,
-      rows: C.motionTrainingGrid,
+      columns: t.diagnostics!.method === 'ecc-patches' ? C.eccTrainingGrid : trainingGrid,
+      rows: t.diagnostics!.method === 'ecc-patches' ? C.eccTrainingGrid : trainingGrid,
       width: w,
       height: h,
       offsets: [] as number[],
@@ -325,7 +460,7 @@ export async function validateMotionNative(
       reference,
       source,
       { ...t, matrix, tiles },
-      C.motionValidationGrid,
+      validationGrid,
       0.5,
       checkpoint,
       {
@@ -341,7 +476,7 @@ export async function validateMotionNative(
     }))
     const consistent = nativePatches.filter((p) => p.accepted)
     const nativeCells = new Set(consistent.map((p) => cell(p.x, p.y, w, h)))
-    const agreement = consistent.length / evaluated.length
+    const agreement = evaluated.length ? consistent.length / evaluated.length : 0
     const diagnostics = {
       ...structuredClone(t.diagnostics!),
       inliers: support.length,
@@ -349,7 +484,19 @@ export async function validateMotionNative(
       nativePatches,
       runtimeMs: t.diagnostics!.runtimeMs + performance.now() - start,
       wasmMemoryBytes: cv.memory(),
+      motionSupport: {
+        observations: points.length,
+        candidates: candidates.length,
+        training: nativeTraining.length,
+        heldOut: evaluated.length,
+      },
     }
+    diagnostics.reason =
+      consistent.length < C.minimumPatches ||
+      nativeCells.size < C.minimumNativeCells ||
+      agreement < C.minimumPatchAgreement
+        ? `${consistent.length}/${evaluated.length} held-out native patches agree across ${nativeCells.size} cells.`
+        : undefined
     if (agreement > bestAgreement) {
       best = diagnostics
       bestAgreement = agreement
@@ -363,12 +510,12 @@ export async function validateMotionNative(
     const movingRegions = []
     // Use the same frozen field for deghosting. Entire unsupported cells use
     // the reference; sparse patch-sized rectangles would leave gaps around motion.
-    for (let y = 0; y < C.motionTrainingGrid; y++)
-      for (let x = 0; x < C.motionTrainingGrid; x++) {
-        const left = Math.floor((x * w) / C.motionTrainingGrid),
-          top = Math.floor((y * h) / C.motionTrainingGrid)
-        const right = Math.ceil(((x + 1) * w) / C.motionTrainingGrid),
-          bottom = Math.ceil(((y + 1) * h) / C.motionTrainingGrid)
+    for (let y = 0; y < trainingGrid; y++)
+      for (let x = 0; x < trainingGrid; x++) {
+        const left = Math.floor((x * w) / trainingGrid),
+          top = Math.floor((y * h) / trainingGrid)
+        const right = Math.ceil(((x + 1) * w) / trainingGrid),
+          bottom = Math.ceil(((y + 1) * h) / trainingGrid)
         if (!validationStable((left + right) / 2, (top + bottom) / 2))
           movingRegions.push({ left, top, width: right - left, height: bottom - top })
       }

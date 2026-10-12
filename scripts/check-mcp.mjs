@@ -71,7 +71,8 @@ try {
     const actualProfile = await desktop.evaluate(({ app }) => app.getPath('userData'))
     if ((await realpath(actualProfile)) !== (await realpath(profile)))
       throw new Error('MCP profile isolation failed')
-    await desktop.firstWindow()
+    // Keep exact gesture assertions independent of the workspace's release glide.
+    await (await desktop.firstWindow()).emulateMedia({ reducedMotion: 'reduce' })
     await desktop.evaluate(({ dialog }, root) => {
       dialog.showOpenDialog = async () => ({
         canceled: false,
@@ -81,17 +82,6 @@ try {
         ],
       })
     }, root)
-    await desktop.evaluate(({ ipcMain }) => {
-      const original = ipcMain._invokeHandlers.get('preview:request')
-      const pending = new Promise((resolve) => {
-        globalThis.releaseFullPreviewForMcp = resolve
-      })
-      ipcMain.removeHandler('preview:request')
-      ipcMain.handle('preview:request', async (...args) => {
-        await pending
-        return original(...args)
-      })
-    })
   }
   await waitForLuma()
   await mkdir(output, { recursive: true })
@@ -147,12 +137,18 @@ try {
     await clickButton('Import photos')
     await clickButton('Choose photos')
     await waitForText('Ready to import')
-    await desktop.evaluate(() => {
+    await desktop.evaluate((_electron, root) => {
       const fs = process.getBuiltinModule('fs')
       const { Readable } = process.getBuiltinModule('stream')
       const { setTimeout: delay } = process.getBuiltinModule('timers/promises')
+      const { resolve } = process.getBuiltinModule('path')
+      const originals = new Set([
+        resolve(root, 'tests/fixtures/photos/alpine-lake.jpg'),
+        resolve(root, 'tests/fixtures/photos/mountain-ridge.jpg'),
+      ])
       const original = fs.createReadStream
       fs.createReadStream = (path, options) => {
+        if (!originals.has(String(path))) return original(path, options)
         const source = original(path, { ...options, highWaterMark: 4096 })
         return Readable.from(
           (async function* () {
@@ -173,7 +169,7 @@ try {
         fs.createReadStream = original
         process.getBuiltinModule('module').syncBuiltinESMExports()
       }
-    })
+    }, root)
     await clickButton('Import 2 photos')
     const running = await waitForText('progressbar "Importing photos"')
     if (running.text.includes('dialog "Import photos"'))
@@ -196,6 +192,20 @@ try {
       delete globalThis.restoreCopyStream
     })
     await clickButton('Close task details')
+    await clickButton('Select alpine-lake.jpg')
+    // A blocked foreground preview pauses background import. Install the
+    // loading gate only after import, before switching to the other photograph.
+    await desktop.evaluate(({ ipcMain }) => {
+      const original = ipcMain._invokeHandlers.get('preview:request')
+      const pending = new Promise((resolve) => {
+        globalThis.releaseFullPreviewForMcp = resolve
+      })
+      ipcMain.removeHandler('preview:request')
+      ipcMain.handle('preview:request', async (...args) => {
+        await pending
+        return original(...args)
+      })
+    })
     await clickButton('Select mountain-ridge.jpg')
     await waitForText('Loading full resolution…')
     await call('browser_evaluate', {
@@ -298,8 +308,18 @@ try {
     // Reopening the same files exercises duplicate detection through MCP too.
     await clickButton('Import photos')
     await clickButton('Choose photos')
-    await waitForText('Already imported')
-    await clickButton('Cancel')
+    await waitForText('Ready to import')
+    await clickButton('Import 2 photos')
+    await waitForText('Import complete')
+    await call('browser_evaluate', {
+      function: `async () => {
+        const tasks = await window.luma.listTasks();
+        const duplicateTask = tasks.find(task => task.outcomes?.duplicates === 2);
+        if (!duplicateTask || duplicateTask.outcomes.imported !== 0 || (await window.luma.listPhotos()).total !== 2)
+          throw new Error('Deferred duplicate checks did not preserve the catalog');
+        return duplicateTask.outcomes;
+      }`,
+    })
     // Exercise the renderer selection and confirmation through MCP, with isolated Trash.
     await desktop.evaluate(({ app, shell }) => {
       const fs = process.getBuiltinModule('fs')
@@ -428,6 +448,11 @@ try {
   )
   console.log(`Artifacts: ${fileURLToPath(output)}`)
 } catch (error) {
+  await mkdir(output, { recursive: true })
+  await writeFile(
+    new URL('protocol-check.json', output),
+    JSON.stringify(transcript, null, 2) + '\n',
+  )
   console.error(error instanceof Error ? error.message : error)
   process.exitCode = 1
 } finally {

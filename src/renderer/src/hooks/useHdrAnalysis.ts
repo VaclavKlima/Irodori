@@ -14,8 +14,10 @@ export function useHdrAnalysis(
   mask: (result?: ClippingMask) => void,
   gesturing = false,
   sampleStatistics = true,
+  activity?: () => () => void,
 ) {
   const [failure, setFailure] = useState<{ identity: string; message: string }>()
+  const releaseActivity = useRef<(() => void) | undefined>(undefined)
   const worker = useRef<Worker | null>(null),
     generation = useRef(0),
     requestIdentity = useRef('')
@@ -42,12 +44,19 @@ export function useHdrAnalysis(
     worker.current = instance
     instance.postMessage({ asset: frame.hdr })
     instance.onmessage = ({ data }) => {
-      if (data.error && (data.generation === undefined || data.generation === generation.current))
+      if (data.error && (data.generation === undefined || data.generation === generation.current)) {
+        releaseActivity.current?.()
+        releaseActivity.current = undefined
         setFailure({
           identity: requestIdentity.current,
           message: data.error,
         })
+      }
       if (data.generation !== generation.current) return
+      if (data.done || data.error) {
+        releaseActivity.current?.()
+        releaseActivity.current = undefined
+      }
       if (data.statistics && sampleStatistics) {
         setFailure(undefined)
         statistics(
@@ -58,15 +67,20 @@ export function useHdrAnalysis(
       }
       if (data.mask) mask(data.mask)
     }
-    instance.onerror = (event) =>
+    instance.onerror = (event) => {
+      releaseActivity.current?.()
+      releaseActivity.current = undefined
       setFailure({
         identity: requestIdentity.current,
         message: event.message,
       })
+    }
     return () => {
       unsubscribe()
       instance.terminate()
       worker.current = null
+      releaseActivity.current?.()
+      releaseActivity.current = undefined
     }
   }, [frame, statistics, mask, sampleStatistics, domain])
   useEffect(() => {
@@ -75,6 +89,7 @@ export function useHdrAnalysis(
     requestIdentity.current = identity
     mask(undefined)
     if (!sampleStatistics && !masks) return
+    releaseActivity.current ??= activity?.()
     worker.current?.postMessage({
       request: {
         parameters: JSON.parse(key),
@@ -97,6 +112,7 @@ export function useHdrAnalysis(
     gesturing,
     sampleStatistics,
     identity,
+    activity,
   ])
   return frame?.hdr && failure && failure.identity === identity ? failure.message : undefined
 }

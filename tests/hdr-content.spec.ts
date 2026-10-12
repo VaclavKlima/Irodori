@@ -118,6 +118,32 @@ test('canonical content and SDR variants share a bounded cache without retiring 
   expect(cache.size).toBeLessThanOrEqual(16)
 })
 
+test('normal navigation frames continue monotonically with one replaceable pending movement; invalidation cancels them', () => {
+  const queue = new HdrEditQueue<number>()
+  queue.request(1, false, true)
+  const first = queue.take()!
+  for (let i = 2; i <= 40; i++) queue.request(i, false, true)
+  expect(queue.take()).toBeUndefined()
+  expect(queue.superseded(first)).toBe(false)
+  expect(queue.finish(first)).toBe(true)
+  expect(queue.finish(first)).toBe(false)
+  const last = queue.take()!
+  expect(last.value).toBe(40)
+  expect(last.draft).toBe(false)
+  expect(queue.finish(last)).toBe(true)
+  queue.request(40, false)
+  const refinement = queue.take()!
+  queue.request(41, false, true)
+  expect(queue.superseded(refinement)).toBe(true)
+  expect(queue.finish(refinement)).toBe(false)
+  const cancelled = queue.take()!
+  queue.invalidate()
+  queue.request(42, false, true)
+  expect(queue.superseded(cancelled)).toBe(true)
+  expect(queue.finish(cancelled)).toBe(false)
+  expect(queue.finish(queue.take()!)).toBe(true)
+})
+
 test('draft and refined CPU samples retain the same stable source sites as GPU sampling', () => {
   const width = 257,
     height = 257,

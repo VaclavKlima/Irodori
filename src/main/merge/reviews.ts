@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, rm, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
 import { MergeProcess } from './process'
+import type { WorkScheduler } from '../work-scheduler'
 import type { MergeResult } from './engine'
 import {
   exposure,
@@ -34,11 +35,18 @@ interface ReviewState {
 export class MergeReviews {
   private state?: ReviewState
   private creating?: string[]
+  private creatingWork?: Promise<MergeReview>
+  private createAbort?: AbortController
+  private closing = false
   readonly worker: MergeProcess
   constructor(
     private root: string,
-    private source: (id: string) => Promise<{ source: MergeSource; path: string }>,
+    private source: (
+      id: string,
+      signal: AbortSignal,
+    ) => Promise<{ source: MergeSource; path: string }>,
     workerPath?: string,
+    private scheduler?: WorkScheduler,
   ) {
     this.worker = new MergeProcess(workerPath)
   }
@@ -68,6 +76,7 @@ export class MergeReviews {
     })
   }
   async create(ids: string[], mode: MergeMode): Promise<MergeReview> {
+    if (this.closing) throw new Error('Merge reviews are closing.')
     if (this.state || this.creating) throw new Error('Close the current merge review first.')
     if (
       !Array.isArray(ids) ||
@@ -79,59 +88,74 @@ export class MergeReviews {
     if (unavailable) throw new Error(unavailable)
     if (new Set(ids).size !== ids.length) throw new Error('Duplicate merge sources.')
     this.creating = [...ids]
+    const abort = (this.createAbort = new AbortController())
     try {
-      const inputs = []
-      for (const id of ids) inputs.push(await this.source(id))
-      const sources = inputs.map((i) => i.source)
-      validateMergeSources(sources, mode)
-      const sorted = [...sources].sort(
-        mode === 'hdr'
-          ? (a, b) => exposure(a.capture) - exposure(b.capture)
-          : (a, b) =>
-              (a.photo.capturedAt ?? a.photo.filename).localeCompare(
-                b.photo.capturedAt ?? b.photo.filename,
-              ),
-      )
-      const reference = sorted[Math.floor(sorted.length / 2)]
-      for (const s of sources)
-        s.relativeEv = Math.log2(exposure(s.capture) / exposure(reference.capture))
-      const scratchBytes = Math.ceil(
-        sources[0].photo.width * sources[0].photo.height * (sources.length * 20 + 112) +
-          (sources.length * 32 + 256) * 1024 ** 2,
-      )
-      const disk = await statfs(this.root)
-      if (disk.bavail * disk.bsize < scratchBytes)
-        throw new Error(
-          `Insufficient temporary disk space: ${Math.ceil(scratchBytes / 1024 ** 3)} GiB required.`,
+      const work = this.foreground(async () => {
+        const inputs = []
+        for (const id of ids) {
+          abort.signal.throwIfAborted()
+          await this.scheduler?.checkpoint(abort.signal)
+          inputs.push(await this.source(id, abort.signal))
+        }
+        abort.signal.throwIfAborted()
+        const sources = structuredClone(inputs.map((i) => i.source))
+        validateMergeSources(sources, mode)
+        const sorted = [...sources].sort(
+          mode === 'hdr'
+            ? (a, b) => exposure(a.capture) - exposure(b.capture)
+            : (a, b) =>
+                (a.photo.capturedAt ?? a.photo.filename).localeCompare(
+                  b.photo.capturedAt ?? b.photo.filename,
+                ),
         )
-      const id = randomUUID(),
-        directory = join(this.root, 'merge-reviews', id)
-      await mkdir(directory, { recursive: true })
-      const review: MergeReview = {
-        id,
-        revision: 0,
-        sources,
-        scratchBytes,
-        settings: {
-          mode,
-          autoAlign: true,
-          deghost: true,
-          strength: 50,
-          autoCrop: true,
-          referenceId: reference.photo.id,
-        },
-      }
-      this.state = {
-        review,
-        paths: inputs.map((i) => i.path),
-        directory,
-        abort: new AbortController(),
-        accepted: false,
-      }
-      return structuredClone(review)
+        const reference = sorted[Math.floor(sorted.length / 2)]
+        for (const s of sources)
+          s.relativeEv = Math.log2(exposure(s.capture) / exposure(reference.capture))
+        const scratchBytes = Math.ceil(
+          sources[0].photo.width * sources[0].photo.height * (sources.length * 20 + 112) +
+            (sources.length * 32 + 256) * 1024 ** 2,
+        )
+        const disk = await statfs(this.root)
+        if (disk.bavail * disk.bsize < scratchBytes)
+          throw new Error(
+            `Insufficient temporary disk space: ${Math.ceil(scratchBytes / 1024 ** 3)} GiB required.`,
+          )
+        const id = randomUUID(),
+          directory = join(this.root, 'merge-reviews', id)
+        await mkdir(directory, { recursive: true })
+        const review: MergeReview = {
+          id,
+          revision: 0,
+          sources,
+          scratchBytes,
+          settings: {
+            mode,
+            autoAlign: true,
+            deghost: true,
+            strength: 50,
+            autoCrop: true,
+            referenceId: reference.photo.id,
+          },
+        }
+        this.state = {
+          review,
+          paths: inputs.map((i) => i.path),
+          directory,
+          abort: new AbortController(),
+          accepted: false,
+        }
+        return structuredClone(review)
+      }, abort.signal)
+      this.creatingWork = work
+      return await work
     } finally {
       this.creating = undefined
+      this.creatingWork = undefined
+      this.createAbort = undefined
     }
+  }
+  private foreground<T>(work: () => Promise<T>, signal?: AbortSignal) {
+    return this.scheduler ? this.scheduler.run('operation', work, signal) : work()
   }
   private get(id: string, revision?: number, transition = false) {
     const s = this.state
@@ -161,9 +185,11 @@ export class MergeReviews {
       s.abort.abort()
       await s.work?.catch(() => {})
       if (this.state !== s || s.closing) throw new Error('Merge review is unavailable.')
-      await rm(join(s.directory, `revision-${revision}`), { recursive: true, force: true })
-      if (previousReference !== settings.referenceId)
-        await rm(join(s.directory, 'prepared'), { recursive: true, force: true })
+      await this.foreground(async () => {
+        await rm(join(s.directory, `revision-${revision}`), { recursive: true, force: true })
+        if (previousReference !== settings.referenceId)
+          await rm(join(s.directory, 'prepared'), { recursive: true, force: true })
+      })
       s.work = undefined
       s.result = undefined
       s.failure = undefined
@@ -182,7 +208,7 @@ export class MergeReviews {
       const directory = join(s.directory, 'prepared'),
         output = join(s.directory, `revision-${revision}`)
       s.output = output
-      s.work = (async () => {
+      s.work = this.foreground(async () => {
         await mkdir(directory, { recursive: true })
         this.get(id, revision)
         return this.worker.run(
@@ -197,7 +223,7 @@ export class MergeReviews {
           s.abort.signal,
           () => {},
         )
-      })()
+      }, s.abort.signal)
     }
     let result: MergeResult
     try {
@@ -266,7 +292,14 @@ export class MergeReviews {
     return join(s.output, `${parts[2]}.png`)
   }
 
+  stopAdmission() {
+    this.closing = true
+    this.createAbort?.abort()
+    if (this.state && !this.state.accepted) this.state.abort.abort()
+  }
   async close() {
+    this.stopAdmission()
+    await this.creatingWork?.catch(() => undefined)
     if (this.state) await this.dispose(this.state.review.id, true)
   }
 }

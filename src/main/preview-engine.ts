@@ -23,7 +23,12 @@ import { join } from 'node:path'
 import sharp from 'sharp'
 import { ExifTool, type Tags } from 'exiftool-vendored'
 import type { PhotoMetadata } from '../shared/contracts'
-import type { FullPreviewResult, PreviewResult, PreviewStage } from './preview-types'
+import type {
+  FullPreviewResult,
+  PreviewResult,
+  PreviewStage,
+  ThumbnailResult,
+} from './preview-types'
 
 type ExtractEmbedded = (tool: ExifTool, path: string, output: string) => Promise<void>
 const extractEmbedded: ExtractEmbedded = async (tool, path, output) => {
@@ -88,13 +93,97 @@ export class PreviewEngine {
     sharp.cache({ memory: 32, files: 0, items: 20 })
   }
 
-  async process(path: string, output: string): Promise<PreviewResult> {
+  async thumbnail(path: string, output: string, fallback = false): Promise<ThumbnailResult> {
+    const decoder = rawDecoder(path)
+    let input = sharp(path)
+    let source: PreviewResult['source'] = 'image'
+    const embedded = join(output, 'embedded.jpg')
+    try {
+      if (decoder && fallback) {
+        // Decoder work is confined to its separate process. End ExifTool before
+        // synchronous WASM work so forced cancellation cannot orphan a subprocess.
+        await this.tool.end()
+        const session = await decoder.open(path)
+        try {
+          const decoded = session.display(true)
+          input = sharp(decoded.data, {
+            raw: { width: decoded.width, height: decoded.height, channels: 3 },
+          })
+          source = 'decoded'
+        } finally {
+          session.close()
+        }
+      } else if (decoder) {
+        if (this.tool.ended) this.tool = new ExifTool({ maxProcs: 1, taskTimeoutMillis: 20_000 })
+        try {
+          await this.extract(this.tool, path, embedded)
+          input = sharp(embedded)
+          const details = await input.metadata()
+          if (!details.orientation) {
+            // Read orientation only; review does not inspect sensor data or
+            // extract photographic metadata from every discovered original.
+            const tags = await this.tool
+              .readRaw(path, { readArgs: ['-Orientation', '-n'] })
+              .catch(() => ({}))
+            const orientation = Number((tags as Record<string, unknown>).Orientation)
+            // Apply the orientation in the thumbnail pipeline, avoiding a second
+            // full-size JPEG encode merely to attach an orientation tag.
+            // Sharp mirrors before an explicit rotation; mirrored orientations
+            // therefore use the inverse angle of its automatic EXIF rotation.
+            const rotation = [0, 0, 0, 180, 180, 270, 90, 90, 270][orientation]
+            if (rotation !== undefined) {
+              input = input.rotate(rotation)
+              if ([2, 4, 5, 7].includes(orientation)) input = input.flop()
+            }
+          }
+          source = 'embedded'
+        } catch {
+          return { state: 'needs-fallback' }
+        }
+      }
+      let thumbnail: Buffer
+      try {
+        thumbnail = await input
+          .autoOrient()
+          .toColourspace('srgb')
+          .resize({ width: 480, height: 480, fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 82 })
+          .toBuffer()
+      } catch (error) {
+        if (decoder && !fallback && source === 'embedded') return { state: 'needs-fallback' }
+        throw error
+      }
+      await writeFile(join(output, 'thumb.jpg'), thumbnail)
+      // The lightweight worker deliberately keeps its ExifTool process warm.
+      return { state: 'ready', source }
+    } finally {
+      await rm(embedded, { force: true })
+    }
+  }
+
+  async process(
+    path: string,
+    output: string,
+    modeOrSignal?: AbortSignal | 'embedded' | 'fallback',
+    seed?: PreviewResult,
+  ): Promise<PreviewResult> {
+    const importMode = typeof modeOrSignal === 'string' ? modeOrSignal : undefined
+    const started = performance.now(),
+      cpu = process.cpuUsage()
+    const timings: Record<string, number> = {}
     if (this.tool.ended) this.tool = new ExifTool({ maxProcs: 1, taskTimeoutMillis: 20_000 })
-    const tags: Tags = await this.tool.read(path).catch(() => ({}))
-    const rawTags = await this.tool.readRaw(path, { readArgs: ['-G1', '-n'] }).catch(() => ({}))
-    const capture = captureMetadata(rawTags as Record<string, unknown>, extname(path).slice(1))
-    const processing = processingMetadata({ ...rawTags }, rawDecoder(path) ? undefined : [])
-    if (rawDecoder(path)) {
+    const tags: Tags = seed ? {} : await this.tool.read(path).catch(() => ({}))
+    const rawTags = seed
+      ? {}
+      : await this.tool.readRaw(path, { readArgs: ['-G1', '-n'] }).catch(() => ({}))
+    const capture =
+      seed?.captureMetadata ??
+      captureMetadata(rawTags as Record<string, unknown>, extname(path).slice(1))
+    const processing =
+      seed?.processing ?? processingMetadata({ ...rawTags }, rawDecoder(path) ? undefined : [])
+    timings.metadata = performance.now() - started
+    const sensorStarted = performance.now()
+    if (rawDecoder(path) && !seed) {
       const session = await rawDecoder(path)!.open(path)
       try {
         processing.whiteBalance = resolveWhiteBalance(session.metadata)
@@ -103,6 +192,7 @@ export class PreviewEngine {
         session.close()
       }
     }
+    timings.sensorMetadata = performance.now() - sensorStarted
     let input = sharp(path)
     let source: PreviewResult['source'] = 'image'
     let rawDimensions: { width: number; height: number } | undefined
@@ -110,6 +200,7 @@ export class PreviewEngine {
     try {
       if (rawDecoder(path)) {
         try {
+          if (importMode === 'fallback') throw new Error('Decoder fallback requested.')
           await this.extract(this.tool, path, embedded)
           input = sharp(embedded)
           const details = await input.metadata()
@@ -119,6 +210,18 @@ export class PreviewEngine {
           }
           source = 'embedded'
         } catch {
+          if (importMode === 'embedded')
+            return {
+              needsFallback: true,
+              metadata: photographicMetadata(
+                tags,
+                Number(tags.ImageWidth),
+                Number(tags.ImageHeight),
+              ),
+              source: 'embedded',
+              processing,
+              captureMetadata: capture,
+            }
           // Finish ExifTool before synchronous RAW work, so forced decoder
           // cancellation cannot leave its subprocess behind.
           await this.tool.end()
@@ -136,22 +239,24 @@ export class PreviewEngine {
           }
         }
       }
-      await this.tool.end()
+      timings.source = performance.now() - started - timings.metadata - timings.sensorMetadata
       const details = await input.metadata()
       const rotated = details.orientation !== undefined && details.orientation >= 5
       const width = rawDimensions?.width ?? Number(tags.ImageWidth ?? details.width)
       const height = rawDimensions?.height ?? Number(tags.ImageHeight ?? details.height)
-      const metadata: PhotoMetadata = {
-        width: source !== 'decoded' && rotated ? height : width,
-        height: source !== 'decoded' && rotated ? width : height,
-        camera: text(tags.Model),
-        lens: text(tags.LensModel ?? tags.LensID),
-        capturedAt: tags.DateTimeOriginal?.toString(),
-        aperture: tags.FNumber ? `f/${tags.FNumber}` : undefined,
-        shutter: tags.ExposureTime ? `${tags.ExposureTime} s` : undefined,
-        iso: text(tags.ISO),
-        focalLength: text(tags.FocalLength),
-      }
+      const metadata: PhotoMetadata = seed
+        ? { ...seed.metadata, ...rawDimensions }
+        : {
+            width: source !== 'decoded' && rotated ? height : width,
+            height: source !== 'decoded' && rotated ? width : height,
+            camera: text(tags.Model),
+            lens: text(tags.LensModel ?? tags.LensID),
+            capturedAt: tags.DateTimeOriginal?.toString(),
+            aperture: tags.FNumber ? `f/${tags.FNumber}` : undefined,
+            shutter: tags.ExposureTime ? `${tags.ExposureTime} s` : undefined,
+            iso: text(tags.ISO),
+            focalLength: text(tags.FocalLength),
+          }
       const normalized = input.autoOrient().toColourspace('srgb')
       await normalized
         .clone()
@@ -163,9 +268,21 @@ export class PreviewEngine {
         .resize({ width: 480, height: 480, fit: 'inside', withoutEnlargement: true })
         .jpeg({ quality: 82 })
         .toFile(join(output, 'thumb.jpg'))
-      return { metadata, source, processing, captureMetadata: capture }
+      timings.assets =
+        performance.now() - started - timings.metadata - timings.sensorMetadata - timings.source
+      const usage = process.cpuUsage(cpu)
+      return {
+        metadata,
+        source,
+        processing,
+        captureMetadata: capture,
+        preparation: {
+          timings,
+          cpuMicros: usage.user + usage.system,
+          rssBytes: process.memoryUsage().rss,
+        },
+      }
     } finally {
-      await this.tool.end()
       await rm(embedded, { force: true })
     }
   }
@@ -347,6 +464,21 @@ export class PreviewEngine {
     this.working = undefined
     this.gpu.close()
     await this.tool.end()
+  }
+}
+
+function photographicMetadata(tags: Tags, width: number, height: number): PhotoMetadata {
+  const rotated = typeof tags.Orientation === 'number' && tags.Orientation >= 5
+  return {
+    width: rotated ? height : width,
+    height: rotated ? width : height,
+    camera: text(tags.Model),
+    lens: text(tags.LensModel ?? tags.LensID),
+    capturedAt: tags.DateTimeOriginal?.toString(),
+    aperture: tags.FNumber ? `f/${tags.FNumber}` : undefined,
+    shutter: tags.ExposureTime ? `${tags.ExposureTime} s` : undefined,
+    iso: text(tags.ISO),
+    focalLength: text(tags.FocalLength),
   }
 }
 

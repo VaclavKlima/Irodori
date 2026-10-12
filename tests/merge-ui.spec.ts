@@ -59,6 +59,10 @@ test('shared Actions menu explains bounds and preserves pending right-click sele
   await page.getByRole('button', { name: 'Actions', exact: true }).click()
   await expect(page.getByRole('menu')).toBeVisible()
   await page.keyboard.press('Home')
+  await expect(
+    page.getByRole('menuitem', { name: 'Delete this photo…', exact: true }),
+  ).toBeFocused()
+  await page.keyboard.press('ArrowDown')
   await expect(page.getByRole('menuitem', { name: 'Merge to HDR…' })).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(page.getByRole('menuitem', { name: 'Stack for noise reduction…' })).toBeFocused()

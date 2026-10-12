@@ -1,5 +1,10 @@
-export const CAPTURE_METADATA_VERSION = 1
+export const CAPTURE_METADATA_VERSION = 2
 export const CAPTURE_SEQUENCE_PROFILE = 'sony-zv1a-arw-continuous-v1'
+export const CAPTURE_SEQUENCE_PROFILES = {
+  continuous: CAPTURE_SEQUENCE_PROFILE,
+  continuousHigh: 'sony-zv1a-arw-continuous-hi-v1',
+  bracket: 'sony-zv1a-arw-brk-v1',
+} as const
 
 /** Capture facts are independent of processing metadata and immutable merge recipes. */
 export interface CaptureMetadata {
@@ -20,6 +25,7 @@ export interface CaptureMetadata {
   sequenceImageNumber?: number
   sequenceFileNumber?: number
   sequenceLength?: number
+  shutterSeconds?: number
 }
 
 export function captureMetadata(tags: Record<string, unknown>, format: string): CaptureMetadata {
@@ -59,6 +65,12 @@ export function captureMetadata(tags: Record<string, unknown>, format: string): 
     sequenceImageNumber: number('Sony:SequenceImageNumber'),
     sequenceFileNumber: number('Sony:SequenceFileNumber'),
     sequenceLength: number('Sony:SequenceLength'),
+    shutterSeconds:
+      typeof tags['ExifIFD:ExposureTime'] === 'number' &&
+      Number.isFinite(tags['ExifIFD:ExposureTime']) &&
+      tags['ExifIFD:ExposureTime'] > 0
+        ? tags['ExifIFD:ExposureTime']
+        : undefined,
   }
 }
 
@@ -83,23 +95,36 @@ export function preciseCaptureTime(value?: string): bigint | null {
 
 export interface CaptureSequence {
   key: string
-  profile: typeof CAPTURE_SEQUENCE_PROFILE
+  profile: (typeof CAPTURE_SEQUENCE_PROFILES)[keyof typeof CAPTURE_SEQUENCE_PROFILES]
   ids: string[]
+  kind: 'continuous' | 'bracket'
+  expectedLength: number | null
+  complete: boolean
 }
 
-function verifiedMode(m: CaptureMetadata): boolean {
-  return (
-    m.version === CAPTURE_METADATA_VERSION &&
-    m.make?.toUpperCase() === 'SONY' &&
-    m.model === 'ZV-1A' &&
-    m.format === 'ARW' &&
-    m.releaseMode === 2 &&
-    m.releaseMode2 === 1 &&
-    m.releaseMode3 === 1 &&
-    m.sequenceLength === 0 &&
-    // This supplied profile has no DriveMode tag. Additional combinations need evidence.
-    m.driveMode === undefined
+function verifiedMode(m: CaptureMetadata): CaptureSequence['profile'] | null {
+  if (
+    ![1, CAPTURE_METADATA_VERSION].includes(m.version) ||
+    m.make?.toUpperCase() !== 'SONY' ||
+    m.model !== 'ZV-1A' ||
+    m.format !== 'ARW' ||
+    // The observed profiles have no DriveMode tag.
+    m.driveMode !== undefined
   )
+    return null
+  if (m.releaseMode === 2 && m.releaseMode3 === 1 && m.sequenceLength === 0) {
+    if (m.releaseMode2 === 1) return CAPTURE_SEQUENCE_PROFILES.continuous
+    if (m.releaseMode2 === 33) return CAPTURE_SEQUENCE_PROFILES.continuousHigh
+  }
+  if (
+    m.version === CAPTURE_METADATA_VERSION &&
+    m.releaseMode === 5 &&
+    m.releaseMode2 === 2 &&
+    m.releaseMode3 === 2 &&
+    m.sequenceLength === 3
+  )
+    return CAPTURE_SEQUENCE_PROFILES.bracket
+  return null
 }
 function frame(m: CaptureMetadata): number | null {
   const n = m.sequenceNumber
@@ -107,16 +132,34 @@ function frame(m: CaptureMetadata): number | null {
     n !== undefined &&
     n >= 1 &&
     Number.isSafeInteger(n) &&
+    (m.sequenceLength === 0 || n <= m.sequenceLength!) &&
     n === m.sequenceImageNumber &&
     n === m.sequenceFileNumber
     ? n
     : null
 }
 function singleShot(m: CaptureMetadata): boolean {
-  return m.releaseMode === 0 && m.releaseMode2 === 0 && m.releaseMode3 === 0
+  return (
+    (m.releaseMode === 0 && m.releaseMode2 === 0 && m.releaseMode3 === 0) ||
+    (m.releaseMode === 5 && m.releaseMode2 === 23 && m.releaseMode3 === 2 && m.sequenceLength === 1)
+  )
 }
 
-/** Refuse incomplete or ambiguous sequences rather than grouping by elapsed time alone. */
+function timingLimit(a: CaptureMetadata, b: CaptureMetadata, bracket: boolean): bigint {
+  if (!bracket) return precision
+  const shutter = (m: CaptureMetadata) =>
+    Number.isFinite(m.shutterSeconds) && m.shutterSeconds! > 0 ? m.shutterSeconds! : 0
+  const seconds = Math.max(shutter(a), shutter(b)),
+    nanoseconds = seconds * 1e9
+  // Keep finite metadata from overflowing during conversion to a timing bound.
+  return (
+    (Number.isFinite(nanoseconds)
+      ? BigInt(Math.ceil(nanoseconds)) * 10n ** 9n
+      : BigInt(Math.ceil(seconds)) * precision) + precision
+  )
+}
+
+/** Contiguous prefixes qualify, including a BRK capture stopped after frame two. */
 export function detectCaptureSequences(
   photos: { id: string; metadata: CaptureMetadata }[],
 ): CaptureSequence[] {
@@ -142,18 +185,25 @@ export function detectCaptureSequences(
         ...p,
         time: preciseCaptureTime(p.metadata.preciseTime),
         frame: frame(p.metadata),
+        profile: verifiedMode(p.metadata),
       }))
       .filter((p): p is typeof p & { time: bigint } => p.time !== null)
       .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : a.id.localeCompare(b.id)))
     let candidate: typeof ordered = [],
       valid = false
     const finish = () => {
-      if (valid && candidate.length >= 2)
+      if (valid && candidate.length >= 2) {
+        const profile = candidate[0].profile!,
+          bracket = profile === CAPTURE_SEQUENCE_PROFILES.bracket
         result.push({
-          key: `${CAPTURE_SEQUENCE_PROFILE}:${camera}:${candidate[0].metadata.preciseTime}`,
-          profile: CAPTURE_SEQUENCE_PROFILE,
+          key: `${profile}:${camera}:${candidate[0].metadata.preciseTime}`,
+          profile,
           ids: candidate.map((p) => p.id),
+          kind: bracket ? 'bracket' : 'continuous',
+          expectedLength: bracket ? 3 : null,
+          complete: !bracket || candidate.length === 3,
         })
+      }
     }
     for (let index = 0; index < ordered.length; index++) {
       const p = ordered[index],
@@ -165,19 +215,39 @@ export function detectCaptureSequences(
         valid = !overlap
       } else if (candidate.length) {
         const last = candidate[candidate.length - 1]
+        if (
+          singleShot(p.metadata) ||
+          JSON.stringify([
+            p.metadata.releaseMode,
+            p.metadata.releaseMode2,
+            p.metadata.releaseMode3,
+            p.metadata.sequenceLength,
+          ]) !==
+            JSON.stringify([
+              last.metadata.releaseMode,
+              last.metadata.releaseMode2,
+              last.metadata.releaseMode3,
+              last.metadata.sequenceLength,
+            ])
+        ) {
+          finish()
+          candidate = []
+          valid = false
+          continue
+        }
         if (p.frame === null) {
-          // An unrelated single shot ends a burst. Conflicting continuous facts invalidate it.
-          if (singleShot(p.metadata)) {
-            finish()
-            candidate = []
-            valid = false
-          } else valid = false
+          valid = false
         } else {
           valid &&=
             !overlap &&
             p.frame === (last.frame ?? 0) + 1 &&
             p.time > last.time &&
-            p.time - last.time <= precision
+            p.time - last.time <=
+              timingLimit(
+                last.metadata,
+                p.metadata,
+                p.profile === CAPTURE_SEQUENCE_PROFILES.bracket,
+              )
           candidate.push(p)
         }
       }
@@ -185,4 +255,13 @@ export function detectCaptureSequences(
     finish()
   }
   return result
+}
+
+/** Group membership is never evidence of a shared shutter trigger. */
+export function verifyCaptureSequence(
+  photos: { id: string; metadata: CaptureMetadata }[],
+): CaptureSequence | null {
+  if (new Set(photos.map((p) => p.id)).size !== photos.length) return null
+  const sequences = detectCaptureSequences(photos)
+  return sequences.length === 1 && sequences[0].ids.length === photos.length ? sequences[0] : null
 }

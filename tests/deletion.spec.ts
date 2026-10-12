@@ -91,7 +91,7 @@ test('trashes managed bundles, preserves sources, reports fixed totals, and allo
       expect(await readFile(sources[index], 'utf8')).toBe(`photo ${index}`)
     const review = await t.service.scan(sources, true)
     await expect.poll(() => t.service.review(review).phase).toBe('review')
-    expect(t.service.review(review)).toMatchObject({ duplicates: 1, ready: 2 })
+    expect(t.service.review(review)).toMatchObject({ unchecked: 3, duplicates: 0 })
     expect(t.service.deletePhotos([photos[0].id])).toBeNull()
   } finally {
     await t.close()
@@ -130,7 +130,7 @@ test('a Trash failure restores its original and keeps the photo while the batch 
   }
 })
 
-test('cancellation waits for the current Trash move and excludes concurrent library operations', async () => {
+test('cancellation waits for the current Trash move and queues subsequent confirmed deletion', async () => {
   let release!: () => void
   let entered!: () => void
   const started = new Promise<void>((resolve) => {
@@ -152,14 +152,20 @@ test('cancellation waits for the current Trash move and excludes concurrent libr
     const id = t.service.deletePhotos(photos.map((photo) => photo.id))!
     await started
     await expect(t.service.scan([fixture], true)).rejects.toThrow('Finish or cancel')
-    expect(() => t.service.deletePhotos([photos[0].id])).toThrow('Finish or cancel')
+    const queued = t.service.deletePhotos([photos[1].id])!
+    const queuedCancellation = t.service.cancelTask(queued)
     expect(await readFile(t.service.imagePath(photos[0].previewUrl)!)).toEqual(
       await readFile(fixture),
     )
     const cancel = t.service.cancelTask(id)
     expect(t.service.listTasks().find((task) => task.id === id)?.status).toBe('cancelling')
     release()
-    await cancel
+    await Promise.all([cancel, queuedCancellation])
+    expect(await finished(t.service, queued)).toMatchObject({
+      status: 'cancelled',
+      items: { completed: 0 },
+      progress: { completed: 0 },
+    })
     expect(await finished(t.service, id)).toMatchObject({
       status: 'cancelled',
       items: { completed: 1, total: 3 },
@@ -221,7 +227,7 @@ test('migrates v1 and reconciles interrupted removals without erasing OS-restore
       )
       const check = new DatabaseSync(join(library, 'catalog.sqlite'))
       expect(check.prepare('SELECT * FROM removals').all()).toEqual([])
-      expect(check.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 11 })
+      expect(check.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 14 })
       check.close()
     } finally {
       await recovered.close()

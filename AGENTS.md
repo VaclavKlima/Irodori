@@ -35,7 +35,7 @@
 
 - Keep the active preview separate from the selected ID set and range anchor. Selection spans library pages and survives import updates. Await pending range selection before freezing deletion targets.
 - Delete only internal managed photo bundles after confirmation, using system Trash. Never permanently delete as a fallback. Keep removal journals and recoverable bundles outside disposable staging; preserve bundles restored by the OS.
-- Serialize import and deletion tasks, and wait for an in-flight Trash call before cancelling or quitting. Use isolated Trash adapters for automated tests.
+- Admit confirmed deletion and requested merges during background import through the foreground scheduler. Serialize publication and Trash mutations, and wait for an in-flight Trash call before cancelling or quitting. Use isolated Trash adapters for automated tests.
 
 ## Preview interaction
 

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { MERGE_PIPELINE, MERGE_LIMITS } from '../../shared/merge'
 import type { PreparedSource } from './prepare'
 import { validateSensorCache } from './sensor-cache'
+import { CAMERA_REGISTRATION_POLICY } from './camera-registration'
 
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 /** Small manifests describe immutable, checksummed binary planes. Native strips verify on read. */
@@ -22,22 +23,42 @@ export async function savePreparation(
     Buffer.from(source.plane.mask ?? new Uint8Array(source.plane.data.length).fill(255)),
   ])
   await writeFile(join(directory, `source-${index}.plane`), bytes)
+  let cameraBytes = Buffer.alloc(0)
+  const camera = source.cameraRegistration
+  if (camera) {
+    cameraBytes = Buffer.concat(
+      camera.planes.flatMap((p) => [
+        Buffer.from(p.data.buffer, p.data.byteOffset, p.data.byteLength),
+        Buffer.from(p.mask!),
+      ]),
+    )
+    await writeFile(join(directory, `source-${index}.camera.plane`), cameraBytes)
+  }
   const json = JSON.stringify({
     version: MERGE_PIPELINE.preparation,
     reference,
     source: {
       ...source,
       plane: { width: source.plane.width, height: source.plane.height, sha256: hash(bytes) },
+      cameraRegistration: camera && {
+        ...camera,
+        planes: camera.planes.map((p, c) => ({
+          width: p.width,
+          height: p.height,
+          sha256: hash(cameraBytes.subarray(c * p.data.length * 5, (c + 1) * p.data.length * 5)),
+        })),
+      },
     },
   })
   await writeFile(join(directory, `source-${index}.json`), json)
-  return bytes.length + Buffer.byteLength(json)
+  return bytes.length + cameraBytes.length + Buffer.byteLength(json)
 }
 export async function loadPreparation(
   directory: string,
   index: number,
   reference: string,
   read: (bytes: number) => void = () => {},
+  identity?: string,
 ): Promise<PreparedSource | undefined> {
   let json: string
   try {
@@ -50,6 +71,8 @@ export async function loadPreparation(
   const cached = JSON.parse(json)
   if (cached.reference !== reference) return
   const p = cached.source as PreparedSource
+  if (cached.version && (cached.version !== MERGE_PIPELINE.preparation || p.identity !== identity))
+    return
   if (
     p.path !== join(directory, `source-${index}.f32`) ||
     !Number.isSafeInteger(p.width) ||
@@ -93,5 +116,34 @@ export async function loadPreparation(
   )
     throw new Error('Invalid source preparation.')
   if (p.sensor) await validateSensorCache(p.sensor, directory, index, p.width, p.height)
+  if (p.cameraRegistration) {
+    const camera = p.cameraRegistration,
+      count = p.plane.width * p.plane.height
+    if (
+      camera.version !== CAMERA_REGISTRATION_POLICY ||
+      camera.path !== join(directory, `source-${index}.camera.f32`) ||
+      !Array.isArray(camera.strips) ||
+      camera.strips.length !== Math.ceil(p.height / 64) ||
+      !camera.strips.every((h) => /^[a-f0-9]{64}$/.test(h)) ||
+      !Array.isArray(camera.planes) ||
+      camera.planes.length !== 3 ||
+      camera.planes.some((q) => q.width !== p.plane.width || q.height !== p.plane.height) ||
+      (await stat(camera.path)).size !== p.width * p.height * 16
+    )
+      throw new Error('Invalid camera registration preparation.')
+    const cameraBytes = await readFile(join(directory, `source-${index}.camera.plane`))
+    read(cameraBytes.length)
+    if (cameraBytes.length !== count * 15) throw new Error('Damaged camera registration planes.')
+    for (let c = 0; c < 3; c++) {
+      const q = camera.planes[c],
+        part = cameraBytes.subarray(c * count * 5, (c + 1) * count * 5)
+      if (hash(part) !== cached.source.cameraRegistration.planes[c].sha256)
+        throw new Error('Damaged camera registration plane.')
+      q.data = new Float32Array(part.buffer.slice(part.byteOffset, part.byteOffset + count * 4))
+      q.mask = new Uint8Array(part.subarray(count * 4))
+      if (!q.data.every(Number.isFinite) || !q.mask.every((v) => v === 0 || v === 255))
+        throw new Error('Invalid camera registration plane.')
+    }
+  }
   return p
 }

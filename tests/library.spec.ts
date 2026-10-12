@@ -33,10 +33,12 @@ test('deduplicates by content within a batch and across imports, and preserves s
     await copyFile(other, second)
     await copyFile(photo, duplicate)
     const id = await scan(t.service, [first, second, duplicate])
-    expect(t.service.review(id)).toMatchObject({ ready: 2, duplicates: 1, selected: 2 })
+    expect(t.service.review(id)).toMatchObject({ unchecked: 3, duplicates: 0, selected: 3 })
     await commit(t.service, id)
     expect(t.service.list().total).toBe(2)
     const repeated = await scan(t.service, [duplicate])
+    expect(t.service.review(repeated)).toMatchObject({ unchecked: 1, selected: 1 })
+    await commit(t.service, repeated)
     expect(t.service.review(repeated)).toMatchObject({ duplicates: 1, selected: 0 })
     expect(t.service.review(repeated).candidates[0].message).toBe('Already imported')
     expect(t.service.list().photos.map((photo) => photo.filename)).toEqual(['same.jpg', 'same.jpg'])
@@ -57,7 +59,10 @@ test('rejects a changed source and missing source without publishing incomplete 
     await rm(missing)
     await commit(t.service, id)
     expect(t.service.review(id)).toMatchObject({ errors: 2, imported: 0 })
-    expect(t.service.review(id).candidates[0].message).toContain('source changed')
+    expect(
+      t.service.review(id).candidates.find((candidate) => candidate.filename === 'source.jpg')
+        ?.message,
+    ).toContain('source changed')
     expect(t.service.list().total).toBe(0)
     expect(await readdir(join(t.root, 'library', 'originals'))).toEqual([])
     await t.service.dispose(id)
@@ -73,6 +78,7 @@ test('reports a staging write failure and leaves the original intact', async () 
     const id = await scan(t.service, [photo])
     const candidate = t.service.review(id).candidates[0]
     // An existing file blocks the staging directory, simulating a filesystem write failure.
+    await mkdir(join(t.root, 'library', 'staging', id), { recursive: true })
     await writeFile(join(t.root, 'library', 'staging', id, `copy-${candidate.id}`), 'blocked')
     await commit(t.service, id)
     expect(t.service.review(id)).toMatchObject({ errors: 1, imported: 0 })
@@ -100,6 +106,8 @@ test('cancels scanning, cleans up the session and skips symlink loops and its ow
   })
   try {
     const id = await t.service.scan([photo], true)
+    await expect.poll(() => t.service.review(id).phase).toBe('review')
+    t.service.importSelected(id)
     await started
     await t.service.cancel(id)
     expect(t.service.review(id).phase).toBe('cancelled')
@@ -164,8 +172,9 @@ test('creates correctly oriented previews for JPEG, PNG and TIFF and rejects cor
     await sharp(photo).resize(120).tiff().toFile(tiff)
     await writeFile(invalid, 'invalid raw data')
     const id = await scan(t.service, [oriented, png, tiff, invalid])
-    expect(t.service.review(id)).toMatchObject({ ready: 3, errors: 1, selected: 3 })
+    expect(t.service.review(id)).toMatchObject({ unchecked: 4, errors: 0, selected: 4 })
     await commit(t.service, id)
+    expect(t.service.review(id)).toMatchObject({ imported: 3, errors: 1 })
     const record = t.service.list().photos.find((photo) => photo.filename === 'portrait.jpg')!
     expect(record).toMatchObject({ width: 40, height: 80 })
     const rendered = await sharp(t.service.imagePath(record.previewUrl)).metadata()
@@ -265,14 +274,16 @@ test('keeps fixed task totals and paginated errors after staging and review are 
     expect(service.listTasks()[0]).toMatchObject({
       status: 'running',
       items: { completed: 0, total: 61 },
-      progress: { completed: 0, total: totalBytes },
+      progress: { completed: 0, total: 61 },
+      transfer: { bytes: 0, totalBytes },
     })
     expect(() => service.dismissTask(id)).toThrow('Cancel the task')
     await expect.poll(() => service.listTasks()[0].status).toBe('failed')
     expect(service.listTasks()[0]).toMatchObject({
       errorCount: 61,
       items: { completed: 0, total: 61 },
-      progress: { completed: 0, total: totalBytes },
+      progress: { completed: 61, total: 61 },
+      transfer: { bytes: 0, totalBytes },
     })
     expect(await readdir(join(root, 'library', 'staging'))).toEqual([])
     await scan(service, [])

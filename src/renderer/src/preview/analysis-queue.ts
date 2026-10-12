@@ -7,12 +7,16 @@ export class AnalysisQueue {
   private pending?: { parameters: AdjustmentParameters; generation: number; immediate: boolean }
   private timer?: ReturnType<typeof setTimeout>
   private closed = false
+  private releaseActivity?: () => void
   constructor(
     private worker: Pick<Worker, 'postMessage' | 'terminate'>,
     private identity: string,
     private masks: boolean,
+    private activity?: () => () => void,
   ) {}
   update(parameters: AdjustmentParameters, immediate: boolean) {
+    if (this.closed) return
+    this.releaseActivity ??= this.activity?.()
     this.pending = { parameters, generation: ++this.generation, immediate }
     this.send()
   }
@@ -24,6 +28,10 @@ export class AnalysisQueue {
   finished() {
     this.busy = false
     this.send()
+    if (!this.pending) {
+      this.releaseActivity?.()
+      this.releaseActivity = undefined
+    }
   }
   private send() {
     clearTimeout(this.timer)
@@ -41,5 +49,7 @@ export class AnalysisQueue {
     this.closed = true
     clearTimeout(this.timer)
     this.worker.terminate()
+    this.releaseActivity?.()
+    this.releaseActivity = undefined
   }
 }

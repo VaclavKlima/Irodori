@@ -2,6 +2,7 @@ import { writeFile } from 'node:fs/promises'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { recordBenchmark } from './benchmark.helpers'
+import { benchmarkImport, finishBenchmarkImport } from './import-foreground.helpers'
 interface SliderMeasurement {
   zoom: string
   label: string
@@ -25,12 +26,13 @@ test('all eight HDR sliders at Fit and 100% measure completed GPU frames and mat
   await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
   const canvas = page.getByTestId('main-preview')
   await expect(canvas).toHaveAttribute('data-quality', 'normal', { timeout: 60000 })
+  const importTask = await benchmarkImport(app, page, info)
   const result = await page
     .evaluate(async () => {
       const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
       const device = canvas.getContext('webgpu')!.getConfiguration()!.device
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
-      const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve))
       const changed = (element: HTMLElement, matches: () => boolean) =>
         new Promise<void>((resolve, reject) => {
           const observer = new MutationObserver(check)
@@ -108,9 +110,9 @@ test('all eight HDR sliders at Fit and 100% measure completed GPU frames and mat
             await changed(
               histogram,
               () =>
-                histogram.dataset.editSerial === canvas.dataset.completedEditSerial &&
+                histogram.dataset.editSerial === canvas.dataset.analysisSerial &&
                 histogram.querySelector<SVGSVGElement>('svg[role="slider"]')?.dataset
-                  .curveEditSerial === canvas.dataset.completedEditSerial,
+                  .curveEditSerial === canvas.dataset.analysisSerial,
             )
             const histogramMs = performance.now() - start
             await frame()
@@ -159,18 +161,24 @@ test('all eight HDR sliders at Fit and 100% measure completed GPU frames and mat
           const serialTimes = new Map<number, number>()
           const continuous: number[] = [],
             continuousHistogram: number[] = []
+          const paintedHistograms = new Set<number>()
           const completions: Promise<void>[] = []
           let previousSerial = 0,
             regressed = false
+          const observedFrames: { serial: number; value: number; time: number }[] = []
+          const inputFrames: number[] = []
           const histogram = document.getElementById('histogram')!
           const histogramObserver = new MutationObserver(() => {
-            if (
-              histogram.querySelector<SVGSVGElement>('svg[role="slider"]')?.dataset
-                .curveEditSerial !== histogram.dataset.editSerial
+            // Continuous input can commit newer bins before the previous curve paints.
+            // Match each painted curve to its own completed frame, once per analysis.
+            const serial = Number(
+              histogram.querySelector<SVGSVGElement>('svg[role="slider"]')?.dataset.curveEditSerial,
             )
-              return
-            const at = serialTimes.get(Number(histogram.dataset.editSerial))
-            if (at !== undefined) continuousHistogram.push(performance.now() - at)
+            const at = serialTimes.get(serial)
+            if (at !== undefined && !paintedHistograms.has(serial)) {
+              paintedHistograms.add(serial)
+              continuousHistogram.push(performance.now() - at)
+            }
           })
           histogramObserver.observe(histogram, {
             attributes: true,
@@ -188,8 +196,9 @@ test('all eight HDR sliders at Fit and 100% measure completed GPU frames and mat
                   ? JSON.parse(canvas.dataset.whiteBalance!).tint
                   : Number(canvas.dataset[label.toLowerCase()])
             const at = times.get(value)
+            observedFrames.push({ serial, value, time: performance.now() })
             if (at === undefined) return
-            serialTimes.set(serial, at)
+            serialTimes.set(Number(canvas.dataset.analysisSerial), at)
             completions.push(
               (async () => {
                 await device.queue.onSubmittedWorkDone()
@@ -203,7 +212,7 @@ test('all eight HDR sliders at Fit and 100% measure completed GPU frames and mat
             attributeFilter: ['data-completed-edit-serial'],
           })
           for (let i = 0; i < 45; i++) {
-            await frame()
+            inputFrames.push(await frame())
             const value =
               label === 'Temperature'
                 ? 5000 + i * 50
@@ -233,15 +242,29 @@ test('all eight HDR sliders at Fit and 100% measure completed GPU frames and mat
           )
           await changed(
             histogram,
-            () => histogram.dataset.editSerial === canvas.dataset.completedEditSerial,
+            () => histogram.dataset.editSerial === canvas.dataset.analysisSerial,
           )
           await Promise.all(completions)
           observer.disconnect()
           histogramObserver.disconnect()
-          if (regressed || continuous.length < 30 || continuousHistogram.length < 30)
+          if (regressed || continuous.length < 30 || continuousHistogram.length < 30) {
+            Object.assign(window, {
+              hdrSliderFailure: {
+                zoom,
+                label,
+                inputs: [...times],
+                observedFrames,
+                inputFrames,
+                continuous,
+                continuousHistogram,
+                canvas: { ...canvas.dataset },
+                histogram: { ...histogram.dataset },
+              },
+            })
             throw new Error(
               `Continuous frames/histograms did not advance: ${zoom} ${label} ${continuous.length}/${continuousHistogram.length}`,
             )
+          }
           const release = performance.now()
           slider.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
           await changed(
@@ -280,9 +303,10 @@ test('all eight HDR sliders at Fit and 100% measure completed GPU frames and mat
       await writeFile(
         info.outputPath('partial-hdr-sliders.json'),
         JSON.stringify(
-          await page.evaluate(
-            () => (window as unknown as { hdrSliderBenchmark: unknown }).hdrSliderBenchmark,
-          ),
+          await page.evaluate(() => ({
+            ...(window as unknown as { hdrSliderBenchmark: object }).hdrSliderBenchmark,
+            failure: (window as unknown as { hdrSliderFailure?: object }).hdrSliderFailure,
+          })),
           null,
           2,
         ),
@@ -330,4 +354,5 @@ test('all eight HDR sliders at Fit and 100% measure completed GPU frames and mat
     expect(m.refinementMs, `${m.zoom} ${m.label} refinement`).toBeLessThanOrEqual(500)
     expect(m.sidebarMovement).toBeLessThan(0.1)
   }
+  await finishBenchmarkImport(page, importTask)
 })

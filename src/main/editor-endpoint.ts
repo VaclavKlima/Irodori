@@ -98,6 +98,9 @@ export async function startEditorEndpoint(
         case 'luma_get_stack_members':
           result = library.getStackMembers(stackId, offset)
           break
+        case 'luma_get_stack_snapshot':
+          result = library.getStackSnapshot(stackId, expectedRevision)
+          break
         case 'luma_group_photos':
           result = library.groupPhotos(ids, coverId, expectedRevision)
           break

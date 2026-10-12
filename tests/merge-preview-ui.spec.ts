@@ -1,6 +1,6 @@
 import { test, expect } from './electron.fixture'
 import { setupMergePreview as setup } from './merge-preview.helpers'
-import { focusPreviewWindow, verifyLockedPan } from './preview-pan.helpers'
+import { focusPreviewWindow, verifyLockedPan, verifyPanGlide } from './preview-pan.helpers'
 import { holdPreviewFrame, verifyPreviewWheel } from './preview-wheel.helpers'
 
 test('scroll pans without zooming and mixed gesture bursts present once in merge review', async ({
@@ -15,6 +15,14 @@ test('mouse panning hides and locks the cursor without dismissing merge on Escap
 }) => {
   const { viewport, zoom } = await setup(luma.app, luma.page)
   await verifyLockedPan(luma.app, luma.page, viewport, zoom)
+  await expect(luma.page.getByRole('dialog')).toBeVisible()
+})
+
+test('merge release glide shares bounds, reduced motion and interruption cleanup', async ({
+  luma,
+}) => {
+  const { viewport, zoom } = await setup(luma.app, luma.page)
+  await verifyPanGlide(luma.app, luma.page, viewport, zoom)
   await expect(luma.page.getByRole('dialog')).toBeVisible()
 })
 
@@ -52,7 +60,7 @@ test('native pixel scale, pointer anchoring, bounded drag and scoped zoom shortc
   await page.keyboard.up('Control')
   await expect.poll(async () => (await view()).scale).toBeGreaterThan(1)
   const after = await view()
-  expect(after.scale).toBeCloseTo(Math.exp(1.4), 5)
+  expect(after.scale).toBeCloseTo(Math.exp(0.28), 5)
   const anchor = await viewport.evaluate((el) => ({
     x: Number(el.dataset.anchorX),
     y: Number(el.dataset.anchorY),

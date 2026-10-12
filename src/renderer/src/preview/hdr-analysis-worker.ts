@@ -83,6 +83,8 @@ async function run() {
       }
     } catch (error) {
       self.postMessage({ error: String(error), generation: request.generation })
+    } finally {
+      self.postMessage({ done: true, generation: request.generation })
     }
   }
   running = false

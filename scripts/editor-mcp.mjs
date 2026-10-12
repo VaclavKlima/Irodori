@@ -48,6 +48,12 @@ const tools = [
     ]),
   },
   {
+    name: 'luma_get_stack_snapshot',
+    description:
+      'Read every current stack member in persisted order, including originals and previous merge results. Requires the displayed stack revision; stale or missing stacks fail.',
+    inputSchema: schema({ stackId: { type: 'string' }, expectedRevision }),
+  },
+  {
     name: 'luma_group_photos',
     description:
       'Group ungrouped photos with a selected cover. expectedRevision comes from list_stacks.',
@@ -95,7 +101,8 @@ const tools = [
   },
   {
     name: 'luma_get_gallery_range',
-    description: 'Read visible photos between range boundaries; hidden anchors use their covers.',
+    description:
+      'Read an inclusive gallery range in gallery order. Included covers select all current stack members, including collapsed or paginated members, in persisted order. Hidden boundaries use their covers; member-only ranges remain individual.',
     inputSchema: schema({ fromId: photoId, toId: photoId }),
   },
   {

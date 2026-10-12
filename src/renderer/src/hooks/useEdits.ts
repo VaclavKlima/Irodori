@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { validatePatch, type EditState } from '../../../shared/edits'
+import { useForegroundActivity } from './useForegroundActivity'
 
 import {
   neutralAdjustments,
@@ -9,6 +10,7 @@ import {
 type AdjustmentPatch = Partial<AdjustmentParameters>
 
 export function useEdits(photoId: string | undefined) {
+  const { begin, pulse } = useForegroundActivity(photoId)
   const [state, setState] = useState<EditState | null>(null)
   const [draft, setDraft] = useState<AdjustmentPatch | null>(null)
   const [error, setError] = useState('')
@@ -18,6 +20,9 @@ export function useEdits(photoId: string | undefined) {
   const gesture = useRef<{ state: EditState; patch: AdjustmentPatch } | null>(null)
   const busy = useRef(false)
   const pending = useRef<Promise<void>>(Promise.resolve())
+  useEffect(() => {
+    if (draft || saving) return begin()
+  }, [draft, saving, begin])
   const accept = useCallback((next: EditState) => {
     if (current.current?.photoId === next.photoId && current.current.revision >= next.revision)
       return
@@ -91,6 +96,7 @@ export function useEdits(photoId: string | undefined) {
     setEpoch((value) => value + 1)
   }
   const change = async (patch: AdjustmentPatch) => {
+    pulse()
     const photo = current.current?.photoId
     if (!photo) return
     try {

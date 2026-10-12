@@ -30,6 +30,7 @@ test('stdio editing tools share persisted history with UI without a development 
       'luma_list_stacks',
       'luma_get_photo_stack',
       'luma_get_stack_members',
+      'luma_get_stack_snapshot',
       'luma_group_photos',
       'luma_ungroup_stack',
       'luma_remove_from_stack',

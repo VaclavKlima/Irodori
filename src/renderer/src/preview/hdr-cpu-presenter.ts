@@ -22,10 +22,12 @@ export class HdrCpuPresenter {
   private target?: DisplayTarget
   private release = reservePresentationBitmaps(256 * 1024 ** 2)
   private view?: { image: Size; viewport: Size; view: View; parameters: AdjustmentParameters }
+  private releaseActivity?: () => void
   constructor(
     private canvas: HTMLCanvasElement,
     private loaded: () => void,
     private failed: () => void,
+    private activity?: () => () => void,
   ) {
     const context = canvas.getContext('2d', { colorSpace: 'srgb' })
     if (!context) throw new Error('CPU presentation unavailable.')
@@ -38,6 +40,8 @@ export class HdrCpuPresenter {
         return
       }
       if (data.error) {
+        this.releaseActivity?.()
+        this.releaseActivity = undefined
         this.failed()
         return
       }
@@ -53,6 +57,15 @@ export class HdrCpuPresenter {
       this.loaded()
       if (this.view)
         this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
+      if (!data.draft) {
+        this.releaseActivity?.()
+        this.releaseActivity = undefined
+      }
+    }
+    this.worker.onerror = () => {
+      this.releaseActivity?.()
+      this.releaseActivity = undefined
+      this.failed()
     }
   }
   setTarget(target: DisplayTarget) {
@@ -78,6 +91,7 @@ export class HdrCpuPresenter {
     if (!this.frame?.hdr || !viewport.width || !viewport.height) return
     const key = JSON.stringify([parameters, this.hdrRanges, this.target?.headroom])
     if (key !== this.key) {
+      this.releaseActivity ??= this.activity?.()
       this.key = key
       this.worker.postMessage({
         asset: this.frame.hdr,
@@ -160,6 +174,8 @@ export class HdrCpuPresenter {
     })
   }
   dispose() {
+    this.releaseActivity?.()
+    this.releaseActivity = undefined
     this.worker.terminate()
     this.bitmap?.close()
     this.neutral?.close()

@@ -30,8 +30,8 @@ export async function verifyLockedPan(
   viewport: Locator,
   zoom: Locator,
 ) {
-  await focusPreviewWindow(app, page)
   await zoom.selectOption('8')
+  await focusPreviewWindow(app, page)
   const refresh = await app.evaluateHandle(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0]
     const contents = window.webContents as Electron.WebContents & {
@@ -80,6 +80,9 @@ export async function verifyLockedPan(
   const box = (await viewport.boundingBox())!
   const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
   async function begin() {
+    // Native select popups and later display refreshes can change desktop
+    // activation after the initial focus check. Each gesture needs real focus.
+    await focusPreviewWindow(app, page)
     await page.mouse.move(point.x, point.y)
     await page.mouse.down()
     await expect.poll(locked).toBe(true)
@@ -135,6 +138,7 @@ export async function verifyLockedPan(
   await expect(viewport).toHaveAttribute('data-dragging', 'false')
   await expect(viewport).not.toHaveCSS('cursor', 'none')
   expect(await viewport.evaluate((el) => el.hasPointerCapture(1))).toBe(false)
+  await expect(viewport).toHaveAttribute('data-gliding', 'false')
   const released = await geometry()
   await page.mouse.move(point.x + 40, point.y + 20)
   expect(await geometry()).toEqual(released)
@@ -170,4 +174,104 @@ export async function verifyLockedPan(
   await page.mouse.move(point.x + 10, point.y + 5)
   expect(await locked()).toBe(false)
   await page.mouse.up()
+}
+
+export async function verifyPanGlide(
+  app: ElectronApplication,
+  page: Page,
+  viewport: Locator,
+  zoom: Locator,
+) {
+  await focusPreviewWindow(app, page)
+  const initialSize = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+  await zoom.selectOption('8')
+  for (const interruption of ['none', 'escape', 'wheel', 'blur', 'resize', 'reduced']) {
+    await page.emulateMedia({
+      reducedMotion: interruption === 'reduced' ? 'reduce' : 'no-preference',
+    })
+    const box = (await viewport.boundingBox())!
+    const cursor = { x: Math.floor(box.x + box.width / 2), y: Math.floor(box.y + box.height / 2) }
+    await page.mouse.move(cursor.x, cursor.y)
+    await page.mouse.down()
+    await expect
+      .poll(() =>
+        viewport.evaluate((el) => document.pointerLockElement === el || el.hasPointerCapture(1)),
+      )
+      .toBe(true)
+    const released = await viewport.evaluate(async (el, cursor) => {
+      const frame = () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
+      for (let i = 0; i < 3; i++) {
+        await frame()
+        if (document.pointerLockElement === el)
+          el.dispatchEvent(
+            new MouseEvent('mousemove', { bubbles: true, buttons: 1, movementX: 6, movementY: 3 }),
+          )
+        else
+          el.dispatchEvent(
+            new PointerEvent('pointermove', {
+              bubbles: true,
+              buttons: 1,
+              pointerType: 'mouse',
+              isPrimary: true,
+              pointerId: 1,
+              clientX: cursor.x + (i + 1) * 6,
+              clientY: cursor.y + (i + 1) * 3,
+            }),
+          )
+      }
+      await frame()
+      const view = { x: Number(el.dataset.panX), y: Number(el.dataset.panY) }
+      el.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          button: 0,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }),
+      )
+      // Chromium's subsequent mouseup and unlock notification must preserve the tail.
+      document.dispatchEvent(new MouseEvent('mouseup', { button: 0 }))
+      el.dispatchEvent(new PointerEvent('lostpointercapture', { bubbles: true, pointerId: 1 }))
+      return { ...view, gliding: el.dataset.gliding, locked: document.pointerLockElement === el }
+    }, cursor)
+    expect(released.locked).toBe(false)
+    expect(released.gliding, interruption).toBe(interruption === 'reduced' ? 'false' : 'true')
+    await page.mouse.up()
+    await expect(viewport).toHaveAttribute('data-dragging', 'false')
+    await expect(viewport).not.toHaveCSS('cursor', 'none')
+    if (interruption === 'escape') await page.keyboard.press('Escape')
+    else if (interruption === 'wheel')
+      await viewport.dispatchEvent('wheel', { deltaX: 0, deltaY: 0 })
+    else if (interruption === 'blur')
+      await page.evaluate(() => window.dispatchEvent(new Event('blur')))
+    else if (interruption === 'resize')
+      await (
+        await app.browserWindow(page)
+      ).evaluate((window, size) => window.setContentSize(size.width + 20, size.height), initialSize)
+    await expect(viewport).toHaveAttribute('data-gliding', 'false')
+    await viewport.evaluate(async () => {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    })
+    const settled = await viewport.evaluate((el) => ({
+      x: Number(el.dataset.panX),
+      y: Number(el.dataset.panY),
+    }))
+    const distance = Math.hypot(settled.x - released.x, settled.y - released.y)
+    expect(distance, interruption).toBeLessThanOrEqual(24.001)
+    if (interruption === 'none') expect(distance).toBeGreaterThan(0)
+    if (interruption === 'reduced') expect(distance).toBe(0)
+    await viewport.evaluate(async () => {
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      )
+    })
+    expect(
+      await viewport.evaluate((el) => ({ x: Number(el.dataset.panX), y: Number(el.dataset.panY) })),
+    ).toEqual(settled)
+  }
+  await (
+    await app.browserWindow(page)
+  ).evaluate((window, size) => window.setContentSize(size.width, size.height), initialSize)
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
 }

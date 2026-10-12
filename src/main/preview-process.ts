@@ -6,14 +6,17 @@ import type { ProcessingMetadata, ProcessingOptions } from '../shared/lens'
 import { fork, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import { constants, setPriority } from 'node:os'
 import type {
   FullPreviewProcessor,
   FullPreviewResult,
   PreviewProcessor,
   PreviewResult,
+  ThumbnailProcessor,
+  ThumbnailResult,
 } from './preview-types'
 
-export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor {
+export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, ThumbnailProcessor {
   private child?: ChildProcess
   private busy = false
   private idle?: ReturnType<typeof setTimeout>
@@ -52,6 +55,45 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor {
 
   async process(path: string, output: string, signal: AbortSignal): Promise<PreviewResult> {
     return this.run<PreviewResult>('process', path, output, signal)
+  }
+
+  createWorker(): PreviewProcess {
+    return new PreviewProcess(this.workerPath, this.timeoutMs)
+  }
+  async prepare(
+    path: string,
+    output: string,
+    signal: AbortSignal,
+    fallback: boolean,
+    seed?: PreviewResult,
+  ): Promise<PreviewResult> {
+    // Forced fallback cancellation must never kill a process with a live ExifTool child.
+    if (fallback) await this.close()
+    return this.run<PreviewResult>(
+      'process',
+      path,
+      output,
+      signal,
+      undefined,
+      undefined,
+      undefined,
+      fallback ? 'fallback' : 'embedded',
+      seed,
+    )
+  }
+
+  thumbnail(
+    path: string,
+    output: string,
+    signal: AbortSignal,
+    fallback = false,
+  ): Promise<ThumbnailResult> {
+    return this.run<ThumbnailResult>(
+      fallback ? 'thumbnail-fallback' : 'thumbnail',
+      path,
+      output,
+      signal,
+    )
   }
 
   async inspect(path: string, signal: AbortSignal): Promise<ProcessingMetadata> {
@@ -150,6 +192,8 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor {
     options?: ProcessingOptions,
     frame?: { width: number; height: number; sha256: string; hdr?: HdrStatisticsJob },
     pixel?: HdrPixelJob,
+    importMode?: 'embedded' | 'fallback',
+    importSeed?: PreviewResult,
   ): Promise<T> {
     signal.throwIfAborted()
     clearTimeout(this.idle)
@@ -162,6 +206,13 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor {
     }
     try {
       child = this.child ??= this.launch()
+      if (mode === 'process' && child.pid) {
+        try {
+          setPriority(child.pid, constants.priority.PRIORITY_BELOW_NORMAL)
+        } catch {
+          /* Scheduling remains cooperative on hosts without process priority support. */
+        }
+      }
       const worker = child
       worker.stderr?.on('data', diagnostic)
       return await new Promise<T>((resolve, reject) => {
@@ -192,13 +243,17 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor {
         }
         const aborted = () => {
           cleanup()
-          void this.close(mode === 'full').finally(() => {
+          void this.close(
+            mode === 'full' || mode === 'thumbnail-fallback' || importMode === 'fallback',
+          ).finally(() => {
             reject(new Error('Preview generation cancelled.'))
           })
         }
         const timer = setTimeout(() => {
           cleanup()
-          void this.close(mode === 'full').finally(() => {
+          void this.close(
+            mode === 'full' || mode === 'thumbnail-fallback' || importMode === 'fallback',
+          ).finally(() => {
             reject(new Error('Preview generation timed out.'))
           })
         }, this.timeoutMs)
@@ -206,9 +261,12 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor {
         worker.once('exit', exited)
         worker.once('error', failed)
         signal.addEventListener('abort', aborted, { once: true })
-        worker.send({ type: mode, path, output, options, frame, pixel }, (error) => {
-          if (error) failed(error)
-        })
+        worker.send(
+          { type: mode, path, output, options, frame, pixel, importMode, importSeed },
+          (error) => {
+            if (error) failed(error)
+          },
+        )
       })
     } finally {
       child?.stderr?.off('data', diagnostic)

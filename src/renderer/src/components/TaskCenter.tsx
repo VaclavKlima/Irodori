@@ -26,7 +26,13 @@ export function TaskCenter({
   const root = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const latest =
-    tasks.find((task) => task.status === 'running' || task.status === 'cancelling') ?? tasks.at(-1)
+    tasks.find(
+      (task) =>
+        (task.kind === 'merge' || task.kind === 'delete') &&
+        (task.status === 'running' || task.status === 'cancelling'),
+    ) ??
+    tasks.find((task) => task.status === 'running' || task.status === 'cancelling') ??
+    tasks.at(-1)
   useEffect(() => {
     if (!open) return
     button.current?.focus()
@@ -140,6 +146,17 @@ function TaskDetails({
     <article className={styles.task} data-testid={`task-${task.id}`} data-status={task.status}>
       <strong role="status">{task.title}</strong>
       {task.phase && <p>{task.phase}</p>}
+      {task.waitingReason && (
+        <p role="status">
+          {task.waitingReason === 'foreground'
+            ? 'Waiting for photo editing or preview'
+            : task.waitingReason === 'library-operation'
+              ? 'Waiting for merge or deletion'
+              : task.waitingReason === 'pipeline-capacity'
+                ? 'Waiting for preparation'
+                : 'Waiting for RAW preparation'}
+        </p>
+      )}
       {task.detail && (
         <p className={styles.filename} title={task.detail}>
           {task.detail}
@@ -150,7 +167,30 @@ function TaskDetails({
           {task.items.completed} / {task.items.total} {task.items.label}
         </p>
       )}
-      {task.progress && (
+      {task.outcomes && (
+        <p>
+          {task.outcomes.processed} processed · {task.outcomes.imported} imported ·{' '}
+          {task.outcomes.duplicates} duplicates skipped · {task.outcomes.failed} failed
+        </p>
+      )}
+      {task.skippedAfterDeletion !== undefined && task.skippedAfterDeletion > 0 && (
+        <p>{task.skippedAfterDeletion} Skipped after deletion</p>
+      )}
+      {!!task.unprocessed && (
+        <p>{task.unprocessed} photos unprocessed after source disconnection</p>
+      )}
+      {task.transfer && (
+        <>
+          <p>
+            {task.transfer.copied} copied · {task.transfer.prepared} prepared
+          </p>
+          <p data-testid="task-byte-progress">
+            {bytes(task.transfer.bytes)} / {bytes(task.transfer.totalBytes)} transferred
+            {task.transfer.bytesPerSecond > 0 ? ` · ${bytes(task.transfer.bytesPerSecond)}/s` : ''}
+          </p>
+        </>
+      )}
+      {task.progress && !task.transfer && (
         <p data-testid="task-byte-progress">
           {task.progress.unit === 'bytes'
             ? `${bytes(task.progress.completed)} / ${bytes(task.progress.total)} transferred`

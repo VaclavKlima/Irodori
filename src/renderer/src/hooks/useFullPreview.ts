@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FullPreview, DisplayPreview } from '../../../shared/contracts'
 import { cachedFrame, loadFrame, type FrameLease } from '../preview/frame-cache'
+import { useForegroundActivity } from './useForegroundActivity'
 
 interface State {
   preview: DisplayPreview | null
@@ -11,6 +12,7 @@ interface State {
 const empty: State = { preview: null, pixels: null, placeholder: null, error: null }
 
 export function useFullPreview(photoId: string | undefined, enabled = true) {
+  const { begin } = useForegroundActivity(photoId, undefined, enabled)
   const latestRevision = useRef(0)
   const displayedLease = useRef<FrameLease | null>(null)
   useEffect(
@@ -41,6 +43,7 @@ export function useFullPreview(photoId: string | undefined, enabled = true) {
     const abort = new AbortController()
     let cancelled = false
     let frame: FrameLease | undefined
+    const releaseActivity = begin()
     void (async () => {
       const started = performance.now()
       try {
@@ -92,15 +95,18 @@ export function useFullPreview(photoId: string | undefined, enabled = true) {
           }))
           void window.luma.releaseFullPreview(requestId).catch(() => undefined)
         }
+      } finally {
+        releaseActivity()
       }
     })()
     return () => {
       cancelled = true
+      releaseActivity()
       abort.abort()
       if (frame && frame !== displayedLease.current) frame.release()
       void window.luma.releaseFullPreview(requestId).catch(() => undefined)
     }
-  }, [photoId, attempt, revision, enabled])
+  }, [photoId, attempt, revision, enabled, begin])
 
   const retry = useCallback(() => {
     regenerateRevision.current = latestRevision.current

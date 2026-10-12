@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { rawDecoder } from '../processing/decoders'
 import { cameraProfile } from '../processing/cameras'
 import { correctionPlan, radial } from '../processing/lens-correction'
-import { automaticLensSettings } from '../../shared/lens'
 import { SRGB_TO_2020, matrixRgb, luminance } from '../../shared/hdr'
 import { MERGE_LIMITS, mergeFailure, type MergeSource } from '../../shared/merge'
 import { expandMask, type Plane } from './math'
@@ -13,6 +12,10 @@ import { RawGpuRenderer } from '../gpu/raw-renderer'
 import type { MergeMeasurements } from '../../shared/merge'
 import type { RawSource } from '../gpu/raw-source'
 import { saveSensorCache, type SensorCache } from './sensor-cache'
+import { sourceCorrectionPlan } from './preparation-policy'
+import type { MergePreparation } from '../../shared/merge'
+import { cameraRegistrationWriter, type CameraRegistration } from './camera-registration'
+import { sensorBlendParameters, sensorBlendRgb } from '../gpu/sensor-blend'
 
 function sensorMask(raw: RawSource) {
   const mask = new Uint8Array(raw.width * raw.height)
@@ -134,6 +137,10 @@ export interface PreparedSource {
   measurement?: MergeMeasurements['preparation'][number]
   gpuBytes?: number
   sensor?: SensorCache
+  identity?: string
+  cameraRegistration?: CameraRegistration
+  /** Alignment-only proxies select a camera channel; fusion sources never set this. */
+  registrationChannel?: number
 }
 /** Sequential decoding; saturation is captured in sensor coordinates before demosaicing. */
 export async function prepareSource(
@@ -144,6 +151,7 @@ export async function prepareSource(
   reference: MergeSource,
   gpu?: RawGpuRenderer,
   checkpoint: () => Promise<void> = async () => {},
+  preparation?: MergePreparation,
 ): Promise<PreparedSource> {
   const start = performance.now()
   let fallback: string | undefined
@@ -158,11 +166,13 @@ export async function prepareSource(
       if (!raw?.normalization?.sourceSaturation)
         throw new Error('Source saturation metadata is unavailable.')
       const decodingMs = performance.now() - start
-      const plan = correctionPlan(
+      const plan = sourceCorrectionPlan(
           raw.width,
           raw.height,
-          reference.metadata.lensProfile,
-          automaticLensSettings,
+          raw.flip,
+          source,
+          reference,
+          preparation,
         ),
         width = raw.flip & 4 ? plan.height : plan.width,
         height = raw.flip & 4 ? plan.width : plan.height,
@@ -175,7 +185,10 @@ export async function prepareSource(
         saturated = sensorMask(raw),
         alpha = new Uint32Array(Math.ceil((width * height) / 32)),
         invalidated: number[] = []
+      let camera: Awaited<ReturnType<typeof cameraRegistrationWriter>> | undefined
       try {
+        if (preparation)
+          camera = await cameraRegistrationWriter(directory, index, raw, plan, pw, ph)
         const frame = await gpu.render(raw, plan, undefined, false, false, {
           gains: reference.metadata.whiteBalance!.asShotGains,
           reviewWidth: pw,
@@ -183,6 +196,7 @@ export async function prepareSource(
           checkpoint,
           strip: async (top, bytes) => {
             invalidated.push(...repairMask(bytes, top, width, raw, plan, saturated, alpha))
+            await camera?.write(top, bytes)
             for (let offset = 0; offset < bytes.length; offset += width * 64 * 16)
               strips.push(
                 createHash('sha256')
@@ -227,6 +241,7 @@ export async function prepareSource(
           plan,
           alpha,
         )
+        const cameraRegistration = await camera?.finish()
         return {
           path: target,
           strips,
@@ -245,8 +260,10 @@ export async function prepareSource(
           },
           gpuBytes: frame.gpuBytes,
           sensor,
+          cameraRegistration,
         }
       } finally {
+        await camera?.close()
         await file.close()
       }
     } catch (error) {
@@ -256,8 +273,17 @@ export async function prepareSource(
     }
     const { rm } = await import('node:fs/promises')
     await rm(join(directory, `source-${index}.f32`), { force: true })
+    await rm(join(directory, `source-${index}.camera.f32`), { force: true })
   }
-  const result = await prepareCpu(path, directory, index, source, reference, checkpoint)
+  const result = await prepareCpu(
+    path,
+    directory,
+    index,
+    source,
+    reference,
+    checkpoint,
+    preparation,
+  )
   result.measurement = {
     backend: 'cpu',
     fallback,
@@ -268,6 +294,22 @@ export async function prepareSource(
   return result
 }
 
+/** Preserve the reference's geometry while using the same camera-stage
+ * highlight policy as ordinary Sony HDR for irrecoverably clipped fallback.
+ * This separate preparation never supplies alignment or fusion evidence.
+ */
+export function prepareReferenceFallback(
+  path: string,
+  directory: string,
+  index: number,
+  source: MergeSource,
+  reference: MergeSource,
+  checkpoint: () => Promise<void>,
+  preparation: MergePreparation,
+) {
+  return prepareCpu(path, directory, index, source, reference, checkpoint, preparation, true)
+}
+
 async function prepareCpu(
   path: string,
   directory: string,
@@ -275,25 +317,28 @@ async function prepareCpu(
   source: MergeSource,
   reference: MergeSource,
   checkpoint: () => Promise<void>,
+  preparation?: MergePreparation,
+  highlightSafe = false,
 ): Promise<PreparedSource> {
   const start = performance.now()
   const decoder = rawDecoder(path)
   if (!decoder) throw new Error('Merge requires RAW sources.')
   const session = await decoder.open(path)
-  let frame: ReturnType<typeof session.linear>, saturated: Uint8Array
+  let frame: ReturnType<typeof session.linear>, saturated: Uint8Array, raw: RawSource
   try {
     if (!session.metadata.hdrEligible || session.metadata.model !== source.metadata.model)
       throw new Error('Unverified Sony RAW recording mode.')
-    const raw = session.gpuSource(true)
-    if (!raw?.normalization?.sourceSaturation)
+    const sourceRaw = session.gpuSource(true)
+    if (!sourceRaw?.normalization?.sourceSaturation)
       throw new Error('Source saturation metadata is unavailable.')
+    const thresholds = sourceRaw.normalization.sourceSaturation.thresholds
+    raw = sourceRaw
     saturated = new Uint8Array(raw.width * raw.height)
     for (let y = 0; y < raw.height; y++)
       for (let x = 0; x < raw.width; x++) {
         const c = raw.cfa[(y % 2) * 2 + (x % 2)]
         saturated[y * raw.width + x] = Number(
-          raw.pixels[(y + raw.top) * raw.rawWidth + x + raw.left] >=
-            raw.normalization.sourceSaturation.thresholds[c],
+          raw.pixels[(y + raw.top) * raw.rawWidth + x + raw.left] >= thresholds[c],
         )
       }
     saturated = expandMask(saturated, raw.width, raw.height, 2)
@@ -304,11 +349,31 @@ async function prepareCpu(
   const decodingMs = performance.now() - start
   const normal = frame.normalization!,
     gains = reference.metadata.whiteBalance!.asShotGains
-  const plan = correctionPlan(
+  if (highlightSafe) {
+    const blend = sensorBlendParameters(normal)
+    if (!blend) throw new Error('Verified camera highlight parameters are unavailable.')
+    for (let top = 0; top < frame.height; top += 64) {
+      await checkpoint()
+      const last = Math.min(frame.height, top + 64) * frame.width * 4
+      for (let i = top * frame.width * 4; i < last; i += 4)
+        if (
+          frame.data[i] > blend.saturation[0] ||
+          frame.data[i + 1] > blend.saturation[1] ||
+          frame.data[i + 2] > blend.saturation[2]
+        )
+          frame.data.set(
+            sensorBlendRgb([frame.data[i], frame.data[i + 1], frame.data[i + 2]], blend),
+            i,
+          )
+    }
+  }
+  const plan = sourceCorrectionPlan(
     frame.width,
     frame.height,
-    reference.metadata.lensProfile,
-    automaticLensSettings,
+    frame.flip,
+    source,
+    reference,
+    preparation,
   )
   const width = frame.flip & 4 ? plan.height : plan.width,
     height = frame.flip & 4 ? plan.width : plan.height
@@ -330,10 +395,20 @@ async function prepareCpu(
     ys = areaContributions(height, plane.height)
   const target = join(directory, `source-${index}.f32`),
     file = await open(target, 'wx')
+  let camera: Awaited<ReturnType<typeof cameraRegistrationWriter>> | undefined
   const cx = (frame.width - 1) / 2,
     cy = (frame.height - 1) / 2,
     radius = Math.hypot(cx, cy)
   try {
+    if (preparation && !highlightSafe)
+      camera = await cameraRegistrationWriter(
+        directory,
+        index,
+        raw,
+        plan,
+        plane.width,
+        plane.height,
+      )
     for (let top = 0; top < height; top += 64) {
       await checkpoint()
       const rows = Math.min(64, height - top),
@@ -398,11 +473,14 @@ async function prepareCpu(
         }
       const bytes = Buffer.from(out.buffer)
       strips.push(createHash('sha256').update(bytes).digest('hex'))
+      await camera?.write(top, bytes)
       await file.writeFile(bytes)
     }
   } finally {
+    await camera?.close()
     await file.close()
   }
+  const cameraRegistration = await camera?.finish()
   for (let i = 0; i < plane.data.length; i++) {
     plane.mask[i] = Math.abs(counts[i] - totals[i]) < 1e-8 && counts[i] > 0 ? 255 : 0
     plane.data[i] = plane.mask[i] ? plane.data[i] / counts[i] : 0
@@ -422,5 +500,6 @@ async function prepareCpu(
       decodingMs,
       preparationMs: performance.now() - start - decodingMs,
     },
+    cameraRegistration,
   }
 }

@@ -33,7 +33,9 @@ fn sample(q:vec2f)->vec4f {
   reference[i]=sample(vec2f(f32(i%p.size.x),f32(p.size.z+i/p.size.x)));
 }
 @compute @workgroup_size(256) fn accumulate(@builtin(global_invocation_id) id:vec3u) {
-  let i=id.x; if(i>=p.size.x*p.size.w || coverage[i]==0u || excluded[i]!=0u) { return; }
+  let i=id.x; if(i>=p.size.x*p.size.w || coverage[i]==0u) { return; }
+  let confidence=1.-f32(excluded[i])/select(1.,255.,p.matrix[0].w>0.);
+  if(confidence<=0.) { return; }
   let xy=vec3f(f32(i%p.size.x),f32(p.size.z+i/p.size.x),1.);
   let denominator=dot(p.matrix[2].xyz,xy); let q=vec2f(dot(p.matrix[0].xyz,xy),dot(p.matrix[1].xyz,xy))/denominator+localOffset(xy.xy);
   if(any(q<vec2f(0)) || any(q>vec2f(p.size.xy)-1.)) { return; }
@@ -41,12 +43,12 @@ fn sample(q:vec2f)->vec4f {
   let v=variance(rawY,p.values.x,p.values.y);
   if(p.band.z==1u && value.a>0. && referenceValue.a>0. && p.values.w>0. && abs(rawY/p.values.x-refY)>(8.-p.values.w*.04)*sqrt(v+variance(refY,1.,p.values.z))) { motion[i]=1u; }
   if(value.a==0.) { return; }
-  let weight=1./max(1e-12,v); sums[i]+=vec4f(value.rgb/p.values.x*weight,weight);
+  let weight=confidence/max(1e-12,v); sums[i]+=vec4f(value.rgb/p.values.x*weight,weight);
 }
 @compute @workgroup_size(256) fn finish(@builtin(global_invocation_id) id:vec3u) {
   let i=id.x; if(i>=p.size.x*p.size.w) { return; }
   let sum=sums[i]; var rgb=reference[i].rgb;
   if(sum.a>0.) { rgb=sum.rgb/sum.a; }
-  output[i]=vec4f(rgb,f32(coverage[i]>0u));
+  output[i]=vec4f(rgb,f32(coverage[i]>0u && sum.a>0.));
 }
 `

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { PreviewEngine } from '../src/main/preview-engine'
 import { MergeProcess } from '../src/main/merge/process'
 import { mergeFailure, validateMergeSources, type MergeSource } from '../src/shared/merge'
+import { librawDecoder } from '../src/main/processing/decoders/libraw'
 
 // eslint-disable-next-line no-empty-pattern -- Playwright requires destructured fixtures.
 test('read-only supplied Sony brackets pass common preparation and measured exposure validation', async ({}, info) => {
@@ -23,12 +24,15 @@ test('read-only supplied Sony brackets pass common preparation and measured expo
     for (let i = 0; i < paths.length; i++) {
       const metadata = await engine.inspect(paths[i])
       expect(metadata.capture).toBeDefined()
+      const decoder = await librawDecoder.open(paths[i])
+      const dimensions = decoder.dimensions
+      decoder.close()
       sources.push({
         photo: {
           id: String(i + 1).padStart(64, '0'),
           filename: basename(paths[i]),
-          width: 5472,
-          height: 3648,
+          width: dimensions.flip & 4 ? dimensions.height : dimensions.width,
+          height: dimensions.flip & 4 ? dimensions.width : dimensions.height,
           format: 'ARW',
           bytes: (await stat(paths[i])).size,
           importedAt: '',
@@ -38,6 +42,7 @@ test('read-only supplied Sony brackets pass common preparation and measured expo
         },
         metadata,
         capture: metadata.capture!,
+        captureMetadata: await engine.inspectCapture(paths[i]),
         relativeEv: 0,
       })
     }

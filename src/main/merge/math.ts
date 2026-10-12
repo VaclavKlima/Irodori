@@ -65,11 +65,15 @@ export function refineExposure(
   t: MergeTransform,
   expected: number,
   excluded: (x: number, y: number) => boolean = () => false,
+  sensorMasked = false,
 ): number {
+  if (sensorMasked && (!reference.mask || !source.mask))
+    throw new Error('Sensor-masked exposure overlap requires both clipping masks.')
   const ratios: number[] = [],
     edge = Math.max(2, Math.ceil(Math.max(reference.width, reference.height) / 256))
   // Masked exposure tiles suppress shot/read noise before estimating ratios.
-  // The original metadata tolerance, residual and overlap gates apply unchanged.
+  // Sensor-certified BRK planes may contain usable working values above white;
+  // clipping comes from the masks. Metadata, residual and overlap gates remain.
   for (let top = 1; top + edge < reference.height; top += edge)
     for (let left = 1; left + edge < reference.width; left += edge) {
       let a = 0,
@@ -84,9 +88,9 @@ export function refineExposure(
           if (
             (!reference.mask || reference.mask[y * reference.width + x]) &&
             av > 0.015 &&
-            av < 0.85 &&
+            (sensorMasked || av < 0.85) &&
             bv > 0.015 &&
-            bv < 0.85
+            (sensorMasked || bv < 0.85)
           ) {
             a += av
             b += bv

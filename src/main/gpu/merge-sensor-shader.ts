@@ -68,19 +68,22 @@ fn sample(q:vec2f)->vec3f {
 @compute @workgroup_size(16,16) fn accumulateSensor(@builtin(global_invocation_id) id:vec3u) {
   if(any(id.xy>=p.size.xy)) { return; }
   let i=id.y*p.size.x+id.x;
-  if((flags[i] & 1u)==0u || ((excluded[i/32u] >> (i%32u)) & 1u)!=0u) { return; }
+  if((flags[i] & 1u)==0u) { return; }
+  var confidence=1.-f32((excluded[i/32u] >> (i%32u)) & 1u);
+  if(p.matrix[0].w>0.) { confidence=1.-f32((excluded[i/4u] >> ((i%4u)*8u)) & 255u)/255.; }
+  if(confidence<=0.) { return; }
   let xy=vec3f(vec2f(id.xy),1.);
   let denominator=dot(p.matrix[2].xyz,xy); let q=vec2f(dot(p.matrix[0].xyz,xy),dot(p.matrix[1].xyz,xy))/denominator+localOffset(xy.xy);
   if(any(q<vec2f(0)) || any(q>vec2f(p.size.xy)-1.) || !valid(q)) { return; }
   let value=sample(q); let rawY=luminance(value); let refY=referenceY[i];
   let v=variance(rawY,p.values.x,p.values.y);
   if(p.band.z==1u && (flags[i] & 4u)!=0u && p.values.w>0. && abs(rawY/p.values.x-refY)>(8.-p.values.w*.04)*sqrt(v+variance(refY,1.,p.values.z))) { flags[i] |= 2u; }
-  let weight=1./max(1e-12,v); sums[i]+=vec4f(value/p.values.x*weight,weight);
+  let weight=confidence/max(1e-12,v); sums[i]+=vec4f(value/p.values.x*weight,weight);
 }
 @compute @workgroup_size(256) fn finishSensor(@builtin(global_invocation_id) id:vec3u) {
   let i=id.x; if(i>=p.size.x*p.size.w) { return; }
   let global=p.size.z*p.size.x+i; let sum=sums[global]; var rgb=referenceBand[i].rgb;
   if(sum.a>0.) { rgb=sum.rgb/sum.a; }
-  outputBand[i]=vec4f(rgb,f32((flags[global] & 1u)!=0u));
+  outputBand[i]=vec4f(rgb,f32((flags[global] & 1u)!=0u && sum.a>0.));
 }
 `

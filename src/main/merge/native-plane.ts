@@ -39,11 +39,27 @@ export async function nativePlane(source: PreparedSource, checkpoint: () => Prom
       if (createHash('sha256').update(strip).digest('hex') !== source.strips[top / 64])
         throw new Error('Damaged merge source strip.')
       const rgba = new Float32Array(strip.buffer, strip.byteOffset, strip.byteLength / 4)
-      for (let k = 0; k < rgba.length / 4; k++)
+      const channel = source.registrationChannel
+      if (channel !== undefined && (!Number.isInteger(channel) || channel < 0 || channel > 2))
+        throw new Error('Invalid camera registration channel.')
+      for (let k = 0; k < rgba.length / 4; k++) {
+        if (
+          channel !== undefined &&
+          (!Number.isInteger(rgba[k * 4 + 3]) ||
+            rgba[k * 4 + 3] < 0 ||
+            rgba[k * 4 + 3] > 7 ||
+            !Number.isFinite(rgba[k * 4 + channel]))
+        )
+          throw new Error('Damaged native camera registration sample.')
         plane[top * source.width + k] =
-          rgba[k * 4 + 3] > 0
-            ? rgba[k * 4] * 0.2627 + rgba[k * 4 + 1] * 0.678 + rgba[k * 4 + 2] * 0.0593
-            : NaN
+          channel === undefined
+            ? rgba[k * 4 + 3] > 0
+              ? rgba[k * 4] * 0.2627 + rgba[k * 4 + 1] * 0.678 + rgba[k * 4 + 2] * 0.0593
+              : NaN
+            : rgba[k * 4 + 3] & (1 << channel)
+              ? rgba[k * 4 + channel]
+              : NaN
+      }
     }
   } finally {
     await file.close()

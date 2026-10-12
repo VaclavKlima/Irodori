@@ -1,6 +1,7 @@
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { HDR_CACHE_MAX_TILES } from '../src/renderer/src/preview/hdr-render-cache'
+import { verifyPanGlide } from './preview-pan.helpers'
 
 test.use({ hdrDisplay: true })
 test('HDR interaction reuses rendered tiles, invalidates edits and targets, and preserves native detail', async ({
@@ -48,11 +49,14 @@ test('HDR interaction reuses rendered tiles, invalidates edits and targets, and 
   await drawView('ArrowRight')
   await drawView('ArrowLeft')
   const before = await completed()
+  const histogramSerial = await page.locator('#histogram').getAttribute('data-edit-serial')
   for (const key of ['ArrowRight', 'ArrowLeft', '+', '-']) await drawView(key)
   await expect
     .poll(async () => Number(await canvas.getAttribute('data-presentation-serial')))
     .toBeGreaterThan(before.serial)
   const after = await completed()
+  expect(await page.locator('#histogram').getAttribute('data-edit-serial')).toBe(histogramSerial)
+  expect(await canvas.getAttribute('data-analysis-serial')).toBe(histogramSerial)
   expect(after.rendered).toBe(before.rendered)
   expect(after.cached).toBeLessThanOrEqual(HDR_CACHE_MAX_TILES)
   const burst = await viewport.evaluate(async (el) => {
@@ -133,4 +137,12 @@ test('HDR interaction reuses rendered tiles, invalidates edits and targets, and 
   await page.getByRole('button', { name: 'Before', exact: true }).click()
   await expect(canvas).toHaveAttribute('data-comparison', 'before')
   await expect(canvas).toHaveAttribute('data-editing', 'ready')
+  await verifyPanGlide(
+    app,
+    page,
+    viewport,
+    page.getByRole('combobox', { name: 'Preview zoom', exact: true }),
+  )
+  await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr')
+  await expect(canvas).toHaveAttribute('data-quality', 'normal')
 })

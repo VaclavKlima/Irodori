@@ -15,6 +15,7 @@ export function usePreviewAnalysis(
   gesturing: boolean,
   onStatistics: (value?: ImageStatistics) => void,
   onMask: (mask?: ClippingMask) => void,
+  activity?: () => () => void,
 ) {
   const [failure, setFailure] = useState<{ identity: string; message: string }>()
   const histogram = useRef<AnalysisQueue | null>(null),
@@ -25,7 +26,7 @@ export function usePreviewAnalysis(
     const worker = new Worker(new URL('../preview/analysis-worker.ts', import.meta.url), {
       type: 'module',
     })
-    const queue = new AnalysisQueue(worker, identity, false)
+    const queue = new AnalysisQueue(worker, identity, false, activity)
     histogram.current = queue
     const sample = sampleWorking(frame.data)
     worker.postMessage(
@@ -42,30 +43,34 @@ export function usePreviewAnalysis(
       }
       if (data.done) queue.finished()
     }
-    worker.onerror = (event) => setFailure({ identity, message: event.message })
+    worker.onerror = (event) => {
+      queue.close()
+      setFailure({ identity, message: event.message })
+    }
     return () => {
       histogram.current = null
       queue.close()
     }
-  }, [frame, identity, onStatistics])
+  }, [frame, identity, onStatistics, activity])
   useEffect(() => {
     onMask(undefined)
     if (!frame || !masks) return
     const worker = new Worker(new URL('../preview/analysis-worker.ts', import.meta.url), {
       type: 'module',
     })
-    const queue = new AnalysisQueue(worker, identity, true)
+    const queue = new AnalysisQueue(worker, identity, true, activity)
     clipping.current = queue
     worker.postMessage({ frame, identity })
     worker.onmessage = ({ data }) => {
       if (queue.accepts(data) && data.mask) onMask(data.mask)
       if (data.done) queue.finished()
     }
+    worker.onerror = () => queue.close()
     return () => {
       clipping.current = null
       queue.close()
     }
-  }, [frame, identity, masks, onMask])
+  }, [frame, identity, masks, onMask, activity])
   const key = JSON.stringify(parameters)
   useEffect(() => {
     histogram.current?.update(JSON.parse(key), !gesturing)

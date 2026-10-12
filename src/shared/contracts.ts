@@ -12,10 +12,23 @@ export interface AppInfo {
   platform: 'linux' | 'darwin' | 'win32'
 }
 
+export interface ForegroundActivity {
+  activityId: string
+  sequence: number
+  active: boolean
+  photoId?: string
+  reviewId?: string
+}
+
 export interface LumaApi {
+  reportForegroundActivity(activity: ForegroundActivity): Promise<void>
   listStacks(): Promise<import('./stacks').StackOverview>
   getPhotoStack(photoId: string): Promise<import('./stacks').StackSummary | null>
   getStackMembers(stackId: string, offset?: number): Promise<import('./stacks').StackMembers>
+  getStackSnapshot(
+    stackId: string,
+    expectedRevision: number,
+  ): Promise<import('./stacks').StackSnapshot>
   groupPhotos(
     ids: string[],
     coverId: string,
@@ -110,8 +123,18 @@ export interface LumaApi {
   dismissTask(id: string): Promise<void>
   getTaskErrors(id: string, offset?: number): Promise<TaskErrorPage>
   chooseSource(kind: 'files' | 'folder', recursive: boolean): Promise<string | null>
+  listImportDevices(): Promise<import('./import-devices').ImportDevice[]>
+  chooseDevice(
+    deviceId: string,
+    searchEntireDevice: boolean,
+    onlyMissing?: boolean,
+    verificationMode?: ImportVerificationMode,
+  ): Promise<string>
+  requestReviewThumbnails(sessionId: string, candidateIds: string[]): Promise<void>
   getReview(sessionId: string, offset?: number): Promise<ImportReview>
   selectCandidates(sessionId: string, ids: string[] | null, selected: boolean): Promise<void>
+  setImportOnlyMissing(sessionId: string, enabled: boolean): Promise<void>
+  setImportVerificationMode(sessionId: string, mode: ImportVerificationMode): Promise<void>
   importSelected(sessionId: string): Promise<void>
   cancelImport(sessionId: string): Promise<void>
   disposeImport(sessionId: string): Promise<void>
@@ -196,6 +219,24 @@ export interface BackgroundTask {
   progress?: { completed: number; total: number; unit: 'bytes' | 'items' }
   items?: { completed: number; total: number; label: string }
   errorCount: number
+  outcomes?: { processed: number; imported: number; duplicates: number; failed: number }
+  transfer?: {
+    copied: number
+    prepared: number
+    bytes: number
+    totalBytes: number
+    bytesPerSecond: number
+  }
+  waitingReason?: 'foreground' | 'library-operation' | 'pipeline-capacity' | 'raw-fallback'
+  skippedAfterDeletion?: number
+  unprocessed?: number
+  importMeasurements?: {
+    copyActiveMs: number
+    preparationMs: number
+    firstPublicationMs?: number
+    stagingPeakBytes: number
+    inFlightPeak: number
+  }
   finishedAt?: number
 }
 
@@ -204,7 +245,8 @@ export interface TaskErrorPage {
   total: number
 }
 
-export type CandidateStatus = 'processing' | 'ready' | 'duplicate' | 'error' | 'imported'
+export type CandidateStatus =
+  'unchecked' | 'processing' | 'ready' | 'duplicate' | 'error' | 'imported' | 'skipped'
 export interface ImportCandidate {
   id: string
   filename: string
@@ -212,19 +254,34 @@ export interface ImportCandidate {
   bytes: number
   status: CandidateStatus
   selected: boolean
+  alreadyImported?: boolean
   thumbnailUrl?: string
+  thumbnailState: 'idle' | 'loading' | 'ready' | 'error'
+  thumbnailMessage?: string
   message?: string
 }
+
+export type ImportVerificationMode = 'camera-fast' | 'full'
 
 export interface ImportReview {
   sessionId: string
   source: string
+  sourceError?: string
+  checkingPrevious?: string
+  onlyMissing?: boolean
+  verificationMode?: ImportVerificationMode
+  verificationPending?: boolean
+  alreadyImported: number
+  alreadyImportedBytes: number
   phase: 'scanning' | 'review' | 'importing' | 'complete' | 'cancelled'
   candidates: ImportCandidate[]
   total: number
   selected: number
   selectedBytes: number
+  totalBytes: number
+  selectionRevision: number
   ready: number
+  unchecked: number
   duplicates: number
   errors: number
   imported: number

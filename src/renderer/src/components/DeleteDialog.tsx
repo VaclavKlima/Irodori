@@ -7,7 +7,7 @@ export function DeleteDialog({
   onClose,
   onStarted,
 }: {
-  photos: PhotoReference[]
+  photos: readonly PhotoReference[]
   onClose: () => void
   onStarted: () => void
 }) {
@@ -59,12 +59,11 @@ export function DeleteDialog({
         Merged results remain usable after source deletion, but reproducing their merge requires the
         original source bytes.
       </p>
-      <ul>
-        {photos.slice(0, 5).map((photo) => (
+      <ul className={styles.targets} tabIndex={0} aria-label="Photos to move to Trash">
+        {photos.map((photo) => (
           <li key={photo.id}>{photo.filename}</li>
         ))}
       </ul>
-      {photos.length > 5 && <p>And {photos.length - 5} more photos.</p>}
       {error && (
         <p role="alert" className={styles.error}>
           {error}

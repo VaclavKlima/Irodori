@@ -8,9 +8,11 @@ async function mergeResult<T>(response: Promise<{ result: T; error?: MergeFailur
   return value.result
 }
 const api: LumaApi = {
+  reportForegroundActivity: (activity) => ipcRenderer.invoke('foreground:activity', activity),
   listStacks: () => ipcRenderer.invoke('stacks:list'),
   getPhotoStack: (id) => ipcRenderer.invoke('stacks:photo', id),
   getStackMembers: (id, offset = 0) => ipcRenderer.invoke('stacks:members', id, offset),
+  getStackSnapshot: (id, revision) => ipcRenderer.invoke('stacks:snapshot', id, revision),
   groupPhotos: (ids, coverId, revision) =>
     ipcRenderer.invoke('stacks:group', ids, coverId, revision),
   ungroupStack: (id, revision) => ipcRenderer.invoke('stacks:ungroup', id, revision),
@@ -119,9 +121,20 @@ const api: LumaApi = {
   cancelTask: (id) => ipcRenderer.invoke('tasks:cancel', id),
   dismissTask: (id) => ipcRenderer.invoke('tasks:dismiss', id),
   getTaskErrors: (id, offset = 0) => ipcRenderer.invoke('tasks:errors', id, offset),
+  listImportDevices: async () => {
+    const result = await ipcRenderer.invoke('library:devices')
+    if (result.error) throw new Error(result.error)
+    return result.devices
+  },
+  chooseDevice: (id, searchEntireDevice, onlyMissing = true, verificationMode = 'camera-fast') =>
+    ipcRenderer.invoke('library:device', id, searchEntireDevice, onlyMissing, verificationMode),
+  requestReviewThumbnails: (id, ids) => ipcRenderer.invoke('library:thumbnails', id, ids),
   chooseSource: (kind, recursive) => ipcRenderer.invoke('library:choose', kind, recursive),
   getReview: (id, offset = 0) => ipcRenderer.invoke('library:review', id, offset),
   selectCandidates: (id, ids, selected) => ipcRenderer.invoke('library:select', id, ids, selected),
+  setImportOnlyMissing: (id, enabled) => ipcRenderer.invoke('library:only-missing', id, enabled),
+  setImportVerificationMode: (id, mode) =>
+    ipcRenderer.invoke('library:verification-mode', id, mode),
   importSelected: (id) => ipcRenderer.invoke('library:import', id),
   cancelImport: (id) => ipcRenderer.invoke('library:cancel', id),
   disposeImport: (id) => ipcRenderer.invoke('library:dispose', id),

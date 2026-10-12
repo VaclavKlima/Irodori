@@ -58,7 +58,7 @@ export async function setupMergePreview(
     }),
   )
   const review: MergeReview = {
-    id: 'fixture-review',
+    id: '00000000-0000-4000-8000-000000000000',
     revision: 0,
     scratchBytes: 1024,
     sources: Array.from({ length: sourceCount }, (_, i) => ({
@@ -114,7 +114,7 @@ export async function setupMergePreview(
         'merge:create': (_event: unknown, _ids: string[], mode: 'hdr' | 'noise') => {
           active = {
             ...structuredClone(review),
-            id: `fixture-review-${++creates}`,
+            id: `00000000-0000-4000-8000-${String(++creates).padStart(12, '0')}`,
             settings: { ...review.settings, mode },
           }
           return { result: active }

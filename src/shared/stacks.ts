@@ -12,9 +12,11 @@ export interface StackOverview {
   revision: number
   stacks: StackSummary[]
 }
-export interface StackMembers {
+export interface StackSnapshot {
   stack: StackSummary
   photos: Photo[]
+}
+export interface StackMembers extends StackSnapshot {
   total: number
 }
 export interface GalleryEntry {

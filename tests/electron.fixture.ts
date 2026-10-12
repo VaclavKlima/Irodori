@@ -1,7 +1,7 @@
 import type { ElectronApplication, Page } from '@playwright/test'
 import { test as base, _electron as electron, expect } from '@playwright/test'
 import type { ChildProcess } from 'node:child_process'
-import { access, mkdtemp, realpath, rm } from 'node:fs/promises'
+import { access, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -97,7 +97,14 @@ export const test = base.extend<{ luma: DesktopSession; hdrDisplay: boolean }>({
         observedPages.add(page)
         page.on('pageerror', (error) => errors.push(`Renderer exception: ${error.message}`))
         page.on('console', (message) => {
-          if (message.type() === 'error') errors.push(`Renderer console: ${message.text()}`)
+          if (message.type() === 'error') {
+            errors.push(`Renderer console: ${message.text()}`)
+            processOutput.push(`Renderer console location: ${JSON.stringify(message.location())}\n`)
+          }
+        })
+        page.on('response', (response) => {
+          if (response.status() >= 400)
+            processOutput.push(`Renderer resource ${response.status()}: ${response.url()}\n`)
         })
         page.on('crash', () => errors.push('The renderer process crashed.'))
       }
@@ -177,8 +184,10 @@ export const test = base.extend<{ luma: DesktopSession; hdrDisplay: boolean }>({
         }
       }
       if (failed) {
+        const diagnostics = testInfo.outputPath('electron-diagnostics.log')
+        await writeFile(diagnostics, [...errors, ...processOutput].join('\n'))
         await testInfo.attach('Electron diagnostics', {
-          body: [...errors, ...processOutput].join('\n'),
+          path: diagnostics,
           contentType: 'text/plain',
         })
       }

@@ -2,6 +2,7 @@ export interface HdrEditRequest<T> {
   serial: number
   epoch: number
   draft: boolean
+  navigation: boolean
   value: T
 }
 /** One active immutable snapshot and one replaceable pending request. */
@@ -11,8 +12,8 @@ export class HdrEditQueue<T> {
   private pending?: HdrEditRequest<T>
   private active?: HdrEditRequest<T>
   private completed = 0
-  request(value: T, draft: boolean) {
-    const request = { serial: ++this.serial, epoch: this.epoch, draft, value }
+  request(value: T, draft: boolean, navigation = false) {
+    const request = { serial: ++this.serial, epoch: this.epoch, draft, navigation, value }
     this.pending = request
     return request.serial
   }
@@ -27,7 +28,7 @@ export class HdrEditQueue<T> {
     return this.active
   }
   superseded(request: HdrEditRequest<T>) {
-    return request.epoch !== this.epoch || (!request.draft && !!this.pending)
+    return request.epoch !== this.epoch || (!request.draft && !request.navigation && !!this.pending)
   }
   get hasPending() {
     return !!this.pending
@@ -35,11 +36,11 @@ export class HdrEditQueue<T> {
   finish(request: HdrEditRequest<T>) {
     if (this.active !== request) return false
     this.active = undefined
-    // A completed draft can advance during a burst. Obsolete refinement cannot.
+    // Movement and adjustment drafts advance during input. Idle refinement yields to new input.
     if (
       request.epoch !== this.epoch ||
       request.serial <= this.completed ||
-      (!request.draft && this.pending)
+      (!request.draft && !request.navigation && this.pending)
     )
       return false
     this.completed = request.serial

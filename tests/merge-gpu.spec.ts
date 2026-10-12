@@ -21,7 +21,6 @@ import { identityTransform } from '../src/main/merge/alignment'
 import { saveSensorCache, readSensorCache, packedBits } from '../src/main/merge/sensor-cache'
 import { accumulateGpu } from '../src/main/merge/gpu-accumulation'
 import { band, resetMergeReads } from '../src/main/merge/sampling'
-import { excludedBand } from '../src/main/merge/exclusions'
 
 test('merge GPU preparation applies every sensor orientation exactly once with clipping masks', async () => {
   const session = await librawDecoder.open('tests/fixtures/sony-zv1.ARW'),
@@ -167,6 +166,7 @@ test('merge GPU preparation applies every sensor orientation exactly once with c
         scales = [0.7, 1.3],
         common = coverage(frame.width, frame.height, transforms).mask,
         motion = new Uint8Array(alpha.length),
+        featherPixels = flip & 1 ? 8 : 0,
         output = join(directory, `output-${flip}`)
       await mkdir(output)
       resetMergeReads()
@@ -182,6 +182,7 @@ test('merge GPU preparation applies every sensor orientation exactly once with c
         frame,
         output,
         async () => {},
+        featherPixels,
       )
       expect(result.kernel).toBe('sensor-warp')
       expect(result.peakBytes).toBeLessThanOrEqual(1024 ** 3)
@@ -192,15 +193,6 @@ test('merge GPU preparation applies every sensor orientation exactly once with c
           actualBytes.length / 4,
         ),
         gets = await Promise.all(transforms.map((t) => band(prepared, t, 0, frame.height))),
-        excluded = excludedBand(
-          transforms[1],
-          frame.width,
-          frame.height,
-          frame.width,
-          frame.height,
-          0,
-          frame.height,
-        ),
         value = [0, 0, 0, 0],
         expectedMotion = new Uint8Array(alpha.length)
       let maximum = 0
@@ -211,10 +203,18 @@ test('merge GPU preparation applies every sensor orientation exactly once with c
             sum = [0, 0, 0, 0],
             refY = luminance([data[i], data[i + 1], data[i + 2]])
           for (let s = 0; s < 2; s++) {
-            if (!common[k] || (s === 1 && excluded[k]) || !gets[s](x, y, value) || !value[3])
-              continue
+            // Independent distance to the rectangular exclusion in reference coordinates.
+            const distance = Math.max(12 - x, 0, x - 29) + Math.max(6 - y, 0, y - 13),
+              d = featherPixels ? Math.min(1, distance / featherPixels) : Number(distance > 0),
+              confidence =
+                s === 0
+                  ? 1
+                  : distance
+                    ? Math.max(1, Math.round(d * d * (3 - 2 * d) * 255)) / 255
+                    : 0
+            if (!common[k] || !confidence || !gets[s](x, y, value) || !value[3]) continue
             const v = noiseVariance(luminance(value), scales[s], sources[s].capture.iso),
-              weight = 1 / v
+              weight = confidence / v
             if (
               s === 1 &&
               data[i + 3] &&
@@ -236,12 +236,41 @@ test('merge GPU preparation applies every sensor orientation exactly once with c
               Math.abs(actual[i + c] - expected) / (2e-6 + 2e-5 * Math.abs(expected)),
             )
           }
-          expect(actual[i + 3]).toBe(Number(common[k] > 0))
+          expect(actual[i + 3]).toBe(Number(common[k] > 0 && sum[3] > 0))
         }
       expect(maximum).toBeLessThanOrEqual(1)
       expect(motion).toEqual(expectedMotion)
       expect(await readFile(join(output, 'reference.f32'))).toEqual(buffer)
       expect(result.referenceReused).toBe(true)
+      const bandOutput = join(directory, `prepared-${flip}`),
+        bandMotion = new Uint8Array(alpha.length),
+        withoutSensor = { ...prepared, sensor: undefined }
+      await mkdir(bandOutput)
+      const bandResult = await accumulateGpu(
+        gpu,
+        [withoutSensor, withoutSensor],
+        sources,
+        transforms,
+        scales,
+        settings,
+        common,
+        bandMotion,
+        frame,
+        bandOutput,
+        async () => {},
+        featherPixels,
+      )
+      expect(bandResult.kernel).toBe('prepared-bands')
+      const bandBytes = await readFile(join(bandOutput, 'accumulation.f32')),
+        bandPixels = new Float32Array(bandBytes.buffer, bandBytes.byteOffset, bandBytes.length / 4)
+      let bandError = 0
+      for (let i = 0; i < actual.length; i++)
+        bandError = Math.max(
+          bandError,
+          Math.abs(bandPixels[i] - actual[i]) / (2e-6 + 2e-5 * Math.abs(actual[i])),
+        )
+      expect(bandError).toBeLessThanOrEqual(1)
+      expect(bandMotion).toEqual(expectedMotion)
       if (flip === 7) {
         const cancelled = new RawGpuRenderer(),
           cancelOutput = join(directory, 'cancelled'),
@@ -265,6 +294,7 @@ test('merge GPU preparation applies every sensor orientation exactly once with c
                 if (++checkpoints === 3) abort.abort(new Error('Cancelled sensor accumulation.'))
                 abort.signal.throwIfAborted()
               },
+              featherPixels,
             ),
           ).rejects.toThrow('Cancelled sensor accumulation')
           expect(cancelled.failure).toBe('Cancelled sensor accumulation.')

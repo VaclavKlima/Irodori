@@ -21,6 +21,7 @@ import { join } from 'node:path'
 import { createReadStream } from 'node:fs'
 import type { FullPreview, HdrPreview, DisplayPreview } from '../shared/contracts'
 import type { FullPreviewProcessor, FullPreviewResult, HdrStatisticsJob } from './preview-types'
+import type { WorkScheduler } from './work-scheduler'
 
 // Cache layout version. Source and output identities separately invalidate pixel variants.
 export const PREVIEW_VERSION = 'v9'
@@ -73,6 +74,7 @@ export class FullPreviews {
     private budget = 2 * 1024 ** 3,
     private options?: (id: string, signal: AbortSignal) => Promise<ProcessingOptions>,
     private activity?: (busy: boolean) => void,
+    private scheduler?: WorkScheduler,
   ) {
     this.directory = join(root, PREVIEW_VERSION)
   }
@@ -81,6 +83,9 @@ export class FullPreviews {
     const result = this.tail.then(work)
     this.tail = result.catch(() => undefined)
     return result
+  }
+  private foreground<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    return this.scheduler ? this.scheduler.run('interactive', work, signal) : work()
   }
 
   async open(): Promise<void> {
@@ -238,308 +243,318 @@ export class FullPreviews {
     const request: Request = { id, token, abort: new AbortController() }
     if (background) this.background.add(request)
     else this.active = request
-    const work = this.enqueue(async () => {
-      this.running = request
-      this.activity?.(true)
-      try {
-        const check = () => {
-          request.abort.signal.throwIfAborted()
-          if (this.closed || this.blocked.has(id) || !this.original(id))
-            throw new Error('This photo is unavailable.')
-        }
-        check()
-        const options = await this.options?.(id, request.abort.signal)
-        if (workingOnly && options?.processing !== 'hdr-v1') return null
-        if (options) {
-          options.prepareLinear = prepareLinear
-          options.workingOnly = workingOnly
-        }
-        check()
-        const sourceKey = options
-          ? createHash('sha256')
-              .update(
-                JSON.stringify([
-                  id,
-                  options.processing ?? 'display-referred-v1',
-                  options.processing === 'hdr-v1'
-                    ? options.metadata.mergeMaster
-                      ? HDR_SOURCE_VERSION
-                      : HDR_RAW_SOURCE_VERSION
-                    : null,
-                  LENS_RENDER_VERSION,
-                  CROP_POLICY,
-                  rawDecoderDefinitions,
-                  cameraProfiles,
-                  options.metadata.lensProfile.identity,
-                  options.metadata.whiteBalance?.identity,
-                  options.settings,
-                ]),
-              )
-              .digest('hex')
-          : undefined
-        let linearEntry =
-          sourceKey && !regenerate
-            ? [...this.entries.values()].find(
-                (entry) =>
-                  entry.id === id &&
-                  entry.sourceKey === sourceKey &&
-                  entry.linear &&
-                  !entry.invalid,
-              )
-            : undefined
-        if (linearEntry && options && !options.metadata.mergeMaster) {
-          linearEntry.pins++
-          request.linearEntry = linearEntry
-          options.workingAsset = {
-            path: join(linearEntry.path, 'linear.f32'),
-            width: linearEntry.width,
-            height: linearEntry.height,
-            ...linearEntry.linear!,
-          }
-          options.prepareLinear = false
-          if (workingOnly) delete options.workingAsset
-        }
-        const variant = workingOnly
-          ? `working-${sourceKey}`
-          : options
-            ? createHash('sha256')
-                .update(
-                  JSON.stringify([
-                    id,
-                    options.processing ?? 'display-referred-v1',
-                    options.processing === 'hdr-v1'
-                      ? options.metadata.mergeMaster
-                        ? HDR_SOURCE_VERSION
-                        : HDR_RAW_SOURCE_VERSION
-                      : null,
-                    LENS_RENDER_VERSION,
-                    CROP_POLICY,
-                    rawDecoderDefinitions,
-                    cameraProfiles,
-                    options.metadata.lensProfile.identity,
-                    options.metadata.whiteBalance?.identity,
-                    options.settings,
-                    options.adjustments ?? neutralAdjustments,
-                    options.processing === 'hdr-v1'
-                      ? [HDR_ADJUSTMENT_VERSION, HDR_OUTPUT_VERSION]
-                      : ADJUSTMENT_VERSION,
-                  ]),
-                )
-                .digest('hex')
-            : 'uncorrected'
-        if (regenerate) {
-          for (const entry of this.entries.values())
-            if (
-              entry.id === id &&
-              (entry.variant === variant || (workingOnly && entry.sourceKey === sourceKey))
-            )
-              entry.invalid = true
-        }
-        let entry: Entry | undefined = [...this.entries.values()]
-          .filter((entry) => entry.id === id && entry.variant === variant && !entry.invalid)
-          .sort((a, b) => b.usedAt - a.usedAt)[0]
-        if (!entry && workingOnly && linearEntry?.linear?.hdr) entry = linearEntry
-        if (entry) {
+    const work = this.foreground(
+      () =>
+        this.enqueue(async () => {
+          this.running = request
+          this.activity?.(true)
           try {
-            if (
-              workingOnly &&
-              (await stat(join(entry.path, 'linear.f32'))).size !== entry.linear?.byteLength
-            )
-              throw new Error('Incomplete HDR source.')
-            const file = workingOnly ? { size: 0 } : await stat(join(entry.path, 'full.rgba'))
-            const placeholder = workingOnly
-              ? { size: 0 }
-              : await stat(join(entry.path, 'placeholder.png'))
-            if (
-              !workingOnly &&
-              (file.size !== entry.byteLength || placeholder.size !== entry.placeholderBytes)
-            )
-              throw new Error('Incomplete preview')
-          } catch {
-            entry.invalid = true
-            entry = undefined
-          }
-        }
-        const cacheHit = !!entry
-        if (!entry && cachedOnly) return null
-        if (!entry) {
-          const revision = randomUUID()
-          const temporary = join(this.directory, `.tmp-${revision}`)
-          const path = join(this.directory, `${id}-${revision}`)
-          let published = false
-          try {
-            await mkdir(temporary)
-            check()
-            const dimensions = await this.processor.renderFull(
-              this.original(id)!,
-              temporary,
-              request.abort.signal,
-              options,
-            )
-            check()
-            const file = workingOnly ? { size: 0 } : await stat(join(temporary, 'full.rgba'))
-            const placeholder = workingOnly
-              ? { size: 0 }
-              : await stat(join(temporary, 'placeholder.png'))
-            if (
-              file.size !==
-                (workingOnly ? 0 : frameByteLength(dimensions.width, dimensions.height)) ||
-              file.size !== dimensions.byteLength ||
-              dimensions.format !== (workingOnly ? 'hdr-working' : 'rgba8-srgb') ||
-              !hashPattern.test(dimensions.sha256) ||
-              placeholder.size !== dimensions.placeholderBytes ||
-              placeholder.size > 128 * 1024
-            )
-              throw new Error('The decoder produced an invalid preview.')
-            if (workingOnly) {
-              const asset = dimensions.linear?.hdr
-              if (
-                !asset ||
-                !dimensions.linear ||
-                asset.byteLength !== frameByteLength(dimensions.width, dimensions.height) * 4 ||
-                asset.sha256 !== dimensions.linear.sha256 ||
-                !hashPattern.test(asset.sha256) ||
-                (await stat(join(temporary, 'linear.f32'))).size !== asset.byteLength
-              )
-                throw new Error('The decoder produced an invalid HDR source.')
-              validateHdrSource(asset.source)
+            const check = () => {
+              request.abort.signal.throwIfAborted()
+              if (this.closed || this.blocked.has(id) || !this.original(id))
+                throw new Error('This photo is unavailable.')
             }
-            await writeFile(
-              join(temporary, 'entry.json'),
-              JSON.stringify({
-                ...dimensions,
-                sourceKey,
-                variant,
-                bytes: file.size + placeholder.size + (dimensions.linear?.byteLength ?? 0),
-              }),
-            )
             check()
-            await rename(temporary, path)
-            check()
-            entry = {
-              ...dimensions,
-              sourceKey,
-              variant,
-              id,
-              revision,
-              path,
-              bytes: file.size + placeholder.size + (dimensions.linear?.byteLength ?? 0),
-              usedAt: Date.now(),
-              pins: 0,
-              invalid: false,
+            const options = await this.options?.(id, request.abort.signal)
+            if (workingOnly && options?.processing !== 'hdr-v1') return null
+            if (options) {
+              options.prepareLinear = prepareLinear
+              options.workingOnly = workingOnly
             }
-            this.entries.set(`${id}-${revision}`, entry)
-            published = true
-          } finally {
-            await rm(temporary, { recursive: true, force: true })
-            if (!published) await rm(path, { recursive: true, force: true })
-          }
-        }
-        if (prepareLinear && !entry.linear && !linearEntry) {
-          const temporary = join(this.directory, `.tmp-${randomUUID()}`)
-          entry.pins++
-          try {
-            await this.prune(entry.byteLength * 5 + entry.placeholderBytes)
-            await mkdir(temporary)
-            const prepared = await this.processor.renderFull(
-              this.original(id)!,
-              temporary,
-              request.abort.signal,
-              options,
-            )
             check()
-            if (
-              !prepared.linear ||
-              prepared.width !== entry.width ||
-              prepared.height !== entry.height ||
-              prepared.linear.byteLength !== entry.byteLength * 4 ||
-              prepared.linear.byteLength > 512 * 1024 ** 2 ||
-              !hashPattern.test(prepared.linear.sha256)
-            )
-              throw new Error('Invalid linear preview.')
-            const linear = await stat(join(temporary, 'linear.f32'))
-            if (linear.size !== prepared.linear.byteLength)
-              throw new Error('Incomplete linear preview.')
-            await rename(join(temporary, 'linear.f32'), join(entry.path, 'linear.f32'))
-            entry.linear = prepared.linear
-            entry.bytes += prepared.linear.byteLength
-            await writeFile(join(entry.path, 'entry.json'), JSON.stringify(entry))
-          } finally {
-            entry.pins--
-            await rm(temporary, { recursive: true, force: true })
-          }
-        }
-        if (workingOnly) linearEntry = entry
-        else linearEntry ??= entry.linear ? entry : undefined
-        check()
-        entry.usedAt = Date.now()
-        await utimes(
-          join(entry.path, workingOnly ? 'linear.f32' : 'full.rgba'),
-          new Date(),
-          new Date(entry.usedAt),
-        )
-        check()
-        entry.pins++
-        request.entry = entry
-        await this.prune()
-        check()
-        const renderId = workingOnly
-          ? `${entry.linear!.hdr?.source.highlightBlend ? HDR_RAW_SOURCE_VERSION : HDR_SOURCE_VERSION}-${entry.linear!.sha256}`
-          : entry.renderId
-        if (!background)
-          this.diagnostics = {
-            photoId: id,
-            revision: options?.revision ?? 0,
-            renderingIdentity: renderId,
-            preparationBackend: entry.diagnostics?.backend,
-            cacheHit,
-            loadingStage: 'prepared',
-            timings: { ...entry.diagnostics?.timings, preparationMs: performance.now() - started },
-          }
-        return {
-          adjustments: options?.adjustments ?? entry.adjustments,
-          linear: linearEntry?.linear
-            ? {
-                ...linearEntry.linear,
-                url: `luma-photo://library/${id}/linear/${PREVIEW_VERSION}/${linearEntry.revision}`,
+            const sourceKey = options
+              ? createHash('sha256')
+                  .update(
+                    JSON.stringify([
+                      id,
+                      options.processing ?? 'display-referred-v1',
+                      options.processing === 'hdr-v1'
+                        ? options.metadata.mergeMaster
+                          ? HDR_SOURCE_VERSION
+                          : HDR_RAW_SOURCE_VERSION
+                        : null,
+                      LENS_RENDER_VERSION,
+                      CROP_POLICY,
+                      rawDecoderDefinitions,
+                      cameraProfiles,
+                      options.metadata.lensProfile.identity,
+                      options.metadata.whiteBalance?.identity,
+                      options.settings,
+                    ]),
+                  )
+                  .digest('hex')
+              : undefined
+            let linearEntry =
+              sourceKey && !regenerate
+                ? [...this.entries.values()].find(
+                    (entry) =>
+                      entry.id === id &&
+                      entry.sourceKey === sourceKey &&
+                      entry.linear &&
+                      !entry.invalid,
+                  )
+                : undefined
+            if (linearEntry && options && !options.metadata.mergeMaster) {
+              linearEntry.pins++
+              request.linearEntry = linearEntry
+              options.workingAsset = {
+                path: join(linearEntry.path, 'linear.f32'),
+                width: linearEntry.width,
+                height: linearEntry.height,
+                ...linearEntry.linear!,
               }
-            : undefined,
-          settingsRevision: options?.revision ?? 0,
-          appliedCorrections: entry.appliedCorrections,
-          photoId: id,
-          requestId: token,
-          format: workingOnly ? 'hdr-working' : entry.format,
-          byteLength: workingOnly ? entry.linear!.byteLength : entry.byteLength,
-          sha256: workingOnly ? entry.linear!.sha256 : entry.sha256,
-          renderId,
-          placeholderUrl: workingOnly
-            ? undefined
-            : `luma-photo://library/${id}/placeholder/${PREVIEW_VERSION}/${entry.revision}`,
-          width: entry.width,
-          height: entry.height,
-          url: `luma-photo://library/${id}/${workingOnly ? 'linear' : 'full'}/${PREVIEW_VERSION}/${entry.revision}`,
-        } as DisplayPreview
-      } catch (error) {
-        if (this.active === request) {
-          this.diagnostics.loadingStage = 'failed'
-          this.detach(false)
-        }
-        throw error
-      } finally {
-        if (background) {
-          if (request.entry) request.entry.pins--
-          if (request.linearEntry) request.linearEntry.pins--
-          this.background.delete(request)
-        }
-        if (this.running === request) this.running = undefined
-        this.activity?.(false)
-      }
-    })
+              options.prepareLinear = false
+              if (workingOnly) delete options.workingAsset
+            }
+            const variant = workingOnly
+              ? `working-${sourceKey}`
+              : options
+                ? createHash('sha256')
+                    .update(
+                      JSON.stringify([
+                        id,
+                        options.processing ?? 'display-referred-v1',
+                        options.processing === 'hdr-v1'
+                          ? options.metadata.mergeMaster
+                            ? HDR_SOURCE_VERSION
+                            : HDR_RAW_SOURCE_VERSION
+                          : null,
+                        LENS_RENDER_VERSION,
+                        CROP_POLICY,
+                        rawDecoderDefinitions,
+                        cameraProfiles,
+                        options.metadata.lensProfile.identity,
+                        options.metadata.whiteBalance?.identity,
+                        options.settings,
+                        options.adjustments ?? neutralAdjustments,
+                        options.processing === 'hdr-v1'
+                          ? [HDR_ADJUSTMENT_VERSION, HDR_OUTPUT_VERSION]
+                          : ADJUSTMENT_VERSION,
+                      ]),
+                    )
+                    .digest('hex')
+                : 'uncorrected'
+            if (regenerate) {
+              for (const entry of this.entries.values())
+                if (
+                  entry.id === id &&
+                  (entry.variant === variant || (workingOnly && entry.sourceKey === sourceKey))
+                )
+                  entry.invalid = true
+            }
+            let entry: Entry | undefined = [...this.entries.values()]
+              .filter((entry) => entry.id === id && entry.variant === variant && !entry.invalid)
+              .sort((a, b) => b.usedAt - a.usedAt)[0]
+            if (!entry && workingOnly && linearEntry?.linear?.hdr) entry = linearEntry
+            if (entry) {
+              try {
+                if (
+                  workingOnly &&
+                  (await stat(join(entry.path, 'linear.f32'))).size !== entry.linear?.byteLength
+                )
+                  throw new Error('Incomplete HDR source.')
+                const file = workingOnly ? { size: 0 } : await stat(join(entry.path, 'full.rgba'))
+                const placeholder = workingOnly
+                  ? { size: 0 }
+                  : await stat(join(entry.path, 'placeholder.png'))
+                if (
+                  !workingOnly &&
+                  (file.size !== entry.byteLength || placeholder.size !== entry.placeholderBytes)
+                )
+                  throw new Error('Incomplete preview')
+              } catch {
+                entry.invalid = true
+                entry = undefined
+              }
+            }
+            const cacheHit = !!entry
+            if (!entry && cachedOnly) return null
+            if (!entry) {
+              const revision = randomUUID()
+              const temporary = join(this.directory, `.tmp-${revision}`)
+              const path = join(this.directory, `${id}-${revision}`)
+              let published = false
+              try {
+                await mkdir(temporary)
+                check()
+                const dimensions = await this.processor.renderFull(
+                  this.original(id)!,
+                  temporary,
+                  request.abort.signal,
+                  options,
+                )
+                check()
+                const file = workingOnly ? { size: 0 } : await stat(join(temporary, 'full.rgba'))
+                const placeholder = workingOnly
+                  ? { size: 0 }
+                  : await stat(join(temporary, 'placeholder.png'))
+                if (
+                  file.size !==
+                    (workingOnly ? 0 : frameByteLength(dimensions.width, dimensions.height)) ||
+                  file.size !== dimensions.byteLength ||
+                  dimensions.format !== (workingOnly ? 'hdr-working' : 'rgba8-srgb') ||
+                  !hashPattern.test(dimensions.sha256) ||
+                  placeholder.size !== dimensions.placeholderBytes ||
+                  placeholder.size > 128 * 1024
+                )
+                  throw new Error('The decoder produced an invalid preview.')
+                if (workingOnly) {
+                  const asset = dimensions.linear?.hdr
+                  if (
+                    !asset ||
+                    !dimensions.linear ||
+                    asset.byteLength !== frameByteLength(dimensions.width, dimensions.height) * 4 ||
+                    asset.sha256 !== dimensions.linear.sha256 ||
+                    !hashPattern.test(asset.sha256) ||
+                    (await stat(join(temporary, 'linear.f32'))).size !== asset.byteLength
+                  )
+                    throw new Error('The decoder produced an invalid HDR source.')
+                  validateHdrSource(asset.source)
+                }
+                await writeFile(
+                  join(temporary, 'entry.json'),
+                  JSON.stringify({
+                    ...dimensions,
+                    sourceKey,
+                    variant,
+                    bytes: file.size + placeholder.size + (dimensions.linear?.byteLength ?? 0),
+                  }),
+                )
+                check()
+                await rename(temporary, path)
+                check()
+                entry = {
+                  ...dimensions,
+                  sourceKey,
+                  variant,
+                  id,
+                  revision,
+                  path,
+                  bytes: file.size + placeholder.size + (dimensions.linear?.byteLength ?? 0),
+                  usedAt: Date.now(),
+                  pins: 0,
+                  invalid: false,
+                }
+                this.entries.set(`${id}-${revision}`, entry)
+                published = true
+              } finally {
+                await rm(temporary, { recursive: true, force: true })
+                if (!published) await rm(path, { recursive: true, force: true })
+              }
+            }
+            if (prepareLinear && !entry.linear && !linearEntry) {
+              const temporary = join(this.directory, `.tmp-${randomUUID()}`)
+              entry.pins++
+              try {
+                await this.prune(entry.byteLength * 5 + entry.placeholderBytes)
+                await mkdir(temporary)
+                const prepared = await this.processor.renderFull(
+                  this.original(id)!,
+                  temporary,
+                  request.abort.signal,
+                  options,
+                )
+                check()
+                if (
+                  !prepared.linear ||
+                  prepared.width !== entry.width ||
+                  prepared.height !== entry.height ||
+                  prepared.linear.byteLength !== entry.byteLength * 4 ||
+                  prepared.linear.byteLength > 512 * 1024 ** 2 ||
+                  !hashPattern.test(prepared.linear.sha256)
+                )
+                  throw new Error('Invalid linear preview.')
+                const linear = await stat(join(temporary, 'linear.f32'))
+                if (linear.size !== prepared.linear.byteLength)
+                  throw new Error('Incomplete linear preview.')
+                await rename(join(temporary, 'linear.f32'), join(entry.path, 'linear.f32'))
+                entry.linear = prepared.linear
+                entry.bytes += prepared.linear.byteLength
+                await writeFile(join(entry.path, 'entry.json'), JSON.stringify(entry))
+              } finally {
+                entry.pins--
+                await rm(temporary, { recursive: true, force: true })
+              }
+            }
+            if (workingOnly) linearEntry = entry
+            else linearEntry ??= entry.linear ? entry : undefined
+            check()
+            entry.usedAt = Date.now()
+            await utimes(
+              join(entry.path, workingOnly ? 'linear.f32' : 'full.rgba'),
+              new Date(),
+              new Date(entry.usedAt),
+            )
+            check()
+            entry.pins++
+            request.entry = entry
+            await this.prune()
+            check()
+            const renderId = workingOnly
+              ? `${entry.linear!.hdr?.source.highlightBlend ? HDR_RAW_SOURCE_VERSION : HDR_SOURCE_VERSION}-${entry.linear!.sha256}`
+              : entry.renderId
+            if (!background)
+              this.diagnostics = {
+                photoId: id,
+                revision: options?.revision ?? 0,
+                renderingIdentity: renderId,
+                preparationBackend: entry.diagnostics?.backend,
+                cacheHit,
+                loadingStage: 'prepared',
+                timings: {
+                  ...entry.diagnostics?.timings,
+                  preparationMs: performance.now() - started,
+                },
+              }
+            return {
+              adjustments: options?.adjustments ?? entry.adjustments,
+              linear: linearEntry?.linear
+                ? {
+                    ...linearEntry.linear,
+                    url: `luma-photo://library/${id}/linear/${PREVIEW_VERSION}/${linearEntry.revision}`,
+                  }
+                : undefined,
+              settingsRevision: options?.revision ?? 0,
+              appliedCorrections: entry.appliedCorrections,
+              photoId: id,
+              requestId: token,
+              format: workingOnly ? 'hdr-working' : entry.format,
+              byteLength: workingOnly ? entry.linear!.byteLength : entry.byteLength,
+              sha256: workingOnly ? entry.linear!.sha256 : entry.sha256,
+              renderId,
+              placeholderUrl: workingOnly
+                ? undefined
+                : `luma-photo://library/${id}/placeholder/${PREVIEW_VERSION}/${entry.revision}`,
+              width: entry.width,
+              height: entry.height,
+              url: `luma-photo://library/${id}/${workingOnly ? 'linear' : 'full'}/${PREVIEW_VERSION}/${entry.revision}`,
+            } as DisplayPreview
+          } catch (error) {
+            if (this.active === request) {
+              this.diagnostics.loadingStage = 'failed'
+              this.detach(false)
+            }
+            throw error
+          } finally {
+            if (background) {
+              if (request.entry) request.entry.pins--
+              if (request.linearEntry) request.linearEntry.pins--
+              this.background.delete(request)
+            }
+            if (this.running === request) this.running = undefined
+            this.activity?.(false)
+          }
+        }),
+      request.abort.signal,
+    )
     request.work = work
     return work
   }
 
-  async statistics(id: string, expectedRevision: number): Promise<PhotoStatistics> {
+  statistics(id: string, expectedRevision: number): Promise<PhotoStatistics> {
+    return this.foreground(() => this.analyzeStatistics(id, expectedRevision))
+  }
+  private async analyzeStatistics(id: string, expectedRevision: number): Promise<PhotoStatistics> {
     const check = async () => {
       const options = await this.options?.(id, new AbortController().signal)
       if (
@@ -621,7 +636,16 @@ export class FullPreviews {
     })
   }
 
-  private async hdrAnalysis<T>(
+  private hdrAnalysis<T>(
+    id: string,
+    expectedRevision: number,
+    domain: HdrAnalysisDomain,
+    target: DisplayTarget,
+    work: (path: string, job: HdrStatisticsJob, signal: AbortSignal) => Promise<T>,
+  ): Promise<T & { photoId: string; revision: number; renderingIdentity: string }> {
+    return this.foreground(() => this.analyzeHdr(id, expectedRevision, domain, target, work))
+  }
+  private async analyzeHdr<T>(
     id: string,
     expectedRevision: number,
     domain: HdrAnalysisDomain,

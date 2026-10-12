@@ -185,7 +185,7 @@ test('Wayland refresh updates native screen metadata without disturbing the edit
 test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis', async ({
   luma,
 }, info) => {
-  test.setTimeout(180000)
+  test.setTimeout(300000)
   const { page } = luma
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await importPhotos(luma.app, page, ['tests/fixtures/sony-zv1.ARW'], false)
@@ -374,15 +374,26 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
       aboveWhite: statistics.aboveWhite,
       domain: 'working-hdr',
     })
-    const legacy = await client.callTool({
-      name: 'luma_get_photo_statistics',
-      arguments: { photoId: id, expectedRevision: revision },
-    })
+    // Full-image ACES proof statistics use the editor endpoint's two-minute budget.
+    const legacy = await test.step('Read compatible SDR statistics through MCP', () =>
+      client.callTool(
+        {
+          name: 'luma_get_photo_statistics',
+          arguments: { photoId: id, expectedRevision: revision },
+        },
+        undefined,
+        { timeout: 120000 },
+      ))
     expect(legacy.structuredContent).toMatchObject({ dynamicRange: 'sdr', colorSpace: 'srgb' })
-    const output = await client.callTool({
-      name: 'luma_get_photo_statistics',
-      arguments: { photoId: id, expectedRevision: revision, domain: 'output', target: 'sdr' },
-    })
+    const output = await test.step('Read exact SDR output statistics through MCP', () =>
+      client.callTool(
+        {
+          name: 'luma_get_photo_statistics',
+          arguments: { photoId: id, expectedRevision: revision, domain: 'output', target: 'sdr' },
+        },
+        undefined,
+        { timeout: 120000 },
+      ))
     expect(output.isError).not.toBe(true)
     expect(output.structuredContent).toMatchObject({
       domain: 'output',

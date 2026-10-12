@@ -28,6 +28,7 @@ test('sampling is bounded, deterministic, spatially distributed and agrees with 
 test('analysis coalesces drafts, rejects obsolete identities and immediately schedules final work', async () => {
   const sent: { generation: number; identity: string; parameters: typeof neutralAdjustments }[] = []
   let terminated = false
+  let active = 0
   const queue = new AnalysisQueue(
     {
       postMessage: (message) => sent.push(message),
@@ -37,6 +38,12 @@ test('analysis coalesces drafts, rejects obsolete identities and immediately sch
     },
     'asset-photo-1',
     false,
+    () => {
+      active++
+      return () => {
+        active--
+      }
+    },
   )
   queue.update(neutralAdjustments, true)
   await expect.poll(() => sent.length).toBe(1)
@@ -49,7 +56,15 @@ test('analysis coalesces drafts, rejects obsolete identities and immediately sch
   expect(sent[1].parameters.exposureEv).toBe(5)
   expect(queue.accepts(sent[1])).toBe(true)
   expect(queue.accepts({ ...sent[1], identity: 'old-photo' })).toBe(false)
+  expect(active).toBe(1)
+  queue.finished()
+  expect(active).toBe(0)
+  queue.update(neutralAdjustments, false)
+  expect(active).toBe(1)
   queue.close()
+  expect(active).toBe(0)
+  queue.update(neutralAdjustments, true)
+  expect(active).toBe(0)
   expect(terminated).toBe(true)
   expect(queue.accepts(sent[1])).toBe(false)
 })

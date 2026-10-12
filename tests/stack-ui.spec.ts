@@ -52,7 +52,7 @@ test('separate keyboard expansion preserves active photo and selection; organiza
   await expect(page.getByTestId('selection-count')).toHaveText('1 selected')
   await expand.click()
   await card(0).click({ button: 'right' })
-  await page.getByRole('menuitem', { name: 'Set as cover', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Set this photo as group cover', exact: true }).click()
   await expect(
     page.getByRole('button', { name: `Collapse stack for ${photos[0].filename}, 3 photos` }),
   ).toBeVisible()
@@ -69,7 +69,7 @@ test('separate keyboard expansion preserves active photo and selection; organiza
   expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1100)
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(700)
   await page.screenshot({ path: info.outputPath('stacks-minimum-console.png') })
-  await page.getByRole('menuitem', { name: 'Remove from stack', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Remove this photo from group', exact: true }).click()
   expect((await page.evaluate(() => window.luma.listStacks())).stacks[0].count).toBe(2)
   expect((await page.evaluate((id) => window.luma.getEdits(id), photos[0].id)).revision).toBe(0)
   const restarted = await luma.restart()
@@ -79,7 +79,7 @@ test('separate keyboard expansion preserves active photo and selection; organiza
     }),
   ).toBeVisible()
   await restarted.page.getByTestId(`photo-card-${photos[0].id}`).click({ button: 'right' })
-  await restarted.page.getByRole('menuitem', { name: 'Ungroup stack', exact: true }).click()
+  await restarted.page.getByRole('menuitem', { name: 'Ungroup (2 photos)', exact: true }).click()
   await expect
     .poll(async () => (await restarted.page.evaluate(() => window.luma.listStacks())).stacks.length)
     .toBe(0)
@@ -134,7 +134,7 @@ test('60-row pages keep expanded members contiguous, hidden anchors map to cover
   })
   await expect(page.getByText('1 selected in collapsed stacks', { exact: true })).toBeVisible()
   await page.getByTestId(`photo-card-${rest[2].id}`).click({ modifiers: ['Shift'] })
-  await expect(page.getByTestId('selection-count')).toHaveText('2 selected')
+  await expect(page.getByTestId('selection-count')).toHaveText('4 selected')
   await page
     .getByRole('navigation', { name: 'Library pages' })
     .getByRole('button', { name: 'Previous', exact: true })
@@ -164,12 +164,12 @@ test('60-row pages keep expanded members contiguous, hidden anchors map to cover
   await page.keyboard.press('Delete')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await hold.evaluate((h) => h.release())
-  await expect(page.getByRole('dialog')).toContainText('Delete 61 photos?')
+  await expect(page.getByRole('dialog')).toContainText('Delete 63 photos?')
   await page.keyboard.press('Escape')
   expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(63)
 })
 
-test('Select stack names hidden targets; cover deletion deletes only the explicitly selected cover', async ({
+test('Select group names hidden targets; cover deletion deletes only the explicitly selected cover', async ({
   luma,
 }) => {
   const { app, page } = luma
@@ -181,7 +181,7 @@ test('Select stack names hidden targets; cover deletion deletes only the explici
     await window.luma.groupPhotos(ids, ids[0], (await window.luma.listStacks()).revision)
   }, ids)
   await page.getByTestId(`photo-card-${ids[0]}`).click({ button: 'right' })
-  await page.getByRole('menuitem', { name: 'Select stack', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Select group (3 photos)', exact: true }).click()
   await expect(page.getByTestId('selection-count')).toHaveText('3 selected')
   const hidden = page.getByText('2 selected in collapsed stacks', { exact: true })
   await hidden.click()

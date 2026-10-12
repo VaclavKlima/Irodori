@@ -30,6 +30,10 @@ interface PresentationRequest {
   refinement: boolean
   inputSerial: number
 }
+interface RenderedPresentation {
+  quality: 'draft' | 'normal'
+  statisticsKey: string
+}
 
 export class HdrPresenter {
   private abort = new AbortController()
@@ -67,6 +71,8 @@ export class HdrPresenter {
   private inputSerial = 0
   private editsKey = ''
   private statisticsCache?: { key: string; result: HdrStatistics }
+  private publishedStatisticsKey = ''
+  private publishedStatisticsSerial = 0
   private renderingWorker = new Worker(new URL('./display-rendering-worker.ts', import.meta.url), {
     type: 'module',
   })
@@ -78,6 +84,7 @@ export class HdrPresenter {
   private ready = false
   private releaseBitmaps?: () => void
   private view?: { image: Size; viewport: Size; view: View; parameters: AdjustmentParameters }
+  private releaseActivity?: () => void
   constructor(
     private canvas: HTMLCanvasElement,
     private target: DisplayTarget,
@@ -85,6 +92,7 @@ export class HdrPresenter {
     private loaded: () => void,
     private statistics: (result: HdrStatistics) => void = () => undefined,
     private retainedCanvas?: HTMLCanvasElement,
+    private activity?: () => () => void,
   ) {
     canvas.dataset.backend = 'webgpu-hdr'
     this.renderingWorker.onmessage = ({ data }) => {
@@ -106,10 +114,12 @@ export class HdrPresenter {
     void bitmap /* The SDR proof stays on the previous surface until replacement. */
   }
   setComparison(mode: string, split: number) {
+    if (mode !== this.mode || split !== this.split) this.queue.invalidate()
     this.mode = mode
     this.split = split
   }
   setHdrRanges(enabled: boolean) {
+    if (enabled !== this.hdrRanges) this.queue.invalidate()
     this.hdrRanges = enabled
   }
   setTarget(target: DisplayTarget) {
@@ -149,13 +159,17 @@ export class HdrPresenter {
   }
   setWorking(frame: WorkingFrame) {
     if (!frame.hdr || this.frame?.identity === frame.identity) return
+    this.queue.invalidate()
     this.frame = frame
     this.ready = false
     this.canvas.style.visibility = 'hidden'
-    void this.load(frame).catch((error) => {
-      console.warn('HDR presentation initialization:', error)
-      if (!this.abort.signal.aborted) this.lost(String(error))
-    })
+    const release = this.activity?.()
+    void this.load(frame)
+      .catch((error) => {
+        console.warn('HDR presentation initialization:', error)
+        if (!this.abort.signal.aborted) this.lost(String(error))
+      })
+      .finally(() => release?.())
   }
   private async load(frame: WorkingFrame) {
     const started = performance.now()
@@ -416,7 +430,9 @@ export class HdrPresenter {
       return
     const editsKey = JSON.stringify(parameters)
     const changed = this.editsKey !== editsKey
+    if (changed && !this.gesturing) this.queue.invalidate()
     this.editsKey = editsKey
+    this.releaseActivity ??= this.activity?.()
     this.queue.request(
       {
         image: { ...image },
@@ -431,6 +447,7 @@ export class HdrPresenter {
         inputSerial: ++this.inputSerial,
       },
       this.gesturing || changed,
+      !this.gesturing && !changed,
     )
     this.canvas.dataset.requestedSerial = String(this.inputSerial)
     void this.run()
@@ -439,13 +456,13 @@ export class HdrPresenter {
     const request = this.queue.take()
     if (!request || this.abort.signal.aborted) return
     try {
-      const statistics = await this.render(request)
+      const rendered = await this.render(request)
       const present = this.queue.finish(request)
-      if (present && !this.abort.signal.aborted) {
-        this.present(request, statistics)
+      if (present && rendered && !this.abort.signal.aborted) {
+        this.present(request, rendered)
         if (
           !this.gesturing &&
-          !request.value.refinement &&
+          rendered.quality === 'draft' &&
           !this.queue.hasPending &&
           request.value.inputSerial === this.inputSerial
         )
@@ -454,6 +471,10 @@ export class HdrPresenter {
     } catch (error) {
       this.queue.finish(request)
       if (!this.abort.signal.aborted) this.lost(`GPU presentation failed: ${String(error)}`)
+    }
+    if (!this.queue.hasPending) {
+      this.releaseActivity?.()
+      this.releaseActivity = undefined
     }
     if (!this.abort.signal.aborted) void this.run()
   }
@@ -556,7 +577,7 @@ export class HdrPresenter {
       Math.min(image.width, viewport.width / view.scale) *
       Math.min(image.height, viewport.height / view.scale)
     const draftLevel = Math.max(0, Math.ceil(Math.log2(Math.max(1, visible / 8192)) / 2))
-    const plan = hdrCachePlan(
+    const normalPlan = hdrCachePlan(
       this.frame!,
       image,
       viewport,
@@ -564,9 +585,32 @@ export class HdrPresenter {
       mode,
       split,
       memory.tileSize,
-      refinement ? 0 : draftLevel,
     )
-    plan.variant = target.mode === 'hdr' ? 'content-hdr' : `sdr-${target.colorSpace}`
+    normalPlan.variant = target.mode === 'hdr' ? 'content-hdr' : `sdr-${target.colorSpace}`
+    // Navigation can publish completed normal frames during continued input. Cold
+    // tiles use the bounded draft until an idle refinement can restore detail.
+    const cached =
+      this.cache!.has(normalPlan, neutral) &&
+      (!ranges ||
+        target.mode !== 'sdr' ||
+        this.cache!.has({ ...normalPlan, variant: 'content-hdr' }, neutral))
+    const draft = !refinement || (request.navigation && !cached)
+    const plan = draft
+      ? {
+          ...hdrCachePlan(
+            this.frame!,
+            image,
+            viewport,
+            view,
+            mode,
+            split,
+            memory.tileSize,
+            draftLevel,
+          ),
+          variant: normalPlan.variant,
+        }
+      : normalPlan
+    const quality = request.draft || plan.level !== normalPlan.level ? 'draft' : 'normal'
     p.set([plan.columns, plan.columns * plan.rows, plan.width, plan.height], 32)
     p[40] = plan.level
     const histogramParams = p.slice()
@@ -591,13 +635,6 @@ export class HdrPresenter {
       histogram.setBindGroup(0, this.histogramGroup!)
       histogram.dispatchWorkgroups(Math.ceil(histogramParams[36] / 64))
       histogram.end()
-      analysis.copyBufferToBuffer(
-        this.histogramBuffer!,
-        0,
-        this.histogramReadback!,
-        0,
-        HDR_HISTOGRAM_WORDS * 4,
-      )
       device.queue.submit([analysis.finish()])
     }
     const surface = this.surface!.createView()
@@ -648,13 +685,17 @@ export class HdrPresenter {
           compute.end()
           this.renderedTiles += jobs.length / 4
           device.queue.submit([computation.finish()])
-          await device.queue.onSubmittedWorkDone()
-          if (this.abort.signal.aborted || this.queue.superseded(request)) {
-            const unfinished = new Set<number>()
-            for (let i = start + jobs.length + 2; i < batch.jobs.length; i += 4)
-              unfinished.add(batch.jobs[i])
-            this.cache!.discardSlots(unfinished)
-            return false
+          // The last compute chunk and its render share one completion fence.
+          // Larger batches still yield after every eight tiles for cancellation.
+          if (start + jobs.length < batch.jobs.length) {
+            await device.queue.onSubmittedWorkDone()
+            if (this.abort.signal.aborted || this.queue.superseded(request)) {
+              const unfinished = new Set<number>()
+              for (let i = start + jobs.length + 2; i < batch.jobs.length; i += 4)
+                unfinished.add(batch.jobs[i])
+              this.cache!.discardSlots(unfinished)
+              return false
+            }
           }
         }
         const encoder = device.createCommandEncoder()
@@ -674,7 +715,8 @@ export class HdrPresenter {
         pass.end()
         device.queue.submit([encoder.finish()])
         first = false
-        await device.queue.onSubmittedWorkDone()
+        // Queue order protects lookup buffers and reused cache slots. Analysis
+        // readback and the retained-frame copy complete the final draw below.
         if (this.abort.signal.aborted || this.queue.superseded(request)) return false
       }
       return true
@@ -695,9 +737,18 @@ export class HdrPresenter {
       if (!(await drawPlan({ ...plan, variant: 'content-hdr' }, rangeParams, this.rendering!)))
         return undefined
     }
-    await device.queue.onSubmittedWorkDone()
     if (this.abort.signal.aborted) return undefined
     if (analyze) {
+      // Submit readback after the draws so mapping also fences their completion.
+      const readback = device.createCommandEncoder()
+      readback.copyBufferToBuffer(
+        this.histogramBuffer!,
+        0,
+        this.histogramReadback!,
+        0,
+        HDR_HISTOGRAM_WORDS * 4,
+      )
+      device.queue.submit([readback.finish()])
       await this.histogramReadback!.mapAsync(GPUMapMode.READ)
       const result = readHdrHistogram(
         new Uint32Array(this.histogramReadback!.getMappedRange()),
@@ -708,11 +759,10 @@ export class HdrPresenter {
       this.histogramReadback!.unmap()
       this.statisticsCache = { key: statisticsKey, result }
     }
-    const statistics = { ...this.statisticsCache!.result, editSerial: request.value.inputSerial }
-    return statistics
+    return { quality, statisticsKey } satisfies RenderedPresentation
   }
-  private present(request: HdrEditRequest<PresentationRequest>, statistics?: HdrStatistics) {
-    const { viewport, parameters, target, mode, ranges, refinement, inputSerial } = request.value
+  private present(request: HdrEditRequest<PresentationRequest>, rendered: RenderedPresentation) {
+    const { viewport, parameters, target, mode, ranges, inputSerial } = request.value
     const dpr = window.devicePixelRatio || 1
     const width = Math.max(1, Math.round(viewport.width * dpr)),
       height = Math.max(1, Math.round(viewport.height * dpr))
@@ -737,6 +787,8 @@ export class HdrPresenter {
     pass.end()
     this.device!.queue.submit([encoder.finish()])
     this.canvas.style.visibility = 'visible'
+    const publishStatistics = this.publishedStatisticsKey !== rendered.statisticsKey
+    if (publishStatistics) this.publishedStatisticsSerial = inputSerial
     Object.assign(this.canvas.dataset, {
       renderedTiles: String(this.renderedTiles),
       cachedTiles: String(this.cache!.size),
@@ -751,7 +803,8 @@ export class HdrPresenter {
       ),
       presentationSerial: String(Number(this.canvas.dataset.presentationSerial ?? 0) + 1),
       completedEditSerial: String(inputSerial),
-      quality: refinement ? 'normal' : 'draft',
+      analysisSerial: String(this.publishedStatisticsSerial),
+      quality: rendered.quality,
       targetGeneration: String(target.generation),
       editing: 'ready',
       exposure: String(parameters.exposureEv),
@@ -766,7 +819,9 @@ export class HdrPresenter {
     })
     this.retainCompletedFrame()
     this.loaded()
-    if (statistics) {
+    if (publishStatistics) {
+      const statistics = { ...this.statisticsCache!.result, editSerial: inputSerial }
+      this.publishedStatisticsKey = rendered.statisticsKey
       retainHdrContent(
         this.frame!.hdr!.sha256,
         mode === 'before' ? neutralAdjustments : parameters,
@@ -793,6 +848,8 @@ export class HdrPresenter {
     surface.dataset.presentationSerial = this.canvas.dataset.presentationSerial
   }
   dispose() {
+    this.releaseActivity?.()
+    this.releaseActivity = undefined
     this.abort.abort()
     this.releaseBitmaps?.()
     this.ready = false

@@ -13,6 +13,8 @@ For implementation steps, registration examples, versioning, and contributor che
 
 LibRaw and native Dawn stay in the bundled Node worker. Main imports only lightweight declarations and pure processing utilities. The renderer receives photo IDs, settings, status, and validated display frames; it has no filesystem or native-resource access.
 
+The observed Sony ZV-1A compressed ARW capture profiles include ordinary continuous, continuous Hi and three-frame continuous BRK. A verified two-frame BRK prefix is also supported for grouping and HDR eligibility. Single-frame BRK represents separate shutter presses. Capture facts use metadata version 2, including numeric shutter duration for long-exposure boundaries; existing-library refresh remains the explicit **Group capture sequences…** action. See [capture grouping](photo-stacks.md#verified-automatic-grouping) and [BRK merge preparation and exposure policy](merge-processing.md#algorithms-and-bounds). This scope does not enable other cameras or recording modes.
+
 ### Coordinates, color, and ownership
 
 `RawSource` contains owned, unpacked sensor samples, active dimensions, stored row width, active left/top margins, CFA order, black levels, white balance, camera matrix, and LibRaw flip. The Bayer reader handles storage margins before demosaicing. Camera profiles declare active-sensor coordinates and final decoder orientation.

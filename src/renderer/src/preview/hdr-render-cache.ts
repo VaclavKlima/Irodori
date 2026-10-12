@@ -115,6 +115,12 @@ export class HdrRenderCache {
         this.free.push(entry.slot)
       }
   }
+  private key(plan: HdrCachePlan, tile: HdrCacheTile, neutral: boolean) {
+    return `${plan.variant ?? 'legacy'}:${tile.level}:${tile.x}:${tile.y}:${tile.before || neutral ? 'neutral' : 'after'}`
+  }
+  has(plan: HdrCachePlan, neutral: boolean) {
+    return plan.tiles.every((tile) => this.entries.has(this.key(plan, tile, neutral)))
+  }
   *batches(
     plan: HdrCachePlan,
     neutral: boolean,
@@ -122,7 +128,7 @@ export class HdrRenderCache {
   ): Generator<HdrCacheBatch> {
     const groups = new Map<string, HdrCacheTile[]>()
     for (const tile of plan.tiles) {
-      const key = `${plan.variant ?? 'legacy'}:${tile.level}:${tile.x}:${tile.y}:${tile.before || neutral ? 'neutral' : 'after'}`
+      const key = this.key(plan, tile, neutral)
       const group = groups.get(key) ?? []
       group.push(tile)
       groups.set(key, group)

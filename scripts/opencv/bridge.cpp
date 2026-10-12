@@ -24,8 +24,17 @@ static double horizontal(v128_t v) {
 static double translation(const cv::Mat& a, const cv::Mat& b, const cv::Mat& am,
                           const cv::Mat& bm, float& dx, float& dy, bool robust, bool optimize=true) {
   cv::Mat ar,br,gx,gy;
-  cv::GaussianBlur(a,ar,cv::Size(5,5),0);
-  cv::GaussianBlur(b,br,cv::Size(5,5),0);
+  auto maskedBlur=[](const cv::Mat& pixels,const cv::Mat& mask,cv::Mat& result) {
+    cv::Mat weights,filtered;
+    mask.convertTo(weights,CV_32F,1./255);
+    cv::GaussianBlur(pixels.mul(weights),filtered,cv::Size(5,5),0);
+    cv::GaussianBlur(weights,weights,cv::Size(5,5),0);
+    cv::max(weights,1e-6,weights);
+    cv::divide(filtered,weights,result);
+  };
+  // Invalid pixels are absent observations, not black photographic detail.
+  maskedBlur(a,am,ar);
+  maskedBlur(b,bm,br);
   if(optimize) {
     cv::Sobel(ar,gx,CV_32F,1,0,1,.5);
     cv::Sobel(ar,gy,CV_32F,0,1,1,.5);
@@ -41,11 +50,13 @@ static double translation(const cv::Mat& a, const cv::Mat& b, const cv::Mat& am,
     return true;
   };
   for(int iteration=0;optimize && iteration<12;iteration++) {
-    double n=0,sx=0,sy=0,se=0,xx=0,xy=0,yy=0,xe=0,ye=0;
+    double n=0,sx=0,sy=0,se=0,xx=0,xy=0,yy=0,xe=0,ye=0,
+      si=0,ii=0,xi=0,yi=0,ie=0;
     const int ix=int(std::floor(dx)),iy=int(std::floor(dy));
     const float fx=dx-ix,fy=dy-iy;
     for(int y=std::max(2,-iy);y<std::min(a.rows-2,br.rows-1-iy);y++) {
-      v128_t ns=wasm_f32x4_splat(0),xs=ns,ys=ns,es=ns,xxs=ns,xys=ns,yys=ns,xes=ns,yes=ns;
+      v128_t ns=wasm_f32x4_splat(0),xs=ns,ys=ns,es=ns,xxs=ns,xys=ns,yys=ns,xes=ns,yes=ns,
+        is=ns,iis=ns,xis=ns,yis=ns,ies=ns;
       const float *pa=ar.ptr<float>(y),*px=gx.ptr<float>(y),*py=gy.ptr<float>(y),
         *b0=br.ptr<float>(y+iy),*b1=br.ptr<float>(y+iy+1);
       const unsigned char *ma=am.ptr<unsigned char>(y),*mb0=bm.ptr<unsigned char>(y+iy),*mb1=bm.ptr<unsigned char>(y+iy+1);
@@ -56,24 +67,34 @@ static double translation(const cv::Mat& a, const cv::Mat& b, const cv::Mat& am,
         valid=wasm_i32x4_gt(valid,wasm_i32x4_splat(0));
         auto blend=[&](const float* p){return wasm_f32x4_add(wasm_f32x4_mul(wasm_v128_load(p+q),wasm_f32x4_splat(1-fx)),wasm_f32x4_mul(wasm_v128_load(p+q+1),wasm_f32x4_splat(fx)));};
         v128_t value=wasm_f32x4_add(wasm_f32x4_mul(blend(b0),wasm_f32x4_splat(1-fy)),wasm_f32x4_mul(blend(b1),wasm_f32x4_splat(fy))),
-          ex=wasm_f32x4_sub(value,wasm_v128_load(pa+x)),vx=wasm_v128_load(px+x),vy=wasm_v128_load(py+x),weight=wasm_f32x4_splat(1);
+          ex=wasm_f32x4_sub(value,wasm_v128_load(pa+x)),vx=wasm_v128_load(px+x),vy=wasm_v128_load(py+x),vi=wasm_f32x4_sub(wasm_v128_load(pa+x),wasm_f32x4_splat(1)),weight=wasm_f32x4_splat(1);
         if(robust) weight=wasm_f32x4_min(weight,wasm_f32x4_div(wasm_f32x4_splat(.05f),wasm_f32x4_max(wasm_f32x4_splat(1e-12f),wasm_f32x4_abs(ex))));
         weight=wasm_v128_and(weight,valid);
         const v128_t wx=wasm_f32x4_mul(vx,weight),wy=wasm_f32x4_mul(vy,weight),we=wasm_f32x4_mul(ex,weight);
         ns=wasm_f32x4_add(ns,weight);xs=wasm_f32x4_add(xs,wx);ys=wasm_f32x4_add(ys,wy);es=wasm_f32x4_add(es,we);
         xxs=wasm_f32x4_add(xxs,wasm_f32x4_mul(vx,wx));xys=wasm_f32x4_add(xys,wasm_f32x4_mul(vx,wy));yys=wasm_f32x4_add(yys,wasm_f32x4_mul(vy,wy));
         xes=wasm_f32x4_add(xes,wasm_f32x4_mul(vx,we));yes=wasm_f32x4_add(yes,wasm_f32x4_mul(vy,we));
+        const v128_t wi=wasm_f32x4_mul(vi,weight);
+        is=wasm_f32x4_add(is,wi);iis=wasm_f32x4_add(iis,wasm_f32x4_mul(vi,wi));
+        xis=wasm_f32x4_add(xis,wasm_f32x4_mul(vx,wi));yis=wasm_f32x4_add(yis,wasm_f32x4_mul(vy,wi));ies=wasm_f32x4_add(ies,wasm_f32x4_mul(vi,we));
       }
       // Reduce each row to doubles so SIMD accumulation does not grow with patch area.
       n+=horizontal(ns);sx+=horizontal(xs);sy+=horizontal(ys);se+=horizontal(es);xx+=horizontal(xxs);xy+=horizontal(xys);yy+=horizontal(yys);xe+=horizontal(xes);ye+=horizontal(yes);
+      si+=horizontal(is);ii+=horizontal(iis);xi+=horizontal(xis);yi+=horizontal(yis);ie+=horizontal(ies);
       for(;x<last;x++) {
         if(!ma[x]) continue;float value;if(!sampled(x,y,value)) continue;
-        double ex=value-pa[x],vx=px[x],vy=py[x],weight=robust?std::min(1.,.05/std::max(1e-12,std::abs(ex))):1.;
+        double ex=value-pa[x],vx=px[x],vy=py[x],vi=pa[x]-1,weight=robust?std::min(1.,.05/std::max(1e-12,std::abs(ex))):1.;
         n+=weight;sx+=vx*weight;sy+=vy*weight;se+=ex*weight;xx+=vx*vx*weight;xy+=vx*vy*weight;yy+=vy*vy*weight;xe+=vx*ex*weight;ye+=vy*ex*weight;
+        si+=vi*weight;ii+=vi*vi*weight;xi+=vx*vi*weight;yi+=vy*vi*weight;ie+=vi*ex*weight;
       }
     }
     if(n<64) return -1;
     xx-=sx*sx/n;xy-=sx*sy/n;yy-=sy*sy/n;xe-=sx*se/n;ye-=sy*se/n;
+    // Project gain and offset out of the joint normal equations. Independent
+    // masks change patch means; photometric error must not become displacement.
+    ii-=si*si/n;xi-=sx*si/n;yi-=sy*si/n;ie-=si*se/n;
+    if(ii<=1e-12) return -1;
+    xx-=xi*xi/ii;xy-=xi*yi/ii;yy-=yi*yi/ii;xe-=xi*ie/ii;ye-=yi*ie/ii;
     double det=xx*yy-xy*xy;if(det<=1e-12) return -1;
     double stepX=(xy*ye-yy*xe)/det,stepY=(xy*xe-xx*ye)/det,
       length=std::hypot(stepX,stepY), scale=std::min(1.,2./std::max(length,1e-12));

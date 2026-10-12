@@ -24,6 +24,9 @@ import { Readable } from 'node:stream'
 import type { AppInfo } from '../shared/contracts'
 import { PhotoLibrary } from './library'
 import { PreviewProcess } from './preview-process'
+import { ImportDevices } from './import-devices'
+
+const importDevices = new ImportDevices()
 
 app.setName('Luma')
 app.enableSandbox()
@@ -147,6 +150,7 @@ function createWindow(): void {
   mainWindow = window
   installWaylandDisplayRefresh(window)
   const releasePreview = () => {
+    library?.releaseForegroundActivities()
     void library?.fullPreviews.release().catch(() => undefined)
   }
   window.webContents.on('did-start-navigation', (_event, _url, inPlace, isMainFrame) => {
@@ -154,6 +158,7 @@ function createWindow(): void {
   })
   window.webContents.on('render-process-gone', releasePreview)
   window.webContents.on('destroyed', releasePreview)
+  window.on('blur', () => library?.releaseForegroundActivities())
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => event.preventDefault())
@@ -233,6 +238,7 @@ app
       () => mainWindow?.webContents.send('display:refresh'),
     )
     await displayState.open()
+    powerMonitor.on('suspend', () => library?.releaseForegroundActivities())
     powerMonitor.on('resume', () => {
       displayState.invalidate('Rechecking display after resume.')
       mainWindow?.webContents.send('display:refresh')
@@ -402,6 +408,10 @@ app
         (error) => ({ error: String(error) }),
       )
     })
+    ipcMain.handle('foreground:activity', (event, value) => {
+      trusted(event)
+      library!.reportForegroundActivity(value)
+    })
     ipcMain.handle('edits:get', (event, id) => {
       trusted(event)
       return library!.getEdits(id)
@@ -491,6 +501,10 @@ app
       trusted(event)
       return library!.getStackMembers(id, offset)
     })
+    ipcMain.handle('stacks:snapshot', (event, id: string, revision: number) => {
+      trusted(event)
+      return library!.getStackSnapshot(id, revision)
+    })
     ipcMain.handle('stacks:group', (event, ids: string[], coverId: string, revision: number) => {
       trusted(event)
       return library!.groupPhotos(ids, coverId, revision)
@@ -577,6 +591,49 @@ app
         picking = false
       }
     })
+    ipcMain.handle('library:devices', async (event) => {
+      trusted(event)
+      try {
+        const devices = await importDevices.list(false)
+        await library!.validateDeviceReview((source) => importDevices.validate(source, false))
+        return { devices }
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) }
+      }
+    })
+    ipcMain.handle(
+      'library:device',
+      async (
+        event,
+        id: string,
+        searchEntireDevice: boolean,
+        onlyMissing = true,
+        verificationMode = 'camera-fast',
+      ) => {
+        trusted(event)
+        if (
+          typeof id !== 'string' ||
+          typeof searchEntireDevice !== 'boolean' ||
+          typeof onlyMissing !== 'boolean' ||
+          !['camera-fast', 'full'].includes(verificationMode)
+        )
+          throw new Error('Invalid device selection.')
+        if (picking) throw new Error('Close the file picker first.')
+        const source = await importDevices.resolve(id)
+        const paths = await importDevices.photoRoots(source, searchEntireDevice)
+        return library!.scan(
+          paths,
+          true,
+          { source, validate: (force = false) => importDevices.validate(source, true, force) },
+          onlyMissing,
+          verificationMode as import('../shared/contracts').ImportVerificationMode,
+        )
+      },
+    )
+    ipcMain.handle('library:thumbnails', (event, id: string, ids: string[]) => {
+      trusted(event)
+      library!.requestReviewThumbnails(id, ids)
+    })
     ipcMain.handle('library:review', (event, id: string, offset: number) => {
       trusted(event)
       return library!.review(id, offset)
@@ -590,8 +647,19 @@ app
     )
     ipcMain.handle('library:import', (event, id: string) => {
       trusted(event)
-      library!.importSelected(id)
+      return library!.importSelected(id)
     })
+    ipcMain.handle('library:only-missing', (event, id: string, enabled: boolean) => {
+      trusted(event)
+      library!.setImportOnlyMissing(id, enabled)
+    })
+    ipcMain.handle(
+      'library:verification-mode',
+      (event, id: string, mode: import('../shared/contracts').ImportVerificationMode) => {
+        trusted(event)
+        library!.setImportVerificationMode(id, mode)
+      },
+    )
     ipcMain.handle('library:cancel', (event, id: string) => {
       trusted(event)
       return library!.cancel(id)

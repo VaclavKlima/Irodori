@@ -13,7 +13,7 @@ import {
 const image = { width: 2000, height: 1000 }
 const viewport = { width: 800, height: 600 }
 const pointer = { x: 80, y: 30 }
-const scroll = { deltaX: 0, deltaY: 0, deltaMode: 0, ctrlKey: false }
+const scroll = { deltaX: 0, deltaY: 0, deltaMode: 0, ctrlKey: false, shiftKey: false }
 
 test('fits both orientations, never enlarges small images, and supports very small viewports', () => {
   expect(fitScale(image, viewport)).toBe(0.4)
@@ -106,4 +106,39 @@ test('every event in mixed scroll and pinch bursts uses the latest bounded view'
   view = wheelView(view, { ...scroll, deltaX: -10, deltaY: 5 }, pointer, image, viewport)
   expect(view.x).toBeCloseTo(pointer.x - (pointer.x + 40) * Math.exp(0.4) + 10, 12)
   expect(view.y).toBeCloseTo(pointer.y - (pointer.y - 20) * Math.exp(0.4) - 5, 12)
+})
+
+test('physical Ctrl-wheel uses the gentler exponential scale without changing pinch or anchoring', () => {
+  const before = { fit: false, scale: 1, x: -100, y: 30 }
+  for (const deltaY of [-100, 100]) {
+    const event = { ...scroll, deltaY, ctrlKey: true, shiftKey: true }
+    const after = wheelView(before, event, pointer, image, viewport, true)
+    expect(after.scale).toBeCloseTo(Math.exp(-deltaY * 0.002), 12)
+    expect((pointer.x - after.x) / after.scale).toBeCloseTo(pointer.x - before.x, 12)
+    expect((pointer.y - after.y) / after.scale).toBeCloseTo(pointer.y - before.y, 12)
+    expect(wheelView(before, event, pointer, image, viewport).scale).toBeCloseTo(
+      Math.exp(-deltaY * 0.01),
+      12,
+    )
+  }
+  expect(wheelScale(1, 1, 1, 600, true)).toBe(wheelScale(1, 16, 0, 600, true))
+  expect(wheelScale(1, 1, 2, 100, true)).toBe(wheelScale(1, 100, 0, 600, true))
+})
+
+test('Shift-wheel maps only vertical events to horizontal pan, including line/page units and bounds', () => {
+  const before = { fit: false, scale: 1, x: 0, y: 0 }
+  const pan = (deltaX: number, deltaY: number, deltaMode = 0) =>
+    wheelView(
+      before,
+      { ...scroll, deltaX, deltaY, deltaMode, shiftKey: true },
+      pointer,
+      image,
+      viewport,
+    )
+  expect(pan(0, 30)).toEqual({ ...before, x: -30 })
+  expect(pan(0, 2, 1)).toEqual({ ...before, x: -32 })
+  expect(pan(0, 0.25, 2)).toEqual({ ...before, x: -200 })
+  expect(pan(10, 0)).toEqual({ ...before, x: -10 })
+  expect(pan(10, 20)).toEqual({ ...before, x: -10, y: -20 })
+  expect(pan(0, 9000)).toEqual({ ...before, x: -600 })
 })

@@ -6,8 +6,12 @@ import { PhotoLibrary } from '../src/main/library'
 import { PreviewEngine } from '../src/main/preview-engine'
 import { PreviewProcess } from '../src/main/preview-process'
 import type { PreviewProcessor } from '../src/main/preview-types'
+import type { DeviceDirectoryVisibility } from '../src/main/device-directory-visibility'
 
-export async function setup(processor?: PreviewProcessor) {
+export async function setup(
+  processor?: PreviewProcessor,
+  directoryVisibility?: Pick<DeviceDirectoryVisibility, 'hiddenEntries' | 'close'>,
+) {
   const root = await mkdtemp(join(tmpdir(), 'luma-library-'))
   const engine = new PreviewEngine()
   const service = new PhotoLibrary(
@@ -17,6 +21,12 @@ export async function setup(processor?: PreviewProcessor) {
     undefined,
     undefined,
     new PreviewProcess(resolve('out/main/preview-worker.js')),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    directoryVisibility,
   )
   await service.open()
   return {
@@ -36,6 +46,6 @@ export async function scan(service: PhotoLibrary, paths: string[], recursive = t
   return id
 }
 export async function commit(service: PhotoLibrary, id: string) {
-  service.importSelected(id)
+  await service.importSelected(id)
   await expect.poll(() => service.review(id).phase).toBe('complete')
 }

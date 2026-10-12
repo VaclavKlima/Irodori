@@ -1,6 +1,6 @@
 import { MergeDialog } from './components/MergeDialog'
-import type { MergeMode } from '../../shared/merge'
-import type { StackSummary } from '../../shared/stacks'
+import { groupMergeUnavailable, type MergeMode } from '../../shared/merge'
+import type { StackSnapshot } from '../../shared/stacks'
 import { DisplayDetails } from './components/DisplayDetails'
 import { useDisplayState } from './hooks/useDisplayState'
 import type { PreviewPreference } from '../../shared/hdr-display'
@@ -65,17 +65,21 @@ export function App() {
   const displayTarget = useDisplayState()
   const previewTools = usePreviewTools(photo?.id)
   const [interactivePhoto, setInteractivePhoto] = useState<string | null>(null)
-  const [deleteTargets, setDeleteTargets] = useState<PhotoReference[] | null>(null)
+  const [deleteTargets, setDeleteTargets] = useState<readonly PhotoReference[] | null>(null)
   const [contextMenu, setContextMenu] = useState<{
     x: number
     y: number
     targets: PhotoReference[]
-    stack: StackSummary | null
-    photoId: string | null
+    snapshot: StackSnapshot | null
+    photo: PhotoReference | null
     revision: number
     canGroup: boolean
     busy: boolean
   } | null>(null)
+  const [loadingActions, setLoadingActions] = useState(false)
+  const [actionPending, setActionPending] = useState(false)
+  const actionsGeneration = useRef(0)
+  const activeAction = useRef<number | null>(null)
   const actionOrigin = useRef<HTMLElement | null>(null)
   const restoreFocus = useCallback(() => {
     const origin = actionOrigin.current
@@ -86,30 +90,100 @@ export function App() {
   }, [])
   const closeContextMenu = useCallback(
     (restore = false) => {
+      actionsGeneration.current++
+      activeAction.current = null
+      setLoadingActions(false)
+      setActionPending(false)
       setContextMenu(null)
       if (restore) restoreFocus()
     },
     [restoreFocus],
   )
+  const waitingForActions = loadingActions || (actionPending && !contextMenu)
+  useEffect(() => {
+    if (!waitingForActions) return
+    const outside = () => closeContextMenu(false)
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' && event.key !== 'Tab') return
+      event.preventDefault()
+      closeContextMenu(true)
+    }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', keydown)
+    window.addEventListener('resize', outside)
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      document.removeEventListener('keydown', keydown)
+      window.removeEventListener('resize', outside)
+    }
+  }, [waitingForActions, closeContextMenu])
+  useEffect(
+    () => () => {
+      actionsGeneration.current++
+    },
+    [],
+  )
+
+  const beginAction = useCallback(() => {
+    if (activeAction.current !== null) return null
+    const ticket = ++actionsGeneration.current
+    activeAction.current = ticket
+    setLoadingActions(false)
+    setActionPending(true)
+    return ticket
+  }, [])
+  const actionFailed = useCallback(
+    (ticket: number, error: unknown) => {
+      if (ticket !== actionsGeneration.current) return
+      closeContextMenu(true)
+      setError(String(error))
+    },
+    [closeContextMenu],
+  )
+  const confirmDeletion = useCallback(
+    async (targets: readonly PhotoReference[], ticket: number) => {
+      if (!targets.length || ticket !== actionsGeneration.current) return
+      const frozen = Object.freeze(
+        [...new Map(targets.map((photo) => [photo.id, photo])).values()].map(({ id, filename }) =>
+          Object.freeze({ id, filename }),
+        ),
+      )
+      const current = await window.luma.listTasks()
+      if (ticket !== actionsGeneration.current) return
+      setTasks(current)
+      closeContextMenu(false)
+      if (
+        current.some(
+          (task) =>
+            task.kind === 'capture-grouping' &&
+            (task.status === 'running' || task.status === 'cancelling'),
+        )
+      ) {
+        setTasksOpen(true)
+        return
+      }
+      setTasksOpen(false)
+      setDeleteTargets(frozen)
+    },
+    [closeContextMenu],
+  )
   const requestDeletion = useCallback(
-    async (requestedTargets?: PhotoReference[]) => {
+    async (requestedTargets?: readonly PhotoReference[]) => {
+      const ticket = beginAction()
+      if (ticket === null) return
       try {
-        const targets = requestedTargets ?? (await getSelection())
-        if (!targets.length) return
-        const current = await window.luma.listTasks()
-        setTasks(current)
-        setContextMenu(null)
-        if (current.some((task) => task.status === 'running' || task.status === 'cancelling')) {
-          setTasksOpen(true)
-          return
-        }
-        setTasksOpen(false)
-        setDeleteTargets(targets)
+        const selection = await getSelection()
+        await confirmDeletion(requestedTargets ?? selection, ticket)
       } catch (error) {
-        setError(String(error))
+        actionFailed(ticket, error)
+      } finally {
+        if (activeAction.current === ticket) {
+          activeAction.current = null
+          setActionPending(false)
+        }
       }
     },
-    [getSelection],
+    [getSelection, beginAction, confirmDeletion, actionFailed],
   )
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -129,19 +203,24 @@ export function App() {
         return
       event.preventDefault()
       if (!contextMenu) actionOrigin.current = document.activeElement as HTMLElement | null
-      void requestDeletion(contextMenu?.targets)
+      // A deletion shortcut supersedes a pending menu action and always targets selection.
+      if (contextMenu && activeAction.current !== null) closeContextMenu(false)
+      void requestDeletion()
     }
     document.addEventListener('keydown', keydown)
     return () => document.removeEventListener('keydown', keydown)
-  }, [selected, requestDeletion, contextMenu])
+  }, [selected, requestDeletion, contextMenu, closeContextMenu])
 
   function showContextMenu(photo: Photo, element: HTMLElement, x: number, y: number) {
+    closeContextMenu(false)
+    const ticket = actionsGeneration.current
     actionOrigin.current = element
     setTasksOpen(false)
+    setLoadingActions(true)
     void library
       .contextSelect(photo)
-      .then((targets) => loadActions(x, y, targets, photo.id))
-      .catch((error) => setError(String(error)))
+      .then((targets) => loadActions(ticket, x, y, targets, photo))
+      .catch((error) => actionFailed(ticket, error))
   }
 
   const completedMerges = useRef<Set<string> | null>(null)
@@ -204,32 +283,41 @@ export function App() {
   }, [tasks, dismissTask])
 
   async function openActions(element: HTMLElement) {
+    closeContextMenu(false)
+    const ticket = actionsGeneration.current
     actionOrigin.current = element
+    setLoadingActions(true)
     const box = element.getBoundingClientRect()
     try {
-      await loadActions(box.left, box.bottom + 4, await getSelection(), photo?.id ?? null)
+      await loadActions(ticket, box.left, box.bottom + 4, await getSelection(), photo)
     } catch (error) {
-      setError(String(error))
+      actionFailed(ticket, error)
     }
   }
   async function loadActions(
+    ticket: number,
     x: number,
     y: number,
     targets: PhotoReference[],
-    photoId: string | null,
+    photo: Photo | null,
   ) {
+    if (ticket !== actionsGeneration.current) return
     const [overview, stack, currentTasks, groups] = await Promise.all([
       window.luma.listStacks(),
-      photoId ? window.luma.getPhotoStack(photoId) : Promise.resolve(null),
+      photo ? window.luma.getPhotoStack(photo.id) : Promise.resolve(null),
       window.luma.listTasks(),
       Promise.all(targets.map((p) => window.luma.getPhotoStack(p.id))),
     ])
+    if (ticket !== actionsGeneration.current) return
+    const snapshot = stack ? await window.luma.getStackSnapshot(stack.id, stack.revision) : null
+    if (ticket !== actionsGeneration.current) return
+    setLoadingActions(false)
     setContextMenu({
       x,
       y,
       targets,
-      photoId,
-      stack,
+      photo: photo ? { id: photo.id, filename: photo.filename } : null,
+      snapshot,
       revision: overview.revision,
       canGroup: targets.length >= 2 && groups.every((s) => !s),
       busy: currentTasks.some((t) => t.status === 'running' || t.status === 'cancelling'),
@@ -238,14 +326,15 @@ export function App() {
   async function stackAction(action: 'group' | 'ungroup' | 'remove' | 'cover' | 'select' | 'scan') {
     const menu = contextMenu
     if (!menu) return
-    setContextMenu(null)
+    const ticket = beginAction()
+    if (ticket === null) return
     try {
-      const stack = menu.stack
+      const stack = menu.snapshot?.stack
       if (action === 'group') {
         const ids = menu.targets.map((p) => p.id)
         await window.luma.groupPhotos(
           ids,
-          menu.photoId && ids.includes(menu.photoId) ? menu.photoId : ids[0],
+          menu.photo && ids.includes(menu.photo.id) ? menu.photo.id : ids[0],
           menu.revision,
         )
       } else if (action === 'scan') {
@@ -253,24 +342,58 @@ export function App() {
         await refreshTasks()
         setTasksOpen(true)
       } else if (stack) {
-        if (action === 'ungroup') await window.luma.ungroupStack(stack.id, stack.revision)
-        if (action === 'remove' && menu.photoId)
-          await window.luma.removeFromStack(menu.photoId, stack.revision)
-        if (action === 'cover' && menu.photoId)
-          await window.luma.setStackCover(stack.id, menu.photoId, stack.revision)
-        if (action === 'select') await library.selectStack(stack.id)
+        if (action === 'select') {
+          await library.selectStack(
+            stack.id,
+            stack.revision,
+            () => ticket === actionsGeneration.current,
+          )
+        } else {
+          await window.luma.getStackSnapshot(stack.id, stack.revision)
+          if (ticket !== actionsGeneration.current) return
+          if (action === 'ungroup') await window.luma.ungroupStack(stack.id, stack.revision)
+          if (action === 'remove' && menu.photo)
+            await window.luma.removeFromStack(menu.photo.id, stack.revision)
+          if (action === 'cover' && menu.photo)
+            await window.luma.setStackCover(stack.id, menu.photo.id, stack.revision)
+        }
       }
+      if (ticket !== actionsGeneration.current) return
       await refresh()
+      if (ticket === actionsGeneration.current) closeContextMenu(true)
     } catch (error) {
-      setError(String(error))
-    } finally {
-      restoreFocus()
+      actionFailed(ticket, error)
     }
   }
   function openMerge(mode: MergeMode) {
     if (!contextMenu) return
+    const ticket = beginAction()
+    if (ticket === null) return
     setMergeTargets({ ids: contextMenu.targets.map((p) => p.id), mode })
-    setContextMenu(null)
+    closeContextMenu(false)
+  }
+  async function groupAction(action: 'delete' | MergeMode) {
+    const stack = contextMenu?.snapshot?.stack
+    if (!stack) return
+    const ticket = beginAction()
+    if (ticket === null) return
+    try {
+      if (action === 'delete') await getSelection()
+      if (ticket !== actionsGeneration.current) return
+      const snapshot = await window.luma.getStackSnapshot(stack.id, stack.revision)
+      if (ticket !== actionsGeneration.current) return
+      if (action === 'delete') {
+        await confirmDeletion(snapshot.photos, ticket)
+      } else {
+        const originals = snapshot.photos.filter((photo) => photo.assetKind !== 'derived')
+        const unavailable = groupMergeUnavailable(originals)
+        if (unavailable) throw new Error(unavailable)
+        setMergeTargets({ ids: originals.map((photo) => photo.id), mode: action })
+        closeContextMenu(false)
+      }
+    } catch (error) {
+      actionFailed(ticket, error)
+    }
   }
   async function openResult(id: string) {
     await openPhoto(id)
@@ -512,14 +635,19 @@ export function App() {
         <PhotoContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          count={contextMenu.targets.length}
-          stack={contextMenu.stack}
+          selection={contextMenu.targets}
+          photo={contextMenu.photo}
+          snapshot={contextMenu.snapshot}
           canGroup={contextMenu.canGroup}
-          canSetCover={contextMenu.photoId !== contextMenu.stack?.coverId}
           busy={contextMenu.busy}
+          pending={actionPending}
           onStackAction={(action) => void stackAction(action)}
           onClose={closeContextMenu}
-          onDelete={() => void requestDeletion(contextMenu.targets)}
+          onDelete={() => void requestDeletion()}
+          onDeletePhoto={() => {
+            if (contextMenu.photo) void requestDeletion([contextMenu.photo])
+          }}
+          onGroupAction={(action) => void groupAction(action)}
           onMerge={openMerge}
         />
       )}

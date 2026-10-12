@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test'
 import sharp from 'sharp'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
-import { focusPreviewWindow, verifyLockedPan } from './preview-pan.helpers'
+import { focusPreviewWindow, verifyLockedPan, verifyPanGlide } from './preview-pan.helpers'
 import { holdPreviewFrame, verifyPreviewWheel } from './preview-wheel.helpers'
 
 async function geometry(page: Page) {
@@ -66,6 +66,18 @@ test('mouse panning hides and locks the cursor until release or interruption', a
   )
 })
 
+test('mouse release glide stays bounded and cancels on new input, resize and reduced motion', async ({
+  luma,
+}) => {
+  await importPhotos(luma.app, luma.page)
+  await verifyPanGlide(
+    luma.app,
+    luma.page,
+    luma.page.getByTestId('preview-viewport'),
+    luma.page.getByRole('combobox', { name: 'Preview zoom', exact: true }),
+  )
+})
+
 test('zooms at the pointer, pans with capture, and retains keyboard and context-menu controls', async ({
   luma,
 }, testInfo) => {
@@ -85,18 +97,22 @@ test('zooms at the pointer, pans with capture, and retains keyboard and context-
   await page.keyboard.up('Control')
   await expect.poll(async () => (await geometry(page)).scale).toBeGreaterThan(1)
   const after = await geometry(page)
-  expect(after.scale).toBeCloseTo(Math.exp(1), 5)
+  expect(after.scale).toBeCloseTo(Math.exp(0.2), 5)
   expect((65 - after.x) / after.scale).toBeCloseTo((65 - before.x) / before.scale, 3)
   expect((35 - after.y) / after.scale).toBeCloseTo((35 - before.y) / before.scale, 3)
   await page.mouse.down()
   await page.mouse.move(point.x - 60, point.y - 35, { steps: 5 })
-  await page.mouse.up()
   const dragged = await geometry(page)
   expect(dragged.x).toBeCloseTo(after.x - 60, 1)
   expect(dragged.y).toBeCloseTo(after.y - 35, 1)
+  await page.mouse.up()
+  await expect(viewport).toHaveAttribute('data-gliding', 'false')
+  const glided = await geometry(page)
+  expect(Math.hypot(glided.x - dragged.x, glided.y - dragged.y)).toBeLessThanOrEqual(24.001)
   await page.mouse.down()
   await page.mouse.move(5, 5, { steps: 8 })
   await page.mouse.up()
+  await expect(viewport).toHaveAttribute('data-gliding', 'false')
   await expect(viewport).not.toHaveCSS('cursor', 'none')
   const released = await geometry(page)
   await page.mouse.move(point.x, point.y)
@@ -114,7 +130,7 @@ test('zooms at the pointer, pans with capture, and retains keyboard and context-
         .poll(() => viewport.evaluate((el) => document.pointerLockElement === el))
         .toBe(true)
       await page.evaluate(() => document.exitPointerLock())
-    } else await viewport.dispatchEvent(event)
+    } else await viewport.dispatchEvent(event, { pointerId: 1 })
     await expect(viewport).toHaveAttribute('data-dragging', 'false')
     await expect.poll(() => page.evaluate(() => document.pointerLockElement === null)).toBe(true)
     await expect(viewport).not.toHaveCSS('cursor', 'none')

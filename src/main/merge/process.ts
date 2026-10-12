@@ -103,6 +103,7 @@ export class MergeProcess {
     }
   }
   pause(paused: boolean) {
+    if (this.paused === paused) return
     this.paused = paused
     if (this.child?.connected) this.child.send({ type: paused ? 'pause' : 'resume' }, () => {})
   }
