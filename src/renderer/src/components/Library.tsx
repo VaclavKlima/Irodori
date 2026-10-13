@@ -50,7 +50,7 @@ export function Library({
       tabIndex={-1}
     >
       <div className={styles.panelHeading}>
-        <h2>Library</h2>
+        <h2>Photos</h2>
         <button className={styles.iconButton} aria-label="Add photos" onClick={onImport}>
           <Plus size={15} />
         </button>

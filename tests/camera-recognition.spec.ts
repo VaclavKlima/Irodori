@@ -33,7 +33,7 @@ test('format identity changes on reformat, type, partition or size and rejects m
 
 test('camera keys survive readers, mount paths and inodes while preserving containment', async () => {
   const first = await cameraSource(tmpdir())
-  const initial = cameraSourceKey(first, join(tmpdir(), 'DCIM', 'photo.ARW'))
+  const initial = cameraSourceKey(first, join(first.roots[0].path, 'DCIM', 'photo.ARW'))
   const other = structuredClone(first)
   other.deviceId = 'reader-2'
   Object.assign(other.roots[0], {

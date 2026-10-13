@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test'
-import { mkdir, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { PhotoLibrary } from '../src/main/library'
@@ -18,6 +18,7 @@ export function gate() {
 }
 
 export async function cameraSource(path: string, stable = true): Promise<DeviceSource> {
+  path = await realpath(path)
   const info = await stat(path, { bigint: true })
   return {
     deviceId: 'reader-1',
@@ -45,7 +46,7 @@ export async function cameraSetup(
     inspect?: typeof inspectImportSource
   } = {},
 ) {
-  const root = await mkdtemp(join(tmpdir(), 'luma-camera-'))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'luma-camera-')))
   const card = join(root, 'card')
   await mkdir(card)
   await mkdir(join(root, 'trash'))

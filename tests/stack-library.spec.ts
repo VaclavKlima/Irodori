@@ -125,7 +125,7 @@ test('merge relationships union complete stacks and backfill once, with newest c
     t.library.ungroupStack(stack.id, changed.revision)
     await t.restart()
     expect(t.library.listStacks().stacks).toEqual([])
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 14 })
+    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 })
   } finally {
     await t.close()
   }

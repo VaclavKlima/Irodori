@@ -4,6 +4,7 @@ import { installWaylandDisplayRefresh } from './wayland-display'
 import { pathToFileURL } from 'node:url'
 import { powerMonitor } from 'electron'
 import { startEditorEndpoint } from './editor-endpoint'
+import { BrowseCatalogChangedError } from '../shared/browse'
 import { randomUUID } from 'node:crypto'
 import { photoExtensions } from './processing/formats'
 import {
@@ -534,6 +535,51 @@ app
       trusted(event)
       return library!.listGallery(offset, selectedIds)
     })
+    ipcMain.handle(
+      'browse:summary',
+      (event, query: import('../shared/browse').BrowseQuery, selectedIds: string[]) => {
+        trusted(event)
+        return library!.getBrowseSummary(query, selectedIds)
+      },
+    )
+    ipcMain.handle(
+      'browse:chunk',
+      (event, query: import('../shared/browse').BrowseQuery, offset: number, revision?: number) => {
+        trusted(event)
+        try {
+          return { result: library!.getBrowseChunk(query, offset, revision) }
+        } catch (error) {
+          if (error instanceof BrowseCatalogChangedError) return { stale: true }
+          throw error
+        }
+      },
+    )
+    ipcMain.handle(
+      'browse:locate',
+      (event, query: import('../shared/browse').BrowseQuery, id: string, revision?: number) => {
+        trusted(event)
+        try {
+          return { result: library!.locateBrowsePhoto(query, id, revision) }
+        } catch (error) {
+          if (error instanceof BrowseCatalogChangedError) return { stale: true }
+          throw error
+        }
+      },
+    )
+    ipcMain.handle(
+      'browse:range',
+      (event, query: import('../shared/browse').BrowseQuery, from: string, to: string) => {
+        trusted(event)
+        return library!.getBrowseRange(query, from, to)
+      },
+    )
+    ipcMain.handle(
+      'browse:section',
+      (event, query: import('../shared/browse').BrowseQuery, key: string) => {
+        trusted(event)
+        return library!.getBrowseSection(query, key)
+      },
+    )
     ipcMain.handle('gallery:locate', (event, id: string, direction: -1 | 0 | 1) => {
       trusted(event)
       return library!.locateGalleryPhoto(id, direction)

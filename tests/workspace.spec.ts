@@ -1,5 +1,5 @@
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
-import { readFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import type { LumaApi, Photo } from '../src/shared/contracts'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
@@ -9,6 +9,10 @@ async function resizeWindow(app: ElectronApplication, page: Page, width: number,
   await window.evaluate(
     (browserWindow, size) => {
       browserWindow.unmaximize()
+      // macOS otherwise constrains large test windows to the physical work area.
+      const [, outerHeight] = browserWindow.getSize()
+      const [, contentHeight] = browserWindow.getContentSize()
+      browserWindow.setMinimumSize(size.width, size.height + outerHeight - contentHeight)
       browserWindow.setContentSize(size.width, size.height)
     },
     { width, height },
@@ -36,6 +40,15 @@ test('starts the built desktop application with its isolated preload bridge', as
   const { app, page } = luma
   const packageInfo = JSON.parse(await readFile('package.json', 'utf8')) as { version: string }
   await expect(page).toHaveTitle('Luma')
+  const navigation = page.getByRole('navigation', { name: 'Workspaces' })
+  await expect(navigation.getByRole('button', { name: 'Editor', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
+  for (const name of ['Editor', 'Library'])
+    await expect(navigation.getByRole('button', { name, exact: true }).locator('svg')).toHaveCount(
+      1,
+    )
   expect(page.url()).toMatch(/^file:\/\//)
   expect(app.windows()).toHaveLength(1)
 
@@ -50,7 +63,7 @@ test('starts the built desktop application with its isolated preload bridge', as
   })
   expect(nativeInfo).toMatchObject({
     version: packageInfo.version,
-    userData: luma.userDataDir,
+    userData: await realpath(luma.userDataDir),
     noSandbox: false,
   })
   // Playwright owns an ephemeral debugging endpoint; the fixed MCP port is development-only.
@@ -67,6 +80,11 @@ test('starts the built desktop application with its isolated preload bridge', as
   expect(bridge).toEqual({
     info: { version: nativeInfo.version, platform: nativeInfo.platform },
     keys: [
+      'getBrowseSummary',
+      'getBrowseChunk',
+      'locateBrowsePhoto',
+      'getBrowseRange',
+      'getBrowseSection',
       'reportForegroundActivity',
       'listStacks',
       'getPhotoStack',

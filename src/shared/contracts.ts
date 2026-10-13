@@ -21,6 +21,26 @@ export interface ForegroundActivity {
 }
 
 export interface LumaApi {
+  getBrowseSummary(
+    query: import('./browse').BrowseQuery,
+    selectedIds?: string[],
+  ): Promise<import('./browse').BrowseSummary>
+  getBrowseChunk(
+    query: import('./browse').BrowseQuery,
+    offset?: number,
+    expectedRevision?: number,
+  ): Promise<import('./browse').BrowseChunk>
+  locateBrowsePhoto(
+    query: import('./browse').BrowseQuery,
+    photoId: string,
+    expectedRevision?: number,
+  ): Promise<import('./browse').BrowseLocation | null>
+  getBrowseRange(
+    query: import('./browse').BrowseQuery,
+    fromId: string,
+    toId: string,
+  ): Promise<PhotoReference[]>
+  getBrowseSection(query: import('./browse').BrowseQuery, key: string): Promise<PhotoReference[]>
   reportForegroundActivity(activity: ForegroundActivity): Promise<void>
   listStacks(): Promise<import('./stacks').StackOverview>
   getPhotoStack(photoId: string): Promise<import('./stacks').StackSummary | null>
@@ -142,6 +162,7 @@ export interface LumaApi {
 }
 
 export interface PhotoMetadata {
+  captureDateOrigin?: import('./browse').CaptureDateOrigin
   width: number
   height: number
   camera?: string

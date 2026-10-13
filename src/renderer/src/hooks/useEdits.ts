@@ -9,8 +9,8 @@ import {
 } from '../../../shared/adjustments'
 type AdjustmentPatch = Partial<AdjustmentParameters>
 
-export function useEdits(photoId: string | undefined) {
-  const { begin, pulse } = useForegroundActivity(photoId)
+export function useEdits(photoId: string | undefined, enabled = true) {
+  const { begin, pulse } = useForegroundActivity(photoId, undefined, enabled)
   const [state, setState] = useState<EditState | null>(null)
   const [draft, setDraft] = useState<AdjustmentPatch | null>(null)
   const [error, setError] = useState('')
@@ -67,9 +67,9 @@ export function useEdits(photoId: string | undefined) {
   }, [accept])
   useEffect(() => {
     let active = true
-    current.current = null
+    if (current.current?.photoId !== photoId) current.current = null
     const refresh = () => {
-      if (!photoId) return
+      if (!photoId || !enabled) return
       void window.luma
         .getEdits(photoId)
         .then((next) => {
@@ -88,7 +88,7 @@ export function useEdits(photoId: string | undefined) {
       unsubscribe()
       void flush().catch(() => undefined)
     }
-  }, [photoId, accept, flush])
+  }, [photoId, enabled, accept, flush])
   useEffect(() => window.luma.onFlushEdits(flush), [flush])
   const cancel = () => {
     gesture.current = null
@@ -134,6 +134,7 @@ export function useEdits(photoId: string | undefined) {
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (
+        !enabled ||
         (!event.ctrlKey && !event.metaKey) ||
         event.altKey ||
         (event.target as HTMLElement).closest(
@@ -151,7 +152,7 @@ export function useEdits(photoId: string | undefined) {
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [history])
+  }, [history, enabled])
   const visible = state?.photoId === photoId ? state : null
   return {
     state: visible,

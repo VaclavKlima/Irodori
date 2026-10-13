@@ -376,7 +376,13 @@ for (const boundary of ['staged', 'journaled', 'published', 'committed'] as cons
             )
         },
         {
-          inspectCapture: async () => ({ version: 2, format: 'ARW' }),
+          inspectCapture: async (path) => ({
+            version: 2,
+            format: 'ARW',
+            dateTimeOriginal: path.includes(f.sources[1].photo.id)
+              ? '2026:10:01 00:05:00+1400'
+              : '2025:09:30 23:55:00-1200',
+          }),
           close: async () => {},
         },
       )
@@ -427,6 +433,18 @@ for (const boundary of ['staged', 'journaled', 'published', 'committed'] as cons
         )
       if (boundary !== 'staged') {
         const result = library.list().photos.find((p) => p.assetKind === 'derived')!
+        expect(result.capturedAt).toBe('2026-10-01T00:05:00.000000000000000000')
+        expect(result.captureDateOrigin).toEqual({
+          kind: 'merge-reference',
+          photoId: ids[1],
+          filename: f.sources[1].photo.filename,
+        })
+        expect(
+          library.locateBrowsePhoto({ search: '', grouping: 'date' }, result.id)?.photo,
+        ).toMatchObject({ captureDate: result.capturedAt, dateOrigin: result.captureDateOrigin })
+        const frozen = (await library.getMergeProvenance(result.id)).manifest
+        expect(frozen.photo.capturedAt).toBe(result.capturedAt)
+        expect(frozen.metadata.capturedAt).toBe(result.capturedAt)
         expect(library.getPhotoStack(result.id)).toMatchObject({
           coverId: result.id,
           count: 3,

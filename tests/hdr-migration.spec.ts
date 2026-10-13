@@ -177,7 +177,7 @@ test('schema 11 cutover preserves original bytes, numeric snapshots, cursor and 
         await readFile(join(root, 'originals', id, i ? 'authored.jpg' : 'capture.ARW')),
       ).toEqual(Buffer.from(`original-${id}`))
     }
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 14 })
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 })
     const saved = await library.getEditHistory(ids[0])
     await library.close()
     library = new PhotoLibrary(root, new PreviewEngine(), () => {})

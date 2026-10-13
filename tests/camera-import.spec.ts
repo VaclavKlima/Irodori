@@ -165,7 +165,7 @@ test('legacy file imports bootstrap within bounded bytes and sample proof surviv
       copies: [path],
     })
     const check = new DatabaseSync(join(t.root, 'library', 'catalog.sqlite'))
-    expect(check.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 14 })
+    expect(check.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 })
     expect(check.prepare('SELECT proof FROM camera_imports').get()).toEqual({ proof: 'sample' })
     check.close()
     await t.restart()

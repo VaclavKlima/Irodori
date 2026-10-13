@@ -1,0 +1,257 @@
+.browser {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  background: #1d1d1d;
+}
+.browser[hidden] {
+  display: none;
+}
+.toolbar {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  flex-shrink: 0;
+  min-height: 58px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.toolbar h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  max-width: 420px;
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #454545;
+  background: #252525;
+  border-radius: 4px;
+  padding: 7px 10px;
+  color: var(--muted);
+}
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+.search:focus-within {
+  border-color: var(--accent);
+}
+.grouping {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.grouping select {
+  border: 1px solid #454545;
+  border-radius: 4px;
+  padding: 6px 10px;
+  background: #292929;
+  color: var(--text);
+  font-size: 12px;
+}
+.foldAll {
+  margin-left: auto;
+  flex-shrink: 0;
+  border: 1px solid #454545;
+  border-radius: 4px;
+  padding: 6px 10px;
+  background: #292929;
+  color: var(--text);
+  font-size: 11px;
+}
+.selection {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+  padding: 10px 20px;
+  color: var(--muted);
+  font-size: 11px;
+  border-bottom: 1px solid #303030;
+}
+.selection button {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid #494949;
+  border-radius: 3px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.help {
+  margin-left: auto;
+  color: #858585;
+}
+.viewport {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  outline-offset: -2px;
+  overflow-anchor: none;
+}
+.content {
+  position: relative;
+  margin: 0 16px;
+}
+.section {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  height: 42px;
+  padding: 0 4px;
+}
+.sectionControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font-size: 12px;
+}
+.foldGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 4px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: 12px;
+}
+.foldGroup:hover {
+  background: #2a2a2a;
+}
+.foldGroup svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.foldGroup[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+.section input {
+  margin: 0;
+  accent-color: #a9a175;
+}
+.section span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: 12px;
+  height: 190px;
+  padding-bottom: 14px;
+}
+.cell {
+  min-width: 0;
+  min-height: 0;
+}
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: #272727;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  padding: 5px;
+  text-align: left;
+  user-select: none;
+}
+.card[aria-pressed='true'] {
+  border-color: #aaa27c;
+  background: #35342e;
+}
+.card[data-focused='true'] {
+  outline: 2px solid #a3a3a3;
+  outline-offset: 2px;
+}
+.thumbnail {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #161616;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.format {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  color: #ddd;
+  background: #161616bd;
+  border-radius: 2px;
+  padding: 2px 4px;
+  font-size: 9px;
+}
+.caption {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 2px 1px;
+  font-size: 11px;
+  min-height: 22px;
+}
+.caption > span {
+  flex: 1;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.origin {
+  color: #aaa;
+  flex-shrink: 0;
+}
+.placeholder {
+  height: 100%;
+  border: 1px solid #303030;
+  border-radius: 4px;
+  background: #242424;
+}
+.empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 70px 20px;
+  font-size: 13px;
+}
+.empty button {
+  display: block;
+  margin: 16px auto;
+  padding: 7px 12px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #292929;
+  color: var(--text);
+}

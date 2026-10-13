@@ -66,7 +66,7 @@ export default defineConfig(({ command }) => {
       server: {
         host: '127.0.0.1',
         port: Number(process.env.LUMA_DEV_PORT ?? 5173),
-        strictPort: true,
+        strictPort: false,
       },
     },
   }

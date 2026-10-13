@@ -1,6 +1,13 @@
 import { MergeError, type MergeFailure } from '../shared/merge'
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AppInfo, LibraryEvent, LumaApi } from '../shared/contracts'
+import { BrowseCatalogChangedError } from '../shared/browse'
+
+async function browseResult<T>(response: Promise<{ result: T; stale?: boolean }>): Promise<T> {
+  const value = await response
+  if (value.stale) throw new BrowseCatalogChangedError()
+  return value.result
+}
 
 async function mergeResult<T>(response: Promise<{ result: T; error?: MergeFailure }>): Promise<T> {
   const value = await response
@@ -8,6 +15,14 @@ async function mergeResult<T>(response: Promise<{ result: T; error?: MergeFailur
   return value.result
 }
 const api: LumaApi = {
+  getBrowseSummary: (query, selectedIds = []) =>
+    ipcRenderer.invoke('browse:summary', query, selectedIds),
+  getBrowseChunk: (query, offset = 0, revision) =>
+    browseResult(ipcRenderer.invoke('browse:chunk', query, offset, revision)),
+  locateBrowsePhoto: (query, id, revision) =>
+    browseResult(ipcRenderer.invoke('browse:locate', query, id, revision)),
+  getBrowseRange: (query, from, to) => ipcRenderer.invoke('browse:range', query, from, to),
+  getBrowseSection: (query, key) => ipcRenderer.invoke('browse:section', query, key),
   reportForegroundActivity: (activity) => ipcRenderer.invoke('foreground:activity', activity),
   listStacks: () => ipcRenderer.invoke('stacks:list'),
   getPhotoStack: (id) => ipcRenderer.invoke('stacks:photo', id),

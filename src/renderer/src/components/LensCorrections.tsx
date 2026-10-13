@@ -14,11 +14,13 @@ export function LensCorrections({
   flushEdits,
   expanded,
   onToggle,
+  suspended = false,
 }: {
   photoId: string
   flushEdits: () => Promise<void>
   expanded: boolean
   onToggle: () => void
+  suspended?: boolean
 }) {
   const [state, setState] = useState<LensState | null>(null)
   const [error, setError] = useState('')
@@ -26,6 +28,7 @@ export function LensCorrections({
   useEffect(() => {
     let active = true
     const refresh = () => {
+      if (suspended) return
       void window.luma
         .getLensSettings(photoId)
         .then((next) => {
@@ -46,7 +49,7 @@ export function LensCorrections({
       active = false
       unsubscribe()
     }
-  }, [photoId])
+  }, [photoId, suspended])
   const update = async (kind: CorrectionKind, enabled: boolean) => {
     setError('')
     pending.current++

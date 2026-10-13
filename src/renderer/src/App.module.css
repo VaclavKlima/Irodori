@@ -60,7 +60,22 @@
   align-items: center;
   padding: 0 8px;
   font-size: 11px;
-  border-bottom: 2px solid var(--accent);
+}
+.workspaceMode button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  align-self: stretch;
+  padding: 0 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 11px;
+}
+.workspaceMode button[aria-current='page'] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
 }
 .workspaceMode svg {
   color: var(--accent);
@@ -89,6 +104,16 @@
   display: flex;
   min-height: 0;
   flex: 1;
+}
+.editor[hidden],
+.browserWorkspace[hidden] {
+  display: none;
+}
+.browserWorkspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
 }
 .library {
   flex: 0 0 222px;

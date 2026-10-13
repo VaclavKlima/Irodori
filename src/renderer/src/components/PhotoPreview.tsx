@@ -439,6 +439,7 @@ export function PhotoPreview({
     const element = viewport.current
     if (!element) return
     const observer = new ResizeObserver(([entry]) => {
+      if (suspended || entry.contentRect.width <= 0 || entry.contentRect.height <= 0) return
       stopDrag()
       change((model) => ({
         ...model,
@@ -451,7 +452,7 @@ export function PhotoPreview({
       observer.disconnect()
       window.removeEventListener('blur', stopDrag)
     }
-  }, [change, stopDrag])
+  }, [change, stopDrag, suspended])
 
   const { preview: renderedFrame, pixels, displayFailed } = full
   useEffect(() => {

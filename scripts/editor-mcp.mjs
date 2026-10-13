@@ -29,7 +29,47 @@ const mergeSettings = schema({
   strength: { type: 'integer', minimum: 0, maximum: 100 },
 })
 const reviewId = { type: 'string' }
+const browseQuery = schema({
+  search: { type: 'string', maxLength: 500 },
+  grouping: { enum: ['date', 'month', 'year'] },
+})
 const tools = [
+  {
+    name: 'luma_get_browse_summary',
+    description:
+      'Read matching Library sections and selected counts by camera calendar date, month, or year. Search uses case-insensitive literal terms across filename, camera, lens, format and capture date.',
+    inputSchema: schema(
+      { query: browseQuery, selectedIds: { type: 'array', items: photoId, uniqueItems: true } },
+      ['query'],
+    ),
+  },
+  {
+    name: 'luma_get_browse_chunk',
+    description:
+      'Read 60 individual photos in capture date descending order, including hidden stack members and merge results. Optional catalog revision rejects stale reads.',
+    inputSchema: schema(
+      { query: browseQuery, offset: { type: 'integer', minimum: 0 }, expectedRevision },
+      ['query'],
+    ),
+  },
+  {
+    name: 'luma_locate_browse_photo',
+    description:
+      'Locate a photo in the current Library search order without changing selection or active photo.',
+    inputSchema: schema({ query: browseQuery, photoId, expectedRevision }, ['query', 'photoId']),
+  },
+  {
+    name: 'luma_get_browse_range',
+    description:
+      'Read inclusive individual photo references in search order. Browser ranges never expand stacks; a missing anchor falls back to the target.',
+    inputSchema: schema({ query: browseQuery, fromId: photoId, toId: photoId }),
+  },
+  {
+    name: 'luma_get_browse_section',
+    description:
+      'Read every matching photo reference in a date, month, year or unknown section, including unloaded photos.',
+    inputSchema: schema({ query: browseQuery, sectionKey: { type: 'string' } }),
+  },
   {
     name: 'luma_list_stacks',
     description: 'Read stack summaries and the gallery revision for manual grouping.',

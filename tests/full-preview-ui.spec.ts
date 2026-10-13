@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { PREVIEW_VERSION } from '../src/main/full-previews'
 import { expect, test } from './electron.fixture'
-import { importPhotos } from './import.helpers'
+import { choose, expectImportComplete, importPhotos } from './import.helpers'
 
 test('opens cached photos with only a matching blurred placeholder, including after reload', async ({
   luma,
@@ -10,6 +10,9 @@ test('opens cached photos with only a matching blurred placeholder, including af
   const { app, page } = luma
   await importPhotos(app, page)
   const viewport = page.getByTestId('preview-viewport')
+  // Both photos must have validated warm frames before rejecting further bitmap fetches.
+  await page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }).click()
+  await expect(viewport).toHaveAttribute('data-resolution', 'full')
   await page.getByRole('button', { name: 'Select mountain-ridge.jpg', exact: true }).click()
   await expect(viewport).toHaveAttribute('data-resolution', 'full')
   await app.evaluate(({ ipcMain }) => {
@@ -71,8 +74,9 @@ test('shows an error without camera JPEG fallback, retries, and repairs corrupt 
   const gate = await holdFullPreview(app)
   try {
     await gate.evaluate((control) => control.fail())
-    await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'], false)
+    // Inject failure without holding import completion behind a foreground preview lease.
     await gate.evaluate((control) => control.release())
+    await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'], false)
     await expect(page.getByTestId('preview-resolution')).toContainText(
       'Full resolution unavailable',
     )
@@ -130,16 +134,38 @@ test('accepts only the current photo after rapid navigation and permits imports 
   luma,
 }, info) => {
   const { app, page } = luma
+  await importPhotos(app, page)
+  await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-resolution', 'full')
   const gate = await holdFullPreview(app)
+  const cached = await app.evaluateHandle(({ ipcMain }) => {
+    const handlers = (
+      ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
+    )._invokeHandlers
+    const original = handlers.get('preview:cached')!
+    ipcMain.removeHandler('preview:cached')
+    ipcMain.handle('preview:cached', () => ({ preview: null }))
+    return {
+      restore: () => {
+        ipcMain.removeHandler('preview:cached')
+        ipcMain.handle('preview:cached', original)
+      },
+    }
+  })
   try {
-    await importPhotos(app, page, undefined, false)
     for (const filename of ['mountain-ridge.jpg', 'alpine-lake.jpg', 'mountain-ridge.jpg'])
       await page.getByRole('button', { name: `Select ${filename}`, exact: true }).click()
-    await importPhotos(app, page, ['tests/fixtures/photos/forest-light.jpg'], false)
+    await page.getByRole('button', { name: 'Import photos', exact: true }).click()
+    await choose(app, page, ['tests/fixtures/photos/forest-light.jpg'])
+    await expect(page.getByTestId('import-status')).toContainText('Ready to import')
+    await page.getByRole('button', { name: 'Import 1 photos', exact: true }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.getByTestId('task-progress')).toContainText('Importing')
     await expect(page.getByTestId('preview-filename')).toHaveText('mountain-ridge.jpg')
     await gate.evaluate((control) => control.release())
+    await expectImportComplete(page)
     await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-resolution', 'full')
     const { photos } = await page.evaluate(() => window.luma.listPhotos())
+    expect(photos).toHaveLength(3)
     const selected = photos.find((photo) => photo.filename === 'mountain-ridge.jpg')!
     await expect(page.getByTestId('main-preview')).toHaveAttribute(
       'data-src',
@@ -159,5 +185,7 @@ test('accepts only the current photo after rapid navigation and permits imports 
   } finally {
     await gate.evaluate((control) => control.release())
     await gate.dispose()
+    await cached.evaluate((control) => control.restore())
+    await cached.dispose()
   }
 })

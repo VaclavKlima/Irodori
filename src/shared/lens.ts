@@ -33,6 +33,7 @@ export interface LensProfile {
   unavailable: Partial<Record<CorrectionKind, string>>
 }
 export interface ProcessingMetadata {
+  capturedAt?: string
   capture?: import('./merge').MergeCapture
   mergeMaster?: { asset: HdrWorkingAsset; recipe: import('./merge').MergeRecipe }
   hdrEligible?: boolean

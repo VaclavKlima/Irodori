@@ -83,7 +83,7 @@ test('catalog v4 migration preserves every history snapshot, redo, revisions and
       })),
     }
     expect(await library.getEditHistory(id)).toEqual(expected)
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 14 })
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 })
     expect(await library.redoEdit(id, 9)).toMatchObject({
       revision: 10,
       settings: { shadows: 0, whites: 0, blacks: 0, exposureEv: -2, contrast: 0, highlights: 0 },

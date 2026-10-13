@@ -21,6 +21,8 @@ npm run dev
 
 `npm ci` installs the exact versions in `package-lock.json`. Use `npm install` when intentionally adding or updating dependencies, and include the resulting lockfile changes.
 
+The renderer development server starts on port `5173` and automatically tries the next available port if it is occupied. Electron uses the selected port. Set `LUMA_DEV_PORT` to choose a different starting port, for example `LUMA_DEV_PORT=5180 npm run dev`.
+
 Electron downloads its runtime on first use if it is not already installed. To download it explicitly after `npm ci`, run `npm run setup:electron`. Dependency installation and the first runtime download require network access; subsequent launches and photo imports work offline.
 
 To build and launch the built application:
@@ -63,7 +65,17 @@ Select 2–32 compatible Sony RAWs, then choose **Actions → Merge to HDR…** 
 
 A grouped photograph also offers **Merge K group originals to HDR…** and **Stack K group originals for noise reduction…** directly. These use the group's current originals in persisted order, including hidden or paginated members, and exclude previous merge results. The menu shows both the full member count and original count. Groups outside the 2–32 original limit or containing known unsupported formats explain why merge is disabled; the existing review verifies camera and capture compatibility.
 
+## Browse the Library
+
+**Library**, with its Images icon beside **Editor**, shows every managed photograph individually, including originals in collapsed stacks and merged results. **Editor** opens the photograph editing workspace, with a compact **Photos** panel. In Library, scroll continuously, search filenames, camera, lens, format and capture dates with case-insensitive literal terms, and group by **Date**, **Month** or **Year**. Date is the default; newest recorded camera dates appear first. Invalid or missing dates appear under **Unknown date**. Merge results identify their reference date. Search updates after 200 ms; ISO text such as `2026-10` is supported.
+
+Click a group heading to fold or expand its photos; **Collapse all groups** and **Expand all groups** make it easy to scan the dates. Folds are remembered separately for Date, Month and Year during the session, including across searches and visits to Editor. Section checkboxes select every matching photo, including folded and unloaded photos, while retaining selections elsewhere. Click selects one, Ctrl/Cmd-click toggles, Shift-click selects the inclusive search range, and Ctrl/Cmd+Shift adds it. These ranges select individuals without expanding stacks. The count includes selections outside current results; **Clear selection** clears the shared selection. Arrow keys move focus through expanded groups, Space toggles selection, and Enter or double-click opens the focused photo in Editor while retaining selection. Photo actions use the focused browser photo. Delete waits for pending selection and confirms all selected filenames before system Trash.
+
+Search, grouping, scroll and focus survive workspace switches for the session. Grouping and catalog updates retain the first visible photo. The editor remains mounted and suspended, preserving same-photo zoom and pan. Console and background tasks remain available; a merge completed while browsing stays in Library until **Open result** opens Editor. Catalog version 15 adds a transactional browsing index, backfilled from stored metadata without decoding originals. See [Library browsing](docs/all-photos.md).
+
 ## Select and delete photographs
+
+The stack expansion, paging and stack-aware ranges below apply to the Editor's Photos panel. Library browsing shows every photo individually and uses the individual ranges described above.
 
 Photo stacks expand inline through a separate member-count button. Use **Actions → Group selected photos** for at least two ungrouped photographs. The shared menu labels **Photo**, **Selected photos (N)**, and **Group (N photos)** actions; Actions uses the active photograph's group. **Set this photo as group cover** and **Remove this photo from group** affect that photograph. **Select group (N photos)**, **Ungroup (N photos)**, and **Delete group (N photos)…** cover every current member, including hidden and paginated members. Only Select group changes selection before an operation changes the library. Merge results become collapsed covers while retaining their sources and older results. Covers and members remain individually editable; hidden selections stay counted and named. Stacks and their expansion state persist across restarts. Pages and Previous/Next follow 60 visible photo rows.
 

@@ -25,6 +25,7 @@ export function processingMetadata(
     typeof tags[key] === 'number' && Number.isFinite(tags[key]) ? (tags[key] as number) : undefined
   const metadata = {
     version: PROCESSING_METADATA_VERSION,
+    capturedAt: string('ExifIFD:DateTimeOriginal'),
     make: string('IFD0:Make'),
     model: string('IFD0:Model'),
     lens: string('ExifIFD:LensModel'),

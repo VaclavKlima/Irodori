@@ -38,7 +38,7 @@ export async function startEditorEndpoint(
       let body = ''
       for await (const chunk of request) {
         body += chunk.toString()
-        if (body.length > 16384) throw new Error('Editor request is too large.')
+        if (body.length > 8 * 1024 * 1024) throw new Error('Editor request is too large.')
       }
       const {
         operation,
@@ -61,6 +61,9 @@ export async function startEditorEndpoint(
         fromId,
         toId,
         direction,
+        query,
+        sectionKey,
+        selectedIds,
         x,
         y,
       } = JSON.parse(body) as {
@@ -84,11 +87,31 @@ export async function startEditorEndpoint(
         fromId: string
         toId: string
         direction?: -1 | 0 | 1
+        query: import('../shared/browse').BrowseQuery
+        sectionKey: string
+        selectedIds?: string[]
         x: number
         y: number
       }
+      if (body.length > 16384 && operation !== 'luma_get_browse_summary')
+        throw new Error('Editor request is too large.')
       let result: unknown
       switch (operation) {
+        case 'luma_get_browse_summary':
+          result = library.getBrowseSummary(query, selectedIds)
+          break
+        case 'luma_get_browse_chunk':
+          result = library.getBrowseChunk(query, offset, expectedRevision)
+          break
+        case 'luma_locate_browse_photo':
+          result = { location: library.locateBrowsePhoto(query, photoId, expectedRevision) }
+          break
+        case 'luma_get_browse_range':
+          result = { photos: library.getBrowseRange(query, fromId, toId) }
+          break
+        case 'luma_get_browse_section':
+          result = { photos: library.getBrowseSection(query, sectionKey) }
+          break
         case 'luma_list_stacks':
           result = library.listStacks()
           break

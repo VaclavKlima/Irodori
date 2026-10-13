@@ -1,5 +1,7 @@
 import { MergeReviews } from './merge/reviews'
 import { StackStore } from './stacks'
+import { BrowseStore } from './browse'
+import { DEFAULT_BROWSE_QUERY, validatedCaptureDate, type BrowseQuery } from '../shared/browse'
 import { CAPTURE_METADATA_VERSION } from '../shared/capture-sequence'
 import { durableJson, recoverMerges, syncDirectory, verifyMaster } from './merge/store'
 import {
@@ -168,6 +170,7 @@ export class PhotoLibrary {
   readonly merges: MergeReviews
   private db!: DatabaseSync
   private stacks!: StackStore
+  private browse!: BrowseStore
   private importSources!: ImportSourceRecords
   private cameraRecognition!: CameraRecognition
   private lensTail: Promise<unknown> = Promise.resolve()
@@ -336,8 +339,9 @@ export class PhotoLibrary {
     this.db = new DatabaseSync(join(this.root, 'catalog.sqlite'))
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;')
     const version = this.db.prepare('PRAGMA user_version').get() as { user_version: number }
-    if (version.user_version > 14) throw new Error('This library requires a newer version of Luma.')
+    if (version.user_version > 15) throw new Error('This library requires a newer version of Luma.')
     this.stacks = new StackStore(this.db)
+    this.browse = new BrowseStore(this.db)
     this.importSources = new ImportSourceRecords(this.db)
     this.cameraRecognition = new CameraRecognition(this.db)
     this.db.exec(
@@ -435,7 +439,9 @@ export class PhotoLibrary {
       this.importSources.initialize()
       this.cameraRecognition.initialize()
       if (version.user_version < 11) this.stacks.backfillMerges()
-      this.db.exec('PRAGMA user_version = 14; COMMIT;')
+      this.browse.initialize()
+      this.browse.backfill()
+      this.db.exec('PRAGMA user_version = 15; COMMIT;')
     } catch (error) {
       this.db.exec('ROLLBACK')
       throw error
@@ -542,9 +548,18 @@ export class PhotoLibrary {
       await this.scheduler.mutate(async () => {
         this.assertRecovered()
         if (!this.find(id)) throw new Error('This photo is unavailable.')
-        this.db
-          .prepare('INSERT OR REPLACE INTO processing (id, data) VALUES (?, ?)')
-          .run(id, JSON.stringify(data))
+        this.db.exec('BEGIN IMMEDIATE')
+        try {
+          this.db
+            .prepare('INSERT OR REPLACE INTO processing (id, data) VALUES (?, ?)')
+            .run(id, JSON.stringify(data))
+          this.browse.put(this.find(id)!, metadata, undefined, this.stacks.capture(id) ?? undefined)
+          this.db.exec('COMMIT')
+        } catch (error) {
+          this.db.exec('ROLLBACK')
+          throw error
+        }
+        this.changed(undefined, true)
       }, signal)
       return this.readProcessing(id)!
     })
@@ -811,6 +826,22 @@ export class PhotoLibrary {
     return { photos: rows.map((row) => JSON.parse(row.photo) as Photo), total: count.total }
   }
 
+  getBrowseSummary(query: BrowseQuery, selectedIds: string[] = []) {
+    return this.browse.summary(query, selectedIds)
+  }
+  getBrowseChunk(query: BrowseQuery, offset = 0, expectedRevision?: number) {
+    return this.browse.chunk(query, offset, expectedRevision)
+  }
+  locateBrowsePhoto(query: BrowseQuery, id: string, expectedRevision?: number) {
+    return this.browse.locate(query, id, expectedRevision)
+  }
+  getBrowseRange(query: BrowseQuery, fromId: string, toId: string) {
+    return this.browse.range(query, fromId, toId)
+  }
+  getBrowseSection(query: BrowseQuery, key: string) {
+    return this.browse.section(query, key)
+  }
+
   listStacks() {
     return this.stacks.overview()
   }
@@ -918,7 +949,15 @@ export class PhotoLibrary {
               )
               const metadata = await this.inspectCapture(path, task.abort.signal)
               task.abort.signal.throwIfAborted()
-              this.stacks.putCapture(photo.id, metadata)
+              this.db.exec('BEGIN IMMEDIATE')
+              try {
+                this.stacks.putCapture(photo.id, metadata)
+                this.browse.put(photo, this.readProcessing(photo.id)?.metadata, undefined, metadata)
+                this.db.exec('COMMIT')
+              } catch (error) {
+                this.db.exec('ROLLBACK')
+                throw error
+              }
             }
           } catch (error) {
             if (task.abort.signal.aborted) throw error
@@ -2135,6 +2174,7 @@ export class PhotoLibrary {
                       )
                   if (preview.captureMetadata)
                     this.stacks.putCapture(photo.id, preview.captureMetadata)
+                  this.browse.put(photo, preview.processing, undefined, preview.captureMetadata)
                   this.db.exec('COMMIT')
                 } catch (error) {
                   this.db.exec('ROLLBACK')
@@ -2347,6 +2387,7 @@ export class PhotoLibrary {
         .prepare('INSERT OR IGNORE INTO processing (id, data) VALUES (?, ?)')
         .run(photo.id, JSON.stringify(options))
       this.ensureEdits(photo.id, options)
+      this.browse.put(photo, options.metadata, manifest)
       this.stacks.attachMerge(manifest)
       this.db.prepare('DELETE FROM merge_publications WHERE id = ?').run(photo.id)
       this.db.exec('COMMIT')
@@ -2396,6 +2437,16 @@ export class PhotoLibrary {
             const reference = review.sources.find(
               (s) => s.photo.id === review.settings.referenceId,
             )!
+            const referenceDate =
+              [
+                reference.captureMetadata?.preciseTime,
+                reference.captureMetadata?.dateTimeOriginal,
+                reference.metadata.capturedAt,
+                reference.photo.capturedAt,
+              ]
+                .map(validatedCaptureDate)
+                .find((date) => date !== null) ??
+              this.browse.locate(DEFAULT_BROWSE_QUERY, reference.photo.id)?.photo.captureDate
             const photo: Photo = {
               id: photoId,
               assetKind: 'derived',
@@ -2410,8 +2461,19 @@ export class PhotoLibrary {
               previewSource: 'decoded',
               camera: reference.photo.camera,
               lens: reference.photo.lens,
+              capturedAt: referenceDate ?? undefined,
+              captureDateOrigin: {
+                kind: 'merge-reference',
+                photoId: reference.photo.id,
+                filename: reference.photo.filename,
+              },
             }
-            const metadata = { ...reference.metadata, capture: undefined, mergeMaster: undefined }
+            const metadata = {
+              ...reference.metadata,
+              capturedAt: photo.capturedAt,
+              capture: undefined,
+              mergeMaster: undefined,
+            }
             const manifest: MergeManifest = {
               version: MERGE_VERSION,
               photo,

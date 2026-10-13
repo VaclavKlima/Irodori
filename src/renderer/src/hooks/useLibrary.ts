@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import type { GalleryEntry } from '../../../shared/stacks'
+import type { BrowseQuery } from '../../../shared/browse'
 import {
   PAGE_SIZE,
   type LibraryEvent,
@@ -26,6 +27,7 @@ interface LibraryState {
 export interface SelectionModifiers {
   shift?: boolean
   toggle?: boolean
+  click?: boolean
 }
 
 export function useLibrary(onError: (error: string) => void) {
@@ -56,6 +58,13 @@ export function useLibrary(onError: (error: string) => void) {
   const selectionError = useRef<unknown>(null)
   const deletionRevision = useRef(0)
   const deletedAt = useRef(new Map<string, number>())
+  const browserClick = useRef<{
+    id: string
+    revision: number
+    since: number
+    selected: Map<string, PhotoReference>
+    anchor: string | null
+  } | null>(null)
   const update = useCallback((next: Partial<LibraryState>) => {
     current.current = { ...current.current, ...next }
     setState(current.current)
@@ -232,7 +241,7 @@ export function useLibrary(onError: (error: string) => void) {
   }, [])
 
   const contextSelect = useCallback(
-    (photo: Photo) =>
+    (photo: Photo, preserveActive = false) =>
       enqueueSelection((since) => {
         const previous = current.current
         const selected = previous.selected.has(photo.id)
@@ -241,8 +250,7 @@ export function useLibrary(onError: (error: string) => void) {
         updateSelection(
           {
             selected,
-            photo,
-            activeId: photo.id,
+            ...(!preserveActive ? { photo, activeId: photo.id } : {}),
             anchor: selected === previous.selected ? previous.anchor : photo.id,
           },
           since,
@@ -316,7 +324,7 @@ export function useLibrary(onError: (error: string) => void) {
   )
 
   const openPhoto = useCallback(
-    (id: string) =>
+    (id: string, preserveSelection = false) =>
       enqueueSelection(async (since) => {
         const ticket = request.current
         const result = await window.luma.locateGalleryPhoto(id)
@@ -342,8 +350,9 @@ export function useLibrary(onError: (error: string) => void) {
             position: result.index,
             photo,
             activeId: photo.id,
-            anchor: photo.id,
-            selected: new Map([[photo.id, photo]]),
+            ...(!preserveSelection
+              ? { anchor: photo.id, selected: new Map([[photo.id, photo]]) }
+              : {}),
           },
           since,
         )
@@ -369,6 +378,70 @@ export function useLibrary(onError: (error: string) => void) {
     [enqueueSelection, updateSelection],
   )
 
+  const browseSelect = useCallback(
+    (photo: PhotoReference, query: BrowseQuery, modifiers: SelectionModifiers = {}) => {
+      const acceptedQuery = { ...query }
+      return enqueueSelection(async (since) => {
+        const previous = current.current
+        let anchor = previous.anchor
+        let selected: Map<string, PhotoReference>
+        if (modifiers.shift && anchor) {
+          const range = await window.luma.getBrowseRange(acceptedQuery, anchor, photo.id)
+          selected = new Map(modifiers.toggle ? current.current.selected : [])
+          for (const item of range) selected.set(item.id, item)
+        } else {
+          anchor = photo.id
+          selected = new Map(modifiers.toggle ? previous.selected : [])
+          if (modifiers.toggle && selected.has(photo.id)) selected.delete(photo.id)
+          else selected.set(photo.id, { id: photo.id, filename: photo.filename })
+        }
+        updateSelection({ selected, anchor }, since)
+        if (modifiers.click)
+          browserClick.current = {
+            id: photo.id,
+            revision: selectionRevision.current,
+            since,
+            selected: previous.selected,
+            anchor: previous.anchor,
+          }
+      }).catch((error) => onError(String(error)))
+    },
+    [enqueueSelection, onError, updateSelection],
+  )
+  const browseSection = useCallback(
+    (key: string, query: BrowseQuery, checked: boolean) => {
+      const acceptedQuery = { ...query }
+      return enqueueSelection(async (since) => {
+        const references = await window.luma.getBrowseSection(acceptedQuery, key)
+        const selected = new Map(current.current.selected)
+        for (const photo of references) {
+          if (checked) selected.set(photo.id, photo)
+          else selected.delete(photo.id)
+        }
+        updateSelection({ selected }, since)
+      }).catch((error) => onError(String(error)))
+    },
+    [enqueueSelection, onError, updateSelection],
+  )
+  const clearSelection = useCallback(
+    () =>
+      enqueueSelection((since) => updateSelection({ selected: new Map(), anchor: null }, since)),
+    [enqueueSelection, updateSelection],
+  )
+  const restoreBrowserClick = useCallback(
+    (id: string) =>
+      enqueueSelection((since) => {
+        const click = browserClick.current
+        browserClick.current = null
+        if (click?.id === id && click.revision === selectionRevision.current)
+          updateSelection(
+            { selected: click.selected, anchor: click.anchor },
+            Math.min(since, click.since),
+          )
+      }),
+    [enqueueSelection, updateSelection],
+  )
+
   return {
     ...state,
     refresh,
@@ -380,5 +453,9 @@ export function useLibrary(onError: (error: string) => void) {
     changePage,
     openPhoto,
     selectStack,
+    browseSelect,
+    browseSection,
+    clearSelection,
+    restoreBrowserClick,
   }
 }

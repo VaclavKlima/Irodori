@@ -14,6 +14,7 @@ import {
   Columns2,
   Crop,
   FileImage,
+  Images,
   Redo2,
   SlidersHorizontal,
   TerminalSquare,
@@ -26,6 +27,8 @@ import {
   type BackgroundTask,
 } from '../../shared/contracts'
 import { Library } from './components/Library'
+import { AllPhotos } from './components/AllPhotos'
+import type { BrowsePhoto } from '../../shared/browse'
 import { Inspector } from './components/Inspector'
 import { Console } from './components/Console'
 import { ImportDialog } from './components/ImportDialog'
@@ -37,6 +40,13 @@ import { PhotoPreview } from './components/PhotoPreview'
 import styles from './App.module.css'
 
 export function App() {
+  const [workspace, setWorkspace] = useState<'editor' | 'library'>('editor')
+  const workspaceRef = useRef(workspace)
+  const switchWorkspace = (next: 'editor' | 'library') => {
+    workspaceRef.current = next
+    setWorkspace(next)
+  }
+  const [browserPhoto, setBrowserPhoto] = useState<BrowsePhoto | null>(null)
   const [mergeTargets, setMergeTargets] = useState<{ ids: string[]; mode: MergeMode } | null>(null)
   const [tasks, setTasks] = useState<BackgroundTask[]>([])
   const [tasksOpen, setTasksOpen] = useState(false)
@@ -61,7 +71,7 @@ export function App() {
     openPhoto,
     getSelection,
   } = library
-  const edits = useEdits(photo?.id)
+  const edits = useEdits(photo?.id, workspace === 'editor')
   const displayTarget = useDisplayState()
   const previewTools = usePreviewTools(photo?.id)
   const [interactivePhoto, setInteractivePhoto] = useState<string | null>(null)
@@ -86,7 +96,14 @@ export function App() {
     if (origin?.isConnected) origin.focus()
     else if (origin?.dataset.testid === 'main-preview')
       document.querySelector<HTMLElement>('[data-testid="main-preview"]')?.focus()
-    else document.querySelector<HTMLElement>('[data-testid="photo-library"]')?.focus()
+    else
+      document
+        .querySelector<HTMLElement>(
+          workspaceRef.current === 'library'
+            ? '[data-testid="browse-grid"]'
+            : '[data-testid="photo-library"]',
+        )
+        ?.focus()
   }, [])
   const closeContextMenu = useCallback(
     (restore = false) => {
@@ -218,7 +235,7 @@ export function App() {
     setTasksOpen(false)
     setLoadingActions(true)
     void library
-      .contextSelect(photo)
+      .contextSelect(photo, workspace === 'library')
       .then((targets) => loadActions(ticket, x, y, targets, photo))
       .catch((error) => actionFailed(ticket, error))
   }
@@ -238,7 +255,7 @@ export function App() {
         for (const task of completed) {
           if (completedMerges.current.has(task.id)) continue
           completedMerges.current.add(task.id)
-          void openPhoto(task.resultPhotoId!)
+          if (workspaceRef.current === 'editor') void openPhoto(task.resultPhotoId!)
         }
       }
     } catch (error) {
@@ -289,7 +306,13 @@ export function App() {
     setLoadingActions(true)
     const box = element.getBoundingClientRect()
     try {
-      await loadActions(ticket, box.left, box.bottom + 4, await getSelection(), photo)
+      await loadActions(
+        ticket,
+        box.left,
+        box.bottom + 4,
+        await getSelection(),
+        workspace === 'library' ? browserPhoto : photo,
+      )
     } catch (error) {
       actionFailed(ticket, error)
     }
@@ -396,8 +419,14 @@ export function App() {
     }
   }
   async function openResult(id: string) {
-    await openPhoto(id)
+    await openPhoto(id, true)
+    switchWorkspace('editor')
     setTasksOpen(false)
+  }
+  async function openBrowserPhoto(id: string, doubleClick = false) {
+    if (doubleClick) await library.restoreBrowserClick(id)
+    await openPhoto(id, true)
+    switchWorkspace('editor')
   }
 
   async function openImport() {
@@ -429,10 +458,28 @@ export function App() {
           <span className={styles.brandDivider} />
           <span className={styles.workspaceName}>My library</span>
         </div>
-        <div className={styles.workspaceMode}>
-          <SlidersHorizontal size={13} />
-          <span>Library</span>
-        </div>
+        <nav className={styles.workspaceMode} aria-label="Workspaces">
+          <button
+            aria-current={workspace === 'editor' ? 'page' : undefined}
+            onClick={() => {
+              closeContextMenu()
+              switchWorkspace('editor')
+            }}
+          >
+            <SlidersHorizontal size={13} />
+            Editor
+          </button>
+          <button
+            aria-current={workspace === 'library' ? 'page' : undefined}
+            onClick={() => {
+              closeContextMenu()
+              switchWorkspace('library')
+            }}
+          >
+            <Images size={13} />
+            Library
+          </button>
+        </nav>
         <div className={styles.headerActions}>
           <button aria-haspopup="menu" onClick={(event) => void openActions(event.currentTarget)}>
             Actions
@@ -451,7 +498,12 @@ export function App() {
         </div>
       </header>
 
-      <div className={styles.editor} data-testid="workspace">
+      <div
+        className={styles.editor}
+        data-testid="workspace"
+        hidden={workspace !== 'editor'}
+        inert={workspace !== 'editor'}
+      >
         <Library
           entries={library.entries}
           total={total}
@@ -565,7 +617,7 @@ export function App() {
             </p>
           )}
           <PhotoPreview
-            suspended={!!mergeTargets}
+            suspended={!!mergeTargets || workspace !== 'editor'}
             displayTarget={displayTarget}
             key={photo?.id ?? 'empty'}
             photo={photo}
@@ -581,7 +633,7 @@ export function App() {
             onContextMenu={showContextMenu}
           />
 
-          {consoleOpen && (
+          {consoleOpen && workspace === 'editor' && (
             <Console
               onClose={() => {
                 setConsoleOpen(false)
@@ -592,11 +644,46 @@ export function App() {
         </main>
 
         <Inspector
+          suspended={workspace !== 'editor'}
           tools={previewTools}
           photo={photo}
           edits={edits}
-          previewReady={!!photo && interactivePhoto === photo.id}
+          previewReady={workspace === 'editor' && !!photo && interactivePhoto === photo.id}
         />
+      </div>
+
+      <div className={styles.browserWorkspace} hidden={workspace !== 'library'}>
+        {error && (
+          <div className={styles.errorBanner} role="alert">
+            {error}
+            <button onClick={() => setError('')} aria-label="Dismiss error">
+              ×
+            </button>
+          </div>
+        )}
+        <AllPhotos
+          active={workspace === 'library'}
+          selected={selected}
+          selection={{
+            select: library.browseSelect,
+            section: library.browseSection,
+            clear: library.clearSelection,
+          }}
+          focusedPhoto={browserPhoto}
+          onFocusPhoto={setBrowserPhoto}
+          onOpen={(id, doubleClick) => void openBrowserPhoto(id, doubleClick)}
+          onContextMenu={showContextMenu}
+          onImport={() => void openImport()}
+          onError={setError}
+        />
+        {consoleOpen && workspace === 'library' && (
+          <Console
+            onClose={() => {
+              setConsoleOpen(false)
+              consoleToggleRef.current?.focus()
+            }}
+          />
+        )}
       </div>
 
       <footer className={styles.statusBar}>
@@ -604,7 +691,7 @@ export function App() {
           <span className={styles.statusDot} />
           <span>Local library</span>
           <span className={styles.statusSeparator}>/</span>
-          <span>{total} photographs</span>
+          <span>{library.storedTotal} photographs</span>
         </div>
         <TaskCenter
           onOpenResult={openResult}

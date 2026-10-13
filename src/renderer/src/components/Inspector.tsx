@@ -19,11 +19,13 @@ export function Inspector({
   edits,
   previewReady,
   tools,
+  suspended = false,
 }: {
   photo: Photo | null
   edits: EditController
   previewReady: boolean
   tools: PreviewTools
+  suspended?: boolean
 }) {
   const [lightOpen, setLightOpen] = useState(true)
   const [metadataOpen, setMetadataOpen] = useState(true)
@@ -78,6 +80,7 @@ export function Inspector({
             flushEdits={edits.flush}
             expanded={lensOpen}
             onToggle={() => setLensOpen(!lensOpen)}
+            suspended={suspended}
           />
         )}
         <section className={styles.adjustmentSection}>

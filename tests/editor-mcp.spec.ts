@@ -27,6 +27,11 @@ test('stdio editing tools share persisted history with UI without a development 
     ])
     expect(previewTool.inputSchema.required).toEqual(['reviewId', 'expectedRevision'])
     expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+      'luma_get_browse_summary',
+      'luma_get_browse_chunk',
+      'luma_locate_browse_photo',
+      'luma_get_browse_range',
+      'luma_get_browse_section',
       'luma_list_stacks',
       'luma_get_photo_stack',
       'luma_get_stack_members',
@@ -77,6 +82,21 @@ test('stdio editing tools share persisted history with UI without a development 
     expect(missingDiagnostics.isError).toBe(true)
     const page = await call('luma_list_photos')
     const photoId = (page.photos as { id: string }[])[0].id
+    const query = { search: 'ALPINE JPG', grouping: 'date' }
+    const summary = await call('luma_get_browse_summary', { query, selectedIds: [photoId] })
+    expect(summary).toMatchObject({ total: 1, selected: 1, outsideSelected: 0 })
+    const chunk = await call('luma_get_browse_chunk', { query, expectedRevision: summary.revision })
+    expect(chunk).toMatchObject({ offset: 0, photos: [{ id: photoId }] })
+    expect(await call('luma_locate_browse_photo', { query, photoId })).toMatchObject({
+      location: { index: 0, photo: { id: photoId } },
+    })
+    expect(
+      await call('luma_get_browse_range', { query, fromId: photoId, toId: photoId }),
+    ).toMatchObject({ photos: [{ id: photoId }] })
+    const section = (summary.sections as { key: string }[])[0]
+    expect(await call('luma_get_browse_section', { query, sectionKey: section.key })).toMatchObject(
+      { photos: [{ id: photoId }] },
+    )
     const unsupportedPixel = await client.callTool({
       name: 'luma_get_photo_pixel',
       arguments: {

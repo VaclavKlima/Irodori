@@ -40,6 +40,9 @@ const definitions: Suite[] = [
   { file: 'raw-thumbnail', group: 'raw-gpu', scopes: ['library'] },
   { file: 'review-performance', group: 'service', scopes: [], exclusive: true },
   { file: 'stack-model', group: 'node', scopes: ['library'] },
+  { file: 'all-photos-model', group: 'node', scopes: ['library'] },
+  { file: 'all-photos', group: 'service', scopes: ['library'] },
+  { file: 'catalog-migration', group: 'service', scopes: ['library'] },
   { file: 'capture-sequence', group: 'node', scopes: ['library'] },
   { file: 'brk-capture', group: 'node', scopes: ['library'] },
   { file: 'brk-library', group: 'service', scopes: ['library'] },
@@ -125,6 +128,7 @@ const definitions: Suite[] = [
   { file: 'comparison-ui', group: 'electron', scopes: ['ui', 'preview'] },
   { file: 'white-balance-raw', group: 'raw-gpu', scopes: ['adjustments', 'preview'] },
   { file: 'workspace', group: 'electron', scopes: ['ui'] },
+  { file: 'all-photos-ui', group: 'electron', scopes: ['library', 'ui'], exclusive: true },
   ...['adjustment-input-decimal', 'adjustment-input-integer', 'adjustment-wiring'].map((file) => ({
     file,
     group: 'electron' as const,
