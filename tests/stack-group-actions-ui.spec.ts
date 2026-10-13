@@ -38,17 +38,25 @@ test('photo, selection and group targets stay distinct across unrelated groups w
   await card(3).click({ modifiers: ['ControlOrMeta'] })
   await card(0).click({ button: 'right' })
   const menu = page.getByRole('menu')
-  await expect(menu.getByRole('group', { name: 'Photo', exact: true })).toBeVisible()
-  await expect(menu.getByRole('group', { name: 'Selected photos (2)', exact: true })).toBeVisible()
-  await expect(menu.getByRole('group', { name: 'Group (3 photos)', exact: true })).toBeVisible()
-  await expect(menu.locator('[data-delete-action]')).toBeFocused()
-  await menu.getByRole('menuitem', { name: 'Delete this photo…', exact: true }).click()
+  await expect(
+    menu.getByRole('group', { name: `Photo · ${photos[0].filename}`, exact: true }),
+  ).toBeVisible()
+  await expect(
+    menu.getByRole('menuitem', { name: 'Move 2 selected photos to Trash…', exact: true }),
+  ).toBeVisible()
+  await expect(
+    menu.getByRole('group', { name: 'Photo group · 3 photos · 3 originals', exact: true }),
+  ).toBeVisible()
+  await expect(menu.getByRole('menuitem').first()).toBeFocused()
+  await menu.getByRole('menuitem', { name: 'Move this photo to Trash…', exact: true }).click()
   await expect.poll(() => groupDeletionNames(page)).toEqual([photos[0].filename])
   await page.keyboard.press('Escape')
   await expect(card(0)).toBeFocused()
   await expect(page.getByTestId('selection-count')).toHaveText('2 selected')
   await card(0).click({ button: 'right' })
-  await menu.getByRole('menuitem', { name: 'Delete group (3 photos)…', exact: true }).click()
+  await menu
+    .getByRole('menuitem', { name: 'Move entire group to Trash (3 photos)…', exact: true })
+    .click()
   const snapshot = await page.evaluate((s) => window.luma.getStackSnapshot(s.id, s.revision), stack)
   await expect.poll(() => groupDeletionNames(page)).toEqual(snapshot.photos.map((p) => p.filename))
   await expect(page.getByTestId('preview-filename')).toHaveText(photos[0].filename)
@@ -56,7 +64,9 @@ test('photo, selection and group targets stay distinct across unrelated groups w
   await page.keyboard.press('Escape')
   for (const key of ['Delete', 'Backspace']) {
     await card(0).click({ button: 'right' })
-    await menu.getByRole('menuitem', { name: 'Delete group (3 photos)…', exact: true }).focus()
+    await menu
+      .getByRole('menuitem', { name: 'Move entire group to Trash (3 photos)…', exact: true })
+      .focus()
     await page.keyboard.press(key)
     await expect
       .poll(() => groupDeletionNames(page))
@@ -64,7 +74,7 @@ test('photo, selection and group targets stay distinct across unrelated groups w
     await page.keyboard.press('Escape')
   }
   await page.getByRole('button', { name: 'Actions', exact: true }).click()
-  await menu.getByRole('menuitem', { name: 'Select group (3 photos)', exact: true }).click()
+  await menu.getByRole('menuitem', { name: 'Select entire group', exact: true }).click()
   await expect(page.getByTestId('selection-count')).toHaveText('3 selected')
   await expect(page.getByTestId('preview-filename')).toHaveText(photos[0].filename)
   // The previous toggle anchor is retained even though Select group replaced the selected set.
@@ -89,7 +99,9 @@ test('collapsed and paginated members disclose a complete frozen group; menu scr
   const trash = await isolateTrash(app)
   const cover = page.getByTestId(`photo-card-${stack.coverId}`)
   await cover.click({ button: 'right' })
-  await page.getByRole('menuitem', { name: 'Delete group (65 photos)…', exact: true }).click()
+  await page
+    .getByRole('menuitem', { name: 'Move entire group to Trash (65 photos)…', exact: true })
+    .click()
   await expect.poll(() => groupDeletionNames(page)).toEqual(ordered.photos.map((p) => p.filename))
   await expect(page.getByTestId('selection-count')).toHaveText('1 selected')
   await page.keyboard.press('Escape')
@@ -116,19 +128,18 @@ test('collapsed and paginated members disclose a complete frozen group; menu scr
     name: 'Merge 65 group originals to HDR…',
     exact: true,
   })
-  await expect(merge).toHaveAttribute('aria-disabled', 'true')
-  await expect(merge).toHaveAccessibleDescription('Group merge supports no more than 32 originals.')
-  await expect(menu.locator('[data-delete-action]')).toBeFocused()
+  await expect(merge).toHaveCount(0)
+  await expect(menu.getByRole('menuitem').first()).toBeFocused()
   await page.keyboard.press('Home')
   await expect(
     menu.getByRole('menuitem', { name: 'Set this photo as group cover', exact: true }),
   ).toBeFocused()
   await page.keyboard.press('End')
   await expect(
-    menu.getByRole('menuitem', { name: 'Group capture sequences…', exact: true }),
+    menu.getByRole('menuitem', { name: 'Move entire group to Trash (65 photos)…', exact: true }),
   ).toBeFocused()
   await expect(
-    menu.getByRole('menuitem', { name: 'Group capture sequences…', exact: true }),
+    menu.getByRole('menuitem', { name: 'Move entire group to Trash (65 photos)…', exact: true }),
   ).toBeInViewport({ ratio: 1 })
   expect(await menu.evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto')
   expect(
@@ -138,10 +149,10 @@ test('collapsed and paginated members disclose a complete frozen group; menu scr
     expect(await menu.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
   await page.keyboard.press('ArrowUp')
   await expect(
-    menu.getByRole('menuitem', { name: 'Delete group (65 photos)…', exact: true }),
+    menu.getByRole('menuitem', { name: 'Move 2 selected photos to Trash…', exact: true }),
   ).toBeFocused()
   await expect(
-    menu.getByRole('menuitem', { name: 'Delete group (65 photos)…', exact: true }),
+    menu.getByRole('menuitem', { name: 'Move 2 selected photos to Trash…', exact: true }),
   ).toBeInViewport({ ratio: 1 })
   const bounds = await menu.boundingBox()
   expect(bounds!.x).toBeGreaterThanOrEqual(8)
@@ -154,7 +165,9 @@ test('collapsed and paginated members disclose a complete frozen group; menu scr
   await page.keyboard.press('Escape')
   await expect(actions).toBeFocused()
   await actions.click()
-  await menu.getByRole('menuitem', { name: 'Delete group (65 photos)…', exact: true }).click()
+  await menu
+    .getByRole('menuitem', { name: 'Move entire group to Trash (65 photos)…', exact: true })
+    .click()
   await expect.poll(() => groupDeletionNames(page)).toEqual(ordered.photos.map((p) => p.filename))
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
   const list = page.getByRole('list', { name: 'Photos to move to Trash' })
@@ -209,7 +222,7 @@ test('both group merge modes freeze current original IDs in persisted order and 
     for (const mode of ['hdr', 'noise'] as const) {
       await page.getByRole('button', { name: 'Actions', exact: true }).click()
       await expect(
-        page.getByRole('group', { name: 'Group (4 photos)', exact: true }),
+        page.getByRole('group', { name: 'Photo group · 4 photos · 2 originals', exact: true }),
       ).toContainText('2 originals')
       await page
         .getByRole('menuitem', {
@@ -242,9 +255,7 @@ test('both group merge modes freeze current original IDs in persisted order and 
   }
 })
 
-test('group merge bounds and known unsupported originals have accessible explanations and cannot activate', async ({
-  luma,
-}) => {
+test('group merge bounds and known unsupported originals are hidden', async ({ luma }) => {
   const { app, page } = luma
   await importPhotos(app, page, groupSources.slice(0, 3))
   const photos = await allGroupPhotos(page)
@@ -275,10 +286,7 @@ test('group merge bounds and known unsupported originals have accessible explana
         `Stack ${scenario.count} group originals for noise reduction…`,
       ]) {
         const button = page.getByRole('menuitem', { name, exact: true })
-        await expect(button).toHaveAttribute('aria-disabled', 'true')
-        await expect(button).toHaveAccessibleDescription(scenario.reason)
-        await button.focus()
-        await page.keyboard.press('Enter')
+        await expect(button).toHaveCount(0)
         await expect(page.getByRole('dialog')).toHaveCount(0)
       }
       await page.keyboard.press('Escape')
@@ -306,17 +314,18 @@ for (const action of ['delete', 'hdr', 'noise', 'select', 'ungroup'] as const) {
     try {
       const actionName =
         action === 'delete'
-          ? 'Delete group (3 photos)…'
+          ? 'Move entire group to Trash (3 photos)…'
           : action === 'hdr'
             ? 'Merge 3 group originals to HDR…'
             : action === 'noise'
               ? 'Stack 3 group originals for noise reduction…'
               : action === 'select'
-                ? 'Select group (3 photos)'
-                : 'Ungroup (3 photos)'
+                ? 'Select entire group'
+                : 'Ungroup photos'
       for (const missing of [false, true]) {
         await page.getByTestId(`photo-card-${photos[0].id}`).click({ button: 'right' })
         await expect(page.getByRole('menuitem', { name: actionName, exact: true })).toBeVisible()
+        const refresh = await holdGroupOperation(app, 'photo-actions:context')
         if (missing) await page.evaluate((s) => window.luma.ungroupStack(s.id, s.revision), stack)
         else
           stack = await page.evaluate(
@@ -329,6 +338,8 @@ for (const action of ['delete', 'hdr', 'noise', 'select', 'ungroup'] as const) {
           missing ? 'unavailable' : 'Stale stack revision',
         )
         await expect(page.getByRole('dialog')).toHaveCount(0)
+        await refresh.evaluate((h) => h.restore())
+        await refresh.dispose()
         await expect(page.getByTestId('selection-count')).toHaveText('1 selected')
         await expect(page.getByTestId('preview-filename')).toHaveText(photos[0].filename)
         expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(3)
@@ -368,7 +379,7 @@ test('delayed, failed, superseded and dismissed menu snapshots never present par
   )
   const first = page.getByTestId(`photo-card-${photos[0].id}`)
   const second = page.getByTestId(`photo-card-${photos[3].id}`)
-  const hold = await holdGroupOperation(app)
+  const hold = await holdGroupOperation(app, 'photo-actions:context')
   try {
     await first.click({ button: 'right' })
     await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(1)
@@ -376,9 +387,13 @@ test('delayed, failed, superseded and dismissed menu snapshots never present par
     await second.click({ button: 'right' })
     await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(2)
     await hold.evaluate((h) => h.calls[1].resolve())
-    await expect(page.getByRole('group', { name: 'Group (2 photos)', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('group', { name: 'Photo group · 2 photos · 2 originals', exact: true }),
+    ).toBeVisible()
     await hold.evaluate((h) => h.calls[0].resolve())
-    await expect(page.getByRole('group', { name: 'Group (3 photos)', exact: true })).toHaveCount(0)
+    await expect(
+      page.getByRole('group', { name: 'Photo group · 3 photos · 3 originals', exact: true }),
+    ).toHaveCount(0)
     await page.keyboard.press('Escape')
     await first.click({ button: 'right' })
     await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(3)
@@ -418,7 +433,10 @@ test('delayed group actions ignore repeated activation and discard cancelled or 
   await card.click({ button: 'right' })
   const hold = await holdGroupOperation(app)
   try {
-    const deletion = page.getByRole('menuitem', { name: 'Delete group (3 photos)…', exact: true })
+    const deletion = page.getByRole('menuitem', {
+      name: 'Move entire group to Trash (3 photos)…',
+      exact: true,
+    })
     await deletion.focus()
     await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
@@ -428,33 +446,30 @@ test('delayed group actions ignore repeated activation and discard cancelled or 
     await hold.evaluate((h) => h.calls[0].resolve())
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await card.click({ button: 'right' })
-    await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(2)
-    await hold.evaluate((h) => h.calls[1].resolve())
+    await expect(page.getByRole('menu')).toBeVisible()
     await deletion.click()
-    await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(3)
+    await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(2)
     await page.getByRole('button', { name: 'Actions', exact: true }).click()
-    await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(4)
-    await hold.evaluate((h) => h.calls[3].resolve())
-    await hold.evaluate((h) => h.calls[2].reject())
+    await expect(page.getByRole('menu')).toBeVisible()
+    await hold.evaluate((h) => h.calls[1].reject())
     await expect(page.getByRole('menu')).toBeVisible()
     await expect(page.getByRole('alert')).toHaveCount(0)
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await deletion.focus()
     await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
-    await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(5)
-    await hold.evaluate((h) => h.calls[4].resolve())
+    await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(3)
+    await hold.evaluate((h) => h.calls[2].resolve())
     await expect(page.getByRole('dialog')).toHaveCount(1)
     await expect.poll(() => groupDeletionNames(page)).toHaveLength(3)
     await page.keyboard.press('Escape')
     await card.click({ button: 'right' })
-    await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(6)
-    await hold.evaluate((h) => h.calls[5].resolve())
+    await expect(page.getByRole('menu')).toBeVisible()
     await deletion.click()
-    await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(7)
+    await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(4)
     await page.keyboard.press('Delete')
     await expect.poll(() => groupDeletionNames(page)).toEqual([photos[0].filename])
-    await hold.evaluate((h) => h.calls[6].reject())
+    await hold.evaluate((h) => h.calls[3].reject())
     await expect.poll(() => groupDeletionNames(page)).toEqual([photos[0].filename])
     await expect(page.getByRole('alert')).toHaveCount(0)
     await page.keyboard.press('Escape')
@@ -485,7 +500,9 @@ test('group deletion awaits pending range work and Select group prunes photograp
         el.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })),
       )
     await expect.poll(() => range.evaluate((h) => h.calls.length)).toBe(1)
-    await page.getByRole('menuitem', { name: 'Delete group (3 photos)…', exact: true }).click()
+    await page
+      .getByRole('menuitem', { name: 'Move entire group to Trash (3 photos)…', exact: true })
+      .click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await range.evaluate((h) => h.calls[0].resolve())
     await expect.poll(() => groupDeletionNames(page)).toHaveLength(3)
@@ -499,7 +516,7 @@ test('group deletion awaits pending range work and Select group prunes photograp
   const hold = await holdGroupOperation(app)
   const trash = await isolateTrash(app)
   try {
-    await page.getByRole('menuitem', { name: 'Select group (3 photos)', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Select entire group', exact: true }).click()
     await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(1)
     const task = await page.evaluate((id) => window.luma.deletePhotos([id]), photos[1].id)
     await expect
@@ -536,11 +553,11 @@ test('direct group deletion and merge stay available during accepted background 
   try {
     await page.getByTestId(`photo-card-${photos[0].id}`).click({ button: 'right' })
     await expect(
-      page.getByRole('menuitem', { name: 'Ungroup (3 photos)', exact: true }),
+      page.getByRole('menuitem', { name: 'Ungroup photos', exact: true }),
     ).toHaveAttribute('aria-disabled', 'true')
     await expect(
-      page.getByRole('menuitem', { name: 'Ungroup (3 photos)', exact: true }),
-    ).toHaveAccessibleDescription('Finish the current library task first.')
+      page.getByRole('menuitem', { name: 'Ungroup photos', exact: true }),
+    ).toHaveAccessibleDescription('Finish or cancel the current library operation first.')
     await expect(
       page.getByRole('menuitem', { name: 'Merge 3 group originals to HDR…', exact: true }),
     ).toHaveAttribute('aria-disabled', 'false')
@@ -551,7 +568,9 @@ test('direct group deletion and merge stay available during accepted background 
     await page.keyboard.press('Escape')
     expect(await fixture.evaluate((f) => f.merges.length)).toBe(1)
     await page.getByTestId(`photo-card-${photos[0].id}`).click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Delete group (3 photos)…', exact: true }).click()
+    await page
+      .getByRole('menuitem', { name: 'Move entire group to Trash (3 photos)…', exact: true })
+      .click()
     await expect.poll(() => groupDeletionNames(page)).toHaveLength(3)
     await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
     await expect

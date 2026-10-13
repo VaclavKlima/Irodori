@@ -47,6 +47,7 @@ export class MergeReviews {
     ) => Promise<{ source: MergeSource; path: string }>,
     workerPath?: string,
     private scheduler?: WorkScheduler,
+    private onAvailabilityChange: () => void = () => {},
   ) {
     this.worker = new MergeProcess(workerPath)
   }
@@ -55,6 +56,13 @@ export class MergeReviews {
       (id) =>
         this.creating?.includes(id) || this.state?.review.sources.some((s) => s.photo.id === id),
     )
+  }
+  unavailableReason(): string | undefined {
+    return this.closing
+      ? 'Merge reviews are closing.'
+      : this.state || this.creating
+        ? 'Close the current merge review first.'
+        : undefined
   }
   active(): MergeReview | null {
     return this.state ? structuredClone(this.state.review) : null
@@ -76,8 +84,8 @@ export class MergeReviews {
     })
   }
   async create(ids: string[], mode: MergeMode): Promise<MergeReview> {
-    if (this.closing) throw new Error('Merge reviews are closing.')
-    if (this.state || this.creating) throw new Error('Close the current merge review first.')
+    const blocked = this.unavailableReason()
+    if (blocked) throw new Error(blocked)
     if (
       !Array.isArray(ids) ||
       ids.some((id) => typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id)) ||
@@ -88,6 +96,7 @@ export class MergeReviews {
     if (unavailable) throw new Error(unavailable)
     if (new Set(ids).size !== ids.length) throw new Error('Duplicate merge sources.')
     this.creating = [...ids]
+    this.onAvailabilityChange()
     const abort = (this.createAbort = new AbortController())
     try {
       const work = this.foreground(async () => {
@@ -152,6 +161,7 @@ export class MergeReviews {
       this.creating = undefined
       this.creatingWork = undefined
       this.createAbort = undefined
+      this.onAvailabilityChange()
     }
   }
   private foreground<T>(work: () => Promise<T>, signal?: AbortSignal) {
@@ -273,6 +283,7 @@ export class MergeReviews {
     await s.work?.catch(() => {})
     await rm(s.directory, { recursive: true, force: true })
     if (this.state === s) this.state = undefined
+    this.onAvailabilityChange()
   }
   imagePath(parts: string[]) {
     const s = this.state

@@ -93,10 +93,16 @@ export async function startEditorEndpoint(
         x: number
         y: number
       }
-      if (body.length > 16384 && operation !== 'luma_get_browse_summary')
+      if (
+        body.length > 16384 &&
+        !['luma_get_browse_summary', 'luma_get_photo_actions_context'].includes(operation)
+      )
         throw new Error('Editor request is too large.')
       let result: unknown
       switch (operation) {
+        case 'luma_get_photo_actions_context':
+          result = library.getPhotoActionsContext(photoId, selectedIds!)
+          break
         case 'luma_get_browse_summary':
           result = library.getBrowseSummary(query, selectedIds)
           break

@@ -158,7 +158,7 @@ test('reviews and browses a library across page boundaries', async ({ luma }, te
     .click({ modifiers: ['Shift'] })
   await expect(page.getByTestId('selection-count')).toHaveText('61 selected')
   await page.keyboard.press('Delete')
-  await expect(page.getByRole('dialog')).toContainText('Delete 61 photos?')
+  await expect(page.getByRole('dialog')).toContainText('Move 61 photos to Trash?')
   await page.keyboard.press('Escape')
   await page
     .getByRole('button', { name: `Select ${oldest}`, exact: true })

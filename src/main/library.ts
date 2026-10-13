@@ -1,6 +1,7 @@
 import { MergeReviews } from './merge/reviews'
 import { StackStore } from './stacks'
 import { BrowseStore } from './browse'
+import { PhotoActionsStore, actionAvailability, originalMergeApplicable } from './photo-actions'
 import { DEFAULT_BROWSE_QUERY, validatedCaptureDate, type BrowseQuery } from '../shared/browse'
 import { CAPTURE_METADATA_VERSION } from '../shared/capture-sequence'
 import { durableJson, recoverMerges, syncDirectory, verifyMaster } from './merge/store'
@@ -250,6 +251,7 @@ export class PhotoLibrary {
       },
       mergeWorkerPath,
       this.scheduler,
+      () => this.changed(),
     )
     this.fullPreviews = new FullPreviews(
       join(root, 'cache', 'previews'),
@@ -829,6 +831,42 @@ export class PhotoLibrary {
   getBrowseSummary(query: BrowseQuery, selectedIds: string[] = []) {
     return this.browse.summary(query, selectedIds)
   }
+  getPhotoActionsContext(photoId: string | null, selectedIds: string[]) {
+    const context = new PhotoActionsStore(this.db).read(photoId, selectedIds)
+    const recovery = this.recoveryReason()
+    const organization = this.libraryOperationReason('organization') ?? recovery
+    const foreground =
+      this.libraryOperationReason('foreground') ?? (!this.scheduler.mutating ? recovery : undefined)
+    const merge = foreground ?? this.merges.unavailableReason()
+    const trash = (ids: string[]) =>
+      this.libraryOperationReason('foreground', true) ??
+      foreground ??
+      (this.merges.leased(ids)
+        ? 'Close the merge review or cancel its task before deleting source photographs.'
+        : undefined)
+    const { photo, selection, group } = context
+    const selected = selection.map((p) => p.id)
+    const groupIds = group?.photos.map((p) => p.id) ?? []
+    context.availability = {
+      'photo-cover': actionAvailability(!!group && photo?.id !== group.stack.coverId, organization),
+      'photo-remove': actionAvailability(!!group, organization),
+      'selection-hdr': actionAvailability(originalMergeApplicable(selection), merge),
+      'selection-noise': actionAvailability(originalMergeApplicable(selection), merge),
+      'selection-group': actionAvailability(
+        selection.length >= 2 && selection.every((p) => !p.groupId),
+        organization,
+      ),
+      'group-select': actionAvailability(!!group && !context.equivalent.groupSelection),
+      'group-hdr': actionAvailability(originalMergeApplicable(group?.originals ?? []), merge),
+      'group-noise': actionAvailability(originalMergeApplicable(group?.originals ?? []), merge),
+      'group-ungroup': actionAvailability(!!group, organization),
+      'library-scan': actionAvailability(context.originalArwCount >= 2, organization),
+      'photo-trash': actionAvailability(!!photo, trash(photo ? [photo.id] : [])),
+      'selection-trash': actionAvailability(selection.length > 0, trash(selected)),
+      'group-trash': actionAvailability(!!group, trash(groupIds)),
+    }
+    return context
+  }
   getBrowseChunk(query: BrowseQuery, offset = 0, expectedRevision?: number) {
     return this.browse.chunk(query, offset, expectedRevision)
   }
@@ -867,13 +905,8 @@ export class PhotoLibrary {
     return this.stacks.range(from, to)
   }
   private mutateStack<T>(work: () => T): T {
-    if (
-      this.closed ||
-      this.replacingSession ||
-      this.hasActiveTask() ||
-      this.session?.phase === 'scanning'
-    )
-      throw new Error('Finish or cancel the current library operation first.')
+    const reason = this.libraryOperationReason('organization')
+    if (reason) throw new Error(reason)
     this.assertRecovered()
     const result = work()
     this.changed(undefined, true)
@@ -901,13 +934,8 @@ export class PhotoLibrary {
   }
 
   groupCaptureSequences(): string {
-    if (
-      this.closed ||
-      this.replacingSession ||
-      this.hasActiveTask() ||
-      this.session?.phase === 'scanning'
-    )
-      throw new Error('Finish or cancel the current library operation first.')
+    const reason = this.libraryOperationReason('organization')
+    if (reason) throw new Error(reason)
     this.assertRecovered()
     const photos = (
       this.db
@@ -1039,13 +1067,8 @@ export class PhotoLibrary {
   deletePhotos(ids: string[]): string | null {
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || !hashPattern.test(id)))
       throw new Error('Invalid photo selection.')
-    if (
-      this.closed ||
-      this.replacingSession ||
-      this.hasCaptureTask() ||
-      this.session?.phase === 'scanning'
-    )
-      throw new Error('Finish or cancel the current library operation first.')
+    const reason = this.libraryOperationReason('foreground', true)
+    if (reason) throw new Error(reason)
     this.assertRecovered(true)
     if (this.merges.leased(ids))
       throw new Error(
@@ -1165,6 +1188,19 @@ export class PhotoLibrary {
         snapshot.kind === 'capture-grouping' && ['running', 'cancelling'].includes(snapshot.status),
     )
   }
+  private libraryOperationReason(
+    kind: 'organization' | 'foreground',
+    replacing = kind === 'organization',
+  ): string | undefined {
+    if (
+      this.closed ||
+      (replacing && this.replacingSession) ||
+      this.session?.phase === 'scanning' ||
+      (kind === 'organization' ? this.hasActiveTask() : this.hasCaptureTask())
+    )
+      return 'Finish or cancel the current library operation first.'
+    return undefined
+  }
 
   hasActiveTask(): boolean {
     return (
@@ -1214,15 +1250,19 @@ export class PhotoLibrary {
     if (!this.closed) this.emit({ tasksChanged: true })
   }
 
+  private recoveryReason(): string | undefined {
+    if (
+      this.db
+        .prepare('SELECT 1 FROM removals UNION ALL SELECT 1 FROM merge_publications LIMIT 1')
+        .get()
+    )
+      return 'An interrupted deletion needs recovery. Restart Luma before changing the library.'
+    return undefined
+  }
   private assertRecovered(admission = false): void {
     if (admission && this.scheduler.mutating) return
-    if (
-      this.db.prepare('SELECT 1 FROM removals LIMIT 1').get() ||
-      this.db.prepare('SELECT 1 FROM merge_publications LIMIT 1').get()
-    )
-      throw new Error(
-        'An interrupted deletion needs recovery. Restart Luma before changing the library.',
-      )
+    const reason = this.recoveryReason()
+    if (reason) throw new Error(reason)
   }
 
   private validateOffset(offset: number): void {
@@ -2328,8 +2368,8 @@ export class PhotoLibrary {
     return this.merges.diagnostics(id, revision)
   }
   async createMergeReview(ids: string[], mode: MergeMode) {
-    if (this.closed || this.hasCaptureTask() || this.session?.phase === 'scanning')
-      throw new Error('Finish the current library operation first.')
+    const reason = this.libraryOperationReason('foreground')
+    if (reason) throw new Error(reason)
     this.assertRecovered(true)
     return this.merges.create(ids, mode)
   }

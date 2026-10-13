@@ -2,6 +2,8 @@
 
 New inputs should be compact, neutral, and subtle. Use consistent spacing and typography, restrained hover feedback, and an unmistakable keyboard-focus outline. Numeric values use tabular digits and align to the right; units remain quieter than the value. Keep disabled controls visibly unavailable and errors readable without relying only on color.
 
+Photo command menus follow the separate authoritative [menu design standard](menu-design.md): shared model/renderer, explicit targets, hidden structural mismatches, and concise accessible explanations for temporary blockers.
+
 ## Numeric slider adjustments
 
 Use `AdjustmentInput` for new numeric slider controls. It presents a label and borderless editable value above a full-width slider, with an optional unit. Number steppers are hidden; clicking or tabbing into the value allows direct entry. Preserve its shared CSS Module styling instead of adding per-adjustment field styling or inline sizes.

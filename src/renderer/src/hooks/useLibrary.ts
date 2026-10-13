@@ -448,6 +448,8 @@ export function useLibrary(onError: (error: string) => void) {
     onEvent,
     select,
     getSelection,
+    getActivePhoto: () => current.current.photo,
+    getSelectedIds: () => [...current.current.selected.keys()],
     contextSelect,
     navigate,
     changePage,

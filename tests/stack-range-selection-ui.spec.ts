@@ -196,7 +196,7 @@ test('paging and a real import preserve two delayed ranges and a queued toggle; 
     await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(2)
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await hold.evaluate((h) => h.calls[1].resolve())
-    await expect(page.getByRole('dialog')).toContainText('Delete 64 photos?')
+    await expect(page.getByRole('dialog')).toContainText('Move 64 photos to Trash?')
     await expect.poll(() => targetNames(page)).toEqual(ordered.slice(0, -1).map((p) => p.filename))
     await expect(page.getByTestId('preview-filename')).toHaveText(last.filename)
     await expect(page.getByTestId('selection-count')).toHaveText('64 selected')
@@ -233,7 +233,7 @@ test('successive ranges and a plain click run in arrival order and replace the a
       to: photos[2].id,
     })
     await hold.evaluate((h) => h.calls[1].resolve())
-    await page.getByRole('menuitem', { name: 'Delete 3 photos…' }).click()
+    await page.getByRole('menuitem', { name: 'Move 3 selected photos to Trash…' }).click()
     await expect
       .poll(() => targetNames(page))
       .toEqual([photos[1], photos[2], photos[4]].map((p) => p.filename))
@@ -265,7 +265,7 @@ test('navigation queued after a delayed range selects the next photo before dele
     await page.keyboard.press('Delete')
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await hold.evaluate((h) => h.calls[0].resolve())
-    await expect(page.getByRole('dialog')).toContainText('Delete photo?')
+    await expect(page.getByRole('dialog')).toContainText('Move photo to Trash?')
     await expect.poll(() => targetNames(page)).toEqual([photos[4].filename])
     await expect(page.getByTestId('preview-filename')).toHaveText(photos[4].filename)
     await page.keyboard.press('Escape')
@@ -290,7 +290,7 @@ test('ordinary cover and expanded-member deletion Trash only the clicked photo a
   for (const photo of [photos[1], photos[0]]) {
     await page.getByTestId(`photo-card-${photo.id}`).click()
     await page.keyboard.press('Delete')
-    await expect(page.getByRole('dialog')).toContainText('Delete photo?')
+    await expect(page.getByRole('dialog')).toContainText('Move photo to Trash?')
     await expect.poll(() => targetNames(page)).toEqual([photo.filename])
     await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
     await expect
@@ -339,12 +339,12 @@ test('a failed range blocks deletion until a later selection succeeds, including
     await page.keyboard.press('Delete')
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await hold.evaluate((h) => h.calls[1].resolve())
-    await expect(page.getByRole('dialog')).toContainText('Delete 2 photos?')
+    await expect(page.getByRole('dialog')).toContainText('Move 2 photos to Trash?')
     await expect.poll(() => targetNames(page)).toEqual(photos.slice(0, 2).map((p) => p.filename))
     await page.keyboard.press('Escape')
     await card(4).click()
     await page.keyboard.press('Delete')
-    await expect(page.getByRole('dialog')).toContainText('Delete photo?')
+    await expect(page.getByRole('dialog')).toContainText('Move photo to Trash?')
     await expect.poll(() => targetNames(page)).toEqual([photos[4].filename])
     await page.keyboard.press('Escape')
   } finally {
@@ -383,7 +383,7 @@ test('a delayed catalog response cannot reselect deleted IDs; removing the ancho
       .toBe('completed')
     await expect(page.getByTestId(`photo-card-${stack.coverId}`)).toHaveCount(0)
     await hold.evaluate((h) => h.calls[0].resolve())
-    await expect(page.getByRole('dialog')).toContainText('Delete 3 photos?')
+    await expect(page.getByRole('dialog')).toContainText('Move 3 photos to Trash?')
     expect((await targetNames(page)).sort()).toEqual(
       photos
         .slice(1, 4)
@@ -431,7 +431,7 @@ test('keyboard and context deletion disclose every filename at minimum console s
   await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
   await cover.focus()
   await page.keyboard.press('Delete')
-  await expect(page.getByRole('dialog')).toContainText('Delete 65 photos?')
+  await expect(page.getByRole('dialog')).toContainText('Move 65 photos to Trash?')
   await expect.poll(() => targetNames(page)).toEqual(expected.map((p) => p.filename))
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
@@ -449,7 +449,7 @@ test('keyboard and context deletion disclose every filename at minimum console s
   await page.keyboard.press('Escape')
   await expect(cover).toBeFocused()
   await cover.click({ button: 'right' })
-  await page.getByRole('menuitem', { name: 'Delete 65 photos…' }).click()
+  await page.getByRole('menuitem', { name: 'Move 65 selected photos to Trash…' }).click()
   await expect.poll(() => targetNames(page)).toEqual(expected.map((p) => p.filename))
   await page.evaluate(
     async ({ stack, ids, extra }) => {
@@ -462,7 +462,7 @@ test('keyboard and context deletion disclose every filename at minimum console s
     },
     { stack, ids, extra: photos[65].id },
   )
-  await expect(page.getByRole('dialog')).toContainText('Delete 65 photos?')
+  await expect(page.getByRole('dialog')).toContainText('Move 65 photos to Trash?')
   await expect.poll(() => targetNames(page)).toEqual(expected.map((p) => p.filename))
   await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
   await expect.poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total).toBe(4)

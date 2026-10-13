@@ -21,6 +21,10 @@ export interface ForegroundActivity {
 }
 
 export interface LumaApi {
+  getPhotoActionsContext(
+    photoId: string | null,
+    selectedIds: string[],
+  ): Promise<import('./photo-actions').PhotoActionsContext>
   getBrowseSummary(
     query: import('./browse').BrowseQuery,
     selectedIds?: string[],

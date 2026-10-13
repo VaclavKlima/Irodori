@@ -133,10 +133,46 @@ export async function fixtureGroupMerge(app: ElectronApplication, derivedIds: st
       ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
     )._invokeHandlers
     const originalSnapshot = handlers.get('stacks:snapshot')!
+    const originalContext = handlers.get('photo-actions:context')!
     const originalMerge = handlers.get('merge:create')!
     let derived = derivedIds
     let format = 'ARW'
     const merges: { ids: string[]; mode: string }[] = []
+    ipcMain.removeHandler('photo-actions:context')
+    ipcMain.handle('photo-actions:context', async (...args) => {
+      const value = (await originalContext(
+        ...args,
+      )) as import('../src/shared/photo-actions').PhotoActionsContext
+      const update = (p: import('../src/shared/photo-actions').ActionPhotoReference) => ({
+        ...p,
+        assetKind: derived.includes(p.id) ? ('derived' as const) : ('original' as const),
+        format: derived.includes(p.id) ? 'LUMA HDR' : format,
+      })
+      const selection = value.selection.map(update)
+      if (value.photo) value.photo = update(value.photo)
+      if (value.group) {
+        value.group.photos = value.group.photos.map(update)
+        value.group.originals = value.group.photos.filter((p) => p.assetKind !== 'derived')
+      }
+      value.selection = selection
+      const eligible = (photos: typeof selection) =>
+        photos.length >= 2 &&
+        photos.length <= 32 &&
+        photos.every((p) => p.assetKind !== 'derived' && p.format === 'ARW')
+      for (const scope of ['selection', 'group'] as const)
+        for (const mode of ['hdr', 'noise'] as const) {
+          const action = `${scope}-${mode}` as const
+          if (eligible(scope === 'group' ? (value.group?.originals ?? []) : selection)) {
+            if (value.availability[action].kind === 'inapplicable')
+              value.availability[action] = { kind: 'applicable' }
+          } else value.availability[action] = { kind: 'inapplicable' }
+        }
+      value.equivalent.mergeInputs =
+        !!value.group &&
+        selection.length === value.group.originals.length &&
+        selection.every((p, i) => p.id === value.group!.originals[i].id)
+      return value
+    })
     ipcMain.removeHandler('stacks:snapshot')
     ipcMain.handle('stacks:snapshot', async (...args) => {
       const value = (await originalSnapshot(
@@ -163,6 +199,8 @@ export async function fixtureGroupMerge(app: ElectronApplication, derivedIds: st
         format = value.format ?? 'ARW'
       },
       restore: () => {
+        ipcMain.removeHandler('photo-actions:context')
+        ipcMain.handle('photo-actions:context', originalContext)
         ipcMain.removeHandler('stacks:snapshot')
         ipcMain.handle('stacks:snapshot', originalSnapshot)
         ipcMain.removeHandler('merge:create')

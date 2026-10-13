@@ -106,7 +106,7 @@ test('Wayland refresh updates native screen metadata without disturbing the edit
   expect(await nativeFocus()).toEqual({ window: true, contents: true })
   await expect(preview).toBeFocused()
   await pressNativeKey('Delete')
-  await expect(page.getByRole('dialog')).toContainText('Delete photo?')
+  await expect(page.getByRole('dialog')).toContainText('Move photo to Trash?')
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
   await pressNativeKey('Escape')
   await expect(preview).toBeFocused()

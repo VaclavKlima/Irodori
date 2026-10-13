@@ -339,7 +339,7 @@ try {
     })
     await waitForText('2 selected')
     await call('browser_press_key', { key: 'Backspace' })
-    await waitForText('Delete 2 photos?')
+    await waitForText('Move 2 photos to Trash?')
     await clickButton('Move to Trash')
     await waitForText('Your photographs, at home.')
     const deleted = await call('browser_evaluate', {
@@ -405,7 +405,7 @@ try {
     })
     await clickButton('Select sony-zv1.ARW')
     await call('browser_press_key', { key: 'Delete' })
-    await waitForText('Delete photo?')
+    await waitForText('Move photo to Trash?')
     await clickButton('Move to Trash')
     await waitForText('Your photographs, at home.')
   } else {

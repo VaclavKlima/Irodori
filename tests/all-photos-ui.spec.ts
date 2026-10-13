@@ -270,7 +270,7 @@ test('queued range and section gestures retain their query and deletion waits be
     ])
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await hold.evaluate((h) => h.calls[1].release())
-    await expect(page.getByRole('dialog')).toContainText('Delete 75 photos?')
+    await expect(page.getByRole('dialog')).toContainText('Move 75 photos to Trash?')
     await expect.poll(() => targetNames(page)).toEqual(references.map((p) => p.filename))
     await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
     await expect(browseCount(page)).toHaveText(

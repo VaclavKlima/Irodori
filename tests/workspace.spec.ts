@@ -86,6 +86,7 @@ test('starts the built desktop application with its isolated preload bridge', as
       'getBrowseRange',
       'getBrowseSection',
       'reportForegroundActivity',
+      'getPhotoActionsContext',
       'listStacks',
       'getPhotoStack',
       'getStackMembers',

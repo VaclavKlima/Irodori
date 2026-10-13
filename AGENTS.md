@@ -7,6 +7,7 @@
 - Keep unfinished behavior explicit. Exposure, contrast, highlights, shadows, whites, blacks, verified Sony RAW white balance, and verified lens corrections share persisted history; other light and color controls remain disabled. The console is disconnected and does not execute commands. Never reintroduce demo photographs or fabricated metadata into the application.
 - Keep the interface dark, neutral, compact, keyboard-accessible, and usable at a minimum content size of 1100 × 700. Preserve independent panel scrolling and the central photograph as the main visual focus.
 - Follow [input design](docs/input-design.md) for new controls. Numeric slider adjustments use the shared `AdjustmentInput` component; keep persistence and photo-wide Undo/Redo outside individual inputs.
+- Follow [menu design](docs/menu-design.md) for photo commands in both workspaces. Extend the shared menu model and renderer; declare every command's target, availability, execution behavior, and tests.
 
 ## Architecture
 

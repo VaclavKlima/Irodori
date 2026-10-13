@@ -24,6 +24,8 @@ const api: LumaApi = {
   getBrowseRange: (query, from, to) => ipcRenderer.invoke('browse:range', query, from, to),
   getBrowseSection: (query, key) => ipcRenderer.invoke('browse:section', query, key),
   reportForegroundActivity: (activity) => ipcRenderer.invoke('foreground:activity', activity),
+  getPhotoActionsContext: (id, selectedIds) =>
+    ipcRenderer.invoke('photo-actions:context', id, selectedIds),
   listStacks: () => ipcRenderer.invoke('stacks:list'),
   getPhotoStack: (id) => ipcRenderer.invoke('stacks:photo', id),
   getStackMembers: (id, offset = 0) => ipcRenderer.invoke('stacks:members', id, offset),

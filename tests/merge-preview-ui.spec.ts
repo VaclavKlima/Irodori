@@ -205,7 +205,7 @@ test('stale native replies cannot enable Merge, and failed or invalid frames ret
   await viewport.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByTestId('selection-count')).toHaveText('2 selected')
-  await open('Stack for noise reduction…')
+  await open('Stack selected photos for noise reduction…')
   await expect(viewport).toHaveAttribute('data-ready', 'true')
   await expect(viewport).toHaveAttribute('data-fit', 'true')
 })
@@ -449,7 +449,7 @@ test('a burst of anchored wheel events draws once and closing merge restores the
   try {
     expect(await pending.evaluate((state) => state.held)).toBe(true)
     await page.getByRole('button', { name: 'Actions', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Merge to HDR…', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Merge selected photos to HDR…', exact: true }).click()
     await expect(main).toHaveAttribute('data-suspended', 'true')
     await expect.poll(() => pending.evaluate((state) => state.cancelled)).toBe(true)
   } finally {

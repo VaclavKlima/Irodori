@@ -139,6 +139,12 @@ The GPU eligibility regression covers the **ZV-1A** model name as well as ZV-1. 
 
 To repeat comparisons using local files, set `LUMA_RAW_TEST_FILES` to a JSON array of absolute paths and run `npx playwright test tests/gpu-preview.spec.ts`. To benchmark one of those files through the bundled worker and Electron presentation, set `LUMA_RAW_BENCHMARK_FILE` to its absolute path and run `npm run benchmark:preview`. Both commands read source files and write only isolated test output; the benchmark does not touch the existing library. Comparison images and reports appear in that invocation’s `artifacts/verification/` directory.
 
+## Photo menus
+
+The [menu design standard](menu-design.md) defines eligibility, target deduplication, labels, temporary blockers and interaction. Run `npm run verify -- --target photo-menu-model --target photo-menu-context --target photo-menu-ui`, then the affected `photo-actions`, `stack-group-actions`, `stack-group-actions-ui`, `stack-ui`, `stack-range-selection-ui`, `merge-ui`, `all-photos-ui`, `workspace`, and `editor-mcp` targets. Node covers the pure menu model; service covers bulk metadata-only reads and admission; Electron covers presentation, keyboard/pointer use, focus, asynchronous updates and stale targets. Old Delete labels and initial Delete focus are intentionally replaced by Move to Trash and enabled non-destructive focus.
+
+Inspect representative menus in a harness-created isolated `dev:mcp` profile at native 1100 × 700 with Console open. Verify profile isolation before interaction, use isolated Trash adapters, retain ignored screenshots/logs, and remove profiles/processes afterwards. Record the local OS; this does not verify Linux native select dropdowns (#10), real OS Trash integration, processing, benchmarks, or a comprehensive checkpoint.
+
 ## Test through MCP
 
 For repeatable import testing, run:

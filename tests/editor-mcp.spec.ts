@@ -27,6 +27,7 @@ test('stdio editing tools share persisted history with UI without a development 
     ])
     expect(previewTool.inputSchema.required).toEqual(['reviewId', 'expectedRevision'])
     expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+      'luma_get_photo_actions_context',
       'luma_get_browse_summary',
       'luma_get_browse_chunk',
       'luma_locate_browse_photo',
@@ -82,6 +83,25 @@ test('stdio editing tools share persisted history with UI without a development 
     expect(missingDiagnostics.isError).toBe(true)
     const page = await call('luma_list_photos')
     const photoId = (page.photos as { id: string }[])[0].id
+    const context = await luma.page.evaluate(
+      (id) => window.luma.getPhotoActionsContext(id, [id]),
+      photoId,
+    )
+    expect(
+      await call('luma_get_photo_actions_context', { photoId, selectedIds: [photoId] }),
+    ).toEqual(context)
+    const large = await call('luma_get_photo_actions_context', {
+      photoId: null,
+      selectedIds: [
+        photoId,
+        ...Array.from({ length: 600 }, (_, i) => (i + 1).toString(16).padStart(64, '0')),
+      ],
+    })
+    expect(large).toMatchObject({
+      photo: null,
+      selection: [{ id: photoId }],
+      targetsCurrent: false,
+    })
     const query = { search: 'ALPINE JPG', grouping: 'date' }
     const summary = await call('luma_get_browse_summary', { query, selectedIds: [photoId] })
     expect(summary).toMatchObject({ total: 1, selected: 1, outsideSelected: 0 })

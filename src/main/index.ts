@@ -490,6 +490,10 @@ app
       trusted(event)
       return library!.locate(id, direction)
     })
+    ipcMain.handle('photo-actions:context', (event, id: string | null, selectedIds: string[]) => {
+      trusted(event)
+      return library!.getPhotoActionsContext(id, selectedIds)
+    })
     ipcMain.handle('stacks:list', (event) => {
       trusted(event)
       return library!.listStacks()

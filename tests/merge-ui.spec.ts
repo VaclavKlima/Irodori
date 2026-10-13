@@ -5,16 +5,13 @@ import { join } from 'node:path'
 import sharp from 'sharp'
 import type { BackgroundTask } from '../src/shared/contracts'
 
-test('shared Actions menu explains bounds and preserves pending right-click selection', async ({
+test('shared Actions menu hides inapplicable merges and preserves pending right-click selection', async ({
   luma,
 }) => {
   const { app, page } = luma
   await page.getByRole('button', { name: 'Actions', exact: true }).click()
-  await expect(page.getByRole('menuitem', { name: 'Merge to HDR…' })).toHaveAttribute(
-    'aria-disabled',
-    'true',
-  )
-  await expect(page.getByRole('menu')).toContainText('Select at least two')
+  await expect(page.getByRole('menuitem')).toHaveCount(0)
+  await expect(page.getByRole('menu')).toContainText('No photo actions available.')
   await page.keyboard.press('Escape')
   await importPhotos(app, page, [
     'tests/fixtures/photos/alpine-lake.jpg',
@@ -42,12 +39,10 @@ test('shared Actions menu explains bounds and preserves pending right-click sele
   await page.getByTestId(`photo-card-${photos[0].id}`).click({ button: 'right' })
   await expect(page.getByRole('menu')).toHaveCount(0)
   await hold.evaluate((h) => h.release())
-  await expect(page.getByRole('menuitem', { name: 'Delete 2 photos…' })).toBeVisible()
-  await page.getByRole('menuitem', { name: 'Merge to HDR…' }).click()
-  await expect(page.getByRole('dialog')).toBeVisible()
-  await expect(page.getByRole('alert')).toContainText('original Sony RAW')
-  await expect(page.getByRole('alert')).not.toContainText('Error:')
-  await expect(page.getByRole('button', { name: 'Merge', exact: true })).toBeDisabled()
+  await expect(
+    page.getByRole('menuitem', { name: 'Move 2 selected photos to Trash…' }),
+  ).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Merge selected photos to HDR…' })).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('selection-count')).toHaveText('2 selected')
   await page.getByTestId('console-toggle').click()
@@ -60,17 +55,15 @@ test('shared Actions menu explains bounds and preserves pending right-click sele
   await expect(page.getByRole('menu')).toBeVisible()
   await page.keyboard.press('Home')
   await expect(
-    page.getByRole('menuitem', { name: 'Delete this photo…', exact: true }),
+    page.getByRole('menuitem', { name: 'Group selected photos', exact: true }),
   ).toBeFocused()
-  await page.keyboard.press('ArrowDown')
-  await expect(page.getByRole('menuitem', { name: 'Merge to HDR…' })).toBeFocused()
-  await page.keyboard.press('ArrowDown')
-  await expect(page.getByRole('menuitem', { name: 'Stack for noise reduction…' })).toBeFocused()
-  await page.keyboard.press('Enter')
-  await expect(page.getByRole('dialog')).toContainText('Stack for noise reduction')
-  const bounds = await page.getByRole('dialog').boundingBox()
-  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1100)
-  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(700)
+  await page.keyboard.press('End')
+  await expect(
+    page.getByRole('menuitem', { name: 'Move 2 selected photos to Trash…' }),
+  ).toBeFocused()
+  const bounds = await page.getByRole('menu').boundingBox()
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1092)
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(692)
   await page.keyboard.press('Escape')
 })
 

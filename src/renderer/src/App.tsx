@@ -1,6 +1,6 @@
 import { MergeDialog } from './components/MergeDialog'
 import { groupMergeUnavailable, type MergeMode } from '../../shared/merge'
-import type { StackSnapshot } from '../../shared/stacks'
+import type { PhotoActionId, PhotoActionsContext } from '../../shared/photo-actions'
 import { DisplayDetails } from './components/DisplayDetails'
 import { useDisplayState } from './hooks/useDisplayState'
 import type { PreviewPreference } from '../../shared/hdr-display'
@@ -35,9 +35,17 @@ import { ImportDialog } from './components/ImportDialog'
 import { TaskCenter } from './components/TaskCenter'
 import { useLibrary } from './hooks/useLibrary'
 import { DeleteDialog } from './components/DeleteDialog'
-import { PhotoContextMenu } from './components/PhotoContextMenu'
+import { PhotoContextMenu, type MenuInitialFocus } from './components/PhotoContextMenu'
 import { PhotoPreview } from './components/PhotoPreview'
 import styles from './App.module.css'
+
+interface MenuState {
+  x: number
+  y: number
+  context: PhotoActionsContext
+  toolbar: boolean
+  initialFocus: MenuInitialFocus
+}
 
 export function App() {
   const [workspace, setWorkspace] = useState<'editor' | 'library'>('editor')
@@ -47,6 +55,11 @@ export function App() {
     setWorkspace(next)
   }
   const [browserPhoto, setBrowserPhoto] = useState<BrowsePhoto | null>(null)
+  const browserPhotoRef = useRef<BrowsePhoto | null>(null)
+  const focusBrowserPhoto = useCallback((photo: BrowsePhoto | null) => {
+    browserPhotoRef.current = photo
+    setBrowserPhoto(photo)
+  }, [])
   const [mergeTargets, setMergeTargets] = useState<{ ids: string[]; mode: MergeMode } | null>(null)
   const [tasks, setTasks] = useState<BackgroundTask[]>([])
   const [tasksOpen, setTasksOpen] = useState(false)
@@ -76,17 +89,16 @@ export function App() {
   const previewTools = usePreviewTools(photo?.id)
   const [interactivePhoto, setInteractivePhoto] = useState<string | null>(null)
   const [deleteTargets, setDeleteTargets] = useState<readonly PhotoReference[] | null>(null)
-  const [contextMenu, setContextMenu] = useState<{
-    x: number
-    y: number
-    targets: PhotoReference[]
-    snapshot: StackSnapshot | null
-    photo: PhotoReference | null
-    revision: number
-    canGroup: boolean
-    busy: boolean
-  } | null>(null)
+  const [contextMenu, setContextMenu] = useState<MenuState | null>(null)
+  const contextMenuRef = useRef<MenuState | null>(null)
+  const updateMenu = useCallback((menu: MenuState | null) => {
+    contextMenuRef.current = menu
+    setContextMenu(menu)
+  }, [])
+  const availabilityGeneration = useRef(0)
+  const actionsButtonRef = useRef<HTMLButtonElement>(null)
   const [loadingActions, setLoadingActions] = useState(false)
+  const [toolbarLoading, setToolbarLoading] = useState(false)
   const [actionPending, setActionPending] = useState(false)
   const actionsGeneration = useRef(0)
   const activeAction = useRef<number | null>(null)
@@ -110,11 +122,12 @@ export function App() {
       actionsGeneration.current++
       activeAction.current = null
       setLoadingActions(false)
+      setToolbarLoading(false)
       setActionPending(false)
-      setContextMenu(null)
+      updateMenu(null)
       if (restore) restoreFocus()
     },
-    [restoreFocus],
+    [restoreFocus, updateMenu],
   )
   const waitingForActions = loadingActions || (actionPending && !contextMenu)
   useEffect(() => {
@@ -122,7 +135,7 @@ export function App() {
     const outside = () => closeContextMenu(false)
     const keydown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' && event.key !== 'Tab') return
-      event.preventDefault()
+      if (event.key === 'Escape') event.preventDefault()
       closeContextMenu(true)
     }
     document.addEventListener('pointerdown', outside)
@@ -234,11 +247,66 @@ export function App() {
     actionOrigin.current = element
     setTasksOpen(false)
     setLoadingActions(true)
+    setToolbarLoading(false)
     void library
       .contextSelect(photo, workspace === 'library')
-      .then((targets) => loadActions(ticket, x, y, targets, photo))
+      .then(async () => loadActions(ticket, x, y, await getSelection(), false, 'preferred'))
       .catch((error) => actionFailed(ticket, error))
   }
+
+  const refreshMenu = useCallback(async () => {
+    const menu = contextMenuRef.current
+    if (!menu || activeAction.current !== null) return
+    const generation = actionsGeneration.current
+    const read = ++availabilityGeneration.current
+    try {
+      const context = await window.luma.getPhotoActionsContext(
+        menu.context.photo?.id ?? null,
+        menu.context.selection.map((p) => p.id),
+      )
+      if (
+        generation !== actionsGeneration.current ||
+        read !== availabilityGeneration.current ||
+        activeAction.current !== null ||
+        !contextMenuRef.current
+      )
+        return
+      if (!context.targetsCurrent || context.targetIdentity !== menu.context.targetIdentity)
+        closeContextMenu(true)
+      else updateMenu({ ...menu, context })
+    } catch (error) {
+      if (
+        generation === actionsGeneration.current &&
+        read === availabilityGeneration.current &&
+        activeAction.current === null &&
+        contextMenuRef.current
+      ) {
+        closeContextMenu(true)
+        setError(String(error))
+      }
+    }
+  }, [closeContextMenu, updateMenu])
+  useEffect(
+    () =>
+      window.luma.onLibraryEvent((event) => {
+        if (event.libraryChanged || event.tasksChanged || event.sessionId) {
+          availabilityGeneration.current++
+          void refreshMenu()
+        }
+      }),
+    [refreshMenu],
+  )
+  useEffect(() => {
+    const menu = contextMenuRef.current
+    if (!menu || activeAction.current !== null) return
+    const focus = workspace === 'library' ? browserPhoto?.id : photo?.id
+    if (
+      (focus ?? null) !== (menu.context.photo?.id ?? null) ||
+      JSON.stringify([...selected.keys()]) !==
+        JSON.stringify(menu.context.selection.map((p) => p.id))
+    )
+      closeContextMenu(false)
+  }, [selected, workspace, browserPhoto?.id, photo?.id, closeContextMenu])
 
   const completedMerges = useRef<Set<string> | null>(null)
   const refreshTasks = useCallback(async () => {
@@ -299,20 +367,15 @@ export function App() {
     return () => timers.forEach(clearTimeout)
   }, [tasks, dismissTask])
 
-  async function openActions(element: HTMLElement) {
+  async function openActions(element: HTMLElement, initialFocus: MenuInitialFocus = 'preferred') {
     closeContextMenu(false)
     const ticket = actionsGeneration.current
     actionOrigin.current = element
     setLoadingActions(true)
+    setToolbarLoading(true)
     const box = element.getBoundingClientRect()
     try {
-      await loadActions(
-        ticket,
-        box.left,
-        box.bottom + 4,
-        await getSelection(),
-        workspace === 'library' ? browserPhoto : photo,
-      )
+      await loadActions(ticket, box.left, box.bottom + 4, await getSelection(), true, initialFocus)
     } catch (error) {
       actionFailed(ticket, error)
     }
@@ -322,29 +385,29 @@ export function App() {
     x: number,
     y: number,
     targets: PhotoReference[],
-    photo: Photo | null,
+    toolbar: boolean,
+    initialFocus: MenuInitialFocus,
   ) {
     if (ticket !== actionsGeneration.current) return
-    const [overview, stack, currentTasks, groups] = await Promise.all([
-      window.luma.listStacks(),
-      photo ? window.luma.getPhotoStack(photo.id) : Promise.resolve(null),
-      window.luma.listTasks(),
-      Promise.all(targets.map((p) => window.luma.getPhotoStack(p.id))),
-    ])
+    const focused =
+      workspaceRef.current === 'library' ? browserPhotoRef.current : library.getActivePhoto()
+    const ids = targets.map((p) => p.id)
+    const availability = availabilityGeneration.current
+    const context = await window.luma.getPhotoActionsContext(focused?.id ?? null, ids)
     if (ticket !== actionsGeneration.current) return
-    const snapshot = stack ? await window.luma.getStackSnapshot(stack.id, stack.revision) : null
-    if (ticket !== actionsGeneration.current) return
+    const currentFocus =
+      workspaceRef.current === 'library' ? browserPhotoRef.current : library.getActivePhoto()
+    if (
+      !context.targetsCurrent ||
+      (currentFocus?.id ?? null) !== (focused?.id ?? null) ||
+      JSON.stringify(library.getSelectedIds()) !== JSON.stringify(ids)
+    ) {
+      closeContextMenu(true)
+      return
+    }
     setLoadingActions(false)
-    setContextMenu({
-      x,
-      y,
-      targets,
-      photo: photo ? { id: photo.id, filename: photo.filename } : null,
-      snapshot,
-      revision: overview.revision,
-      canGroup: targets.length >= 2 && groups.every((s) => !s),
-      busy: currentTasks.some((t) => t.status === 'running' || t.status === 'cancelling'),
-    })
+    updateMenu({ x, y, context, toolbar, initialFocus })
+    if (availability !== availabilityGeneration.current) void refreshMenu()
   }
   async function stackAction(action: 'group' | 'ungroup' | 'remove' | 'cover' | 'select' | 'scan') {
     const menu = contextMenu
@@ -352,13 +415,15 @@ export function App() {
     const ticket = beginAction()
     if (ticket === null) return
     try {
-      const stack = menu.snapshot?.stack
+      const stack = menu.context.group?.stack
       if (action === 'group') {
-        const ids = menu.targets.map((p) => p.id)
+        const ids = menu.context.selection.map((p) => p.id)
         await window.luma.groupPhotos(
           ids,
-          menu.photo && ids.includes(menu.photo.id) ? menu.photo.id : ids[0],
-          menu.revision,
+          menu.context.photo && ids.includes(menu.context.photo.id)
+            ? menu.context.photo.id
+            : ids[0],
+          menu.context.galleryRevision,
         )
       } else if (action === 'scan') {
         await window.luma.groupCaptureSequences()
@@ -375,10 +440,10 @@ export function App() {
           await window.luma.getStackSnapshot(stack.id, stack.revision)
           if (ticket !== actionsGeneration.current) return
           if (action === 'ungroup') await window.luma.ungroupStack(stack.id, stack.revision)
-          if (action === 'remove' && menu.photo)
-            await window.luma.removeFromStack(menu.photo.id, stack.revision)
-          if (action === 'cover' && menu.photo)
-            await window.luma.setStackCover(stack.id, menu.photo.id, stack.revision)
+          if (action === 'remove' && menu.context.photo)
+            await window.luma.removeFromStack(menu.context.photo.id, stack.revision)
+          if (action === 'cover' && menu.context.photo)
+            await window.luma.setStackCover(stack.id, menu.context.photo.id, stack.revision)
         }
       }
       if (ticket !== actionsGeneration.current) return
@@ -392,11 +457,11 @@ export function App() {
     if (!contextMenu) return
     const ticket = beginAction()
     if (ticket === null) return
-    setMergeTargets({ ids: contextMenu.targets.map((p) => p.id), mode })
+    setMergeTargets({ ids: contextMenu.context.selection.map((p) => p.id), mode })
     closeContextMenu(false)
   }
   async function groupAction(action: 'delete' | MergeMode) {
-    const stack = contextMenu?.snapshot?.stack
+    const stack = contextMenu?.context.group?.stack
     if (!stack) return
     const ticket = beginAction()
     if (ticket === null) return
@@ -416,6 +481,52 @@ export function App() {
       }
     } catch (error) {
       actionFailed(ticket, error)
+    }
+  }
+  function dispatchPhotoAction(id: PhotoActionId) {
+    const context = contextMenuRef.current?.context
+    if (!context || context.availability[id].kind !== 'applicable' || activeAction.current !== null)
+      return
+    switch (id) {
+      case 'photo-cover':
+        void stackAction('cover')
+        break
+      case 'photo-remove':
+        void stackAction('remove')
+        break
+      case 'selection-group':
+        void stackAction('group')
+        break
+      case 'group-select':
+        void stackAction('select')
+        break
+      case 'group-ungroup':
+        void stackAction('ungroup')
+        break
+      case 'library-scan':
+        void stackAction('scan')
+        break
+      case 'selection-hdr':
+        openMerge('hdr')
+        break
+      case 'selection-noise':
+        openMerge('noise')
+        break
+      case 'group-hdr':
+        void groupAction('hdr')
+        break
+      case 'group-noise':
+        void groupAction('noise')
+        break
+      case 'group-trash':
+        void groupAction('delete')
+        break
+      case 'photo-trash':
+        if (context.photo) void requestDeletion([context.photo])
+        break
+      case 'selection-trash':
+        void requestDeletion()
+        break
     }
   }
   async function openResult(id: string) {
@@ -481,7 +592,24 @@ export function App() {
           </button>
         </nav>
         <div className={styles.headerActions}>
-          <button aria-haspopup="menu" onClick={(event) => void openActions(event.currentTarget)}>
+          <button
+            ref={actionsButtonRef}
+            aria-haspopup="menu"
+            aria-expanded={!!contextMenu?.toolbar}
+            aria-controls={contextMenu?.toolbar ? 'photo-actions-menu' : undefined}
+            aria-busy={loadingActions && toolbarLoading}
+            onClick={(event) => {
+              if (contextMenu?.toolbar || (loadingActions && toolbarLoading))
+                closeContextMenu(false)
+              else void openActions(event.currentTarget)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault()
+                void openActions(event.currentTarget, event.key === 'ArrowUp' ? 'last' : 'first')
+              }
+            }}
+          >
             Actions
           </button>
           <button
@@ -670,7 +798,7 @@ export function App() {
             clear: library.clearSelection,
           }}
           focusedPhoto={browserPhoto}
-          onFocusPhoto={setBrowserPhoto}
+          onFocusPhoto={focusBrowserPhoto}
           onOpen={(id, doubleClick) => void openBrowserPhoto(id, doubleClick)}
           onContextMenu={showContextMenu}
           onImport={() => void openImport()}
@@ -722,20 +850,12 @@ export function App() {
         <PhotoContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          selection={contextMenu.targets}
-          photo={contextMenu.photo}
-          snapshot={contextMenu.snapshot}
-          canGroup={contextMenu.canGroup}
-          busy={contextMenu.busy}
+          context={contextMenu.context}
+          toolbar={contextMenu.toolbar}
+          initialFocus={contextMenu.initialFocus}
           pending={actionPending}
-          onStackAction={(action) => void stackAction(action)}
+          onAction={dispatchPhotoAction}
           onClose={closeContextMenu}
-          onDelete={() => void requestDeletion()}
-          onDeletePhoto={() => {
-            if (contextMenu.photo) void requestDeletion([contextMenu.photo])
-          }}
-          onGroupAction={(action) => void groupAction(action)}
-          onMerge={openMerge}
         />
       )}
       {mergeTargets && (

@@ -110,7 +110,21 @@ export async function setupMergePreview(
         holds.set(revision, { wait, release })
       }
       if (holdInitial) hold(0)
+      const originalContext = (
+        ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
+      )._invokeHandlers.get('photo-actions:context')!
       const handlers = {
+        'photo-actions:context': async (...args: unknown[]) => {
+          const context = (await originalContext(
+            ...args,
+          )) as import('../src/shared/photo-actions').PhotoActionsContext
+          // The native-preview contract fixture supplies eligible inputs independently of RAW decoding.
+          context.selection = context.selection.map((p) => ({ ...p, format: 'ARW' }))
+          context.availability['selection-hdr'] = { kind: 'applicable' }
+          context.availability['selection-noise'] = { kind: 'applicable' }
+          return context
+        },
+
         'merge:create': (_event: unknown, _ids: string[], mode: 'hdr' | 'noise') => {
           active = {
             ...structuredClone(review),
@@ -184,7 +198,7 @@ export async function setupMergePreview(
   )
   await page.getByTestId(`photo-card-${photos[0].id}`).click()
   await page.getByTestId(`photo-card-${photos[1].id}`).click({ modifiers: ['Shift'] })
-  async function open(mode = 'Merge to HDR…') {
+  async function open(mode = 'Merge selected photos to HDR…') {
     await page.getByRole('button', { name: 'Actions', exact: true }).click()
     await page.getByRole('menuitem', { name: mode, exact: true }).click()
   }

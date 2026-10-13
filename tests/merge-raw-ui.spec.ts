@@ -41,7 +41,7 @@ test('supplied Sony brackets review, publish, open and survive source deletion t
   })
   await page.getByTestId('console-toggle').click()
   await page.getByRole('button', { name: 'Actions', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Merge to HDR…' }).click()
+  await page.getByRole('menuitem', { name: 'Merge selected photos to HDR…' }).click()
   await expect(page.getByRole('checkbox', { name: 'Auto Align', exact: true })).toBeChecked({
     timeout: 30000,
   })

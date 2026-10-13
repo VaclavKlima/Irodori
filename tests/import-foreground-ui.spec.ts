@@ -96,7 +96,7 @@ test('confirmed deletion takes the status bar while accepted import waits and re
   const id = await foregroundImport(app, page, info)
   await page.getByTestId('main-preview').focus()
   await page.keyboard.press('Delete')
-  await expect(page.getByRole('dialog', { name: /Delete/ })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: /Move.*to Trash/ })).toBeVisible()
   await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
   await expect(page.getByTestId('task-progress')).toContainText('Moving photos to Trash')
   await page.getByTestId('task-progress').click()

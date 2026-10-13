@@ -1,62 +1,77 @@
-import { useLayoutEffect, useRef } from 'react'
-import { Trash2, Layers } from 'lucide-react'
-import { groupMergeUnavailable, mergeUnavailable, type MergeMode } from '../../../shared/merge'
-import type { StackSnapshot } from '../../../shared/stacks'
-import type { PhotoReference } from '../../../shared/contracts'
+import { useLayoutEffect, useRef, useState } from 'react'
+import { CheckSquare, Image, Layers, ScanLine, Trash2, Ungroup, Unlink } from 'lucide-react'
+import {
+  buildPhotoMenu,
+  type PhotoActionId,
+  type PhotoActionsContext,
+} from '../../../shared/photo-actions'
 import styles from './PhotoActions.module.css'
+
+const icons = {
+  cover: Image,
+  remove: Unlink,
+  merge: Layers,
+  group: ScanLine,
+  select: CheckSquare,
+  ungroup: Ungroup,
+  trash: Trash2,
+}
+export type MenuInitialFocus = 'preferred' | 'first' | 'last'
 
 export function PhotoContextMenu({
   x,
   y,
-  selection,
-  photo,
-  snapshot,
-  onDelete,
-  onDeletePhoto,
-  onMerge,
-  onGroupAction,
-  onClose,
-  canGroup,
-  busy,
+  context,
+  toolbar,
+  initialFocus,
   pending,
-  onStackAction,
+  onAction,
+  onClose,
 }: {
   x: number
   y: number
-  selection: readonly PhotoReference[]
-  photo: PhotoReference | null
-  snapshot: StackSnapshot | null
-  onDelete: () => void
-  onDeletePhoto: () => void
-  onMerge: (mode: MergeMode) => void
-  onGroupAction: (action: 'delete' | MergeMode) => void
-  onClose: (restoreFocus?: boolean) => void
-  canGroup: boolean
-  busy: boolean
+  context: PhotoActionsContext
+  toolbar: boolean
+  initialFocus: MenuInitialFocus
   pending: boolean
-  onStackAction: (action: 'group' | 'ungroup' | 'remove' | 'cover' | 'select' | 'scan') => void
+  onAction: (id: PhotoActionId) => void
+  onClose: (restoreFocus?: boolean) => void
 }) {
   const menu = useRef<HTMLDivElement>(null)
-  const count = selection.length
-  const stack = snapshot?.stack
-  const originals = snapshot?.photos.filter((photo) => photo.assetKind !== 'derived') ?? []
-  const selectionMergeReason = mergeUnavailable(count)
-  const groupMergeReason = groupMergeUnavailable(originals)
-  const organizationReason = busy ? 'Finish the current library task first.' : undefined
-  const groupSelectionReason =
-    organizationReason ?? (!canGroup ? 'Select at least two ungrouped photos.' : undefined)
-  const coverReason =
-    organizationReason ??
-    (photo?.id === stack?.coverId ? 'This photo is already the group cover.' : undefined)
-  const showPhotoDelete = photo && (count !== 1 || selection[0].id !== photo.id)
+  const initialized = useRef(false)
+  const typeahead = useRef({ prefix: '', time: 0 })
+  const [focused, setFocused] = useState<PhotoActionId | null>(null)
+  const model = buildPhotoMenu(context, toolbar)
+  const actions = model.sections.flatMap((section) => section.actions)
+  const preferred =
+    actions.find((action) => !action.destructive && action.availability.kind === 'applicable') ??
+    actions.find((action) => action.availability.kind === 'applicable') ??
+    actions[0]
   useLayoutEffect(() => {
     const element = menu.current!
     const box = element.getBoundingClientRect()
     element.style.left = `${Math.max(8, Math.min(x, innerWidth - box.width - 8))}px`
     element.style.top = `${Math.max(8, Math.min(y, innerHeight - box.height - 8))}px`
-    element.querySelector<HTMLButtonElement>('[data-delete-action]')?.focus()
+    // Existing action nodes retain DOM focus across availability updates.
+    if (!initialized.current) {
+      initialized.current = true
+      const id =
+        initialFocus === 'last'
+          ? actions.at(-1)?.id
+          : initialFocus === 'first'
+            ? actions[0]?.id
+            : preferred?.id
+      if (id) element.querySelector<HTMLButtonElement>(`[data-action-id="${id}"]`)?.focus()
+      else element.focus()
+    } else if (focused && !actions.some((action) => action.id === focused)) {
+      if (preferred)
+        element.querySelector<HTMLButtonElement>(`[data-action-id="${preferred.id}"]`)?.focus()
+      else element.focus()
+    }
+  })
+  useLayoutEffect(() => {
     const outside = (event: PointerEvent) => {
-      if (!element.contains(event.target as Node)) onClose(false)
+      if (!menu.current?.contains(event.target as Node)) onClose(false)
     }
     const resize = () => onClose(true)
     document.addEventListener('pointerdown', outside)
@@ -65,198 +80,157 @@ export function PhotoContextMenu({
       document.removeEventListener('pointerdown', outside)
       window.removeEventListener('resize', resize)
     }
-  }, [x, y, onClose])
+  }, [onClose])
+  const focus = (index: number) => {
+    const action = actions[(index + actions.length) % actions.length]
+    if (action)
+      menu.current?.querySelector<HTMLButtonElement>(`[data-action-id="${action.id}"]`)?.focus()
+  }
   return (
     <div
+      id="photo-actions-menu"
       ref={menu}
       role="menu"
+      tabIndex={-1}
       aria-label="Photo actions"
       aria-busy={pending}
       className={styles.menu}
       style={{ left: x, top: y }}
       onFocusCapture={(event) => {
-        if (event.target instanceof HTMLButtonElement)
+        if (event.target instanceof HTMLButtonElement) {
+          setFocused(event.target.dataset.actionId as PhotoActionId)
           event.target.scrollIntoView({ block: 'nearest' })
+        }
       }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape' || event.key === 'Tab') {
+        if (event.key === 'Escape') {
           event.preventDefault()
+          event.stopPropagation()
           onClose(true)
+          return
         }
+        if (event.key === 'Tab') {
+          // Let the browser traverse from the restored invocation point in either direction.
+          menu.current?.querySelectorAll('button').forEach((button) => {
+            button.tabIndex = -1
+          })
+          onClose(true)
+          return
+        }
+        const index = actions.findIndex((action) => action.id === focused)
         if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
           event.preventDefault()
-          const buttons = Array.from(menu.current?.querySelectorAll('button') ?? [])
-          const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
-          buttons[
+          focus(
             event.key === 'Home'
               ? 0
               : event.key === 'End'
-                ? buttons.length - 1
-                : (index + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length
-          ]?.focus()
+                ? actions.length - 1
+                : index + (event.key === 'ArrowUp' ? -1 : 1),
+          )
+        } else if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          const action = actions[index]
+          if (!event.repeat && !pending && action?.availability.kind === 'applicable')
+            onAction(action.id)
+        } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          event.preventDefault()
+          const now = Date.now()
+          const previous = now - typeahead.current.time < 1000 ? typeahead.current.prefix : ''
+          const prefix = previous + event.key.toLowerCase()
+          typeahead.current = { prefix, time: now }
+          const repeated = [...prefix].every((character) => character === prefix[0])
+          const search = repeated ? prefix[0] : prefix
+          const start = previous && !repeated ? index : index + 1
+          for (let step = 0; step < actions.length; step++) {
+            const candidate = (start + step + actions.length) % actions.length
+            if (actions[candidate].label.toLowerCase().startsWith(search)) {
+              focus(candidate)
+              break
+            }
+          }
         }
       }}
     >
-      {photo && (stack || showPhotoDelete) && (
-        <div role="group" aria-labelledby="photo-actions-label" className={styles.section}>
-          <h2 id="photo-actions-label">Photo</h2>
-          {stack && (
-            <>
+      {!actions.length && <p role="status">No photo actions available.</p>}
+      {model.sections.map((section) => (
+        <div
+          key={section.id}
+          role="group"
+          aria-labelledby={`photo-menu-${section.id}`}
+          className={styles.section}
+        >
+          {section.id === 'trash' && (model.blockers.length > 0 || pending) && (
+            <div className={styles.statuses}>
+              {model.blockers.map((reason, index) => (
+                <p role="status" id={`photo-menu-blocker-${index}`} key={reason}>
+                  {reason}
+                </p>
+              ))}
+              {pending && (
+                <p role="status" id="photo-menu-pending">
+                  Working…
+                </p>
+              )}
+            </div>
+          )}
+          <h2 id={`photo-menu-${section.id}`} title={section.heading}>
+            {section.heading}
+          </h2>
+          {section.actions.map((action) => {
+            const Icon = icons[action.icon]
+            const reason =
+              action.availability.kind === 'blocked' ? action.availability.reason : undefined
+            const descriptions = [
+              reason ? `photo-menu-blocker-${model.blockers.indexOf(reason)}` : '',
+              pending ? 'photo-menu-pending' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')
+            return (
               <button
+                key={action.id}
+                type="button"
                 role="menuitem"
-                aria-disabled={pending || !!coverReason}
-                title={coverReason}
-                aria-describedby={coverReason ? 'cover-unavailable' : undefined}
+                data-action-id={action.id}
+                className={action.destructive ? styles.trash : undefined}
+                tabIndex={action.id === (focused ?? preferred?.id) ? 0 : -1}
+                aria-disabled={pending || !!reason}
+                aria-describedby={descriptions || undefined}
+                onPointerMove={() => {
+                  if (
+                    document.activeElement !==
+                    menu.current?.querySelector(`[data-action-id="${action.id}"]`)
+                  )
+                    menu.current
+                      ?.querySelector<HTMLButtonElement>(`[data-action-id="${action.id}"]`)
+                      ?.focus({ preventScroll: true })
+                }}
                 onClick={() => {
-                  if (!pending && !coverReason) onStackAction('cover')
+                  if (!pending && !reason) onAction(action.id)
                 }}
               >
-                Set this photo as group cover
+                <Icon size={16} aria-hidden="true" />
+                <span>{action.label}</span>
+                {action.shortcut && <kbd aria-hidden="true">{action.shortcut}</kbd>}
               </button>
-              {coverReason && <p id="cover-unavailable">{coverReason}</p>}
-              <button
-                role="menuitem"
-                aria-disabled={pending || busy}
-                title={organizationReason}
-                aria-describedby={busy ? 'organization-unavailable' : undefined}
-                onClick={() => {
-                  if (!pending && !busy) onStackAction('remove')
-                }}
-              >
-                Remove this photo from group
-              </button>
-            </>
-          )}
-          {showPhotoDelete && (
-            <button
-              role="menuitem"
-              aria-disabled={pending}
-              onClick={() => {
-                if (!pending) onDeletePhoto()
-              }}
-            >
-              <Trash2 size={14} />
-              Delete this photo…
-            </button>
-          )}
+            )
+          })}
         </div>
-      )}
-      <div role="group" aria-labelledby="selection-actions-label" className={styles.section}>
-        <h2 id="selection-actions-label">Selected photos ({count})</h2>
-        {(['hdr', 'noise'] as const).map((mode) => (
-          <button
-            key={mode}
-            role="menuitem"
-            aria-disabled={pending || !!selectionMergeReason}
-            title={selectionMergeReason}
-            aria-describedby={selectionMergeReason ? 'selection-merge-unavailable' : undefined}
-            onClick={() => {
-              if (!pending && !selectionMergeReason) onMerge(mode)
-            }}
-          >
-            <Layers size={14} />
-            {mode === 'hdr' ? 'Merge to HDR…' : 'Stack for noise reduction…'}
-          </button>
-        ))}
-        {selectionMergeReason && <p id="selection-merge-unavailable">{selectionMergeReason}</p>}
-        <button
-          role="menuitem"
-          aria-disabled={pending || !!groupSelectionReason}
-          title={groupSelectionReason}
-          aria-describedby={groupSelectionReason ? 'group-selection-unavailable' : undefined}
-          onClick={() => {
-            if (!pending && !groupSelectionReason) onStackAction('group')
-          }}
-        >
-          <Layers size={14} />
-          Group selected photos
-        </button>
-        {groupSelectionReason && <p id="group-selection-unavailable">{groupSelectionReason}</p>}
-        <button
-          data-delete-action
-          role="menuitem"
-          aria-disabled={pending || count === 0}
-          onClick={() => {
-            if (!pending && count) onDelete()
-          }}
-        >
-          <Trash2 size={14} />
-          {count === 1 ? 'Delete photo…' : `Delete ${count} photos…`}
-          <kbd>Del</kbd>
-        </button>
-      </div>
-      {stack && (
-        <div role="group" aria-labelledby="group-actions-label" className={styles.section}>
-          <h2 id="group-actions-label">Group ({stack.count} photos)</h2>
-          <p>
-            {originals.length} {originals.length === 1 ? 'original' : 'originals'}
-          </p>
-          <button
-            role="menuitem"
-            aria-disabled={pending}
-            onClick={() => {
-              if (!pending) onStackAction('select')
-            }}
-          >
-            <Layers size={14} />
-            Select group ({stack.count} photos)
-          </button>
-          {(['hdr', 'noise'] as const).map((mode) => (
-            <button
-              key={mode}
-              role="menuitem"
-              aria-disabled={pending || !!groupMergeReason}
-              title={groupMergeReason}
-              aria-describedby={groupMergeReason ? 'group-merge-unavailable' : undefined}
-              onClick={() => {
-                if (!pending && !groupMergeReason) onGroupAction(mode)
-              }}
-            >
-              <Layers size={14} />
-              {mode === 'hdr'
-                ? `Merge ${originals.length} group originals to HDR…`
-                : `Stack ${originals.length} group originals for noise reduction…`}
-            </button>
+      ))}
+      {!model.sections.some((section) => section.id === 'trash') && (
+        <div className={styles.statuses}>
+          {model.blockers.map((reason, index) => (
+            <p role="status" id={`photo-menu-blocker-${index}`} key={reason}>
+              {reason}
+            </p>
           ))}
-          {groupMergeReason && <p id="group-merge-unavailable">{groupMergeReason}</p>}
-          <button
-            role="menuitem"
-            aria-disabled={pending || busy}
-            title={organizationReason}
-            aria-describedby={busy ? 'organization-unavailable' : undefined}
-            onClick={() => {
-              if (!pending && !busy) onStackAction('ungroup')
-            }}
-          >
-            Ungroup ({stack.count} photos)
-          </button>
-          <button
-            role="menuitem"
-            aria-disabled={pending}
-            onClick={() => {
-              if (!pending) onGroupAction('delete')
-            }}
-          >
-            <Trash2 size={14} />
-            Delete group ({stack.count} photos)…
-          </button>
+          {pending && (
+            <p role="status" id="photo-menu-pending">
+              Working…
+            </p>
+          )}
         </div>
       )}
-      <div className={styles.section}>
-        <button
-          role="menuitem"
-          aria-disabled={pending || busy}
-          title={organizationReason}
-          aria-describedby={busy ? 'organization-unavailable' : undefined}
-          onClick={() => {
-            if (!pending && !busy) onStackAction('scan')
-          }}
-        >
-          <Layers size={14} />
-          Group capture sequences…
-        </button>
-        {organizationReason && <p id="organization-unavailable">{organizationReason}</p>}
-      </div>
     </div>
   )
 }

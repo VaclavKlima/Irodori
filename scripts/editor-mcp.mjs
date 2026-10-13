@@ -35,6 +35,15 @@ const browseQuery = schema({
 })
 const tools = [
   {
+    name: 'luma_get_photo_actions_context',
+    description:
+      'Read canonical photo, selection and persisted photo-group targets, counts, revisions, target equivalence and per-command availability. Uses stored catalog facts only; no decoding. Unrelated imports may update revisions without changing targetIdentity. Mutations still revalidate their targets.',
+    inputSchema: schema({
+      photoId: { anyOf: [photoId, { type: 'null' }] },
+      selectedIds: { type: 'array', items: photoId, uniqueItems: true },
+    }),
+  },
+  {
     name: 'luma_get_browse_summary',
     description:
       'Read matching Library sections and selected counts by camera calendar date, month, or year. Search uses case-insensitive literal terms across filename, camera, lens, format and capture date.',
