@@ -1,8 +1,10 @@
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { readFile, realpath } from 'node:fs/promises'
 import type { LumaApi, Photo } from '../src/shared/contracts'
+import type { PreviewPresentation } from '../src/shared/preview-diagnostics'
 import { expect, test } from './electron.fixture'
-import { importPhotos } from './import.helpers'
+import { holdFullPreview } from './full-preview.helpers'
+import { choose, expectImportComplete, importPhotos } from './import.helpers'
 
 async function resizeWindow(app: ElectronApplication, page: Page, width: number, height: number) {
   const window = await app.browserWindow(page)
@@ -33,6 +35,39 @@ async function expectInsideWindow(locator: Locator, width: number, height: numbe
     expect(bounds.y).toBeGreaterThanOrEqual(0)
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1)
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(height + 1)
+  }).toPass({ timeout: 7500 })
+}
+
+async function expectCompactFooter(page: Page, width: number, height: number) {
+  const footer = page.getByTestId('preview-footer')
+  for (const id of ['preview-footer', 'preview-view-controls', 'zoom-controls'])
+    await expectInsideWindow(page.getByTestId(id), width, height)
+  await expect(async () => {
+    const layout = await footer.evaluate((element) => ({
+      bounds: element.getBoundingClientRect().toJSON(),
+      children: Array.from(element.children)
+        .map((child) => child.getBoundingClientRect().toJSON())
+        .filter((bounds) => bounds.width && bounds.height),
+      overflow: element.scrollWidth > element.clientWidth,
+    }))
+    expect(layout.overflow).toBe(false)
+    for (const [index, bounds] of layout.children.entries()) {
+      expect(bounds.x).toBeGreaterThanOrEqual(layout.bounds.x)
+      expect(bounds.y).toBeGreaterThanOrEqual(layout.bounds.y)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(layout.bounds.x + layout.bounds.width + 1)
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(
+        layout.bounds.y + layout.bounds.height + 1,
+      )
+      if (index) expect(layout.children[index - 1].right).toBeLessThanOrEqual(bounds.x + 1)
+    }
+  }).toPass({ timeout: 7500 })
+}
+
+async function expectViewportSize(page: Page, width: number, height: number) {
+  await expect(async () => {
+    const bounds = await page.getByTestId('preview-viewport').boundingBox()
+    expect(bounds!.width).toBeGreaterThanOrEqual(width - 1)
+    expect(bounds!.height).toBeGreaterThanOrEqual(height - 1)
   }).toPass({ timeout: 7500 })
 }
 
@@ -159,6 +194,13 @@ test('starts the built desktop application with its isolated preload bridge', as
   await expect(page.getByTestId('empty-library')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Import photos', exact: true })).toBeEnabled()
   expect(await page.evaluate(() => window.luma.listPhotos())).toEqual({ photos: [], total: 0 })
+  await resizeWindow(app, page, 1100, 700)
+  await page.getByTestId('console-toggle').click()
+  await expectInsideWindow(page.getByTestId('empty-library'), 1100, 700)
+  await expectCompactFooter(page, 1100, 700)
+  await expect(page.getByTestId('preview-metadata')).toHaveCount(0)
+  await expect(page.getByTestId('preview-resolution')).toHaveCount(0)
+  await expect(page.getByRole('combobox', { name: 'Preview zoom' })).toBeDisabled()
 })
 
 test('compact metadata handles missing fields, long names and merged photos while panels scroll independently', async ({
@@ -167,8 +209,10 @@ test('compact metadata handles missing fields, long names and merged photos whil
   const { app, page } = luma
   const longCamera = 'Long camera name '.repeat(18),
     longLens = 'Long lens name '.repeat(22)
+  const longFilename = `${'A photograph with a long descriptive filename '.repeat(4)}.jpg`
   const cases: {
     filename: string
+    displayFilename?: string
     metadata: Partial<Photo>
     equipment: string[]
     exposure: string[]
@@ -194,6 +238,7 @@ test('compact metadata handles missing fields, long names and merged photos whil
     { filename: 'forest-light.jpg', metadata: {}, equipment: [], exposure: [] },
     {
       filename: 'coastal-dunes.jpg',
+      displayFilename: longFilename,
       metadata: {
         camera: longCamera,
         lens: longLens,
@@ -223,15 +268,16 @@ test('compact metadata handles missing fields, long names and merged photos whil
       ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
     )._invokeHandlers
     const photoMetadata = (photo: Photo) => {
-      const metadata = cases.find((c) => c.filename === photo.filename)?.metadata
+      const entry = cases.find((c) => c.filename === photo.filename)
       return {
         ...photo,
+        filename: entry?.displayFilename ?? photo.filename,
         camera: undefined,
         lens: undefined,
         shutter: undefined,
         aperture: undefined,
         iso: undefined,
-        ...metadata,
+        ...entry?.metadata,
       }
     }
     for (const channel of ['gallery:list', 'gallery:locate']) {
@@ -245,6 +291,7 @@ test('compact metadata handles missing fields, long names and merged photos whil
         if (!result) return result
         return {
           ...result,
+          total: result.entries.length ? 1234567 : 0,
           ...(result.photo ? { photo: photoMetadata(result.photo) } : {}),
           entries: result.entries.map((entry) => ({ ...entry, photo: photoMetadata(entry.photo) })),
         }
@@ -263,8 +310,9 @@ test('compact metadata handles missing fields, long names and merged photos whil
   await expect(lens).toHaveAttribute('aria-expanded', 'false')
   await lens.press('Enter')
   for (const c of cases) {
-    await page.getByRole('button', { name: `Select ${c.filename}`, exact: true }).click()
-    await expect(page.getByTestId('preview-filename')).toHaveText(c.filename)
+    const filename = c.displayFilename ?? c.filename
+    await page.getByRole('button', { name: `Select ${filename}`, exact: true }).click()
+    await expect(page.getByTestId('preview-filename')).toHaveText(filename)
     await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
     await expect(lens).toHaveAttribute('aria-expanded', 'true')
     await expectInsideWindow(metadata, 1100, 700)
@@ -273,6 +321,10 @@ test('compact metadata handles missing fields, long names and merged photos whil
     if (!c.equipment.length && !c.exposure.length)
       await expect(metadata).toHaveText('Metadata unavailable')
     if (c.filename === 'coastal-dunes.jpg') {
+      await expect(page.getByTestId('preview-filename')).toHaveAttribute('title', longFilename)
+      expect(
+        await page.getByTestId('preview-filename').evaluate((e) => e.scrollWidth > e.clientWidth),
+      ).toBe(true)
       for (const name of c.equipment) {
         const field = metadata.getByText(name, { exact: true })
         await expect(field).toHaveAttribute('title', name)
@@ -281,7 +333,8 @@ test('compact metadata handles missing fields, long names and merged photos whil
       await page.screenshot({ path: info.outputPath('compact-metadata-1100-console.png') })
     }
     expect(await metadata.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true)
-    await expectInsideWindow(page.getByTestId('zoom-controls'), 1100, 700)
+    await expect(page.getByTestId('preview-view-controls')).toContainText('/ 1234567')
+    await expectCompactFooter(page, 1100, 700)
   }
   const order = await page
     .getByTestId('adjustments-panel')
@@ -333,9 +386,11 @@ test('compact metadata handles missing fields, long names and merged photos whil
   await expect(page.getByTestId('lens-corrections')).toBeHidden()
 })
 
-for (const [width, height] of [
-  [1280, 800],
-  [1920, 1080],
+for (const [width, height, canvasWidth, canvasHeight, consoleCanvasHeight] of [
+  [1100, 700, 628, 518, 338],
+  [1280, 800, 754, 618, 402],
+  [1440, 900, 914, 718, 502],
+  [1920, 1080, 1346, 898, 682],
 ]) {
   test(`keeps the workspace and console usable at ${width} × ${height}`, async ({
     luma,
@@ -348,6 +403,8 @@ for (const [width, height] of [
     }
     await expect(page.getByTestId('console-toggle')).toHaveAttribute('aria-expanded', 'false')
     await expect(page.getByTestId('console-panel')).toHaveCount(0)
+    await expectViewportSize(page, canvasWidth, canvasHeight)
+    await expectCompactFooter(page, width, height)
     await page.screenshot({ path: testInfo.outputPath(`workspace-${width}x${height}.png`) })
 
     await page.getByTestId('console-toggle').click()
@@ -356,12 +413,15 @@ for (const [width, height] of [
     await expect(page.getByTestId('console-panel')).toContainText(/disconnected/i)
     await expect(page.getByTestId('console-panel').locator('.xterm')).toBeVisible()
     await expect(page.getByTestId('main-preview')).toBeVisible()
+    await expectViewportSize(page, canvasWidth, consoleCanvasHeight)
+    await expectCompactFooter(page, width, height)
 
     await resizeWindow(app, page, 1100, 700)
     for (const id of ['photo-library', 'workspace', 'adjustments-panel', 'console-panel']) {
       await expectInsideWindow(page.getByTestId(id), 1100, 700)
     }
     await expectInsideWindow(page.getByTestId('console-panel').locator('.xterm-screen'), 1100, 700)
+    await expectViewportSize(page, 628, 338)
     await resizeWindow(app, page, width, height)
     await expectInsideWindow(
       page.getByTestId('console-panel').locator('.xterm-screen'),
@@ -373,6 +433,7 @@ for (const [width, height] of [
     await page.getByTestId('console-toggle').click()
     await expect(page.getByTestId('console-panel')).toHaveCount(0)
     await expect(page.getByTestId('console-toggle')).toHaveAttribute('aria-expanded', 'false')
+    await expectViewportSize(page, canvasWidth, canvasHeight)
     const overflow = await page.evaluate(() => ({
       horizontal: document.documentElement.scrollWidth > innerWidth,
       vertical: document.documentElement.scrollHeight > innerHeight,
@@ -380,6 +441,123 @@ for (const [width, height] of [
     expect(overflow).toEqual({ horizontal: false, vertical: false })
   })
 }
+
+test('keeps loading, errors and keyboard retry inside the compact footer', async ({ luma }) => {
+  const { app, page } = luma
+  await resizeWindow(app, page, 1100, 700)
+  await page.getByTestId('console-toggle').click()
+  const gate = await holdFullPreview(app)
+  try {
+    await gate.evaluate((control) => control.fail())
+    await page.getByRole('button', { name: 'Import photos', exact: true }).click()
+    await choose(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
+    await expect(page.getByTestId('import-status')).toContainText('Ready to import')
+    await page.getByRole('button', { name: 'Import 1 photos', exact: true }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    const status = page.getByTestId('preview-resolution')
+    await expect(status).toContainText('Loading full resolution…')
+    await expect(status).toHaveAttribute('title', 'Loading the full-resolution image.')
+    await expectViewportSize(page, 628, 338)
+    await expectCompactFooter(page, 1100, 700)
+    // Release before waiting for import completion: the held preview owns foreground admission.
+    await gate.evaluate((control) => control.release())
+    await expectImportComplete(page)
+    await expect(status).toContainText('Full resolution unavailable')
+    await expect(status).toHaveAttribute('aria-description', 'Preview generation timed out.')
+    await expectCompactFooter(page, 1100, 700)
+    await expectViewportSize(page, 628, 338)
+    await gate.evaluate((control) => control.succeed())
+    const retry = status.getByRole('button', { name: 'Retry', exact: true })
+    await retry.focus()
+    await expect(retry).toBeFocused()
+    await retry.press('Enter')
+    await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-resolution', 'full')
+    await expect(status).toHaveAttribute('title', /1920 × 1280 · sRGB · Original preserved/)
+    await expectCompactFooter(page, 1100, 700)
+  } finally {
+    await gate.evaluate((control) => control.release())
+    await gate.dispose()
+  }
+})
+
+test('display details describe only a matching presented frame and fit at minimum size', async ({
+  luma,
+}) => {
+  const { app, page } = luma
+  await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
+  await resizeWindow(app, page, 1100, 700)
+  await page.getByTestId('console-toggle').click()
+  const { photos } = await page.evaluate(() => window.luma.listPhotos())
+  const target = await page.evaluate(() => window.luma.getDisplayState())
+  const summary = page.getByLabel('Display details')
+  await summary.click()
+  const popover = summary.locator('..').locator(':scope > div')
+  const cases: {
+    label: string
+    frame: string
+    presentation: Partial<PreviewPresentation>
+  }[] = [
+    { label: 'SDR', frame: 'sRGB · 8-bit', presentation: { backend: 'legacy' } },
+    {
+      label: 'HDR',
+      frame: 'display-p3 · Float32',
+      presentation: { backend: 'webgpu-hdr', mode: 'hdr' },
+    },
+    {
+      label: 'SDR fallback',
+      frame: 'sRGB · 8-bit',
+      presentation: { backend: 'canvas2d-hdr-sdr' },
+    },
+    {
+      label: 'Loading',
+      frame: 'Preparing',
+      presentation: { backend: 'webgpu-hdr', stage: 'loading' },
+    },
+    {
+      label: 'Unavailable',
+      frame: 'Unavailable',
+      presentation: { backend: 'webgpu-hdr', stage: 'failed' },
+    },
+    { label: 'Loading', frame: 'Preparing', presentation: { photoId: 'another-photo' } },
+    { label: 'Loading', frame: 'Preparing', presentation: { targetGeneration: -1 } },
+  ]
+  for (const [index, c] of cases.entries()) {
+    const generation = target.generation + 1000 + index
+    // Presentation contract fixtures test labels without processing HDR or claiming hardware support.
+    // Their generation is separate from main's real target, so normal frame reports cannot replace them.
+    await app.evaluate(
+      ({ BrowserWindow }, state) =>
+        BrowserWindow.getAllWindows()[0].webContents.send('display:state', state),
+      {
+        ...target,
+        generation,
+        requested: 'hdr' as const,
+        mode: 'hdr' as const,
+        colorSpace: 'display-p3' as const,
+        peak: 8,
+        presentation: {
+          photoId: photos[0].id,
+          revision: 0,
+          targetGeneration: generation,
+          backend: 'legacy' as const,
+          mode: 'sdr' as const,
+          stage: 'presented' as const,
+          reason: 'Presentation fixture.',
+          timings: {},
+          ...c.presentation,
+        },
+      },
+    )
+    await expect(summary).toHaveText(c.label)
+    await expect(summary).toHaveAccessibleDescription(c.label)
+    await expect(popover.getByText(`Frame: ${c.frame}`, { exact: true })).toBeVisible()
+    await expectInsideWindow(popover, 1100, 700)
+    await expectInsideWindow(page.getByTestId('preview-filename'), 1100, 700)
+    await expectCompactFooter(page, 1100, 700)
+  }
+  await summary.press('Enter')
+  await expect(popover).toBeHidden()
+})
 
 test('supports visible keyboard focus, photo selection, and adjustment groups', async ({
   luma,

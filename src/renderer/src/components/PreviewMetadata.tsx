@@ -23,7 +23,9 @@ export function PreviewMetadata({ photo }: { photo: Photo }) {
       {exposure.length > 0 && (
         <div className={styles.exposure} data-testid="preview-exposure">
           {exposure.map((value, index) => (
-            <span key={index}>{value}</span>
+            <span key={index} title={value}>
+              {value}
+            </span>
           ))}
         </div>
       )}

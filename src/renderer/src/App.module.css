@@ -5,7 +5,7 @@
   background: var(--surface);
 }
 .appHeader {
-  flex: 0 0 58px;
+  flex: 0 0 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -52,7 +52,7 @@
   position: absolute;
   left: 50%;
   top: 0;
-  height: 58px;
+  height: 48px;
   transform: translateX(-50%);
   color: #d9d9d4;
   display: flex;
@@ -125,8 +125,8 @@
   background: #222222;
 }
 .panelHeading {
-  height: 47px;
-  min-height: 47px;
+  height: 40px;
+  min-height: 40px;
   padding: 0 15px 0 18px;
   display: flex;
   align-items: center;
@@ -382,8 +382,8 @@
   background: var(--canvas);
 }
 .previewToolbar {
-  height: 47px;
-  min-height: 47px;
+  height: 40px;
+  min-height: 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -406,6 +406,10 @@
 }
 .filename > svg {
   color: #74746f;
+  flex-shrink: 0;
+}
+.filename > select {
+  flex-shrink: 0;
 }
 .sdrBadge {
   font-size: 8px;
@@ -418,6 +422,7 @@
 }
 .previewActions {
   display: flex;
+  flex-shrink: 0;
   gap: 2px;
   align-items: center;
 }
@@ -434,43 +439,18 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 32px 36px 15px;
-}
-.imageCaption {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex: 0 0 48px;
-  gap: 16px;
-}
-.imageCaption > div {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-}
-.photoTitle {
-  font-size: 11px;
-  color: #b9b9b1;
-}
-.photographer {
-  font-size: 9px;
-  color: #797973;
-}
-.previewOriginal {
-  font-size: 9px;
-  color: #818179;
-  white-space: nowrap;
+  padding: 8px;
 }
 .canvasToolbar {
   min-height: 48px;
   flex: 0 0 48px;
   border-top: 1px solid #292929;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
   align-items: center;
   position: relative;
-  padding: 0 19px;
+  padding: 0 12px;
   color: var(--quiet);
 }
 .photoPagination {
@@ -483,15 +463,6 @@
 .photoPagination strong {
   font-weight: 400;
   color: #c7c7bf;
-}
-.canvasInfo {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 9px;
-}
-.canvasInfo .toolbarDivider {
-  margin: 0 4px;
 }
 .inspector {
   flex: 0 0 288px;
@@ -802,9 +773,6 @@
     flex-basis: 306px;
     width: 306px;
   }
-  .previewArea {
-    padding: 42px 50px 20px;
-  }
   .photoList {
     gap: 14px;
   }
@@ -821,9 +789,6 @@
   .inspector {
     flex-basis: 258px;
     width: 258px;
-  }
-  .previewArea {
-    padding: 22px 22px 10px;
   }
   .previewToolbar {
     padding: 0 12px;
@@ -844,27 +809,12 @@
     padding: 0 11px;
     font-size: 8px;
   }
-  .previewOriginal {
-    display: none;
-  }
 }
 
 @media (max-height: 760px) {
-  .appHeader {
-    flex-basis: 50px;
-  }
-  .workspaceMode {
-    height: 50px;
-  }
-  .previewArea {
-    padding-top: 18px;
-  }
   .console {
     flex-basis: 180px;
     height: 180px;
-  }
-  .imageCaption {
-    flex-basis: 42px;
   }
 }
 

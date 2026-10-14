@@ -15,13 +15,28 @@ export function DisplayDetails({
       ? target.presentation
       : undefined
   const mode = presentation?.stage === 'presented' ? presentation.mode : undefined
+  const presented = mode ? presentation : undefined
+  const fallback =
+    mode === 'sdr' &&
+    (presented?.backend === 'canvas2d-hdr-sdr' || (hdr && target.requested === 'hdr'))
+  const colorSpace = presented?.backend === 'webgpu-hdr' ? target.colorSpace : 'sRGB'
+  const precision = presented?.backend === 'webgpu-hdr' ? 'Float32' : '8-bit'
+  const label = fallback
+    ? 'SDR fallback'
+    : mode
+      ? mode.toUpperCase()
+      : presentation?.stage === 'failed'
+        ? 'Unavailable'
+        : photoId
+          ? 'Loading'
+          : 'SDR'
   const reason = !hdr ? 'Display-referred image.' : presentation?.reason || target.reason
   const caps = target.capabilities
   return (
     <div className={styles.container}>
       <details className={styles.details}>
-        <summary aria-label="Display details">
-          {mode ? mode.toUpperCase() : photoId ? 'Loading' : 'SDR'}
+        <summary aria-label="Display details" aria-description={label}>
+          {label}
         </summary>
         <div className={styles.panel}>
           <strong>Display details</strong>
@@ -30,6 +45,14 @@ export function DisplayDetails({
             {mode?.toUpperCase() ?? 'No frame yet'}
           </p>
           <p>{reason}</p>
+          <p>
+            Frame:{' '}
+            {presented
+              ? `${colorSpace} · ${precision}`
+              : !photoId || presentation?.stage === 'failed'
+                ? 'Unavailable'
+                : 'Preparing'}
+          </p>
           <p>
             Monitor: {caps?.monitor?.label ?? 'Unavailable'}
             {caps?.monitor &&
@@ -60,9 +83,6 @@ export function DisplayDetails({
           <p>Physical luminance is unverified.</p>
         </div>
       </details>
-      {target.requested === 'hdr' && mode === 'sdr' && (
-        <span className={styles.reason}>{reason}</span>
-      )}
     </div>
   )
 }

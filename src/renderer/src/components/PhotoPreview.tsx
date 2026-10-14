@@ -20,7 +20,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from 'react'
-import { ChevronLeft, ChevronRight, FileImage, Maximize, Minus, Monitor, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileImage, Maximize, Minus, Plus } from 'lucide-react'
 import type { Photo } from '../../../shared/contracts'
 import {
   constrain,
@@ -901,125 +901,122 @@ export function PhotoPreview({
             </div>
           )}
         </div>
-        {photo && (
-          <div className={layout.imageCaption}>
-            <div>
-              <span className={layout.photoTitle}>{photo.filename}</span>
-              <span className={layout.photographer}>
-                {photo.width} × {photo.height} · {photo.format}
-              </span>
-            </div>
-            <span
-              className={styles.resolution}
-              data-testid="preview-resolution"
-              role="status"
-              title={
-                full.error ??
-                (fullVisible
-                  ? `${model.image.width} × ${model.image.height} · ${working?.hdr ? 'Rec.2020 linear working data' : 'sRGB'} · Original preserved`
-                  : 'Loading the full-resolution image.')
-              }
-            >
-              {full.error ? (
-                <>
-                  <span>Full resolution unavailable</span>
-                  <button onClick={full.retry}>Retry</button>
-                </>
-              ) : fullVisible ? (
-                live.error ? (
-                  <>
-                    <span>{live.error}</span>
-                    <button onClick={live.retry}>Retry live preview</button>
-                  </>
-                ) : working ? (
-                  'Full resolution'
-                ) : (
-                  'Preparing live preview…'
-                )
-              ) : (
-                <>
-                  <ProgressSpinner />
-                  <span>Loading full resolution…</span>
-                </>
-              )}
-            </span>
-          </div>
-        )}
       </div>
-      {photo && <PreviewMetadata photo={photo} />}
-      <div className={`${layout.canvasToolbar} ${styles.toolbar}`}>
-        <div className={layout.photoPagination}>
-          <button
-            className={layout.iconButton}
-            aria-label="Previous photo"
-            disabled={!photo || position <= 0}
-            onClick={() => void onNavigate(-1)}
+      <div className={layout.canvasToolbar} data-testid="preview-footer">
+        {photo ? <PreviewMetadata photo={photo} /> : <div />}
+        <div className={styles.viewControls} data-testid="preview-view-controls">
+          <div className={layout.photoPagination}>
+            <button
+              className={layout.iconButton}
+              aria-label="Previous photo"
+              disabled={!photo || position <= 0}
+              onClick={() => void onNavigate(-1)}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span>
+              <strong>{String(photo ? position + 1 : 0).padStart(2, '0')}</strong>
+              <span> / {String(total).padStart(2, '0')}</span>
+            </span>
+            <button
+              className={layout.iconButton}
+              aria-label="Next photo"
+              disabled={!photo || position + 1 >= total}
+              onClick={() => void onNavigate(1)}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+          <div
+            className={styles.zoomControls}
+            data-testid="zoom-controls"
+            title="100% shows one full-resolution image pixel per CSS pixel. Higher zoom enlarges it."
           >
-            <ChevronLeft size={16} />
-          </button>
-          <span>
-            <strong>{String(photo ? position + 1 : 0).padStart(2, '0')}</strong>
-            <span> / {String(total).padStart(2, '0')}</span>
-          </span>
-          <button
-            className={layout.iconButton}
-            aria-label="Next photo"
-            disabled={!photo || position + 1 >= total}
-            onClick={() => void onNavigate(1)}
-          >
-            <ChevronRight size={16} />
-          </button>
+            <button
+              aria-label="Zoom out"
+              disabled={!ready || view.scale <= minimum + 0.00001}
+              onClick={() => step(-1)}
+            >
+              <Minus size={13} />
+            </button>
+            <select
+              aria-label="Preview zoom"
+              disabled={!ready}
+              value={zoomValue}
+              onChange={(event) => {
+                if (event.target.value === 'fit') fit()
+                else zoom(Number(event.target.value))
+              }}
+            >
+              <option value="fit">Fit</option>
+              {!exactPreset && !view.fit && (
+                <option value="custom">{Math.round(view.scale * 100)}%</option>
+              )}
+              {ZOOM_STOPS.map((scale) => (
+                <option key={scale} value={scale}>
+                  {scale * 100}%
+                </option>
+              ))}
+            </select>
+            <button
+              aria-label="Zoom in"
+              disabled={!ready || view.scale >= 32}
+              onClick={() => step(1)}
+            >
+              <Plus size={13} />
+            </button>
+            <button
+              aria-label="Fit preview"
+              title="Fit preview (0)"
+              disabled={!ready}
+              onClick={fit}
+            >
+              <Maximize size={13} />
+            </button>
+          </div>
         </div>
-        <div
-          className={styles.zoomControls}
-          data-testid="zoom-controls"
-          title="100% shows one full-resolution image pixel per CSS pixel. Higher zoom enlarges it."
-        >
-          <button
-            aria-label="Zoom out"
-            disabled={!ready || view.scale <= minimum + 0.00001}
-            onClick={() => step(-1)}
+        {photo && (
+          <span
+            className={styles.resolution}
+            data-testid="preview-resolution"
+            role="status"
+            aria-description={full.error || live.error || undefined}
+            title={
+              full.error ||
+              live.error ||
+              (fullVisible
+                ? `${model.image.width} × ${model.image.height} · ${working?.hdr ? 'Rec.2020 linear working data' : 'sRGB'} · Original preserved`
+                : 'Loading the full-resolution image.')
+            }
           >
-            <Minus size={13} />
-          </button>
-          <select
-            aria-label="Preview zoom"
-            disabled={!ready}
-            value={zoomValue}
-            onChange={(event) => {
-              if (event.target.value === 'fit') fit()
-              else zoom(Number(event.target.value))
-            }}
-          >
-            <option value="fit">Fit</option>
-            {!exactPreset && !view.fit && (
-              <option value="custom">{Math.round(view.scale * 100)}%</option>
+            {full.error ? (
+              <>
+                <span>Full resolution unavailable</span>
+                <button onClick={full.retry} aria-description={full.error}>
+                  Retry
+                </button>
+              </>
+            ) : fullVisible ? (
+              live.error ? (
+                <>
+                  <span>Live preview unavailable</span>
+                  <button onClick={live.retry} aria-description={live.error}>
+                    Retry live preview
+                  </button>
+                </>
+              ) : working ? (
+                'Full resolution'
+              ) : (
+                'Preparing live preview…'
+              )
+            ) : (
+              <>
+                <ProgressSpinner />
+                <span>Loading full resolution…</span>
+              </>
             )}
-            {ZOOM_STOPS.map((scale) => (
-              <option key={scale} value={scale}>
-                {scale * 100}%
-              </option>
-            ))}
-          </select>
-          <button
-            aria-label="Zoom in"
-            disabled={!ready || view.scale >= 32}
-            onClick={() => step(1)}
-          >
-            <Plus size={13} />
-          </button>
-          <button aria-label="Fit preview" title="Fit preview (0)" disabled={!ready} onClick={fit}>
-            <Maximize size={13} />
-          </button>
-        </div>
-        <div className={layout.canvasInfo}>
-          <Monitor size={12} />
-          <span>
-            {working?.hdr ? (fallback ? 'sRGB · SDR fallback' : displayTarget.colorSpace) : 'sRGB'}
           </span>
-          <span className={layout.toolbarDivider} />
-          <span>{working?.hdr && !fallback ? 'Float32' : '8-bit'}</span>
-        </div>
+        )}
       </div>
     </section>
   )

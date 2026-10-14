@@ -665,7 +665,9 @@ export function App() {
           <div className={styles.previewToolbar}>
             <div className={styles.filename}>
               <FileImage size={13} />
-              <span data-testid="preview-filename">{photo?.filename ?? 'No photo selected'}</span>
+              <span data-testid="preview-filename" title={photo?.filename}>
+                {photo?.filename ?? 'No photo selected'}
+              </span>
               <select
                 aria-label="Preview display mode"
                 value={displayTarget.requested}

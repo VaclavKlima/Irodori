@@ -49,8 +49,8 @@
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 5px;
-  max-width: 190px;
-  flex-shrink: 0;
+  max-width: 128px;
+  justify-self: end;
   color: var(--muted);
   font-size: 9px;
 }
@@ -85,8 +85,10 @@
   color: var(--text);
   padding: 6px 10px;
 }
-.toolbar {
-  gap: 8px;
+.viewControls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .zoomControls {
   display: flex;
@@ -122,9 +124,6 @@
   opacity: 0.4;
 }
 @media (max-width: 1199px) {
-  .toolbar {
-    padding: 0 10px;
-  }
   .zoomControls {
     gap: 1px;
   }

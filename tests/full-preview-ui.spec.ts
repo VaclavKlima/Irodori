@@ -1,8 +1,55 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { PREVIEW_VERSION } from '../src/main/full-previews'
 import { expect, test } from './electron.fixture'
 import { choose, expectImportComplete, importPhotos } from './import.helpers'
+
+async function openMinimumConsole(app: ElectronApplication, page: Page) {
+  const nativeWindow = await app.browserWindow(page)
+  await nativeWindow.evaluate((window) => {
+    window.unmaximize()
+    window.setContentSize(1100, 700)
+  })
+  await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
+  if ((await page.getByTestId('console-toggle').getAttribute('aria-expanded')) !== 'true')
+    await page.getByTestId('console-toggle').click()
+}
+
+async function expectCompactFooter(page: Page) {
+  await expect(async () => {
+    const [footer, metadata, controls, status] = await Promise.all(
+      ['preview-footer', 'preview-metadata', 'preview-view-controls', 'preview-resolution'].map(
+        (id) => page.getByTestId(id).boundingBox(),
+      ),
+    )
+    if (!footer || !metadata || !controls || !status)
+      throw new Error('The photo footer and all three columns must have layout bounds.')
+    expect(footer.height).toBe(48)
+    expect(footer.x).toBeGreaterThanOrEqual(0)
+    expect(footer.x + footer.width).toBeLessThanOrEqual(1100)
+    expect(footer.y + footer.height).toBeLessThanOrEqual(700)
+    expect(metadata.x + metadata.width).toBeLessThanOrEqual(controls.x - 4)
+    expect(controls.x + controls.width).toBeLessThanOrEqual(status.x - 4)
+    for (const bounds of [metadata, controls, status]) {
+      expect(bounds.y).toBeGreaterThanOrEqual(footer.y)
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(footer.y + footer.height)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(footer.x + footer.width)
+    }
+    expect(
+      await page.getByTestId('preview-footer').evaluate((e) => e.scrollWidth <= e.clientWidth),
+    ).toBe(true)
+  }).toPass()
+}
+
+async function tabToRetry(page: Page, retry: Locator) {
+  await page.getByRole('combobox', { name: 'Preview display mode' }).focus()
+  for (let step = 0; step < 24; step++) {
+    await page.keyboard.press('Tab')
+    if (await retry.evaluate((element) => element === document.activeElement)) break
+  }
+  await expect(retry).toBeFocused()
+}
 
 test('opens cached photos with only a matching blurred placeholder, including after reload', async ({
   luma,
@@ -72,6 +119,21 @@ test('shows an error without camera JPEG fallback, retries, and repairs corrupt 
 }) => {
   const { app, page } = luma
   const gate = await holdFullPreview(app)
+  const liveError = 'Working preview generation failed while preparing live adjustments. '.repeat(8)
+  const liveGate = await app.evaluateHandle(({ ipcMain }, liveError) => {
+    const handlers = (
+      ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
+    )._invokeHandlers
+    const editing = handlers.get('preview:editing')!
+    let fail = true
+    ipcMain.removeHandler('preview:editing')
+    ipcMain.handle('preview:editing', (...args) => (fail ? { error: liveError } : editing(...args)))
+    return {
+      succeed: () => {
+        fail = false
+      },
+    }
+  }, liveError)
   try {
     await gate.evaluate((control) => control.fail())
     // Inject failure without holding import completion behind a foreground preview lease.
@@ -89,6 +151,17 @@ test('shows an error without camera JPEG fallback, retries, and repairs corrupt 
       .click()
     await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-resolution', 'full')
     await expect(page.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue('fit')
+    await openMinimumConsole(app, page)
+    const status = page.getByTestId('preview-resolution')
+    await expect(status).toContainText('Live preview unavailable')
+    const retryLive = status.getByRole('button', { name: 'Retry live preview', exact: true })
+    await expect(retryLive).toHaveAccessibleDescription('Live adjustments could not be prepared.')
+    await expect(status).toHaveAttribute('title', 'Live adjustments could not be prepared.')
+    await expectCompactFooter(page)
+    await liveGate.evaluate((control) => control.succeed())
+    await tabToRetry(page, retryLive)
+    await page.keyboard.press('Enter')
+    await expect(status).toHaveText('Full resolution')
     const url = new URL((await page.getByTestId('main-preview').getAttribute('data-src'))!)
     const [id, , version, revision] = url.pathname.slice(1).split('/')
     const cacheFile = join(
@@ -127,6 +200,7 @@ test('shows an error without camera JPEG fallback, retries, and repairs corrupt 
   } finally {
     await gate.evaluate((control) => control.release())
     await gate.dispose()
+    await liveGate.dispose()
   }
 })
 
