@@ -1,3 +1,4 @@
+import { revealEditorPhoto } from './collection-ui.helpers'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { test, expect } from './electron.fixture'
 import { importPhotos } from './import.helpers'
@@ -157,7 +158,7 @@ test('ordinary clicks stay individual; cover ranges, additive ranges, deselectio
   await page.keyboard.press('Escape')
 })
 
-test('paging and a real import preserve two delayed ranges and a queued toggle; immediate Delete waits for every action', async ({
+test('scrolling and a real import preserve two delayed ranges and a queued toggle; immediate Delete waits for every action', async ({
   luma,
 }) => {
   test.setTimeout(90000)
@@ -175,18 +176,17 @@ test('paging and a real import preserve two delayed ranges and a queued toggle; 
   await card(stack.coverId).click()
   const hold = await holdRanges(app)
   try {
+    await revealEditorPhoto(page, ordered[58].id)
     await card(ordered[58].id).click({ modifiers: ['Shift'] })
     await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(1)
-    await page
-      .getByRole('navigation', { name: 'Library pages' })
-      .getByRole('button', { name: 'Next', exact: true })
-      .click()
+    await revealEditorPhoto(page, ordered.at(-1)!.id)
     await importPhotos(app, page, paths.slice(69))
     await expect
       .poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total)
       .toBe(70)
-    await expect(page.getByRole('navigation', { name: 'Library pages' })).toContainText('2 / 2')
+    await expect(page.getByTestId('editor-photo-scroll')).toBeVisible()
     const last = ordered.at(-1)!
+    await revealEditorPhoto(page, last.id)
     await card(last.id).click({ modifiers: ['Shift'] })
     await card(last.id).click({ modifiers: ['ControlOrMeta'] })
     await page.keyboard.press('Delete')
@@ -201,7 +201,7 @@ test('paging and a real import preserve two delayed ranges and a queued toggle; 
     await expect(page.getByTestId('preview-filename')).toHaveText(last.filename)
     await expect(page.getByTestId('selection-count')).toHaveText('64 selected')
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('navigation', { name: 'Library pages' })).toContainText('2 / 2')
+    await expect(page.getByTestId('editor-photo-scroll')).toBeVisible()
     expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(70)
   } finally {
     await hold.evaluate((h) => h.restore())

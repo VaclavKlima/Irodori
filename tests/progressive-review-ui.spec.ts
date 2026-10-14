@@ -1,3 +1,4 @@
+import { revealImportCandidate } from './collection-ui.helpers'
 import { writeFile } from 'node:fs/promises'
 import { expect, test } from './electron.fixture'
 import { mockImportReview } from './import-review-ui.helpers'
@@ -91,7 +92,7 @@ test('applies bulk choices to future discovery rows and flushes queued choices b
   }
 })
 
-test('requests genuinely visible thumbnails first and pages before thumbnail completion', async ({
+test('requests visible thumbnails before lookahead and scrolls before thumbnail completion', async ({
   luma,
 }, testInfo) => {
   const { app, page } = luma
@@ -102,34 +103,40 @@ test('requests genuinely visible thumbnails first and pages before thumbnail com
     await expect
       .poll(async () => (await control.evaluate((state) => state.state())).thumbnails.length)
       .toBeGreaterThan(0)
-    const first = (await control.evaluate((state) => state.state())).thumbnails[0]
+    await expect
+      .poll(async () =>
+        (await control.evaluate((state) => state.state())).thumbnails.some(
+          (request) => request.ids.length > 0,
+        ),
+      )
+      .toBe(true)
+    const first = (await control.evaluate((state) => state.state())).thumbnails.find(
+      (request) => request.ids.length > 0,
+    )!
     expect(first.ids.length).toBeGreaterThan(0)
     expect(first.ids.length).toBeLessThan(60)
-    expect(first.ids).not.toContain('candidate-60')
+    expect(first.ids[0]).toBe('candidate-0')
     const visitedAt = Date.now()
-    await page
-      .getByRole('navigation', { name: 'Import pages' })
-      .getByRole('button', { name: 'Next', exact: true })
-      .click()
+    await revealImportCandidate(page, 60, '60.jpg')
     const last = page.getByRole('checkbox', { name: 'Import 60.jpg', exact: true })
     await expect(last).toBeEnabled()
     const selectableMs = Date.now() - visitedAt
     await expect
       .poll(async () => (await control.evaluate((state) => state.state())).thumbnails.at(-1)?.ids)
-      .toEqual(['candidate-60'])
+      .toContain('candidate-60')
     await last.uncheck()
     await control.evaluate((state) => state.finish())
     await expect(page.getByRole('button', { name: 'Import 60 photos', exact: true })).toBeEnabled()
     await expect(page.getByRole('dialog').locator('img')).toHaveCount(0)
     const releasedAt = Date.now()
     await control.evaluate((state) => state.releaseThumbnails())
-    await expect(page.getByRole('dialog').locator('img')).toBeVisible()
+    await expect(page.getByRole('dialog').locator('img').first()).toBeVisible()
     await writeFile(
-      testInfo.outputPath('review-page-ui-timings.json'),
+      testInfo.outputPath('review-scroll-ui-timings.json'),
       JSON.stringify(
         {
           measurement: 'Electron UI with fixture thumbnails held behind an IPC gate',
-          newlyVisitedPageSelectableMs: selectableMs,
+          newlyVisitedWindowSelectableMs: selectableMs,
           firstThumbnailAfterGateReleaseMs: Date.now() - releasedAt,
         },
         null,
@@ -147,49 +154,29 @@ test('requests genuinely visible thumbnails first and pages before thumbnail com
   }
 })
 
-test('recovers checkbox focus when newest discoveries displace its row without changing choices or stealing other focus', async ({
+test('preserves checkbox focus and choices when discovery prepends; other controls retain focus', async ({
   luma,
 }) => {
-  const { app, page } = luma
-  const control = await mockImportReview(app, 60)
+  const { app, page } = luma,
+    control = await mockImportReview(app, 60)
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
     await page.getByRole('button', { name: 'Choose photos', exact: true }).click()
-    const displaced = page.getByRole('checkbox', { name: 'Import 59.jpg', exact: true })
-    await displaced.uncheck()
-    await displaced.focus()
-    await expect(displaced).toBeFocused()
-    await expect
-      .poll(async () => (await control.evaluate((state) => state.state())).selectedIds.length)
-      .toBe(59)
-    await control.evaluate((state) => state.prepend(1))
-    await expect(displaced).toHaveCount(0)
-    const nearest = page.getByRole('checkbox', { name: 'Import 58.jpg', exact: true })
-    await expect(nearest).toBeFocused()
-    await expect(nearest).toBeChecked()
-    const selected = (await control.evaluate((state) => state.state())).selectedIds
-    expect(selected).toHaveLength(60)
-    expect(selected).not.toContain('candidate-59')
-    // Space still adjusts the focused photograph; Tab then reaches paging naturally.
+    await revealImportCandidate(page, 59, '59.jpg')
+    const chosen = page.getByRole('checkbox', { name: 'Import 59.jpg', exact: true })
+    await chosen.uncheck()
+    await chosen.focus()
+    await control.evaluate((s) => s.prepend(1))
+    await expect(chosen).not.toBeChecked()
+    await expect(chosen).toBeFocused()
     await page.keyboard.press('Space')
-    await expect(nearest).not.toBeChecked()
-    await page.keyboard.press('Tab')
-    const pages = page.getByRole('navigation', { name: 'Import pages' })
-    await expect(pages.getByRole('button', { name: 'Next', exact: true })).toBeFocused()
-    await page.keyboard.press('Space')
-    await expect(displaced).not.toBeChecked()
-    await pages.getByRole('button', { name: 'Previous', exact: true }).click()
-    await expect(nearest).not.toBeChecked()
-    const otherControl = page.getByRole('button', { name: 'Select all', exact: true })
-    await otherControl.focus()
-    await control.evaluate((state) => state.prepend(1))
-    await expect(page.getByRole('checkbox', { name: 'Import 61.jpg', exact: true })).toBeChecked()
-    await expect(otherControl).toBeFocused()
-    const finalSelection = (await control.evaluate((state) => state.state())).selectedIds
-    expect(finalSelection).toHaveLength(60)
-    expect(finalSelection).not.toContain('candidate-59')
-    expect(finalSelection).not.toContain('candidate-58')
+    await expect(chosen).toBeChecked()
+    const other = page.getByRole('button', { name: 'Select all', exact: true })
+    await other.focus()
+    await control.evaluate((s) => s.prepend(1))
+    await expect(other).toBeFocused()
+    await expect(page.getByTestId('import-status')).toContainText('62 found')
   } finally {
-    await control.evaluate((state) => state.releaseAll())
+    await control.evaluate((s) => s.releaseAll())
   }
 })

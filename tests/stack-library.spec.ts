@@ -125,7 +125,7 @@ test('merge relationships union complete stacks and backfill once, with newest c
     t.library.ungroupStack(stack.id, changed.revision)
     await t.restart()
     expect(t.library.listStacks().stacks).toEqual([])
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 })
+    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 })
   } finally {
     await t.close()
   }
@@ -212,9 +212,10 @@ test('removal recovery repairs membership atomically and preserves OS-restored b
   }
 })
 
-test('gallery pagination, hidden boundaries and flat selection remain distinct', async () => {
+test('gallery chunk windows, hidden boundaries and individual selection remain distinct', async () => {
   const t = await stackFixture(5)
   try {
+    await t.restart()
     const ids = t.photos.map((p) => p.id)
     const stack = t.library.groupPhotos(ids.slice(0, 3), ids[2], t.library.listStacks().revision)
     const gallery = t.library.listGallery(0, [ids[0], ids[4]])
@@ -237,7 +238,9 @@ test('gallery pagination, hidden boundaries and flat selection remain distinct',
       ids[0],
       ids[1],
     ])
-    expect(t.library.range(ids[0], ids[4])).toHaveLength(5)
+    expect(t.library.getBrowseRange({ search: '', grouping: 'date' }, ids[0], ids[4])).toHaveLength(
+      5,
+    )
   } finally {
     await t.close()
   }

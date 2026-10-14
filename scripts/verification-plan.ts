@@ -14,6 +14,11 @@ interface Suite {
   family?: BenchmarkFamily
 }
 const definitions: Suite[] = [
+  { file: 'continuous-scroll-model', group: 'node', scopes: ['library', 'ui'] },
+  { file: 'continuous-scroll-context', group: 'service', scopes: ['library'] },
+  { file: 'workspace-recovery', group: 'service', scopes: ['library'] },
+  { file: 'continuous-scroll-ui', group: 'electron', scopes: ['library', 'ui'] },
+  { file: 'workspace-recovery-ui', group: 'electron', scopes: ['library', 'ui'] },
   { file: 'work-scheduler', group: 'node', scopes: ['library', 'preview'] },
   { file: 'import-pipeline', group: 'service', scopes: ['library'] },
   { file: 'import-preparation-raw', group: 'raw-gpu', scopes: ['library'] },

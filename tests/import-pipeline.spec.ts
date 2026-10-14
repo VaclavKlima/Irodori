@@ -1,5 +1,16 @@
+import type { PreviewProcess } from '../src/main/preview-process'
 import { expect, test } from '@playwright/test'
-import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  realpath,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { PhotoLibrary } from '../src/main/library'
@@ -27,8 +38,9 @@ async function setup(
   transfer = copyOriginal,
   options: ImportPipelineOptions = {},
   trash?: (path: string) => Promise<void>,
+  capture?: Pick<PreviewProcess, 'inspectCapture' | 'close'>,
 ) {
-  const root = await mkdtemp(join(tmpdir(), 'luma-pipeline-'))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'luma-pipeline-')))
   const library = new PhotoLibrary(
     join(root, 'library'),
     processor,
@@ -42,7 +54,7 @@ async function setup(
     undefined,
     undefined,
     undefined,
-    undefined,
+    capture,
     undefined,
     undefined,
     options,
@@ -471,11 +483,23 @@ test('merge inspection, computation and publication run during accepted import; 
     computing = gate(),
     renderStarted = gate()
   const f = await syntheticMerge([1, 1])
-  const t = await setup({ process: async () => result, close: async () => {} }, async (...args) => {
-    entered.release()
-    await held.promise
-    return copyOriginal(...args)
-  })
+  const t = await setup(
+    { process: async () => result, close: async () => {} },
+    async (...args) => {
+      entered.release()
+      await held.promise
+      return copyOriginal(...args)
+    },
+    {},
+    undefined,
+    {
+      inspectCapture: async (_path, signal) => {
+        signal.throwIfAborted()
+        return { version: 2, format: 'ARW' }
+      },
+      close: async () => {},
+    },
+  )
   try {
     const db = new DatabaseSync(join(t.root, 'library', 'catalog.sqlite'))
     for (const source of f.sources) {

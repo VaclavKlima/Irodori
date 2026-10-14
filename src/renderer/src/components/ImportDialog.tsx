@@ -1,59 +1,18 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Check, FileImage, FolderOpen, HardDrive, Images, RefreshCw, X } from 'lucide-react'
+import { CollectionRefresh } from '../collections/controller'
+import { ImportCandidates } from './ImportCandidates'
 import {
-  PAGE_SIZE,
+  applyReviewSelection as applySelection,
+  type SelectionChange,
+} from '../collections/import-selection'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Check, FolderOpen, HardDrive, Images, RefreshCw, X } from 'lucide-react'
+import {
   type ImportCandidate,
-  type ImportReview,
+  type ImportReviewSummary,
   type ImportVerificationMode,
 } from '../../../shared/contracts'
 import type { ImportDevice } from '../../../shared/import-devices'
 import styles from '../App.module.css'
-
-interface SelectionChange {
-  version: number
-  ids: string[] | null
-  selected: boolean
-  previous: boolean
-  bytes: number
-}
-
-function applySelection(review: ImportReview, changes: SelectionChange[]): ImportReview {
-  let current = review
-  for (const change of changes) {
-    if (change.version <= review.selectionRevision) continue
-    const eligible = (candidate: ImportCandidate) =>
-      (candidate.status === 'unchecked' || candidate.status === 'ready') &&
-      !(current.onlyMissing && candidate.alreadyImported)
-    const visible = change.ids && current.candidates.find((item) => item.id === change.ids![0])
-    if (visible && !eligible(visible)) continue
-    const candidates = current.candidates.map((candidate) =>
-      eligible(candidate) && (change.ids === null || change.ids.includes(candidate.id))
-        ? { ...candidate, selected: change.selected }
-        : candidate,
-    )
-    const previous = visible ? visible.selected : change.previous
-    current = {
-      ...current,
-      candidates,
-      selected:
-        change.ids === null
-          ? change.selected
-            ? current.unchecked +
-              current.ready -
-              (current.onlyMissing ? current.alreadyImported : 0)
-            : 0
-          : current.selected + (change.selected === previous ? 0 : change.selected ? 1 : -1),
-      selectedBytes:
-        change.ids === null
-          ? change.selected
-            ? current.totalBytes - (current.onlyMissing ? current.alreadyImportedBytes : 0)
-            : 0
-          : current.selectedBytes +
-            (change.selected === previous ? 0 : change.selected ? change.bytes : -change.bytes),
-    }
-  }
-  return current
-}
 
 export function ImportDialog({
   onClose,
@@ -63,21 +22,15 @@ export function ImportDialog({
   onStarted: (sessionId: string) => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
-  const grid = useRef<HTMLDivElement>(null)
-  const candidateFocusRecovery = useRef<{
-    sessionId: string
-    element: HTMLInputElement
-    index: number
-  } | null>(null)
   const activeSession = useRef<string | null>(null)
   const selectionQueue = useRef<Promise<void>>(Promise.resolve())
   const selectionChanges = useRef<SelectionChange[]>([])
+  const [optimisticChanges, setOptimisticChanges] = useState<SelectionChange[]>([])
   const selectionVersion = useRef(0)
   const selectionError = useRef(false)
   const reviewEpoch = useRef(0)
   const [sessionId, setSessionId] = useState<string | null>(null)
-  const [review, setReview] = useState<ImportReview | null>(null)
-  const [offset, setOffset] = useState(0)
+  const [review, setReview] = useState<ImportReviewSummary | null>(null)
   const [recursive, setRecursive] = useState(true)
   const [tab, setTab] = useState<'files' | 'device'>('files')
   const [devices, setDevices] = useState<ImportDevice[]>([])
@@ -96,6 +49,7 @@ export function ImportDialog({
   const focusTabAfterSwitch = useRef<'files' | 'device' | null>(null)
   const [pending, setPending] = useState(false)
   const operationsPending = useRef(false)
+  const refreshingOperation = useRef(false)
   const [error, setError] = useState('')
   const [refreshVersion, setRefreshVersion] = useState(0)
   const scanning = review?.phase === 'scanning'
@@ -162,123 +116,43 @@ export function ImportDialog({
     }
   }, [tab, refreshDevices])
 
+  const [reviewRefresh] = useState(() => new CollectionRefresh(async () => {}))
+  useLayoutEffect(() => {
+    reviewRefresh.resume()
+    reviewRefresh.setWork(async () => {
+      const id = activeSession.current
+      if (!id || (operationsPending.current && !refreshingOperation.current)) return
+      const epoch = reviewEpoch.current
+      try {
+        const value = await window.luma.getReviewSummary(id)
+        if (
+          epoch !== reviewEpoch.current ||
+          (operationsPending.current && !refreshingOperation.current) ||
+          activeSession.current !== id
+        )
+          return
+        selectionVersion.current = Math.max(selectionVersion.current, value.selectionRevision)
+        setReview(applySelection(value, selectionChanges.current))
+      } catch (failure) {
+        if (
+          activeSession.current === id &&
+          (!operationsPending.current || refreshingOperation.current)
+        )
+          setError(String(failure))
+        if (refreshingOperation.current) throw failure
+      }
+    })
+  }, [reviewRefresh])
   useEffect(() => {
     if (!sessionId || pending) return
-    let active = true
-    let running = false
-    let queued = false
-    const update = async () => {
-      if (operationsPending.current) return
-      if (running) {
-        queued = true
-        return
-      }
-      running = true
-      do {
-        queued = false
-        try {
-          const epoch = reviewEpoch.current
-          const value = await window.luma.getReview(sessionId, offset)
-          if (
-            active &&
-            epoch === reviewEpoch.current &&
-            !operationsPending.current &&
-            activeSession.current === sessionId
-          ) {
-            const focused = document.activeElement
-            if (
-              focused instanceof HTMLInputElement &&
-              focused.type === 'checkbox' &&
-              grid.current?.contains(focused)
-            ) {
-              const id = focused.closest<HTMLElement>('[data-candidate-id]')?.dataset.candidateId
-              candidateFocusRecovery.current = value.candidates.some((item) => item.id === id)
-                ? null
-                : {
-                    sessionId,
-                    element: focused,
-                    index: [...grid.current.querySelectorAll('input[type="checkbox"]')].indexOf(
-                      focused,
-                    ),
-                  }
-            } else candidateFocusRecovery.current = null
-            selectionVersion.current = Math.max(selectionVersion.current, value.selectionRevision)
-            setReview(applySelection(value, selectionChanges.current))
-          }
-        } catch (failure) {
-          if (active && !operationsPending.current) setError(String(failure))
-        }
-      } while (active && queued && !operationsPending.current)
-      running = false
-    }
-    void update()
-    const unsubscribe = window.luma.onLibraryEvent((event) => {
-      if (event.sessionId === sessionId) void update()
+    void reviewRefresh.request()
+    return window.luma.onLibraryEvent((event) => {
+      if (event.sessionId === sessionId) void reviewRefresh.request()
     })
-    return () => {
-      active = false
-      unsubscribe()
-    }
-  }, [sessionId, offset, refreshVersion, pending])
+  }, [sessionId, pending, refreshVersion, reviewRefresh])
+  useLayoutEffect(() => () => reviewRefresh.close(), [reviewRefresh])
 
-  const candidateIds = review?.candidates.map((item) => item.id).join(',') ?? ''
-  useLayoutEffect(() => {
-    const recovery = candidateFocusRecovery.current
-    candidateFocusRecovery.current = null
-    if (
-      !recovery ||
-      recovery.sessionId !== sessionId ||
-      recovery.element.isConnected ||
-      (document.activeElement !== document.body && document.activeElement !== dialog.current)
-    )
-      return
-    const candidates = grid.current?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
-    let nearest: HTMLInputElement | undefined
-    let distance = Infinity
-    for (const [index, candidate] of Array.from(candidates ?? []).entries()) {
-      const candidateDistance = Math.abs(index - recovery.index)
-      if (!candidate.disabled && candidateDistance < distance) {
-        nearest = candidate
-        distance = candidateDistance
-      }
-    }
-    nearest?.focus({ preventScroll: true })
-  }, [candidateIds, sessionId])
-  const thumbnailsActive = !!review && !review.sourceError && !terminal && !importing && !pending
-  useEffect(() => {
-    const root = grid.current
-    if (!root || !sessionId || !thumbnailsActive) return
-    let frame = 0
-    let active = true
-    let visible: string[] = []
-    const request = () => {
-      frame = 0
-      if (!active || operationsPending.current) return
-      void window.luma.requestReviewThumbnails(sessionId, visible).catch((failure) => {
-        if (active) setError(String(failure))
-      })
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entered: string[] = []
-        for (const entry of entries) {
-          const id = (entry.target as HTMLElement).dataset.candidateId!
-          visible = visible.filter((item) => item !== id)
-          if (entry.isIntersecting) entered.push(id)
-        }
-        // Newly visible photographs take priority over work remaining from the old view.
-        visible = [...entered, ...visible]
-        if (!frame) frame = window.requestAnimationFrame(request)
-      },
-      { root, threshold: 0 },
-    )
-    root.querySelectorAll('[data-candidate-id]').forEach((element) => observer.observe(element))
-    return () => {
-      active = false
-      observer.disconnect()
-      window.cancelAnimationFrame(frame)
-    }
-  }, [sessionId, candidateIds, thumbnailsActive, review?.checkingPrevious])
+  const refreshReview = useCallback(() => setRefreshVersion((value) => value + 1), [])
 
   async function action(work: () => Promise<void>) {
     operationsPending.current = true
@@ -296,12 +170,11 @@ export function ImportDialog({
 
   function resetReview() {
     reviewEpoch.current++
-    candidateFocusRecovery.current = null
     activeSession.current = null
     setSessionId(null)
     setReview(null)
-    setOffset(0)
     selectionChanges.current = []
+    setOptimisticChanges([])
     selectionVersion.current = 0
     selectionError.current = false
   }
@@ -319,7 +192,6 @@ export function ImportDialog({
   function openReview(id: string) {
     activeSession.current = id
     setSessionId(id)
-    setOffset(0)
   }
 
   function choose(kind: 'files' | 'folder') {
@@ -350,22 +222,24 @@ export function ImportDialog({
     })
   }
 
+  async function refreshOperation() {
+    refreshingOperation.current = true
+    try {
+      await reviewRefresh.request()
+    } finally {
+      refreshingOperation.current = false
+    }
+  }
   function changeOnlyMissing(enabled: boolean) {
     const id = activeSession.current
-    if (!id || operationsPending.current) return
+    if (!id || (operationsPending.current && !refreshingOperation.current)) return
     reviewEpoch.current++
     restoreMissingFocus.current = document.activeElement === missingOption.current
     void action(async () => {
       await selectionQueue.current
       await window.luma.setImportOnlyMissing(id, enabled)
       setOnlyMissing(enabled)
-      const value = await window.luma.getReview(id, offset)
-      if (activeSession.current !== id) return
-      selectionVersion.current = value.selectionRevision
-      selectionChanges.current = selectionChanges.current.filter(
-        (change) => change.version > value.selectionRevision,
-      )
-      setReview(applySelection(value, selectionChanges.current))
+      await refreshOperation()
     })
   }
 
@@ -382,13 +256,7 @@ export function ImportDialog({
       await selectionQueue.current
       await window.luma.setImportVerificationMode(id, mode)
       setVerificationMode(mode)
-      const value = await window.luma.getReview(id, offset)
-      if (activeSession.current !== id) return
-      selectionVersion.current = value.selectionRevision
-      selectionChanges.current = selectionChanges.current.filter(
-        (change) => change.version > value.selectionRevision,
-      )
-      setReview(applySelection(value, selectionChanges.current))
+      await refreshOperation()
     })
   }
 
@@ -428,6 +296,7 @@ export function ImportDialog({
       bytes: candidate?.bytes ?? 0,
     }
     selectionChanges.current.push(change)
+    setOptimisticChanges([...selectionChanges.current])
     setReview((current) => (current ? applySelection(current, [change]) : current))
     selectionQueue.current = selectionQueue.current.then(async () => {
       try {
@@ -642,6 +511,17 @@ export function ImportDialog({
       {(error || review?.sourceError) && (
         <p className={styles.errorBanner} role="alert">
           {error || review?.sourceError}
+          {error && sessionId && !review?.sourceError && (
+            <button
+              disabled={pending}
+              onClick={() => {
+                setError('')
+                void reviewRefresh.request()
+              }}
+            >
+              Retry review
+            </button>
+          )}
         </p>
       )}
       {tab === 'device' && deviceError && (
@@ -697,90 +577,16 @@ export function ImportDialog({
               {review.selected} selected · {formatBytes(review.selectedBytes)}
             </span>
           </div>
-          <div
-            ref={grid}
-            className={styles.importGrid}
-            aria-label="Import candidates"
-            onBlurCapture={(event) => {
-              if (event.target === candidateFocusRecovery.current?.element)
-                candidateFocusRecovery.current = null
-            }}
-          >
-            {review.candidates.map((candidate) => (
-              <label
-                key={candidate.id}
-                data-candidate-id={candidate.id}
-                className={`${styles.importCard} ${candidate.selected ? styles.importSelected : ''}`}
-                title={candidate.relativePath}
-              >
-                <div className={styles.importThumbnail}>
-                  {candidate.thumbnailUrl ? (
-                    <img src={candidate.thumbnailUrl} alt="" loading="lazy" />
-                  ) : (
-                    <FileImage size={30} strokeWidth={1} />
-                  )}
-                  <input
-                    type="checkbox"
-                    aria-label={`Import ${candidate.filename}`}
-                    aria-describedby={
-                      candidate.alreadyImported ? `import-candidate-${candidate.id}` : undefined
-                    }
-                    checked={candidate.selected}
-                    disabled={
-                      selectionDisabled ||
-                      (review.onlyMissing && candidate.alreadyImported) ||
-                      (candidate.status !== 'unchecked' && candidate.status !== 'ready')
-                    }
-                    onChange={(event) => select([candidate.id], event.target.checked, candidate)}
-                  />
-                </div>
-                <strong>{candidate.filename}</strong>
-                <span id={`import-candidate-${candidate.id}`}>
-                  {candidate.alreadyImported
-                    ? 'Already in library'
-                    : (candidate.message ??
-                      (candidate.status === 'imported'
-                        ? 'Imported'
-                        : candidate.thumbnailState === 'loading'
-                          ? 'Loading thumbnail…'
-                          : candidate.thumbnailState === 'error'
-                            ? 'Thumbnail unavailable'
-                            : formatBytes(candidate.bytes)))}
-                </span>
-              </label>
-            ))}
-            {!review.total && !scanning && (
-              <p className={styles.importEmpty}>
-                No supported photographs found.
-                {tab === 'device' && !searchEntire ? ' Try Search entire device.' : ''}
-              </p>
-            )}
-          </div>
-          {review.total > PAGE_SIZE && (
-            <nav className={styles.pageControls} aria-label="Import pages">
-              <button
-                disabled={offset === 0}
-                onClick={() => {
-                  grid.current?.scrollTo(0, 0)
-                  setOffset(offset - PAGE_SIZE)
-                }}
-              >
-                Previous
-              </button>
-              <span>
-                {Math.floor(offset / PAGE_SIZE) + 1} / {Math.ceil(review.total / PAGE_SIZE)}
-              </span>
-              <button
-                disabled={offset + PAGE_SIZE >= review.total}
-                onClick={() => {
-                  grid.current?.scrollTo(0, 0)
-                  setOffset(offset + PAGE_SIZE)
-                }}
-              >
-                Next
-              </button>
-            </nav>
-          )}
+          <ImportCandidates
+            key={review.sessionId}
+            review={review}
+            changes={optimisticChanges}
+            disabled={selectionDisabled}
+            active={!review.sourceError && !terminal && !importing && !pending}
+            onSelect={select}
+            onRefresh={refreshReview}
+            emptyHint={tab === 'device' && !searchEntire ? 'Try Search entire device.' : ''}
+          />
         </>
       ) : tab === 'device' && !deviceId ? (
         <div className={styles.importDeviceList} aria-label="Mounted import devices">

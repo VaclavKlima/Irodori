@@ -227,7 +227,7 @@ test('migrates v1 and reconciles interrupted removals without erasing OS-restore
       )
       const check = new DatabaseSync(join(library, 'catalog.sqlite'))
       expect(check.prepare('SELECT * FROM removals').all()).toEqual([])
-      expect(check.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 })
+      expect(check.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 })
       check.close()
     } finally {
       await recovered.close()

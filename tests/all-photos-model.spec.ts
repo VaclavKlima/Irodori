@@ -138,7 +138,7 @@ test('responsive columns include precisely two overscan rows on each side of a m
   expect(firstVisibleBrowseIndex(layout, scroll)).toBe(firstVisibleRow * layout.columns)
 })
 
-test('virtualized rendering stays within 240 records across a hundred thousand photos and wide or tall viewports', () => {
+test('virtualized rendering preserves card size across a hundred thousand photos and wide or tall viewports', () => {
   const summary = sections([100000])
   for (const [width, viewportHeight] of [
     [380, 500],
@@ -156,7 +156,10 @@ test('virtualized rendering stays within 240 records across a hundred thousand p
         (row) => row.kind === 'photos',
       )
       const records = rows.reduce((count, row) => count + row.count, 0)
-      expect(records, `${width} × ${viewportHeight} at ${fraction}`).toBeLessThanOrEqual(240)
+      expect(layout.rowHeight).toBe(BROWSE_ROW_HEIGHT)
+      expect(records, `${width} × ${viewportHeight} at ${fraction}`).toBeLessThanOrEqual(
+        (Math.ceil(viewportHeight / BROWSE_ROW_HEIGHT) + 2 * BROWSE_OVERSCAN + 1) * layout.columns,
+      )
       expect(records).toBeGreaterThan(0)
       for (const row of rows) {
         expect(row.start).toBeGreaterThanOrEqual(0)
@@ -168,7 +171,7 @@ test('virtualized rendering stays within 240 records across a hundred thousand p
           Array.from({ length: row.count }, (_, index) => Math.floor((row.start + index) / 60)),
         ),
       )
-      expect(chunks.size).toBeLessThanOrEqual(5)
+      expect(chunks.size).toBeLessThanOrEqual(Math.ceil(records / 60) + 1)
     }
   }
 })

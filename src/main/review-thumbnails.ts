@@ -7,6 +7,7 @@ export interface ReviewThumbnailInput {
   id: string
   path: string
   output: string
+  priority?: number
 }
 
 export interface ReviewThumbnailState {
@@ -43,8 +44,21 @@ export class ReviewThumbnails {
     for (const id of previous.keys())
       if (!this.visible.has(id) && !this.completed.has(id)) this.onState(id, { state: 'idle' })
     for (const active of [this.lightActive, this.fallbackActive])
-      if (active && !this.visible.has(active.input.id)) active.abort.abort()
-    this.fallbackQueue = this.fallbackQueue.filter((input) => this.visible.has(input.id))
+      if (
+        active &&
+        (!this.visible.has(active.input.id) ||
+          ((this.visible.get(active.input.id)?.priority ?? 0) > 0 &&
+            inputs.some((i) => (i.priority ?? 0) === 0 && !this.completed.has(i.id))))
+      )
+        active.abort.abort()
+    this.fallbackQueue = this.fallbackQueue
+      .filter((input) => this.visible.has(input.id))
+      .map((input) => this.visible.get(input.id)!)
+      .sort(
+        (a, b) =>
+          (a.priority ?? 0) - (b.priority ?? 0) ||
+          Number(previous.has(a.id)) - Number(previous.has(b.id)),
+      )
     const awaitingFallback = new Set(this.fallbackQueue.map((input) => input.id))
     // Even an aborted fallback retains its output until its worker has exited.
     if (this.fallbackActive) awaitingFallback.add(this.fallbackActive.input.id)
@@ -59,7 +73,11 @@ export class ReviewThumbnails {
           !awaitingFallback.has(input.id) &&
           input.id !== activeLight,
       )
-      .sort((a, b) => Number(previous.has(a.id)) - Number(previous.has(b.id)))
+      .sort(
+        (a, b) =>
+          (a.priority ?? 0) - (b.priority ?? 0) ||
+          Number(previous.has(a.id)) - Number(previous.has(b.id)),
+      )
     this.pumpLight()
     this.pumpFallback()
   }

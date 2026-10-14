@@ -1,8 +1,9 @@
+import { COLLECTION_OVERSCAN, type CollectionLayout } from '../collections/layout'
 import type { BrowseSection } from '../../../shared/browse'
 
 export const BROWSE_ROW_HEIGHT = 190
 export const BROWSE_HEADER_HEIGHT = 42
-export const BROWSE_OVERSCAN = 2
+export const BROWSE_OVERSCAN = COLLECTION_OVERSCAN
 export interface BrowseLayoutSection {
   section: BrowseSection
   top: number
@@ -26,11 +27,8 @@ export function createBrowseLayout(
   collapsed: ReadonlySet<string> = new Set(),
 ): BrowseLayout {
   const columns = Math.min(12, Math.max(1, Math.floor((width - 32 + 12) / (168 + 12))))
-  // At most 240 records with overscan leaves room for boundaries in a five-chunk cache.
-  const rowHeight = Math.max(
-    BROWSE_ROW_HEIGHT,
-    Math.ceil(viewportHeight / Math.max(1, Math.floor(240 / columns) - (2 * BROWSE_OVERSCAN + 1))),
-  )
+  const rowHeight = BROWSE_ROW_HEIGHT
+  void viewportHeight
   let height = 0
   const laidOut = sections.map((section) => {
     const top = height,
@@ -44,9 +42,10 @@ export function visibleBrowseRows(
   layout: BrowseLayout,
   scrollTop: number,
   height: number,
+  overscan = BROWSE_OVERSCAN,
 ): BrowseRow[] {
-  const from = Math.max(0, scrollTop - BROWSE_OVERSCAN * layout.rowHeight)
-  const to = scrollTop + height + BROWSE_OVERSCAN * layout.rowHeight
+  const from = Math.max(0, scrollTop - overscan * layout.rowHeight)
+  const to = scrollTop + height + overscan * layout.rowHeight
   const result: BrowseRow[] = []
   for (const { section, top, bottom, rows } of layout.sections) {
     if (bottom < from || top > to) continue
@@ -119,4 +118,18 @@ export function browseNavigableIndex(
     .find(({ section }) => section.offset + section.count - 1 < index)
   if (previous) return previous.section.offset + previous.section.count - 1
   return expanded[0].section.offset
+}
+
+export function browseCollectionLayout(layout: BrowseLayout): CollectionLayout {
+  return {
+    height: layout.height,
+    rowHeight: layout.rowHeight,
+    columns: layout.columns,
+    top: (index) => browseIndexTop(layout, index),
+    first: (top) => firstVisibleBrowseIndex(layout, top),
+    indices: (top, height, overscan) =>
+      visibleBrowseRows(layout, top, height, overscan).flatMap((row) =>
+        row.kind === 'photos' ? Array.from({ length: row.count }, (_, i) => row.start + i) : [],
+      ),
+  }
 }

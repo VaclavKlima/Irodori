@@ -155,11 +155,15 @@ test('selects a complete unloaded section and keeps rendering, thumbnail loading
     const mounted = await grid(page).locator('[data-testid^="browse-photo-"]').count()
     expect(mounted).toBeGreaterThan(0)
     expect(mounted).toBeLessThanOrEqual(45)
-    expect(await grid(page).locator('img').count()).toBe(mounted)
+    await expect.poll(() => grid(page).locator('img').count()).toBe(mounted)
     const cached = Number(await grid(page).getAttribute('data-cache-photos'))
     expect(cached).toBeGreaterThanOrEqual(mounted)
-    expect(cached).toBeLessThanOrEqual(300)
-    expect(Number(await grid(page).getAttribute('data-cache-chunks'))).toBeLessThanOrEqual(5)
+    expect(cached).toBeLessThanOrEqual(
+      (await page.evaluate(() => window.luma.getCollectionPolicy())).records,
+    )
+    expect(Number(await grid(page).getAttribute('data-cache-chunks'))).toBeLessThanOrEqual(
+      Math.ceil((await page.evaluate(() => window.luma.getCollectionPolicy())).records / 60),
+    )
   }
   await grid(page).focus()
   await page.keyboard.press('End')
@@ -418,7 +422,7 @@ test('a completed background merge keeps browsing and shared selection until Ope
     await expect(workspace(page, 'Editor')).toHaveAttribute('aria-current', 'page')
     await expect(page.getByTestId('all-photos')).toBeHidden()
     await expect(page.getByTestId('preview-filename')).toHaveText(photos[2].filename)
-    await expect(page.getByTestId('task-details')).toHaveCount(0)
+    await expect(page.getByTestId('task-details')).not.toBeVisible()
     await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-resolution', 'full')
   } finally {
     await fixture.evaluate((control) => control.restore())
@@ -788,8 +792,12 @@ test('nearby expanded groups resolve across six source windows with a bounded ca
     for (const photo of genuine) await expect(browserCard(page, photo.id)).toHaveCount(1)
     const requested = await fixture.evaluate((control) => control.requests)
     for (const offset of [60, 120, 180, 240, 300, 360]) expect(requested).toContain(offset)
-    expect(Number(await grid(page).getAttribute('data-cache-photos'))).toBeLessThanOrEqual(300)
-    expect(Number(await grid(page).getAttribute('data-cache-chunks'))).toBeLessThanOrEqual(5)
+    expect(Number(await grid(page).getAttribute('data-cache-photos'))).toBeLessThanOrEqual(
+      (await page.evaluate(() => window.luma.getCollectionPolicy())).records,
+    )
+    expect(Number(await grid(page).getAttribute('data-cache-chunks'))).toBeLessThanOrEqual(
+      Math.ceil((await page.evaluate(() => window.luma.getCollectionPolicy())).records / 60),
+    )
 
     await page.getByRole('button', { name: 'Clear selection', exact: true }).click()
     await expect(browseCount(page)).toHaveText('372 matching · 0 selected')

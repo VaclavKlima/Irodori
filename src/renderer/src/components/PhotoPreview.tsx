@@ -1,3 +1,4 @@
+import type { PreviewViewState } from '../../../shared/workspace'
 import { useHdrAnalysis } from '../hooks/useHdrAnalysis'
 import { SDR_TARGET } from '../../../shared/hdr'
 import type { DisplayTarget } from '../../../shared/hdr'
@@ -24,6 +25,8 @@ import { ChevronLeft, ChevronRight, FileImage, Maximize, Minus, Plus } from 'luc
 import type { Photo } from '../../../shared/contracts'
 import {
   constrain,
+  savedView,
+  restoreView,
   INITIAL_VIEW,
   minimumScale,
   replaceDimensions,
@@ -50,6 +53,8 @@ interface Model {
 }
 interface Props {
   suspended?: boolean
+  initialView?: PreviewViewState | null
+  onViewChange?: (view: PreviewViewState) => void
   displayTarget: DisplayTarget
   tools: PreviewTools
   gesturing: boolean
@@ -67,6 +72,8 @@ interface Props {
 // The parent keys this component by photo ID so every new photograph starts in Fit.
 export function PhotoPreview({
   suspended = false,
+  initialView = null,
+  onViewChange,
   displayTarget,
   photo,
   adjustments,
@@ -80,6 +87,7 @@ export function PhotoPreview({
   onImport,
   onContextMenu,
 }: Props) {
+  const recoveryView = useRef(initialView)
   const initialTarget = useRef(displayTarget)
   const overlay = useRef<HTMLCanvasElement>(null)
   const divider = useRef<HTMLDivElement>(null)
@@ -359,10 +367,12 @@ export function PhotoPreview({
       if (next === current.current) return
       next.view = constrain(next.view, next.image, next.viewport)
       current.current = next
+      if (next.loaded && next.viewport.width > 0 && !recoveryView.current && photo?.id)
+        onViewChange?.(savedView(photo.id, next.view, next.image))
       if (immediate) setModel(next)
       schedule()
     },
-    [schedule],
+    [schedule, photo, onViewChange],
   )
   const ready = Boolean(
     !suspended &&
@@ -444,7 +454,20 @@ export function PhotoPreview({
       change((model) => ({
         ...model,
         viewport: { width: entry.contentRect.width, height: entry.contentRect.height },
+        ...(model.loaded && recoveryView.current
+          ? {
+              view: restoreView(recoveryView.current, model.image, {
+                width: entry.contentRect.width,
+                height: entry.contentRect.height,
+              }),
+            }
+          : {}),
       }))
+      if (current.current.loaded && recoveryView.current) {
+        recoveryView.current = null
+        if (photo?.id)
+          onViewChange?.(savedView(photo.id, current.current.view, current.current.image))
+      }
     })
     observer.observe(element)
     window.addEventListener('blur', stopDrag)
@@ -452,7 +475,7 @@ export function PhotoPreview({
       observer.disconnect()
       window.removeEventListener('blur', stopDrag)
     }
-  }, [change, stopDrag, suspended])
+  }, [change, stopDrag, suspended, photo, onViewChange])
 
   const { preview: renderedFrame, pixels, displayFailed } = full
   useEffect(() => {
@@ -518,8 +541,14 @@ export function PhotoPreview({
         ...model,
         loaded: true,
         image: dimensions,
-        view: replaceDimensions(model.view, model.image, dimensions, model.viewport),
+        view: recoveryView.current
+          ? restoreView(recoveryView.current, dimensions, model.viewport)
+          : replaceDimensions(model.view, model.image, dimensions, model.viewport),
       }))
+      if (current.current.viewport.width > 0) {
+        recoveryView.current = null
+        if (photo?.id) onViewChange?.(savedView(photo.id, current.current.view, dimensions))
+      }
     } catch {
       if (!fallback) setFallback(true)
       else displayFailed()
@@ -533,6 +562,8 @@ export function PhotoPreview({
     generation,
     editingSurface,
     suspended,
+    photo,
+    onViewChange,
   ])
 
   useEffect(() => {

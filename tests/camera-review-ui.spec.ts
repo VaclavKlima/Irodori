@@ -1,3 +1,4 @@
+import { revealImportCandidate } from './collection-ui.helpers'
 import { expect } from '@playwright/test'
 import { test } from './electron.fixture'
 import { mockImportReview } from './import-review-ui.helpers'
@@ -38,7 +39,7 @@ test('defaults to Fast, retains policy across device changes and restarts, and r
   }
 })
 
-test('awaits queued selections, preserves page, scroll and focus, disables acceptance during Full checking', async ({
+test('awaits queued selections, preserves the scroll anchor and focus, disables acceptance during Full checking', async ({
   luma,
 }) => {
   const { app, page } = luma
@@ -48,14 +49,14 @@ test('awaits queued selections, preserves page, scroll and focus, disables accep
     await page.getByRole('tab', { name: 'Import from device' }).click()
     await page.getByRole('button', { name: 'Import from Camera card', exact: true }).click()
     await control.evaluate((state) => state.finish())
-    await page.getByRole('button', { name: 'Next', exact: true }).click()
-    await expect(page.getByRole('navigation', { name: 'Import pages' })).toContainText('2 / 3')
+    await revealImportCandidate(page, 60, '62.jpg')
+    await expect(page.getByTestId('import-scroll')).toBeVisible()
     const choice = page.getByRole('checkbox', { name: 'Import 62.jpg', exact: true })
     await control.evaluate((state) => state.holdSelections())
     await choice.uncheck()
     const grid = page.getByLabel('Import candidates', { exact: true })
     await grid.evaluate((element) => {
-      element.scrollTop = 70
+      element.scrollTop += 17
     })
     const position = await grid.evaluate((element) => element.scrollTop)
     const mode = page.getByRole('combobox', { name: 'Repeat-import checks:' })
@@ -72,7 +73,7 @@ test('awaits queued selections, preserves page, scroll and focus, disables accep
     ).toBeDisabled()
     await expect(page.getByTestId('import-status')).toContainText('Checking previous import')
     await expect(choice).not.toBeChecked()
-    await expect(page.getByRole('navigation', { name: 'Import pages' })).toContainText('2 / 3')
+    await expect(page.getByTestId('import-scroll')).toBeVisible()
     expect(await grid.evaluate((element) => element.scrollTop)).toBe(position)
     await mode.selectOption('camera-fast')
     await expect(page.getByRole('checkbox', { name: 'Import 61.jpg', exact: true })).toBeDisabled()

@@ -1,3 +1,9 @@
+import { useCollection } from '../hooks/useCollection'
+import { useCollectionThumbnails } from '../hooks/useCollectionThumbnails'
+import { CollectionThumbnail } from './CollectionThumbnail'
+import { currentCollectionPolicy, CollectionRefresh } from '../collections/controller'
+import { captureAnchor, collectionWindow, locateAnchor } from '../collections/layout'
+import type { WorkspaceState } from '../../../shared/workspace'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Layers, Search } from 'lucide-react'
 import type { Photo, PhotoReference } from '../../../shared/contracts'
@@ -14,6 +20,7 @@ import {
 } from '../../../shared/browse'
 import {
   BROWSE_HEADER_HEIGHT,
+  browseCollectionLayout,
   browseIndexTop,
   browseNavigableIndex,
   createBrowseLayout,
@@ -25,7 +32,7 @@ import styles from './AllPhotos.module.css'
 interface Presentation {
   query: BrowseQuery
   summary: BrowseSummary | null
-  photos: Map<number, BrowsePhoto>
+  photos: ReadonlyMap<number, BrowsePhoto>
   generation: number
 }
 type CollapsedGroups = Record<BrowseGrouping, ReadonlySet<string>>
@@ -68,8 +75,14 @@ export function AllPhotos({
   onContextMenu,
   onImport,
   onError,
+  initialState,
+  onState,
+  covered,
 }: {
   active: boolean
+  covered: boolean
+  initialState: WorkspaceState | null
+  onState: (change: Partial<WorkspaceState>) => void
   selected: Map<string, PhotoReference>
   selection: BrowseSelectionOperations
   focusedPhoto: BrowsePhoto | null
@@ -79,10 +92,10 @@ export function AllPhotos({
   onImport: () => void
   onError: (message: string) => void
 }) {
-  const [search, setSearch] = useState('')
-  const [query, setQuery] = useState<BrowseQuery>(DEFAULT_BROWSE_QUERY)
-  const [presentation, setPresentation] = useState<Presentation>({
-    query: DEFAULT_BROWSE_QUERY,
+  const [search, setSearch] = useState(initialState?.query.search ?? '')
+  const [query, setQuery] = useState<BrowseQuery>(initialState?.query ?? DEFAULT_BROWSE_QUERY)
+  const [storedPresentation, setPresentation] = useState<Presentation>({
+    query: initialState?.query ?? DEFAULT_BROWSE_QUERY,
     summary: null,
     photos: new Map(),
     generation: 0,
@@ -91,10 +104,22 @@ export function AllPhotos({
   const [scrollTop, setScrollTop] = useState(0)
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<CollapsedGroups>(() => ({
-    date: new Set(),
-    month: new Set(),
-    year: new Set(),
+    date: new Set(initialState?.folds.date),
+    month: new Set(initialState?.folds.month),
+    year: new Set(initialState?.folds.year),
   }))
+  const staleRefresh = useRef<() => void>(() => {})
+  const collection = useCollection<BrowsePhoto>((error) => {
+    if (!isBrowseCatalogChanged(error)) return false
+    staleRefresh.current()
+    return true
+  })
+  const presentation = useMemo(
+    () => ({ ...storedPresentation, photos: collection.records }),
+    [storedPresentation, collection.records],
+  )
+  const [direction, setDirection] = useState<-1 | 1>(1)
+  const initialAnchor = useRef(initialState?.libraryAnchor ?? null)
   const [loading, setLoading] = useState(false)
   const [failure, setFailure] = useState('')
   const root = useRef<HTMLElement>(null)
@@ -139,7 +164,7 @@ export function AllPhotos({
     [layout, scrollTop, size.height],
   )
 
-  const refresh = useCallback(async function refreshCatalog(
+  const refreshCatalog = useCallback(async function refreshCatalog(
     nextQuery: BrowseQuery = queryRef.current,
     reset = false,
   ) {
@@ -150,7 +175,9 @@ export function AllPhotos({
     setLoading(true)
     setFailure('')
     try {
-      const summary = await window.luma.getBrowseSummary(nextQuery, [...previous.selected.keys()])
+      const summary = await globalThis.window.luma.getBrowseSummary(nextQuery, [
+        ...previous.selected.keys(),
+      ])
       if (ticket !== summaryTicket.current) return
       const currentView = latest.current
       const currentScroll = currentView.active
@@ -166,7 +193,12 @@ export function AllPhotos({
       )
       const first = firstVisibleBrowseIndex(oldLayout, currentScroll)
       const firstSection = oldLayout.sections.find((section) => section.bottom > currentScroll)
-      const anchor = currentView.presentation.photos.get(first)
+      const anchor = captureAnchor(
+        browseCollectionLayout(oldLayout),
+        currentScroll,
+        currentView.presentation.photos,
+        (photo) => photo.id,
+      )
       const inset = currentScroll - browseIndexTop(oldLayout, first)
       const changed =
         currentView.presentation.summary?.revision !== summary.revision ||
@@ -174,16 +206,26 @@ export function AllPhotos({
         currentView.presentation.query.grouping !== nextQuery.grouping
       let nextScroll = reset ? 0 : currentScroll
       if (anchor && !reset && changed) {
-        const location = await window.luma.locateBrowsePhoto(nextQuery, anchor.id, summary.revision)
+        const index = await locateAnchor(
+          anchor,
+          async (id) =>
+            (await globalThis.window.luma.locateBrowsePhoto(nextQuery, id, summary.revision))
+              ?.index ?? null,
+          summary.total,
+        )
         const newLayout = createBrowseLayout(
           summary.sections,
           currentView.size.width,
           currentView.size.height,
           currentView.collapsedGroups[nextQuery.grouping],
         )
-        nextScroll = location
-          ? Math.max(0, browseIndexTop(newLayout, location.index) + inset)
-          : Math.min(nextScroll, Math.max(0, newLayout.height - currentView.size.height))
+        nextScroll = Math.max(
+          0,
+          Math.min(
+            browseIndexTop(newLayout, index) + inset,
+            newLayout.height - currentView.size.height,
+          ),
+        )
       } else if (
         !reset &&
         changed &&
@@ -211,6 +253,33 @@ export function AllPhotos({
           Math.max(0, newLayout.height - currentView.size.height),
         )
       }
+      const initialRestoration = initialAnchor.current !== null
+      if (initialAnchor.current && !reset) {
+        const anchor = initialAnchor.current
+        const index = await locateAnchor(
+          anchor,
+          async (id) =>
+            (await globalThis.window.luma.locateBrowsePhoto(nextQuery, id, summary.revision))
+              ?.index ?? null,
+          summary.total,
+        )
+        const newLayout = createBrowseLayout(
+          summary.sections,
+          currentView.size.width,
+          currentView.size.height,
+          currentView.collapsedGroups[nextQuery.grouping],
+        )
+        nextScroll = Math.max(
+          0,
+          Math.min(
+            browseIndexTop(newLayout, index) + anchor.inset,
+            newLayout.height - currentView.size.height,
+          ),
+        )
+        initialAnchor.current = null
+      }
+      if (currentScroll <= 1 && !currentView.focusedPhoto && !reset && !initialRestoration)
+        nextScroll = 0
       if (ticket !== summaryTicket.current) return
       if (reset || scrollTicket === scrollRevision.current) {
         restoreScroll.current = { top: nextScroll, revision: scrollRevision.current }
@@ -236,6 +305,29 @@ export function AllPhotos({
       if (ticket === summaryTicket.current) setLoading(false)
     }
   }, [])
+  const refreshRequest = useRef({ query, reset: false })
+  const refreshReader = useRef(refreshCatalog)
+  useLayoutEffect(() => {
+    refreshReader.current = refreshCatalog
+  }, [refreshCatalog])
+  const [refreshRunner] = useState(
+    () =>
+      new CollectionRefresh(async () => {
+        const request = refreshRequest.current
+        refreshRequest.current = { ...request, reset: false }
+        await refreshReader.current(request.query, request.reset)
+      }),
+  )
+  useLayoutEffect(() => {
+    refreshRunner.resume()
+  }, [refreshRunner])
+  const refresh = useCallback(
+    (nextQuery: BrowseQuery = queryRef.current, reset = false) => {
+      refreshRequest.current = { query: nextQuery, reset: reset || refreshRequest.current.reset }
+      return refreshRunner.request()
+    },
+    [refreshRunner],
+  )
   const retryRefresh = useCallback(() => {
     if (retryTimer.current) return
     retryTimer.current = setTimeout(() => {
@@ -243,6 +335,9 @@ export function AllPhotos({
       void refresh()
     }, 30)
   }, [refresh])
+  useLayoutEffect(() => {
+    staleRefresh.current = retryRefresh
+  }, [retryRefresh])
 
   useEffect(() => {
     const current = latest.current
@@ -251,7 +346,7 @@ export function AllPhotos({
     const generation = current.presentation.generation
     const requestedPhotoId = current.focusedPhoto.id
     let cancelled = false
-    void window.luma
+    void globalThis.window.luma
       .locateBrowsePhoto(
         current.presentation.query,
         requestedPhotoId,
@@ -297,28 +392,30 @@ export function AllPhotos({
       const next = { ...queryRef.current, search }
       queryRef.current = next
       setQuery(next)
+      onState({ query: next })
       void refresh(next, true)
     }, 200)
     return () => clearTimeout(timer)
-  }, [search, refresh])
+  }, [search, refresh, onState])
   useEffect(() => {
     // Start an external catalog request when the workspace or shared selection changes.
     if (active) void refresh()
   }, [active, selected, refresh])
   useEffect(
     () =>
-      window.luma.onLibraryEvent((event) => {
+      globalThis.window.luma.onLibraryEvent((event) => {
         if (event.libraryChanged) void refresh()
       }),
     [refresh],
   )
-  useEffect(
+  useLayoutEffect(
     () => () => {
       summaryTicket.current++
       navigationTicket.current++
       if (retryTimer.current) clearTimeout(retryTimer.current)
+      refreshRunner.close()
     },
-    [],
+    [refreshRunner],
   )
 
   useLayoutEffect(() => {
@@ -347,89 +444,60 @@ export function AllPhotos({
         ?.focus({ preventScroll: true })
   }, [active])
 
-  const neededIndices = useMemo(() => {
-    const indices = new Set<number>()
-    const ordered = [...rows].sort((a, b) => {
-      const distance = (row: typeof a) =>
-        row.top + layout.rowHeight >= scrollTop && row.top <= scrollTop + size.height
-          ? 0
-          : Math.abs(row.top - scrollTop)
-      return distance(a) - distance(b)
-    })
-    for (const row of ordered)
-      if (row.kind === 'photos') {
-        for (let i = row.start; i < row.start + row.count; i++) indices.add(i)
-      }
-    return [...indices]
-  }, [rows, layout.rowHeight, scrollTop, size.height])
+  const sharedLayout = useMemo(() => browseCollectionLayout(layout), [layout])
+  const window = useMemo(
+    () =>
+      collectionWindow(
+        sharedLayout,
+        scrollTop,
+        size.height,
+        direction,
+        currentCollectionPolicy().lookahead,
+        focusedIndex === null ? [] : [focusedIndex],
+        active && !covered,
+      ),
+    [sharedLayout, scrollTop, size.height, focusedIndex, active, covered, direction],
+  )
   useEffect(() => {
-    if (!active || !presentation.summary) return
-    let cancelled = false
-    const { generation, query, summary } = presentation
-    const needed = new Set(neededIndices)
-    const neededOffsets = new Set(
-      neededIndices
-        .filter((index) => !presentation.photos.has(index))
-        .map((index) => Math.floor(index / BROWSE_CHUNK_SIZE) * BROWSE_CHUNK_SIZE),
+    if (!storedPresentation.summary) return
+    const { query, summary } = storedPresentation
+    collection.controller.configure(
+      `${query.search}:${query.grouping}:${summary.revision}`,
+      summary.total,
+      async (offset) => ({
+        records: (await globalThis.window.luma.getBrowseChunk(query, offset, summary.revision))
+          .photos,
+      }),
     )
-    for (const offset of neededOffsets) {
-      void window.luma.getBrowseChunk(query, offset, summary.revision).then(
-        (chunk) => {
-          if (cancelled) return
-          setPresentation((current) => {
-            if (current.generation !== generation || current.summary?.revision !== chunk.revision)
-              return current
-            const photos = new Map(current.photos)
-            for (let i = 0; i < chunk.photos.length; i++)
-              if (needed.has(offset + i)) photos.set(offset + i, chunk.photos[i])
-            const center = neededIndices[0] ?? offset
-            const keep = [
-              ...neededIndices.filter((index) => photos.has(index)),
-              ...[...photos.keys()]
-                .filter((index) => !needed.has(index))
-                .sort((a, b) => Math.abs(a - center) - Math.abs(b - center)),
-            ].slice(0, 5 * BROWSE_CHUNK_SIZE)
-            const retained = new Set(keep)
-            for (const index of photos.keys()) if (!retained.has(index)) photos.delete(index)
-            return { ...current, photos }
-          })
-        },
-        (error) => {
-          if (cancelled) return
-          if (isBrowseCatalogChanged(error)) retryRefresh()
-          else setFailure(String(error))
-        },
-      )
-    }
-    return () => {
-      cancelled = true
-    }
-    // Chunk arrivals do not restart sibling requests.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, neededIndices, presentation.generation, presentation.summary?.revision, retryRefresh])
+  }, [collection.controller, storedPresentation])
+  useEffect(() => {
+    collection.controller.setWindow(window)
+  }, [collection.controller, window])
+  useCollectionThumbnails(collection.records, window, (photo) => photo.thumbnailUrl)
+  useLayoutEffect(() => {
+    if (!active || !presentation.summary || restoreScroll.current || initialAnchor.current) return
+    const anchor = captureAnchor(
+      sharedLayout,
+      viewport.current?.scrollTop ?? scrollTop,
+      collection.records,
+      (photo) => photo.id,
+    )
+    if (anchor) onState({ libraryAnchor: anchor })
+  }, [active, presentation.summary, sharedLayout, scrollTop, collection.records, onState])
 
   async function focusIndex(index: number) {
     const current = latest.current.presentation
     if (!current.summary?.total) return
     const ticket = ++navigationTicket.current
     index = Math.max(0, Math.min(current.summary.total - 1, index))
-    const offset = Math.floor(index / BROWSE_CHUNK_SIZE) * BROWSE_CHUNK_SIZE
     try {
-      let photo = current.photos.get(index)
-      if (!photo) {
-        const chunk = await window.luma.getBrowseChunk(
-          current.query,
-          offset,
-          current.summary.revision,
-        )
-        if (
-          ticket !== navigationTicket.current ||
-          current.generation !== latest.current.presentation.generation ||
-          !latest.current.active
-        )
-          return
-        photo = chunk.photos[index - offset]
-      }
+      const photo = await collection.controller.get(index)
+      if (
+        ticket !== navigationTicket.current ||
+        current.generation !== latest.current.presentation.generation ||
+        !latest.current.active
+      )
+        return
       if (!photo) return
       const view = latest.current
       const currentLayout = createBrowseLayout(
@@ -508,6 +576,13 @@ export function AllPhotos({
     view.scrollTop = nextScroll
     restoreScroll.current = { top: nextScroll, revision: scrollRevision.current }
     setCollapsedGroups(view.collapsedGroups)
+    onState({
+      folds: {
+        date: [...view.collapsedGroups.date],
+        month: [...view.collapsedGroups.month],
+        year: [...view.collapsedGroups.year],
+      },
+    })
     setScrollTop(nextScroll)
   }
   const allCollapsed =
@@ -557,6 +632,7 @@ export function AllPhotos({
               const next = { ...queryRef.current, grouping: event.target.value as BrowseGrouping }
               queryRef.current = next
               setQuery(next)
+              onState({ query: next })
               void refresh(next)
             }}
           >
@@ -602,7 +678,7 @@ export function AllPhotos({
         role="grid"
         aria-label="Library grid"
         aria-multiselectable="true"
-        aria-busy={loading}
+        aria-busy={loading || collection.loading}
         aria-activedescendant={focusedVisible ? `browse-photo-${focusedPhoto?.id}` : undefined}
         tabIndex={0}
         data-focus-key="grid"
@@ -615,6 +691,7 @@ export function AllPhotos({
         onScroll={(event) => {
           if (active) {
             scrollRevision.current++
+            setDirection(event.currentTarget.scrollTop < latest.current.scrollTop ? -1 : 1)
             latest.current.scrollTop = event.currentTarget.scrollTop
             setScrollTop(event.currentTarget.scrollTop)
           }
@@ -669,10 +746,16 @@ export function AllPhotos({
           }
         }}
       >
-        {failure ? (
+        {failure || collection.error ? (
           <div className={styles.empty} role="alert">
-            {failure}
-            <button data-focus-key="retry" onClick={() => void refresh()}>
+            {failure || collection.error}
+            <button
+              data-focus-key="retry"
+              onClick={() => {
+                collection.controller.retry()
+                void refresh()
+              }}
+            >
               Retry browsing
             </button>
           </div>
@@ -790,7 +873,7 @@ export function AllPhotos({
                           }}
                         >
                           <span className={styles.thumbnail}>
-                            <img src={photo.thumbnailUrl} alt="" draggable={false} loading="lazy" />
+                            <CollectionThumbnail url={photo.thumbnailUrl} />
                             <span className={styles.format}>{photo.format}</span>
                           </span>
                           <span className={styles.caption}>

@@ -115,6 +115,15 @@ test('starts the built desktop application with its isolated preload bridge', as
   expect(bridge).toEqual({
     info: { version: nativeInfo.version, platform: nativeInfo.platform },
     keys: [
+      'getCollectionPolicy',
+      'getWorkspaceState',
+      'saveWorkspaceState',
+      'onFlushWorkspace',
+      'getGallerySummary',
+      'getGalleryChunk',
+      'getReviewSummary',
+      'getReviewChunk',
+      'locateReviewCandidate',
       'getBrowseSummary',
       'getBrowseChunk',
       'locateBrowsePhoto',
@@ -162,8 +171,6 @@ test('starts the built desktop application with its isolated preload bridge', as
       'updateLensSettings',
       'getAppInfo',
       'listPhotos',
-      'locatePhoto',
-      'getPhotoRange',
       'requestHdrPreview',
       'requestEditingPreview',
       'requestFullPreview',
@@ -280,21 +287,32 @@ test('compact metadata handles missing fields, long names and merged photos whil
         ...entry?.metadata,
       }
     }
-    for (const channel of ['gallery:list', 'gallery:locate']) {
+    for (const channel of ['gallery:list', 'gallery:chunk', 'gallery:locate', 'gallery:summary']) {
       const original = handlers.get(channel)!
       ipcMain.removeHandler(channel)
       ipcMain.handle(channel, async (...args) => {
-        const result = (await original(...args)) as {
-          photo?: Photo
-          entries: { photo: Photo }[]
-        } | null
-        if (!result) return result
-        return {
-          ...result,
-          total: result.entries.length ? 1234567 : 0,
-          ...(result.photo ? { photo: photoMetadata(result.photo) } : {}),
-          entries: result.entries.map((entry) => ({ ...entry, photo: photoMetadata(entry.photo) })),
+        type Presentation = { photo?: Photo; entries?: { photo: Photo }[]; total: number }
+        const envelope = (await original(...args)) as Presentation & {
+          result?: Presentation | null
+          stale?: boolean
         }
+        const wrapped = channel === 'gallery:chunk' || channel === 'gallery:locate'
+        const result = wrapped ? envelope.result : envelope
+        if (!result) return envelope
+        const updated = {
+          ...result,
+          total: result.total ? 1234567 : 0,
+          ...(result.photo ? { photo: photoMetadata(result.photo) } : {}),
+          ...(result.entries
+            ? {
+                entries: result.entries.map((entry: { photo: Photo }) => ({
+                  ...entry,
+                  photo: photoMetadata(entry.photo),
+                })),
+              }
+            : {}),
+        }
+        return wrapped ? { ...envelope, result: updated } : updated
       })
     }
   }, cases)
@@ -569,10 +587,13 @@ test('supports visible keyboard focus, photo selection, and adjustment groups', 
   await expect(photos).toHaveCount(2)
   const firstPhoto = photos.nth(0)
   const secondPhoto = photos.nth(1)
-  await firstPhoto.focus()
-  await page.keyboard.press('Tab')
-  await expect(secondPhoto).toBeFocused()
-  const focusStyle = await secondPhoto.evaluate((element) => {
+  await firstPhoto.click()
+  const editorGrid = page.getByTestId('editor-photo-scroll')
+  await editorGrid.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(secondPhoto).toHaveAttribute('data-focused', 'true')
+  await expect(editorGrid).toBeFocused()
+  const focusStyle = await editorGrid.evaluate((element) => {
     const style = getComputedStyle(element)
     return {
       focusVisible: element.matches(':focus-visible'),
@@ -583,7 +604,6 @@ test('supports visible keyboard focus, photo selection, and adjustment groups', 
   expect(focusStyle.focusVisible).toBe(true)
   expect(focusStyle.outlineStyle).not.toBe('none')
   expect(focusStyle.outlineWidth).toBeGreaterThan(0)
-  await page.keyboard.press('Enter')
   await expect(secondPhoto).toHaveAttribute('aria-pressed', 'true')
 
   const lightGroup = page.getByRole('button', { name: 'Light', exact: true })

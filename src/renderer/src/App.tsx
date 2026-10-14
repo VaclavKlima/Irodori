@@ -1,3 +1,6 @@
+import { configureCollections } from './collections/controller'
+import { useWorkspaceCheckpoint } from './hooks/useWorkspaceCheckpoint'
+import type { WorkspaceState } from '../../shared/workspace'
 import { MergeDialog } from './components/MergeDialog'
 import { groupMergeUnavailable, type MergeMode } from '../../shared/merge'
 import type { PhotoActionId, PhotoActionsContext } from '../../shared/photo-actions'
@@ -48,6 +51,13 @@ interface MenuState {
 }
 
 export function App() {
+  const recovery = useWorkspaceCheckpoint()
+  const { checkpoint, patch: saveWorkspace } = recovery
+  const [hydrated, setHydrated] = useState(false)
+  const [recoveredState, setRecoveredState] = useState<WorkspaceState | null>(null)
+  const [restoringPreview, setRestoringPreview] = useState<WorkspaceState['preview']>(null)
+  const clearRecoveredPreview = useCallback(() => setRestoringPreview(null), [])
+  const [editorFocusId, setEditorFocusId] = useState<string | null>(null)
   const [workspace, setWorkspace] = useState<'editor' | 'library'>('editor')
   const workspaceRef = useRef(workspace)
   const switchWorkspace = (next: 'editor' | 'library') => {
@@ -69,10 +79,9 @@ export function App() {
   const consoleToggleRef = useRef<HTMLButtonElement>(null)
   const importButtonRef = useRef<HTMLButtonElement>(null)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
-  const library = useLibrary(setError)
+  const library = useLibrary(setError, clearRecoveredPreview)
   const {
     total,
-    offset,
     position,
     photo,
     selected,
@@ -80,9 +89,9 @@ export function App() {
     onEvent,
     select,
     navigate,
-    changePage,
     openPhoto,
     getSelection,
+    hydrate,
   } = library
   const edits = useEdits(photo?.id, workspace === 'editor')
   const displayTarget = useDisplayState()
@@ -339,16 +348,76 @@ export function App() {
   )
 
   useEffect(() => {
-    void window.luma.getAppInfo().then(setAppInfo, (error) => setError(String(error)))
-    // These refreshes update state only after the desktop bridge responds.
-    void refresh()
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void refreshTasks()
+    let live = true
+    void Promise.all([
+      window.luma.getWorkspaceState(),
+      window.luma.getCollectionPolicy(),
+      window.luma.getAppInfo(),
+    ]).then(
+      ([snapshot, policy, info]) => {
+        if (!live) return
+        configureCollections(policy)
+        checkpoint.hydrate(snapshot)
+        hydrate(snapshot)
+        const state = snapshot.state
+        setRecoveredState(state)
+        setRestoringPreview(state?.preview ?? null)
+        workspaceRef.current = state?.mode ?? 'editor'
+        setWorkspace(workspaceRef.current)
+        setConsoleOpen(state?.consoleOpen ?? false)
+        setEditorFocusId(state?.editorFocusId ?? null)
+        focusBrowserPhoto(snapshot.libraryPhoto)
+        setAppInfo(info)
+        setHydrated(true)
+        void refresh()
+        void refreshTasks()
+      },
+      (error) => {
+        if (live) setError(String(error))
+      },
+    )
+    return () => {
+      live = false
+    }
+  }, [checkpoint, hydrate, focusBrowserPhoto, refresh, refreshTasks])
+  useEffect(() => {
+    if (!hydrated) return
     return window.luma.onLibraryEvent((event) => {
       onEvent(event)
       if (event.tasksChanged) void refreshTasks()
     })
-  }, [refresh, refreshTasks, onEvent])
+  }, [hydrated, onEvent, refreshTasks])
+  useEffect(() => {
+    if (!hydrated) return
+    saveWorkspace({
+      mode: workspace,
+      activeId: photo?.id ?? null,
+      editorFocusId,
+      libraryFocusId: browserPhoto?.id ?? null,
+      rangeAnchorId: library.anchor,
+      consoleOpen,
+    })
+    checkpoint.selection(selected.keys())
+  }, [
+    hydrated,
+    saveWorkspace,
+    checkpoint,
+    workspace,
+    photo?.id,
+    editorFocusId,
+    browserPhoto?.id,
+    library.anchor,
+    consoleOpen,
+    selected,
+  ])
+  useEffect(() => {
+    if (!hydrated) return
+    return window.luma.onFlushWorkspace(async () => {
+      const selection = await getSelection()
+      checkpoint.selection(selection.map((p) => p.id))
+      await checkpoint.flush()
+    })
+  }, [hydrated, getSelection, checkpoint])
 
   useEffect(() => {
     const timers = tasks
@@ -560,6 +629,23 @@ export function App() {
     importButtonRef.current?.focus()
   }
 
+  const saveEditorAnchor = useCallback(
+    (editorAnchor: WorkspaceState['editorAnchor']) => saveWorkspace({ editorAnchor }),
+    [saveWorkspace],
+  )
+  const savePreviewView = useCallback(
+    (preview: WorkspaceState['preview']) => {
+      setRestoringPreview(null)
+      saveWorkspace({ preview })
+    },
+    [saveWorkspace],
+  )
+  if (!hydrated)
+    return (
+      <div className={styles.app} role="status">
+        {error || 'Restoring workspace…'}
+      </div>
+    )
   return (
     <div className={styles.app}>
       <header className={styles.appHeader}>
@@ -633,10 +719,23 @@ export function App() {
         inert={workspace !== 'editor'}
       >
         <Library
-          entries={library.entries}
-          total={total}
-          storedTotal={library.storedTotal}
-          hiddenSelectedIds={library.hiddenSelectedIds}
+          active={
+            workspace === 'editor' &&
+            !importOpen &&
+            !deleteTargets &&
+            !mergeTargets &&
+            !contextMenu &&
+            !tasksOpen
+          }
+          summary={library.summary}
+          focusId={editorFocusId}
+          onFocus={setEditorFocusId}
+          initialAnchor={recoveredState?.editorAnchor ?? null}
+          onAnchor={saveEditorAnchor}
+          onRefresh={refresh}
+          onToggle={(photo) =>
+            void library.browseSelect(photo, { search: '', grouping: 'date' }, { toggle: true })
+          }
           hiddenActiveCover={library.hiddenActiveCover}
           onExpand={(stack) => {
             void window.luma
@@ -646,10 +745,6 @@ export function App() {
                 setError(String(error))
                 void refresh()
               })
-          }}
-          offset={offset}
-          onPage={(start) => {
-            void changePage(start).catch((error) => setError(String(error)))
           }}
           selectedIds={selected}
           activeId={photo?.id ?? null}
@@ -751,6 +846,8 @@ export function App() {
             displayTarget={displayTarget}
             key={photo?.id ?? 'empty'}
             photo={photo}
+            initialView={restoringPreview?.photoId === photo?.id ? restoringPreview : null}
+            onViewChange={savePreviewView}
             adjustments={edits.adjustments}
             tools={previewTools}
             gesturing={edits.gesturing}
@@ -793,6 +890,9 @@ export function App() {
         )}
         <AllPhotos
           active={workspace === 'library'}
+          covered={importOpen || !!deleteTargets || !!mergeTargets || !!contextMenu || tasksOpen}
+          initialState={recoveredState}
+          onState={saveWorkspace}
           selected={selected}
           selection={{
             select: library.browseSelect,
@@ -820,6 +920,12 @@ export function App() {
         <div className={styles.statusLeft}>
           <span className={styles.statusDot} />
           <span>Local library</span>
+          {recovery.status && (
+            <span role="status">
+              {recovery.status}{' '}
+              <button onClick={() => void checkpoint.retry().catch(() => {})}>Retry</button>
+            </span>
+          )}
           <span className={styles.statusSeparator}>/</span>
           <span>{library.storedTotal} photographs</span>
         </div>

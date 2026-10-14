@@ -1,3 +1,4 @@
+import { revealEditorPhoto } from './collection-ui.helpers'
 import { test, expect } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { isolateTrash } from './photo-actions.helpers'
@@ -86,7 +87,7 @@ test('separate keyboard expansion preserves active photo and selection; organiza
   expect((await restarted.page.evaluate(() => window.luma.listPhotos())).total).toBe(5)
 })
 
-test('60-row pages keep expanded members contiguous, hidden anchors map to covers, and deletion awaits a pending range', async ({
+test('Continuous scrolling keeps expanded members contiguous, hidden anchors map to covers, and deletion awaits a pending range', async ({
   luma,
 }) => {
   test.setTimeout(90000)
@@ -115,16 +116,14 @@ test('60-row pages keep expanded members contiguous, hidden anchors map to cover
     const stack = await window.luma.groupPhotos(ids, ids[0], revision)
     await window.luma.setStackExpanded(stack.id, true, stack.revision)
   }, ids)
+  await revealEditorPhoto(page, flat[59].id)
   await expect(
     page.getByRole('button', { name: `Collapse stack for ${flat[59].filename}, 3 photos` }),
   ).toBeVisible()
-  await page
-    .getByRole('navigation', { name: 'Library pages' })
-    .getByRole('button', { name: 'Next', exact: true })
-    .click()
-  await expect(
-    page.getByText(`Stack: ${flat[59].filename} (continued)`, { exact: true }),
-  ).toBeVisible()
+  await revealEditorPhoto(page, rest[1].id)
+  await expect(page.getByTestId(`photo-card-${rest[1].id}`).locator('..')).toHaveAttribute(
+    'data-stack-id',
+  )
   const second = await page.evaluate(() => window.luma.listGallery(60))
   expect(second.entries.slice(0, 2).map((e) => e.photo.id)).toEqual([rest[1].id, rest[0].id])
   await page.getByTestId(`photo-card-${rest[1].id}`).click()
@@ -133,12 +132,10 @@ test('60-row pages keep expanded members contiguous, hidden anchors map to cover
     await window.luma.setStackExpanded(stack.id, false, stack.revision)
   })
   await expect(page.getByText('1 selected in collapsed stacks', { exact: true })).toBeVisible()
+  await revealEditorPhoto(page, rest[2].id)
   await page.getByTestId(`photo-card-${rest[2].id}`).click({ modifiers: ['Shift'] })
   await expect(page.getByTestId('selection-count')).toHaveText('4 selected')
-  await page
-    .getByRole('navigation', { name: 'Library pages' })
-    .getByRole('button', { name: 'Previous', exact: true })
-    .click()
+  await revealEditorPhoto(page, flat[0].id)
   await page.getByTestId(`photo-card-${flat[0].id}`).click()
   const hold = await app.evaluateHandle(({ ipcMain }) => {
     const handlers = (
@@ -156,10 +153,7 @@ test('60-row pages keep expanded members contiguous, hidden anchors map to cover
     })
     return { release }
   })
-  await page
-    .getByRole('navigation', { name: 'Library pages' })
-    .getByRole('button', { name: 'Next', exact: true })
-    .click()
+  await revealEditorPhoto(page, rest[2].id)
   await page.getByTestId(`photo-card-${rest[2].id}`).click({ modifiers: ['Shift'] })
   await page.keyboard.press('Delete')
   await expect(page.getByRole('dialog')).toHaveCount(0)

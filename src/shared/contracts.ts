@@ -73,10 +73,11 @@ export interface LumaApi {
     expanded: boolean,
     expectedRevision: number,
   ): Promise<import('./stacks').StackSummary>
-  listGallery(offset?: number, selectedIds?: string[]): Promise<import('./stacks').GalleryPage>
+  listGallery(offset?: number, selectedIds?: string[]): Promise<import('./stacks').GalleryRead>
   locateGalleryPhoto(
     photoId: string,
     direction?: -1 | 0 | 1,
+    revision?: import('./stacks').GalleryRevision,
   ): Promise<import('./stacks').GalleryLocation | null>
   getGalleryRange(fromId: string, toId: string): Promise<PhotoReference[]>
   groupCaptureSequences(): Promise<string>
@@ -128,10 +129,28 @@ export interface LumaApi {
   redoEdit(photoId: string, expectedRevision: number): Promise<EditState>
   getLensSettings(photoId: string): Promise<LensState>
   updateLensSettings(photoId: string, kind: CorrectionKind, enabled: boolean): Promise<LensState>
+  getCollectionPolicy(): Promise<import('./collections').CollectionPolicy>
+  getWorkspaceState(): Promise<import('./workspace').WorkspaceSnapshot>
+  saveWorkspaceState(change: import('./workspace').WorkspaceChange): Promise<number>
+  onFlushWorkspace(listener: () => Promise<void>): () => void
+  getGallerySummary(selectedIds?: string[]): Promise<import('./stacks').GallerySummary>
+  getGalleryChunk(
+    offset: number,
+    revision: import('./stacks').GalleryRevision,
+  ): Promise<import('./stacks').GalleryChunk>
+  getReviewSummary(sessionId: string): Promise<ImportReviewSummary>
+  getReviewChunk(
+    sessionId: string,
+    offset: number,
+    orderingRevision: number,
+  ): Promise<ImportReviewChunk>
+  locateReviewCandidate(
+    sessionId: string,
+    candidateId: string,
+    orderingRevision: number,
+  ): Promise<ImportReviewLocation | null>
   getAppInfo(): Promise<AppInfo>
   listPhotos(offset?: number): Promise<PhotoPage>
-  locatePhoto(id: string, direction?: -1 | 0 | 1): Promise<PhotoLocation | null>
-  getPhotoRange(fromId: string, toId: string): Promise<PhotoReference[]>
   requestHdrPreview(
     photoId: string,
     requestId: string,
@@ -154,7 +173,10 @@ export interface LumaApi {
     onlyMissing?: boolean,
     verificationMode?: ImportVerificationMode,
   ): Promise<string>
-  requestReviewThumbnails(sessionId: string, candidateIds: string[]): Promise<void>
+  requestReviewThumbnails(
+    sessionId: string,
+    request: string[] | ReviewThumbnailRequest,
+  ): Promise<void>
   getReview(sessionId: string, offset?: number): Promise<ImportReview>
   selectCandidates(sessionId: string, ids: string[] | null, selected: boolean): Promise<void>
   setImportOnlyMissing(sessionId: string, enabled: boolean): Promise<void>
@@ -225,11 +247,6 @@ export type PhotoReference = Pick<Photo, 'id' | 'filename'>
 export interface PhotoPage {
   photos: Photo[]
   total: number
-}
-
-export interface PhotoLocation extends PhotoPage {
-  offset: number
-  index: number
 }
 
 export interface BackgroundTask {
@@ -304,6 +321,8 @@ export interface ImportReview {
   selected: number
   selectedBytes: number
   totalBytes: number
+  orderingRevision: number
+  contentRevision: number
   selectionRevision: number
   ready: number
   unchecked: number
@@ -312,6 +331,26 @@ export interface ImportReview {
   imported: number
   skipped: number
   firstImportedId?: string
+}
+
+export type ImportReviewSummary = Omit<ImportReview, 'candidates'>
+export interface ImportReviewChunk {
+  sessionId: string
+  offset: number
+  orderingRevision: number
+  contentRevision: number
+  selectionRevision: number
+  candidates: ImportCandidate[]
+}
+export interface ImportReviewLocation {
+  orderingRevision: number
+  index: number
+  candidate: ImportCandidate
+}
+export interface ReviewThumbnailRequest {
+  generation: number
+  visible: string[]
+  lookahead: string[]
 }
 
 export interface LibraryEvent {
@@ -325,4 +364,4 @@ export interface LibraryEvent {
   replacementId?: string
 }
 
-export const PAGE_SIZE = 60
+export { COLLECTION_CHUNK_SIZE } from './collections'

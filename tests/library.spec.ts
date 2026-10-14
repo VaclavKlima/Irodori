@@ -242,7 +242,7 @@ test('delivers progress for the latest session when sources are replaced quickly
   }
 })
 
-test('keeps fixed task totals and paginated errors after staging and review are disposed', async () => {
+test('keeps fixed task totals and chunked errors after staging and review are disposed', async () => {
   const root = await mkdtemp(join(tmpdir(), 'luma-task-errors-'))
   const processor: PreviewProcessor = {
     process: async (_path, output) => {
@@ -295,7 +295,7 @@ test('keeps fixed task totals and paginated errors after staging and review are 
     const snapshot = service.listTasks()
     snapshot[0].items!.total = 0
     expect(service.listTasks()[0].items!.total).toBe(61)
-    expect(() => service.taskErrors(id, -1)).toThrow('Invalid page offset')
+    expect(() => service.taskErrors(id, -1)).toThrow('Invalid collection offset')
     service.dismissTask(id)
     expect(service.listTasks()).toEqual([])
     expect(() => service.taskErrors(id)).toThrow('dismissed')
@@ -328,25 +328,28 @@ test('locates the selected photo and its neighbors after new imports move it to 
       sources.push(path)
     }
     await commit(service, await scan(service, sources))
-    expect(service.locate(selected)).toMatchObject({
+    expect(service.locateGalleryPhoto(selected)).toMatchObject({
       index: 60,
       offset: 60,
       total: 61,
-      photos: [{ id: selected }],
+      entries: [{ photo: { id: selected } }],
     })
-    expect(service.locate(selected, 1)).toBeNull()
-    const previous = service.locate(selected, -1)!
+    expect(service.locateGalleryPhoto(selected, 1)).toBeNull()
+    const previous = service.locateGalleryPhoto(selected, -1)!
     expect(previous).toMatchObject({ index: 59, offset: 0, total: 61 })
-    expect(previous.photos[59].filename).toBe('0.jpg')
-    const newest = previous.photos[0].id
-    const range = service.range(newest, selected)
+    expect(previous.entries.map((e) => e.photo)[59].filename).toBe('0.jpg')
+    const newest = previous.entries.map((e) => e.photo)[0].id
+    const range = service.getGalleryRange(newest, selected)
     expect(range).toHaveLength(61)
-    expect(service.range(selected, newest)).toEqual(range)
+    expect(service.getGalleryRange(selected, newest)).toEqual(range)
     expect(range[60].id).toBe(selected)
-    expect(service.range('f'.repeat(64), selected)).toEqual([
+    expect(service.getGalleryRange('f'.repeat(64), selected)).toEqual([
       { id: selected, filename: 'alpine-lake.jpg' },
     ])
-    expect(service.locate(previous.photos[59].id, 1)?.photos[0].id).toBe(selected)
+    expect(
+      service.locateGalleryPhoto(previous.entries.map((e) => e.photo)[59].id, 1)?.entries[0].photo
+        .id,
+    ).toBe(selected)
   } finally {
     await service.close()
     await rm(root, { recursive: true, force: true })

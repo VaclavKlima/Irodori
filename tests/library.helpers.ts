@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { PhotoLibrary } from '../src/main/library'
@@ -12,7 +12,7 @@ export async function setup(
   processor?: PreviewProcessor,
   directoryVisibility?: Pick<DeviceDirectoryVisibility, 'hiddenEntries' | 'close'>,
 ) {
-  const root = await mkdtemp(join(tmpdir(), 'luma-library-'))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'luma-library-')))
   const engine = new PreviewEngine()
   const service = new PhotoLibrary(
     join(root, 'library'),

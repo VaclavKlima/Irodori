@@ -1,3 +1,4 @@
+import { CollectionChangedError } from '../shared/collections'
 import { MergeError, type MergeFailure } from '../shared/merge'
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AppInfo, LibraryEvent, LumaApi } from '../shared/contracts'
@@ -9,12 +10,37 @@ async function browseResult<T>(response: Promise<{ result: T; stale?: boolean }>
   return value.result
 }
 
+async function collectionResult<T>(response: Promise<{ result: T; stale?: boolean }>): Promise<T> {
+  const value = await response
+  if (value.stale) throw new CollectionChangedError()
+  return value.result
+}
 async function mergeResult<T>(response: Promise<{ result: T; error?: MergeFailure }>): Promise<T> {
   const value = await response
   if (value.error) throw new MergeError(value.error)
   return value.result
 }
 const api: LumaApi = {
+  getCollectionPolicy: () => ipcRenderer.invoke('collections:policy'),
+  getWorkspaceState: () => ipcRenderer.invoke('workspace:get'),
+  saveWorkspaceState: (change) => ipcRenderer.invoke('workspace:save', change),
+  onFlushWorkspace: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, token: string) => {
+      void listener()
+        .finally(() => ipcRenderer.send('workspace:flushed', token))
+        .catch(() => {})
+    }
+    ipcRenderer.on('workspace:flush', handler)
+    return () => ipcRenderer.removeListener('workspace:flush', handler)
+  },
+  getGallerySummary: (ids = []) => ipcRenderer.invoke('gallery:summary', ids),
+  getGalleryChunk: (offset, revision) =>
+    collectionResult(ipcRenderer.invoke('gallery:chunk', offset, revision)),
+  getReviewSummary: (id) => ipcRenderer.invoke('review:summary', id),
+  getReviewChunk: (id, offset, revision) =>
+    collectionResult(ipcRenderer.invoke('review:chunk', id, offset, revision)),
+  locateReviewCandidate: (id, candidate, revision) =>
+    collectionResult(ipcRenderer.invoke('review:locate', id, candidate, revision)),
   getBrowseSummary: (query, selectedIds = []) =>
     ipcRenderer.invoke('browse:summary', query, selectedIds),
   getBrowseChunk: (query, offset = 0, revision) =>
@@ -40,7 +66,8 @@ const api: LumaApi = {
     ipcRenderer.invoke('stacks:expand', id, expanded, revision),
   listGallery: (offset = 0, selectedIds = []) =>
     ipcRenderer.invoke('gallery:list', offset, selectedIds),
-  locateGalleryPhoto: (id, direction = 0) => ipcRenderer.invoke('gallery:locate', id, direction),
+  locateGalleryPhoto: (id, direction = 0, revision) =>
+    collectionResult(ipcRenderer.invoke('gallery:locate', id, direction, revision)),
   getGalleryRange: (from, to) => ipcRenderer.invoke('gallery:range', from, to),
   groupCaptureSequences: () => ipcRenderer.invoke('stacks:capture-scan'),
   getActiveMergeReview: () => mergeResult(ipcRenderer.invoke('merge:active')),
@@ -110,8 +137,6 @@ const api: LumaApi = {
   updateLensSettings: (id, kind, enabled) => ipcRenderer.invoke('lens:update', id, kind, enabled),
   getAppInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:get-info'),
   listPhotos: (offset = 0) => ipcRenderer.invoke('library:list', offset),
-  locatePhoto: (id, direction = 0) => ipcRenderer.invoke('library:locate', id, direction),
-  getPhotoRange: (from, to) => ipcRenderer.invoke('library:range', from, to),
   requestHdrPreview: async (id, token, regenerate = false) => {
     const result = await ipcRenderer.invoke('preview:hdr', id, token, regenerate)
     if (result.error) throw new Error(result.error)

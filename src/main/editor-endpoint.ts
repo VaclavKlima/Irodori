@@ -64,6 +64,7 @@ export async function startEditorEndpoint(
         query,
         sectionKey,
         selectedIds,
+        galleryRevision,
         x,
         y,
       } = JSON.parse(body) as {
@@ -90,12 +91,17 @@ export async function startEditorEndpoint(
         query: import('../shared/browse').BrowseQuery
         sectionKey: string
         selectedIds?: string[]
+        galleryRevision: import('../shared/stacks').GalleryRevision
         x: number
         y: number
       }
       if (
         body.length > 16384 &&
-        !['luma_get_browse_summary', 'luma_get_photo_actions_context'].includes(operation)
+        ![
+          'luma_get_browse_summary',
+          'luma_get_gallery_summary',
+          'luma_get_photo_actions_context',
+        ].includes(operation)
       )
         throw new Error('Editor request is too large.')
       let result: unknown
@@ -145,6 +151,12 @@ export async function startEditorEndpoint(
           break
         case 'luma_set_stack_expanded':
           result = library.setStackExpanded(stackId, expanded, expectedRevision)
+          break
+        case 'luma_get_gallery_summary':
+          result = library.getGallerySummary(selectedIds)
+          break
+        case 'luma_get_gallery_chunk':
+          result = library.getGalleryChunk(offset ?? 0, galleryRevision)
           break
         case 'luma_list_gallery':
           result = library.listGallery(offset)

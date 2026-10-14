@@ -1,3 +1,4 @@
+import { revealEditorPhoto, scrollCollection } from './collection-ui.helpers'
 import { test, expect } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -67,7 +68,7 @@ test('shared Actions menu hides inapplicable merges and preserves pending right-
   await page.keyboard.press('Escape')
 })
 
-test('completed merges select and reveal the result across gallery pages without replaying on refresh or reload', async ({
+test('completed merges select and reveal the result across unloaded gallery rows without replaying on refresh or reload', async ({
   luma,
 }) => {
   const { app, page } = luma
@@ -97,11 +98,10 @@ test('completed merges select and reveal the result across gallery pages without
     w.setContentSize(1100, 700)
   })
   await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
-  await page
-    .getByRole('navigation', { name: 'Library pages' })
-    .getByRole('button', { name: 'Next', exact: true })
-    .click()
-  await expect(page.getByRole('navigation', { name: 'Library pages' })).toContainText('2 / 2')
+  await scrollCollection(page.getByTestId('editor-photo-scroll'), 60)
+  expect(
+    await page.getByTestId('editor-photo-scroll').evaluate((el) => el.scrollTop),
+  ).toBeGreaterThan(0)
   const fixture = await app.evaluateHandle(({ ipcMain, BrowserWindow }) => {
     let tasks: import('../src/shared/contracts').BackgroundTask[] = []
     ipcMain.removeHandler('tasks:list')
@@ -143,11 +143,12 @@ test('completed merges select and reveal the result across gallery pages without
   await expect(result).toHaveAttribute('aria-current', 'true')
   await expect(result).toHaveAttribute('aria-pressed', 'true')
   await expect(result).toBeInViewport({ ratio: 1 })
-  await expect(page.getByRole('navigation', { name: 'Library pages' })).toContainText('1 / 2')
+  await expect(page.getByRole('navigation', { name: /pages/ })).toHaveCount(0)
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
   await expect(page.getByTestId('console-panel')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 
+  await revealEditorPhoto(page, photos[49].id)
   await page.getByTestId(`photo-card-${photos[49].id}`).click()
   await page.evaluate(() => {
     const panel = document.querySelector<HTMLElement>('[data-testid="photo-library"]')!
@@ -162,8 +163,11 @@ test('completed merges select and reveal the result across gallery pages without
   await expect(page.getByTestId('preview-filename')).toHaveText(photos[49].filename)
   await expect(result).not.toBeInViewport()
 
+  await expect
+    .poll(async () => (await page.evaluate(() => window.luma.getWorkspaceState())).state?.activeId)
+    .toBe(photos[49].id)
   await page.reload()
   await expect(page.getByTestId('task-progress')).toContainText(task.title)
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
-  await expect(page.getByTestId('preview-filename')).toHaveText(photos[0].filename)
+  await expect(page.getByTestId('preview-filename')).toHaveText(photos[49].filename)
 })

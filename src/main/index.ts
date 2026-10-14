@@ -1,3 +1,4 @@
+import { CollectionChangedError } from '../shared/collections'
 import { mergeFailure } from '../shared/merge'
 import { DisplayState } from './display-state'
 import { installWaylandDisplayRefresh } from './wayland-display'
@@ -90,6 +91,28 @@ async function requestQuit(): Promise<void> {
         }
         ipcMain.on('edits:flushed', handler)
         window.webContents.send('edits:flush', token)
+      })
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const window = mainWindow
+      await new Promise<void>((resolve) => {
+        const token = randomUUID()
+        const finish = () => {
+          clearTimeout(timer)
+          ipcMain.removeListener('workspace:flushed', handler)
+          resolve()
+        }
+        const handler = (event: Electron.IpcMainEvent, returned: string) => {
+          if (
+            event.sender === window.webContents &&
+            event.senderFrame === window.webContents.mainFrame &&
+            returned === token
+          )
+            finish()
+        }
+        const timer = setTimeout(finish, 10000)
+        ipcMain.on('workspace:flushed', handler)
+        window.webContents.send('workspace:flush', token)
       })
     }
     quitting = true
@@ -486,10 +509,6 @@ app
       if (typeof token !== 'string') throw new Error('Invalid preview request token.')
       return library!.fullPreviews.release(token)
     })
-    ipcMain.handle('library:locate', (event, id: string, direction: -1 | 0 | 1) => {
-      trusted(event)
-      return library!.locate(id, direction)
-    })
     ipcMain.handle('photo-actions:context', (event, id: string | null, selectedIds: string[]) => {
       trusted(event)
       return library!.getPhotoActionsContext(id, selectedIds)
@@ -534,6 +553,52 @@ app
       trusted(event)
       if (picking) throw new Error('Close the file picker first.')
       return library!.groupCaptureSequences()
+    })
+    const collectionReply = <T>(read: () => T) => {
+      try {
+        return { result: read() }
+      } catch (error) {
+        if (error instanceof CollectionChangedError) return { stale: true }
+        throw error
+      }
+    }
+    ipcMain.handle('collections:policy', (event) => {
+      trusted(event)
+      return library!.getCollectionPolicy()
+    })
+    ipcMain.handle('workspace:get', (event) => {
+      trusted(event)
+      return library!.getWorkspaceState()
+    })
+    ipcMain.handle(
+      'workspace:save',
+      (event, change: import('../shared/workspace').WorkspaceChange) => {
+        trusted(event)
+        return library!.saveWorkspaceState(change)
+      },
+    )
+    ipcMain.handle('gallery:summary', (event, ids: string[]) => {
+      trusted(event)
+      return library!.getGallerySummary(ids)
+    })
+    ipcMain.handle(
+      'gallery:chunk',
+      (event, offset: number, revision: import('../shared/stacks').GalleryRevision) => {
+        trusted(event)
+        return collectionReply(() => library!.getGalleryChunk(offset, revision))
+      },
+    )
+    ipcMain.handle('review:summary', (event, id: string) => {
+      trusted(event)
+      return library!.reviewSummary(id)
+    })
+    ipcMain.handle('review:chunk', (event, id: string, offset: number, revision: number) => {
+      trusted(event)
+      return collectionReply(() => library!.reviewChunk(id, offset, revision))
+    })
+    ipcMain.handle('review:locate', (event, id: string, candidate: string, revision: number) => {
+      trusted(event)
+      return collectionReply(() => library!.locateReviewCandidate(id, candidate, revision))
     })
     ipcMain.handle('gallery:list', (event, offset: number, selectedIds: string[]) => {
       trusted(event)
@@ -584,17 +649,21 @@ app
         return library!.getBrowseSection(query, key)
       },
     )
-    ipcMain.handle('gallery:locate', (event, id: string, direction: -1 | 0 | 1) => {
-      trusted(event)
-      return library!.locateGalleryPhoto(id, direction)
-    })
+    ipcMain.handle(
+      'gallery:locate',
+      (
+        event,
+        id: string,
+        direction: -1 | 0 | 1,
+        revision?: import('../shared/stacks').GalleryRevision,
+      ) => {
+        trusted(event)
+        return collectionReply(() => library!.locateGalleryPhoto(id, direction, revision))
+      },
+    )
     ipcMain.handle('gallery:range', (event, from: string, to: string) => {
       trusted(event)
       return library!.getGalleryRange(from, to)
-    })
-    ipcMain.handle('library:range', (event, from: string, to: string) => {
-      trusted(event)
-      return library!.range(from, to)
     })
     ipcMain.handle('library:delete', (event, ids: string[]) => {
       trusted(event)
@@ -680,10 +749,13 @@ app
         )
       },
     )
-    ipcMain.handle('library:thumbnails', (event, id: string, ids: string[]) => {
-      trusted(event)
-      library!.requestReviewThumbnails(id, ids)
-    })
+    ipcMain.handle(
+      'library:thumbnails',
+      (event, id: string, ids: string[] | import('../shared/contracts').ReviewThumbnailRequest) => {
+        trusted(event)
+        library!.requestReviewThumbnails(id, ids)
+      },
+    )
     ipcMain.handle('library:review', (event, id: string, offset: number) => {
       trusted(event)
       return library!.review(id, offset)

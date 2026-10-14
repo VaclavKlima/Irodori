@@ -317,9 +317,19 @@ test('retains failed photos and confirms quit during deletion', async ({ luma })
   await expect(page.getByTestId('task-details')).toContainText('System Trash is unavailable')
   await page.keyboard.press('Escape')
   await isolateTrash(app, { delay: 2000 })
+  const admitted = await app.evaluateHandle(({ shell }) => {
+    const original = shell.trashItem,
+      calls: string[] = []
+    shell.trashItem = async (path) => {
+      calls.push(path)
+      return original(path)
+    }
+    return { calls }
+  })
   await page.getByTestId(`photo-card-${photos[0].id}`).click()
   await page.keyboard.press('Delete')
   await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
+  await expect.poll(() => admitted.evaluate((s) => s.calls.length)).toBe(1)
   const options = await app.evaluate(async ({ dialog, BrowserWindow }) => {
     let shown!: (options: Electron.MessageBoxOptions) => void
     const result = new Promise<Electron.MessageBoxOptions>((resolve) => {

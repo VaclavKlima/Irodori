@@ -1,6 +1,7 @@
 import type { ElectronApplication, Page } from '@playwright/test'
 import { test as base, _electron as electron, expect } from '@playwright/test'
 import type { ChildProcess } from 'node:child_process'
+import { once } from 'node:events'
 import { access, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -12,6 +13,7 @@ interface DesktopWindow {
 
 interface DesktopSession extends DesktopWindow {
   restart: (clearPreviewCache?: boolean) => Promise<DesktopWindow>
+  crashAndRestart: () => Promise<DesktopWindow>
   expectQuit: (action: () => Promise<void>) => Promise<void>
   userDataDir: string
 }
@@ -119,7 +121,9 @@ export const test = base.extend<{ luma: DesktopSession; hdrDisplay: boolean }>({
       }
       const page = await app.firstWindow()
       observePage(page)
-      await expect(page.getByTestId('workspace')).toBeVisible()
+      await expect(
+        page.locator('[data-testid="workspace"]:visible, [data-testid="all-photos"]:visible'),
+      ).toHaveCount(1)
       await expect(page.getByTestId('app-version')).not.toBeEmpty()
       return { app, page }
     }
@@ -140,6 +144,19 @@ export const test = base.extend<{ luma: DesktopSession; hdrDisplay: boolean }>({
           await action()
           await closed
           running.closed = true
+        },
+        crashAndRestart: async () => {
+          const running = applications[applications.length - 1]
+          running.closing = true
+          if (running.tracing) {
+            await running.app.context().tracing.stop({ path: running.tracePath })
+            running.tracing = false
+          }
+          const exited = once(running.child, 'exit')
+          running.child.kill('SIGKILL')
+          await exited
+          running.closed = true
+          return launch()
         },
         restart: async (clearPreviewCache = false) => {
           await close(applications[applications.length - 1])

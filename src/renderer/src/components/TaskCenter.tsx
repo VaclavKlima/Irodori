@@ -1,6 +1,7 @@
+import { TaskErrors } from './TaskErrors'
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
-import { PAGE_SIZE, type BackgroundTask, type TaskErrorPage } from '../../../shared/contracts'
+import { type BackgroundTask, type TaskErrorPage } from '../../../shared/contracts'
 import { TaskProgress } from './TaskProgress'
 import styles from './TaskProgress.module.css'
 
@@ -61,8 +62,10 @@ export function TaskCenter({
         additionalCount={tasks.length - 1}
         onOpen={() => onOpenChange(!open)}
       />
-      {open && (
+      {
         <section
+          hidden={!open}
+          inert={!open}
           className={styles.popover}
           id="background-tasks"
           aria-label="Background tasks"
@@ -87,6 +90,7 @@ export function TaskCenter({
             {[...tasks].reverse().map((task) => (
               <TaskDetails
                 key={task.id}
+                active={open}
                 task={task}
                 onCancel={onCancel}
                 onDismiss={onDismiss}
@@ -96,41 +100,26 @@ export function TaskCenter({
             ))}
           </div>
         </section>
-      )}
+      }
     </div>
   )
 }
 
 function TaskDetails({
   task,
+  active: detailsActive,
   onCancel,
   onDismiss,
   getErrors,
   onOpenResult,
 }: Pick<TaskCenterProps, 'onCancel' | 'onDismiss' | 'getErrors' | 'onOpenResult'> & {
   task: BackgroundTask
+  active: boolean
 }) {
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
   const [errorsOpen, setErrorsOpen] = useState(false)
-  const [offset, setOffset] = useState(0)
-  const [errors, setErrors] = useState<TaskErrorPage | null>(null)
   const active = task.status === 'running' || task.status === 'cancelling'
-  useEffect(() => {
-    if (!errorsOpen) return
-    let live = true
-    void getErrors(task.id, offset).then(
-      (value) => {
-        if (live) setErrors(value)
-      },
-      (error) => {
-        if (live) setError(String(error))
-      },
-    )
-    return () => {
-      live = false
-    }
-  }, [getErrors, task.id, task.errorCount, errorsOpen, offset])
   async function act(action: () => Promise<void>) {
     setPending(true)
     setError('')
@@ -226,33 +215,13 @@ function TaskDetails({
           </button>
         )}
       </div>
-      {errorsOpen && errors && (
-        <div className={styles.errors}>
-          <ul>
-            {errors.errors.map((entry, index) => (
-              <li key={`${offset}-${index}`}>
-                <strong>{entry.filename}</strong>
-                <span>{entry.message}</span>
-              </li>
-            ))}
-          </ul>
-          {errors.total > PAGE_SIZE && (
-            <nav aria-label="Task error pages">
-              <button disabled={offset === 0} onClick={() => setOffset(offset - PAGE_SIZE)}>
-                Previous
-              </button>
-              <span>
-                {Math.floor(offset / PAGE_SIZE) + 1} / {Math.ceil(errors.total / PAGE_SIZE)}
-              </span>
-              <button
-                disabled={offset + PAGE_SIZE >= errors.total}
-                onClick={() => setOffset(offset + PAGE_SIZE)}
-              >
-                Next
-              </button>
-            </nav>
-          )}
-        </div>
+      {task.errorCount > 0 && (
+        <TaskErrors
+          id={task.id}
+          total={task.errorCount}
+          active={detailsActive && errorsOpen}
+          getErrors={getErrors}
+        />
       )}
     </article>
   )

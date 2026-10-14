@@ -1,3 +1,4 @@
+import { revealImportCandidate } from './collection-ui.helpers'
 import { expect, test } from './electron.fixture'
 import { expectMissingOptionErrors, mockImportReview } from './import-review-ui.helpers'
 
@@ -43,7 +44,7 @@ test('shows known photographs before transfer and accepts exactly the selected m
   }
 })
 
-test('bulk selection spans pages and future discoveries while excluding known originals', async ({
+test('bulk selection spans loaded and unloaded records and future discoveries while excluding known originals', async ({
   luma,
 }) => {
   const { app, page } = luma
@@ -60,8 +61,7 @@ test('bulk selection spans pages and future discoveries while excluding known or
       '66 found · 4 already in library · 62 new or unchecked',
     )
     await expect(page.getByRole('dialog')).toContainText('0 selected · 0 KB')
-    const pages = page.getByRole('navigation', { name: 'Import pages' })
-    await pages.getByRole('button', { name: 'Next', exact: true }).click()
+    await revealImportCandidate(page, 60, '61.jpg')
     await expect(
       page.getByRole('checkbox', { name: 'Import 61.jpg', exact: true }),
     ).not.toBeChecked()

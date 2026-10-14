@@ -1,5 +1,10 @@
 import type { ElectronApplication } from '@playwright/test'
-import type { ImportCandidate, ImportReview, ImportVerificationMode } from '../src/shared/contracts'
+import type {
+  ImportCandidate,
+  ImportReview,
+  ImportVerificationMode,
+  ReviewThumbnailRequest,
+} from '../src/shared/contracts'
 import type { ImportDevice } from '../src/shared/import-devices'
 
 export async function expectMissingOptionErrors(app: ElectronApplication) {
@@ -49,6 +54,8 @@ export async function mockImportReview(
       let sessionId = ''
       let sessionCounter = 0
       let selectionRevision = 0
+      let contentRevision = 0
+      let thumbnailGeneration = 0
       let defaultSelected = true
       let sourceError: string | undefined
       let checkingPrevious: string | undefined
@@ -100,10 +107,12 @@ export async function mockImportReview(
           volumeCount: 0,
         },
       ]
-      const emit = () =>
-        BrowserWindow.getAllWindows().forEach((window) =>
+      const emit = () => {
+        contentRevision++
+        return BrowserWindow.getAllWindows().forEach((window) =>
           window.webContents.send('library:event', { sessionId }),
         )
+      }
       const review = (offset: number): ImportReview => ({
         sessionId,
         source: 'Review fixture',
@@ -127,6 +136,8 @@ export async function mockImportReview(
         onlyMissing,
         alreadyImported: candidates.filter((item) => item.alreadyImported).length,
         alreadyImportedBytes: candidates.filter((item) => item.alreadyImported).length * 1024,
+        orderingRevision: candidates.length,
+        contentRevision,
         selectionRevision,
         unchecked: candidates.length,
         ready: 0,
@@ -146,6 +157,7 @@ export async function mockImportReview(
         }
         sessionId = `review-${++sessionCounter}`
         selectionRevision = 0
+        thumbnailGeneration = 0
         sourceError = undefined
         checkingPrevious = undefined
         defaultSelected = true
@@ -192,6 +204,40 @@ export async function mockImportReview(
         selectionRevision++
         emit()
       })
+      replace('review:summary', async () => {
+        const { candidates: rows, ...snapshot } = review(0)
+        void rows
+        if (holdSnapshots) await new Promise<void>((resolve) => pendingSnapshots.push(resolve))
+        return snapshot
+      })
+      replace('review:chunk', async (_event, _id: string, offset: number, revision: number) => {
+        if (revision !== candidates.length) return { stale: true }
+        const snapshot = review(offset)
+        return {
+          result: {
+            sessionId,
+            offset,
+            orderingRevision: snapshot.orderingRevision,
+            contentRevision: snapshot.contentRevision,
+            selectionRevision: snapshot.selectionRevision,
+            candidates: snapshot.candidates,
+          },
+        }
+      })
+      replace('review:locate', (_event, _id: string, id: string, revision: number) => {
+        if (revision !== candidates.length) return { stale: true }
+        const index = candidates.findIndex((c) => c.id === id)
+        return {
+          result:
+            index < 0
+              ? null
+              : {
+                  index,
+                  orderingRevision: revision,
+                  candidate: review(Math.floor(index / 60) * 60).candidates[index % 60],
+                },
+        }
+      })
       replace('library:review', async (_event, _id: string, offset: number) => {
         const snapshot = review(offset)
         if (holdSnapshots) await new Promise<void>((resolve) => pendingSnapshots.push(resolve))
@@ -214,22 +260,30 @@ export async function mockImportReview(
           emit()
         },
       )
-      replace('library:thumbnails', async (_event, id: string, ids: string[]) => {
-        thumbnails.push({ ids: [...ids], requestedAt: Date.now(), sessionId: id })
-        if (holdThumbnails) await new Promise<void>((resolve) => pendingThumbnails.push(resolve))
-        if (id !== sessionId) return
-        candidates = candidates.map((item) =>
-          ids.includes(item.id)
-            ? {
-                ...item,
-                thumbnailState: 'ready',
-                thumbnailUrl:
-                  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==',
-              }
-            : item,
-        )
-        emit()
-      })
+      replace(
+        'library:thumbnails',
+        async (_event, id: string, request: string[] | ReviewThumbnailRequest) => {
+          const generation = Array.isArray(request) ? thumbnailGeneration + 1 : request.generation
+          if (generation <= thumbnailGeneration) return
+          thumbnailGeneration = generation
+          const ids = Array.isArray(request) ? request : [...request.visible, ...request.lookahead]
+          thumbnails.push({ ids: [...ids], requestedAt: Date.now(), sessionId: id })
+          if (holdThumbnails) await new Promise<void>((resolve) => pendingThumbnails.push(resolve))
+          if (id !== sessionId || generation !== thumbnailGeneration) return
+          let changed = false
+          candidates = candidates.map((item) => {
+            if (!ids.includes(item.id) || item.thumbnailState === 'ready') return item
+            changed = true
+            return {
+              ...item,
+              thumbnailState: 'ready',
+              thumbnailUrl:
+                'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==',
+            }
+          })
+          if (changed) emit()
+        },
+      )
       replace('library:import', () => {
         accepted.push(
           candidates

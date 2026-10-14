@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   readdir,
   rename,
   rm,
@@ -49,6 +50,12 @@ async function mounted(path: string, deviceId = 'isolated-missing-device'): Prom
   }
 }
 
+// Strong-token behavior is injected independently of the host filesystem.
+// Weak/unavailable change tokens keep their separate real-hash cases below.
+async function strongInspection(path: string) {
+  return { ...(await inspectImportSource(path)), reusable: true }
+}
+
 async function setup(
   options: {
     prepare?: PreviewProcessor['process']
@@ -58,7 +65,7 @@ async function setup(
     sourceHash?: typeof hashImportSource
   } = {},
 ) {
-  const root = await mkdtemp(join(tmpdir(), 'luma-missing-service-'))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'luma-missing-service-')))
   const card = join(root, 'card')
   await mkdir(card)
   await mkdir(join(root, 'trash'))
@@ -103,7 +110,7 @@ async function setup(
       }),
       undefined,
       undefined,
-      options.sourceInspection,
+      options.sourceInspection ?? strongInspection,
       options.sourceHash,
     )
   let service = construct()
@@ -199,11 +206,11 @@ async function weakInspection(path: string) {
   }
 }
 
-test('repeat device review and restart skip complete paginated sources and use managed thumbnails', async () => {
+test('repeat device review and restart skip complete source collections and use managed thumbnails', async () => {
   const t = await setup()
   try {
     const paths = await sources(t.card, 65)
-    expect((await inspectImportSource(paths[0])).reusable).toBe(true)
+    expect((await strongInspection(paths[0])).reusable).toBe(true)
     const source = await mounted(t.card)
     const first = await review(t.service, [t.card], source)
     expect(t.service.review(first)).toMatchObject({

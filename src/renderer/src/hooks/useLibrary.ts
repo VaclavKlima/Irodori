@@ -1,22 +1,15 @@
 import { useCallback, useRef, useState } from 'react'
-import type { GalleryEntry } from '../../../shared/stacks'
+import type { GallerySummary } from '../../../shared/stacks'
+import type { WorkspaceSnapshot } from '../../../shared/workspace'
+import { isCollectionChanged } from '../../../shared/collections'
 import type { BrowseQuery } from '../../../shared/browse'
-import {
-  PAGE_SIZE,
-  type LibraryEvent,
-  type Photo,
-  type PhotoReference,
-} from '../../../shared/contracts'
+import type { LibraryEvent, Photo, PhotoReference } from '../../../shared/contracts'
 
 interface LibraryState {
-  photos: Photo[]
-  entries: GalleryEntry[]
+  summary: GallerySummary | null
   storedTotal: number
-  revision: number
-  hiddenSelectedIds: string[]
   hiddenActiveCover: PhotoReference | null
   total: number
-  offset: number
   position: number
   photo: Photo | null
   selected: Map<string, PhotoReference>
@@ -30,16 +23,12 @@ export interface SelectionModifiers {
   click?: boolean
 }
 
-export function useLibrary(onError: (error: string) => void) {
+export function useLibrary(onError: (error: string) => void, onActivePhotoChange?: () => void) {
   const [state, setState] = useState<LibraryState>({
-    photos: [],
-    entries: [],
+    summary: null,
     storedTotal: 0,
-    revision: 0,
-    hiddenSelectedIds: [],
     hiddenActiveCover: null,
     total: 0,
-    offset: 0,
     position: 0,
     photo: null,
     selected: new Map(),
@@ -50,7 +39,9 @@ export function useLibrary(onError: (error: string) => void) {
   const current = useRef(state)
   const request = useRef(0)
   const refreshing = useRef(0)
-  const navigating = useRef(false)
+  const refreshWork = useRef<Promise<void> | null>(null)
+  const refreshDirty = useRef(false)
+  const importedDuringRefresh = useRef<string | undefined>(undefined)
   const initialized = useRef(false)
   const pendingSelection = useRef(Promise.resolve())
   const pendingCount = useRef(0)
@@ -65,61 +56,79 @@ export function useLibrary(onError: (error: string) => void) {
     selected: Map<string, PhotoReference>
     anchor: string | null
   } | null>(null)
-  const update = useCallback((next: Partial<LibraryState>) => {
-    current.current = { ...current.current, ...next }
-    setState(current.current)
-  }, [])
+  const update = useCallback(
+    (next: Partial<LibraryState>) => {
+      if (next.activeId !== undefined && next.activeId !== current.current.activeId)
+        onActivePhotoChange?.()
+      current.current = { ...current.current, ...next }
+      setState(current.current)
+    },
+    [onActivePhotoChange],
+  )
 
+  const hydrate = useCallback(
+    (snapshot: WorkspaceSnapshot) => {
+      initialized.current = snapshot.state !== null
+      update({
+        selected: new Map(snapshot.selected.map((p) => [p.id, p])),
+        anchor: snapshot.state?.rangeAnchorId ?? null,
+        activeId: snapshot.activePhoto?.id ?? null,
+        photo: snapshot.activePhoto,
+      })
+    },
+    [update],
+  )
   const refresh = useCallback(
-    async (firstImportedId?: string) => {
-      if (navigating.current) return
-      const ticket = request.current
-      const refreshTicket = ++refreshing.current
-      const selectionTicket = selectionRevision.current
-      try {
-        const previous = current.current
-        const id = previous.activeId ?? firstImportedId
-        const located = id ? await window.luma.locateGalleryPhoto(id) : null
-        let pageOffset = previous.offset
-        let page = await window.luma.listGallery(pageOffset, [...previous.selected.keys()])
-        if (pageOffset >= page.total && pageOffset > 0) {
-          pageOffset = Math.max(0, Math.floor((page.total - 1) / PAGE_SIZE) * PAGE_SIZE)
-          page = await window.luma.listGallery(pageOffset, [...previous.selected.keys()])
+    (firstImportedId?: string): Promise<void> => {
+      refreshDirty.current = true
+      importedDuringRefresh.current ??= firstImportedId
+      if (refreshWork.current) return refreshWork.current
+      refreshWork.current = (async () => {
+        while (refreshDirty.current) {
+          refreshDirty.current = false
+          const ticket = request.current,
+            selectionTicket = selectionRevision.current
+          try {
+            const previous = current.current
+            const summary = await window.luma.getGallerySummary([...previous.selected.keys()])
+            const id = previous.activeId ?? importedDuringRefresh.current
+            const located = id ? await window.luma.locateGalleryPhoto(id, 0, summary) : null
+            const first =
+              !located && !initialized.current && summary.total
+                ? await window.luma.getGalleryChunk(0, summary)
+                : null
+            if (ticket !== request.current || selectionTicket !== selectionRevision.current) {
+              refreshDirty.current = true
+              continue
+            }
+            const photo = located?.photo ?? first?.entries[0]?.photo ?? null
+            const firstSelection =
+              !initialized.current && photo !== null && pendingCount.current === 0
+            if (photo) initialized.current = true
+            const entry = located?.entries[located.index - located.offset]
+            update({
+              summary,
+              total: summary.total,
+              storedTotal: summary.storedTotal,
+              hiddenActiveCover:
+                entry && entry.photo.id !== photo?.id ? (entry.cover ?? null) : null,
+              photo,
+              activeId: photo?.id ?? null,
+              position: located?.index ?? 0,
+              ...(firstSelection
+                ? { selected: new Map([[photo!.id, photo!]]), anchor: photo!.id }
+                : {}),
+            })
+            importedDuringRefresh.current = undefined
+          } catch (error) {
+            if (isCollectionChanged(error)) refreshDirty.current = true
+            else if (ticket === request.current) onError(String(error))
+          }
         }
-        if (
-          ticket !== request.current ||
-          refreshTicket !== refreshing.current ||
-          selectionTicket !== selectionRevision.current
-        )
-          return
-        const photo = located ? located.photo : (page.entries[0]?.photo ?? null)
-        const firstSelection =
-          (!initialized.current || previous.total === 0) &&
-          photo !== null &&
-          pendingCount.current === 0
-        if (photo) initialized.current = true
-        update({
-          photos: page.entries.map((e) => e.photo),
-          entries: page.entries,
-          storedTotal: page.storedTotal,
-          revision: page.revision,
-          hiddenSelectedIds: page.hiddenSelectedIds,
-          hiddenActiveCover:
-            located && located.entries[located.index - located.offset].photo.id !== located.photo.id
-              ? (located.entries[located.index - located.offset].cover ?? null)
-              : null,
-          total: page.total,
-          offset: pageOffset,
-          photo,
-          activeId: photo?.id ?? null,
-          position: located?.index ?? pageOffset,
-          ...(firstSelection
-            ? { selected: new Map([[photo!.id, photo!]]), anchor: photo!.id }
-            : {}),
-        })
-      } catch (error) {
-        if (ticket === request.current) onError(String(error))
-      }
+      })().finally(() => {
+        refreshWork.current = null
+      })
+      return refreshWork.current
     },
     [onError, update],
   )
@@ -179,7 +188,6 @@ export function useLibrary(onError: (error: string) => void) {
       const previous = current.current
       if (event.deletedIds?.length) {
         request.current++
-        navigating.current = false
         selectionRevision.current++
         const revision = ++deletionRevision.current
         for (const id of event.deletedIds) deletedAt.current.set(id, revision)
@@ -213,15 +221,12 @@ export function useLibrary(onError: (error: string) => void) {
           if (modifiers.toggle && selected.has(photo.id)) selected.delete(photo.id)
           else selected.set(photo.id, { id: photo.id, filename: photo.filename })
         }
-        const latest = current.current
-        const index = latest.photos.findIndex((item) => item.id === photo.id)
         updateSelection(
           {
             selected,
             anchor,
             photo,
             activeId: photo.id,
-            position: index < 0 ? latest.position : latest.offset + index,
           },
           since,
         )
@@ -271,56 +276,20 @@ export function useLibrary(onError: (error: string) => void) {
         const photo = result.photo
         updateSelection(
           {
-            ...(ticket === request.current
-              ? {
-                  photos: result.entries.map((e) => e.photo),
-                  entries: result.entries,
-                  storedTotal: result.storedTotal,
-                  revision: result.revision,
-                  hiddenSelectedIds: [],
-                  hiddenActiveCover: null,
-                  total: result.total,
-                  offset: result.offset,
-                }
-              : {}),
             position: result.index,
             photo,
             activeId: photo.id,
             anchor: photo.id,
+            hiddenActiveCover: null,
             selected: new Map([[photo.id, photo]]),
+            ...(ticket === request.current
+              ? { reveal: { id: photo.id, request: ++refreshing.current } }
+              : {}),
           },
           since,
         )
       }).catch((error) => onError(String(error))),
     [enqueueSelection, onError, updateSelection],
-  )
-
-  const changePage = useCallback(
-    async (offset: number) => {
-      const ticket = ++request.current
-      navigating.current = true
-      try {
-        const result = await window.luma.listGallery(offset, [...current.current.selected.keys()])
-        if (ticket === request.current)
-          update({
-            photos: result.entries.map((e) => e.photo),
-            entries: result.entries,
-            storedTotal: result.storedTotal,
-            revision: result.revision,
-            hiddenSelectedIds: result.hiddenSelectedIds,
-            total: result.total,
-            offset,
-          })
-      } catch (error) {
-        onError(String(error))
-      } finally {
-        if (ticket === request.current) {
-          navigating.current = false
-          void refresh()
-        }
-      }
-    },
-    [onError, refresh, update],
   )
 
   const openPhoto = useCallback(
@@ -336,14 +305,7 @@ export function useLibrary(onError: (error: string) => void) {
           {
             ...(ticket === request.current
               ? {
-                  photos: result.entries.map((e) => e.photo),
-                  entries: result.entries,
-                  storedTotal: result.storedTotal,
-                  revision: result.revision,
-                  hiddenSelectedIds: hidden ? [photo.id] : [],
                   hiddenActiveCover: hidden ? (entry.cover ?? null) : null,
-                  total: result.total,
-                  offset: result.offset,
                   reveal: { id: entry.photo.id, request: ++refreshing.current },
                 }
               : {}),
@@ -452,7 +414,7 @@ export function useLibrary(onError: (error: string) => void) {
     getSelectedIds: () => [...current.current.selected.keys()],
     contextSelect,
     navigate,
-    changePage,
+    hydrate,
     openPhoto,
     selectStack,
     browseSelect,

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
-import { PAGE_SIZE, type Photo, type PhotoReference } from '../shared/contracts'
+import { COLLECTION_CHUNK_SIZE, type Photo, type PhotoReference } from '../shared/contracts'
+import { CollectionChangedError } from '../shared/collections'
 import type { MergeManifest } from '../shared/merge'
 import {
   detectCaptureSequences,
@@ -8,9 +9,11 @@ import {
   type CaptureMetadata,
 } from '../shared/capture-sequence'
 import {
-  galleryPosition,
-  projectGallery,
-  type GalleryPage,
+  type GalleryRead,
+  type GalleryChunk,
+  type GallerySummary,
+  type GalleryRevision,
+  type GalleryEntry,
   type GalleryLocation,
   type StackSummary,
   type StackOverview,
@@ -30,6 +33,21 @@ interface StackRow {
 
 /** The caller owns publication/removal transactions; public mutations own short transactions. */
 export class StackStore {
+  private index?: {
+    key: string
+    references: Map<string, PhotoReference>
+    memberIds: Map<string, string[]>
+    covers: Map<string, string>
+    entries: {
+      id: string
+      stack?: StackSummary
+      cover?: PhotoReference
+      memberIndex?: number
+      mergeSourceCount?: number
+    }[]
+    positions: Map<string, number>
+    revision: GalleryRevision
+  }
   constructor(private db: DatabaseSync) {}
 
   migrate() {
@@ -60,7 +78,7 @@ export class StackStore {
     this.db.exec('UPDATE stack_state SET revision = revision + 1 WHERE singleton = 1')
   }
   private validateOffset(offset: number) {
-    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid page offset.')
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid collection offset.')
   }
   private photo(id: string): Photo {
     if (typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id)) throw new Error('Invalid photo ID.')
@@ -128,7 +146,7 @@ export class StackStore {
       .prepare(
         'SELECT photo FROM stack_members JOIN photos ON photo_id = photos.id WHERE stack_id = ? ORDER BY position LIMIT ? OFFSET ?',
       )
-      .all(id, PAGE_SIZE, offset) as { photo: string }[]
+      .all(id, COLLECTION_CHUNK_SIZE, offset) as { photo: string }[]
     return { stack, photos: rows.map((r) => JSON.parse(r.photo)), total: stack.count }
   }
   snapshot(id: string, revision: number): StackSnapshot {
@@ -402,15 +420,35 @@ export class StackStore {
       return changed
     })
   }
-  private galleryView() {
-    const photos = (
-      this.db.prepare('SELECT photo FROM photos ORDER BY imported_at DESC, rowid DESC').all() as {
-        photo: string
-      }[]
-    ).map((r) => JSON.parse(r.photo) as Photo)
+  private galleryView(expected?: GalleryRevision) {
+    const catalogRevision = (
+      this.db
+        .prepare('SELECT revision FROM collection_catalog_state WHERE singleton = 1')
+        .get() as { revision: number }
+    ).revision
+    const revision = (
+      this.db.prepare('SELECT revision FROM stack_state WHERE singleton = 1').get() as {
+        revision: number
+      }
+    ).revision
+    if (
+      expected &&
+      (expected.catalogRevision !== catalogRevision || expected.revision !== revision)
+    )
+      throw new CollectionChangedError()
+    const key = `${catalogRevision}:${revision}`
+    if (this.index?.key === key) return this.index
+    // A revision-keyed ID/order projection avoids parsing every full photo on every read.
+    const ordered = this.db
+      .prepare(
+        "SELECT id, json_extract(photo, '$.filename') AS filename FROM photos ORDER BY imported_at DESC, rowid DESC",
+      )
+      .all() as unknown as PhotoReference[]
+    const references = new Map(ordered.map((p) => [p.id, p]))
     const overview = this.overview()
     const memberIds = new Map<string, string[]>()
     const covers = new Map<string, string>()
+    const memberships = new Map<string, StackSummary>()
     const rows = this.db
       .prepare('SELECT stack_id, photo_id FROM stack_members ORDER BY stack_id, position')
       .all() as { stack_id: string; photo_id: string }[]
@@ -420,7 +458,10 @@ export class StackStore {
       memberIds.set(row.stack_id, ids)
     }
     for (const stack of overview.stacks)
-      for (const id of memberIds.get(stack.id) ?? []) covers.set(id, stack.coverId)
+      for (const id of memberIds.get(stack.id) ?? []) {
+        covers.set(id, stack.coverId)
+        memberships.set(id, stack)
+      }
     const counts = new Map(
       (
         this.db
@@ -430,74 +471,113 @@ export class StackStore {
           .all() as { id: string; count: number }[]
       ).map((r) => [r.id, r.count]),
     )
-    const entries = projectGallery(
-      photos,
-      overview.stacks.map((summary) => ({ summary, memberIds: memberIds.get(summary.id) ?? [] })),
-      counts,
-    )
-    return {
-      photos: new Map(photos.map((photo) => [photo.id, photo])),
+    const entries = ordered.flatMap((photo) => {
+      const stack = memberships.get(photo.id)
+      if (!stack) return [{ id: photo.id, mergeSourceCount: counts.get(photo.id) }]
+      if (stack.coverId !== photo.id) return []
+      const ids = [photo.id, ...(memberIds.get(stack.id) ?? []).filter((id) => id !== photo.id)]
+      return (stack.expanded ? ids : [photo.id])
+        .filter((id) => references.has(id))
+        .map((id, memberIndex) => ({
+          id,
+          stack,
+          cover: photo,
+          memberIndex,
+          mergeSourceCount: counts.get(id),
+        }))
+    })
+    this.index = {
+      key,
+      references,
       memberIds,
       covers,
-      page: {
-        entries,
-        total: entries.length,
-        storedTotal: photos.length,
-        revision: overview.revision,
-        hiddenSelectedIds: [] as string[],
-      },
+      entries,
+      positions: new Map(entries.map((entry, index) => [entry.id, index])),
+      revision: { catalogRevision, revision },
     }
+    return this.index
   }
-  gallery(offset = 0, selectedIds: string[] = []): GalleryPage {
-    this.validateOffset(offset)
+  gallerySummary(selectedIds: string[] = [], expected?: GalleryRevision): GallerySummary {
     if (
       !Array.isArray(selectedIds) ||
       selectedIds.some((id) => typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id))
     )
       throw new Error('Invalid photo selection.')
-    const { page } = this.galleryView()
-    const visible = new Set(page.entries.map((e) => e.photo.id))
+    const view = this.galleryView(expected)
     return {
-      ...page,
-      entries: page.entries.slice(offset, offset + PAGE_SIZE),
+      ...view.revision,
+      total: view.entries.length,
+      storedTotal: view.references.size,
       hiddenSelectedIds: selectedIds.filter(
-        (id) => !visible.has(id) && !!this.db.prepare('SELECT 1 FROM photos WHERE id = ?').get(id),
+        (id) => !view.positions.has(id) && view.references.has(id),
       ),
     }
   }
-  locate(photoId: string, direction: -1 | 0 | 1 = 0): GalleryLocation | null {
+  galleryChunk(offset: number, expected: GalleryRevision): GalleryChunk {
+    this.validateOffset(offset)
+    if (
+      !expected ||
+      !Number.isSafeInteger(expected.catalogRevision) ||
+      !Number.isSafeInteger(expected.revision) ||
+      Object.keys(expected).some(
+        (k) =>
+          !['catalogRevision', 'revision', 'total', 'storedTotal', 'hiddenSelectedIds'].includes(k),
+      )
+    )
+      throw new Error('Invalid gallery collection revision.')
+    const view = this.galleryView(expected)
+    const window = view.entries.slice(offset, offset + COLLECTION_CHUNK_SIZE)
+    const photos = new Map(
+      (
+        this.db
+          .prepare('SELECT id, photo FROM photos WHERE id IN (SELECT value FROM json_each(?))')
+          .all(JSON.stringify(window.map((e) => e.id))) as { id: string; photo: string }[]
+      ).map((r) => [r.id, JSON.parse(r.photo) as Photo]),
+    )
+    const entries: GalleryEntry[] = window.map(({ id, ...entry }) => ({
+      ...entry,
+      photo: photos.get(id)!,
+    }))
+    return { ...this.gallerySummary([], expected), offset, entries }
+  }
+  gallery(offset = 0, selectedIds: string[] = []): GalleryRead {
+    const summary = this.gallerySummary(selectedIds)
+    return { ...this.galleryChunk(offset, summary), ...summary }
+  }
+  locate(
+    photoId: string,
+    direction: -1 | 0 | 1 = 0,
+    expected?: GalleryRevision,
+  ): GalleryLocation | null {
     if (![-1, 0, 1].includes(direction)) throw new Error('Invalid photo navigation.')
-    const photo = this.photo(photoId),
-      page = this.galleryView().page
-    const position = galleryPosition(page.entries, photoId, this.forPhoto(photoId)?.coverId)
+    const view = this.galleryView(expected)
+    const position =
+      view.positions.get(photoId) ?? view.positions.get(view.covers.get(photoId) ?? '')
+    if (position === undefined) return null
     const index = position + direction
-    if (position < 0 || index < 0 || index >= page.total) return null
-    const offset = Math.floor(index / PAGE_SIZE) * PAGE_SIZE
+    if (index < 0 || index >= view.entries.length) return null
+    const offset = Math.floor(index / COLLECTION_CHUNK_SIZE) * COLLECTION_CHUNK_SIZE
+    const chunk = this.galleryChunk(offset, view.revision)
     return {
-      ...page,
-      entries: page.entries.slice(offset, offset + PAGE_SIZE),
-      offset,
+      ...chunk,
       index,
-      photo: direction === 0 ? photo : page.entries[index].photo,
+      photo: direction === 0 ? this.photo(photoId) : chunk.entries[index - offset].photo,
     }
   }
   range(fromId: string, toId: string): PhotoReference[] {
     if (![fromId, toId].every((id) => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)))
       throw new Error('Invalid photo selection.')
-    const { page, photos, memberIds, covers } = this.galleryView()
-    if (!photos.has(toId)) throw new Error('This photo is unavailable.')
-    const { entries } = page
-    const to = galleryPosition(entries, toId, covers.get(toId))
-    const from = photos.has(fromId) ? galleryPosition(entries, fromId, covers.get(fromId)) : to
+    const { entries, references, memberIds, covers, positions } = this.galleryView()
+    if (!references.has(toId)) throw new Error('This photo is unavailable.')
+    const to = positions.get(toId) ?? positions.get(covers.get(toId) ?? '')!
+    const from = positions.get(fromId) ?? positions.get(covers.get(fromId) ?? '') ?? to
     const selected = new Map<string, PhotoReference>()
     for (const entry of entries.slice(Math.min(from, to), Math.max(from, to) + 1)) {
       const ids =
-        entry.stack?.coverId === entry.photo.id
-          ? (memberIds.get(entry.stack.id) ?? [])
-          : [entry.photo.id]
+        entry.stack?.coverId === entry.id ? (memberIds.get(entry.stack.id) ?? []) : [entry.id]
       for (const id of ids) {
-        const photo = photos.get(id)
-        if (photo) selected.set(id, { id, filename: photo.filename })
+        const reference = references.get(id)
+        if (reference) selected.set(id, reference)
       }
     }
     return [...selected.values()]

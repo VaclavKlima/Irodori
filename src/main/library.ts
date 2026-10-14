@@ -1,3 +1,8 @@
+import { totalmem, cpus } from 'node:os'
+import { collectionPolicy, CollectionChangedError } from '../shared/collections'
+import { WorkspaceStore } from './workspace'
+import type { WorkspaceChange } from '../shared/workspace'
+import type { GalleryRevision } from '../shared/stacks'
 import { MergeReviews } from './merge/reviews'
 import { StackStore } from './stacks'
 import { BrowseStore } from './browse'
@@ -58,14 +63,15 @@ import {
 import { FullPreviews } from './full-previews'
 import { PreviewProcess } from './preview-process'
 import {
-  PAGE_SIZE,
+  COLLECTION_CHUNK_SIZE,
   type ImportCandidate,
   type ImportReview,
+  type ImportReviewSummary,
+  type ImportReviewChunk,
+  type ReviewThumbnailRequest,
   type LibraryEvent,
   type Photo,
   type PhotoPage,
-  type PhotoLocation,
-  type PhotoReference,
   type BackgroundTask,
   type TaskErrorPage,
   type ForegroundActivity,
@@ -122,6 +128,9 @@ interface Session {
   task: Promise<void>
   firstImportedId?: string
   selectionRevision: number
+  orderingRevision: number
+  contentRevision: number
+  thumbnailGeneration: number
   defaultSelected: boolean
   thumbnails: Pick<ReviewThumbnails, 'request' | 'cancel'>
   sourceError?: string
@@ -172,6 +181,8 @@ export class PhotoLibrary {
   private db!: DatabaseSync
   private stacks!: StackStore
   private browse!: BrowseStore
+  private workspace!: WorkspaceStore
+  readonly collectionResources = collectionPolicy(totalmem(), cpus().length)
   private importSources!: ImportSourceRecords
   private cameraRecognition!: CameraRecognition
   private lensTail: Promise<unknown> = Promise.resolve()
@@ -341,9 +352,10 @@ export class PhotoLibrary {
     this.db = new DatabaseSync(join(this.root, 'catalog.sqlite'))
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;')
     const version = this.db.prepare('PRAGMA user_version').get() as { user_version: number }
-    if (version.user_version > 15) throw new Error('This library requires a newer version of Luma.')
+    if (version.user_version > 16) throw new Error('This library requires a newer version of Luma.')
     this.stacks = new StackStore(this.db)
     this.browse = new BrowseStore(this.db)
+    this.workspace = new WorkspaceStore(this.db, this.browse)
     this.importSources = new ImportSourceRecords(this.db)
     this.cameraRecognition = new CameraRecognition(this.db)
     this.db.exec(
@@ -443,7 +455,8 @@ export class PhotoLibrary {
       if (version.user_version < 11) this.stacks.backfillMerges()
       this.browse.initialize()
       this.browse.backfill()
-      this.db.exec('PRAGMA user_version = 15; COMMIT;')
+      this.workspace.migrate()
+      this.db.exec('PRAGMA user_version = 16; COMMIT;')
     } catch (error) {
       this.db.exec('ROLLBACK')
       throw error
@@ -819,11 +832,28 @@ export class PhotoLibrary {
     return work
   }
 
+  getWorkspaceState() {
+    return this.workspace.read()
+  }
+  saveWorkspaceState(change: WorkspaceChange) {
+    if (this.closed) throw new Error('This library is closed.')
+    return this.workspace.save(change)
+  }
+  getCollectionPolicy() {
+    return this.collectionResources
+  }
+  getGallerySummary(selectedIds: string[] = []) {
+    return this.stacks.gallerySummary(selectedIds)
+  }
+  getGalleryChunk(offset: number, revision: GalleryRevision) {
+    return this.stacks.galleryChunk(offset, revision)
+  }
+
   list(offset = 0): PhotoPage {
     this.validateOffset(offset)
     const rows = this.db
       .prepare('SELECT photo FROM photos ORDER BY imported_at DESC, rowid DESC LIMIT ? OFFSET ?')
-      .all(PAGE_SIZE, offset) as { photo: string }[]
+      .all(COLLECTION_CHUNK_SIZE, offset) as { photo: string }[]
     const count = this.db.prepare('SELECT COUNT(*) AS total FROM photos').get() as { total: number }
     return { photos: rows.map((row) => JSON.parse(row.photo) as Photo), total: count.total }
   }
@@ -895,11 +925,11 @@ export class PhotoLibrary {
   listGallery(offset = 0, selectedIds: string[] = []) {
     return this.stacks.gallery(offset, selectedIds)
   }
-  locateGalleryPhoto(id: string, direction: -1 | 0 | 1 = 0) {
+  locateGalleryPhoto(id: string, direction: -1 | 0 | 1 = 0, revision?: GalleryRevision) {
     if (typeof id !== 'string' || !hashPattern.test(id) || ![-1, 0, 1].includes(direction))
       throw new Error('Invalid photo navigation.')
     if (!this.find(id)) return null
-    return this.stacks.locate(id, direction)
+    return this.stacks.locate(id, direction, revision)
   }
   getGalleryRange(from: string, to: string) {
     return this.stacks.range(from, to)
@@ -1024,44 +1054,8 @@ export class PhotoLibrary {
     return id
   }
 
-  locate(id: string, direction: -1 | 0 | 1 = 0): PhotoLocation | null {
-    if (typeof id !== 'string' || ![-1, 0, 1].includes(direction))
-      throw new Error('Invalid photo navigation.')
-    const row = this.db
-      .prepare(
-        'SELECT position FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY imported_at DESC, rowid DESC) - 1 AS position FROM photos) WHERE id = ?',
-      )
-      .get(id) as { position: number } | undefined
-    if (!row) return null
-    const index = row.position + direction
-    if (index < 0) return null
-    const offset = Math.floor(index / PAGE_SIZE) * PAGE_SIZE
-    const page = this.list(offset)
-    if (index >= page.total) return null
-    return { ...page, offset, index }
-  }
-
   listTasks(): BackgroundTask[] {
     return [...this.tasks.values()].map((task) => structuredClone(task.snapshot))
-  }
-
-  range(fromId: string, toId: string): PhotoReference[] {
-    if (![fromId, toId].every((id) => typeof id === 'string' && hashPattern.test(id)))
-      throw new Error('Invalid photo selection.')
-    return this.db
-      .prepare(
-        `
-      WITH ordered AS (
-        SELECT id, photo, ROW_NUMBER() OVER (ORDER BY imported_at DESC, rowid DESC) AS position FROM photos
-      ), bounds AS (
-        SELECT COALESCE((SELECT position FROM ordered WHERE id = ?), (SELECT position FROM ordered WHERE id = ?)) AS start,
-          (SELECT position FROM ordered WHERE id = ?) AS finish
-      )
-      SELECT id, json_extract(photo, '$.filename') AS filename FROM ordered, bounds
-      WHERE position BETWEEN MIN(start, finish) AND MAX(start, finish) ORDER BY position
-    `,
-      )
-      .all(fromId, toId, toId) as unknown as PhotoReference[]
   }
 
   deletePhotos(ids: string[]): string | null {
@@ -1216,7 +1210,9 @@ export class PhotoLibrary {
     const task = this.tasks.get(id)
     if (!task) throw new Error('This task has been dismissed.')
     return {
-      errors: task.errors.slice(offset, offset + PAGE_SIZE).map((error) => ({ ...error })),
+      errors: task.errors
+        .slice(offset, offset + COLLECTION_CHUNK_SIZE)
+        .map((error) => ({ ...error })),
       total: task.errors.length,
     }
   }
@@ -1266,7 +1262,7 @@ export class PhotoLibrary {
   }
 
   private validateOffset(offset: number): void {
-    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid page offset.')
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid collection offset.')
   }
 
   private getSession(id: string): Session {
@@ -1276,6 +1272,7 @@ export class PhotoLibrary {
 
   private changed(session?: Session, libraryChanged = false): void {
     if (this.closed) return
+    if (session) session.contentRevision++
     if (libraryChanged)
       this.emit({
         sessionId: session?.id,
@@ -1323,6 +1320,9 @@ export class PhotoLibrary {
         skipped: 0,
         defaultSelected: true,
         selectionRevision: 0,
+        orderingRevision: 0,
+        contentRevision: 0,
+        thumbnailGeneration: 0,
         abort: new AbortController(),
         task: Promise.resolve(),
         device,
@@ -1395,11 +1395,26 @@ export class PhotoLibrary {
     }
   }
 
-  requestReviewThumbnails(id: string, ids: string[]): void {
-    if (!Array.isArray(ids) || ids.length > PAGE_SIZE || ids.some((id) => typeof id !== 'string'))
-      throw new Error('Invalid thumbnail selection.')
+  requestReviewThumbnails(id: string, request: string[] | ReviewThumbnailRequest): void {
     if (!this.session || this.session.id !== id) return
     const s = this.session
+    const value = Array.isArray(request)
+      ? { generation: s.thumbnailGeneration + 1, visible: request, lookahead: [] }
+      : request
+    if (
+      !value ||
+      !Number.isSafeInteger(value.generation) ||
+      value.generation < 0 ||
+      ![value.visible, value.lookahead].every(
+        (ids) => Array.isArray(ids) && ids.every((v) => typeof v === 'string'),
+      ) ||
+      value.visible.length > 10000 ||
+      value.lookahead.length > this.collectionResources.records ||
+      Object.keys(value).some((k) => !['generation', 'visible', 'lookahead'].includes(k))
+    )
+      throw new Error('Invalid thumbnail selection.')
+    if (value.generation <= s.thumbnailGeneration) return
+    s.thumbnailGeneration = value.generation
     if (
       !['scanning', 'review'].includes(s.phase) ||
       s.sourceError ||
@@ -1408,12 +1423,13 @@ export class PhotoLibrary {
     )
       return
     this.refreshAlreadyImported(s)
-    const inputs = [...new Set(ids)].flatMap((id) => {
+    const visible = new Set(value.visible)
+    const inputs = [...new Set([...value.visible, ...value.lookahead])].flatMap((id) => {
       const c = s.candidatesById.get(id)
       if (!c) throw new Error('This photo is unavailable in the review.')
       if (c.sourcePhotoId || c.checkingSource) return []
       c.cacheDir ??= join(this.root, 'staging', s.id, c.id)
-      return [{ id: c.id, path: c.path, output: c.cacheDir }]
+      return [{ id: c.id, path: c.path, output: c.cacheDir, priority: visible.has(id) ? 0 : 1 }]
     })
     s.thumbnails.request(inputs)
   }
@@ -1434,6 +1450,7 @@ export class PhotoLibrary {
   }
 
   private addCandidate(s: Session, c: Candidate): void {
+    s.orderingRevision++
     s.candidates.push(c)
     s.candidatesById.set(c.id, c)
     this.countCandidate(s, c)
@@ -1839,18 +1856,20 @@ export class PhotoLibrary {
     )
   }
 
-  review(id: string, offset = 0): ImportReview {
-    this.validateOffset(offset)
-    const s = this.getSession(id)
-    this.refreshAlreadyImported(s)
+  private orderedReview(s: Session) {
     if (s.orderedCandidates?.length !== s.candidates.length) {
       s.orderedCandidates = [...s.candidates].sort((a, b) => {
-        const aTime = a.identity?.mtimeMs ?? -Infinity
-        const bTime = b.identity?.mtimeMs ?? -Infinity
+        const aTime = a.identity?.mtimeMs ?? -Infinity,
+          bTime = b.identity?.mtimeMs ?? -Infinity
         if (aTime !== bTime) return aTime > bTime ? -1 : 1
         return reviewNameOrder.compare(a.relativePath, b.relativePath) || a.id.localeCompare(b.id)
       })
     }
+    return s.orderedCandidates
+  }
+  reviewSummary(id: string): ImportReviewSummary {
+    const s = this.getSession(id)
+    this.refreshAlreadyImported(s)
     return {
       sessionId: id,
       source: s.source,
@@ -1861,39 +1880,73 @@ export class PhotoLibrary {
       verificationPending: s.verificationPending,
       ...s.counts,
       phase: s.phase,
-      candidates: s.orderedCandidates
-        .slice(offset, offset + PAGE_SIZE)
-        .map(
-          ({
-            id,
-            filename,
-            relativePath,
-            bytes,
-            status,
-            selected,
-            alreadyImported,
-            thumbnailUrl,
-            thumbnailState,
-            thumbnailMessage,
-            message,
-          }) => ({
-            id,
-            filename,
-            relativePath,
-            bytes,
-            status,
-            selected: selected && !(s.onlyMissing && alreadyImported),
-            alreadyImported,
-            thumbnailUrl,
-            thumbnailState,
-            thumbnailMessage,
-            message,
-          }),
-        ),
       total: s.candidates.length,
+      orderingRevision: s.orderingRevision,
+      contentRevision: s.contentRevision,
       selectionRevision: s.selectionRevision,
       skipped: s.skipped,
       firstImportedId: s.firstImportedId,
+    }
+  }
+  private candidate(c: Candidate, s: Session): ImportCandidate {
+    const {
+      id,
+      filename,
+      relativePath,
+      bytes,
+      status,
+      selected,
+      alreadyImported,
+      thumbnailUrl,
+      thumbnailState,
+      thumbnailMessage,
+      message,
+    } = c
+    return {
+      id,
+      filename,
+      relativePath,
+      bytes,
+      status,
+      selected: selected && !(s.onlyMissing && alreadyImported),
+      alreadyImported,
+      thumbnailUrl,
+      thumbnailState,
+      thumbnailMessage,
+      message,
+    }
+  }
+  reviewChunk(id: string, offset: number, orderingRevision: number): ImportReviewChunk {
+    this.validateOffset(offset)
+    const s = this.getSession(id)
+    this.refreshAlreadyImported(s)
+    if (!Number.isSafeInteger(orderingRevision) || s.orderingRevision !== orderingRevision)
+      throw new CollectionChangedError()
+    return {
+      sessionId: id,
+      offset,
+      orderingRevision,
+      contentRevision: s.contentRevision,
+      selectionRevision: s.selectionRevision,
+      candidates: this.orderedReview(s)
+        .slice(offset, offset + COLLECTION_CHUNK_SIZE)
+        .map((c) => this.candidate(c, s)),
+    }
+  }
+  locateReviewCandidate(id: string, candidateId: string, orderingRevision: number) {
+    const s = this.getSession(id)
+    if (!Number.isSafeInteger(orderingRevision) || orderingRevision !== s.orderingRevision)
+      throw new CollectionChangedError()
+    const index = this.orderedReview(s).findIndex((c) => c.id === candidateId)
+    return index < 0
+      ? null
+      : { orderingRevision, index, candidate: this.candidate(this.orderedReview(s)[index], s) }
+  }
+  review(id: string, offset = 0): ImportReview {
+    const summary = this.reviewSummary(id)
+    return {
+      ...summary,
+      candidates: this.reviewChunk(id, offset, summary.orderingRevision).candidates,
     }
   }
 

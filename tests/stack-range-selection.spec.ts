@@ -71,11 +71,13 @@ test('member-only ranges stay narrow; hidden boundaries use covers and missing a
   }
 })
 
-test('groups larger than two pages resolve completely while member-only and flat ranges retain their own boundaries', async () => {
+test('groups larger than two chunks resolve completely while member-only and individual ranges retain their own boundaries', async () => {
   const t = await stackFixture(130)
   try {
+    await t.restart()
     const ids = t.photos.map((p) => p.id)
-    const flatBefore = t.library.range(ids[0], ids[129])
+    const flatBefore = t.library.getBrowseRange({ search: '', grouping: 'date' }, ids[0], ids[129])
+    expect(flatBefore.length).toBeGreaterThan(0)
     const stack = t.library.groupPhotos(ids.slice(5), ids[129], t.library.listStacks().revision)
     const ordered = [0, 60, 120]
       .flatMap((offset) => t.library.getStackMembers(stack.id, offset).photos)
@@ -88,7 +90,9 @@ test('groups larger than two pages resolve completely while member-only and flat
     const narrow = ordered.slice(58, 123)
     expect(t.library.getGalleryRange(ordered[58].id, ordered[122].id)).toEqual(narrow)
     expect(t.library.getGalleryRange(ordered[122].id, ordered[58].id)).toEqual(narrow)
-    expect(t.library.range(ids[0], ids[129])).toEqual(flatBefore)
+    expect(t.library.getBrowseRange({ search: '', grouping: 'date' }, ids[0], ids[129])).toEqual(
+      flatBefore,
+    )
     expect(t.library.list().total).toBe(130)
   } finally {
     await t.close()

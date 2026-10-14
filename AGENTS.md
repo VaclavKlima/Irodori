@@ -7,6 +7,7 @@
 - Keep unfinished behavior explicit. Exposure, contrast, highlights, shadows, whites, blacks, verified Sony RAW white balance, and verified lens corrections share persisted history; other light and color controls remain disabled. The console is disconnected and does not execute commands. Never reintroduce demo photographs or fabricated metadata into the application.
 - Keep the interface dark, neutral, compact, keyboard-accessible, and usable at a minimum content size of 1100 × 700. Preserve independent panel scrolling and the central photograph as the main visual focus.
 - Follow [input design](docs/input-design.md) for new controls. Numeric slider adjustments use the shared `AdjustmentInput` component; keep persistence and photo-wide Undo/Redo outside individual inputs.
+- Follow [scrolling design](docs/scrolling-design.md) for collections. Continuous scrolling is the default; use the shared controller and declare identity/order, availability, selection, loading/retry, recovery, and verification. Do not introduce page-number controls or separate pagination engines.
 - Follow [menu design](docs/menu-design.md) for photo commands in both workspaces. Extend the shared menu model and renderer; declare every command's target, availability, execution behavior, and tests.
 
 ## Architecture
@@ -34,7 +35,7 @@
 
 ## Selection and deletion
 
-- Keep the active preview separate from the selected ID set and range anchor. Selection spans library pages and survives import updates. Await pending range selection before freezing deletion targets.
+- Keep the active preview separate from the selected ID set and range anchor. Selection spans loaded and unloaded records and survives import updates. Await pending range selection before freezing deletion targets.
 - Delete only internal managed photo bundles after confirmation, using system Trash. Never permanently delete as a fallback. Keep removal journals and recoverable bundles outside disposable staging; preserve bundles restored by the OS.
 - Admit confirmed deletion and requested merges during background import through the foreground scheduler. Serialize publication and Trash mutations, and wait for an in-flight Trash call before cancelling or quitting. Use isolated Trash adapters for automated tests.
 

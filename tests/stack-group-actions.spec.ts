@@ -8,22 +8,22 @@ import { syntheticMerge } from './merge.helpers'
 import { MergeReviews } from '../src/main/merge/reviews'
 import { groupMergeUnavailable, type MergeManifest } from '../src/shared/merge'
 
-test('revision-checked snapshots resolve more than two pages in persisted order and survive restart', async () => {
+test('revision-checked snapshots resolve more than two transport chunks in persisted order and survive restart', async () => {
   const t = await stackFixture(130)
   try {
     const ids = t.photos.slice(5).map((p) => p.id)
     const stack = t.library.groupPhotos(ids, ids[90], t.library.listStacks().revision)
     const snapshot = t.library.getStackSnapshot(stack.id, stack.revision)
-    const pages = [0, 60, 120].flatMap(
+    const chunks = [0, 60, 120].flatMap(
       (offset) => t.library.getStackMembers(stack.id, offset).photos,
     )
-    expect(snapshot).toEqual({ stack, photos: pages })
+    expect(snapshot).toEqual({ stack, photos: chunks })
     expect(snapshot.photos).toHaveLength(125)
     expect(snapshot.photos[0].id).toBe(stack.coverId)
     expect(t.library.listGallery().total).toBe(6)
     const expanded = t.library.setStackExpanded(stack.id, true, stack.revision)
     expect(t.library.listGallery(60).entries[0].stack?.id).toBe(stack.id)
-    expect(t.library.getStackSnapshot(stack.id, expanded.revision).photos).toEqual(pages)
+    expect(t.library.getStackSnapshot(stack.id, expanded.revision).photos).toEqual(chunks)
     expect(() => t.library.getStackSnapshot(stack.id, stack.revision)).toThrow('Stale')
     for (const revision of [undefined, -1, 0.5, NaN, '1'])
       expect(() => t.library.getStackSnapshot(stack.id, revision as number)).toThrow('revision')
@@ -31,7 +31,7 @@ test('revision-checked snapshots resolve more than two pages in persisted order 
     await t.restart()
     expect(t.library.getStackSnapshot(stack.id, expanded.revision)).toEqual({
       stack: expanded,
-      photos: pages,
+      photos: chunks,
     })
     const removed = t.library.removeFromStack(ids[0], expanded.revision)!
     expect(() => t.library.getStackSnapshot(stack.id, expanded.revision)).toThrow('Stale')

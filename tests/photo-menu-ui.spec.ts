@@ -347,6 +347,13 @@ test('long headings fit the native minimum window; unrelated imports persist and
   await expect.poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total).toBe(4)
   await expect(menu).toBeVisible()
   await expect(menu.locator('[data-action-id="photo-cover"]')).toBeFocused()
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.luma.listTasks())).some(
+        (task) => task.status === 'running' || task.status === 'cancelling',
+      ),
+    )
+    .toBe(false)
   await page.evaluate((s) => window.luma.ungroupStack(s.id, s.revision), stack)
   await expect(menu).toHaveCount(0)
   await page.getByTestId(`photo-card-${long.id}`).click({ button: 'right' })

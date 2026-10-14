@@ -1,3 +1,4 @@
+import type { PreviewViewState } from '../../../shared/workspace'
 export interface Size {
   width: number
   height: number
@@ -109,6 +110,32 @@ export function wheelView(
         view.x -
         wheelPixels(horizontal ? event.deltaY : event.deltaX, event.deltaMode, viewport.width),
       y: view.y - (horizontal ? 0 : wheelPixels(event.deltaY, event.deltaMode, viewport.height)),
+    },
+    image,
+    viewport,
+  )
+}
+
+export function savedView(photoId: string, view: View, image: Size): PreviewViewState {
+  return {
+    photoId,
+    fit: view.fit,
+    scale: view.scale,
+    centerX: image.width
+      ? Math.max(0, Math.min(1, 0.5 - view.x / (view.scale * image.width)))
+      : 0.5,
+    centerY: image.height
+      ? Math.max(0, Math.min(1, 0.5 - view.y / (view.scale * image.height)))
+      : 0.5,
+  }
+}
+export function restoreView(saved: PreviewViewState, image: Size, viewport: Size): View {
+  return constrain(
+    {
+      fit: saved.fit,
+      scale: saved.scale,
+      x: (0.5 - saved.centerX) * image.width * saved.scale,
+      y: (0.5 - saved.centerY) * image.height * saved.scale,
     },
     image,
     viewport,

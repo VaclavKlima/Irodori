@@ -1,3 +1,4 @@
+import { revealEditorPhoto, revealImportCandidate } from './collection-ui.helpers'
 import { copyFile, mkdir, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from './electron.fixture'
@@ -97,7 +98,9 @@ test('supports picker cancellation, nonrecursive folders, select all and keyboar
   expect(await readdir(join(luma.userDataDir, 'library', 'staging'))).toEqual([])
 })
 
-test('reviews and browses a library across page boundaries', async ({ luma }, testInfo) => {
+test('reviews and browses a library across loaded and unloaded records', async ({
+  luma,
+}, testInfo) => {
   test.setTimeout(90_000)
   const { app, page } = luma
   const source = testInfo.outputPath('large-folder')
@@ -119,8 +122,7 @@ test('reviews and browses a library across page boundaries', async ({ luma }, te
   await expect(
     page.getByRole('checkbox', { name: /^Import .*\.jpg$/ }).first(),
   ).toHaveAccessibleName('Import 60.jpg')
-  const pages = page.getByRole('navigation', { name: 'Import pages' })
-  await pages.getByRole('button', { name: 'Next', exact: true }).click()
+  await revealImportCandidate(page, 60, '00.jpg')
   await expect(page.getByRole('checkbox', { name: 'Import 00.jpg', exact: true })).toBeChecked()
   await page.getByRole('button', { name: 'Import 61 photos', exact: true }).click()
   await expect(page.getByTestId('preview-filename')).toHaveText(/^\d{2}\.jpg$/)
@@ -134,9 +136,8 @@ test('reviews and browses a library across page boundaries', async ({ luma }, te
     ),
     newest = firstPage.photos[0].filename,
     previous = firstPage.photos.at(-1)!.filename,
-    oldest = lastPage.photos[0].filename,
-    libraryPages = page.getByRole('navigation', { name: 'Library pages' })
-  await libraryPages.getByRole('button', { name: 'Next', exact: true }).click()
+    oldest = lastPage.photos[0].filename
+  await revealEditorPhoto(page, lastPage.photos[0].id)
   await expect(page.getByTestId('preview-filename')).toHaveText(initialPreview!)
   await page.getByRole('button', { name: `Select ${oldest}`, exact: true }).click()
   await expect(page.getByTestId('preview-filename')).toHaveText(oldest)
@@ -144,14 +145,11 @@ test('reviews and browses a library across page boundaries', async ({ luma }, te
   await expect(page.getByTestId('preview-filename')).toHaveText(previous)
   await page.getByRole('button', { name: 'Next photo', exact: true }).click()
   await expect(page.getByTestId('preview-filename')).toHaveText(oldest)
-  await page
-    .getByRole('navigation', { name: 'Library pages' })
-    .getByRole('button', { name: 'Previous', exact: true })
-    .click()
+  await revealEditorPhoto(page, firstPage.photos[0].id)
   await expect(page.getByTestId('preview-filename')).toHaveText(oldest)
   await page.getByRole('button', { name: `Select ${newest}`, exact: true }).click()
   await expect(page.getByTestId('preview-filename')).toHaveText(newest)
-  await libraryPages.getByRole('button', { name: 'Next', exact: true }).click()
+  await revealEditorPhoto(page, lastPage.photos[0].id)
   await expect(page.getByTestId('preview-filename')).toHaveText(newest)
   await page
     .getByRole('button', { name: `Select ${oldest}`, exact: true })
@@ -170,6 +168,6 @@ test('reviews and browses a library across page boundaries', async ({ luma }, te
   await expect.poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total).toBe(1)
   await expect(page.getByTestId('preview-filename')).toHaveText(oldest)
   await expect(page.getByRole('button', { name: `Select ${oldest}`, exact: true })).toBeVisible()
-  await expect(libraryPages).toHaveCount(0)
+  await expect(page.getByRole('navigation', { name: /pages/ })).toHaveCount(0)
   await expect(page.getByTestId('selection-count')).toHaveText('0 selected')
 })

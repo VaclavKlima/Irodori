@@ -10,7 +10,7 @@ Combine compatible RAW brackets into a durable, editable HDR asset, retaining hi
 
 ## User workflow
 
-1. Select brackets across library pages. Await pending range selection, freeze source IDs, and open merge review without changing the active-preview contract.
+1. Select brackets across loaded and unloaded records. Await pending range selection, freeze source IDs, and open merge review without changing the active-preview contract.
 2. Review exposure order, compatibility, missing metadata, and source thumbnails; choose a reference frame.
 3. Preview alignment and deghosting independently, inspect confidence/motion overlays, correct problematic regions, and choose the valid-area crop.
 4. Start a background merge with fixed input totals and phase progress. Continue browsing, cancel if needed, and open the new asset after publication.

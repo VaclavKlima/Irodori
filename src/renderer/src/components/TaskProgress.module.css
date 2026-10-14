@@ -125,15 +125,22 @@
   overflow-wrap: anywhere;
 }
 .errors {
+  max-height: 240px;
+  overflow: auto;
+  overflow-anchor: none;
   margin-top: 14px;
   font-size: 11px;
 }
 .errors ul {
+  position: relative;
   padding: 0;
   margin: 0;
   list-style: none;
 }
 .errors li {
+  position: absolute;
+  left: 0;
+  right: 0;
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -142,12 +149,6 @@
 }
 .errors li span {
   color: #cba99f;
-}
-.errors nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 10px;
 }
 @keyframes spin {
   to {
@@ -176,4 +177,9 @@
   .track {
     width: 40px;
   }
+}
+
+.popover[hidden],
+.errors[hidden] {
+  display: none;
 }

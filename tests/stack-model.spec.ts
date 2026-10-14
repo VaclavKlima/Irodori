@@ -37,7 +37,7 @@ test('collapsed covers are ordinary photo rows and counts distinguish recipes fr
   expect(galleryPosition(entries, '61', '59')).toBe(59)
   expect(galleryPosition(entries, '0', '59')).toBe(0)
 })
-test('expanded members stay contiguous in persisted order across 60-row pages with their parent', () => {
+test('expanded members stay contiguous in persisted order across 60-row transport chunks with their parent', () => {
   const entries = projectGallery(photos, [{ ...stack, summary: { ...summary, expanded: true } }])
   expect(entries).toHaveLength(65)
   expect(entries.slice(59, 63).map((e) => e.photo.id)).toEqual(['59', '61', '63', '60'])

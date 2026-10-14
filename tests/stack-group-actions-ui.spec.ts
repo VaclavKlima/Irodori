@@ -1,3 +1,4 @@
+import { revealEditorPhoto } from './collection-ui.helpers'
 import { test, expect } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { isolateTrash } from './photo-actions.helpers'
@@ -84,7 +85,7 @@ test('photo, selection and group targets stay distinct across unrelated groups w
   await expect(card(4)).toHaveAttribute('aria-pressed', 'true')
 })
 
-test('collapsed and paginated members disclose a complete frozen group; menu scrolling and keyboard work at minimum console size', async ({
+test('collapsed and unloaded members disclose a complete frozen group; menu scrolling and keyboard work at minimum console size', async ({
   luma,
 }, info) => {
   test.setTimeout(90000)
@@ -106,12 +107,10 @@ test('collapsed and paginated members disclose a complete frozen group; menu scr
   await expect(page.getByTestId('selection-count')).toHaveText('1 selected')
   await page.keyboard.press('Escape')
   stack = await page.evaluate((s) => window.luma.setStackExpanded(s.id, true, s.revision), stack)
-  await page
-    .getByRole('navigation', { name: 'Library pages' })
-    .getByRole('button', { name: 'Next', exact: true })
-    .click()
+  await revealEditorPhoto(page, photos[66].id)
   await page.getByTestId(`photo-card-${photos[66].id}`).click()
   const member = ordered.photos[60]
+  await revealEditorPhoto(page, member.id)
   await page.getByTestId(`photo-card-${member.id}`).click({ modifiers: ['ControlOrMeta'] })
   await page.getByTestId('console-toggle').click()
   await (
@@ -379,6 +378,10 @@ test('delayed, failed, superseded and dismissed menu snapshots never present par
   )
   const first = page.getByTestId(`photo-card-${photos[0].id}`)
   const second = page.getByTestId(`photo-card-${photos[3].id}`)
+  await page.evaluate(async () => {
+    for (const task of await window.luma.listTasks())
+      if (task.status === 'completed') await window.luma.dismissTask(task.id)
+  })
   const hold = await holdGroupOperation(app, 'photo-actions:context')
   try {
     await first.click({ button: 'right' })
@@ -396,20 +399,50 @@ test('delayed, failed, superseded and dismissed menu snapshots never present par
     ).toHaveCount(0)
     await page.keyboard.press('Escape')
     await first.click({ button: 'right' })
-    await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(3)
+    await expect
+      .poll(() =>
+        hold.evaluate(
+          (h, id) => h.calls.filter((call) => call.args[0] === id).length,
+          photos[0].id,
+        ),
+      )
+      .toBe(2)
     await page.keyboard.press('Escape')
     await expect(first).toBeFocused()
-    await hold.evaluate((h) => h.calls[2].resolve())
+    await hold.evaluate(
+      (h, id) => h.calls.filter((call) => call.args[0] === id)[1].resolve(),
+      photos[0].id,
+    )
     await expect(page.getByRole('menu')).toHaveCount(0)
     await first.click({ button: 'right' })
-    await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(4)
+    await expect
+      .poll(() =>
+        hold.evaluate(
+          (h, id) => h.calls.filter((call) => call.args[0] === id).length,
+          photos[0].id,
+        ),
+      )
+      .toBe(3)
     await page.getByTestId('preview-filename').click()
-    await hold.evaluate((h) => h.calls[3].reject())
+    await hold.evaluate(
+      (h, id) => h.calls.filter((call) => call.args[0] === id)[2].reject(),
+      photos[0].id,
+    )
     await expect(page.getByRole('alert')).toHaveCount(0)
     await expect(page.getByRole('menu')).toHaveCount(0)
     await first.click({ button: 'right' })
-    await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(5)
-    await hold.evaluate((h) => h.calls[4].reject())
+    await expect
+      .poll(() =>
+        hold.evaluate(
+          (h, id) => h.calls.filter((call) => call.args[0] === id).length,
+          photos[0].id,
+        ),
+      )
+      .toBe(4)
+    await hold.evaluate(
+      (h, id) => h.calls.filter((call) => call.args[0] === id)[3].reject(),
+      photos[0].id,
+    )
     await expect(page.getByRole('alert')).toContainText('Action resolution failed.')
     await expect(page.getByRole('menu')).toHaveCount(0)
     await expect(page.getByRole('dialog')).toHaveCount(0)

@@ -11,7 +11,7 @@ import { commit, scan, setup } from './library.helpers'
 const photo = resolve('tests/fixtures/photos/alpine-lake.jpg')
 const other = resolve('tests/fixtures/photos/mountain-ridge.jpg')
 
-test('reviews files and recursive folders newest first while preserving choices as discoveries reorder pages', async () => {
+test('reviews files and recursive folders newest first while preserving choices as discoveries reorder records', async () => {
   const t = await setup()
   try {
     const source = join(t.root, 'source')

@@ -26,14 +26,22 @@ export interface GalleryEntry {
   memberIndex?: number
   mergeSourceCount?: number
 }
-export interface GalleryPage {
-  entries: GalleryEntry[]
+export interface GalleryRevision {
+  catalogRevision: number
+  revision: number
+}
+export interface GallerySummary extends GalleryRevision {
   total: number
   storedTotal: number
-  revision: number
   hiddenSelectedIds: string[]
 }
-export interface GalleryLocation extends GalleryPage {
+export interface GalleryRead extends GallerySummary {
+  entries: GalleryEntry[]
+}
+export interface GalleryChunk extends GalleryRead {
+  offset: number
+}
+export interface GalleryLocation extends GalleryChunk {
   offset: number
   index: number
   /** The requested photo can be hidden behind its cover. */

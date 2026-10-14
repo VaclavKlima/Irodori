@@ -139,6 +139,20 @@ const tools = [
     }),
   },
   {
+    name: 'luma_get_gallery_summary',
+    description:
+      'Read visible/stored totals and coherent catalog/stack revisions without decoding originals.',
+    inputSchema: schema({ selectedIds: { type: 'array', items: photoId } }, []),
+  },
+  {
+    name: 'luma_get_gallery_chunk',
+    description: 'Read up to 60 gallery records at a coherent catalog and stack revision.',
+    inputSchema: schema({
+      offset: { type: 'integer', minimum: 0 },
+      galleryRevision: schema({ catalogRevision: expectedRevision, revision: expectedRevision }),
+    }),
+  },
+  {
     name: 'luma_list_gallery',
     description: 'Read 60 visible photo rows, with parent stack and stored-photo totals.',
     inputSchema: schema({ offset: { type: 'integer', minimum: 0 } }, []),
@@ -151,7 +165,7 @@ const tools = [
   {
     name: 'luma_get_gallery_range',
     description:
-      'Read an inclusive gallery range in gallery order. Included covers select all current stack members, including collapsed or paginated members, in persisted order. Hidden boundaries use their covers; member-only ranges remain individual.',
+      'Read an inclusive gallery range in gallery order. Included covers select all current stack members, including collapsed or unloaded members, in persisted order. Hidden boundaries use their covers; member-only ranges remain individual.',
     inputSchema: schema({ fromId: photoId, toId: photoId }),
   },
   {
@@ -215,7 +229,7 @@ const tools = [
   },
   {
     name: 'luma_get_task_errors',
-    description: 'Read a page of background task errors.',
+    description: 'Read up to 60 background task errors.',
     inputSchema: schema({ taskId: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, [
       'taskId',
     ]),
@@ -281,7 +295,7 @@ const tools = [
   },
   {
     name: 'luma_list_photos',
-    description: 'List imported photos, 60 per page.',
+    description: 'List imported photos, 60 per chunk.',
     inputSchema: schema({ offset: { type: 'integer', minimum: 0 } }, []),
   },
   {

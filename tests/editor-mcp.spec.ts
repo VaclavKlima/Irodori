@@ -42,6 +42,8 @@ test('stdio editing tools share persisted history with UI without a development 
       'luma_remove_from_stack',
       'luma_set_stack_cover',
       'luma_set_stack_expanded',
+      'luma_get_gallery_summary',
+      'luma_get_gallery_chunk',
       'luma_list_gallery',
       'luma_locate_gallery_photo',
       'luma_get_gallery_range',
@@ -83,6 +85,21 @@ test('stdio editing tools share persisted history with UI without a development 
     expect(missingDiagnostics.isError).toBe(true)
     const page = await call('luma_list_photos')
     const photoId = (page.photos as { id: string }[])[0].id
+    const gallery = await luma.page.evaluate(() => window.luma.getGallerySummary())
+    expect(await call('luma_get_gallery_summary')).toEqual(gallery)
+    expect(
+      await call('luma_get_gallery_chunk', {
+        offset: 0,
+        galleryRevision: { catalogRevision: gallery.catalogRevision, revision: gallery.revision },
+      }),
+    ).toEqual(
+      await luma.page.evaluate((revision) => window.luma.getGalleryChunk(0, revision), gallery),
+    )
+    const staleGallery = await client.callTool({
+      name: 'luma_get_gallery_chunk',
+      arguments: { offset: 0, galleryRevision: { catalogRevision: -1, revision: 0 } },
+    })
+    expect(staleGallery.isError).toBe(true)
     const context = await luma.page.evaluate(
       (id) => window.luma.getPhotoActionsContext(id, [id]),
       photoId,
