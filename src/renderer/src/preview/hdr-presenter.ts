@@ -556,6 +556,7 @@ export class HdrPresenter {
     p[19] = Number(!!wb)
     for (let row = 0; row < 3; row++)
       p.set((wb ?? identityMatrix).slice(row * 3, row * 3 + 3), 20 + row * 4)
+    p[31] = Number(!!this.frame!.hdr?.source.display)
     p[37] = target.peak
     p[38] = target.colorSpace === 'display-p3' ? 2 : 1
     p[39] = Number(target.mode === 'hdr')

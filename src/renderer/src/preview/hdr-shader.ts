@@ -46,7 +46,10 @@ fn adjusted(input: vec3f) -> vec3f {
   }
   return rgb;
 }
-fn outputRgb(rgb: vec3f) -> vec3f {return renderDisplayRgb(rgb,u.values[3].z);}
+fn outputRgb(rgb: vec3f) -> vec3f {
+  if(u.values[7].w>0.) { return max(rgb,vec3f(0.)); }
+  return renderDisplayRgb(rgb,u.values[3].z);
+}
 fn encoded(v:vec3f)->vec3f {return encodeDisplayRgb(v);}
 `
 

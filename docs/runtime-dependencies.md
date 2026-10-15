@@ -40,3 +40,11 @@ Test photographs are never part of the application bundle. Their provenance is i
 ## HDR merge alignment
 
 The merge worker bundles OpenCV 4.13.0 WASM from `vendor/opencv`. Copy this directory beside `merge-worker.js` (outside `app.asar` in future packaged distributions); it contains the Node module, WASM bytes, SHA-256 manifest and licenses. No system OpenCV or runtime network access is used. See [the reproducible build instructions](../vendor/opencv/README.md). The development and production build already copy these files; installer verification remains deferred.
+
+## JPEG export runtime
+
+The build emits `out/main/export-worker.js` and copies `vendor/ultrahdr` beside it. Export uses the same bundled Node 24 runtime family as preview. RAW/lens preparation completes in a separate process, which exits before the export encoder loads. Export does not run sharp, LibRaw or Ultra HDR inside Electron and does not consume foreground preview caches.
+
+Ship the complete `ultrahdr` directory outside ASAR with the worker. Its pinned libultrahdr **2.0.2** / libjpeg-turbo **3.1.0** module is Node-only, single-threaded, checksummed, ISO 21496-1 enabled, and gain-map XMP disabled. Emscripten **4.0.20** build/link scripts, source archive hashes, the 2 GiB heap cap and licenses are retained in [vendor/ultrahdr](../vendor/ultrahdr/README.md). Retain its `LICENSE`, MIT/Apache licenses, Adobe gain-map technology notice and libjpeg-turbo/IJG notices in every distribution.
+
+JPEG primary encoding uses sharp 0.35.4 / its bundled libvips codecs with baseline sRGB 4:4:4 settings. SDR source metadata is allowlisted before HDR packaging. Required ICC/ISO reconstruction metadata is never stripped by the privacy choices. [File compatibility](features/hdr-file-support.md#enabled-export-variants) remains distinct from display hardware, broader HDR import and installer certification. The preview worker also uses the pinned WASM decoder for bounded ISO gain-map JPEG import; it remains outside Electron.

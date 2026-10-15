@@ -139,11 +139,13 @@ function TaskDetails({
         <p role="status">
           {task.waitingReason === 'foreground'
             ? 'Waiting for photo editing or preview'
-            : task.waitingReason === 'library-operation'
-              ? 'Waiting for merge or deletion'
-              : task.waitingReason === 'pipeline-capacity'
-                ? 'Waiting for preparation'
-                : 'Waiting for RAW preparation'}
+            : task.waitingReason === 'export'
+              ? 'Waiting for JPEG export'
+              : task.waitingReason === 'library-operation'
+                ? 'Waiting for merge or deletion'
+                : task.waitingReason === 'pipeline-capacity'
+                  ? 'Waiting for preparation'
+                  : 'Waiting for RAW preparation'}
         </p>
       )}
       {task.detail && (
@@ -160,6 +162,12 @@ function TaskDetails({
         <p>
           {task.outcomes.processed} processed · {task.outcomes.imported} imported ·{' '}
           {task.outcomes.duplicates} duplicates skipped · {task.outcomes.failed} failed
+        </p>
+      )}
+      {task.export && (
+        <p>
+          {task.export.exported} exported · {task.export.skipped} skipped · {task.export.failed}{' '}
+          failed{task.export.cancelled > 0 && ` · ${task.export.cancelled} cancelled`}
         </p>
       )}
       {task.skippedAfterDeletion !== undefined && task.skippedAfterDeletion > 0 && (
@@ -192,6 +200,14 @@ function TaskDetails({
         </p>
       )}
       <div className={styles.actions}>
+        {task.export && (
+          <button
+            disabled={pending}
+            onClick={() => void act(() => window.luma.showExportFolder(task.id))}
+          >
+            Show in folder
+          </button>
+        )}
         {task.resultPhotoId && (
           <button onClick={() => void act(() => onOpenResult(task.resultPhotoId!))}>
             Open result

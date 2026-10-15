@@ -4,7 +4,7 @@ import {
   addRgbHistogram,
   type RgbHistogram,
 } from './rgb-histogram'
-import { HDR_CONTENT, renderHdrContent } from './display-rendering'
+import { HDR_CONTENT } from './display-rendering'
 import type { AdjustmentParameters } from './adjustments'
 import {
   HDR_ANALYSIS_VERSION,
@@ -12,6 +12,7 @@ import {
   hdrAdjustmentMatrix,
   luminance,
   outputHdr,
+  contentHdr,
   presentHdrContent,
   type DisplayTarget,
   type HdrWorkingAsset,
@@ -23,7 +24,18 @@ export interface HdrAnalysisRequest {
   targetGeneration?: number
 }
 export interface HdrStatistics {
-  content: typeof HDR_CONTENT
+  content:
+    | typeof HDR_CONTENT
+    | {
+        version: string
+        rendering: 'authored'
+        colorSpace: 'rec2020'
+        whitePoint: 'D65'
+        transfer: 'linear'
+        referenceWhiteNits: 203
+        nominalPeakNits: number
+        relativePeak: number
+      }
   editSerial?: number
   rgbHistogram?: RgbHistogram
   analysisVersion: typeof HDR_ANALYSIS_VERSION
@@ -60,7 +72,18 @@ export function hdrStatistics(
   exact = true,
 ): HdrStatistics {
   return {
-    content: HDR_CONTENT,
+    content: asset.source.display
+      ? {
+          version: asset.source.version,
+          rendering: 'authored',
+          colorSpace: 'rec2020',
+          whitePoint: 'D65',
+          transfer: 'linear',
+          referenceWhiteNits: 203,
+          nominalPeakNits: asset.source.display.headroom * 203,
+          relativePeak: asset.source.display.headroom,
+        }
+      : HDR_CONTENT,
     rgbHistogram:
       domain === 'content-hdr'
         ? contentRgbHistogram(target)
@@ -106,9 +129,10 @@ export function analyzeHdr(
     if (data[i + 3] === 0) continue
     const rgb = adjustHdr([data[i], data[i + 1], data[i + 2]], p, wb),
       y = luminance(rgb)
-    const content = result.domain !== 'working-hdr' || mask ? renderHdrContent(rgb) : undefined
+    const content =
+      result.domain !== 'working-hdr' || mask ? contentHdr(rgb, asset.source) : undefined
     const proof = content ? presentHdrContent(content.rgb, target) : undefined
-    const output = result.domain === 'output' ? outputHdr(rgb, target) : undefined
+    const output = result.domain === 'output' ? outputHdr(rgb, target, asset.source) : undefined
     const renderedY = content?.luminance ?? y
     const beyond = target.headroom !== null && renderedY > target.headroom
     const value =

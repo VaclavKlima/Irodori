@@ -2,7 +2,32 @@
 
 ## Status
 
-**Planned.** Current JPEG/PNG/TIFF import does not establish HDR interpretation. No candidate below is promised as supported until its exact format variant passes acceptance. [Shared requirements](README.md#shared-implementation-requirements) apply.
+**Bounded ISO 21496-1 HDR JPEG import and JPEG export are implemented.** Other JPEG gain-map variants and HDR PNG/TIFF/HEIF/AVIF interpretations remain planned; the candidates below remain a research queue. [Shared requirements](README.md#shared-implementation-requirements) apply.
+
+## Enabled export variants
+
+| Variant               | Source and writer                                                                                                   | Color and metadata                                                                                                                                                                                                                                 | Reader behavior                                                                                                                                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| SDR JPEG              | Managed raster, verified Sony RAW or durable merge; sharp 0.35.4                                                    | Baseline 8-bit sRGB ICC, 4:4:4, normalized orientation, white alpha flattening, linear Lanczos3 resize                                                                                                                                             | Ordinary JPEG readers display the controlled direct SDR rendition.                                                                                                                                                                   |
+| HDR JPEG, ISO 21496-1 | Verified HDR Sony RAW, durable merge or supported HDR JPEG; libultrahdr 2.0.2 / libjpeg-turbo 3.1.0, Node-only WASM | Supplied SDR primary plus full-resolution multichannel gain map, alternate Rec.2020, linear half-float input relative to SDR white, actual content headroom up to 10× (203 × headroom codec argument); ISO metadata enabled, gain-map XMP disabled | ISO-aware readers reconstruct HDR. Older or XMP-only readers display the SDR primary. Independent numerical/JPEG reader evidence is tracked in the testing guide; operating-system gallery/browser compatibility remains unverified. |
+
+Every metadata policy preserves required ICC and reconstruction information. Broader HDR import, additional export formats and display-brightness certification remain separate work. Supported ISO gain-map JPEGs reimport as authored HDR, with their SDR primary used in SDR mode. See the [export implementation](export.md), [runtime notices](../runtime-dependencies.md#jpeg-export-runtime) and [verification limits](../testing.md#jpeg-export).
+
+## Enabled ISO JPEG import
+
+The preview worker recognizes the ISO marker and validates the gain-map container with the pinned libultrahdr decoder. Tested input is Luma's sRGB primary plus multichannel Rec.2020 gain map, including odd sizes and EXIF orientation. Decompression is bounded to 256 MiB compressed input, 512 MiB Float32 working data, auxiliary dimensions no larger than the primary, and headroom from 1× to 10×. Recognition scans at most 1 MiB of primary metadata. Other variants remain unverified.
+
+The full gain map is reconstructed independently of the monitor. Its descriptor identifies authored, display-referred HDR without fabricated sensor normalization or camera calibration. HDR presentation and content analysis bypass the RAW ACES output transform. SDR mode uses the preserved primary with ordinary raster edits. Export regenerates both renditions from these sources. Existing JPEGs are inspected when processing metadata refreshes to version 4; numeric edits, revisions and history order are retained. Originals stay unchanged. Malformed recognized maps retain an explicit SDR fallback reason in Display details.
+
+HDR pixel/statistics APIs support working/content and current HDR output. SDR output analysis for imported HDR JPEGs is explicitly unavailable; use the ordinary SDR histogram. Other import formats, interpretation-choice UI and broader interoperability fixtures remain open.
+
+## Native macOS reader follow-up
+
+On macOS 26.7, ImageIO recognizes Luma's ISO auxiliary image and decodes HDR. Core Image with explicitly requested full gain-map headroom reconstructs neutral reference patches within 1.2%. Default native decoding also applies headroom adaptation, so appearance can differ from Luma's fixed HDR rendition.
+
+The tested native path does not preserve the alternate Rec.2020 gamut faithfully: a saturated reference patch `[3, 0.2, 0.05]` reconstructed approximately `[1.97, 0.39, 0.11]` in linear Rec.2020, while the pinned decoder and Float64 oracle retain the intended channels. The result is consistent with gains applied in the base gamut; this is an inference from decoded pixels. Do not claim pixel-matched macOS Preview compatibility or physical luminance certification. Preserve the ISO alternate-gamut metadata rather than silently reducing the file's gamut to accommodate one reader. Other operating-system readers remain unverified. Apple's [Adaptive HDR APIs](https://developer.apple.com/videos/play/wwdc2024/10177/) describe separate file reconstruction and display-headroom adaptation.
+
+Rendering version `jpeg-linear-lanczos3-v1` used the earlier `100/203` brightness reduction. Version 2 corrected brightness but still advertised nominal 10× headroom. Version `jpeg-linear-lanczos3-v3-content-headroom` also signals the actual resized content headroom so readers do not blend toward SDR unnecessarily. Older exports stay intact and can be recognized as HDR, but should be re-exported from the RAW/master for both corrections. Import never guesses an exposure correction from filenames or encoder comments.
 
 ## Goal
 

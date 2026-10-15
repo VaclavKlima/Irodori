@@ -116,6 +116,9 @@ test('distinct temporary reasons appear once and irrelevant toolbar operations s
   expect(commands(c).find((a) => a.id === 'library-scan')?.label).toBe('Group capture sequences')
   for (const action of commands(c))
     expect(action.label.endsWith('…')).toBe(
-      action.id.endsWith('trash') || action.id.endsWith('hdr') || action.id.endsWith('noise'),
+      action.id.endsWith('trash') ||
+        action.id.endsWith('hdr') ||
+        action.id.endsWith('noise') ||
+        action.id.endsWith('export'),
     )
 })

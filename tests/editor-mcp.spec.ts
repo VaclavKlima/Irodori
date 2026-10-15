@@ -27,6 +27,12 @@ test('stdio editing tools share persisted history with UI without a development 
     ])
     expect(previewTool.inputSchema.required).toEqual(['reviewId', 'expectedRevision'])
     expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+      'luma_get_export_capabilities',
+      'luma_get_export_preferences',
+      'luma_prepare_export',
+      'luma_dispose_export_preparation',
+      'luma_start_export',
+      'luma_get_export_results',
       'luma_get_photo_actions_context',
       'luma_get_browse_summary',
       'luma_get_browse_chunk',

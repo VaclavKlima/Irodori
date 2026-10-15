@@ -15,6 +15,7 @@ import { frameByteLength } from '../shared/preview-frame'
 import { RawGpuRenderer } from './gpu/raw-renderer'
 import { rawDecoder } from './processing/decoders'
 import { processingMetadata } from './processing/metadata'
+import { inspectHdrJpeg, renderHdrJpeg } from './processing/hdr-jpeg'
 import { LENS_RENDER_VERSION } from './processing/lens-correction'
 import type { ProcessingMetadata, ProcessingOptions } from '../shared/lens'
 import { appliedCorrections, automaticLensSettings } from '../shared/lens'
@@ -64,7 +65,7 @@ export class PreviewEngine {
     if (this.tool.ended) this.tool = new ExifTool({ maxProcs: 1, taskTimeoutMillis: 20_000 })
     try {
       const metadata = processingMetadata(
-        { ...(await this.tool.read(path, ['-G1', '-n']).catch(() => ({}))) },
+        { ...(await this.tool.readRaw(path, { readArgs: ['-G1', '-n'] }).catch(() => ({}))) },
         rawDecoder(path) ? undefined : [],
       )
       const decoder = rawDecoder(path)
@@ -76,6 +77,10 @@ export class PreviewEngine {
         } finally {
           session.close()
         }
+      } else {
+        await this.tool.end()
+        metadata.hdrJpeg = await inspectHdrJpeg(path)
+        metadata.hdrEligible = metadata.hdrJpeg?.state === 'supported'
       }
       return metadata
     } finally {
@@ -191,6 +196,10 @@ export class PreviewEngine {
       } finally {
         session.close()
       }
+    } else if (!rawDecoder(path) && !seed) {
+      await this.tool.end()
+      processing.hdrJpeg = await inspectHdrJpeg(path)
+      processing.hdrEligible = processing.hdrJpeg?.state === 'supported'
     }
     timings.sensorMetadata = performance.now() - sensorStarted
     let input = sharp(path)
@@ -293,6 +302,8 @@ export class PreviewEngine {
     onStage?: (stage: PreviewStage) => void,
     options?: ProcessingOptions,
   ): Promise<FullPreviewResult> {
+    if (options?.metadata.hdrJpeg?.state === 'supported' && options.workingOnly)
+      return renderHdrJpeg(path, output, options)
     if (rawDecoder(path) || options?.metadata.mergeMaster) {
       options ??= {
         metadata: await this.inspect(path),

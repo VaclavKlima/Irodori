@@ -1,0 +1,35 @@
+{
+  "license": "CC0-1.0",
+  "description": "Original synthetic algebraic gain-map vectors for the independent Float64 oracle; no photographic content.",
+  "metadata": {
+    "min": [0, -1, 0],
+    "max": [2, 1, 4],
+    "gamma": [1, 1, 2],
+    "sdrOffset": [0.125, 0.25, 0.0625],
+    "hdrOffset": [0.125, 0.25, 0.0625],
+    "baseHeadroom": 0,
+    "alternateHeadroom": 2,
+    "useBase": false
+  },
+  "vectors": [
+    { "base": [0, 0, 0], "gain": [1, 0.5, 0.25], "headroom": 1, "expected": [0, 0, 0] },
+    {
+      "base": [0.375, 0.75, 0.1875],
+      "gain": [1, 1, 0.25],
+      "headroom": 4,
+      "expected": [1.875, 1.75, 0.9375]
+    },
+    {
+      "base": [0.375, 0.75, 0.1875],
+      "gain": [1, 1, 0.25],
+      "headroom": 2,
+      "expected": [0.875, 1.1642135623730951, 0.4375]
+    },
+    {
+      "base": [0.375, 0.75, 0.1875],
+      "gain": [1, 1, 0.25],
+      "headroom": 16,
+      "expected": [1.875, 1.75, 0.9375]
+    }
+  ]
+}

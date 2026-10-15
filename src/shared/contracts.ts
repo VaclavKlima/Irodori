@@ -21,6 +21,17 @@ export interface ForegroundActivity {
 }
 
 export interface LumaApi {
+  getExportCapabilities(): Promise<import('./export').ExportCapabilities>
+  getExportPreferences(): Promise<import('./export').ExportPreferences>
+  chooseExportDestination(): Promise<import('./export').ExportDestination | null>
+  prepareExport(ids: string[]): Promise<import('./export').ExportPreparation>
+  disposeExportPreparation(id: string): Promise<void>
+  startExport(request: import('./export').ExportStart): Promise<string>
+  getExportResults(
+    id: string,
+    offset?: number,
+  ): Promise<{ results: import('./export').ExportResult[]; total: number }>
+  showExportFolder(id: string): Promise<void>
   getPhotoActionsContext(
     photoId: string | null,
     selectedIds: string[],
@@ -155,6 +166,7 @@ export interface LumaApi {
     photoId: string,
     requestId: string,
     regenerate?: boolean,
+    mode?: 'sdr' | 'hdr',
   ): Promise<HdrPreview | null>
   requestEditingPreview(photoId: string, requestId: string): Promise<FullPreview>
   requestFullPreview(photoId: string, requestId: string, regenerate?: boolean): Promise<FullPreview>
@@ -251,7 +263,15 @@ export interface PhotoPage {
 
 export interface BackgroundTask {
   mergeMeasurements?: import('./merge').MergeMeasurements
-  kind: 'import' | 'delete' | 'merge' | 'capture-grouping'
+  kind: 'import' | 'delete' | 'merge' | 'capture-grouping' | 'export'
+  export?: {
+    exported: number
+    skipped: number
+    failed: number
+    cancelled: number
+    destinationId: string
+    destinationLabel: string
+  }
   phase?: string
   resultPhotoId?: string
   id: string
@@ -269,7 +289,8 @@ export interface BackgroundTask {
     totalBytes: number
     bytesPerSecond: number
   }
-  waitingReason?: 'foreground' | 'library-operation' | 'pipeline-capacity' | 'raw-fallback'
+  waitingReason?:
+    'foreground' | 'library-operation' | 'export' | 'pipeline-capacity' | 'raw-fallback'
   skippedAfterDeletion?: number
   unprocessed?: number
   importMeasurements?: {

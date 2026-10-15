@@ -82,52 +82,63 @@ test('photo-wide GPU content bins stay fixed across headroom, gamut and SDR proo
   device.queue.writeBuffer(tables, 0, packAces(prepareDisplayRendering(HDR_CONTENT_TARGET)))
   let previous: number[][] | undefined
   try {
-    for (const mode of ['hdr', 'sdr'] as const)
-      for (const colorSpace of ['srgb', 'display-p3'] as const)
-        for (const headroom of [null, 1, 2, 4, 16]) {
-          const target = {
-            ...SDR_TARGET,
-            mode,
-            colorSpace,
-            headroom,
-            peak: mode === 'hdr' ? (headroom ?? 1) : 1,
+    for (const authored of [false, true]) {
+      previous = undefined
+      if (authored)
+        asset.source = {
+          ...asset.source,
+          version: 'hdr-jpeg-v1-relative-white',
+          display: { encoding: 'iso-21496-1-jpeg', headroom: 10, referenceWhiteNits: 203 },
+          normalization: { referenceWhite: 1, sourceSaturation: null },
+        } as HdrWorkingAsset['source']
+      for (const mode of ['hdr', 'sdr'] as const)
+        for (const colorSpace of ['srgb', 'display-p3'] as const)
+          for (const headroom of [null, 1, 2, 4, 16]) {
+            const target = {
+              ...SDR_TARGET,
+              mode,
+              colorSpace,
+              headroom,
+              peak: mode === 'hdr' ? (headroom ?? 1) : 1,
+            }
+            const values = new Float32Array(44)
+            values[14] = 10
+            values[31] = Number(authored)
+            values[36] = count
+            values[37] = target.peak
+            values[38] = colorSpace === 'srgb' ? 1 : 2
+            values[42] = Number(headroom !== null)
+            values[43] = headroom ?? 1
+            device.queue.writeBuffer(uniform, 0, values)
+            const encoder = device.createCommandEncoder()
+            encoder.clearBuffer(histogram)
+            const pass = encoder.beginComputePass()
+            pass.setPipeline(pipeline)
+            pass.setBindGroup(0, group)
+            pass.dispatchWorkgroups(1)
+            pass.end()
+            encoder.copyBufferToBuffer(histogram, 0, readback, 0, histogram.size)
+            device.queue.submit([encoder.finish()])
+            await readback.mapAsync(GPUMapMode.READ)
+            const actual = readHdrHistogram(
+              new Uint32Array(readback.getMappedRange()),
+              target,
+              asset,
+              7,
+            )
+            readback.unmap()
+            const expected = hdrStatistics('content-hdr', target, asset, false)
+            analyzeHdr(input, neutralAdjustments, asset, target, expected)
+            expect(actual.rgbHistogram!.rgb).toEqual(expected.rgbHistogram!.rgb)
+            expect(actual.bins).toEqual(expected.bins)
+            expect(actual.exceedingHeadroom).toBe(expected.exceedingHeadroom)
+            expect(actual.outputClipped).toBe(expected.outputClipped)
+            expect(actual.gamutLimited).toBe(expected.gamutLimited)
+            expect(actual.visiblePixels).toBe(7)
+            if (previous) expect(actual.rgbHistogram!.rgb).toEqual(previous)
+            previous = actual.rgbHistogram!.rgb
           }
-          const values = new Float32Array(44)
-          values[14] = 10
-          values[36] = count
-          values[37] = target.peak
-          values[38] = colorSpace === 'srgb' ? 1 : 2
-          values[42] = Number(headroom !== null)
-          values[43] = headroom ?? 1
-          device.queue.writeBuffer(uniform, 0, values)
-          const encoder = device.createCommandEncoder()
-          encoder.clearBuffer(histogram)
-          const pass = encoder.beginComputePass()
-          pass.setPipeline(pipeline)
-          pass.setBindGroup(0, group)
-          pass.dispatchWorkgroups(1)
-          pass.end()
-          encoder.copyBufferToBuffer(histogram, 0, readback, 0, histogram.size)
-          device.queue.submit([encoder.finish()])
-          await readback.mapAsync(GPUMapMode.READ)
-          const actual = readHdrHistogram(
-            new Uint32Array(readback.getMappedRange()),
-            target,
-            asset,
-            7,
-          )
-          readback.unmap()
-          const expected = hdrStatistics('content-hdr', target, asset, false)
-          analyzeHdr(input, neutralAdjustments, asset, target, expected)
-          expect(actual.rgbHistogram!.rgb).toEqual(expected.rgbHistogram!.rgb)
-          expect(actual.bins).toEqual(expected.bins)
-          expect(actual.exceedingHeadroom).toBe(expected.exceedingHeadroom)
-          expect(actual.outputClipped).toBe(expected.outputClipped)
-          expect(actual.gamutLimited).toBe(expected.gamutLimited)
-          expect(actual.visiblePixels).toBe(7)
-          if (previous) expect(actual.rgbHistogram!.rgb).toEqual(previous)
-          previous = actual.rgbHistogram!.rgb
-        }
+    }
   } finally {
     for (const resource of [texture, uniform, tables, histogram, readback]) resource.destroy()
     device.destroy()

@@ -68,7 +68,7 @@ test('version 14 backfills stored capture and processing metadata transactionall
     const originalRows = t.db.prepare('SELECT id, photo FROM photos ORDER BY id').all()
     // The fixture processor throws if invoked; migration must use only catalog metadata.
     await t.restart()
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 })
+    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
     expect(t.db.prepare('SELECT id, photo FROM photos ORDER BY id').all()).toEqual(originalRows)
     expect(t.library.getBrowseSummary(query).sections.map((s) => [s.key, s.count])).toEqual([
       ['2026-10-01', 1],
@@ -120,7 +120,7 @@ test('failed browse backfill rolls back its partial rows and schema version befo
     await t.library.close()
     t.capture(1, sequenceMetadata(2))
     await t.restart()
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 })
+    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
     expect(t.library.getBrowseSummary(query).total).toBe(2)
     const before = t.library.getBrowseChunk(query)
     await t.restart()

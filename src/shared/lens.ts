@@ -2,7 +2,7 @@ import type { WhiteBalanceProfile } from './white-balance'
 import type { AdjustmentParameters } from './adjustments'
 import type { DisplayTransform } from './adjustments'
 import type { ProcessingIdentity, HdrWorkingAsset } from './hdr'
-export const PROCESSING_METADATA_VERSION = 3
+export const PROCESSING_METADATA_VERSION = 4
 export const correctionKinds = ['distortion', 'vignetting', 'chromaticAberration'] as const
 export type CorrectionKind = (typeof correctionKinds)[number]
 export type LensSettings = Record<CorrectionKind, boolean>
@@ -33,6 +33,9 @@ export interface LensProfile {
   unavailable: Partial<Record<CorrectionKind, string>>
 }
 export interface ProcessingMetadata {
+  hdrJpeg?:
+    | { version: 1; state: 'supported'; headroom: number }
+    | { version: 1; state: 'sdr-only'; reason: string }
   capturedAt?: string
   capture?: import('./merge').MergeCapture
   mergeMaster?: { asset: HdrWorkingAsset; recipe: import('./merge').MergeRecipe }

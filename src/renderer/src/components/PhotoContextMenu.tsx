@@ -1,5 +1,14 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { CheckSquare, Image, Layers, ScanLine, Trash2, Ungroup, Unlink } from 'lucide-react'
+import {
+  ArrowUpFromLine,
+  CheckSquare,
+  Image,
+  Layers,
+  ScanLine,
+  Trash2,
+  Ungroup,
+  Unlink,
+} from 'lucide-react'
 import {
   buildPhotoMenu,
   type PhotoActionId,
@@ -8,6 +17,7 @@ import {
 import styles from './PhotoActions.module.css'
 
 const icons = {
+  export: ArrowUpFromLine,
   cover: Image,
   remove: Unlink,
   merge: Layers,

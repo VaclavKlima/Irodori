@@ -21,6 +21,14 @@ async function mergeResult<T>(response: Promise<{ result: T; error?: MergeFailur
   return value.result
 }
 const api: LumaApi = {
+  getExportCapabilities: () => ipcRenderer.invoke('export:capabilities'),
+  getExportPreferences: () => ipcRenderer.invoke('export:preferences'),
+  chooseExportDestination: () => ipcRenderer.invoke('export:choose-destination'),
+  prepareExport: (ids) => ipcRenderer.invoke('export:prepare', ids),
+  disposeExportPreparation: (id) => ipcRenderer.invoke('export:dispose', id),
+  startExport: (request) => ipcRenderer.invoke('export:start', request),
+  getExportResults: (id, offset = 0) => ipcRenderer.invoke('export:results', id, offset),
+  showExportFolder: (id) => ipcRenderer.invoke('export:show-folder', id),
   getCollectionPolicy: () => ipcRenderer.invoke('collections:policy'),
   getWorkspaceState: () => ipcRenderer.invoke('workspace:get'),
   saveWorkspaceState: (change) => ipcRenderer.invoke('workspace:save', change),
@@ -137,8 +145,8 @@ const api: LumaApi = {
   updateLensSettings: (id, kind, enabled) => ipcRenderer.invoke('lens:update', id, kind, enabled),
   getAppInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:get-info'),
   listPhotos: (offset = 0) => ipcRenderer.invoke('library:list', offset),
-  requestHdrPreview: async (id, token, regenerate = false) => {
-    const result = await ipcRenderer.invoke('preview:hdr', id, token, regenerate)
+  requestHdrPreview: async (id, token, regenerate = false, mode = 'hdr') => {
+    const result = await ipcRenderer.invoke('preview:hdr', id, token, regenerate, mode)
     if (result.error) throw new Error(result.error)
     return result.preview
   },

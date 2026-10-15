@@ -1,16 +1,24 @@
 # Luma
 
-A local desktop photo editor with an integrated agent console. The current milestone provides **photo import, a persistent local library, nondestructive exposure, contrast, highlights, shadows, whites, blacks, and lens edits, shared Undo/Redo, camera-aware RAW white balance, RGB histograms, clipping overlays, Before/After comparison, MCP pixel inspection, and experimental Sony RAW HDR/SDR preview** in an Electron desktop workspace.
+A local desktop photo editor with an integrated agent console. The current milestone provides **photo import, a persistent local library, nondestructive exposure, contrast, highlights, shadows, whites, blacks, and lens edits, shared Undo/Redo, camera-aware RAW white balance, RGB histograms, clipping overlays, Before/After comparison, MCP pixel inspection, experimental Sony RAW HDR/SDR preview, and individual/batch SDR/HDR JPEG export** in an Electron desktop workspace.
 
 The full product direction, including RAW processing, persistent edits, HDR, and agent-driven editing, is described in [Luma.md](Luma.md).
 
-The [rendering and full HDR roadmap](docs/features/README.md) contains planned implementation briefs, dependencies, and completion criteria for RAW brackets or HDR files → nondestructive HDR editing → HDR/SDR preview → HDR/SDR export. The bounded [Sony HDR merge and noise-stacking path](docs/merge-processing.md) remains experimental. The supplied handheld portrait pair/triple and fourteen observed Sony ZV-1A continuous BRK captures pass native Auto Align, exact reviewed-master publication and restart. These include aperture-changing, long-exposure and two-frame brackets; independent native crops verify sampled image quality. Local 2/3/5/9-frame Sony noise stacks pass the 15-second cold publication gate. Controlled larger HDR brackets and 32-frame real RAW sequences remain unverified. HDR file import and export remain **Planned**. The [experimental Sony RAW HDR pipeline](docs/hdr-processing.md) adds HDR/SDR presentation and domain-aware analysis, with local Linux and built-in Mac Retina display evidence. Physical luminance, Windows and broader platform certification remain unverified.
+The [rendering and full HDR roadmap](docs/features/README.md) contains planned implementation briefs, dependencies, and completion criteria for RAW brackets or HDR files → nondestructive HDR editing → HDR/SDR preview → HDR/SDR export. The bounded [Sony HDR merge and noise-stacking path](docs/merge-processing.md) remains experimental. The supplied handheld portrait pair/triple and fourteen observed Sony ZV-1A continuous BRK captures pass native Auto Align, exact reviewed-master publication and restart. These include aperture-changing, long-exposure and two-frame brackets; independent native crops verify sampled image quality. Local 2/3/5/9-frame Sony noise stacks pass the 15-second cold publication gate. Controlled larger HDR brackets and 32-frame real RAW sequences remain unverified. SDR and ISO 21496-1 HDR JPEG export are implemented; ISO 21496-1 HDR JPEG reimport is supported within the bounds below; other HDR imports and export formats remain **Planned**. The [experimental Sony RAW HDR pipeline](docs/hdr-processing.md) adds HDR/SDR presentation and domain-aware analysis, with local Linux and built-in Mac Retina display evidence. Physical luminance, Windows and broader platform certification remain unverified.
 
 An [isolated HDR display diagnostic](docs/hdr-diagnostic.md) is available with `npm run hdr:diagnostic`. It uses a temporary profile and synthetic patches; it is separate from photograph processing. Local Linux and macOS hardware canvas submissions are recorded; physical luminance remains unmeasured.
 
 Supported Sony RAWs and merge masters use one [ACES 2 rendering pipeline](docs/display-rendering.md) after white balance and Light edits, in HDR and SDR. Capture scale stays fixed at 1, with no content-based exposure normalization. Already-rendered raster inputs remain color-managed display images. Existing RAWs adopt the current pipeline automatically; numeric history, originals and merge-master bytes remain intact. Measured camera calibration and physical display luminance remain unverified.
 
 The [scrolling and recovery standard](docs/scrolling-design.md) covers continuous browsing in Editor Photos, Library, import review, and task errors. Mode, selection, focus, search/grouping/folds, list anchors, Console visibility, and active-photo zoom recover from committed workspace checkpoints after restart or a crash.
+
+## Export photographs
+
+Select photos in Editor or Library and click **Export**, or use the shared photo Actions/context menu. Export includes unloaded and filtered-out selections. With no selection it uses the active Editor or focused Library photo.
+
+Choose a destination once; it is remembered across restarts. **Maximum quality**, **High quality** and **Smaller file** use JPEG quality 100, 90 and 80 at original size. Auto produces HDR JPEG for verified HDR RAWs, merge results and supported HDR JPEGs, and SDR JPEG for other raster inputs. Quality 100 remains lossy. **Custom…** configures output, dimensions, names, metadata and collision handling; **Last custom** reuses the last accepted Custom settings. Existing files are renamed or skipped and never replaced.
+
+Background tasks retain exported/skipped/failed counts and **Show in folder**. You can continue editing or cancel; completed files remain. HDR JPEG carries a controlled SDR primary for ordinary readers and an ISO 21496-1 gain map for compatible HDR readers. ISO gain-map JPEGs reimport with HDR recognition; SDR mode retains their authored primary image. Other HDR formats and physical display brightness remain separate verification gates. See [JPEG export](docs/features/export.md) for privacy, recovery and compatibility details.
 
 ## Start developing
 
@@ -59,7 +67,7 @@ The managed library is stored in Electron's user-data directory, under `library/
 
 Cancel stops further work and preserves completed imports. Corrupt files, changed sources, unsupported formats, and write failures are shown individually. Interrupted staging files and unpublished original directories are cleaned at startup. RAW decoder inputs are limited to 512 MB; previews have a 90-second per-file timeout.
 
-Exposure, contrast, highlights, shadows, whites, blacks, and lens corrections share persistent edit history and Undo/Redo. Export, crop, additional light/color adjustments, HDR export, and agent execution remain future milestones; metadata comes from the imported file and missing fields display a dash. The console remains read-only.
+Exposure, contrast, highlights, shadows, whites, blacks, and lens corrections share persistent edit history and Undo/Redo. Crop, additional light/color adjustments, broader HDR import, additional export formats, and agent execution remain future milestones; metadata comes from the imported file and missing fields display a dash. The console remains read-only.
 
 ## Merge photographs
 

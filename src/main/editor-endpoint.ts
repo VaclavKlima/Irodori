@@ -13,6 +13,7 @@ export async function startEditorEndpoint(
   profile: string,
   library: PhotoLibrary,
   display?: DisplayState,
+  flushEdits: () => Promise<void> = async () => {},
 ) {
   const token = randomBytes(32).toString('hex')
   let closing = false
@@ -67,6 +68,8 @@ export async function startEditorEndpoint(
         galleryRevision,
         x,
         y,
+        exportRequest,
+        preparationId,
       } = JSON.parse(body) as {
         domain?: import('../shared/hdr-statistics').HdrAnalysisDomain
         target?: 'sdr' | 'current'
@@ -94,6 +97,8 @@ export async function startEditorEndpoint(
         galleryRevision: import('../shared/stacks').GalleryRevision
         x: number
         y: number
+        exportRequest: import('../shared/export').ExportStart
+        preparationId: string
       }
       if (
         body.length > 16384 &&
@@ -101,11 +106,33 @@ export async function startEditorEndpoint(
           'luma_get_browse_summary',
           'luma_get_gallery_summary',
           'luma_get_photo_actions_context',
+          'luma_prepare_export',
         ].includes(operation)
       )
         throw new Error('Editor request is too large.')
       let result: unknown
       switch (operation) {
+        case 'luma_get_export_capabilities':
+          result = await library.getExportCapabilities()
+          break
+        case 'luma_get_export_preferences':
+          result = await library.getExportPreferences()
+          break
+        case 'luma_prepare_export':
+          await flushEdits()
+          result = await library.prepareExport(ids)
+          break
+        case 'luma_dispose_export_preparation':
+          library.exports.dispose(preparationId)
+          result = { disposed: true }
+          break
+        case 'luma_start_export':
+          await flushEdits()
+          result = { taskId: await library.startExport(exportRequest) }
+          break
+        case 'luma_get_export_results':
+          result = library.exports.results(taskId, offset)
+          break
         case 'luma_get_photo_actions_context':
           result = library.getPhotoActionsContext(photoId, selectedIds!)
           break

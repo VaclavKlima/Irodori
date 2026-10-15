@@ -13,7 +13,11 @@ async function slowCopies(app: ElectronApplication) {
       'timers/promises',
     ) as typeof import('node:timers/promises')
     const original = fs.createReadStream
+    const { basename } = process.getBuiltinModule('path') as typeof import('node:path')
     fs.createReadStream = (path, options) => {
+      // Preview streams must retain foreground priority and finish normally.
+      // Only the selected import source is delayed by this test adapter.
+      if (basename(String(path)) !== 'forest-light.jpg') return original(path, options)
       const settings = typeof options === 'object' ? options : {}
       const source = original(path, { ...settings, highWaterMark: 4096 })
       return Readable.from(

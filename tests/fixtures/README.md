@@ -1,5 +1,7 @@
 # Photo fixtures
 
+`tests/hdr-jpeg.helpers.ts` generates original synthetic gray, white, HDR and color reference charts at runtime. These generated reference pixels are dedicated to the public domain under CC0-1.0, like the export gain-map vectors. User photographs are never added to the fixture set.
+
 These files are used only by automated tests. Luma never loads them into a user's library automatically.
 
 ## Sony ZV-1
@@ -29,3 +31,7 @@ to C++ Float64 by `scripts/aces-reference.py`. It records revision and source
 hashes, uses no photographs, and is reproducible with
 `node scripts/generate-aces-reference.mjs`. The retained reference and license
 are in `third_party/aces-core/` (Apache-2.0, Contributors to the ACES Project).
+
+## JPEG gain-map reference vectors
+
+`export-gain-vectors.json` contains original synthetic algebraic reference vectors for an independent Float64 ISO 21496-1 reconstruction oracle. The numeric vectors are dedicated to the public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). They include black offsets, independent channel gains/gamma, partial display headroom and above-white values. No photographic or third-party code content is included. The oracle also reads actual encoded ISO packets and JPEGs independently of the bundled codec; see `tests/export-reference.ts` and `export-rendering.spec.ts`.

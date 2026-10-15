@@ -10,6 +10,7 @@ export default tseslint.config(
     ignores: [
       'node_modules/**',
       'vendor/opencv/*.mjs',
+      'vendor/ultrahdr/*.mjs',
       'out/**',
       'dist/**',
       'artifacts/**',

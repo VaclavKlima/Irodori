@@ -52,6 +52,7 @@ interface Model {
   view: View
 }
 interface Props {
+  hdrJpeg?: boolean
   suspended?: boolean
   initialView?: PreviewViewState | null
   onViewChange?: (view: PreviewViewState) => void
@@ -71,6 +72,7 @@ interface Props {
 
 // The parent keys this component by photo ID so every new photograph starts in Fit.
 export function PhotoPreview({
+  hdrJpeg = false,
   suspended = false,
   initialView = null,
   onViewChange,
@@ -135,14 +137,14 @@ export function PhotoPreview({
     view: INITIAL_VIEW,
   })
   const current = useRef(model)
-  const full = useFullPreview(photo?.id, !suspended)
+  const [fallback, setFallback] = useState(false)
+  const full = useFullPreview(photo?.id, !suspended, fallback ? 'sdr' : displayTarget.mode)
   const { begin: beginActivity, pulse: pulseActivity } = useForegroundActivity(
     photo?.id,
     undefined,
     !suspended,
   )
   const [displayedUrl, setDisplayedUrl] = useState('')
-  const [fallback, setFallback] = useState(false)
   const presenter = useRef<PreviewPresenter | HdrPresenter | HdrCpuPresenter | null>(null)
   const [hdrReady, setHdrReady] = useState(false)
   useEffect(() => {
@@ -159,7 +161,9 @@ export function PhotoPreview({
   const fallbackReason = useRef('')
   const fullVisible = Boolean(full.preview && (displayedUrl || full.preview.linear?.hdr))
   const live = useWorkingPreview(full.preview, fullVisible && !suspended)
-  const { working, generation } = live
+  const { generation } = live
+  const working = fallback && hdrJpeg ? null : live.working
+  const hdrCapable = hdrJpeg || !!working?.hdr
   const { mode, split, hdrRanges, analyze, update } = tools
   const actualTarget = useMemo(
     () =>
@@ -221,14 +225,24 @@ export function PhotoPreview({
         photoId: preview.photoId,
         revision: preview.settingsRevision ?? 0,
         targetGeneration: displayTarget.generation,
-        backend: working?.hdr ? (fallback ? 'canvas2d-hdr-sdr' : 'webgpu-hdr') : 'legacy',
+        backend:
+          fallback && hdrJpeg
+            ? 'canvas2d-hdr-sdr'
+            : working?.hdr
+              ? fallback
+                ? 'canvas2d-hdr-sdr'
+                : 'webgpu-hdr'
+              : 'legacy',
         mode: working?.hdr && !fallback ? displayTarget.mode : 'sdr',
         stage: ready ? 'presented' : 'loading',
-        reason: working?.hdr
-          ? fallback
-            ? fallbackReason.current
-            : displayTarget.reason
-          : 'Legacy SDR processing.',
+        reason:
+          fallback && hdrJpeg
+            ? 'HDR renderer unavailable; showing the JPEG SDR primary.'
+            : working?.hdr
+              ? fallback
+                ? fallbackReason.current
+                : displayTarget.reason
+              : 'Legacy SDR processing.',
         timings: ready
           ? {
               ...JSON.parse(image.current?.dataset.loadTimings ?? '{}'),
@@ -250,6 +264,7 @@ export function PhotoPreview({
     hdrReady,
     displayedUrl,
     fallback,
+    hdrJpeg,
     displayTarget.generation,
     displayTarget.mode,
     displayTarget.reason,
@@ -584,7 +599,7 @@ export function PhotoPreview({
 
   useEffect(() => {
     if (
-      working?.hdr &&
+      hdrCapable &&
       displayTarget.capabilities?.hardware &&
       displayTarget.capabilities.extended &&
       fallback
@@ -598,7 +613,7 @@ export function PhotoPreview({
     displayTarget.generation,
     displayTarget.capabilities?.hardware,
     displayTarget.capabilities?.extended,
-    working?.hdr,
+    hdrCapable,
   ])
   useEffect(() => {
     if (presenter.current instanceof HdrPresenter || presenter.current instanceof HdrCpuPresenter)

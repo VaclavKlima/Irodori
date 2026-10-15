@@ -14,6 +14,7 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
   const [generation, setGeneration] = useState(0)
   const prepared = useRef(false)
   const preparedIdentity = useRef('')
+  const preparedFormat = useRef<DisplayPreview['format'] | undefined>(undefined)
   const requiredRevision = useRef(0)
   useEffect(
     () =>
@@ -28,6 +29,7 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
     [preview?.photoId],
   )
   useEffect(() => {
+    if (preview && preparedFormat.current !== preview.format) prepared.current = false
     if (
       !preview ||
       !presented ||
@@ -78,6 +80,7 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
                 throw new Error('HDR descriptor does not match its frame.')
               if (!cancelled) {
                 preparedIdentity.current = `${asset.url}:${asset.sha256}`
+                preparedFormat.current = preview.format
                 prepared.current = true
                 setError('')
                 setWorking({
@@ -115,6 +118,7 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
             if (!data.every(Number.isFinite)) throw new Error('Invalid working pixels.')
             if (!cancelled) {
               preparedIdentity.current = `${asset.url}:${asset.sha256}`
+              preparedFormat.current = preview.format
               prepared.current = true
               setError('')
               setWorking({
@@ -144,7 +148,11 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
     }
   }, [preview, presented, generation, attempt, begin])
   return {
-    working,
+    working:
+      (preview?.format === 'rgba8-srgb' && working?.hdr?.source.display) ||
+      (preview?.format === 'hdr-working' && !working?.hdr)
+        ? null
+        : working,
     generation,
     error,
     retry: () => {

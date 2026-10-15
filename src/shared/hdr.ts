@@ -6,6 +6,7 @@ import { encodeDiagnosticChannel } from './hdr-display'
 
 export type ProcessingIdentity = 'display-referred-v1' | 'hdr-v1'
 export const HDR_SOURCE_VERSION = 'hdr-source-v2-capture-scale-1'
+export const HDR_JPEG_SOURCE_VERSION = 'hdr-jpeg-v1-relative-white'
 export const SENSOR_BLEND_VERSION = 'sensor-blend-v1'
 export const HDR_RAW_SOURCE_VERSION = `${HDR_SOURCE_VERSION}-${SENSOR_BLEND_VERSION}`
 export const HDR_ADJUSTMENT_VERSION = 'hdr-adjustments-v1'
@@ -35,19 +36,38 @@ export interface HdrNormalization {
   referenceWhite: number
   sourceSaturation: { thresholds: number[]; saturatedSites: number; totalSites: number } | null
 }
-export interface HdrSource {
-  composite?: { kind: 'hdr' | 'noise'; sourceCount: number }
-  highlightBlend?: typeof SENSOR_BLEND_VERSION
-  version: typeof HDR_SOURCE_VERSION | 'hdr-source-v1'
+interface HdrSourceBase {
   processing: 'hdr-v1'
   colorSpace: 'rec2020'
   whitePoint: 'D65'
   transfer: 'linear'
   alpha: 'straight'
-  normalization: HdrNormalization
   decoder: string
-  cameraProfile: string
   orientation: 'applied-once'
+}
+interface CaptureHdrSource extends HdrSourceBase {
+  composite?: { kind: 'hdr' | 'noise'; sourceCount: number }
+  highlightBlend?: typeof SENSOR_BLEND_VERSION
+  version: typeof HDR_SOURCE_VERSION | 'hdr-source-v1'
+  normalization: HdrNormalization
+  cameraProfile: string
+  display?: never
+}
+interface DisplayHdrSource extends HdrSourceBase {
+  version: typeof HDR_JPEG_SOURCE_VERSION
+  display: { encoding: 'iso-21496-1-jpeg'; headroom: number; referenceWhiteNits: 203 }
+  normalization: { referenceWhite: 1; sourceSaturation: null }
+  cameraProfile?: never
+  highlightBlend?: never
+  composite?: never
+}
+export type HdrSource = CaptureHdrSource | DisplayHdrSource
+export function hdrSourceVersion(source: HdrSource) {
+  return source.display
+    ? HDR_JPEG_SOURCE_VERSION
+    : source.highlightBlend
+      ? HDR_RAW_SOURCE_VERSION
+      : HDR_SOURCE_VERSION
 }
 export interface DisplayTarget {
   capabilities?: DisplayCapabilities
@@ -195,7 +215,21 @@ export function adjustHdr(rgb: RGB, p: AdjustmentParameters, wb?: readonly numbe
   }
   return out
 }
-export function outputHdr(rgb: RGB, target: DisplayTarget) {
+/** Imported HDR is already a rendered rendition; never run the RAW output transform twice. */
+export function contentHdr(rgb: RGB, source?: HdrSource) {
+  if (!source?.display) return renderHdrContent(rgb)
+  const out = rgb.map((v) => Math.max(0, v)) as RGB
+  return {
+    rgb: out,
+    rendered: rgb,
+    luminance: luminance(out),
+    gamutCompressed: false,
+    clipped: false,
+  }
+}
+export function outputHdr(rgb: RGB, target: DisplayTarget, source?: HdrSource) {
+  if (source?.display)
+    return { ...presentHdrContent(contentHdr(rgb, source).rgb, target), gamutCompressed: false }
   if (target.mode === 'sdr') {
     const rendered = renderDisplay(rgb, target)
     return { ...rendered, gamutLimited: false }
@@ -225,6 +259,27 @@ export const encodeHdr = encodeDiagnosticChannel
 
 /** Validate provenance before a working asset can enter any HDR processing stage. */
 export function validateHdrSource(source: HdrSource): void {
+  if (source?.display) {
+    if (
+      source.version !== HDR_JPEG_SOURCE_VERSION ||
+      source.processing !== 'hdr-v1' ||
+      source.colorSpace !== 'rec2020' ||
+      source.whitePoint !== 'D65' ||
+      source.transfer !== 'linear' ||
+      source.alpha !== 'straight' ||
+      source.orientation !== 'applied-once' ||
+      !source.decoder ||
+      source.display.encoding !== 'iso-21496-1-jpeg' ||
+      source.display.referenceWhiteNits !== 203 ||
+      !Number.isFinite(source.display.headroom) ||
+      source.display.headroom < 1 ||
+      source.display.headroom > 100 ||
+      source.normalization?.referenceWhite !== 1 ||
+      source.normalization.sourceSaturation !== null
+    )
+      throw new Error('Invalid HDR JPEG provenance.')
+    return
+  }
   if (
     source?.composite &&
     (!['hdr', 'noise'].includes(source.composite.kind) ||

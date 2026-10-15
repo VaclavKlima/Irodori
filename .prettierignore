@@ -9,3 +9,5 @@ package-lock.json
 .agents/
 
 vendor/opencv/
+vendor/ultrahdr/*.mjs
+vendor/ultrahdr/licenses/

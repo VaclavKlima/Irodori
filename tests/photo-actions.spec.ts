@@ -234,7 +234,9 @@ test('selects ranges and individual photos, and preserves or replaces selection 
   await expect(page.getByTestId('main-preview')).toBeVisible()
   await page.getByTestId('main-preview').focus()
   await page.keyboard.press('Shift+F10')
-  await expect(page.getByRole('menuitem', { name: 'Group selected photos' })).toBeFocused()
+  await expect(
+    page.getByRole('menuitem', { name: 'Export this photo…', exact: true }),
+  ).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('main-preview')).toBeFocused()
   await page.getByTestId('console-toggle').click()

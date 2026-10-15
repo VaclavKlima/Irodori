@@ -2,6 +2,7 @@ import { configureCollections } from './collections/controller'
 import { useWorkspaceCheckpoint } from './hooks/useWorkspaceCheckpoint'
 import type { WorkspaceState } from '../../shared/workspace'
 import { MergeDialog } from './components/MergeDialog'
+import { ExportDialog } from './components/ExportDialog'
 import { groupMergeUnavailable, type MergeMode } from '../../shared/merge'
 import type { PhotoActionId, PhotoActionsContext } from '../../shared/photo-actions'
 import { DisplayDetails } from './components/DisplayDetails'
@@ -71,6 +72,8 @@ export function App() {
     setBrowserPhoto(photo)
   }, [])
   const [mergeTargets, setMergeTargets] = useState<{ ids: string[]; mode: MergeMode } | null>(null)
+  const [exportTargets, setExportTargets] = useState<string[] | null>(null)
+  const [preparingExport, setPreparingExport] = useState(false)
   const [tasks, setTasks] = useState<BackgroundTask[]>([])
   const [tasksOpen, setTasksOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -423,7 +426,10 @@ export function App() {
     const timers = tasks
       .filter(
         (task) =>
-          task.kind !== 'merge' && task.status === 'completed' && task.finishedAt !== undefined,
+          task.kind !== 'merge' &&
+          task.kind !== 'export' &&
+          task.status === 'completed' &&
+          task.finishedAt !== undefined,
       )
       .map((task) =>
         setTimeout(
@@ -557,6 +563,12 @@ export function App() {
     if (!context || context.availability[id].kind !== 'applicable' || activeAction.current !== null)
       return
     switch (id) {
+      case 'photo-export':
+        if (context.photo) void requestExport([context.photo.id])
+        break
+      case 'selection-export':
+        void requestExport()
+        break
       case 'photo-cover':
         void stackAction('cover')
         break
@@ -598,6 +610,25 @@ export function App() {
         break
     }
   }
+  async function requestExport(ids?: string[]) {
+    if (preparingExport) return
+    setPreparingExport(true)
+    try {
+      const selection = await getSelection()
+      await edits.flush()
+      const focused =
+        workspaceRef.current === 'library' ? browserPhotoRef.current : library.getActivePhoto()
+      const targets =
+        ids ?? (selection.length ? selection.map((p) => p.id) : focused ? [focused.id] : [])
+      if (!targets.length) return
+      closeContextMenu(false)
+      setExportTargets([...new Set(targets)])
+    } catch (error) {
+      setError(String(error))
+    } finally {
+      setPreparingExport(false)
+    }
+  }
   async function openResult(id: string) {
     await openPhoto(id, true)
     switchWorkspace('editor')
@@ -613,7 +644,12 @@ export function App() {
     try {
       const current = await window.luma.listTasks()
       setTasks(current)
-      if (current.some((task) => task.status === 'running' || task.status === 'cancelling'))
+      if (
+        current.some(
+          (task) =>
+            task.kind !== 'export' && (task.status === 'running' || task.status === 'cancelling'),
+        )
+      )
         setTasksOpen(true)
       else {
         setTasksOpen(false)
@@ -706,7 +742,19 @@ export function App() {
           >
             <ArrowDownToLine size={14} /> Import
           </button>
-          <button className={styles.exportButton} disabled aria-label="Export photo">
+          <button
+            className={styles.exportButton}
+            disabled={
+              preparingExport ||
+              !hydrated ||
+              (!selected.size && !(workspace === 'editor' ? photo : browserPhoto))
+            }
+            aria-label="Export photo"
+            onClick={(event) => {
+              actionOrigin.current = event.currentTarget
+              void requestExport()
+            }}
+          >
             <ArrowUpFromLine size={14} /> Export
           </button>
         </div>
@@ -780,6 +828,7 @@ export function App() {
                 target={displayTarget}
                 photoId={photo?.id}
                 hdr={edits.state?.settings.processing === 'hdr-v1'}
+                hdrJpeg={edits.state?.hdrJpeg}
               />
             </div>
             <div className={styles.previewActions}>
@@ -842,6 +891,7 @@ export function App() {
             </p>
           )}
           <PhotoPreview
+            hdrJpeg={edits.state?.hdrJpeg?.state === 'supported'}
             suspended={!!mergeTargets || workspace !== 'editor'}
             displayTarget={displayTarget}
             key={photo?.id ?? 'empty'}
@@ -977,6 +1027,21 @@ export function App() {
           onStarted={() => {
             setMergeTargets(null)
             restoreFocus()
+            void refreshTasks()
+          }}
+        />
+      )}
+      {exportTargets && (
+        <ExportDialog
+          ids={exportTargets}
+          onClose={() => {
+            setExportTargets(null)
+            restoreFocus()
+          }}
+          onStarted={() => {
+            setExportTargets(null)
+            restoreFocus()
+            setTasksOpen(true)
             void refreshTasks()
           }}
         />

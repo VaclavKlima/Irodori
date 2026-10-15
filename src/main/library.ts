@@ -1,6 +1,11 @@
 import { totalmem, cpus } from 'node:os'
 import { collectionPolicy, CollectionChangedError } from '../shared/collections'
 import { WorkspaceStore } from './workspace'
+import { ExportStore } from './export/store'
+import { ExportJobs } from './export/jobs'
+import { identity } from './export/files'
+import { verifyUltraHdrBundle } from './export/codec'
+import { EXPORT_CODEC_VERSION, EXPORT_RENDERING_VERSION } from '../shared/export'
 import type { WorkspaceChange } from '../shared/workspace'
 import type { GalleryRevision } from '../shared/stacks'
 import { MergeReviews } from './merge/reviews'
@@ -178,6 +183,7 @@ export class PhotoLibrary {
   private importSuppression = new Map<string, Set<string>>()
   readonly fullPreviews: FullPreviews
   readonly merges: MergeReviews
+  exports!: ExportJobs
   private db!: DatabaseSync
   private stacks!: StackStore
   private browse!: BrowseStore
@@ -352,7 +358,7 @@ export class PhotoLibrary {
     this.db = new DatabaseSync(join(this.root, 'catalog.sqlite'))
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;')
     const version = this.db.prepare('PRAGMA user_version').get() as { user_version: number }
-    if (version.user_version > 16) throw new Error('This library requires a newer version of Luma.')
+    if (version.user_version > 17) throw new Error('This library requires a newer version of Luma.')
     this.stacks = new StackStore(this.db)
     this.browse = new BrowseStore(this.db)
     this.workspace = new WorkspaceStore(this.db, this.browse)
@@ -377,6 +383,17 @@ export class PhotoLibrary {
         const metadata = existing
           ? (JSON.parse(existing.data) as ProcessingOptions).metadata
           : undefined
+        if (
+          metadata?.version === 3 &&
+          !['.jpg', '.jpeg'].includes(extname(photo.filename).toLowerCase())
+        ) {
+          metadata.version = PROCESSING_METADATA_VERSION
+          const data = JSON.parse(existing!.data) as ProcessingOptions
+          data.metadata = metadata
+          this.db
+            .prepare('UPDATE processing SET data = ? WHERE id = ?')
+            .run(JSON.stringify(data), row.id)
+        }
         const identity =
           metadata?.mergeMaster || metadata?.hdrEligible || rawDecoderId(photo.filename)
             ? 'hdr-v1'
@@ -456,7 +473,8 @@ export class PhotoLibrary {
       this.browse.initialize()
       this.browse.backfill()
       this.workspace.migrate()
-      this.db.exec('PRAGMA user_version = 16; COMMIT;')
+      new ExportStore(this.db).migrate()
+      this.db.exec('PRAGMA user_version = 17; COMMIT;')
     } catch (error) {
       this.db.exec('ROLLBACK')
       throw error
@@ -466,6 +484,45 @@ export class PhotoLibrary {
     )
     await this.removals.recover()
     await recoverMerges(this.root, this.db, (manifest) => this.commitMerge(manifest))
+    this.exports = new ExportJobs(
+      new ExportStore(this.db),
+      this.root,
+      this.scheduler,
+      async (id) => {
+        const processing = await this.processingOptions(id)
+        const photo = this.find(id)
+        if (!photo) throw new Error('This export photo is unavailable.')
+        const path = join(
+          this.root,
+          'originals',
+          id,
+          photo.assetKind === 'derived'
+            ? 'linear.f32'
+            : `original${extname(photo.filename).toLowerCase()}`,
+        )
+        const info = await lstat(path)
+        if (!info.isFile() || info.isSymbolicLink())
+          throw new Error('The managed export source is unavailable.')
+        return {
+          photo,
+          path,
+          identity: identity(info),
+          processing,
+          hdr: !!(processing.metadata.hdrEligible || processing.metadata.mergeMaster),
+        }
+      },
+      (source) => {
+        const photo = this.find(source.photo.id)
+        const processing = this.readProcessing(source.photo.id)
+        return (
+          !!photo &&
+          photo.filename === source.photo.filename &&
+          JSON.stringify(processing) === JSON.stringify(source.processing)
+        )
+      },
+      () => this.changed(),
+    )
+    await this.exports.recover()
     await rm(join(this.root, 'merge-reviews'), { recursive: true, force: true })
     // Only application-owned, unpublished files are recovered here.
     await rm(join(this.root, 'staging'), { recursive: true, force: true })
@@ -568,6 +625,17 @@ export class PhotoLibrary {
           this.db
             .prepare('INSERT OR REPLACE INTO processing (id, data) VALUES (?, ?)')
             .run(id, JSON.stringify(data))
+          if (metadata.hdrJpeg?.state === 'supported') {
+            // Recognition upgrades existing JPEGs from container evidence. Preserve
+            // numeric edits and history order; no synthetic edit entry is added.
+            this.db.prepare("UPDATE photos SET processing_identity = 'hdr-v1' WHERE id = ?").run(id)
+            const history = this.ensureEdits(id, data)
+            history.settings.processing = 'hdr-v1'
+            for (const snapshot of history.snapshots) snapshot.settings.processing = 'hdr-v1'
+            this.db
+              .prepare('UPDATE edits SET data = ? WHERE id = ?')
+              .run(JSON.stringify(history), id)
+          }
           this.browse.put(this.find(id)!, metadata, undefined, this.stacks.capture(id) ?? undefined)
           this.db.exec('COMMIT')
         } catch (error) {
@@ -714,6 +782,7 @@ export class PhotoLibrary {
       canUndo,
       canRedo,
       hdrEligible: this.readProcessing(photoId)?.metadata.hdrEligible,
+      hdrJpeg: this.readProcessing(photoId)?.metadata.hdrJpeg,
       whiteBalanceProfile: this.readProcessing(photoId)?.metadata.whiteBalance,
       referenceWhiteBalance: !!this.readProcessing(photoId)?.metadata.mergeMaster,
     }
@@ -835,6 +904,31 @@ export class PhotoLibrary {
   getWorkspaceState() {
     return this.workspace.read()
   }
+  async getExportCapabilities() {
+    const unavailable = await verifyUltraHdrBundle().then(
+      () => undefined,
+      (error) => errorMessage(error),
+    )
+    return {
+      format: 'jpeg' as const,
+      hdr: 'iso-21496-1' as const,
+      codec: EXPORT_CODEC_VERSION,
+      rendering: EXPORT_RENDERING_VERSION,
+      hdrAvailable: !unavailable,
+      hdrUnavailableReason: unavailable,
+    }
+  }
+  getExportPreferences() {
+    return this.exports.store.publicPreferences()
+  }
+  prepareExport(ids: string[]) {
+    this.assertRecovered(true)
+    return this.exports.prepare(ids)
+  }
+  startExport(request: import('../shared/export').ExportStart) {
+    this.assertRecovered(true)
+    return this.exports.start(request)
+  }
   saveWorkspaceState(change: WorkspaceChange) {
     if (this.closed) throw new Error('This library is closed.')
     return this.workspace.save(change)
@@ -871,13 +965,17 @@ export class PhotoLibrary {
     const trash = (ids: string[]) =>
       this.libraryOperationReason('foreground', true) ??
       foreground ??
-      (this.merges.leased(ids)
-        ? 'Close the merge review or cancel its task before deleting source photographs.'
-        : undefined)
+      (this.exports?.leased(ids)
+        ? 'Finish or cancel the export before deleting its source photographs.'
+        : this.merges.leased(ids)
+          ? 'Close the merge review or cancel its task before deleting source photographs.'
+          : undefined)
     const { photo, selection, group } = context
     const selected = selection.map((p) => p.id)
     const groupIds = group?.photos.map((p) => p.id) ?? []
     context.availability = {
+      'photo-export': actionAvailability(!!photo, recovery),
+      'selection-export': actionAvailability(selection.length > 0, recovery),
       'photo-cover': actionAvailability(!!group && photo?.id !== group.stack.coverId, organization),
       'photo-remove': actionAvailability(!!group, organization),
       'selection-hdr': actionAvailability(originalMergeApplicable(selection), merge),
@@ -1055,7 +1153,9 @@ export class PhotoLibrary {
   }
 
   listTasks(): BackgroundTask[] {
-    return [...this.tasks.values()].map((task) => structuredClone(task.snapshot))
+    return [...this.tasks.values()]
+      .map((task) => structuredClone(task.snapshot))
+      .concat(this.exports?.list() ?? [])
   }
 
   deletePhotos(ids: string[]): string | null {
@@ -1064,6 +1164,8 @@ export class PhotoLibrary {
     const reason = this.libraryOperationReason('foreground', true)
     if (reason) throw new Error(reason)
     this.assertRecovered(true)
+    if (this.exports?.leased(ids))
+      throw new Error('Finish or cancel the export before deleting its source photographs.')
     if (this.merges.leased(ids))
       throw new Error(
         'Close the merge review or cancel its task before deleting source photographs.',
@@ -1106,6 +1208,10 @@ export class PhotoLibrary {
                 await this.scheduler.mutate(async () => {
                   attempted = true
                   this.assertRecovered()
+                  if (this.exports?.leased([photo.id]))
+                    throw new Error(
+                      'Finish or cancel the export before deleting its source photographs.',
+                    )
                   if (this.merges.leased([photo.id]))
                     throw new Error('Close the merge review before deleting source photographs.')
                   if (!this.find(photo.id)) return
@@ -1190,14 +1296,15 @@ export class PhotoLibrary {
       this.closed ||
       (replacing && this.replacingSession) ||
       this.session?.phase === 'scanning' ||
-      (kind === 'organization' ? this.hasActiveTask() : this.hasCaptureTask())
+      (kind === 'organization' ? this.hasActiveTask(false) : this.hasCaptureTask())
     )
       return 'Finish or cancel the current library operation first.'
     return undefined
   }
 
-  hasActiveTask(): boolean {
+  hasActiveTask(includeExports = true): boolean {
     return (
+      (includeExports && !!this.exports?.hasActive()) ||
       !!this.session?.accepting ||
       [...this.tasks.values()].some(({ snapshot }) =>
         ['running', 'cancelling'].includes(snapshot.status),
@@ -1207,6 +1314,7 @@ export class PhotoLibrary {
 
   taskErrors(id: string, offset = 0): TaskErrorPage {
     this.validateOffset(offset)
+    if (this.exports?.has(id)) return this.exports.errors(id, offset)
     const task = this.tasks.get(id)
     if (!task) throw new Error('This task has been dismissed.')
     return {
@@ -1218,6 +1326,7 @@ export class PhotoLibrary {
   }
 
   async cancelTask(id: string): Promise<void> {
+    if (this.exports?.has(id)) return this.exports.cancel(id)
     const task = this.tasks.get(id)
     if (!task) throw new Error('This task has been dismissed.')
     if (!['running', 'cancelling'].includes(task.snapshot.status)) return
@@ -1238,6 +1347,7 @@ export class PhotoLibrary {
   }
 
   dismissTask(id: string): void {
+    if (this.exports?.has(id)) return this.exports.dismiss(id)
     const task = this.tasks.get(id)
     if (!task) return
     if (['running', 'cancelling'].includes(task.snapshot.status))
@@ -1299,7 +1409,7 @@ export class PhotoLibrary {
     if (
       this.closed ||
       this.replacingSession ||
-      this.hasActiveTask() ||
+      this.hasActiveTask(false) ||
       this.session?.phase === 'importing'
     )
       throw new Error('Finish or cancel the current import before choosing another source.')
@@ -1998,7 +2108,7 @@ export class PhotoLibrary {
   }
 
   importSelected(id: string): void | Promise<void> {
-    if (this.closed || this.replacingSession || this.hasActiveTask())
+    if (this.closed || this.replacingSession || this.hasActiveTask(false))
       throw new Error('Finish or cancel the current library operation first.')
     this.assertRecovered()
     const s = this.getSession(id)
@@ -2671,6 +2781,7 @@ export class PhotoLibrary {
       await this.metadataProcessor.close()
       await this.directoryVisibility.close()
       await this.metadataTail
+      await this.exports?.close()
       await this.fullPreviews.close()
       await this.merges.close()
       this.scheduler.close()

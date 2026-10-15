@@ -14,6 +14,7 @@ export default defineConfig(({ command }) => {
           async closeBundle() {
             await mkdir('out/main/opencv', { recursive: true })
             await cp('vendor/opencv', 'out/main/opencv', { recursive: true })
+            await cp('vendor/ultrahdr', 'out/main/ultrahdr', { recursive: true })
           },
         },
       ],
@@ -23,6 +24,7 @@ export default defineConfig(({ command }) => {
           input: {
             index: 'src/main/index.ts',
             'preview-worker': 'src/main/preview-worker.ts',
+            'export-worker': 'src/main/export/worker.ts',
             'merge-worker': 'src/main/merge/worker.ts',
             'alignment-worker': 'src/main/merge/alignment-worker.ts',
             'hdr-diagnostic': 'src/main/hdr-diagnostic.ts',

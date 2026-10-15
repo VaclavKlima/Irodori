@@ -52,6 +52,32 @@ let picking = false
 let quitPending = false
 let closingRenderer: Electron.WebContents | undefined
 
+async function flushEditorEdits() {
+  const window = mainWindow
+  if (!window || window.isDestroyed()) return
+  await new Promise<void>((resolve, reject) => {
+    const token = randomUUID()
+    const timer = setTimeout(() => {
+      ipcMain.removeListener('edits:flushed', handler)
+      reject(new Error('The editor did not finish saving. Try again.'))
+    }, 10000)
+    const handler = (event: Electron.IpcMainEvent, returned: string, error?: string) => {
+      if (
+        event.sender !== window.webContents ||
+        event.senderFrame !== window.webContents.mainFrame ||
+        returned !== token
+      )
+        return
+      clearTimeout(timer)
+      ipcMain.removeListener('edits:flushed', handler)
+      if (error) reject(new Error(error))
+      else resolve()
+    }
+    ipcMain.on('edits:flushed', handler)
+    window.webContents.send('edits:flush', token)
+  })
+}
+
 function handleLibraryRequest(
   channel: string,
   listener: Parameters<typeof ipcMain.handle>[1],
@@ -74,7 +100,7 @@ async function requestQuit(): Promise<void> {
         title: 'A library task is still running',
         message: 'Keep working on your photos?',
         detail:
-          'Cancellation stops remaining work after the current operation finishes. Completed imports and moves to Trash are kept.',
+          'Cancellation stops remaining work after the current operation finishes. Completed imports, exported files and moves to Trash are kept.',
         buttons: ['Keep working', 'Cancel task and quit'],
         defaultId: 0,
         cancelId: 0,
@@ -279,6 +305,55 @@ app
       }
       return { version: app.getVersion(), platform: process.platform as AppInfo['platform'] }
     })
+    handleLibraryRequest('export:capabilities', (event) => {
+      trusted(event)
+      return library!.getExportCapabilities()
+    })
+    handleLibraryRequest('export:preferences', (event) => {
+      trusted(event)
+      return library!.getExportPreferences()
+    })
+    handleLibraryRequest('export:prepare', async (event, ids: string[]) => {
+      trusted(event)
+      await flushEditorEdits()
+      return library!.prepareExport(ids)
+    })
+    handleLibraryRequest('export:dispose', (event, id: string) => {
+      trusted(event)
+      library!.exports.dispose(id)
+    })
+    handleLibraryRequest(
+      'export:start',
+      async (event, request: import('../shared/export').ExportStart) => {
+        trusted(event)
+        await flushEditorEdits()
+        return library!.startExport(request)
+      },
+    )
+    handleLibraryRequest('export:results', (event, id: string, offset: number) => {
+      trusted(event)
+      return library!.exports.results(id, offset)
+    })
+    handleLibraryRequest('export:show-folder', async (event, id: string) => {
+      trusted(event)
+      const error = await shell.openPath(await library!.exports.destination(id))
+      if (error) throw new Error(error)
+    })
+    handleLibraryRequest('export:choose-destination', async (event) => {
+      trusted(event)
+      if (picking) throw new Error('A folder picker is already open.')
+      picking = true
+      try {
+        const result = await dialog.showOpenDialog(mainWindow!, {
+          title: 'Choose export folder',
+          properties: ['openDirectory', 'createDirectory'],
+        })
+        if (result.canceled || !result.filePaths[0]) return null
+        return library!.exports.store.authorize(result.filePaths[0])
+      } finally {
+        picking = false
+      }
+    })
 
     displayState = new DisplayState(
       app.getPath('userData'),
@@ -391,7 +466,12 @@ app
     )
     library.displayTarget = () => displayState.get()
     await library.open()
-    editorEndpoint = await startEditorEndpoint(app.getPath('userData'), library, displayState)
+    editorEndpoint = await startEditorEndpoint(
+      app.getPath('userData'),
+      library,
+      displayState,
+      flushEditorEdits,
+    )
     protocol.handle('luma-photo', async (request) => {
       if (request.method !== 'GET') return new Response(null, { status: 404 })
       const asset = library?.fullPreviews.acquire(new URL(request.url))
@@ -513,9 +593,9 @@ app
         )
       },
     )
-    handleLibraryRequest('preview:hdr', (event, id, token, regenerate = false) => {
+    handleLibraryRequest('preview:hdr', (event, id, token, regenerate = false, mode = 'hdr') => {
       trusted(event)
-      return library!.fullPreviews.requestHdr(id, token, regenerate).then(
+      return library!.fullPreviews.requestHdr(id, token, regenerate, mode).then(
         (preview) => ({ preview }),
         (error: unknown) => ({ error: String(error) }),
       )

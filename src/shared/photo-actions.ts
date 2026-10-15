@@ -2,6 +2,8 @@ import type { PhotoReference } from './contracts'
 import type { StackSummary } from './stacks'
 
 export const photoActionIds = [
+  'photo-export',
+  'selection-export',
   'photo-cover',
   'photo-remove',
   'selection-hdr',
@@ -46,7 +48,8 @@ export interface PhotoActionsContext {
 }
 
 export type PhotoMenuSectionId = 'photo' | 'selection' | 'group' | 'library' | 'trash'
-export type PhotoMenuIcon = 'cover' | 'remove' | 'merge' | 'group' | 'select' | 'ungroup' | 'trash'
+export type PhotoMenuIcon =
+  'export' | 'cover' | 'remove' | 'merge' | 'group' | 'select' | 'ungroup' | 'trash'
 export interface PhotoMenuAction {
   id: PhotoActionId
   scope: PhotoMenuSectionId
@@ -89,10 +92,14 @@ export function buildPhotoMenu(context: PhotoActionsContext, toolbar: boolean): 
     if (actions.length) sections.push({ id, heading, actions })
   }
   section('photo', `Photo · ${context.photo?.filename ?? ''}`, [
+    ...(!context.equivalent.photoSelection
+      ? [{ id: 'photo-export' as const, label: 'Export this photo…', icon: 'export' as const }]
+      : []),
     { id: 'photo-cover', label: 'Set this photo as group cover', icon: 'cover' },
     { id: 'photo-remove', label: 'Remove this photo from group', icon: 'remove' },
   ])
   section('selection', `Selection · ${count} ${count === 1 ? 'photo' : 'photos'}`, [
+    { id: 'selection-export', label: 'Export selected photos…', icon: 'export' },
     { id: 'selection-hdr', label: 'Merge selected photos to HDR…', icon: 'merge' },
     { id: 'selection-noise', label: 'Stack selected photos for noise reduction…', icon: 'merge' },
     { id: 'selection-group', label: 'Group selected photos', icon: 'group' },

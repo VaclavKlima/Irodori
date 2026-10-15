@@ -23,6 +23,11 @@ export class WorkScheduler {
   private critical = false
   private listeners = new Set<() => void>()
   private closed = false
+  private exportPending = 0
+  private exporting?: AbortController
+  detached<T>(work: () => T): T {
+    return this.context.exit(work)
+  }
 
   get interactivePending() {
     return this.interactive > 0 || this.activities.size > 0
@@ -30,12 +35,14 @@ export class WorkScheduler {
   get mutating() {
     return this.critical
   }
-  get waitingReason(): 'foreground' | 'library-operation' | undefined {
+  get waitingReason(): 'foreground' | 'library-operation' | 'export' | undefined {
     return this.interactivePending
       ? 'foreground'
       : this.operations.length || this.operation
         ? 'library-operation'
-        : undefined
+        : this.exportPending
+          ? 'export'
+          : undefined
   }
   onChange(listener: () => void) {
     this.listeners.add(listener)
@@ -44,6 +51,8 @@ export class WorkScheduler {
     }
   }
   private changed() {
+    if (this.interactivePending || this.operations.length || this.operation)
+      this.exporting?.abort(new ForegroundYield())
     if (this.waitingReason) for (const job of this.backgroundJobs) job?.abort(new ForegroundYield())
     for (const listener of [...this.listeners]) listener()
   }
@@ -95,6 +104,7 @@ export class WorkScheduler {
     try {
       const ready = () =>
         !this.critical &&
+        !this.exporting &&
         this.backgroundCount === 0 &&
         (priority === 'interactive' ||
           (!this.interactivePending && !this.operation && this.operations[0] === ticket))
@@ -145,6 +155,34 @@ export class WorkScheduler {
     } finally {
       if (controller) this.backgroundJobs.delete(controller)
       this.backgroundCount--
+      this.changed()
+    }
+  }
+  /** Export owns the expensive background allowance; imports drain before admission.
+   * Foreground requests abort its isolated worker and retry the unfinished file. */
+  async export<T>(work: (signal: AbortSignal) => Promise<T>, signal: AbortSignal): Promise<T> {
+    this.exportPending++
+    this.changed()
+    const controller = new AbortController()
+    const ready = () =>
+      !this.interactivePending &&
+      !this.operation &&
+      !this.operations.length &&
+      !this.critical &&
+      !this.backgroundCount &&
+      !this.exporting
+    try {
+      do {
+        await this.wait(ready, signal)
+      } while (!ready())
+      this.exporting = controller
+      return await work(AbortSignal.any([signal, controller.signal]))
+    } catch (error) {
+      if (!signal.aborted && controller.signal.aborted) throw new ForegroundYield()
+      throw error
+    } finally {
+      if (this.exporting === controller) this.exporting = undefined
+      this.exportPending--
       this.changed()
     }
   }

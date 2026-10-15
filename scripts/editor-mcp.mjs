@@ -35,6 +35,82 @@ const browseQuery = schema({
 })
 const tools = [
   {
+    name: 'luma_get_export_capabilities',
+    description:
+      'Read JPEG export capabilities, pinned codec and rendering versions. HDR export is independent of the current monitor.',
+    inputSchema: schema({}),
+  },
+  {
+    name: 'luma_get_export_preferences',
+    description:
+      'Read the remembered authorized destination ID and its availability, and Last custom settings. Destination paths cannot be supplied through MCP; the user authorizes folders in the application.',
+    inputSchema: schema({}),
+  },
+  {
+    name: 'luma_prepare_export',
+    description:
+      'Prepare the complete ordered photo ID set and freeze committed revisions without source leases. Returns a preparation ID, target count and HDR eligibility. Preparation expires after 15 minutes.',
+    inputSchema: schema({ ids: { type: 'array', minItems: 1, maxItems: 100000, items: photoId } }),
+  },
+  {
+    name: 'luma_dispose_export_preparation',
+    description: 'Discard an unused export preparation without changing export preferences.',
+    inputSchema: schema({ preparationId: { type: 'string' } }),
+  },
+  {
+    name: 'luma_start_export',
+    description:
+      'Revalidate a preparation and authorized destination, atomically accept immutable JPEG output settings and source leases, and enqueue a background task. Quick presets use Auto output. Explicit HDR rejects unsupported sources. Custom options require version, output, quality, size, names, metadata and existing fields; the same application validator serves UI and MCP. No arbitrary write paths or replacement are allowed.',
+    inputSchema: schema({
+      exportRequest: schema(
+        {
+          preparationId: { type: 'string' },
+          destinationId: { type: 'string' },
+          action: { enum: ['maximum', 'high', 'smaller', 'custom', 'last-custom'] },
+          options: schema({
+            version: { const: 1 },
+            output: { enum: ['auto', 'sdr', 'hdr'] },
+            quality: { type: 'integer', minimum: 1, maximum: 100 },
+            size: {
+              oneOf: [
+                schema({ mode: { const: 'original' } }),
+                schema({
+                  mode: { const: 'longest' },
+                  edge: { type: 'integer', minimum: 1, maximum: 32768 },
+                }),
+                schema({
+                  mode: { const: 'fit' },
+                  width: { type: 'integer', minimum: 1, maximum: 32768 },
+                  height: { type: 'integer', minimum: 1, maximum: 32768 },
+                }),
+              ],
+            },
+            names: {
+              oneOf: [
+                schema({ mode: { const: 'original' }, suffix: { type: 'string', maxLength: 100 } }),
+                schema({
+                  mode: { const: 'sequence' },
+                  prefix: { type: 'string', minLength: 1, maxLength: 100 },
+                }),
+              ],
+            },
+            metadata: { enum: ['camera-copyright', 'copyright', 'none'] },
+            existing: { enum: ['rename', 'skip'] },
+          }),
+        },
+        ['preparationId', 'destinationId', 'action'],
+      ),
+    }),
+  },
+  {
+    name: 'luma_get_export_results',
+    description:
+      'Read retained per-file export results in frozen selection order, including exported, skipped, failed and cancelled outcomes.',
+    inputSchema: schema({ taskId: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, [
+      'taskId',
+    ]),
+  },
+  {
     name: 'luma_get_photo_actions_context',
     description:
       'Read canonical photo, selection and persisted photo-group targets, counts, revisions, target equivalence and per-command availability. Uses stored catalog facts only; no decoding. Unrelated imports may update revisions without changing targetIdentity. Mutations still revalidate their targets.',

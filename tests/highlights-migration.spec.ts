@@ -81,7 +81,7 @@ test('catalog v5 migration preserves contrast, every snapshot and redo transacti
       })),
     }
     expect(await library.getEditHistory(id)).toEqual(expected)
-    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 })
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
     expect(await library.redoEdit(id, 9)).toMatchObject({
       revision: 10,
       settings: { shadows: 0, whites: 0, blacks: 0, exposureEv: -2, contrast: 30, highlights: 0 },

@@ -19,6 +19,7 @@ export interface EditPatch extends Partial<AdjustmentParameters> {
   lens?: Partial<LensSettings>
 }
 export interface EditState {
+  hdrJpeg?: import('./lens').ProcessingMetadata['hdrJpeg']
   referenceWhiteBalance?: boolean
   hdrEligible?: boolean
   whiteBalanceProfile?: WhiteBalanceProfile

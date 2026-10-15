@@ -131,7 +131,7 @@ test('collapsed and unloaded members disclose a complete frozen group; menu scro
   await expect(menu.getByRole('menuitem').first()).toBeFocused()
   await page.keyboard.press('Home')
   await expect(
-    menu.getByRole('menuitem', { name: 'Set this photo as group cover', exact: true }),
+    menu.getByRole('menuitem', { name: 'Export this photo…', exact: true }),
   ).toBeFocused()
   await page.keyboard.press('End')
   await expect(

@@ -366,7 +366,10 @@ test('sensor blend invalidates only HDR RAW caches and preserves existing compos
     expect(renders).toBe(4)
     validateHdrSource(composite.source)
     expect(() =>
-      validateHdrSource({ ...composite.source, highlightBlend: 'sensor-blend-v1' }),
+      validateHdrSource({
+        ...composite.source,
+        highlightBlend: 'sensor-blend-v1',
+      } as typeof composite.source),
     ).toThrow('provenance')
   } finally {
     await cache.close()

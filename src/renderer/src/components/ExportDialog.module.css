@@ -1,0 +1,145 @@
+.dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  padding: 0;
+  background: #242424;
+  color: #ddd;
+  border: 1px solid #505050;
+  border-radius: 8px;
+}
+.dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.dialog::backdrop {
+  background: #0009;
+}
+.dialog header,
+.dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  flex-shrink: 0;
+}
+.dialog header {
+  border-bottom: 1px solid #3d3d3d;
+}
+.dialog footer {
+  border-top: 1px solid #3d3d3d;
+}
+.dialog footer > div {
+  display: flex;
+  gap: 8px;
+}
+.dialog h2 {
+  font-size: 15px;
+  margin: 0;
+}
+.dialog button,
+.dialog select,
+.dialog input {
+  background: #303030;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  padding: 7px 9px;
+}
+.dialog button {
+  cursor: pointer;
+}
+.dialog button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.dialog :focus-visible {
+  outline: 2px solid #b8b8b8;
+  outline-offset: 2px;
+}
+.body {
+  overflow: auto;
+  min-height: 0;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.body p {
+  margin: 0;
+  color: #aaa;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.body .summary {
+  color: #ddd;
+  font-size: 13px;
+}
+.destination {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.destination > div {
+  flex: 1;
+  min-width: 0;
+}
+.destination span {
+  font-size: 11px;
+  color: #bbb;
+}
+.destination p {
+  overflow-wrap: anywhere;
+  margin-top: 3px;
+}
+.destination > button {
+  flex-shrink: 0;
+}
+.presets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.presets button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  gap: 12px;
+  padding: 11px;
+}
+.presets strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.presets span {
+  color: #aaa;
+  font-size: 10px;
+}
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+}
+.pair {
+  display: flex;
+  gap: 12px;
+}
+.pair label {
+  flex: 1;
+  min-width: 0;
+}
+.quality {
+  padding: 2px 0;
+}
+.body [role='alert'],
+.body .error {
+  color: #edb3b3;
+}

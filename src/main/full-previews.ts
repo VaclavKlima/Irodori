@@ -5,6 +5,8 @@ import {
   validateHdrSource,
   HDR_SOURCE_VERSION,
   HDR_RAW_SOURCE_VERSION,
+  HDR_JPEG_SOURCE_VERSION,
+  hdrSourceVersion,
   HDR_ADJUSTMENT_VERSION,
   HDR_OUTPUT_VERSION,
   type DisplayTarget,
@@ -202,8 +204,23 @@ export class FullPreviews {
     const preview = await this.prepare(id, token, false, true)
     return preview?.format === 'rgba8-srgb' ? preview : null
   }
-  async requestHdr(id: string, token: string, regenerate = false): Promise<HdrPreview | null> {
-    const preview = await this.prepare(id, token, regenerate, false, true, false, true)
+  async requestHdr(
+    id: string,
+    token: string,
+    regenerate = false,
+    mode: 'sdr' | 'hdr' = 'hdr',
+  ): Promise<HdrPreview | null> {
+    if (mode !== 'sdr' && mode !== 'hdr') throw new Error('Invalid preview mode.')
+    const preview = await this.prepare(
+      id,
+      token,
+      regenerate,
+      false,
+      true,
+      false,
+      true,
+      mode === 'sdr',
+    )
     return preview?.format === 'hdr-working' ? preview : null
   }
 
@@ -215,6 +232,7 @@ export class FullPreviews {
     prepareLinear = false,
     background = false,
     workingOnly = false,
+    preferPrimary = false,
   ): Promise<DisplayPreview | null> {
     if (
       this.closed ||
@@ -257,6 +275,7 @@ export class FullPreviews {
             check()
             const options = await this.options?.(id, request.abort.signal)
             if (workingOnly && options?.processing !== 'hdr-v1') return null
+            if (workingOnly && preferPrimary && options?.metadata.hdrJpeg) return null
             if (options) {
               options.prepareLinear = prepareLinear
               options.workingOnly = workingOnly
@@ -267,6 +286,11 @@ export class FullPreviews {
                   .update(
                     JSON.stringify([
                       id,
+                      options.metadata.hdrJpeg
+                        ? workingOnly
+                          ? HDR_JPEG_SOURCE_VERSION
+                          : 'jpeg-sdr-primary-v1'
+                        : null,
                       options.processing ?? 'display-referred-v1',
                       options.processing === 'hdr-v1'
                         ? options.metadata.mergeMaster
@@ -313,6 +337,11 @@ export class FullPreviews {
                     .update(
                       JSON.stringify([
                         id,
+                        options.metadata.hdrJpeg
+                          ? workingOnly
+                            ? HDR_JPEG_SOURCE_VERSION
+                            : 'jpeg-sdr-primary-v1'
+                          : null,
                         options.processing ?? 'display-referred-v1',
                         options.processing === 'hdr-v1'
                           ? options.metadata.mergeMaster
@@ -491,7 +520,7 @@ export class FullPreviews {
             await this.prune()
             check()
             const renderId = workingOnly
-              ? `${entry.linear!.hdr?.source.highlightBlend ? HDR_RAW_SOURCE_VERSION : HDR_SOURCE_VERSION}-${entry.linear!.sha256}`
+              ? `${hdrSourceVersion(entry.linear!.hdr!.source)}-${entry.linear!.sha256}`
               : entry.renderId
             if (!background)
               this.diagnostics = {
@@ -672,6 +701,10 @@ export class FullPreviews {
     const preview = await this.prepare(id, randomUUID(), false, false, true, true, true)
     if (!preview?.linear?.hdr || !preview.linear.url)
       throw new Error('HDR working data unavailable.')
+    if (domain === 'output' && target.mode === 'sdr' && preview.linear.hdr.source.display)
+      throw new Error(
+        'SDR output analysis of imported HDR JPEGs is unavailable. Use content-hdr or the SDR image histogram.',
+      )
     const lease = this.acquire(new URL(preview.linear.url))
     if (!lease) throw new Error('HDR working data unavailable.')
     this.analyses.set(controller, id)

@@ -56,7 +56,7 @@ test('shared Actions menu hides inapplicable merges and preserves pending right-
   await expect(page.getByRole('menu')).toBeVisible()
   await page.keyboard.press('Home')
   await expect(
-    page.getByRole('menuitem', { name: 'Group selected photos', exact: true }),
+    page.getByRole('menuitem', { name: 'Export this photo…', exact: true }),
   ).toBeFocused()
   await page.keyboard.press('End')
   await expect(

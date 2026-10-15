@@ -11,7 +11,11 @@ interface State {
 }
 const empty: State = { preview: null, pixels: null, placeholder: null, error: null }
 
-export function useFullPreview(photoId: string | undefined, enabled = true) {
+export function useFullPreview(
+  photoId: string | undefined,
+  enabled = true,
+  mode: 'sdr' | 'hdr' = 'hdr',
+) {
   const { begin } = useForegroundActivity(photoId, undefined, enabled)
   const latestRevision = useRef(0)
   const displayedLease = useRef<FrameLease | null>(null)
@@ -51,6 +55,7 @@ export function useFullPreview(photoId: string | undefined, enabled = true) {
           photoId,
           requestId,
           regenerate,
+          mode,
         )
         if (!preview && !regenerate)
           preview = await window.luma.requestCachedFullPreview(photoId, requestId)
@@ -106,7 +111,7 @@ export function useFullPreview(photoId: string | undefined, enabled = true) {
       if (frame && frame !== displayedLease.current) frame.release()
       void window.luma.releaseFullPreview(requestId).catch(() => undefined)
     }
-  }, [photoId, attempt, revision, enabled, begin])
+  }, [photoId, attempt, revision, enabled, begin, mode])
 
   const retry = useCallback(() => {
     regenerateRevision.current = latestRevision.current

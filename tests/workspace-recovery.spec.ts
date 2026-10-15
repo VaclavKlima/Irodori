@@ -5,7 +5,7 @@ import { stackFixture, finishTask } from './stack.helpers'
 test('migration 16 is transactional, idempotent, and workspace commits do not advance catalog or stack browsing revisions', async () => {
   const t = await stackFixture(3)
   try {
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 })
+    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
     const before = t.library.getGallerySummary()
     expect(t.library.getWorkspaceState()).toMatchObject({
       checkpoint: 0,
@@ -40,7 +40,7 @@ test('migration 16 is transactional, idempotent, and workspace commits do not ad
     ).toBeUndefined()
     t.db.exec('DROP TABLE collection_catalog_state')
     await t.restart()
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 })
+    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
   } finally {
     await t.close()
   }

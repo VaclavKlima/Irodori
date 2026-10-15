@@ -16,6 +16,10 @@ interface Suite {
   family?: BenchmarkFamily
 }
 const definitions: Suite[] = [
+  { file: 'export-model', group: 'node', scopes: ['library'] },
+  { file: 'export-context', group: 'service', scopes: ['library', 'mcp'] },
+  { file: 'export-rendering', group: 'raw-gpu', scopes: ['preview', 'library'] },
+  { file: 'export-ui', group: 'electron', scopes: ['ui', 'library', 'mcp'] },
   { file: 'background-testing-model', group: 'node', scopes: ['ui', 'mcp'] },
   { file: 'background-testing-ui', group: 'electron', scopes: ['ui', 'mcp'] },
   { file: 'continuous-scroll-model', group: 'node', scopes: ['library', 'ui'] },
@@ -99,6 +103,8 @@ const definitions: Suite[] = [
   { file: 'hdr-migration', group: 'service', scopes: ['library', 'adjustments'] },
   { file: 'hdr-math-gpu', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-raw', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
+  { file: 'hdr-jpeg', group: 'raw-gpu', scopes: ['preview', 'library', 'adjustments'] },
+  { file: 'hdr-jpeg-ui', group: 'electron', scopes: ['preview', 'library', 'ui'] },
   { file: 'hdr-editor-ui', group: 'raw-gpu', scopes: ['ui', 'preview', 'adjustments', 'mcp'] },
   { file: 'hdr-interaction-benchmark', group: 'benchmark', scopes: [], family: 'hdr' },
   { file: 'hdr-display', group: 'node', scopes: ['preview'] },

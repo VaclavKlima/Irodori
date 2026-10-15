@@ -4,10 +4,12 @@ export function DisplayDetails({
   target,
   photoId,
   hdr,
+  hdrJpeg,
 }: {
   target: DisplayTarget
   photoId?: string
   hdr: boolean
+  hdrJpeg?: import('../../../shared/lens').ProcessingMetadata['hdrJpeg']
 }) {
   const presentation =
     target.presentation?.photoId === photoId &&
@@ -18,7 +20,7 @@ export function DisplayDetails({
   const presented = mode ? presentation : undefined
   const fallback =
     mode === 'sdr' &&
-    (presented?.backend === 'canvas2d-hdr-sdr' || (hdr && target.requested === 'hdr'))
+    (presented?.backend === 'canvas2d-hdr-sdr' || ((hdr || hdrJpeg) && target.requested === 'hdr'))
   const colorSpace = presented?.backend === 'webgpu-hdr' ? target.colorSpace : 'sRGB'
   const precision = presented?.backend === 'webgpu-hdr' ? 'Float32' : '8-bit'
   const label = fallback
@@ -30,7 +32,12 @@ export function DisplayDetails({
         : photoId
           ? 'Loading'
           : 'SDR'
-  const reason = !hdr ? 'Display-referred image.' : presentation?.reason || target.reason
+  const reason =
+    hdrJpeg?.state === 'sdr-only'
+      ? hdrJpeg.reason
+      : !hdr
+        ? 'Display-referred image.'
+        : presentation?.reason || target.reason
   const caps = target.capabilities
   return (
     <div className={styles.container}>
@@ -45,6 +52,7 @@ export function DisplayDetails({
             {mode?.toUpperCase() ?? 'No frame yet'}
           </p>
           <p>{reason}</p>
+          {hdrJpeg?.state === 'supported' && <p>ISO HDR JPEG · Authored HDR and SDR renditions.</p>}
           <p>
             Frame:{' '}
             {presented

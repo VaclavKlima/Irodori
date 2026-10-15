@@ -11,6 +11,58 @@ function gate() {
   })
   return { promise, release }
 }
+test('export drains import preparation, yields to foreground, and restores normal two-worker admission', async () => {
+  const scheduler = new WorkScheduler(),
+    signal = new AbortController().signal
+  const first = gate(),
+    second = gate(),
+    exporting = gate()
+  const events: string[] = []
+  const imports = [first, second].map((held, i) =>
+    scheduler.background(async () => {
+      events.push(`import-${i}`)
+      await held.promise
+      events.push(`drained-${i}`)
+    }, signal),
+  )
+  await expect.poll(() => events.length).toBe(2)
+  const exportWork = scheduler
+    .export(async (abort) => {
+      events.push('export')
+      exporting.release()
+      await new Promise<void>((_, reject) =>
+        abort.addEventListener('abort', () => reject(abort.reason), { once: true }),
+      )
+    }, signal)
+    .catch((error) => error)
+  first.release()
+  await imports[0]
+  expect(events).not.toContain('export')
+  second.release()
+  await imports[1]
+  await exporting.promise
+  expect(events.indexOf('export')).toBeGreaterThan(events.indexOf('drained-1'))
+  const later = gate()
+  const waitingImport = scheduler.background(async () => {
+    events.push('later-import')
+    await later.promise
+  }, signal)
+  const preview = scheduler.run('interactive', async () => {
+    events.push('preview')
+  })
+  expect(await exportWork).toBeInstanceOf(ForegroundYield)
+  await preview
+  await expect.poll(() => events.includes('later-import')).toBe(true)
+  // The original import worker allowance is not permanently reduced by export admission.
+  const concurrent = scheduler.background(async () => {
+    events.push('parallel-import')
+  }, signal)
+  await concurrent
+  expect(events.at(-1)).toBe('parallel-import')
+  later.release()
+  await waitingImport
+  scheduler.close()
+})
 test('foreground admission drains existing work, then orders preview before FIFO operations and background', async () => {
   const scheduler = new WorkScheduler(),
     signal = new AbortController().signal

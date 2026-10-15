@@ -16,7 +16,6 @@ import type { ProcessingOptions } from '../../shared/lens'
 import type { FullPreviewResult } from '../preview-types'
 import { frameByteLength } from '../../shared/preview-frame'
 import { neutralAdjustments, sameAdjustments, srgbTransform } from '../../shared/adjustments'
-import { renderHdrContent } from '../../shared/display-rendering'
 import {
   validateHdrSource,
   HDR_SOURCE_VERSION,
@@ -31,6 +30,7 @@ import {
   adjustHdr,
   luminance,
   outputHdr,
+  contentHdr,
   encodeHdr,
   SDR_TARGET,
   type HdrWorkingAsset,
@@ -64,8 +64,8 @@ export async function sampleHdrPixel(path: string, job: HdrPixelJob): Promise<Hd
       job.adjustments,
       hdrAdjustmentMatrix(job.adjustments, asset.whiteBalance) ?? undefined,
     )
-    const output = domain === 'output' ? outputHdr(adjusted, target) : undefined
-    const content = domain === 'content-hdr' ? renderHdrContent(adjusted) : undefined
+    const output = domain === 'output' ? outputHdr(adjusted, target, asset.source) : undefined
+    const content = domain === 'content-hdr' ? contentHdr(adjusted, asset.source) : undefined
     const rgb = output?.rgb ?? content?.rgb ?? adjusted
     const relativeLuminance = output?.luminance ?? content?.luminance ?? luminance(adjusted)
     if (!rgb.every(Number.isFinite) || !Number.isFinite(relativeLuminance))

@@ -7,6 +7,7 @@ import {
   adjustHdr,
   hdrAdjustmentMatrix,
   outputHdr,
+  contentHdr,
   encodeHdr,
   SDR_TARGET,
   type HdrWorkingAsset,
@@ -15,7 +16,6 @@ import {
 import { collectHdrSample } from './hdr-sample'
 import { streamHdr } from './hdr-stream'
 import { hdrRangeColor } from './hdr-ranges'
-import { renderHdrContent } from '../../../shared/display-rendering'
 interface Request {
   asset: HdrWorkingAsset
   parameters: AdjustmentParameters
@@ -60,18 +60,30 @@ async function run() {
             const i = ((y - row) * asset.width + x) * 4
             const rgb: [number, number, number] = [data[i], data[i + 1], data[i + 2]]
             const adjusted = adjustHdr(rgb, parameters, wb)
-            const afterOutput = outputHdr(adjusted, SDR_TARGET)
-            const beforeOutput = neutralEdits ? afterOutput : outputHdr(rgb, SDR_TARGET)
+            const afterOutput = outputHdr(adjusted, SDR_TARGET, asset.source)
+            const beforeOutput = neutralEdits
+              ? afterOutput
+              : outputHdr(rgb, SDR_TARGET, asset.source)
             const a = afterOutput.rgb
             const b = beforeOutput.rgb
             const at = (nextRow * width + column) * 4
             const aRange = hdrRanges
-              ? hdrRangeColor(renderHdrContent(adjusted).rgb, request.target ?? SDR_TARGET, x, y)
+              ? hdrRangeColor(
+                  contentHdr(adjusted, asset.source).rgb,
+                  request.target ?? SDR_TARGET,
+                  x,
+                  y,
+                )
               : null
             const bRange = neutralEdits
               ? aRange
               : hdrRanges
-                ? hdrRangeColor(renderHdrContent(rgb).rgb, request.target ?? SDR_TARGET, x, y)
+                ? hdrRangeColor(
+                    contentHdr(rgb, asset.source).rgb,
+                    request.target ?? SDR_TARGET,
+                    x,
+                    y,
+                  )
                 : null
             for (let c = 0; c < 3; c++) {
               after[at + c] = Math.round((aRange?.[c] ?? encodeHdr(a[c])) * 255)

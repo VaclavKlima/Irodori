@@ -115,6 +115,14 @@ test('starts the built desktop application with its isolated preload bridge', as
   expect(bridge).toEqual({
     info: { version: nativeInfo.version, platform: nativeInfo.platform },
     keys: [
+      'getExportCapabilities',
+      'getExportPreferences',
+      'chooseExportDestination',
+      'prepareExport',
+      'disposeExportPreparation',
+      'startExport',
+      'getExportResults',
+      'showExportFolder',
       'getCollectionPolicy',
       'getWorkspaceState',
       'saveWorkspaceState',
