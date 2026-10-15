@@ -20,10 +20,12 @@ export interface CaseResult {
   annotations: { type: string; description?: string }[]
   evidence: string[]
   rerun: string
+  foregroundRerun?: string
   benchmarks: BenchmarkRecord[]
 }
 
 export interface GroupSummary {
+  uiMode: VerificationPlan['uiMode']
   passed: number
   failed: number
   skipped: number
@@ -51,6 +53,7 @@ export interface StageResult {
 
 export interface VerificationResult {
   scope: string
+  uiMode: VerificationPlan['uiMode']
   plan: VerificationPlan
   targets: string[]
   exitCode: number

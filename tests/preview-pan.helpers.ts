@@ -1,7 +1,10 @@
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { expect } from '@playwright/test'
+import { testUiMode } from '../scripts/test-ui-mode.mjs'
 
 export async function focusPreviewWindow(app: ElectronApplication, page: Page) {
+  if (testUiMode() !== 'foreground')
+    throw new Error('Native preview focus requires an explicit foreground test run.')
   const window = await app.browserWindow(page)
   // CDP input alone does not establish the native focus required by pointer lock.
   if (!(await window.evaluate((window) => window.isFocused()))) {

@@ -12,7 +12,6 @@ test('visible editing pauses transfer, heartbeats persist during a gesture, and 
     await app.browserWindow(page)
   ).evaluate((window) => {
     window.setContentSize(1100, 700)
-    window.focus()
   })
   await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
   await importPhotos(app, page)

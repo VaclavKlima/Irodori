@@ -4,6 +4,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { resolve } from 'node:path'
 import { readdir } from 'node:fs/promises'
 import { expect, test } from './electron.fixture'
+import { foregroundTest } from './foreground'
 import { importPhotos } from './import.helpers'
 import { HDR_PRESENTATION_BUDGET } from '../src/renderer/src/preview/hdr-memory'
 import { encodeHdr, outputHdr, SDR_TARGET, type RGB } from '../src/shared/hdr'
@@ -11,176 +12,180 @@ import { renderHdrContent } from '../src/shared/display-rendering'
 import { hdrRangeColor } from '../src/renderer/src/preview/hdr-ranges'
 test.use({ hdrDisplay: true })
 
-test('Wayland refresh updates native screen metadata without disturbing the editor', async ({
-  luma,
-}, info) => {
-  test.setTimeout(120000)
-  const { app, page } = luma
-  test.skip(
-    !(await app.evaluate(
-      () =>
-        process.platform === 'linux' &&
-        Boolean(process.env.WAYLAND_DISPLAY) &&
-        process.versions.electron === '44.3.0',
-    )),
-    'The native workaround is specific to Electron 44.3.0 on Wayland.',
-  )
-  await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
-  const preview = page.getByTestId('main-preview')
-  await expect(preview).toHaveAttribute('data-backend', 'webgpu-hdr', { timeout: 90000 })
-  await expect(preview).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
-  const nativeWindow = await app.browserWindow(page)
-  const nativeFocus = () =>
-    nativeWindow.evaluate((window) => ({
-      window: window.isFocused(),
-      contents: window.webContents.isFocused(),
-    }))
-  const pressNativeKey = (
-    keyCode: string,
-    modifiers: Electron.KeyboardInputEvent['modifiers'] = [],
-  ) =>
-    nativeWindow.evaluate(
-      (window, { keyCode, modifiers }) => {
-        window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
-        window.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
-      },
-      { keyCode, modifiers },
+test(
+  'Wayland refresh updates native screen metadata without disturbing the editor',
+  foregroundTest('Wayland screen metadata refresh verifies mapped window focus and pointer lock.'),
+  async ({ luma }, info) => {
+    test.setTimeout(120000)
+    const { app, page } = luma
+    test.skip(
+      !(await app.evaluate(
+        () =>
+          process.platform === 'linux' &&
+          Boolean(process.env.WAYLAND_DISPLAY) &&
+          process.versions.electron === '44.3.0',
+      )),
+      'The native workaround is specific to Electron 44.3.0 on Wayland.',
     )
-  await nativeWindow.evaluate((window) => {
-    window.focus()
-    window.webContents.focus()
-  })
-  await expect.poll(nativeFocus).toEqual({ window: true, contents: true })
-  await preview.focus()
-  await page.keyboard.press('1')
-  await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-scale', '1')
-  const exposure = page.getByRole('spinbutton', { name: 'Exposure value' })
-  await exposure.focus()
-  const retained = await preview.evaluateHandle((canvas) => canvas)
-  const before = await page.evaluate(() => window.luma.getPreviewDiagnostics())
-  const currentScreen = () =>
-    page.evaluate(async () => {
-      const screen = (await window.getScreenDetails!()).currentScreen
-      return { label: screen.label, headroomStops: screen.hdrHeadroom }
+    await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
+    const preview = page.getByTestId('main-preview')
+    await expect(preview).toHaveAttribute('data-backend', 'webgpu-hdr', { timeout: 90000 })
+    await expect(preview).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
+    const nativeWindow = await app.browserWindow(page)
+    const nativeFocus = () =>
+      nativeWindow.evaluate((window) => ({
+        window: window.isFocused(),
+        contents: window.webContents.isFocused(),
+      }))
+    const pressNativeKey = (
+      keyCode: string,
+      modifiers: Electron.KeyboardInputEvent['modifiers'] = [],
+    ) =>
+      nativeWindow.evaluate(
+        (window, { keyCode, modifiers }) => {
+          window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
+          window.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+        },
+        { keyCode, modifiers },
+      )
+    await nativeWindow.evaluate((window) => {
+      window.focus()
+      window.webContents.focus()
     })
-  const initial = await currentScreen()
-  const calls = await app.evaluateHandle(({ BrowserWindow }) => {
-    const contents = BrowserWindow.getAllWindows()[0].webContents as Electron.WebContents & {
-      setEmbedder: (embedder: Electron.WebContents) => void
-    }
-    const original = contents.setEmbedder.bind(contents)
-    const observations = { count: 0 }
-    contents.setEmbedder = (embedder) => {
-      observations.count++
-      original(embedder)
-    }
-    return observations
-  })
-  await expect.poll(() => calls.evaluate((value) => value.count)).toBeGreaterThanOrEqual(3)
-  expect(await nativeFocus()).toEqual({ window: true, contents: true })
-  await expect(exposure).toBeFocused()
-  await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-scale', '1')
-  expect(await retained.evaluate((canvas) => canvas.isConnected)).toBe(true)
-  await expect(preview).toHaveAttribute('data-backend', 'webgpu-hdr')
-  const after = await page.evaluate(() => window.luma.getPreviewDiagnostics())
-  expect(after.presentation).toEqual(before.presentation)
-  expect(await currentScreen()).toEqual(initial)
-  // CDP keyboard input can bypass missing native focus. Exercise Electron's
-  // native input route after refresh, including field and console exclusions.
-  await exposure.fill('12')
-  await pressNativeKey('Home')
-  await pressNativeKey('Delete')
-  await expect(exposure).toHaveValue('2')
-  await expect(page.getByRole('dialog')).toHaveCount(0)
-  await pressNativeKey('Escape')
-  await expect(exposure).toHaveValue('0.00')
-  await pressNativeKey('Tab')
-  await expect(exposure).not.toBeFocused()
-  await pressNativeKey('Tab', ['shift'])
-  await expect(exposure).toBeFocused()
-  await preview.focus()
-  const beforeDelete = await calls.evaluate((value) => value.count)
-  await expect
-    .poll(() => calls.evaluate((value) => value.count))
-    .toBeGreaterThanOrEqual(beforeDelete + 5)
-  expect(await nativeFocus()).toEqual({ window: true, contents: true })
-  await expect(preview).toBeFocused()
-  await pressNativeKey('Delete')
-  await expect(page.getByRole('dialog')).toContainText('Move photo to Trash?')
-  await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
-  await pressNativeKey('Escape')
-  await expect(preview).toBeFocused()
-  await pressNativeKey('Tab')
-  await expect(preview).not.toBeFocused()
-  await page.getByTestId('console-toggle').click()
-  const consoleInput = page.getByRole('textbox', {
-    name: 'Agent console output, disconnected and read only',
-  })
-  await consoleInput.focus()
-  const beforeConsole = await calls.evaluate((value) => value.count)
-  await expect
-    .poll(() => calls.evaluate((value) => value.count))
-    .toBeGreaterThanOrEqual(beforeConsole + 2)
-  expect(await nativeFocus()).toEqual({ window: true, contents: true })
-  await expect(consoleInput).toBeFocused()
-  await pressNativeKey('Delete')
-  await expect(page.getByRole('dialog')).toHaveCount(0)
-  expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(1)
-  await page.getByTestId('console-toggle').click()
-  const viewport = page.getByTestId('preview-viewport')
-  const box = (await viewport.boundingBox())!
-  const pointer = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
-  await page.mouse.move(pointer.x, pointer.y)
-  await page.mouse.down()
-  await expect.poll(() => viewport.evaluate((el) => document.pointerLockElement === el)).toBe(true)
-  const beforeDrag = await calls.evaluate((value) => value.count)
-  await page.waitForTimeout(2200)
-  expect(await calls.evaluate((value) => value.count)).toBe(beforeDrag)
-  await expect(viewport).toHaveCSS('cursor', 'none')
-  await page.mouse.move(pointer.x + 40, pointer.y + 20)
-  await expect(viewport).toHaveAttribute('data-pan-x', '40')
-  await page.mouse.up()
-  await expect(viewport).not.toHaveCSS('cursor', 'none')
-  await expect
-    .poll(() => calls.evaluate((value) => value.count))
-    .toBeGreaterThanOrEqual(beforeDrag + 2)
-  // A new renderer takes a fresh native ScreenInfos snapshot. It must agree with
-  // the running renderer; no particular monitor name or HDR capability is assumed.
-  await page.reload()
-  expect(await currentScreen()).toEqual(initial)
-  await expect
-    .poll(() => page.evaluate(() => window.luma.getDisplayState()))
-    .toMatchObject({ capabilities: { monitor: { label: initial.label } } })
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide())
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].show())
-  await expect.poll(currentScreen).toEqual(initial)
-  const otherWindow = await app.evaluateHandle(async ({ BrowserWindow }) => {
-    const window = new BrowserWindow({ width: 320, height: 200, show: false })
-    await window.loadURL('data:text/html,<title>Focus witness</title>Another window')
-    window.show()
-    return window
-  })
-  try {
-    await expect.poll(() => otherWindow.evaluate((window) => window.isFocused())).toBe(true)
-    await expect.poll(nativeFocus).toMatchObject({ window: false })
-    const beforeBackground = await calls.evaluate((value) => value.count)
+    await expect.poll(nativeFocus).toEqual({ window: true, contents: true })
+    await preview.focus()
+    await page.keyboard.press('1')
+    await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-scale', '1')
+    const exposure = page.getByRole('spinbutton', { name: 'Exposure value' })
+    await exposure.focus()
+    const retained = await preview.evaluateHandle((canvas) => canvas)
+    const before = await page.evaluate(() => window.luma.getPreviewDiagnostics())
+    const currentScreen = () =>
+      page.evaluate(async () => {
+        const screen = (await window.getScreenDetails!()).currentScreen
+        return { label: screen.label, headroomStops: screen.hdrHeadroom }
+      })
+    const initial = await currentScreen()
+    const calls = await app.evaluateHandle(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents as Electron.WebContents & {
+        setEmbedder: (embedder: Electron.WebContents) => void
+      }
+      const original = contents.setEmbedder.bind(contents)
+      const observations = { count: 0 }
+      contents.setEmbedder = (embedder) => {
+        observations.count++
+        original(embedder)
+      }
+      return observations
+    })
+    await expect.poll(() => calls.evaluate((value) => value.count)).toBeGreaterThanOrEqual(3)
+    expect(await nativeFocus()).toEqual({ window: true, contents: true })
+    await expect(exposure).toBeFocused()
+    await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-scale', '1')
+    expect(await retained.evaluate((canvas) => canvas.isConnected)).toBe(true)
+    await expect(preview).toHaveAttribute('data-backend', 'webgpu-hdr')
+    const after = await page.evaluate(() => window.luma.getPreviewDiagnostics())
+    expect(after.presentation).toEqual(before.presentation)
+    expect(await currentScreen()).toEqual(initial)
+    // CDP keyboard input can bypass missing native focus. Exercise Electron's
+    // native input route after refresh, including field and console exclusions.
+    await exposure.fill('12')
+    await pressNativeKey('Home')
+    await pressNativeKey('Delete')
+    await expect(exposure).toHaveValue('2')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await pressNativeKey('Escape')
+    await expect(exposure).toHaveValue('0.00')
+    await pressNativeKey('Tab')
+    await expect(exposure).not.toBeFocused()
+    await pressNativeKey('Tab', ['shift'])
+    await expect(exposure).toBeFocused()
+    await preview.focus()
+    const beforeDelete = await calls.evaluate((value) => value.count)
     await expect
       .poll(() => calls.evaluate((value) => value.count))
-      .toBeGreaterThanOrEqual(beforeBackground + 3)
-    expect(await nativeFocus()).toEqual({ window: false, contents: false })
-    expect(await otherWindow.evaluate((window) => window.isFocused())).toBe(true)
+      .toBeGreaterThanOrEqual(beforeDelete + 5)
+    expect(await nativeFocus()).toEqual({ window: true, contents: true })
+    await expect(preview).toBeFocused()
+    await pressNativeKey('Delete')
+    await expect(page.getByRole('dialog')).toContainText('Move photo to Trash?')
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+    await pressNativeKey('Escape')
+    await expect(preview).toBeFocused()
+    await pressNativeKey('Tab')
+    await expect(preview).not.toBeFocused()
+    await page.getByTestId('console-toggle').click()
+    const consoleInput = page.getByRole('textbox', {
+      name: 'Agent console output, disconnected and read only',
+    })
+    await consoleInput.focus()
+    const beforeConsole = await calls.evaluate((value) => value.count)
+    await expect
+      .poll(() => calls.evaluate((value) => value.count))
+      .toBeGreaterThanOrEqual(beforeConsole + 2)
+    expect(await nativeFocus()).toEqual({ window: true, contents: true })
+    await expect(consoleInput).toBeFocused()
+    await pressNativeKey('Delete')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(1)
+    await page.getByTestId('console-toggle').click()
+    const viewport = page.getByTestId('preview-viewport')
+    const box = (await viewport.boundingBox())!
+    const pointer = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    await page.mouse.move(pointer.x, pointer.y)
+    await page.mouse.down()
+    await expect
+      .poll(() => viewport.evaluate((el) => document.pointerLockElement === el))
+      .toBe(true)
+    const beforeDrag = await calls.evaluate((value) => value.count)
+    await page.waitForTimeout(2200)
+    expect(await calls.evaluate((value) => value.count)).toBe(beforeDrag)
+    await expect(viewport).toHaveCSS('cursor', 'none')
+    await page.mouse.move(pointer.x + 40, pointer.y + 20)
+    await expect(viewport).toHaveAttribute('data-pan-x', '40')
+    await page.mouse.up()
+    await expect(viewport).not.toHaveCSS('cursor', 'none')
+    await expect
+      .poll(() => calls.evaluate((value) => value.count))
+      .toBeGreaterThanOrEqual(beforeDrag + 2)
+    // A new renderer takes a fresh native ScreenInfos snapshot. It must agree with
+    // the running renderer; no particular monitor name or HDR capability is assumed.
+    await page.reload()
     expect(await currentScreen()).toEqual(initial)
-  } finally {
-    await otherWindow.evaluate((window) => window.destroy())
-    await otherWindow.dispose()
-  }
-  await info.attach('native-current-screen', {
-    body: JSON.stringify(initial),
-    contentType: 'application/json',
-  })
-  await retained.dispose()
-  await calls.dispose()
-})
+    await expect
+      .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+      .toMatchObject({ capabilities: { monitor: { label: initial.label } } })
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide())
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].show())
+    await expect.poll(currentScreen).toEqual(initial)
+    const otherWindow = await app.evaluateHandle(async ({ BrowserWindow }) => {
+      const window = new BrowserWindow({ width: 320, height: 200, show: false })
+      await window.loadURL('data:text/html,<title>Focus witness</title>Another window')
+      window.show()
+      return window
+    })
+    try {
+      await expect.poll(() => otherWindow.evaluate((window) => window.isFocused())).toBe(true)
+      await expect.poll(nativeFocus).toMatchObject({ window: false })
+      const beforeBackground = await calls.evaluate((value) => value.count)
+      await expect
+        .poll(() => calls.evaluate((value) => value.count))
+        .toBeGreaterThanOrEqual(beforeBackground + 3)
+      expect(await nativeFocus()).toEqual({ window: false, contents: false })
+      expect(await otherWindow.evaluate((window) => window.isFocused())).toBe(true)
+      expect(await currentScreen()).toEqual(initial)
+    } finally {
+      await otherWindow.evaluate((window) => window.destroy())
+      await otherWindow.dispose()
+    }
+    await info.attach('native-current-screen', {
+      body: JSON.stringify(initial),
+      contentType: 'application/json',
+    })
+    await retained.dispose()
+    await calls.dispose()
+  },
+)
 
 test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis', async ({
   luma,
@@ -888,166 +893,170 @@ test('monitor tracking survives pending GPU probes and missed compositor events'
     })
 })
 
-test('Mac built-in display retains HDR presentation in native full screen with console, headroom and device changes', async ({
-  luma,
-}, info) => {
-  test.skip(process.platform !== 'darwin', 'Native macOS full-screen coverage requires macOS.')
-  test.setTimeout(150000)
-  const { app, page } = luma
-  const display = await app.evaluate(({ screen }) =>
-    screen.getAllDisplays().find((display) => display.internal),
-  )
-  test.skip(!display, 'No built-in display is available.')
-  const nativeWindow = await app.browserWindow(page)
-  await nativeWindow.evaluate((window, bounds) => {
-    window.setContentSize(1100, 700)
-    window.setPosition(bounds.x + 20, bounds.y + 20)
-    window.focus()
-  }, display!.bounds)
-  await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
-  const canvas = page.getByTestId('main-preview'),
-    viewport = page.getByTestId('preview-viewport')
-  await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr', { timeout: 90000 })
-  await expect(canvas).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
-  const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
-  const edits = await page.evaluate((id) => window.luma.getEdits(id), id)
-  const nativeTarget = await page.evaluate(() => window.luma.getDisplayState())
-  expect(nativeTarget.mode).toBe('hdr')
-  expect(nativeTarget.peak).toBeGreaterThan(1)
-  await canvas.focus()
-  await canvas.press('1')
-  await canvas.press('ArrowRight')
-  const pan = await viewport.getAttribute('data-pan-x')
-  try {
-    await nativeWindow.evaluate(
-      (window) =>
-        new Promise<void>((resolve) => {
-          window.once('enter-full-screen', () => resolve())
-          window.setFullScreen(true)
-        }),
+test(
+  'Mac built-in display retains HDR presentation in native full screen with console, headroom and device changes',
+  foregroundTest(
+    'Built-in HDR monitor and native macOS full-screen transitions require foreground presentation.',
+  ),
+  async ({ luma }, info) => {
+    test.skip(process.platform !== 'darwin', 'Native macOS full-screen coverage requires macOS.')
+    test.setTimeout(150000)
+    const { app, page } = luma
+    const display = await app.evaluate(({ screen }) =>
+      screen.getAllDisplays().find((display) => display.internal),
     )
-    await expect.poll(() => nativeWindow.evaluate((window) => window.isFullScreen())).toBe(true)
-    for (const consoleOpen of [false, true, false]) {
-      if (
-        ((await page.getByTestId('console-toggle').getAttribute('aria-expanded')) === 'true') !==
-        consoleOpen
-      )
-        await page.getByTestId('console-toggle').click()
-      await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr')
-      await expect(canvas).toHaveAttribute('data-editing', 'ready')
-      await expect(viewport).toHaveAttribute('data-scale', '1')
-      await expect(viewport).toHaveAttribute('data-pan-x', pan!)
-      await expect
-        .poll(async () => {
-          const box = (await viewport.boundingBox())!
-          return canvas.evaluate(
-            (canvas: HTMLCanvasElement, box) =>
-              canvas.width === Math.round(box.width * devicePixelRatio) &&
-              canvas.height === Math.round(box.height * devicePixelRatio),
-            box,
-          )
-        })
-        .toBe(true)
-      const allocated = Number(await canvas.getAttribute('data-allocated-bytes'))
-      expect(allocated).toBeGreaterThan(0)
-      expect(allocated).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
-    }
-    await page.getByRole('button', { name: 'Show HDR ranges' }).click()
-    await expect(canvas).toHaveAttribute('data-hdr-ranges', 'true')
-    await page.evaluate(async () => {
-      const current = (await window.getScreenDetails!()).currentScreen
-      const monitor = Object.assign(new EventTarget(), {
-        label: 'Built-in display synthetic headroom event',
-        width: current.width,
-        height: current.height,
-        left: current.left,
-        top: current.top,
-        devicePixelRatio: current.devicePixelRatio,
-        hdrHeadroom: 0,
-      })
-      const details = Object.assign(new EventTarget(), {
-        currentScreen: monitor,
-        screens: [monitor],
-      })
-      Object.defineProperty(window, 'getScreenDetails', {
-        configurable: true,
-        value: async () => details,
-      })
-      Object.assign(window, { nativeHdrTest: monitor })
-      window.dispatchEvent(new Event('focus'))
-    })
-    await expect
-      .poll(() => page.evaluate(() => window.luma.getDisplayState()))
-      .toMatchObject({ mode: 'sdr', peak: 1 })
-    await page.evaluate(() => {
-      const monitor = (
-        window as unknown as { nativeHdrTest: EventTarget & { hdrHeadroom: number } }
-      ).nativeHdrTest
-      monitor.hdrHeadroom = 3
-      monitor.dispatchEvent(new Event('hdrheadroomchange'))
-    })
-    await expect
-      .poll(() => page.evaluate(() => window.luma.getDisplayState()))
-      .toMatchObject({ mode: 'hdr', peak: 8 })
-    await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr')
-    await expect(viewport).toHaveAttribute('data-scale', '1')
-    await expect(viewport).toHaveAttribute('data-pan-x', pan!)
-    await page.screenshot({ path: info.outputPath('mac-native-full-screen.png') })
-  } finally {
-    if (await nativeWindow.evaluate((window) => window.isFullScreen()))
+    test.skip(!display, 'No built-in display is available.')
+    const nativeWindow = await app.browserWindow(page)
+    await nativeWindow.evaluate((window, bounds) => {
+      window.setContentSize(1100, 700)
+      window.setPosition(bounds.x + 20, bounds.y + 20)
+      window.focus()
+    }, display!.bounds)
+    await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
+    const canvas = page.getByTestId('main-preview'),
+      viewport = page.getByTestId('preview-viewport')
+    await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr', { timeout: 90000 })
+    await expect(canvas).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
+    const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
+    const edits = await page.evaluate((id) => window.luma.getEdits(id), id)
+    const nativeTarget = await page.evaluate(() => window.luma.getDisplayState())
+    expect(nativeTarget.mode).toBe('hdr')
+    expect(nativeTarget.peak).toBeGreaterThan(1)
+    await canvas.focus()
+    await canvas.press('1')
+    await canvas.press('ArrowRight')
+    const pan = await viewport.getAttribute('data-pan-x')
+    try {
       await nativeWindow.evaluate(
         (window) =>
           new Promise<void>((resolve) => {
-            window.once('leave-full-screen', () => resolve())
-            window.setFullScreen(false)
+            window.once('enter-full-screen', () => resolve())
+            window.setFullScreen(true)
           }),
       )
-  }
-  await nativeWindow.evaluate((window) => window.setContentSize(1100, 700))
-  await expect
-    .poll(() =>
-      canvas.evaluate((canvas: HTMLCanvasElement) => {
-        const viewport = canvas.parentElement!.getBoundingClientRect()
-        return (
-          canvas.width === Math.round(viewport.width * devicePixelRatio) &&
-          canvas.height === Math.round(viewport.height * devicePixelRatio) &&
-          canvas.dataset.quality === 'normal' &&
-          canvas.dataset.completedEditSerial === canvas.dataset.requestedSerial
+      await expect.poll(() => nativeWindow.evaluate((window) => window.isFullScreen())).toBe(true)
+      for (const consoleOpen of [false, true, false]) {
+        if (
+          ((await page.getByTestId('console-toggle').getAttribute('aria-expanded')) === 'true') !==
+          consoleOpen
         )
-      }),
-    )
-    .toBe(true)
-  await page.evaluate(() => {
-    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
-    const device = canvas.getContext('webgpu')!.getConfiguration()!.device
-    Object.defineProperty(navigator, 'gpu', {
-      configurable: true,
-      value: { requestAdapter: async () => null },
+          await page.getByTestId('console-toggle').click()
+        await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr')
+        await expect(canvas).toHaveAttribute('data-editing', 'ready')
+        await expect(viewport).toHaveAttribute('data-scale', '1')
+        await expect(viewport).toHaveAttribute('data-pan-x', pan!)
+        await expect
+          .poll(async () => {
+            const box = (await viewport.boundingBox())!
+            return canvas.evaluate(
+              (canvas: HTMLCanvasElement, box) =>
+                canvas.width === Math.round(box.width * devicePixelRatio) &&
+                canvas.height === Math.round(box.height * devicePixelRatio),
+              box,
+            )
+          })
+          .toBe(true)
+        const allocated = Number(await canvas.getAttribute('data-allocated-bytes'))
+        expect(allocated).toBeGreaterThan(0)
+        expect(allocated).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
+      }
+      await page.getByRole('button', { name: 'Show HDR ranges' }).click()
+      await expect(canvas).toHaveAttribute('data-hdr-ranges', 'true')
+      await page.evaluate(async () => {
+        const current = (await window.getScreenDetails!()).currentScreen
+        const monitor = Object.assign(new EventTarget(), {
+          label: 'Built-in display synthetic headroom event',
+          width: current.width,
+          height: current.height,
+          left: current.left,
+          top: current.top,
+          devicePixelRatio: current.devicePixelRatio,
+          hdrHeadroom: 0,
+        })
+        const details = Object.assign(new EventTarget(), {
+          currentScreen: monitor,
+          screens: [monitor],
+        })
+        Object.defineProperty(window, 'getScreenDetails', {
+          configurable: true,
+          value: async () => details,
+        })
+        Object.assign(window, { nativeHdrTest: monitor })
+        window.dispatchEvent(new Event('focus'))
+      })
+      await expect
+        .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+        .toMatchObject({ mode: 'sdr', peak: 1 })
+      await page.evaluate(() => {
+        const monitor = (
+          window as unknown as { nativeHdrTest: EventTarget & { hdrHeadroom: number } }
+        ).nativeHdrTest
+        monitor.hdrHeadroom = 3
+        monitor.dispatchEvent(new Event('hdrheadroomchange'))
+      })
+      await expect
+        .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+        .toMatchObject({ mode: 'hdr', peak: 8 })
+      await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr')
+      await expect(viewport).toHaveAttribute('data-scale', '1')
+      await expect(viewport).toHaveAttribute('data-pan-x', pan!)
+      await page.screenshot({ path: info.outputPath('mac-native-full-screen.png') })
+    } finally {
+      if (await nativeWindow.evaluate((window) => window.isFullScreen()))
+        await nativeWindow.evaluate(
+          (window) =>
+            new Promise<void>((resolve) => {
+              window.once('leave-full-screen', () => resolve())
+              window.setFullScreen(false)
+            }),
+        )
+    }
+    await nativeWindow.evaluate((window) => window.setContentSize(1100, 700))
+    await expect
+      .poll(() =>
+        canvas.evaluate((canvas: HTMLCanvasElement) => {
+          const viewport = canvas.parentElement!.getBoundingClientRect()
+          return (
+            canvas.width === Math.round(viewport.width * devicePixelRatio) &&
+            canvas.height === Math.round(viewport.height * devicePixelRatio) &&
+            canvas.dataset.quality === 'normal' &&
+            canvas.dataset.completedEditSerial === canvas.dataset.requestedSerial
+          )
+        }),
+      )
+      .toBe(true)
+    await page.evaluate(() => {
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
+      const device = canvas.getContext('webgpu')!.getConfiguration()!.device
+      Object.defineProperty(navigator, 'gpu', {
+        configurable: true,
+        value: { requestAdapter: async () => null },
+      })
+      device.destroy()
     })
-    device.destroy()
-  })
-  await expect(canvas).toHaveAttribute('data-backend', 'canvas2d-hdr-sdr', { timeout: 10000 })
-  const retained = page.getByTestId('retained-preview')
-  await expect(retained).toBeVisible()
-  expect(
-    await retained.evaluate((canvas: HTMLCanvasElement) => {
-      const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data
-      return pixels.some((value, i) => i % 4 !== 3 && value > 0)
-    }),
-    'The retained photograph must contain completed pixels after device loss.',
-  ).toBe(true)
-  await expect(canvas).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
-  await expect(canvas).toHaveAttribute('data-hdr-ranges', 'true')
-  await expect(viewport).toHaveAttribute('data-scale', '1')
-  await expect(viewport).toHaveAttribute('data-pan-x', pan!)
-  expect(await page.evaluate((id) => window.luma.getEdits(id), id)).toEqual(edits)
-  await info.attach('mac-display-evidence', {
-    body: JSON.stringify({
-      display,
-      nativeTarget,
-      syntheticHeadroomEvents: true,
-      physicalLuminanceMeasured: false,
-    }),
-    contentType: 'application/json',
-  })
-})
+    await expect(canvas).toHaveAttribute('data-backend', 'canvas2d-hdr-sdr', { timeout: 10000 })
+    const retained = page.getByTestId('retained-preview')
+    await expect(retained).toBeVisible()
+    expect(
+      await retained.evaluate((canvas: HTMLCanvasElement) => {
+        const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data
+        return pixels.some((value, i) => i % 4 !== 3 && value > 0)
+      }),
+      'The retained photograph must contain completed pixels after device loss.',
+    ).toBe(true)
+    await expect(canvas).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
+    await expect(canvas).toHaveAttribute('data-hdr-ranges', 'true')
+    await expect(viewport).toHaveAttribute('data-scale', '1')
+    await expect(viewport).toHaveAttribute('data-pan-x', pan!)
+    expect(await page.evaluate((id) => window.luma.getEdits(id), id)).toEqual(edits)
+    await info.attach('mac-display-evidence', {
+      body: JSON.stringify({
+        display,
+        nativeTarget,
+        syntheticHeadroomEvents: true,
+        physicalLuminanceMeasured: false,
+      }),
+      contentType: 'application/json',
+    })
+  },
+)

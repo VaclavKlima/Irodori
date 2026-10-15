@@ -115,6 +115,7 @@ for (const [label, key] of [
       'tests/fixtures/photos/mountain-ridge.jpg',
     ])
     await page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }).click()
+    await expect(page.getByTestId('preview-filename')).toHaveText('alpine-lake.jpg')
     const slider = page.getByRole('slider', { name: label, exact: true })
     const field = page.getByRole('spinbutton', { name: `${label} value` })
     await expect(slider).toBeEnabled({ timeout: 20000 })
@@ -122,10 +123,18 @@ for (const [label, key] of [
       (p) => p.filename === 'alpine-lake.jpg',
     )!.id
     const state = () => page.evaluate((id) => window.luma.getEdits(id), id)
-    await page.getByRole('combobox', { name: 'Preview zoom' }).selectOption('2')
     const viewport = page.getByTestId('preview-viewport')
-    await viewport.focus()
-    await page.keyboard.press('ArrowLeft')
+    const preview = page.getByTestId('main-preview')
+    await expect(preview).toHaveAttribute('aria-label', 'alpine-lake.jpg')
+    await expect(viewport).toHaveAttribute('data-resolution', 'full')
+    await expect(preview).toHaveAttribute('data-editing', 'ready')
+    await page.getByRole('combobox', { name: 'Preview zoom' }).selectOption('2')
+    await expect(viewport).toHaveAttribute('data-scale', '2')
+    // The canvas is focusable; focusing its container can leave keys in the gallery.
+    await preview.focus()
+    await expect(preview).toBeFocused()
+    await preview.press('ArrowLeft')
+    await expect(page.getByTestId('preview-filename')).toHaveText('alpine-lake.jpg')
     const pan = await viewport.getAttribute('data-pan-x')
     await slider.scrollIntoViewIfNeeded()
     const box = (await slider.boundingBox())!

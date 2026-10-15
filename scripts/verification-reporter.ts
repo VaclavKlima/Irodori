@@ -10,6 +10,7 @@ import type {
 } from '@playwright/test/reporter'
 import { suites } from './verification-plan'
 import type { CaseResult, BenchmarkRecord } from './verification-types'
+import { testUiMode } from './test-ui-mode.mjs'
 
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
 const regex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -24,6 +25,7 @@ export default class VerificationReporter implements Reporter {
   private tests: CaseResult[] = []
   private errors: string[] = []
   private workers = 0
+  private uiMode = testUiMode()
   constructor(private options: { outputDir: string }) {}
   onBegin(config: FullConfig) {
     this.workers = config.workers
@@ -62,6 +64,10 @@ export default class VerificationReporter implements Reporter {
     const prefix = benchmark
       ? `LUMA_PREVIEW_BENCHMARK=1 LUMA_TEST_TRACE=0 ${process.env.LUMA_PREVIEW_BASELINE ? `LUMA_PREVIEW_BASELINE=${quote(process.env.LUMA_PREVIEW_BASELINE)} ` : ''}`
       : ''
+    // Playwright appends tags to the title matched by --grep.
+    const pattern = `${regex(test.titlePath().slice(3).join(' ') || test.title)}(?: @\\S+)*$`
+    const command = `${prefix}npx playwright test --project=${project} ${quote(suite.file)} --workers=${benchmark || suite.exclusive || project === 'raw-gpu' ? 1 : 2} --grep ${quote(pattern)}`
+    const requiresForeground = test.annotations.some((a) => a.type === 'requires-foreground')
     this.tests.push({
       target: suite.target,
       title: test.title,
@@ -74,7 +80,10 @@ export default class VerificationReporter implements Reporter {
       errors: result.errors.map((e) => concise(e.message ?? String(e))),
       annotations: test.annotations,
       evidence: result.attachments.flatMap((a) => (a.path ? [a.path] : [])),
-      rerun: `${prefix}npx playwright test --project=${project} ${quote(suite.file)} --workers=${benchmark || suite.exclusive || project === 'raw-gpu' ? 1 : 2} --grep ${quote(`${regex(test.titlePath().slice(3).join(' ') || test.title)}$`)}`,
+      rerun: `LUMA_TEST_UI_MODE=${this.uiMode} ${command}`,
+      ...(status === 'skipped' && this.uiMode === 'background' && requiresForeground
+        ? { foregroundRerun: `LUMA_TEST_UI_MODE=foreground ${command}` }
+        : {}),
       benchmarks,
     })
   }
@@ -85,6 +94,7 @@ export default class VerificationReporter implements Reporter {
       JSON.stringify(
         {
           ...this.counts,
+          uiMode: this.uiMode,
           status: result.status,
           durationMs: result.duration,
           workers: this.workers,

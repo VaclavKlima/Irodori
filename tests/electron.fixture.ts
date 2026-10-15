@@ -1,10 +1,12 @@
 import type { ElectronApplication, Page } from '@playwright/test'
-import { test as base, _electron as electron, expect } from '@playwright/test'
+import { test as base, expect } from '@playwright/test'
 import type { ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
 import { access, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
+import { launchTestElectron, assertTestWindowPolicy } from '../scripts/electron-test-launch.mjs'
+import { testUiMode } from '../scripts/test-ui-mode.mjs'
 
 interface DesktopWindow {
   app: ElectronApplication
@@ -25,11 +27,17 @@ interface RunningApplication {
   closed: boolean
   tracePath: string
   tracing: boolean
+  evidenceFile: string
 }
 
 export const test = base.extend<{ luma: DesktopSession; hdrDisplay: boolean }>({
   hdrDisplay: [false, { option: true }],
   luma: async ({ hdrDisplay }, use, testInfo) => {
+    testInfo.skip(
+      testUiMode() === 'background' && testInfo.tags.includes('@foreground'),
+      testInfo.annotations.find((annotation) => annotation.type === 'requires-foreground')
+        ?.description ?? 'Requires native desktop interaction; rerun with --foreground.',
+    )
     const userDataDir = await mkdtemp(join(tmpdir(), 'luma-e2e-'))
     const applications: RunningApplication[] = []
     const errors: string[] = []
@@ -52,7 +60,12 @@ export const test = base.extend<{ luma: DesktopSession; hdrDisplay: boolean }>({
         } finally {
           running.closed = true
           const child = running.child
-          if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+          if (child.exitCode === null && child.signalCode === null) {
+            const exited = once(child, 'exit')
+            child.kill('SIGKILL')
+            await exited
+          }
+          await assertTestWindowPolicy(running.evidenceFile)
         }
       }
     }
@@ -68,17 +81,15 @@ export const test = base.extend<{ luma: DesktopSession; hdrDisplay: boolean }>({
       delete env.FORCE_COLOR
       env.LUMA_HDR_TEST = hdrDisplay ? '1' : '0'
 
-      const app = await electron.launch({
-        // The package entry loads the compiled main file and preserves Luma's version metadata.
-        args: [resolve('.'), `--user-data-dir=${userDataDir}`],
+      const { app, child, evidenceFile } = await launchTestElectron({
+        userDataDir,
+        artifacts: testInfo.outputPath(`launch-${applications.length + 1}`),
         env,
-        chromiumSandbox: true,
-        offline: true,
-        timeout: 20_000,
       })
       const running: RunningApplication = {
         app,
-        child: app.process(),
+        child,
+        evidenceFile,
         closing: false,
         closed: false,
         tracePath: testInfo.outputPath(`electron-${applications.length + 1}.zip`),
@@ -188,6 +199,9 @@ export const test = base.extend<{ luma: DesktopSession; hdrDisplay: boolean }>({
       for (const running of applications) {
         await close(running).catch((error: unknown) => {
           errors.push(`Electron cleanup: ${String(error)}`)
+        })
+        await assertTestWindowPolicy(running.evidenceFile).catch((error: unknown) => {
+          errors.push(`Electron window policy: ${String(error)}`)
         })
       }
       failed = failed || errors.length > 0

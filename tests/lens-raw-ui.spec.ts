@@ -65,12 +65,16 @@ test('lens settings survive rapid changes, cache variants, restart and preserve 
   await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-resolution', 'full')
   const response = await page.evaluate(async (id) => {
     const token = crypto.randomUUID()
-    const result = await window.luma.requestFullPreview(id, token)
-    await window.luma.releaseFullPreview(token)
-    return result
+    try {
+      return await window.luma.requestHdrPreview(id, token)
+    } finally {
+      await window.luma.releaseFullPreview(token)
+    }
   }, id)
-  expect(response.settingsRevision).toBe(5)
-  expect(response.appliedCorrections).toEqual(result.settings)
+  expect(response).not.toBeNull()
+  expect(response!.format).toBe('hdr-working')
+  expect(response!.settingsRevision).toBe(5)
+  expect(response!.appliedCorrections).toEqual(result.settings)
   expect(
     await readdir(join(luma.userDataDir, 'library', 'cache', 'previews', PREVIEW_VERSION)),
   ).toHaveLength(3)

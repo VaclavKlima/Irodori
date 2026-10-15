@@ -2,13 +2,14 @@ import { build } from 'esbuild'
 import sharp from 'sharp'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
+import { HDR_CACHE_MAX_TILES } from '../src/renderer/src/preview/hdr-render-cache'
 
 export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | 'raw')[]) {
   for (const fixture of fixtures)
-    test(`${fixture} WebGL combined adjustments match CPU, reuses the working texture and coalesces fallback changes`, async ({
+    test(`${fixture} ${fixture === 'raw' ? 'WebGPU' : 'WebGL'} combined adjustments match CPU, reuses the working texture and coalesces fallback changes`, async ({
       luma,
     }, info) => {
-      test.setTimeout(120000)
+      test.setTimeout(fixture === 'raw' ? 240000 : 120000)
       const { page } = luma
       let source =
         fixture === 'raw' ? 'tests/fixtures/sony-zv1.ARW' : 'tests/fixtures/photos/alpine-lake.jpg'
@@ -28,9 +29,14 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
       const preview = page.getByTestId('main-preview')
       await expect(preview).toHaveAttribute('data-editing', 'ready', { timeout: 40000 })
       const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
+      if (fixture === 'raw') {
+        await page.getByLabel('Preview display mode').selectOption('sdr')
+        await expect(preview).toHaveAttribute('data-backend', 'webgpu-hdr')
+        await expect(preview).toHaveAttribute('data-quality', 'normal')
+      }
       const compiled = await build({
         stdin: {
-          contents: `export { renderAdjustments, neutralAdjustments } from './src/shared/adjustments'`,
+          contents: `export { renderAdjustments, neutralAdjustments } from './src/shared/adjustments'; export { adjustHdr, outputHdr, hdrAdjustmentMatrix, encodeHdr, SDR_TARGET } from './src/shared/hdr'`,
           resolveDir: process.cwd(),
         },
         bundle: true,
@@ -43,24 +49,67 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
         const result = await window.luma.requestEditingPreview(id, crypto.randomUUID())
         const bytes = await (await fetch(result.linear!.url!)).arrayBuffer()
         const target = window as unknown as { highlightsTest: unknown }
-        target.highlightsTest = { frame: result, data: new Float32Array(bytes), uploads: 0 }
-        const upload = WebGL2RenderingContext.prototype.texImage2D
-        WebGL2RenderingContext.prototype.texImage2D = function (...args: unknown[]) {
-          ;(target.highlightsTest as { uploads: number }).uploads++
-          return Reflect.apply(upload, this, args)
+        const state = {
+          frame: result,
+          data: new Float32Array(bytes),
+          uploads: 0,
+          readback: undefined as
+            { data: Uint8ClampedArray; width: number; height: number; serial: string } | undefined,
+        }
+        target.highlightsTest = state
+        if (result.linear!.hdr) {
+          const upload = GPUQueue.prototype.writeTexture
+          GPUQueue.prototype.writeTexture = function (
+            ...args: Parameters<GPUQueue['writeTexture']>
+          ) {
+            state.uploads++
+            return Reflect.apply(upload, this, args)
+          }
+          const draw = CanvasRenderingContext2D.prototype.drawImage
+          CanvasRenderingContext2D.prototype.drawImage = function (...args: unknown[]) {
+            Reflect.apply(draw, this, args)
+            const source = args[0]
+            if (!(source instanceof HTMLCanvasElement) || source.dataset.backend !== 'webgpu-hdr')
+              return
+            const configuration = source.getContext('webgpu')?.getConfiguration()
+            if (!configuration) return
+            // The presenter copies each completed frame before WebGPU discards its drawing buffer.
+            // Read the same completed frame at full canvas size and in its configured primaries.
+            const copy = new OffscreenCanvas(source.width, source.height).getContext('2d', {
+              colorSpace: configuration.colorSpace,
+              willReadFrequently: true,
+            })!
+            copy.drawImage(source, 0, 0)
+            state.readback = {
+              data: copy.getImageData(0, 0, source.width, source.height, {
+                colorSpace: configuration.colorSpace,
+              }).data,
+              width: source.width,
+              height: source.height,
+              serial: source.dataset.presentationSerial!,
+            }
+          }
+        } else {
+          const upload = WebGL2RenderingContext.prototype.texImage2D
+          WebGL2RenderingContext.prototype.texImage2D = function (...args: unknown[]) {
+            state.uploads++
+            return Reflect.apply(upload, this, args)
+          }
         }
         await window.luma.releaseFullPreview(result.requestId)
       }, id)
       await page.getByRole('combobox', { name: 'Preview zoom' }).selectOption('1')
       const compare = () =>
-        page.evaluate(() => {
+        page.evaluate(async () => {
           const test = window as unknown as {
             highlightsTest: {
               data: Float32Array
               frame: import('../src/shared/contracts').FullPreview
               uploads: number
+              readback?: { data: Uint8ClampedArray; width: number; height: number; serial: string }
             }
-            highlightsReference: typeof import('../src/shared/adjustments')
+            highlightsReference: typeof import('../src/shared/adjustments') &
+              typeof import('../src/shared/hdr')
           }
           const { frame, data } = test.highlightsTest
           const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
@@ -76,6 +125,10 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
             contrast: Number(canvas.dataset.contrast),
           }
           const gl = canvas.dataset.backend === 'webgl2' ? canvas.getContext('webgl2') : null
+          const hdrTarget =
+            canvas.dataset.backend === 'webgpu-hdr'
+              ? await window.luma.getDisplayState()
+              : test.highlightsReference.SDR_TARGET
           let max = 0
           for (const dx of [-48, 0, 48]) {
             const x = Math.floor(canvas.width / 2 + dx * devicePixelRatio)
@@ -93,18 +146,50 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
                 frame.height / 2,
             )
             const offset = (sy * frame.width + sx) * 4
-            const expected = test.highlightsReference.renderAdjustments(
-              data.slice(offset, offset + 4),
+            const selected =
               canvas.dataset.comparison === 'before' ||
-                (canvas.dataset.comparison === 'split' &&
-                  (x + 0.5) / devicePixelRatio < box.width / 2)
+              (canvas.dataset.comparison === 'split' &&
+                (x + 0.5) / devicePixelRatio < box.width / 2)
                 ? test.highlightsReference.neutralAdjustments
-                : parameters,
-              frame.linear!.transform,
-            )
+                : parameters
+            const expected = frame.linear!.hdr
+              ? new Uint8ClampedArray([
+                  ...test.highlightsReference
+                    .outputHdr(
+                      test.highlightsReference.adjustHdr(
+                        [data[offset], data[offset + 1], data[offset + 2]],
+                        selected,
+                        test.highlightsReference.hdrAdjustmentMatrix(
+                          selected,
+                          frame.linear!.hdr.whiteBalance,
+                        ) ?? undefined,
+                      ),
+                      hdrTarget,
+                    )
+                    .rgb.map((value) =>
+                      Math.round(test.highlightsReference.encodeHdr(value) * 255),
+                    ),
+                  Math.round(data[offset + 3] * 255),
+                ])
+              : test.highlightsReference.renderAdjustments(
+                  data.slice(offset, offset + 4),
+                  selected,
+                  frame.linear!.transform,
+                )
             const actual = new Uint8Array(4)
             if (gl) gl.readPixels(x, canvas.height - 1 - y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, actual)
-            else actual.set(canvas.getContext('2d')!.getImageData(x, y, 1, 1).data)
+            else if (canvas.dataset.backend === 'webgpu-hdr') {
+              const readback = test.highlightsTest.readback
+              if (
+                !readback ||
+                readback.serial !== canvas.dataset.presentationSerial ||
+                readback.width !== canvas.width ||
+                readback.height !== canvas.height
+              )
+                return { max: Infinity, uploads: test.highlightsTest.uploads }
+              const at = (y * canvas.width + x) * 4
+              actual.set(readback.data.subarray(at, at + 4))
+            } else actual.set(canvas.getContext('2d')!.getImageData(x, y, 1, 1).data)
             for (let c = 0; c < 4; c++) max = Math.max(max, Math.abs(actual[c] - expected[c]))
           }
           return { max, uploads: test.highlightsTest.uploads }
@@ -173,14 +258,32 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
       await expect.poll(async () => (await compare()).max).toBeLessThanOrEqual(1)
       await preview.press('y')
       expect((await compare()).uploads).toBe(0)
-      await preview.evaluate((element) =>
-        (element as HTMLCanvasElement)
-          .getContext('webgl2')!
-          .getExtension('WEBGL_lose_context')!
-          .loseContext(),
+      if (fixture === 'raw') {
+        await expect(preview).toHaveAttribute('data-source-uploads', '1')
+        const cachedTiles = Number(await preview.getAttribute('data-cached-tiles'))
+        expect(cachedTiles).toBeGreaterThan(0)
+        expect(cachedTiles).toBeLessThanOrEqual(HDR_CACHE_MAX_TILES)
+        await preview.evaluate((element) => {
+          const device = (element as HTMLCanvasElement).getContext('webgpu')!.getConfiguration()!
+            .device
+          Object.defineProperty(navigator, 'gpu', {
+            value: { requestAdapter: async () => null },
+            configurable: true,
+          })
+          device.destroy()
+        })
+      } else
+        await preview.evaluate((element) =>
+          (element as HTMLCanvasElement)
+            .getContext('webgl2')!
+            .getExtension('WEBGL_lose_context')!
+            .loseContext(),
+        )
+      await expect(preview).toHaveAttribute(
+        'data-backend',
+        fixture === 'raw' ? 'canvas2d-hdr-sdr' : 'canvas2d',
       )
-      await expect(preview).toHaveAttribute('data-backend', 'canvas2d')
-      await expect(preview).toHaveAttribute('data-editing', 'ready')
+      await expect(preview).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
       // Deliberately queue updates without waiting for the CPU worker's previous bitmap.
       await page.evaluate(async (id) => {
         for (const highlights of [-100, 100, -50, 80, 25]) {
@@ -202,6 +305,10 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
       await expect(preview).toHaveAttribute('data-shadows', '-25')
       await expect(preview).toHaveAttribute('data-whites', '25')
       await expect(preview).toHaveAttribute('data-blacks', '-25')
+      if (fixture === 'raw')
+        // The HDR CPU worker publishes a 1024-pixel draft before its native-size refinement.
+        // Native source-pixel agreement requires the completed full-resolution bitmap.
+        await expect(preview).toHaveAttribute('data-quality', 'normal', { timeout: 180000 })
       await expect
         .poll(async () => (await compare()).max, { timeout: 30000 })
         .toBeLessThanOrEqual(2)

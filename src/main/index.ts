@@ -27,6 +27,8 @@ import type { AppInfo } from '../shared/contracts'
 import { PhotoLibrary } from './library'
 import { PreviewProcess } from './preview-process'
 import { ImportDevices } from './import-devices'
+import { createAppWindow, showAppWindow } from './window-presentation'
+import { closeServices } from './shutdown'
 
 const importDevices = new ImportDevices()
 
@@ -48,6 +50,19 @@ let editorEndpoint: Awaited<ReturnType<typeof startEditorEndpoint>> | undefined
 let quitting = false
 let picking = false
 let quitPending = false
+let closingRenderer: Electron.WebContents | undefined
+
+function handleLibraryRequest(
+  channel: string,
+  listener: Parameters<typeof ipcMain.handle>[1],
+): void {
+  ipcMain.handle(channel, (event, ...args) => {
+    // The destroyed renderer can still have invokes in Electron's queue. Its
+    // final saves were acknowledged before shutdown; do not enter closed services.
+    if (event.sender === closingRenderer) return
+    return listener(event, ...args)
+  })
+}
 
 async function requestQuit(): Promise<void> {
   if (quitting || quitPending) return
@@ -115,10 +130,22 @@ async function requestQuit(): Promise<void> {
         window.webContents.send('workspace:flush', token)
       })
     }
-    quitting = true
-    await editorEndpoint?.close()
-    await library?.close()
-    app.quit()
+    // Saving is complete. Stop renderer requests before closing their catalog and
+    // workers; otherwise queued thumbnail loads race the library's closed state.
+    if (mainWindow) {
+      closingRenderer = mainWindow.webContents
+      mainWindow.destroy()
+    }
+    try {
+      await closeServices([() => editorEndpoint?.close(), () => library?.close()])
+      quitting = true
+      app.quit()
+    } catch (error) {
+      // The saved renderer has already gone; finish all cleanup and terminate
+      // instead of reopening a workspace against partially closed services.
+      console.error('Could not finish shutting down Luma:', error)
+      app.exit(1)
+    }
   } catch (error) {
     await dialog.showMessageBox({
       type: 'error',
@@ -153,7 +180,7 @@ function trusted(event: IpcMainInvokeEvent): void {
 
 function createWindow(): void {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
-  const window = new BrowserWindow({
+  const window = createAppWindow({
     title: 'Luma',
     width: Math.min(1440, width),
     height: Math.min(900, height),
@@ -207,7 +234,7 @@ function createWindow(): void {
     allowed(contents, permission, details),
   )
   window.on('move', () => window.webContents.send('display:refresh'))
-  window.once('ready-to-show', () => window.show())
+  window.once('ready-to-show', () => showAppWindow(window))
   window.on('close', (event) => {
     if (!quitting) {
       event.preventDefault()
@@ -242,7 +269,7 @@ app
         : null,
     )
 
-    ipcMain.handle('app:get-info', (event): AppInfo => {
+    handleLibraryRequest('app:get-info', (event): AppInfo => {
       if (
         !mainWindow ||
         event.sender !== mainWindow.webContents ||
@@ -267,14 +294,14 @@ app
       displayState.invalidate('Rechecking display after resume.')
       mainWindow?.webContents.send('display:refresh')
     })
-    ipcMain.handle('preview:diagnostics', (event) => {
+    handleLibraryRequest('preview:diagnostics', (event) => {
       trusted(event)
       return {
         ...library!.fullPreviews.getDiagnostics(),
         presentation: displayState.get().presentation,
       }
     })
-    ipcMain.handle('preview:presentation', (event, value) => {
+    handleLibraryRequest('preview:presentation', (event, value) => {
       trusted(event)
       if (
         !value ||
@@ -300,15 +327,15 @@ app
         return
       displayState.reportPresentation(value)
     })
-    ipcMain.handle('display:get', (event) => {
+    handleLibraryRequest('display:get', (event) => {
       trusted(event)
       return displayState.get()
     })
-    ipcMain.handle('display:preference', (event, preference) => {
+    handleLibraryRequest('display:preference', (event, preference) => {
       trusted(event)
       return displayState.set(preference)
     })
-    ipcMain.handle('display:capabilities', (event, capabilities) => {
+    handleLibraryRequest('display:capabilities', (event, capabilities) => {
       trusted(event)
       return displayState.report(capabilities)
     })
@@ -319,35 +346,35 @@ app
         return { error: mergeFailure(error) }
       }
     }
-    ipcMain.handle('merge:active', (event) => {
+    handleLibraryRequest('merge:active', (event) => {
       trusted(event)
       return mergeReply(() => library!.getActiveMergeReview())
     })
-    ipcMain.handle('merge:diagnostics', (event, id, revision) => {
+    handleLibraryRequest('merge:diagnostics', (event, id, revision) => {
       trusted(event)
       return mergeReply(() => library!.getMergeDiagnostics(id, revision))
     })
-    ipcMain.handle('merge:create', (event, ids, mode) => {
+    handleLibraryRequest('merge:create', (event, ids, mode) => {
       trusted(event)
       return mergeReply(() => library!.createMergeReview(ids, mode))
     })
-    ipcMain.handle('merge:update', (event, id, revision, settings) => {
+    handleLibraryRequest('merge:update', (event, id, revision, settings) => {
       trusted(event)
       return mergeReply(() => library!.updateMergeReview(id, revision, settings))
     })
-    ipcMain.handle('merge:preview', (event, id, revision) => {
+    handleLibraryRequest('merge:preview', (event, id, revision) => {
       trusted(event)
       return mergeReply(() => library!.requestMergePreview(id, revision))
     })
-    ipcMain.handle('merge:start', (event, id, revision) => {
+    handleLibraryRequest('merge:start', (event, id, revision) => {
       trusted(event)
       return mergeReply(() => library!.startMerge(id, revision))
     })
-    ipcMain.handle('merge:dispose', (event, id) => {
+    handleLibraryRequest('merge:dispose', (event, id) => {
       trusted(event)
       return mergeReply(() => library!.disposeMergeReview(id))
     })
-    ipcMain.handle('merge:provenance', (event, id) => {
+    handleLibraryRequest('merge:provenance', (event, id) => {
       trusted(event)
       return mergeReply(() => library!.getMergeProvenance(id))
     })
@@ -425,131 +452,143 @@ app
         return new Response(null, { status: 404 })
       }
     })
-    ipcMain.handle('statistics:get', (event, id: string, revision: number, request) => {
+    handleLibraryRequest('statistics:get', (event, id: string, revision: number, request) => {
       trusted(event)
       return library!.getPhotoStatistics(id, revision, request).then(
         (statistics) => ({ statistics }),
         (error) => ({ error: String(error) }),
       )
     })
-    ipcMain.handle('foreground:activity', (event, value) => {
+    handleLibraryRequest('foreground:activity', (event, value) => {
       trusted(event)
       library!.reportForegroundActivity(value)
     })
-    ipcMain.handle('edits:get', (event, id) => {
+    handleLibraryRequest('edits:get', (event, id) => {
       trusted(event)
       return library!.getEdits(id)
     })
-    ipcMain.handle('pixel:get', (event, id, revision, x, y, request) => {
+    handleLibraryRequest('pixel:get', (event, id, revision, x, y, request) => {
       trusted(event)
       return library!.getPhotoPixel(id, revision, x, y, request).then(
         (pixel) => ({ pixel }),
         (error) => ({ error: String(error) }),
       )
     })
-    ipcMain.handle('edits:update', (event, id, patch, revision) => {
+    handleLibraryRequest('edits:update', (event, id, patch, revision) => {
       trusted(event)
       return library!.updateEdits(id, patch, revision)
     })
-    ipcMain.handle('edits:history', (event, id) => {
+    handleLibraryRequest('edits:history', (event, id) => {
       trusted(event)
       return library!.getEditHistory(id)
     })
-    ipcMain.handle('edits:undo', (event, id, revision) => {
+    handleLibraryRequest('edits:undo', (event, id, revision) => {
       trusted(event)
       return library!.undoEdit(id, revision)
     })
-    ipcMain.handle('edits:redo', (event, id, revision) => {
+    handleLibraryRequest('edits:redo', (event, id, revision) => {
       trusted(event)
       return library!.redoEdit(id, revision)
     })
-    ipcMain.handle('lens:get', (event, id) => {
+    handleLibraryRequest('lens:get', (event, id) => {
       trusted(event)
       return library!.getLensSettings(id)
     })
-    ipcMain.handle('lens:update', (event, id, kind, enabled) => {
+    handleLibraryRequest('lens:update', (event, id, kind, enabled) => {
       trusted(event)
       return library!.updateLensSettings(id, kind, enabled)
     })
-    ipcMain.handle('library:list', (event, offset: number) => {
+    handleLibraryRequest('library:list', (event, offset: number) => {
       trusted(event)
       return library!.list(offset)
     })
-    ipcMain.handle('preview:request', (event, id: string, token: string, regenerate = false) => {
-      trusted(event)
-      // Preview failures are expected UI states, not uncaught IPC exceptions.
-      return library!.fullPreviews.request(id, token, regenerate).then(
-        (preview) => ({ preview }),
-        (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
-      )
-    })
-    ipcMain.handle('preview:hdr', (event, id, token, regenerate = false) => {
+    handleLibraryRequest(
+      'preview:request',
+      (event, id: string, token: string, regenerate = false) => {
+        trusted(event)
+        // Preview failures are expected UI states, not uncaught IPC exceptions.
+        return library!.fullPreviews.request(id, token, regenerate).then(
+          (preview) => ({ preview }),
+          (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
+        )
+      },
+    )
+    handleLibraryRequest('preview:hdr', (event, id, token, regenerate = false) => {
       trusted(event)
       return library!.fullPreviews.requestHdr(id, token, regenerate).then(
         (preview) => ({ preview }),
         (error: unknown) => ({ error: String(error) }),
       )
     })
-    ipcMain.handle('preview:editing', (event, id, token) => {
+    handleLibraryRequest('preview:editing', (event, id, token) => {
       trusted(event)
       return library!.fullPreviews.requestEditing(id, token).then(
         (preview) => ({ preview }),
         (error: unknown) => ({ error: String(error) }),
       )
     })
-    ipcMain.handle('preview:cached', (event, id: string, token: string) => {
+    handleLibraryRequest('preview:cached', (event, id: string, token: string) => {
       trusted(event)
       return library!.fullPreviews.requestCached(id, token).then(
         (preview) => ({ preview }),
         (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
       )
     })
-    ipcMain.handle('preview:release', (event, token: string) => {
+    handleLibraryRequest('preview:release', (event, token: string) => {
       trusted(event)
       if (typeof token !== 'string') throw new Error('Invalid preview request token.')
       return library!.fullPreviews.release(token)
     })
-    ipcMain.handle('photo-actions:context', (event, id: string | null, selectedIds: string[]) => {
-      trusted(event)
-      return library!.getPhotoActionsContext(id, selectedIds)
-    })
-    ipcMain.handle('stacks:list', (event) => {
+    handleLibraryRequest(
+      'photo-actions:context',
+      (event, id: string | null, selectedIds: string[]) => {
+        trusted(event)
+        return library!.getPhotoActionsContext(id, selectedIds)
+      },
+    )
+    handleLibraryRequest('stacks:list', (event) => {
       trusted(event)
       return library!.listStacks()
     })
-    ipcMain.handle('stacks:photo', (event, id: string) => {
+    handleLibraryRequest('stacks:photo', (event, id: string) => {
       trusted(event)
       return library!.getPhotoStack(id)
     })
-    ipcMain.handle('stacks:members', (event, id: string, offset: number) => {
+    handleLibraryRequest('stacks:members', (event, id: string, offset: number) => {
       trusted(event)
       return library!.getStackMembers(id, offset)
     })
-    ipcMain.handle('stacks:snapshot', (event, id: string, revision: number) => {
+    handleLibraryRequest('stacks:snapshot', (event, id: string, revision: number) => {
       trusted(event)
       return library!.getStackSnapshot(id, revision)
     })
-    ipcMain.handle('stacks:group', (event, ids: string[], coverId: string, revision: number) => {
-      trusted(event)
-      return library!.groupPhotos(ids, coverId, revision)
-    })
-    ipcMain.handle('stacks:ungroup', (event, id: string, revision: number) => {
+    handleLibraryRequest(
+      'stacks:group',
+      (event, ids: string[], coverId: string, revision: number) => {
+        trusted(event)
+        return library!.groupPhotos(ids, coverId, revision)
+      },
+    )
+    handleLibraryRequest('stacks:ungroup', (event, id: string, revision: number) => {
       trusted(event)
       return library!.ungroupStack(id, revision)
     })
-    ipcMain.handle('stacks:remove', (event, id: string, revision: number) => {
+    handleLibraryRequest('stacks:remove', (event, id: string, revision: number) => {
       trusted(event)
       return library!.removeFromStack(id, revision)
     })
-    ipcMain.handle('stacks:cover', (event, id: string, photoId: string, revision: number) => {
+    handleLibraryRequest('stacks:cover', (event, id: string, photoId: string, revision: number) => {
       trusted(event)
       return library!.setStackCover(id, photoId, revision)
     })
-    ipcMain.handle('stacks:expand', (event, id: string, expanded: boolean, revision: number) => {
-      trusted(event)
-      return library!.setStackExpanded(id, expanded, revision)
-    })
-    ipcMain.handle('stacks:capture-scan', (event) => {
+    handleLibraryRequest(
+      'stacks:expand',
+      (event, id: string, expanded: boolean, revision: number) => {
+        trusted(event)
+        return library!.setStackExpanded(id, expanded, revision)
+      },
+    )
+    handleLibraryRequest('stacks:capture-scan', (event) => {
       trusted(event)
       if (picking) throw new Error('Close the file picker first.')
       return library!.groupCaptureSequences()
@@ -562,56 +601,59 @@ app
         throw error
       }
     }
-    ipcMain.handle('collections:policy', (event) => {
+    handleLibraryRequest('collections:policy', (event) => {
       trusted(event)
       return library!.getCollectionPolicy()
     })
-    ipcMain.handle('workspace:get', (event) => {
+    handleLibraryRequest('workspace:get', (event) => {
       trusted(event)
       return library!.getWorkspaceState()
     })
-    ipcMain.handle(
+    handleLibraryRequest(
       'workspace:save',
       (event, change: import('../shared/workspace').WorkspaceChange) => {
         trusted(event)
         return library!.saveWorkspaceState(change)
       },
     )
-    ipcMain.handle('gallery:summary', (event, ids: string[]) => {
+    handleLibraryRequest('gallery:summary', (event, ids: string[]) => {
       trusted(event)
       return library!.getGallerySummary(ids)
     })
-    ipcMain.handle(
+    handleLibraryRequest(
       'gallery:chunk',
       (event, offset: number, revision: import('../shared/stacks').GalleryRevision) => {
         trusted(event)
         return collectionReply(() => library!.getGalleryChunk(offset, revision))
       },
     )
-    ipcMain.handle('review:summary', (event, id: string) => {
+    handleLibraryRequest('review:summary', (event, id: string) => {
       trusted(event)
       return library!.reviewSummary(id)
     })
-    ipcMain.handle('review:chunk', (event, id: string, offset: number, revision: number) => {
+    handleLibraryRequest('review:chunk', (event, id: string, offset: number, revision: number) => {
       trusted(event)
       return collectionReply(() => library!.reviewChunk(id, offset, revision))
     })
-    ipcMain.handle('review:locate', (event, id: string, candidate: string, revision: number) => {
-      trusted(event)
-      return collectionReply(() => library!.locateReviewCandidate(id, candidate, revision))
-    })
-    ipcMain.handle('gallery:list', (event, offset: number, selectedIds: string[]) => {
+    handleLibraryRequest(
+      'review:locate',
+      (event, id: string, candidate: string, revision: number) => {
+        trusted(event)
+        return collectionReply(() => library!.locateReviewCandidate(id, candidate, revision))
+      },
+    )
+    handleLibraryRequest('gallery:list', (event, offset: number, selectedIds: string[]) => {
       trusted(event)
       return library!.listGallery(offset, selectedIds)
     })
-    ipcMain.handle(
+    handleLibraryRequest(
       'browse:summary',
       (event, query: import('../shared/browse').BrowseQuery, selectedIds: string[]) => {
         trusted(event)
         return library!.getBrowseSummary(query, selectedIds)
       },
     )
-    ipcMain.handle(
+    handleLibraryRequest(
       'browse:chunk',
       (event, query: import('../shared/browse').BrowseQuery, offset: number, revision?: number) => {
         trusted(event)
@@ -623,7 +665,7 @@ app
         }
       },
     )
-    ipcMain.handle(
+    handleLibraryRequest(
       'browse:locate',
       (event, query: import('../shared/browse').BrowseQuery, id: string, revision?: number) => {
         trusted(event)
@@ -635,21 +677,21 @@ app
         }
       },
     )
-    ipcMain.handle(
+    handleLibraryRequest(
       'browse:range',
       (event, query: import('../shared/browse').BrowseQuery, from: string, to: string) => {
         trusted(event)
         return library!.getBrowseRange(query, from, to)
       },
     )
-    ipcMain.handle(
+    handleLibraryRequest(
       'browse:section',
       (event, query: import('../shared/browse').BrowseQuery, key: string) => {
         trusted(event)
         return library!.getBrowseSection(query, key)
       },
     )
-    ipcMain.handle(
+    handleLibraryRequest(
       'gallery:locate',
       (
         event,
@@ -661,32 +703,32 @@ app
         return collectionReply(() => library!.locateGalleryPhoto(id, direction, revision))
       },
     )
-    ipcMain.handle('gallery:range', (event, from: string, to: string) => {
+    handleLibraryRequest('gallery:range', (event, from: string, to: string) => {
       trusted(event)
       return library!.getGalleryRange(from, to)
     })
-    ipcMain.handle('library:delete', (event, ids: string[]) => {
+    handleLibraryRequest('library:delete', (event, ids: string[]) => {
       trusted(event)
       if (picking) throw new Error('Close the file picker first.')
       return library!.deletePhotos(ids)
     })
-    ipcMain.handle('tasks:list', (event) => {
+    handleLibraryRequest('tasks:list', (event) => {
       trusted(event)
       return library!.listTasks()
     })
-    ipcMain.handle('tasks:cancel', (event, id: string) => {
+    handleLibraryRequest('tasks:cancel', (event, id: string) => {
       trusted(event)
       return library!.cancelTask(id)
     })
-    ipcMain.handle('tasks:dismiss', (event, id: string) => {
+    handleLibraryRequest('tasks:dismiss', (event, id: string) => {
       trusted(event)
       library!.dismissTask(id)
     })
-    ipcMain.handle('tasks:errors', (event, id: string, offset: number) => {
+    handleLibraryRequest('tasks:errors', (event, id: string, offset: number) => {
       trusted(event)
       return library!.taskErrors(id, offset)
     })
-    ipcMain.handle('library:choose', async (event, kind: unknown, recursive: unknown) => {
+    handleLibraryRequest('library:choose', async (event, kind: unknown, recursive: unknown) => {
       trusted(event)
       if ((kind !== 'files' && kind !== 'folder') || typeof recursive !== 'boolean')
         throw new Error('Invalid import source.')
@@ -710,7 +752,7 @@ app
         picking = false
       }
     })
-    ipcMain.handle('library:devices', async (event) => {
+    handleLibraryRequest('library:devices', async (event) => {
       trusted(event)
       try {
         const devices = await importDevices.list(false)
@@ -720,7 +762,7 @@ app
         return { error: error instanceof Error ? error.message : String(error) }
       }
     })
-    ipcMain.handle(
+    handleLibraryRequest(
       'library:device',
       async (
         event,
@@ -749,51 +791,51 @@ app
         )
       },
     )
-    ipcMain.handle(
+    handleLibraryRequest(
       'library:thumbnails',
       (event, id: string, ids: string[] | import('../shared/contracts').ReviewThumbnailRequest) => {
         trusted(event)
         library!.requestReviewThumbnails(id, ids)
       },
     )
-    ipcMain.handle('library:review', (event, id: string, offset: number) => {
+    handleLibraryRequest('library:review', (event, id: string, offset: number) => {
       trusted(event)
       return library!.review(id, offset)
     })
-    ipcMain.handle(
+    handleLibraryRequest(
       'library:select',
       (event, id: string, ids: string[] | null, selected: boolean) => {
         trusted(event)
         library!.select(id, ids, selected)
       },
     )
-    ipcMain.handle('library:import', (event, id: string) => {
+    handleLibraryRequest('library:import', (event, id: string) => {
       trusted(event)
       return library!.importSelected(id)
     })
-    ipcMain.handle('library:only-missing', (event, id: string, enabled: boolean) => {
+    handleLibraryRequest('library:only-missing', (event, id: string, enabled: boolean) => {
       trusted(event)
       library!.setImportOnlyMissing(id, enabled)
     })
-    ipcMain.handle(
+    handleLibraryRequest(
       'library:verification-mode',
       (event, id: string, mode: import('../shared/contracts').ImportVerificationMode) => {
         trusted(event)
         library!.setImportVerificationMode(id, mode)
       },
     )
-    ipcMain.handle('library:cancel', (event, id: string) => {
+    handleLibraryRequest('library:cancel', (event, id: string) => {
       trusted(event)
       return library!.cancel(id)
     })
-    ipcMain.handle('library:dispose', (event, id: string) => {
+    handleLibraryRequest('library:dispose', (event, id: string) => {
       trusted(event)
       return library!.dispose(id)
     })
 
     createWindow()
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      if (!quitPending && BrowserWindow.getAllWindows().length === 0) createWindow()
     })
   })
   .catch((error: unknown) => {
@@ -802,7 +844,7 @@ app
   })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  if (!quitPending && process.platform !== 'darwin') app.quit()
 })
 
 app.on('before-quit', (event) => {

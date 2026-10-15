@@ -34,7 +34,7 @@ npm run build
 npm start
 ```
 
-Development and test launches require a graphical desktop session on Linux. Installers, automated CI, and Windows/macOS verification are deferred to a later milestone.
+Development and Electron test launches require a graphical session or a provisioned virtual display on Linux. Compatible automated tests use hidden windows by default; see [background testing](docs/background-testing.md). Installers, automated CI and broader platform verification remain separate work.
 
 ## Import photographs
 
@@ -111,7 +111,7 @@ Raster full frames and on-demand SDR proofs are lossless **RGBA8 sRGB** at nativ
 
 One foreground preview runs at a time, independently of imports. Versioned frames, matching placeholders, and prepared float assets share the **2 GiB LRU disk cache** under `library/cache/previews/`; uncompressed frames retain fewer photos than the previous PNG cache. SHA-256 checks detect damaged frame data. Active requests and streams are leased against eviction, and changing photos cancels obsolete work. A separate **256 MiB bitmap cache** keeps recently displayed frames ready for fast revisits; active bitmaps are pinned until deselected. A GPU worker stays warm for up to 30 seconds, releases photo textures when deselected, and bounds processing allocations to 1 GiB. Workers can retain bounded upstream linear data for nearby exposure, contrast, highlights, shadows, whites, blacks, and lens changes and release their process memory after the idle timeout. Old disposable cache versions rebuild automatically without reimporting originals.
 
-Use `npm run gpu:check` to verify a real hardware computation and `npm run benchmark:preview` to compare CPU/RGBA fallback and the former CPU/PNG path against GPU/RGBA presentation in isolated Electron. `LUMA_PREVIEW_BACKEND=cpu` forces the CPU renderer for troubleshooting; `LUMA_PREVIEW_DIAGNOSTICS=1` logs backend and stage timings. Neither setting changes originals. Linux/Radeon is tested locally; Windows/macOS backend verification and installers remain outstanding. Native `webgpu` files must remain external to the JS bundle and be unpacked alongside the bundled Node runtime in future installers.
+Use `npm run gpu:check` to verify a real hardware computation and `npm run benchmark:preview -- --foreground` to compare CPU/RGBA fallback and the former CPU/PNG path against GPU/RGBA presentation in isolated Electron. `LUMA_PREVIEW_BACKEND=cpu` forces the CPU renderer for troubleshooting; `LUMA_PREVIEW_DIAGNOSTICS=1` logs backend and stage timings. Neither setting changes originals. Linux/Radeon is tested locally; Windows/macOS backend verification and installers remain outstanding. Native `webgpu` files must remain external to the JS bundle and be unpacked alongside the bundled Node runtime in future installers.
 
 ## Preview runtime
 
@@ -144,21 +144,23 @@ Manual exposure/contrast/highlights/shadows/whites/blacks/lens editing and the d
 | `npm run typecheck`                            | Check TypeScript without rewriting source                                   |
 | `npm run lint`                                 | Check lint rules                                                            |
 | `npm run format:check`                         | Check source and documentation formatting                                   |
-| `npm run test:e2e`                             | Run the real Electron smoke and interaction tests                           |
+| `npm run test:e2e`                             | Run functional tests quietly; defer native-only cases as incomplete         |
 | `npm run check`                                | Run type checks, lint, formatting checks, and fast Node tests               |
 | `npm run verify -- --target adjustment-wiring` | Cheap checks plus one explicit feature target                               |
-| `npm run check:full`                           | All functional tests and isolated MCP at an agreed checkpoint               |
-| `npm run check:all`                            | Functional tests, isolated MCP, and every benchmark family                  |
-| `npm run benchmark:preview`                    | Preview processing and Electron presentation only                           |
-| `npm run benchmark:hdr`                        | HDR edit and selection latency                                              |
-| `npm run benchmark:merge`                      | Isolated merge worker runtime, memory, and scratch measurements             |
-| `npm run benchmark:all`                        | Every benchmark family, including all named adjustments                     |
+| `npm run check:full -- --foreground`           | All functional tests and isolated MCP at an agreed checkpoint               |
+| `npm run check:all -- --foreground`            | Functional tests, isolated MCP, and every benchmark family                  |
+| `npm run benchmark:preview -- --foreground`    | Preview processing and Electron presentation only                           |
+| `npm run benchmark:hdr -- --foreground`        | HDR edit and selection latency                                              |
+| `npm run benchmark:merge -- --foreground`      | Isolated merge worker runtime, memory, and scratch measurements             |
+| `npm run benchmark:all -- --foreground`        | Every benchmark family, including all named adjustments                     |
 | `npm run dev:mcp`                              | Launch development Electron with local debugging enabled                    |
 | `npm run mcp:ui`                               | Start the stdio Playwright MCP server for the running app                   |
 | `npm run mcp:test`                             | Build and test photo import through MCP using an isolated temporary library |
 | `npm run mcp:check`                            | Verify the MCP protocol, UI inspection, interaction, and screenshot capture |
 
 Use `npm run verify -- --target <id>` for routine feature verification; repeat `--target` to combine IDs from the suite registry. Broad scopes (`ui`, `adjustments`, `preview`, `library`, `mcp`) remain available for deliberate regression checks. Add `--plan` to preview selection without artifacts. Comprehensive commands require a user-requested or previously agreed checkpoint; completing a feature alone never triggers one. `benchmark:preview` deliberately covers preview measurements only; `benchmark:all` and `check:all` retain all existing performance gates. Supply a saved `LUMA_PREVIEW_BASELINE` to enforce the 15% uncorrected-preview limit. Every invocation preserves `summary.md`, structured results, and detailed evidence in a separate ignored artifact directory. Read the compact report first. See the [verification workflow](docs/testing.md#choose-verification) for budgets, failure reruns, locking, and diagnostic tracing.
+
+Automated Electron tests run hidden without taking native focus. Add `--foreground` explicitly for native focus, pointer lock, display checks and presentation benchmarks. A background selection with required native cases reports incomplete (exit 2) and provides foreground reruns. Normal development and manual inspection remain visible. See [background testing](docs/background-testing.md) for commands, test-author requirements and platform limits.
 
 For step-by-step module registration, examples, and verification, see [Adding lens corrections and image processors](src/main/processing/README.md). The [RAW processing overview](docs/raw-processing.md) covers pipeline contracts and measured results.
 

@@ -53,12 +53,15 @@ test('HDR edits retain the photograph, histogram geometry and source upload thro
   const capture = (async () => {
     while (capturing) {
       const variance = await nativeWindow.evaluate(async (window, box) => {
-        const image = await window.capturePage({
-          x: Math.round(box!.x),
-          y: Math.round(box!.y),
-          width: Math.round(box!.width),
-          height: Math.round(box!.height),
-        })
+        const image = await window.capturePage(
+          {
+            x: Math.round(box!.x),
+            y: Math.round(box!.y),
+            width: Math.round(box!.width),
+            height: Math.round(box!.height),
+          },
+          { stayHidden: true },
+        )
         const rgba = image.resize({ width: 32, height: 24 }).toBitmap()
         let sum = 0,
           squares = 0

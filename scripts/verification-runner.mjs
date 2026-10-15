@@ -188,6 +188,7 @@ export async function executePlan(
   if (signal?.aborted) abort()
   const result = {
     scope: plan.label,
+    uiMode: plan.uiMode,
     plan,
     targets: plan.targets,
     exitCode: 0,
@@ -208,7 +209,12 @@ export async function executePlan(
   }
   let failureCode = 0,
     buildFailed = false
-  const baseEnv = { ...process.env, LUMA_VERIFICATION_DIR: artifacts, LUMA_PREVIEW_BENCHMARK: '0' }
+  const baseEnv = {
+    ...process.env,
+    LUMA_VERIFICATION_DIR: artifacts,
+    LUMA_PREVIEW_BENCHMARK: '0',
+    LUMA_TEST_UI_MODE: plan.uiMode,
+  }
   delete baseEnv.LUMA_TEST_GROUP
   const stage = async (
     name,
@@ -228,7 +234,7 @@ export async function executePlan(
       log,
       targets,
       workers,
-      rerun: [command, ...args].map((s) => `'${s.replaceAll("'", "'\\''")}'`).join(' '),
+      rerun: `LUMA_TEST_UI_MODE=${plan.uiMode} ${[command, ...args].map((s) => `'${s.replaceAll("'", "'\\''")}'`).join(' ')}`,
     }
     if (phase === 'benchmark')
       record.rerun = `LUMA_PREVIEW_BENCHMARK=1 LUMA_TEST_TRACE=0 ${env.LUMA_PREVIEW_BASELINE ? `LUMA_PREVIEW_BASELINE='${env.LUMA_PREVIEW_BASELINE.replaceAll("'", "'\\''")}' ` : ''}${record.rerun}`
@@ -404,7 +410,7 @@ export async function executePlan(
     }
   }
   console.log(
-    `${result.status.toUpperCase()} [${plan.label}]: ${result.passed} passed, ${result.failed} failed, ${result.skipped} skipped; ${(result.durationMs / 1000).toFixed(1)}s\nReport: ${join(artifacts, 'summary.md')}`,
+    `${result.status.toUpperCase()} [${plan.label}; ${plan.uiMode}]: ${result.passed} passed, ${result.failed} failed, ${result.skipped} skipped; ${(result.durationMs / 1000).toFixed(1)}s\nReport: ${join(artifacts, 'summary.md')}`,
   )
   for (const warning of result.warnings) console.warn(warning)
   return result

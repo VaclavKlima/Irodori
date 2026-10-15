@@ -23,6 +23,25 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   { languageOptions: { globals: globals.node } },
   {
+    files: ['src/main/**/*.ts'],
+    ignores: ['src/main/window-presentation.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'NewExpression[callee.name="BrowserWindow"]',
+          message:
+            'Create application windows through createAppWindow so automated launches stay hidden.',
+        },
+        {
+          selector: 'NewExpression[callee.property.name="BrowserWindow"]',
+          message:
+            'Create application windows through createAppWindow so automated launches stay hidden.',
+        },
+      ],
+    },
+  },
+  {
     files: ['src/renderer/**/*.{ts,tsx}'],
     languageOptions: { globals: globals.browser },
     plugins: { 'react-hooks': hooks, 'react-refresh': refresh },

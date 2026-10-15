@@ -11,6 +11,7 @@ export function renderSummary(result) {
     `${result.passed} passed, ${result.failed} failed, ${result.skipped} skipped, ${result.interrupted} interrupted; ${seconds(result.durationMs)}; exit ${result.exitCode}.`,
     '',
     `Selection: \`${result.scope}\`. Requested targets: ${result.plan.requestedTargets.join(', ') || '(command/scopes)'}.`,
+    `UI mode: \`${result.uiMode}\`.`,
     `Selected targets (including cheap checks): ${result.targets.join(', ')}.`,
     '',
     '## Stages',
@@ -81,15 +82,15 @@ export function renderSummary(result) {
       '',
       '## Skipped cases',
       '',
-      ...skipped.map(
-        (t) =>
-          `- ${t.target}: ${t.title}. ${
-            t.annotations
-              .filter((a) => a.type === 'skip')
-              .map((a) => a.description)
-              .join('; ') || 'No reason supplied.'
-          }`,
-      ),
+      ...skipped.flatMap((t) => [
+        `- ${t.target}: ${t.title}. ${
+          t.annotations
+            .filter((a) => a.type === 'skip')
+            .map((a) => a.description)
+            .join('; ') || 'No reason supplied.'
+        }`,
+        ...(t.foregroundRerun ? ['', '```sh', t.foregroundRerun, '```', ''] : []),
+      ]),
     )
   lines.push(
     '',

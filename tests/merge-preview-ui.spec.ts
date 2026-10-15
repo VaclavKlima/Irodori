@@ -1,4 +1,5 @@
 import { test, expect } from './electron.fixture'
+import { foregroundTest } from './foreground'
 import { setupMergePreview as setup } from './merge-preview.helpers'
 import { focusPreviewWindow, verifyLockedPan, verifyPanGlide } from './preview-pan.helpers'
 import { holdPreviewFrame, verifyPreviewWheel } from './preview-wheel.helpers'
@@ -10,21 +11,25 @@ test('scroll pans without zooming and mixed gesture bursts present once in merge
   await verifyPreviewWheel(luma.page, viewport, zoom)
 })
 
-test('mouse panning hides and locks the cursor without dismissing merge on Escape', async ({
-  luma,
-}) => {
-  const { viewport, zoom } = await setup(luma.app, luma.page)
-  await verifyLockedPan(luma.app, luma.page, viewport, zoom)
-  await expect(luma.page.getByRole('dialog')).toBeVisible()
-})
+test(
+  'mouse panning hides and locks the cursor without dismissing merge on Escape',
+  foregroundTest('Pointer lock and native window focus require a foreground window.'),
+  async ({ luma }) => {
+    const { viewport, zoom } = await setup(luma.app, luma.page)
+    await verifyLockedPan(luma.app, luma.page, viewport, zoom)
+    await expect(luma.page.getByRole('dialog')).toBeVisible()
+  },
+)
 
-test('merge release glide shares bounds, reduced motion and interruption cleanup', async ({
-  luma,
-}) => {
-  const { viewport, zoom } = await setup(luma.app, luma.page)
-  await verifyPanGlide(luma.app, luma.page, viewport, zoom)
-  await expect(luma.page.getByRole('dialog')).toBeVisible()
-})
+test(
+  'merge release glide shares bounds, reduced motion and interruption cleanup',
+  foregroundTest('Mouse release glide verifies native focus and pointer-lock interaction.'),
+  async ({ luma }) => {
+    const { viewport, zoom } = await setup(luma.app, luma.page)
+    await verifyPanGlide(luma.app, luma.page, viewport, zoom)
+    await expect(luma.page.getByRole('dialog')).toBeVisible()
+  },
+)
 
 test('native pixel scale, pointer anchoring, bounded drag and scoped zoom shortcuts', async ({
   luma,
@@ -210,70 +215,72 @@ test('stale native replies cannot enable Merge, and failed or invalid frames ret
   await expect(viewport).toHaveAttribute('data-fit', 'true')
 })
 
-test('pointer capture cleans up on cancellation, blur, loading and resize; fields and panels keep their controls', async ({
-  luma,
-}) => {
-  const { page, app } = luma,
-    { control, viewport, zoom, view, native } = await setup(app, page, 1600, 1000, false, 24)
-  await focusPreviewWindow(app, page)
-  await zoom.selectOption('1')
-  async function begin() {
-    const box = (await viewport.boundingBox())!
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-    await page.mouse.down()
-    await expect(viewport).toHaveAttribute('data-dragging', 'true')
-    await expect
-      .poll(() => viewport.evaluate((el) => document.pointerLockElement === el))
-      .toBe(true)
-  }
-  async function released() {
-    await expect(viewport).toHaveAttribute('data-dragging', 'false')
-    await expect.poll(() => page.evaluate(() => document.pointerLockElement === null)).toBe(true)
-  }
-  await begin()
-  await viewport.dispatchEvent('pointercancel', { pointerId: 1 })
-  await released()
-  await page.mouse.up()
-  await begin()
-  await page.evaluate(() => window.dispatchEvent(new Event('blur')))
-  await released()
-  await page.mouse.up()
-  await begin()
-  await native.evaluate((w) => w.setContentSize(1200, 760))
-  await released()
-  await page.mouse.up()
-  await native.evaluate((w) => w.setContentSize(1100, 700))
-  await control.evaluate((c) => c.hold(1))
-  await begin()
-  await page
-    .getByRole('checkbox', { name: 'Auto Align', exact: true })
-    .evaluate((el) => (el as HTMLInputElement).click())
-  await released()
-  expect(await viewport.evaluate((el) => el.hasPointerCapture(1))).toBe(false)
-  await page.mouse.up()
-  await expect.poll(async () => (await control.evaluate((c) => c.state())).calls.length).toBe(2)
-  await control.evaluate((c) => c.release(1))
-  await expect(viewport).toHaveAttribute('data-ready', 'true')
-  const before = await view(),
-    strength = page.getByRole('spinbutton', { name: 'Deghost strength value' })
-  await strength.fill('72')
-  await strength.press('ArrowLeft')
-  await strength.press('Escape')
-  await expect(strength).toHaveValue('50')
-  await expect(page.getByRole('dialog')).toBeVisible()
-  expect(await view()).toEqual(before)
-  const panel = page.getByRole('complementary', { name: 'Merge sources' })
-  await panel.hover()
-  await page.mouse.wheel(0, 400)
-  await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
-  expect(await view()).toEqual(before)
-  const bounds = (await page.getByRole('dialog').boundingBox())!
-  expect(bounds.x + bounds.width).toBeLessThanOrEqual(1100)
-  expect(bounds.y + bounds.height).toBeLessThanOrEqual(700)
-  await viewport.focus()
-  await viewport.press('Escape')
-  await expect(page.getByRole('dialog')).toHaveCount(0)
-})
+test(
+  'pointer capture cleans up on cancellation, blur, loading and resize; fields and panels keep their controls',
+  foregroundTest('Pointer-lock cancellation and native focus require a foreground window.'),
+  async ({ luma }) => {
+    const { page, app } = luma,
+      { control, viewport, zoom, view, native } = await setup(app, page, 1600, 1000, false, 24)
+    await focusPreviewWindow(app, page)
+    await zoom.selectOption('1')
+    async function begin() {
+      const box = (await viewport.boundingBox())!
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await page.mouse.down()
+      await expect(viewport).toHaveAttribute('data-dragging', 'true')
+      await expect
+        .poll(() => viewport.evaluate((el) => document.pointerLockElement === el))
+        .toBe(true)
+    }
+    async function released() {
+      await expect(viewport).toHaveAttribute('data-dragging', 'false')
+      await expect.poll(() => page.evaluate(() => document.pointerLockElement === null)).toBe(true)
+    }
+    await begin()
+    await viewport.dispatchEvent('pointercancel', { pointerId: 1 })
+    await released()
+    await page.mouse.up()
+    await begin()
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')))
+    await released()
+    await page.mouse.up()
+    await begin()
+    await native.evaluate((w) => w.setContentSize(1200, 760))
+    await released()
+    await page.mouse.up()
+    await native.evaluate((w) => w.setContentSize(1100, 700))
+    await control.evaluate((c) => c.hold(1))
+    await begin()
+    await page
+      .getByRole('checkbox', { name: 'Auto Align', exact: true })
+      .evaluate((el) => (el as HTMLInputElement).click())
+    await released()
+    expect(await viewport.evaluate((el) => el.hasPointerCapture(1))).toBe(false)
+    await page.mouse.up()
+    await expect.poll(async () => (await control.evaluate((c) => c.state())).calls.length).toBe(2)
+    await control.evaluate((c) => c.release(1))
+    await expect(viewport).toHaveAttribute('data-ready', 'true')
+    const before = await view(),
+      strength = page.getByRole('spinbutton', { name: 'Deghost strength value' })
+    await strength.fill('72')
+    await strength.press('ArrowLeft')
+    await strength.press('Escape')
+    await expect(strength).toHaveValue('50')
+    await expect(page.getByRole('dialog')).toBeVisible()
+    expect(await view()).toEqual(before)
+    const panel = page.getByRole('complementary', { name: 'Merge sources' })
+    await panel.hover()
+    await page.mouse.wheel(0, 400)
+    await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+    expect(await view()).toEqual(before)
+    const bounds = (await page.getByRole('dialog').boundingBox())!
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(1100)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(700)
+    await viewport.focus()
+    await viewport.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  },
+)
 
 for (const [width, height] of [
   [80, 48],

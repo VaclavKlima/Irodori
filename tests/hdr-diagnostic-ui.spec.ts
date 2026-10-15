@@ -1,20 +1,27 @@
-import { _electron as electron, expect, test } from '@playwright/test'
+/* eslint-disable no-empty-pattern -- Playwright requires destructured fixture arguments. */
+import { expect, test, type ElectronApplication } from '@playwright/test'
 import { mkdtemp, realpath, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
+import { launchTestElectron, assertTestWindowPolicy } from '../scripts/electron-test-launch.mjs'
+import type { ChildProcess } from 'node:child_process'
+import { once } from 'node:events'
 
-test('isolated HDR diagnostic preserves the sandbox, denies unrelated permissions, and reports fallback', async () => {
+test('isolated HDR diagnostic preserves the sandbox, denies unrelated permissions, and reports fallback', async ({}, testInfo) => {
   const profile = await mkdtemp(join(tmpdir(), 'luma-hdr-test-'))
   const env = { ...process.env } as Record<string, string>
   delete env.ELECTRON_RUN_AS_NODE
-  let desktop: Awaited<ReturnType<typeof electron.launch>> | undefined
+  let desktop: ElectronApplication | undefined
+  let child: ChildProcess | undefined
+  let evidenceFile: string | undefined
   try {
-    desktop = await electron.launch({
-      args: [resolve('out/main/hdr-diagnostic.js'), `--user-data-dir=${profile}`],
+    const launched = await launchTestElectron({
+      userDataDir: profile,
+      artifacts: testInfo.outputPath('launch'),
+      entry: 'hdr-diagnostic',
       env,
-      chromiumSandbox: true,
-      offline: true,
     })
+    ;({ app: desktop, child, evidenceFile } = launched)
     expect(await realpath(await desktop.evaluate(({ app }) => app.getPath('userData')))).toBe(
       await realpath(profile),
     )
@@ -78,7 +85,16 @@ test('isolated HDR diagnostic preserves the sandbox, denies unrelated permission
     ).toMatchObject({ width: 1100, height: 700, overflow: false, node: false, library: false })
     expect(await readdir(profile)).not.toContain('library')
   } finally {
-    await desktop?.close()
-    await rm(profile, { recursive: true, force: true })
+    try {
+      await desktop?.close()
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        const exited = once(child, 'exit')
+        child.kill('SIGKILL')
+        await exited
+      }
+      await rm(profile, { recursive: true, force: true })
+      if (evidenceFile) await assertTestWindowPolicy(evidenceFile)
+    }
   }
 })

@@ -5,7 +5,8 @@ import { access, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:net'
-import { _electron as electron } from '@playwright/test'
+import { launchTestElectron, assertTestWindowPolicy } from './electron-test-launch.mjs'
+import { testUiMode } from './test-ui-mode.mjs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 
@@ -16,6 +17,8 @@ const output = pathToFileURL(
 let endpoint = 'http://127.0.0.1:9222'
 const isolated = process.argv.includes('--isolated')
 let desktop
+let child
+let evidenceFile
 let profile
 const transcript = []
 
@@ -63,11 +66,14 @@ try {
     delete env.ELECTRON_RENDERER_URL
     delete env.ELECTRON_RUN_AS_NODE
     delete env.FORCE_COLOR
-    desktop = await electron.launch({
-      args: [root, `--user-data-dir=${profile}`, `--remote-debugging-port=${port}`],
+    const launched = await launchTestElectron({
+      userDataDir: profile,
+      artifacts: fileURLToPath(new URL('launch/', output)),
+      args: [`--remote-debugging-port=${port}`],
       env,
-      chromiumSandbox: true,
+      offline: false,
     })
+    ;({ app: desktop, child, evidenceFile } = launched)
     const actualProfile = await desktop.evaluate(({ app }) => app.getPath('userData'))
     if ((await realpath(actualProfile)) !== (await realpath(profile)))
       throw new Error('MCP profile isolation failed')
@@ -443,6 +449,11 @@ try {
     new URL('protocol-check.json', output),
     JSON.stringify(transcript, null, 2) + '\n',
   )
+  if (isolated)
+    await writeFile(
+      new URL('execution.json', output),
+      JSON.stringify({ uiMode: testUiMode() }) + '\n',
+    )
   console.log(
     `Passed: MCP discovery, snapshot, ${isolated ? 'background import, progress details, consistent full-resolution previews, persistent RAW lens controls, zoom, pointer drag, Fit reset, duplicate detection, multiple selection, confirmed deletion' : 'library interaction'}, console, and screenshot.`,
   )
@@ -463,7 +474,6 @@ try {
       dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false })
     })
     .catch(() => undefined)
-  const child = desktop?.process()
   await desktop?.close().catch(() => undefined)
   if (child && child.exitCode === null && child.signalCode === null) {
     const exited = new Promise((resolve) => child.once('exit', resolve))
@@ -482,5 +492,11 @@ try {
         process.exitCode = 1
       }
     }
+  }
+  if (evidenceFile) {
+    await assertTestWindowPolicy(evidenceFile).catch((error) => {
+      console.error(error.message)
+      process.exitCode = 1
+    })
   }
 }

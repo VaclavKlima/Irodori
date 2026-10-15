@@ -1,4 +1,5 @@
-import { app, BrowserWindow, powerMonitor } from 'electron'
+import { app, powerMonitor } from 'electron'
+import { createAppWindow } from './window-presentation'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -24,7 +25,7 @@ void app
   .then(async () => {
     const page = join(import.meta.dirname, '../renderer/hdr-diagnostic.html')
     const trustedUrl = pathToFileURL(page).href
-    const window = new BrowserWindow({
+    const window = createAppWindow({
       title: 'Luma HDR diagnostic — unverified output',
       width: 1100,
       height: 700,

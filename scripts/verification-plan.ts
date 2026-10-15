@@ -1,3 +1,5 @@
+import { testUiMode } from './test-ui-mode.mjs'
+
 export const scopes = ['ui', 'adjustments', 'preview', 'library', 'mcp'] as const
 export type Scope = (typeof scopes)[number]
 export type Group = 'node' | 'service' | 'electron' | 'raw-gpu' | 'benchmark'
@@ -14,6 +16,8 @@ interface Suite {
   family?: BenchmarkFamily
 }
 const definitions: Suite[] = [
+  { file: 'background-testing-model', group: 'node', scopes: ['ui', 'mcp'] },
+  { file: 'background-testing-ui', group: 'electron', scopes: ['ui', 'mcp'] },
   { file: 'continuous-scroll-model', group: 'node', scopes: ['library', 'ui'] },
   { file: 'continuous-scroll-context', group: 'service', scopes: ['library'] },
   { file: 'workspace-recovery', group: 'service', scopes: ['library'] },
@@ -217,6 +221,7 @@ export interface ExecutionGroup {
 
 export interface VerificationPlan {
   label: string
+  uiMode: 'background' | 'foreground'
   targets: string[]
   requestedTargets: string[]
   staticChecks: boolean
@@ -231,7 +236,16 @@ export interface VerificationPlan {
 }
 
 export function selectPlan(args: string[]): VerificationPlan {
-  const requested = args.filter((arg) => arg !== '--plan')
+  if (args.includes('--background') && args.includes('--foreground'))
+    throw new Error('--background and --foreground are mutually exclusive.')
+  const uiMode = testUiMode(
+    args.includes('--background')
+      ? { LUMA_TEST_UI_MODE: 'background' }
+      : args.includes('--foreground')
+        ? { LUMA_TEST_UI_MODE: 'foreground' }
+        : process.env,
+  )
+  const requested = args.filter((arg) => !['--plan', '--background', '--foreground'].includes(arg))
   const mode = requested[0]
   const internal = ['--fast', '--full', '--all', '--functional', '--mcp', '--editor']
   const families: Record<string, BenchmarkFamily[]> = {
@@ -351,6 +365,7 @@ export function selectPlan(args: string[]): VerificationPlan {
   const benchmark = groups.some((group) => group.phase === 'benchmark')
   return {
     label: [...new Set(requested)].sort().join('+'),
+    uiMode,
     targets: [
       ...selected.map((suite) => suite.target).sort(),
       ...(mcp ? [isolatedMcp.target] : []),
