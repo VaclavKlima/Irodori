@@ -2,7 +2,7 @@ import { execFile, fork } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { PreviewProcess } from '../preview-process'
-import type { ExportRenderJob } from './types'
+import type { ExportRenderJob, ExportRenderResult } from './types'
 
 /** Decoder and encoder never retain their WASM heaps in the same process. */
 export class ExportProcess {
@@ -10,10 +10,11 @@ export class ExportProcess {
     private workerPath = join(import.meta.dirname, 'export-worker.js'),
     private previewWorkerPath = join(import.meta.dirname, 'preview-worker.js'),
   ) {}
-  async render(
-    job: ExportRenderJob,
-    signal: AbortSignal,
-  ): Promise<{ path: string; sha256: string }> {
+  async render(job: ExportRenderJob, signal: AbortSignal): Promise<ExportRenderResult> {
+    const started = performance.now()
+    let sourceMs = 0,
+      sourceBackend: string | undefined,
+      sourceFallback: string | undefined
     signal.throwIfAborted()
     const source = structuredClone(job.source)
     if (source.hdr && !source.processing.metadata.mergeMaster) {
@@ -24,6 +25,8 @@ export class ExportProcess {
           workingOnly: true,
         })
         if (!frame.linear?.hdr) throw new Error('The RAW decoder returned no HDR master.')
+        sourceBackend = frame.diagnostics?.backend
+        sourceFallback = frame.diagnostics?.fallback
         source.processing.workingAsset = {
           ...frame.linear,
           width: frame.width,
@@ -33,6 +36,7 @@ export class ExportProcess {
       } finally {
         await decoder.close(true)
       }
+      sourceMs = performance.now() - started
     }
     signal.throwIfAborted()
     const require = createRequire(import.meta.url),
@@ -83,7 +87,7 @@ export class ExportProcess {
       diagnostics = (diagnostics + bytes.toString()).slice(-2000)
     })
     return new Promise((resolve, reject) => {
-      let result: { path: string; sha256: string } | undefined, error: Error | undefined
+      let result: ExportRenderResult | undefined, error: Error | undefined
       const abort = () => {
         error = new Error('Export rendering cancelled.')
         void stop()
@@ -112,8 +116,15 @@ export class ExportProcess {
         clean()
         if (stopping) await stopping
         if (error) reject(error)
-        else if (result) resolve(result)
-        else reject(new Error(`The export worker stopped. ${diagnostics}`))
+        else if (result) {
+          if (result.diagnostics) {
+            result.diagnostics.sourceBackend = sourceBackend
+            result.diagnostics.sourceFallback = sourceFallback
+            result.diagnostics.stages.sourcePreparationMs = sourceMs
+            result.diagnostics.stages.processMs = performance.now() - started
+          }
+          resolve(result)
+        } else reject(new Error(`The export worker stopped. ${diagnostics}`))
       })
       if (signal.aborted) abort()
       else child.send({ ...job, source })

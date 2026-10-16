@@ -25,7 +25,7 @@ import {
   validateDirectory,
   ownedPartialName,
 } from './files'
-import type { ExportFile, ExportManifest, ExportSource } from './types'
+import type { ExportFile, ExportManifest, ExportSource, ExportRenderResult } from './types'
 import { ExportProcess } from './process'
 import { verifyUltraHdrBundle } from './codec'
 import { COLLECTION_CHUNK_SIZE } from '../../shared/collections'
@@ -236,6 +236,10 @@ export class ExportJobs {
     const held = new Set(manifest.sources.map((s) => s.photo.id))
     try {
       for (const [index, source] of manifest.sources.entries()) {
+        const started = performance.now()
+        let retries = 0,
+          admittedMs = 0,
+          sourceValidationMs = 0
         const file: ExportFile = {
           index,
           photoId: source.photo.id,
@@ -248,10 +252,13 @@ export class ExportJobs {
           task.phase = 'Rendering from frozen edits'
           this.persist(job)
           const directory = join(this.root, 'export-work', manifest.id, String(index))
-          let rendered: { path: string; sha256: string } | undefined
+          let rendered: ExportRenderResult | undefined
           do {
+            const waitingStarted = performance.now()
             try {
               rendered = await this.scheduler.export(async (signal) => {
+                admittedMs += performance.now() - waitingStarted
+                const validationStarted = performance.now()
                 await rm(directory, { recursive: true, force: true })
                 await mkdir(directory, { recursive: true })
                 if (!sameSource(await lstat(source.path), source.identity))
@@ -261,6 +268,7 @@ export class ExportJobs {
                   (await hashFile(source.path)) !== source.photo.id
                 )
                   throw new Error('The managed original is damaged.')
+                sourceValidationMs += performance.now() - validationStarted
                 return this.renderer.render(
                   {
                     source,
@@ -275,12 +283,25 @@ export class ExportJobs {
               }, abort.signal)
             } catch (error) {
               if (!(error instanceof ForegroundYield)) throw error
+              retries++
               task.phase = 'Waiting for foreground work'
               this.persist(job)
             }
           } while (!rendered)
           abort.signal.throwIfAborted()
+          file.diagnostics = rendered.diagnostics
+          const publishStarted = performance.now()
           await this.publish(job, file, rendered)
+          if (file.diagnostics) {
+            file.diagnostics.retries = retries
+            file.diagnostics.stages.admissionMs = admittedMs
+            file.diagnostics.stages.sourceValidationMs = sourceValidationMs
+            file.diagnostics.stages.publicationMs = performance.now() - publishStarted
+            file.diagnostics.stages.fileMs = performance.now() - started
+            this.store.file(manifest.id, file)
+            if (process.env.LUMA_EXPORT_DIAGNOSTICS)
+              console.info('Export diagnostics', { photoId: source.photo.id, ...file.diagnostics })
+          }
         } catch (error) {
           let published = file.status === 'exported'
           if (file.status === 'publishing' && file.outputName && file.identity && file.sha256) {

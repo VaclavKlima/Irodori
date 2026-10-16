@@ -3,6 +3,7 @@ import { collectionPolicy, CollectionChangedError } from '../shared/collections'
 import { WorkspaceStore } from './workspace'
 import { ExportStore } from './export/store'
 import { ExportJobs } from './export/jobs'
+import type { ExportProcess } from './export/process'
 import { identity } from './export/files'
 import { verifyUltraHdrBundle } from './export/codec'
 import { EXPORT_CODEC_VERSION, EXPORT_RENDERING_VERSION } from '../shared/export'
@@ -238,6 +239,7 @@ export class PhotoLibrary {
     private inspectSource = inspectImportSource,
     private hashSource = hashImportSource,
     private sampleSource = sampleCameraOriginal,
+    private exportRenderer?: Pick<ExportProcess, 'render'>,
   ) {
     void obsoleteImportPreference // Old internal callers cannot select a previous rendering path.
 
@@ -521,6 +523,7 @@ export class PhotoLibrary {
         )
       },
       () => this.changed(),
+      this.exportRenderer,
     )
     await this.exports.recover()
     await rm(join(this.root, 'merge-reviews'), { recursive: true, force: true })

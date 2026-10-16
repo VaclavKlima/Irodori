@@ -160,6 +160,8 @@ Manual exposure/contrast/highlights/shadows/whites/blacks/lens editing and the d
 | `npm run benchmark:preview -- --foreground`    | Preview processing and Electron presentation only                           |
 | `npm run benchmark:hdr -- --foreground`        | HDR edit and selection latency                                              |
 | `npm run benchmark:merge -- --foreground`      | Isolated merge worker runtime, memory, and scratch measurements             |
+| `npm run benchmark:export`                     | Quality-100 original-size HDR export through durable publication            |
+| `npm run build:export-native`                  | Rebuild the bundled macOS arm64 HDR encoder from pinned sources             |
 | `npm run benchmark:all -- --foreground`        | Every benchmark family, including all named adjustments                     |
 | `npm run dev:mcp`                              | Launch development Electron with local debugging enabled                    |
 | `npm run mcp:ui`                               | Start the stdio Playwright MCP server for the running app                   |

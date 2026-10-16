@@ -1,6 +1,6 @@
 export const EXPORT_VERSION = 1 as const
-export const EXPORT_RENDERING_VERSION = 'jpeg-linear-lanczos3-v3-content-headroom'
-export const EXPORT_CODEC_VERSION = 'libultrahdr-2.0.2-iso'
+export const EXPORT_RENDERING_VERSION = 'jpeg-linear-lanczos3-v4-gpu'
+export const EXPORT_CODEC_VERSION = 'libultrahdr-2.0.2-iso-native-v1'
 
 export interface ExportOptions {
   version: 1

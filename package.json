@@ -34,6 +34,8 @@
     "benchmark:adjustments": "node scripts/verify.mjs --adjustment-benchmark",
     "benchmark:hdr": "node scripts/verify.mjs --hdr-benchmark",
     "benchmark:merge": "node scripts/verify.mjs --merge-benchmark",
+    "benchmark:export": "node scripts/verify.mjs --export-benchmark",
+    "build:export-native": "bash scripts/ultrahdr/build-native.sh",
     "benchmark:all": "node scripts/verify.mjs --benchmark-all"
   },
   "dependencies": {

@@ -1,4 +1,5 @@
 import { hdrRangesWgsl } from './hdr-ranges'
+import { hdrAdjustmentsWgsl } from '../../../shared/hdr-adjustments-wgsl'
 import { displayRenderingWgsl, displayEncodingWgsl } from '../../../shared/display-rendering-wgsl'
 import { REC2020_TO_P3, REC2020_TO_SRGB } from '../../../shared/hdr'
 const primaryMatrix = (m: number[]) =>
@@ -19,33 +20,7 @@ struct Params { values: array<vec4f, 11> }
 @group(0) @binding(0) var<uniform> u: Params;
 @group(0) @binding(1) var pixels: texture_2d<f32>;
 ${displayRenderingWgsl}
-const luma = vec3f(.2627002120112671, .6779980715188708, .059301716469862);
-fn adjusted(input: vec3f) -> vec3f {
-  var rgb = input;
-  if (u.values[4].w > 0.) { rgb = vec3f(dot(u.values[5].xyz,rgb), dot(u.values[6].xyz,rgb), dot(u.values[7].xyz,rgb)); }
-  rgb *= exp2(u.values[2].x);
-  var y = dot(rgb,luma);
-  let contrast = u.values[2].y;
-  if (contrast != 0. && y > 0. && y < 1.) {
-    var next = .18 * pow(y/.18,exp2(contrast/100.));
-    if (y > .18) { next = 1. - .82 * pow((1.-y)/.82,exp2(contrast/100.)); }
-    rgb *= next/y;
-  }
-  y = dot(rgb,luma);
-  let h = u.values[2].z/100.;
-  if (h != 0. && y > .18) { rgb *= ((1.+h)*y-h*(.18+.82*(y-.18)/(.82+y-.18)))/y; }
-  y = dot(rgb,luma);
-  if (u.values[2].w != 0. && y > 0. && y < .18) { rgb *= exp2(2.*u.values[2].w/100.*pow(1.-y/.18,2.)); }
-  y = dot(rgb,luma);
-  if (u.values[3].x != 0. && y > 0.) { let t = clamp((y-.18)/.82,0.,1.); rgb *= exp2(u.values[3].x/100.*t*t*(3.-2.*t)); }
-  y = dot(rgb,luma);
-  let b = u.values[3].y/100.;
-  if (b != 0. && y >= 0.) {
-    let d = .04*b*pow(max(1.-y/.18,0.),3.);
-    if (b > 0.) { rgb += vec3f(d); } else if (y > 0.) { rgb *= max(0.,y+d)/y; }
-  }
-  return rgb;
-}
+${hdrAdjustmentsWgsl}
 fn outputRgb(rgb: vec3f) -> vec3f {
   if(u.values[7].w>0.) { return max(rgb,vec3f(0.)); }
   return renderDisplayRgb(rgb,u.values[3].z);

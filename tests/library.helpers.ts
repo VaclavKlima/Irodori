@@ -7,10 +7,12 @@ import { PreviewEngine } from '../src/main/preview-engine'
 import { PreviewProcess } from '../src/main/preview-process'
 import type { PreviewProcessor } from '../src/main/preview-types'
 import type { DeviceDirectoryVisibility } from '../src/main/device-directory-visibility'
+import type { ExportProcess } from '../src/main/export/process'
 
 export async function setup(
   processor?: PreviewProcessor,
   directoryVisibility?: Pick<DeviceDirectoryVisibility, 'hiddenEntries' | 'close'>,
+  exportRenderer?: Pick<ExportProcess, 'render'>,
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'luma-library-')))
   const engine = new PreviewEngine()
@@ -27,6 +29,11 @@ export async function setup(
     undefined,
     undefined,
     directoryVisibility,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    exportRenderer,
   )
   await service.open()
   return {

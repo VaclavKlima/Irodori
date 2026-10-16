@@ -1,50 +1,14 @@
 import { createHash } from 'node:crypto'
-import { open, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import sharp from 'sharp'
 import { ExifTool } from 'exiftool-vendored'
-import { exportGeometry } from '../../shared/export'
-import {
-  neutralAdjustments,
-  contrastModule,
-  highlightsModule,
-  shadowsModule,
-  whitesModule,
-  blacksModule,
-  type AdjustmentParameters,
-} from '../../shared/adjustments'
-import {
-  contentHdr,
-  adjustHdr,
-  hdrAdjustmentMatrix,
-  outputHdr,
-  SDR_TARGET,
-  encodeHdr,
-} from '../../shared/hdr'
-import { frameByteLength } from '../../shared/preview-frame'
-import { readHdrStrips } from '../processing/hdr-processing'
-import { halfFloat, loadUltraHdr } from './codec'
-import { resizeLinear } from './resize'
-import type { ExportRenderJob } from './types'
+import { exportRenditions } from './renditions'
+import { encodeExportHdr } from './encoder'
+import { validatePrimary } from './jpeg'
+import type { ExportDiagnostics, ExportRenderJob, ExportRenderResult } from './types'
 
-export function rasterLinear(rgb: number[], a: AdjustmentParameters) {
-  const value = rgb.map((v) => Math.max(0, v * 2 ** a.exposureEv))
-  const y = value[0] * 0.2126 + value[1] * 0.7152 + value[2] * 0.0722
-  let scale = y > 0 && y < 1 ? contrastModule.cpu(y, a.contrast) / y : 1
-  for (const [amount, module] of [
-    [a.highlights, highlightsModule],
-    [a.shadows, shadowsModule],
-    [a.whites, whitesModule],
-  ] as const) {
-    const current = y * scale
-    if (amount !== 0 && current > 0) scale *= module.cpu(current, amount) / current
-  }
-  let pedestal = 0
-  if (a.blacks > 0) pedestal = 0.04 * (a.blacks / 100) * Math.max(1 - (y * scale) / 0.18, 0) ** 3
-  else if (a.blacks < 0 && y * scale > 0)
-    scale *= blacksModule.cpu(y * scale, a.blacks) / (y * scale)
-  return value.map((v) => Math.max(0, Math.min(1, v * scale + pedestal)))
-}
+export { rasterLinear } from './raster'
 
 /** Construct a small EXIF allowlist before HDR packaging; never copy source metadata wholesale. */
 async function metadata(
@@ -94,153 +58,91 @@ async function metadata(
   }
 }
 
-export async function renderExport(job: ExportRenderJob) {
+export async function renderExport(job: ExportRenderJob): Promise<ExportRenderResult> {
+  const start = performance.now()
   sharp.concurrency(1)
   sharp.cache(false)
-  const a = job.source.processing.adjustments ?? neutralAdjustments
-  const linearPath = join(job.directory, 'rendition.f32')
-  const linear = await open(linearPath, 'wx')
-  const channels = job.hdr ? 6 : 3
-  let width: number, height: number
-  try {
-    const asset = job.source.processing.workingAsset?.hdr
-    if (job.source.hdr) {
-      if (!asset) throw new Error('HDR working asset was not prepared.')
-      width = asset.width
-      height = asset.height
-      const primary = asset.source.display
-        ? await sharp(job.source.path)
-            .autoOrient()
-            .toColourspace('scrgb')
-            .ensureAlpha()
-            .raw({ depth: 'float' })
-            .toBuffer({ resolveWithObject: true })
-        : undefined
-      if (primary && (primary.info.width !== width || primary.info.height !== height))
-        throw new Error('HDR JPEG primary geometry mismatch.')
-      const base = primary
-        ? new Float32Array(
-            primary.data.buffer,
-            primary.data.byteOffset,
-            primary.data.byteLength / 4,
-          )
-        : undefined
-      let sourceOffset = 0
-      const wb = hdrAdjustmentMatrix(a, asset.whiteBalance) ?? undefined
-      for await (const strip of readHdrStrips(job.source.processing.workingAsset!.path, asset)) {
-        const pixels = new Float32Array((strip.length / 4) * channels)
-        for (let i = 0; i < strip.length; i += 4) {
-          const adjusted = adjustHdr([strip[i], strip[i + 1], strip[i + 2]], a, wb)
-          const sdr = base
-            ? rasterLinear(
-                [base[sourceOffset + i], base[sourceOffset + i + 1], base[sourceOffset + i + 2]],
-                a,
-              )
-            : outputHdr(adjusted, SDR_TARGET).rgb
-          const hdr = job.hdr ? contentHdr(adjusted, asset.source).rgb : undefined
-          const alpha = strip[i + 3]
-          for (let c = 0; c < 3; c++) {
-            pixels[(i / 4) * channels + c] = sdr[c] * alpha + 1 - alpha
-            if (hdr) pixels[(i / 4) * channels + 3 + c] = hdr[c] * alpha + 1 - alpha
-          }
-        }
-        await linear.writeFile(Buffer.from(pixels.buffer))
-        sourceOffset += strip.length
-      }
-    } else {
-      const input = sharp(job.source.path, {
-        limitInputPixels: (512 * 1024 ** 2) / 16,
-      }).autoOrient()
-      const dimensions = await input.metadata()
-      if (frameByteLength(dimensions.width, dimensions.height) * 4 > 512 * 1024 ** 2)
-        throw new Error('This photo exceeds the floating-point export memory limit.')
-      const { data, info } = await input
-        .toColourspace('scrgb')
-        .ensureAlpha()
-        .raw({ depth: 'float' })
-        .toBuffer({ resolveWithObject: true })
-      width = info.width
-      height = info.height
-      const floats = new Float32Array(data.buffer, data.byteOffset, data.byteLength / 4)
-      for (let top = 0; top < height; top += 64) {
-        const pixels = new Float32Array(width * Math.min(64, height - top) * 3)
-        for (let i = 0; i < pixels.length / 3; i++) {
-          const offset = (top * width + i) * 4
-          const rgb = rasterLinear([floats[offset], floats[offset + 1], floats[offset + 2]], a)
-          const alpha = floats[offset + 3]
-          for (let c = 0; c < 3; c++) pixels[i * 3 + c] = rgb[c] * alpha + 1 - alpha
-        }
-        await linear.writeFile(Buffer.from(pixels.buffer))
-      }
+  const metadataStarted = performance.now()
+  let metadataMs = 0,
+    sdrEncodeMs = 0
+  const pendingTags = metadata(job).finally(() => {
+    metadataMs = performance.now() - metadataStarted
+  })
+  const encodeSdr = async (
+    rgb: Buffer,
+    geometry: { width: number; height: number },
+    exif: Awaited<ReturnType<typeof metadata>>,
+  ) => {
+    const started = performance.now()
+    let encoder = sharp(rgb, { raw: { ...geometry, channels: 3 } }).withIccProfile('srgb')
+    if (exif) encoder = encoder.withExif(exif)
+    try {
+      return await encoder
+        .jpeg({
+          quality: job.options.quality,
+          chromaSubsampling: '4:4:4',
+          progressive: false,
+          optimiseCoding: true,
+        })
+        .toBuffer()
+    } finally {
+      sdrEncodeMs = performance.now() - started
     }
-  } finally {
-    await linear.close()
   }
-  const geometry = exportGeometry(width!, height!, job.options.size)
-  const pixels = geometry.width * geometry.height
-  const rgb = Buffer.alloc(pixels * 3)
-  const half = job.hdr ? new Uint16Array(pixels * 4) : undefined
-  let contentHeadroom = 1.01
-  await resizeLinear(
-    linearPath,
-    width!,
-    height!,
-    geometry.width,
-    geometry.height,
-    channels,
-    (data, y) => {
-      for (let x = 0; x < geometry.width; x++) {
-        const dest = y * geometry.width + x
-        for (let c = 0; c < 3; c++) {
-          rgb[dest * 3 + c] = Math.round(
-            encodeHdr(Math.max(0, Math.min(1, data[x * channels + c]))) * 255,
-          )
-          if (half) {
-            const value = Math.max(0, Math.min(10, data[x * channels + 3 + c]))
-            contentHeadroom = Math.max(contentHeadroom, value)
-            half[dest * 4 + c] = halfFloat(value)
-          }
-        }
-        if (half) half[dest * 4 + 3] = halfFloat(1)
-      }
+  const [rendered, tags] = await Promise.allSettled([
+    exportRenditions(job, undefined, (rgb, geometry) =>
+      pendingTags.then((exif) => encodeSdr(rgb, geometry, exif)),
+    ),
+    pendingTags,
+  ])
+  if (rendered.status === 'rejected') throw rendered.reason
+  if (tags.status === 'rejected') throw tags.reason
+  const rendition = rendered.value
+  const { rgb, half, geometry, contentHeadroom } = rendition
+  const diagnostics: ExportDiagnostics = {
+    renderer: rendition.diagnostics.renderer,
+    adapter: rendition.diagnostics.adapter,
+    rendererFallback: rendition.diagnostics.rendererFallback,
+    gpuMemoryBytes: rendition.diagnostics.gpuPeakBytes,
+    encoder: 'sdr',
+    stages: {
+      renditionMs: rendition.diagnostics.renderMs,
+      resizeMs: rendition.diagnostics.resizeMs,
+      gpuInitializeMs: rendition.diagnostics.gpuInitializeMs,
+      gpuTilesMs: rendition.diagnostics.gpuTilesMs,
+      gpuPackingMs: rendition.diagnostics.gpuPackingMs,
+      metadataMs,
     },
-  )
-  const exif = await metadata(job)
-  let encoder = sharp(rgb, { raw: { ...geometry, channels: 3 } }).withIccProfile('srgb')
-  if (exif) encoder = encoder.withExif(exif)
-  const sdr = await encoder
-    .jpeg({
-      quality: job.options.quality,
-      chromaSubsampling: '4:4:4',
-      progressive: false,
-      optimiseCoding: true,
-    })
-    .toBuffer()
+  }
+  const sdr = await (rendition.earlyPrimary ?? encodeSdr(rgb, geometry, tags.value))
+  diagnostics.stages.sdrEncodeMs = sdrEncodeMs
+  let stage: number
   let output = sdr
+  let renderedPath: string | undefined,
+    primaryWritten = false
   if (half) {
-    const codec = await loadUltraHdr()
-    output = codec.encode(
-      new Uint8Array(half.buffer),
+    stage = performance.now()
+    const encoded = await encodeExportHdr(
+      half,
       geometry.width,
       geometry.height,
       sdr,
       job.options.quality,
       contentHeadroom,
+      job.directory,
     )
-    const inspected = codec.inspect(output)
-    if (
-      inspected.info[18] !== geometry.width ||
-      inspected.info[19] !== geometry.height ||
-      inspected.info[20] !== geometry.width ||
-      inspected.info[21] !== geometry.height
-    )
-      throw new Error('Invalid HDR JPEG rendition geometry.')
-    // A second independent JPEG decoder must see the exact supplied primary pixels.
-    const decoded = await sharp(output).raw().toBuffer()
-    const supplied = await sharp(sdr).raw().toBuffer()
-    if (!decoded.equals(supplied))
-      throw new Error('HDR packaging changed the supplied SDR primary.')
+    output = encoded.output
+    renderedPath = encoded.path
+    primaryWritten = encoded.primaryWritten
+    diagnostics.encoder = encoded.backend
+    diagnostics.encoderMemory = encoded.memory
+    diagnostics.encoderFallback = encoded.fallback
+    diagnostics.stages.hdrEncodeMs = performance.now() - stage
+    stage = performance.now()
+    validatePrimary(output, sdr)
+    diagnostics.stages.primaryValidationMs = performance.now() - stage
   }
+  stage = performance.now()
   const info = await sharp(output).metadata()
   if (
     info.format !== 'jpeg' ||
@@ -250,9 +152,12 @@ export async function renderExport(job: ExportRenderJob) {
     info.isProgressive
   )
     throw new Error('Invalid exported JPEG.')
-  const path = join(job.directory, 'output.jpg')
-  await writeFile(path, output, { flag: 'wx' })
+  const path = renderedPath ?? join(job.directory, 'output.jpg')
+  if (!renderedPath) await writeFile(path, output, { flag: 'wx' })
   // Retained only inside this disposable job directory, useful to correctness tests.
-  await writeFile(join(job.directory, 'sdr.jpg'), sdr, { flag: 'wx' })
-  return { path, sha256: createHash('sha256').update(output).digest('hex') }
+  if (!primaryWritten) await writeFile(join(job.directory, 'sdr.jpg'), sdr, { flag: 'wx' })
+  const sha256 = createHash('sha256').update(output).digest('hex')
+  diagnostics.stages.validationAndWriteMs = performance.now() - stage
+  diagnostics.stages.workerMs = performance.now() - start
+  return { path, sha256, diagnostics }
 }

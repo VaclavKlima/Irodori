@@ -46,6 +46,7 @@ int luma_encode(void* half, unsigned width, unsigned height, void* jpeg, unsigne
     check(uhdr_enc_set_using_multi_channel_gainmap(encoder, 1));
     check(uhdr_enc_set_gainmap_scale_factor(encoder, 1));
     check(uhdr_enc_set_quality(encoder, quality, UHDR_GAIN_MAP_IMG));
+    check(uhdr_enc_set_preset(encoder, UHDR_USAGE_BEST_QUALITY));
     // Describe actual content headroom so a capable display applies the full map.
     // This changes metadata, never the fixed Luma HDR rendition's pixel values.
     check(uhdr_enc_set_target_display_peak_brightness(encoder, 203.0f * headroom));

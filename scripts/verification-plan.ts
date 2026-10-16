@@ -4,7 +4,7 @@ export const scopes = ['ui', 'adjustments', 'preview', 'library', 'mcp'] as cons
 export type Scope = (typeof scopes)[number]
 export type Group = 'node' | 'service' | 'electron' | 'raw-gpu' | 'benchmark'
 export type Phase = 'functional' | 'benchmark'
-export type BenchmarkFamily = 'preview' | 'adjustments' | 'hdr' | 'merge'
+export type BenchmarkFamily = 'preview' | 'adjustments' | 'hdr' | 'merge' | 'export'
 
 // Every spec belongs to exactly one execution group. Scope membership is explicit;
 // selecting several scopes runs their union, independent of the working tree.
@@ -17,6 +17,9 @@ interface Suite {
 }
 const definitions: Suite[] = [
   { file: 'export-model', group: 'node', scopes: ['library'] },
+  { file: 'export-jpeg', group: 'node', scopes: ['library'] },
+  { file: 'export-gpu', group: 'raw-gpu', scopes: ['preview', 'library'] },
+  { file: 'export-native', group: 'raw-gpu', scopes: ['library'] },
   { file: 'export-context', group: 'service', scopes: ['library', 'mcp'] },
   { file: 'export-rendering', group: 'raw-gpu', scopes: ['preview', 'library'] },
   { file: 'export-ui', group: 'electron', scopes: ['ui', 'library', 'mcp'] },
@@ -191,7 +194,7 @@ const definitions: Suite[] = [
     group: 'raw-gpu' as const,
     scopes: ['library'] as Scope[],
   })),
-  ...(['preview', 'adjustments', 'hdr', 'merge'] as BenchmarkFamily[]).map((family) => ({
+  ...(['preview', 'adjustments', 'hdr', 'merge', 'export'] as BenchmarkFamily[]).map((family) => ({
     file: `${family === 'adjustments' ? 'adjustment' : family}-benchmark`,
     group: 'benchmark' as const,
     scopes: [] as Scope[],
@@ -258,7 +261,8 @@ export function selectPlan(args: string[]): VerificationPlan {
     '--benchmark': ['preview'],
     '--hdr-benchmark': ['hdr'],
     '--merge-benchmark': ['merge'],
-    '--benchmark-all': ['preview', 'adjustments', 'hdr', 'merge'],
+    '--export-benchmark': ['export'],
+    '--benchmark-all': ['preview', 'adjustments', 'hdr', 'merge', 'export'],
   }
   let selected: typeof suites
   let mcp = false
@@ -360,7 +364,7 @@ export function selectPlan(args: string[]): VerificationPlan {
       true,
     )
   }
-  for (const family of ['preview', 'adjustments', 'hdr', 'merge'] as BenchmarkFamily[])
+  for (const family of ['preview', 'adjustments', 'hdr', 'merge', 'export'] as BenchmarkFamily[])
     add(
       'benchmark',
       selected.filter((s) => s.family === family),

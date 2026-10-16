@@ -38,6 +38,25 @@ export interface ExportFile extends Omit<ExportResult, 'status'> {
   partial?: string
   identity?: FileIdentity
   sha256?: string
+  diagnostics?: ExportDiagnostics
+}
+export interface ExportDiagnostics {
+  renderer: 'gpu' | 'cpu'
+  encoder: 'native' | 'wasm' | 'sdr'
+  adapter?: string
+  rendererFallback?: string
+  gpuMemoryBytes?: number
+  encoderFallback?: string
+  encoderMemory?: { kind: 'process-rss' | 'wasm-heap'; peakBytes: number }
+  sourceBackend?: string
+  sourceFallback?: string
+  retries?: number
+  stages: Record<string, number>
+}
+export interface ExportRenderResult {
+  path: string
+  sha256: string
+  diagnostics?: ExportDiagnostics
 }
 export interface ExportRenderJob {
   source: ExportSource
