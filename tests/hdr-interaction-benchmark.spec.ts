@@ -566,7 +566,8 @@ test(
         expect(result.renderedAfter).toBe(result.renderedBefore)
         expect(result.p95Ms).toBeLessThanOrEqual(33)
         expect(result.presentations.every((frame) => frame.quality === 'normal')).toBe(true)
-      } else expect(result.presentations.some((frame) => frame.quality === 'draft')).toBe(true)
+      }
+      expect(result.presentations.every((frame) => frame.quality === 'normal')).toBe(true)
     }
     await finishBenchmarkImport(page, importTask)
   },

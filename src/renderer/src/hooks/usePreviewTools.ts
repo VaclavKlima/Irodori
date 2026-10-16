@@ -13,6 +13,7 @@ export interface PreviewToolsState {
   highlights: boolean
   hover: 'shadows' | 'highlights' | null
   analysis?: ImageStatistics | HdrStatistics
+  analysisPending?: boolean
   analysisError?: string
 }
 const initial: PreviewToolsState = {

@@ -1,19 +1,19 @@
+export type HdrRequestIntent = 'interactive' | 'navigation' | 'refinement'
 export interface HdrEditRequest<T> {
-  serial: number
-  epoch: number
-  draft: boolean
-  navigation: boolean
-  value: T
+  readonly serial: number
+  readonly epoch: number
+  readonly intent: HdrRequestIntent
+  readonly value: T
 }
-/** One active immutable snapshot and one replaceable pending request. */
+/** Intent controls supersession independently of the rendering's sampling quality. */
 export class HdrEditQueue<T> {
   private serial = 0
   private epoch = 0
   private pending?: HdrEditRequest<T>
   private active?: HdrEditRequest<T>
   private completed = 0
-  request(value: T, draft: boolean, navigation = false) {
-    const request = { serial: ++this.serial, epoch: this.epoch, draft, navigation, value }
+  request(value: T, intent: HdrRequestIntent) {
+    const request = Object.freeze({ serial: ++this.serial, epoch: this.epoch, intent, value })
     this.pending = request
     return request.serial
   }
@@ -28,7 +28,7 @@ export class HdrEditQueue<T> {
     return this.active
   }
   superseded(request: HdrEditRequest<T>) {
-    return request.epoch !== this.epoch || (!request.draft && !request.navigation && !!this.pending)
+    return request.epoch !== this.epoch || (request.intent === 'refinement' && !!this.pending)
   }
   get hasPending() {
     return !!this.pending
@@ -36,11 +36,11 @@ export class HdrEditQueue<T> {
   finish(request: HdrEditRequest<T>) {
     if (this.active !== request) return false
     this.active = undefined
-    // Movement and adjustment drafts advance during input. Idle refinement yields to new input.
+    // Sharp completed movement and interactive frames advance even when more input arrives.
     if (
       request.epoch !== this.epoch ||
       request.serial <= this.completed ||
-      (!request.draft && !request.navigation && this.pending)
+      (request.intent === 'refinement' && this.pending)
     )
       return false
     this.completed = request.serial

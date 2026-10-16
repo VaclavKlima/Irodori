@@ -110,27 +110,48 @@ test('HDR edits retain the photograph, histogram geometry and source upload thro
       .locator('path')
       .evaluateAll((paths) => paths.map((p) => p.getAttribute('d')))
   await expect(histogram).toHaveAttribute('data-samples', '65536')
-  // Let the 80 ms curve retarget settle; use two stable observations rather than a delay.
-  const stablePaths = async () => {
-    let previous = await getPaths()
-    for (let i = 0; i < 8; i++) {
-      await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => r())))
-      const next = await getPaths()
-      if (JSON.stringify(next) === JSON.stringify(previous)) return next
-      previous = next
-    }
-    return previous
+  const settledHistogram = async () => {
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const canvas = document.querySelector<HTMLElement>('[data-testid="main-preview"]')!
+          const histogram = document.getElementById('histogram')!
+          const plot = histogram.querySelector<SVGSVGElement>('svg[role="slider"]')!
+          return (
+            canvas.dataset.completedEditSerial === canvas.dataset.requestedSerial &&
+            canvas.dataset.analysisPending === 'false' &&
+            !!canvas.dataset.analysisKey &&
+            canvas.dataset.analysisKey === canvas.dataset.displayedAnalysisKey &&
+            histogram.dataset.editSerial === canvas.dataset.analysisSerial &&
+            plot.dataset.curveEditSerial === canvas.dataset.analysisSerial &&
+            plot.dataset.animating === 'false'
+          )
+        }),
+      )
+      .toBe(true)
   }
-  const paths = await stablePaths()
+  await settledHistogram()
+  const paths = await getPaths()
   for (const mode of ['sdr', 'hdr'] as const) {
     await page.getByLabel('Preview display mode').selectOption(mode)
+    await expect
+      .poll(async () => {
+        const target = await page.evaluate(() => window.luma.getDisplayState())
+        return (
+          target.mode === mode &&
+          (await canvas.getAttribute('data-target-generation')) === String(target.generation)
+        )
+      })
+      .toBe(true)
     await expect(canvas).toHaveAttribute('data-quality', 'normal')
+    await settledHistogram()
     await expect.poll(getPaths).toEqual(paths)
     await expect(canvas).toHaveAttribute('data-source-uploads', '1')
   }
   await canvas.focus()
   await canvas.press('1')
   await canvas.press('ArrowRight')
+  await settledHistogram()
   await expect.poll(getPaths).toEqual(paths)
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
@@ -169,4 +190,111 @@ test('HDR edits retain the photograph, histogram geometry and source upload thro
     Math.max(...observed.histogramHeights) - Math.min(...observed.histogramHeights),
   ).toBeLessThan(0.1)
   await page.screenshot({ path: info.outputPath('minimum-console-hdr.png') })
+})
+
+test('sharp edits advance while one histogram readback is held and converge to the latest pending edit', async ({
+  luma,
+}) => {
+  test.setTimeout(90000)
+  const { app, page } = luma
+  await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
+  const canvas = page.getByTestId('main-preview')
+  const histogram = page.locator('#histogram')
+  await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr', { timeout: 60000 })
+  await expect(histogram).toHaveAttribute('data-samples', '65536', { timeout: 60000 })
+  await expect(histogram).toHaveAttribute('data-pending', 'false')
+  const before = await histogram.boundingBox()
+  const initialSerial = await histogram.getAttribute('data-edit-serial')
+  await page.evaluate(() => {
+    const native = GPUBuffer.prototype.mapAsync
+    const state = { calls: 0, release: () => undefined as void }
+    GPUBuffer.prototype.mapAsync = async function (...args) {
+      const mapped = native.apply(this, args)
+      if (this.size !== 1801 * 4) return mapped
+      state.calls++
+      await mapped
+      await new Promise<void>((resolve) => {
+        state.release = resolve
+      })
+    }
+    Object.assign(window, {
+      heldHdrHistogram: {
+        state,
+        release: () => {
+          GPUBuffer.prototype.mapAsync = native
+          state.release()
+        },
+      },
+    })
+  })
+  const input = async (value: number) => {
+    await page.evaluate((value) => {
+      const label = Array.from(document.querySelectorAll('label')).find(
+        (label) => label.textContent === 'Exposure',
+      )!
+      const slider = document.getElementById(label.htmlFor) as HTMLInputElement
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        slider,
+        String(value),
+      )
+      slider.dispatchEvent(new Event('input', { bubbles: true }))
+    }, value)
+    await expect(canvas).toHaveAttribute('data-exposure', String(value))
+    await expect(canvas).toHaveAttribute('data-quality', 'normal')
+  }
+  try {
+    await input(0.5)
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { heldHdrHistogram: { state: { calls: number } } })
+              .heldHdrHistogram.state.calls,
+        ),
+      )
+      .toBe(1)
+    await input(1)
+    await input(1.5)
+    await expect(canvas).toHaveAttribute('data-source-uploads', '1')
+    await expect(histogram).toHaveAttribute('data-edit-serial', initialSerial!)
+    await expect(histogram).toHaveAttribute('data-pending', 'true')
+    await expect(histogram.getByRole('status')).toHaveText('Updating histogram…')
+    const after = await histogram.boundingBox()
+    expect(after!.height).toBeCloseTo(before!.height, 4)
+    expect(
+      await page.evaluate(
+        () =>
+          (window as unknown as { heldHdrHistogram: { state: { calls: number } } }).heldHdrHistogram
+            .state.calls,
+      ),
+    ).toBe(1)
+  } finally {
+    await page.evaluate(() =>
+      (
+        window as unknown as { heldHdrHistogram: { release: () => void } }
+      ).heldHdrHistogram.release(),
+    )
+  }
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const canvas = document.querySelector<HTMLElement>('[data-testid="main-preview"]')!
+        const histogram = document.getElementById('histogram')!
+        return (
+          histogram.dataset.editSerial === canvas.dataset.completedEditSerial &&
+          histogram.dataset.pending === 'false'
+        )
+      }),
+    )
+    .toBe(true)
+  await page.evaluate(() => {
+    const label = Array.from(document.querySelectorAll('label')).find(
+      (label) => label.textContent === 'Exposure',
+    )!
+    document
+      .getElementById(label.htmlFor)!
+      .dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+  })
+  await expect(histogram).toHaveAttribute('data-samples', '65536')
+  await expect(histogram).toHaveAttribute('data-pending', 'false')
 })
