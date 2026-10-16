@@ -4,7 +4,7 @@ export const scopes = ['ui', 'adjustments', 'preview', 'library', 'mcp'] as cons
 export type Scope = (typeof scopes)[number]
 export type Group = 'node' | 'service' | 'electron' | 'raw-gpu' | 'benchmark'
 export type Phase = 'functional' | 'benchmark'
-export type BenchmarkFamily = 'preview' | 'adjustments' | 'hdr' | 'merge' | 'export'
+export type BenchmarkFamily = 'preview' | 'adjustments' | 'hdr' | 'merge' | 'export' | 'research'
 
 // Every spec belongs to exactly one execution group. Scope membership is explicit;
 // selecting several scopes runs their union, independent of the working tree.
@@ -16,6 +16,20 @@ interface Suite {
   family?: BenchmarkFamily
 }
 const definitions: Suite[] = [
+  { file: 'research-pipeline', group: 'node', scopes: [] },
+  ...[
+    'research-native',
+    'research-measurements',
+    'research-libraries',
+    'research-gpu',
+    'research-presentation',
+    'research-background',
+  ].map((file) => ({
+    file,
+    group: 'benchmark' as const,
+    scopes: [] as Scope[],
+    family: 'research' as const,
+  })),
   { file: 'export-model', group: 'node', scopes: ['library'] },
   { file: 'export-jpeg', group: 'node', scopes: ['library'] },
   { file: 'export-gpu', group: 'raw-gpu', scopes: ['preview', 'library'] },
@@ -262,7 +276,7 @@ export function selectPlan(args: string[]): VerificationPlan {
     '--hdr-benchmark': ['hdr'],
     '--merge-benchmark': ['merge'],
     '--export-benchmark': ['export'],
-    '--benchmark-all': ['preview', 'adjustments', 'hdr', 'merge', 'export'],
+    '--benchmark-all': ['preview', 'adjustments', 'hdr', 'merge', 'export', 'research'],
   }
   let selected: typeof suites
   let mcp = false
@@ -364,7 +378,14 @@ export function selectPlan(args: string[]): VerificationPlan {
       true,
     )
   }
-  for (const family of ['preview', 'adjustments', 'hdr', 'merge', 'export'] as BenchmarkFamily[])
+  for (const family of [
+    'preview',
+    'adjustments',
+    'hdr',
+    'merge',
+    'export',
+    'research',
+  ] as BenchmarkFamily[])
     add(
       'benchmark',
       selected.filter((s) => s.family === family),

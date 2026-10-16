@@ -36,7 +36,10 @@
     "benchmark:merge": "node scripts/verify.mjs --merge-benchmark",
     "benchmark:export": "node scripts/verify.mjs --export-benchmark",
     "build:export-native": "bash scripts/ultrahdr/build-native.sh",
-    "benchmark:all": "node scripts/verify.mjs --benchmark-all"
+    "benchmark:all": "node scripts/verify.mjs --benchmark-all",
+    "research:pipeline": "node scripts/verify.mjs --target research-pipeline --target research-native",
+    "research:measure": "node scripts/verify.mjs --target research-measurements --target research-libraries --target research-gpu",
+    "research:presentation": "node scripts/verify.mjs --target research-presentation"
   },
   "dependencies": {
     "@colorhythm/libraw-wasm": "^1.1.1",
@@ -60,6 +63,7 @@
     "@webgpu/types": "0.1.72",
     "electron": "44.3.0",
     "electron-vite": "5.0.0",
+    "esbuild": "0.25.12",
     "eslint": "10.10.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-react-hooks": "7.1.1",
