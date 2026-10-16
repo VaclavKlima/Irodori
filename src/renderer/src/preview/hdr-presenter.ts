@@ -187,6 +187,13 @@ export class HdrPresenter {
     this.renderingWorker.postMessage({ content: true })
   }
   private configure(target: DisplayTarget) {
+    const previous = this.context!.getConfiguration()
+    if (previous && previous.colorSpace !== target.colorSpace) {
+      // Chromium can retain the previous drawing-buffer primaries across configure().
+      // A same-size reset clears that state before the completed frame is blitted.
+      const { width } = this.canvas
+      this.canvas.width = width
+    }
     this.context!.configure({
       device: this.device!,
       format: 'rgba16float',
