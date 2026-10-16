@@ -1,5 +1,13 @@
 import { createTileStudy, type TileRequest } from './gpu-study.ts'
-import { interaction, distribution, type InputEvent, type PresentedEvent } from './metrics.ts'
+import {
+  FrameInputSchedule,
+  meetsSamplingFrequency,
+  SAMPLING_FREQUENCY_FRACTION,
+  interaction,
+  distribution,
+  type InputEvent,
+  type PresentedEvent,
+} from './metrics.ts'
 import { readHdrUploadBytes, validateHdrStrip } from '../../../src/renderer/src/preview/hdr-stream'
 
 interface PresentationOptions {
@@ -88,8 +96,14 @@ export async function runPresentationStudy(options: PresentationOptions) {
       previous = next
     }
     const displayInterval = distribution(intervals)
-    const available = displayInterval.median <= (options.frequency === 120 ? 10 : 20)
+    const measuredDisplayFrequencyHz =
+      (1000 * intervals.length) / intervals.reduce((sum, interval) => sum + interval, 0)
+    const displayFrequencyAvailable = meetsSamplingFrequency(
+      measuredDisplayFrequencyHz,
+      options.frequency,
+    )
     const cases: unknown[] = []
+    let allInputSamplingRequirementsMet = true
     const base: TileRequest = {
       viewport: { width: bounds.width, height: bounds.height },
       view: {
@@ -107,7 +121,7 @@ export async function runPresentationStudy(options: PresentationOptions) {
       histogram: true,
     }
     let activeSerial = 0
-    for (const zoom of available ? ['fit', '100%', '800%'] : [])
+    for (const zoom of displayFrequencyAvailable ? ['fit', '100%', '800%'] : [])
       for (const quality of ['draft', 'normal'] as const)
         for (let repetition = 0; repetition < options.repetitions; repetition++) {
           const view = {
@@ -147,13 +161,12 @@ export async function runPresentationStudy(options: PresentationOptions) {
               }
             }
           }
-          let nextInputAt = performance.now()
+          const inputSchedule = new FrameInputSchedule(options.frequency)
           for (let i = 0; i < options.inputFrames; i++) {
-            let now = await frame()
-            while (now + 0.5 < nextInputAt) now = await frame()
-            nextInputAt = now + 1000 / options.frequency
+            let timing = inputSchedule.takeFrame(await frame())
+            while (!timing) timing = inputSchedule.takeFrame(await frame())
             const serial = ++activeSerial
-            inputs.push({ serial, at: performance.now() })
+            inputs.push({ serial, at: performance.now(), ...timing })
             pending = { serial, parameters: options.parameters[i % options.parameters.length] }
             if (!working)
               working = pump()
@@ -189,14 +202,27 @@ export async function runPresentationStudy(options: PresentationOptions) {
             quality: 'normal',
           })
           await frame()
+          const measuredInteraction = interaction(inputs, presentations)
+          const inputSamplingRequirementMet = meetsSamplingFrequency(
+            measuredInteraction.inputCadence.frequencyHz,
+            options.frequency,
+          )
+          allInputSamplingRequirementsMet &&= inputSamplingRequirementMet
           cases.push({
             zoom,
             quality,
             repetition,
             requestedFrequency: options.frequency,
             measuredDisplayIntervalMs: displayInterval,
-            frequencyAvailable: available,
+            measuredDisplayFrequencyHz,
+            displayFrequencyAvailable,
+            inputSamplingRequirementMet,
+            frequencyAvailable: displayFrequencyAvailable && inputSamplingRequirementMet,
+            minimumSamplingFrequencyFraction: SAMPLING_FREQUENCY_FRACTION,
             inputPolicy: 'latest pending; cancel at completed tile batches',
+            inputTimingPolicy:
+              'absolute deadlines accumulated from first native rAF; at most one input per native frame; actual dispatch and frame timestamps retained',
+            inputFrameToleranceMs: inputSchedule.frameToleranceMs,
             inputOperators: [
               'Exposure',
               'Contrast',
@@ -207,7 +233,7 @@ export async function runPresentationStudy(options: PresentationOptions) {
               'Temperature',
               'Tint',
             ],
-            ...interaction(inputs, presentations),
+            ...measuredInteraction,
             inputs,
             presentations,
             completed,
@@ -216,7 +242,7 @@ export async function runPresentationStudy(options: PresentationOptions) {
           })
         }
     const navigation: unknown[] = []
-    for (const cold of available ? [true, false] : []) {
+    for (const cold of displayFrequencyAvailable ? [true, false] : []) {
       for (let repetition = 0; repetition < 3; repetition++) {
         const samples: number[] = [],
           frames = []
@@ -274,7 +300,12 @@ export async function runPresentationStudy(options: PresentationOptions) {
       errors,
       measurementBoundary:
         'Research canvas using production operators/shaders and managed RAW; bypasses React input/history and transport. Actual slider benchmark remains separate.',
-      frequencyAvailable: available,
+      measuredDisplayFrequencyHz,
+      displayFrequencyAvailable,
+      inputSamplingRequirementMet: cases.length > 0 && allInputSamplingRequirementsMet,
+      minimumSamplingFrequencyFraction: SAMPLING_FREQUENCY_FRACTION,
+      frequencyAvailable:
+        displayFrequencyAvailable && cases.length > 0 && allInputSamplingRequirementsMet,
     }
   } finally {
     await cleanup()

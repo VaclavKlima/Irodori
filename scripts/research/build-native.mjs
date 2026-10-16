@@ -118,6 +118,9 @@ export function buildNative(component, directory = build) {
     }
     sources.push(resolve(root, `scripts/research/native/${component}.cpp`))
   } else if (/^hdr-[124]$/.test(component)) {
+    // The unchanged production bridge relies on a transitive integer header on
+    // macOS. Supply it explicitly for this isolated GCC research build.
+    if (process.platform === 'linux') flags.push('-include', 'cstdint')
     const threads = Number(component.slice(-1)),
       upstream = resolve(root, 'artifacts/ultrahdr-native-build')
     for (const [archive, expected] of Object.entries({

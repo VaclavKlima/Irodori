@@ -1,8 +1,12 @@
 # Photo fixtures
 
-`tests/hdr-jpeg.helpers.ts` generates original synthetic gray, white, HDR and color reference charts at runtime. These generated reference pixels are dedicated to the public domain under CC0-1.0, like the export gain-map vectors. User photographs are never added to the fixture set.
+`tests/hdr-jpeg.helpers.ts` generates original synthetic gray, white, HDR and color reference charts at runtime. These generated reference pixels are dedicated to the public domain under CC0-1.0, like the export gain-map vectors. User photographs require explicit repository-inclusion permission; the research set below is the authorized exception.
 
 These files are used only by automated tests. Luma never loads them into a user's library automatically.
+
+## Sony research sequences
+
+[research-sony](research-sony/README.md) contains fifteen unchanged Sony ZV-1A SD-card originals: one real three-frame HDR BRK capture and a twelve-frame noise burst. The user explicitly requested repository inclusion for reproducible benchmarks across Linux and Mac. Its manifest records provenance, per-file hashes, recording/capture facts and dimensions; its notice grants no general open-content license. This permission applies only to this set. Other private photographs and generated evidence remain outside Git.
 
 ## Sony ZV-1
 

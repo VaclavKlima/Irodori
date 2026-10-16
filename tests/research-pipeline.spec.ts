@@ -8,7 +8,14 @@ import { adaptLegacy, imageSpec, node, workloads } from '../scripts/research/pip
 import { whole, type Evaluation, type Recipe } from '../scripts/research/pipeline/contract'
 import { initialSettings } from '../src/shared/edits'
 import { ResearchScheduler } from '../scripts/research/pipeline/scheduler'
-import { detail, interaction, SharpNavigationTiles } from '../scripts/research/pipeline/metrics'
+import {
+  cadence,
+  detail,
+  FrameInputSchedule,
+  interaction,
+  meetsSamplingFrequency,
+  SharpNavigationTiles,
+} from '../scripts/research/pipeline/metrics'
 
 const request = (recipe: Recipe, revision = 1): Evaluation => ({
   purpose: 'preview',
@@ -422,4 +429,100 @@ test('foreground work preempts at cooperative boundaries; two-photo admission an
       })(),
     }),
   ).rejects.toThrow()
+})
+
+for (const requested of [60, 120])
+  test(`absolute deadlines preserve ${requested} Hz average on 144 Hz native frames`, () => {
+    const clock = new FrameInputSchedule(requested)
+    const samples = []
+    for (let frame = 0; frame <= 1440; frame++) {
+      const sample = clock.takeFrame(1000 + (frame * 1000) / 144)
+      if (sample) samples.push(sample)
+    }
+    const measured = cadence(samples.map((sample) => sample.nativeFrameAt))
+    expect(samples).toHaveLength(requested * 10 + 1)
+    expect(samples[0]).toEqual({ scheduledAt: 1000, nativeFrameAt: 1000 })
+    expect(measured.frequencyHz).toBeCloseTo(requested, 8)
+    expect(measured.intervalMs!.min).toBeGreaterThan(1000 / 144 - 1e-8)
+    expect(measured.intervalMs!.max).toBeLessThanOrEqual(
+      (Math.ceil(144 / requested) * 1000) / 144 + 1e-8,
+    )
+    for (const [index, sample] of samples.entries()) {
+      expect(sample.scheduledAt).toBeCloseTo(1000 + (index * 1000) / requested, 8)
+      expect(sample.nativeFrameAt - sample.scheduledAt).toBeLessThan(1000 / 144)
+    }
+  })
+for (const [native, requested] of [
+  [60, 120],
+  [144, 240],
+])
+  test(`${native} Hz native frames cannot fabricate ${requested} Hz inputs`, () => {
+    const clock = new FrameInputSchedule(requested)
+    const samples = []
+    for (let frame = 0; frame <= native * 10; frame++) {
+      const at = (frame * 1000) / native
+      const sample = clock.takeFrame(at)
+      if (sample) samples.push(sample)
+      expect(clock.takeFrame(at)).toBeUndefined()
+    }
+    expect(cadence(samples.map((sample) => sample.nativeFrameAt)).frequencyHz).toBeCloseTo(
+      native,
+      8,
+    )
+    expect(samples.at(-1)!.nativeFrameAt - samples.at(-1)!.scheduledAt).toBeGreaterThan(1000)
+  })
+test('input cadence retains actual dispatch delays and absolute deadlines after stalled frames', () => {
+  const clock = new FrameInputSchedule(60)
+  const first = clock.takeFrame(1000)!
+  const late = clock.takeFrame(1100)!
+  const next = clock.takeFrame(1107)!
+  expect(late.scheduledAt).toBeCloseTo(1000 + 1000 / 60, 8)
+  expect(next.scheduledAt).toBeCloseTo(1000 + 2000 / 60, 8)
+  const measured = interaction(
+    [first, late, next].map((sample, serial) => ({
+      ...sample,
+      serial,
+      at: sample.nativeFrameAt + 2,
+    })),
+    [{ serial: 2, at: 1120 }],
+  )
+  expect(measured.inputCadence.frequencyHz).toBeCloseTo(2000 / 107, 8)
+  expect(measured.inputCadence.intervalMs!.observations).toEqual([100, 7])
+  expect(measured.inputDeadlineOffsetMs!.observations).toEqual([
+    2,
+    1102 - late.scheduledAt,
+    1109 - next.scheduledAt,
+  ])
+  expect(cadence([1000]).frequencyHz).toBeNull()
+  expect(cadence([1000]).intervalMs).toBeNull()
+  expect(() => cadence([1000, 1000])).toThrow('increasing')
+  expect(() => cadence([1000, NaN])).toThrow('finite')
+  expect(() => new FrameInputSchedule(0)).toThrow('positive')
+  expect(() => clock.takeFrame(1090)).toThrow('ordered')
+})
+
+test('sampling completeness requires native and actual input cadence within one percent of the requested frequency', () => {
+  for (const [actual, requested] of [
+    [100, 120],
+    [50, 60],
+    [48, 60],
+    [72, 120],
+  ])
+    expect(meetsSamplingFrequency(actual, requested)).toBe(false)
+  for (const [actual, requested] of [
+    [144, 120],
+    [120, 120],
+    [60, 60],
+    [119.9077, 120],
+    [59.9569, 60],
+  ])
+    expect(meetsSamplingFrequency(actual, requested)).toBe(true)
+  expect(meetsSamplingFrequency(118.8, 120)).toBe(true)
+  expect(meetsSamplingFrequency(118.79, 120)).toBe(false)
+  expect(meetsSamplingFrequency(null, 120)).toBe(false)
+  expect(meetsSamplingFrequency(NaN, 120)).toBe(false)
+  expect(() => meetsSamplingFrequency(144, 0)).toThrow('positive')
+  const display = meetsSamplingFrequency(144, 120)
+  const underdrivenInputs = [120, 119.9, 72].map((actual) => meetsSamplingFrequency(actual, 120))
+  expect(display && underdrivenInputs.every(Boolean)).toBe(false)
 })

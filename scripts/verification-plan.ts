@@ -17,11 +17,13 @@ interface Suite {
 }
 const definitions: Suite[] = [
   { file: 'research-pipeline', group: 'node', scopes: [] },
+  { file: 'research-resources', group: 'node', scopes: [] },
   ...[
     'research-native',
     'research-measurements',
     'research-libraries',
     'research-gpu',
+    'research-wgpu',
     'research-presentation',
     'research-background',
   ].map((file) => ({

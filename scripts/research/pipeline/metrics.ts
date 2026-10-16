@@ -70,9 +70,64 @@ export function detail(
     visualReview: 'unreviewed',
   }
 }
+/** Absolute input deadlines avoid rounding every requested interval up to whole display frames. */
+export class FrameInputSchedule {
+  private epoch: number | undefined
+  private previousFrame: number | undefined
+  private index = 0
+  readonly frameToleranceMs = 0.5
+  constructor(readonly frequency: number) {
+    if (!Number.isFinite(frequency) || frequency <= 0)
+      throw new Error('Input frequency must be finite and positive.')
+  }
+  takeFrame(nativeFrameAt: number) {
+    if (
+      !Number.isFinite(nativeFrameAt) ||
+      (this.previousFrame !== undefined && nativeFrameAt < this.previousFrame)
+    )
+      throw new Error('Native frame timestamps must be finite and ordered.')
+    // A late input can catch up only on later native frames, never by issuing a burst.
+    if (nativeFrameAt === this.previousFrame) return undefined
+    this.previousFrame = nativeFrameAt
+    this.epoch ??= nativeFrameAt
+    const scheduledAt = this.epoch + (this.index * 1000) / this.frequency
+    if (nativeFrameAt + this.frameToleranceMs < scheduledAt) return undefined
+    this.index++
+    return { scheduledAt, nativeFrameAt }
+  }
+}
+export function cadence(timestamps: readonly number[]) {
+  if (
+    !timestamps.length ||
+    timestamps.some((at, i) => !Number.isFinite(at) || (i > 0 && at <= timestamps[i - 1]))
+  )
+    throw new Error('Cadence needs finite, strictly increasing timestamps.')
+  const intervals = timestamps.slice(1).map((at, i) => at - timestamps[i])
+  const elapsedMs = timestamps.at(-1)! - timestamps[0]
+  return {
+    frequencyHz: intervals.length ? (intervals.length * 1000) / elapsedMs : null,
+    intervalMs: intervals.length ? distribution(intervals) : null,
+    firstAt: timestamps[0],
+    lastAt: timestamps.at(-1)!,
+    elapsedMs,
+  }
+}
+// Completeness allowance for clock rounding/jitter, separate from rendering latency gates.
+export const SAMPLING_FREQUENCY_FRACTION = 0.99
+export function meetsSamplingFrequency(actualHz: number | null, requestedHz: number) {
+  if (!Number.isFinite(requestedHz) || requestedHz <= 0)
+    throw new Error('Requested sampling frequency must be finite and positive.')
+  return (
+    actualHz !== null &&
+    Number.isFinite(actualHz) &&
+    actualHz >= requestedHz * SAMPLING_FREQUENCY_FRACTION
+  )
+}
 export interface InputEvent {
   serial: number
   at: number
+  scheduledAt?: number
+  nativeFrameAt?: number
 }
 export interface PresentedEvent {
   serial: number
@@ -101,7 +156,13 @@ export function interaction(inputs: InputEvent[], presentations: PresentedEvent[
     previous = frame.serial
     seen.add(frame.serial)
   }
+  const deadlineOffsets = inputs
+    .filter((input) => input.scheduledAt !== undefined)
+    .map((input) => input.at - input.scheduledAt!)
   return {
+    inputCadence: cadence(inputs.map((input) => input.at)),
+    // Signed offsets retain the documented sub-millisecond frame tolerance and all late inputs.
+    inputDeadlineOffsetMs: deadlineOffsets.length ? distribution(deadlineOffsets) : null,
     inputCount: inputs.length,
     presentationCount: presentations.length,
     missingPresentations: inputs.filter((event) => !seen.has(event.serial)).length,

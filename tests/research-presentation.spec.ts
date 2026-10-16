@@ -109,6 +109,7 @@ for (const [width, height, consoleOpen] of [
             {
               provenance: await provenance([
                 'scripts/research/pipeline/browser-study.ts',
+                'scripts/research/pipeline/metrics.ts',
                 'scripts/research/pipeline/gpu-study.ts',
                 'src/renderer/src/preview/hdr-presenter.ts',
                 'src/shared/aces-wgsl.ts',
@@ -128,7 +129,7 @@ for (const [width, height, consoleOpen] of [
         expect(result.errors).toEqual([])
         test.skip(
           !result.frequencyAvailable,
-          `${frequency} Hz is unavailable at the measured display cadence; evidence retained and this sampling requirement remains incomplete.`,
+          `${frequency} Hz display or actual input sampling did not meet the 99% completeness requirement; evidence retained and this sampling requirement remains incomplete.`,
         )
       },
     )
