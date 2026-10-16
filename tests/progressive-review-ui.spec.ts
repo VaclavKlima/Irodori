@@ -167,6 +167,11 @@ test('preserves checkbox focus and choices when discovery prepends; other contro
     await chosen.uncheck()
     await chosen.focus()
     await control.evaluate((s) => s.prepend(1))
+    // Candidate 59 moves into the second chunk; wait for the new order to mount
+    // before testing recovered focus rather than the pre-prepend input node.
+    await expect(page.getByTestId('import-status')).toContainText('61 found')
+    await expect(page.getByTestId('import-scroll')).toHaveAttribute('data-cache-photos', '61')
+    await expect(page.getByTestId('import-scroll')).toHaveAttribute('aria-busy', 'false')
     await expect(chosen).not.toBeChecked()
     await expect(chosen).toBeFocused()
     await page.keyboard.press('Space')
@@ -174,8 +179,10 @@ test('preserves checkbox focus and choices when discovery prepends; other contro
     const other = page.getByRole('button', { name: 'Select all', exact: true })
     await other.focus()
     await control.evaluate((s) => s.prepend(1))
-    await expect(other).toBeFocused()
     await expect(page.getByTestId('import-status')).toContainText('62 found')
+    await expect(page.getByTestId('import-scroll')).toHaveAttribute('data-cache-photos', '62')
+    await expect(page.getByTestId('import-scroll')).toHaveAttribute('aria-busy', 'false')
+    await expect(other).toBeFocused()
   } finally {
     await control.evaluate((s) => s.releaseAll())
   }

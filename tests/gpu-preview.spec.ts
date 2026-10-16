@@ -1,4 +1,5 @@
-import { ADJUSTMENT_VERSION, neutralAdjustments } from '../src/shared/adjustments'
+import { neutralAdjustments } from '../src/shared/adjustments'
+import { createHash } from 'node:crypto'
 import { LibRaw } from '@colorhythm/libraw-wasm'
 import { expect, test } from '@playwright/test'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -7,6 +8,17 @@ import sharp from 'sharp'
 import { RawGpuRenderer } from '../src/main/gpu/raw-renderer'
 import { readGpuSource, type RawSource } from '../src/main/gpu/raw-source'
 import { PreviewEngine } from '../src/main/preview-engine'
+import { readHdrStrips } from '../src/main/processing/hdr-processing'
+import {
+  adjustHdr,
+  encodeHdr,
+  hdrAdjustmentMatrix,
+  outputHdr,
+  SDR_TARGET,
+  HDR_RAW_SOURCE_VERSION,
+  HDR_ADJUSTMENT_VERSION,
+  HDR_OUTPUT_VERSION,
+} from '../src/shared/hdr'
 
 async function hardwareRender(gpu: RawGpuRenderer, source: RawSource) {
   try {
@@ -177,32 +189,110 @@ test('GPU stripes preserve neutral colors, black, highlights and all flip orient
 })
 
 test('GPU failure falls back to a complete CPU frame with its own matching placeholder', async () => {
+  // This deliberately includes full CPU HDR preparation and the native-size ACES proof.
+  test.setTimeout(120000)
   const output = test.info().outputPath('fallback')
   await mkdir(output, { recursive: true })
-  const engine = new PreviewEngine(undefined, 'auto', {
-    render: async () => {
-      throw new Error('Simulated GPU device loss')
+  const source = await readFile('tests/fixtures/sony-zv1.ARW')
+  let gpuCalls = 0,
+    extracted = false
+  const engine = new PreviewEngine(
+    async () => {
+      extracted = true
+      throw new Error('Embedded extraction must not supply the full preview.')
     },
-    releaseFrame: () => {},
-    close: () => {},
-  })
+    'auto',
+    {
+      render: async () => {
+        gpuCalls++
+        throw new Error('Simulated GPU device loss')
+      },
+      releaseFrame: () => {},
+      close: () => {},
+    },
+  )
   try {
     const result = await engine.renderFull('tests/fixtures/sony-zv1.ARW', output)
+    expect(gpuCalls).toBe(1)
+    expect(extracted).toBe(false)
     expect(result.renderId).toBe(
-      `libraw-ahd-srgb-cpu-1-${ADJUSTMENT_VERSION}-${JSON.stringify(neutralAdjustments)}null`,
+      `${HDR_RAW_SOURCE_VERSION}-${HDR_ADJUSTMENT_VERSION}-${HDR_OUTPUT_VERSION}-${JSON.stringify(neutralAdjustments)}`,
     )
-    expect(result.diagnostics).toMatchObject({
-      backend: 'cpu',
-      fallback: 'Simulated GPU device loss',
+    expect(result).toMatchObject({
+      width: 5422,
+      height: 3622,
+      format: 'rgba8-srgb',
+      byteLength: 5422 * 3622 * 4,
+      diagnostics: { backend: 'cpu', fallback: 'Error: Simulated GPU device loss' },
     })
     const frame = await readFile(`${output}/full.rgba`)
-    expect(frame.length).toBe(5496 * 3672 * 4)
-    const placeholder = await sharp(frame, { raw: { width: 5496, height: 3672, channels: 4 } })
-      .resize({ width: 96, height: 96, fit: 'inside', withoutEnlargement: true })
+    expect(frame.length).toBe(result.byteLength)
+    expect(createHash('sha256').update(frame).digest('hex')).toBe(result.sha256)
+    const asset = result.linear!.hdr!
+    expect(asset).toMatchObject({
+      width: result.width,
+      height: result.height,
+      byteLength: result.width * result.height * 16,
+      source: { processing: 'hdr-v1', colorSpace: 'rec2020', transfer: 'linear' },
+    })
+    expect(result.linear!.byteLength).toBe(asset.byteLength)
+    expect(result.linear!.sha256).toBe(asset.sha256)
+    const wb = hdrAdjustmentMatrix(neutralAdjustments, asset.whiteBalance) ?? undefined
+    let offset = 0,
+      invalidAlpha = false,
+      aboveWhite = false,
+      negative = false
+    let firstDifference:
+      { position: number; channel: number; actual: number; expected: number } | undefined
+    for await (const strip of readHdrStrips(`${output}/linear.f32`, asset)) {
+      aboveWhite ||= strip.some((value, index) => index % 4 !== 3 && value > 1)
+      negative ||= strip.some((value, index) => index % 4 !== 3 && value < 0)
+      for (let sample = 0; sample < 32; sample++) {
+        const local = Math.floor(((sample + 0.5) * strip.length) / (32 * 4)) * 4
+        const position = offset + local / 4
+        const rgb = outputHdr(
+          adjustHdr([strip[local], strip[local + 1], strip[local + 2]], neutralAdjustments, wb),
+          SDR_TARGET,
+        ).rgb
+        for (let c = 0; c < 3; c++) {
+          const expected = Math.round(encodeHdr(rgb[c]) * 255)
+          const actual = frame[position * 4 + c]
+          if (actual !== expected) firstDifference ??= { position, channel: c, actual, expected }
+        }
+      }
+      offset += strip.length / 4
+    }
+    for (let i = 3; i < frame.length; i += 4) invalidAlpha ||= frame[i] !== 255
+    expect(offset).toBe(result.width * result.height)
+    expect(firstDifference).toBeUndefined()
+    expect(invalidAlpha).toBe(false)
+    expect(aboveWhite).toBe(true)
+    expect(negative).toBe(true)
+    const ratio = Math.min(1, 96 / Math.max(result.width, result.height))
+    const width = Math.max(1, Math.round(result.width * ratio))
+    const height = Math.max(1, Math.round(result.height * ratio))
+    const thumbnail = Buffer.alloc(width * height * 4)
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const from =
+          (Math.floor(((y + 0.5) * result.height) / height) * result.width +
+            Math.floor(((x + 0.5) * result.width) / width)) *
+          4
+        frame.copy(thumbnail, (y * width + x) * 4, from, from + 4)
+      }
+    const placeholder = await sharp(thumbnail, { raw: { width, height, channels: 4 } })
       .withIccProfile('srgb')
       .png()
       .toBuffer()
-    expect(await readFile(`${output}/placeholder.png`)).toEqual(placeholder)
+    const actualPlaceholder = await readFile(`${output}/placeholder.png`)
+    expect(actualPlaceholder.length).toBe(result.placeholderBytes)
+    expect(actualPlaceholder).toEqual(placeholder)
+    expect(await sharp(actualPlaceholder).metadata()).toMatchObject({
+      width,
+      height,
+      hasProfile: true,
+    })
+    expect((await readFile('tests/fixtures/sony-zv1.ARW')).equals(source)).toBe(true)
   } finally {
     await engine.close()
   }
