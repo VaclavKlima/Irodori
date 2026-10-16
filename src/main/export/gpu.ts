@@ -16,16 +16,13 @@ const inputMatrix =
 
 /** Two fixed renditions use the same reference shader, with per-invocation table selection. */
 export function exportShader(hdr: boolean, packed: boolean, workgroup = 64, deferred = false) {
-  const start = displayRenderingWgsl.indexOf('fn dsLog('),
-    end = displayRenderingWgsl.indexOf('fn dsPow(')
-  if (start < 0 || end <= start)
-    throw new Error('Reference ACES precision helpers are unavailable.')
-  const rendering = (
-    displayRenderingWgsl.slice(0, start) +
-    exportPrecisionWgsl +
-    displayRenderingWgsl.slice(end)
-  )
-    .replace('array<vec4f,1573>', 'array<vec4f,3146>')
+  const precision = /fn acesMath\(index:u32\)->vec2f\s*\{[^}]+\}/
+  if (!precision.test(displayRenderingWgsl))
+    throw new Error('Reference ACES precision lookup is unavailable.')
+  const tableWords = ACES_DATA_BYTES / 16
+  const rendering = displayRenderingWgsl
+    .replace(precision, exportPrecisionWgsl)
+    .replace(`array<vec4f,${tableWords}>`, `array<vec4f,${tableWords * 2}>`)
     .replaceAll('acesData.values[', 'acesData.values[acesOffset+')
   const channels = hdr ? 6 : 3
   const reduction = `workgroupBarrier();
@@ -61,7 +58,7 @@ fn exportTarget(jmh:vec3f,linear:f32)->vec3f {
  let sdr=clamp(exportTarget(jmh,linear),vec3f(0.),vec3f(1.))*pixel.a+vec3f(1.-pixel.a);
  ${
    hdr
-     ? `acesOffset=1573;
+     ? `acesOffset=${tableWords};
  let hdrInput=clamp_AP0_to_AP1(aces,0.,aces_ts().forward_limit);
  var hdrJmh=jmh;
  var hdrLinear=linear;
@@ -97,7 +94,7 @@ ${
  peaks[local]=0.;
  if(id.x<u32(u.values[0].x)) {
   let slot=(u32(u.values[0].y)+id.x)*5u;
-  acesOffset=1573;
+  acesOffset=${tableWords};
   let jmh=vec3f(working[slot],working[slot+1u],working[slot+2u]);
   let alpha=working[slot+3u];
   let hdr=clamp(exportTarget(jmh,working[slot+4u]),vec3f(0.),vec3f(10.))*alpha+vec3f(1.-alpha);

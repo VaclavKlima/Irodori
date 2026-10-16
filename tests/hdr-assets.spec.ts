@@ -495,7 +495,7 @@ test('ACES regenerates retired proofs and placeholders while reusing unchanged l
     await cache.open()
     const regenerated = await cache.request(id, randomUUID())
     expect(regenerated.url).not.toBe(first.url)
-    expect(regenerated.renderId).toContain('aces2-069b0bc3-v1')
+    expect(regenerated.renderId).toContain('aces2-069b0bc3-v2')
     expect(regenerated.sha256).toBe(first.sha256)
     expect(regenerated.linear!.url).toBe(working.linear.url)
     expect((await cache.requestHdr(id, randomUUID()))!.linear.sha256).toBe(asset.sha256)
@@ -572,7 +572,7 @@ test('retired composite masters keep their exact bytes while proofs adopt ACES',
       },
       'cpu',
     )
-    expect(result.renderId).toContain('aces2-069b0bc3-v1')
+    expect(result.renderId).toContain('aces2-069b0bc3-v2')
     expect(result.settingsRevision).toBe(8)
     expect(await readFile(path)).toEqual(bytes)
     expect(await readFile(join(output, 'linear.f32'))).toEqual(bytes)

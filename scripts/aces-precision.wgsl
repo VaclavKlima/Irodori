@@ -18,44 +18,7 @@ fn dsSqrt(v:vec2f)->vec2f {
   let x=sqrt(v.x);let r=dsSub(v,dsMul(ds(x),ds(x)));
   return acesSum(x,(r.x+r.y)/(2.*x));
 }
-fn dsLog(a:vec2f)->vec2f {
-  let bits=bitcast<u32>(a.x);var exponent=f32(i32((bits>>23u)&255u)-127);
-  var mantissa=bitcast<f32>((bits&0x7fffffu)|0x3f800000u);
-  if(mantissa>1.4142135623730951){mantissa*=.5;exponent+=1.;}
-  let z=dsDiv(ds(mantissa-1.),dsAdd(ds(mantissa),ds(1.)));let z2=dsMul(z,z);
-  var polynomial=vec2f(0.058823529411764705,-2.1913472425527658e-10);
-  polynomial=dsAdd(vec2f(0.06666666666666667,-3.4769376128229723e-9),dsMul(z2,polynomial));
-  polynomial=dsAdd(vec2f(0.07692307692307693,-2.8656079176236915e-9),dsMul(z2,polynomial));
-  polynomial=dsAdd(vec2f(0.09090909090909091,-2.7093020327217943e-9),dsMul(z2,polynomial));
-  polynomial=dsAdd(vec2f(0.1111111111111111,-8.278422947149977e-10),dsMul(z2,polynomial));
-  polynomial=dsAdd(vec2f(0.14285714285714285,-6.3862119481505886e-9),dsMul(z2,polynomial));
-  polynomial=dsAdd(vec2f(0.2,-2.980232227667301e-9),dsMul(z2,polynomial));
-  polynomial=dsAdd(vec2f(0.3333333333333333,-9.934107481068821e-9),dsMul(z2,polynomial));
-  polynomial=dsAdd(vec2f(1,0),dsMul(z2,polynomial));
-  let sum=dsMul(z,polynomial);
-  let ln2=vec2f(.6931471805599453,-1.904654299957768e-9);
-  return dsAdd(dsAdd(dsMul(ds(2.),sum),dsMul(ds(exponent),ln2)),ds(a.y/a.x));
-}
-fn dsExp(a:vec2f)->vec2f {
-  let n=round(a.x/ .6931471805599453);
-  let r=dsSub(a,dsMul(ds(n),vec2f(.6931471805599453,-1.904654299957768e-9)));
-  var sum=vec2f(1.1470745597729725e-11,2.372207640763624e-19);
-  sum=dsAdd(vec2f(1.6059043836821613e-10,-5.352526692508485e-18),dsMul(r,sum));
-  sum=dsAdd(vec2f(2.08767569878681e-9,1.1082839478332097e-16),dsMul(r,sum));
-  sum=dsAdd(vec2f(2.505210838544172e-8,4.4176231769972645e-16),dsMul(r,sum));
-  sum=dsAdd(vec2f(2.755731922398589e-7,-7.575112420809432e-15),dsMul(r,sum));
-  sum=dsAdd(vec2f(0.0000027557319223985893,3.7935713937038186e-14),dsMul(r,sum));
-  sum=dsAdd(vec2f(0.0000248015873015873,-3.406996025904184e-13),dsMul(r,sum));
-  sum=dsAdd(vec2f(0.0001984126984126984,-2.725596820723347e-12),dsMul(r,sum));
-  sum=dsAdd(vec2f(0.001388888888888889,-3.3631092919220174e-11),dsMul(r,sum));
-  sum=dsAdd(vec2f(0.008333333333333333,-4.3461720160287154e-10),dsMul(r,sum));
-  sum=dsAdd(vec2f(0.041666666666666664,-1.2417634351336027e-9),dsMul(r,sum));
-  sum=dsAdd(vec2f(0.16666666666666666,-4.967053740534411e-9),dsMul(r,sum));
-  sum=dsAdd(vec2f(0.5,0),dsMul(r,sum));
-  sum=dsAdd(vec2f(1,0),dsMul(r,sum));
-  sum=dsAdd(vec2f(1,0),dsMul(r,sum));
-  return dsMul(sum,ds(exp2(n)));
-}
+${acesPrecisionWgsl}
 fn dsPow(a:vec2f,b:vec2f)->vec2f {
   if(a.x==0.) {return ds(0.);}
   return dsExp(dsMul(dsLog(a),b));

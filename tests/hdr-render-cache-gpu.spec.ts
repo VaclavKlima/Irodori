@@ -3,6 +3,8 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { hdrCacheShader, hdrShader } from '../src/renderer/src/preview/hdr-shader'
 import { packAces, ACES_DATA_BYTES } from '../src/shared/aces-data'
 import { prepareDisplayRendering } from '../src/shared/display-rendering'
+import { acesRegressionInputs } from './aces-regression-inputs'
+import { renderDisplay } from '../src/shared/display-rendering'
 import { buildAcesReference, referenceAces } from './aces-reference'
 
 let retainedGpu: GPU | undefined
@@ -28,6 +30,9 @@ test('cached WGSL tiles retain reference accuracy, alpha and seamless single-enc
   input[0] = [0, 0, 0, 1]
   input[256] = [-2, 4, 1, 0.25]
   input[599] = [16, -0.1, 4, 1].map(Math.fround)
+  acesRegressionInputs.forEach((rgb, i) => {
+    input[i + 1] = [...rgb, [0, 0.25, 1][i % 3]]
+  })
   const source = device.createTexture({
     size: [width, height],
     format: 'rgba32float',
@@ -143,8 +148,8 @@ test('cached WGSL tiles retain reference accuracy, alpha and seamless single-enc
     alphaError = 0,
     worst: unknown
   try {
-    for (const space of ['srgb', 'display-p3'] as const)
-      for (const peak of [1, 2, 4, 8]) {
+    for (const space of ['srgb', 'display-p3', 'rec2020'] as const)
+      for (const peak of space === 'rec2020' ? [10] : [1, 2, 4, 8]) {
         const expected = [
           referenceAces(
             binary,
@@ -159,6 +164,22 @@ test('cached WGSL tiles retain reference accuracy, alpha and seamless single-enc
             space,
           ),
         ]
+        for (let variant = 0; variant < expected.length; variant++)
+          for (let i = 0; i < input.length; i++) {
+            const cpu = renderDisplay(
+              input[i].slice(0, 3).map((x) => x * (variant === 0 ? 4 : 1)) as [
+                number,
+                number,
+                number,
+              ],
+              { mode: peak === 1 ? 'sdr' : 'hdr', peak, colorSpace: space },
+            ).rgb
+            for (let c = 0; c < 3; c++)
+              expect(
+                Math.abs(cpu[c] - expected[variant][i][c]),
+                `CPU CTL sample ${i}/${c}`,
+              ).toBeLessThanOrEqual(2e-6 + 2e-5 * Math.abs(expected[variant][i][c]))
+          }
         device.queue.writeBuffer(
           tables,
           0,
@@ -206,7 +227,17 @@ test('cached WGSL tiles retain reference accuracy, alpha and seamless single-enc
                   Math.abs(actual[offset + c] - reference) / (2e-6 + 2e-5 * Math.abs(reference))
                 if (ratio > maximumRatio) {
                   maximumRatio = ratio
-                  worst = { space, peak, layer, x, y, c, reference, actual: actual[offset + c] }
+                  worst = {
+                    space,
+                    peak,
+                    layer,
+                    x,
+                    y,
+                    c,
+                    source: input[index],
+                    reference,
+                    actual: actual[offset + c],
+                  }
                 }
               }
             }
