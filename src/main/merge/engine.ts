@@ -67,6 +67,7 @@ export interface MergeResult {
   measurements: MergeMeasurements
 }
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+const reviewPngCompressionLevel = 1
 const send = (value: unknown) => {
   if (process.connected) process.send?.(value)
 }
@@ -838,7 +839,23 @@ async function runMergeInternal(
     }
   }
   measurements.stages.accumulation = performance.now() - accumulationStart
-  const outputStart = performance.now()
+  const outputStart = performance.now(),
+    outputWork: NonNullable<NonNullable<MergeMeasurements['output']>['work']> = {
+      validityMs: 0,
+      maskMs: 0,
+      readingMs: 0,
+      compositionMs: 0,
+      thumbnailMs: 0,
+      referenceMs: 0,
+      writingMs: 0,
+      hashingMs: 0,
+      syncMs: 0,
+      closingMs: 0,
+      cpuConversionMs: 0,
+      png: {},
+      jpeg: {},
+    }
+  measurements.output = { backend: 'cpu', work: outputWork }
   if (preparation) {
     // Missing fusion samples need the same conservative boundary as motion.
     // Freeze them before dilation and tapering, rather than adding hard edges
@@ -864,10 +881,13 @@ async function runMergeInternal(
       await accumulated.close()
     }
   }
-  const rejected = expandMask(motion, width, height, MERGE_LIMITS.maskRadius),
+  outputWork.validityMs = performance.now() - outputStart
+  const maskStart = performance.now(),
+    rejected = expandMask(motion, width, height, MERGE_LIMITS.maskRadius),
     mask = preparation
       ? taperExclusions(rejected, width, height, BRK_EXPOSURE_POLICY.sourceExclusionFeatherPixels)
       : rejected
+  outputWork.maskMs = performance.now() - maskStart
   let affected = 0,
     clipped = 0,
     covered = 0
@@ -913,25 +933,34 @@ async function runMergeInternal(
   if (usedGpu) {
     try {
       converter = await gpuOutput(gpu, Math.max(crop.width * 64, tw * th))
-      measurements.output = { backend: 'gpu', conversion: converter.timings }
+      measurements.output = { backend: 'gpu', conversion: converter.timings, work: outputWork }
       measurements.peak.gpuBytes = Math.max(measurements.peak.gpuBytes, converter.peakBytes)
     } catch (error) {
-      measurements.output = { backend: 'cpu', fallback: mergeFailure(error).message }
+      measurements.output = {
+        backend: 'cpu',
+        fallback: mergeFailure(error).message,
+        work: outputWork,
+      }
     }
   }
-  measurements.output ??= { backend: 'cpu' }
   const preview = Buffer.alloc(tw * th * 4),
     previewLinear = converter ? new Float32Array(tw * th * 4) : undefined
   const stripBytes = width * Math.min(64, crop.height) * 16,
     pixelBuffer = Buffer.allocUnsafe(stripBytes),
     referenceBuffer = Buffer.allocUnsafe(stripBytes),
-    outputPixels = new Float32Array(crop.width * Math.min(64, crop.height) * 4)
+    outputPixels = new Float32Array(crop.width * Math.min(64, crop.height) * 4),
+    referencePixels =
+      job.comparisons && (converter || referenceProof)
+        ? new Float32Array(outputPixels.length)
+        : undefined,
+    overlayBuffer = Buffer.allocUnsafe(job.comparisons ? outputPixels.length : 0)
   try {
     for (let top = 0; top < crop.height; top += 64) {
       await checkpoint()
       const rows = Math.min(64, crop.height - top),
         bytes = pixelBuffer.subarray(0, width * rows * 16),
-        refBytes = referenceBuffer.subarray(0, bytes.length)
+        refBytes = referenceBuffer.subarray(0, bytes.length),
+        reading = performance.now()
       for (const [file, buffer] of [
         [accum, bytes],
         [refFile, refBytes],
@@ -957,6 +986,8 @@ async function runMergeInternal(
             for (let c = 0; c < 3; c++) original[i + c] = corrected[i + c]
           }
       }
+      outputWork.readingMs += performance.now() - reading
+      const composition = performance.now()
       const data = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4),
         referenceData = new Float32Array(
           refBytes.buffer,
@@ -971,7 +1002,8 @@ async function runMergeInternal(
         )
       const native = Buffer.alloc(job.comparisons && !converter ? crop.width * rows * 4 : 0),
         nativeRef = Buffer.alloc(native.length),
-        nativeMask = Buffer.alloc(job.comparisons ? crop.width * rows * 4 : 0)
+        nativeMask = overlayBuffer.subarray(0, job.comparisons ? crop.width * rows * 4 : 0)
+      nativeMask.fill(0)
       for (let y = 0; y < rows; y++)
         for (let x = 0; x < crop.width; x++) {
           const global = (top + crop.top + y) * width + crop.left + x,
@@ -1003,11 +1035,15 @@ async function runMergeInternal(
               nativeRef[j + c] = Math.round(encodeHdr(nref[c]) * 255)
             }
             native[j + 3] = nativeRef[j + 3] = out[j + 3] * 255
+          }
+          if (job.comparisons) {
             nativeMask[j] = 255
             nativeMask[j + 2] = 180
             nativeMask[j + 3] = m ? Math.round(160 * (preparation ? mask[global] / 255 : 1)) : 0
           }
         }
+      outputWork.compositionMs += performance.now() - composition
+      const thumbnail = performance.now()
       // Visit only thumbnail sample centers; native pixels need no preview-coordinate arithmetic.
       for (
         let py = Math.max(0, Math.ceil((top * th) / crop.height - 0.5));
@@ -1027,8 +1063,10 @@ async function runMergeInternal(
           preview[k + 3] = out[j + 3] * 255
         }
       }
+      outputWork.thumbnailMs += performance.now() - thumbnail
       if (converter && job.comparisons) {
-        const referenceOut = new Float32Array(out.length)
+        const referenceStart = performance.now(),
+          referenceOut = referencePixels!.subarray(0, out.length)
         for (let y = 0; y < rows; y++) {
           referenceOut.set(
             referenceData.subarray(
@@ -1039,11 +1077,24 @@ async function runMergeInternal(
           )
         }
         for (let i = 3; i < referenceOut.length; i += 4) referenceOut[i] = out[i]
-        await referenceProof?.writeFile(Buffer.from(referenceOut.buffer))
+        outputWork.referenceMs += performance.now() - referenceStart
+        const proofWrite = performance.now()
+        await referenceProof?.writeFile(
+          Buffer.from(referenceOut.buffer, referenceOut.byteOffset, referenceOut.byteLength),
+        )
+        outputWork.writingMs += performance.now() - proofWrite
         let resultBytes: Buffer, referenceBytes: Buffer
         try {
-          resultBytes = await converter.convert(out)
-          referenceBytes = await converter.convert(referenceOut)
+          if ((out.length + referenceOut.length) / 4 <= converter.capacity) {
+            // Pack adjacent independent images into the existing allocation.
+            // The shader still evaluates every RGBA pixel by the same policy.
+            const both = await converter.convert(out, referenceOut)
+            resultBytes = both.subarray(0, out.length)
+            referenceBytes = both.subarray(out.length)
+          } else {
+            resultBytes = await converter.convert(out)
+            referenceBytes = await converter.convert(referenceOut)
+          }
         } catch (error) {
           measurements.output = {
             ...measurements.output,
@@ -1052,25 +1103,19 @@ async function runMergeInternal(
           }
           converter.close()
           converter = undefined
+          const cpu = performance.now()
           resultBytes = displayLinear(out)
           referenceBytes = displayLinear(referenceOut)
+          outputWork.cpuConversionMs += performance.now() - cpu
         }
+        const writing = performance.now()
         await nativeResult!.writeFile(resultBytes)
         await nativeReference!.writeFile(referenceBytes)
-        for (let y = 0; y < rows; y++)
-          for (let x = 0; x < crop.width; x++) {
-            const j = (y * crop.width + x) * 4,
-              global = (top + crop.top + y) * width + crop.left + x
-            nativeMask[j] = 255
-            nativeMask[j + 2] = 180
-            nativeMask[j + 3] =
-              mask[global] && common.mask[global]
-                ? Math.round(160 * (preparation ? mask[global] / 255 : 1))
-                : 0
-          }
+        outputWork.writingMs += performance.now() - writing
       } else {
         if (referenceProof) {
-          const referenceOut = new Float32Array(out.length)
+          const referenceStart = performance.now(),
+            referenceOut = referencePixels!.subarray(0, out.length)
           for (let y = 0; y < rows; y++)
             referenceOut.set(
               referenceData.subarray(
@@ -1080,16 +1125,27 @@ async function runMergeInternal(
               y * crop.width * 4,
             )
           for (let i = 3; i < referenceOut.length; i += 4) referenceOut[i] = out[i]
-          await referenceProof.writeFile(Buffer.from(referenceOut.buffer))
+          outputWork.referenceMs += performance.now() - referenceStart
+          const writing = performance.now()
+          await referenceProof.writeFile(
+            Buffer.from(referenceOut.buffer, referenceOut.byteOffset, referenceOut.byteLength),
+          )
+          outputWork.writingMs += performance.now() - writing
         }
+        const writing = performance.now()
         await nativeResult?.writeFile(native)
         await nativeReference?.writeFile(nativeRef)
+        outputWork.writingMs += performance.now() - writing
       }
+      const writing = performance.now()
       await nativeOverlay?.writeFile(nativeMask)
       const outputBytes = Buffer.from(out.buffer, out.byteOffset, out.byteLength)
       await outputFile.writeFile(outputBytes)
+      outputWork.writingMs += performance.now() - writing
+      const hashing = performance.now()
       digest.update(outputBytes)
       asset.strips.push({ byteLength: outputBytes.length, sha256: hash(outputBytes) })
+      outputWork.hashingMs += performance.now() - hashing
     }
     if (previewLinear) {
       try {
@@ -1101,11 +1157,16 @@ async function runMergeInternal(
           backend: 'cpu',
           fallback: mergeFailure(error).message,
         }
+        const cpu = performance.now()
         preview.set(displayLinear(previewLinear))
+        outputWork.cpuConversionMs += performance.now() - cpu
       }
     }
+    const syncing = performance.now()
     await outputFile.sync()
+    outputWork.syncMs += performance.now() - syncing
   } finally {
+    const closing = performance.now()
     await outputFile.close()
     await accum.close()
     await refFile.close()
@@ -1114,28 +1175,43 @@ async function runMergeInternal(
     await nativeReference?.close()
     await nativeOverlay?.close()
     converter?.close()
+    outputWork.closingMs += performance.now() - closing
   }
   if (covered && affected / covered > 0.95)
     throw new Error(
       'Almost the entire image requires the reference. Choose another reference or reduce deghost strength.',
     )
-  for (const name of job.comparisons ? ['result', 'reference', 'overlay'] : [])
-    await sharp(await readFile(join(output, `${name}.rgba`)), {
-      raw: { width: crop.width, height: crop.height, channels: 4 },
-    })
-      .png()
-      .toFile(join(output, `${name}.png`))
+  for (const name of job.comparisons ? (['result', 'reference', 'overlay'] as const) : []) {
+    const encoding = performance.now(),
+      encoded = await sharp(await readFile(join(output, `${name}.rgba`)), {
+        raw: { width: crop.width, height: crop.height, channels: 4 },
+      })
+        .png({ compressionLevel: reviewPngCompressionLevel })
+        .toFile(join(output, `${name}.png`))
+    outputWork.png[name] = {
+      ms: performance.now() - encoding,
+      bytes: encoded.size,
+      compressionLevel: reviewPngCompressionLevel,
+    }
+  }
   asset.sha256 = digest.digest('hex')
   await writeFile(join(output, 'motion.mask'), mask)
-  await sharp(preview, { raw: { width: tw, height: th, channels: 4 } })
-    .resize({ width: 256, height: 256, fit: 'inside' })
-    .flatten({ background: '#171717' })
-    .jpeg()
-    .toFile(join(output, 'thumb.jpg'))
-  await sharp(preview, { raw: { width: tw, height: th, channels: 4 } })
-    .flatten({ background: '#171717' })
-    .jpeg()
-    .toFile(join(output, 'preview.jpg'))
+  const thumbnailStart = performance.now(),
+    thumbnailOutput = await sharp(preview, { raw: { width: tw, height: th, channels: 4 } })
+      .resize({ width: 256, height: 256, fit: 'inside' })
+      .flatten({ background: '#171717' })
+      .jpeg()
+      .toFile(join(output, 'thumb.jpg'))
+  outputWork.jpeg.thumbnail = {
+    ms: performance.now() - thumbnailStart,
+    bytes: thumbnailOutput.size,
+  }
+  const previewStart = performance.now(),
+    previewOutput = await sharp(preview, { raw: { width: tw, height: th, channels: 4 } })
+      .flatten({ background: '#171717' })
+      .jpeg()
+      .toFile(join(output, 'preview.jpg'))
+  outputWork.jpeg.preview = { ms: performance.now() - previewStart, bytes: previewOutput.size }
   const recipe: MergeRecipe = {
     resolution: 'native',
     maskDimensions: { width, height },

@@ -113,6 +113,32 @@ export interface MergeMeasurements {
       readbackMs: number
       copyingMs: number
       batches: number
+      pairedBatches?: number
+      images?: number
+    }
+    work?: {
+      validityMs: number
+      maskMs: number
+      readingMs: number
+      compositionMs: number
+      thumbnailMs: number
+      referenceMs: number
+      writingMs: number
+      hashingMs: number
+      syncMs: number
+      closingMs: number
+      cpuConversionMs: number
+      png: Partial<
+        Record<
+          'result' | 'reference' | 'overlay',
+          {
+            ms: number
+            bytes: number
+            compressionLevel?: number
+          }
+        >
+      >
+      jpeg: Partial<Record<'thumbnail' | 'preview', { ms: number; bytes: number }>>
     }
   }
   attempts: {

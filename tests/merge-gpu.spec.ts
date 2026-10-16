@@ -507,7 +507,11 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
     expect(gpu.measurements.coverage, JSON.stringify(gpu.measurements)).toEqual({ backend: 'gpu' })
     expect(gpu.measurements.output, JSON.stringify(gpu.measurements)).toMatchObject({
       backend: 'gpu',
-      conversion: { batches: Math.ceil(gpu.asset.height / 64) * 2 + 1 },
+      conversion: {
+        batches: Math.ceil(gpu.asset.height / 64) + 1,
+        pairedBatches: Math.ceil(gpu.asset.height / 64),
+        images: Math.ceil(gpu.asset.height / 64) * 2 + 1,
+      },
     })
     process.env.LUMA_MERGE_BACKEND = 'cpu'
     const cpu = await runMerge({
@@ -532,6 +536,18 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
         pixels = new Float32Array(bb.slice(0, 512 * 4)),
         bytes = await converter.convert(pixels)
       try {
+        const first = await converter.convert(pixels.subarray(0, 256 * 4)),
+          second = await converter.convert(pixels.subarray(256 * 4)),
+          paired = await converter.convert(pixels.subarray(0, 256 * 4), pixels.subarray(256 * 4))
+        expect(paired).toEqual(Buffer.concat([first, second]))
+        expect(bytes).toEqual(paired)
+        const short = pixels.subarray(0, 11 * 4),
+          shortExpected = await converter.convert(short),
+          shortPair = await converter.convert(short, short)
+        expect(shortPair).toEqual(Buffer.concat([shortExpected, shortExpected]))
+        await expect(converter.convert(pixels, pixels)).rejects.toThrow(
+          'Output tile exceeds its allocation.',
+        )
         for (let i = 0; i < 512; i++) {
           const expected = outputHdr(
             [pixels[i * 4], pixels[i * 4 + 1], pixels[i * 4 + 2]],
@@ -554,6 +570,45 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
     )
     const sharp = (await import('sharp')).default
     for (const filename of ['result.png', 'reference.png', 'overlay.png']) {
+      for (const [directory, asset] of [
+        ['gpu', gpu.asset],
+        ['cpu', cpu.asset],
+      ] as const) {
+        const raw = await readFile(join(f.directory, directory, filename.replace('.png', '.rgba'))),
+          previous = await sharp(raw, {
+            raw: { width: asset.width, height: asset.height, channels: 4 },
+          })
+            .png()
+            .toBuffer(),
+          current = await readFile(join(f.directory, directory, filename))
+        // Both lossless levels share the same raw scanlines and worst-case
+        // stream bound, including alpha and the partial final native strip.
+        const encodedBound = asset.width * asset.height * 5 + 1024 ** 2
+        expect(previous.byteLength, `${directory} previous ${filename}`).toBeLessThanOrEqual(
+          encodedBound,
+        )
+        expect(current.byteLength, `${directory} current ${filename}`).toBeLessThanOrEqual(
+          encodedBound,
+        )
+        const decodedPrevious = await sharp(previous)
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true }),
+          decodedCurrent = await sharp(current)
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true })
+        for (const decoded of [decodedPrevious, decodedCurrent]) {
+          expect(decoded.info).toMatchObject({
+            width: asset.width,
+            height: asset.height,
+            channels: 4,
+          })
+          expect(decoded.data.byteLength).toBe(asset.width * asset.height * 4)
+          expect(decoded.data, `${directory} lossless RGBA ${filename}`).toEqual(raw)
+        }
+        expect(decodedCurrent.data).toEqual(decodedPrevious.data)
+      }
       const ar = await sharp(join(f.directory, 'gpu', filename))
           .raw()
           .toBuffer(),

@@ -16,6 +16,8 @@ export async function gpuOutput(gpu: Pick<RawGpuRenderer, 'mergeDevice'>, capaci
     readbackMs: 0,
     copyingMs: 0,
     batches: 0,
+    pairedBatches: 0,
+    images: 0,
   }
   const buffer = (size: number, usage: number) => {
     const b = device.createBuffer({ size, usage })
@@ -67,14 +69,19 @@ struct Params { values:array<vec4f,11> }
     timings.setupMs = performance.now() - start
     return {
       peakBytes: resources.reduce((n, b) => n + b.size, 0),
+      capacity,
       timings,
-      async convert(pixels: Float32Array<ArrayBuffer>): Promise<Buffer> {
-        const count = pixels.length / 4
+      async convert(
+        pixels: Float32Array<ArrayBuffer>,
+        following?: Float32Array<ArrayBuffer>,
+      ): Promise<Buffer> {
+        const count = (pixels.length + (following?.length ?? 0)) / 4
         if (count > capacity) throw new Error('Output tile exceeds its allocation.')
         const upload = performance.now()
         values[0] = count
         device.queue.writeBuffer(uniform, 0, values)
         device.queue.writeBuffer(input, 0, pixels)
+        if (following) device.queue.writeBuffer(input, pixels.byteLength, following)
         timings.uploadMs += performance.now() - upload
         const dispatch = performance.now()
         const encoder = device.createCommandEncoder(),
@@ -90,10 +97,13 @@ struct Params { values:array<vec4f,11> }
         await staging.mapAsync(GPUMapMode.READ)
         timings.readbackMs += performance.now() - readback
         const copying = performance.now()
-        const bytes = Buffer.from(new Uint8Array(staging.getMappedRange()).slice(0, count * 4))
+        // Return one owned copy before unmapping; a view would outlive GPU memory.
+        const bytes = Buffer.from(new Uint8Array(staging.getMappedRange()).subarray(0, count * 4))
         staging.unmap()
         timings.copyingMs += performance.now() - copying
         timings.batches++
+        timings.images += following ? 2 : 1
+        timings.pairedBatches += Number(!!following)
         return bytes
       },
       close() {
