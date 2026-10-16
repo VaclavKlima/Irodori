@@ -291,11 +291,20 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
         await agree(1)
         // Exercise software presentation primaries independently of the physical panel gamut.
         // Chromium must discard the old drawing-buffer color space in both directions.
-        for (const p3 of [true, false, true, false]) {
-          const target = await page.evaluate(async (p3) => {
-            const state = await window.luma.getDisplayState()
-            return window.luma.reportDisplayCapabilities({ ...state.capabilities!, p3 })
-          }, p3)
+        for (const [index, p3] of [true, false, true, false].entries()) {
+          const target = await page.evaluate(
+            async ({ p3, unconfigured }) => {
+              const state = await window.luma.getDisplayState()
+              // Source reloads unconfigure the reused canvas before its next presentation.
+              if (unconfigured)
+                document
+                  .querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
+                  .getContext('webgpu')!
+                  .unconfigure()
+              return window.luma.reportDisplayCapabilities({ ...state.capabilities!, p3 })
+            },
+            { p3, unconfigured: index >= 2 },
+          )
           await expect(preview).toHaveAttribute('data-target-generation', String(target.generation))
           await agree(1)
         }
