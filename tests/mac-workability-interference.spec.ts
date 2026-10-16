@@ -193,7 +193,7 @@ function overlap(editor?: EditorResult, operation?: OperationResult) {
     inputCount = trial.inputs.filter((input) => within(input.at)).length
   return {
     definition:
-      'Accepted operation interval, including scheduler waits; not simultaneous computation.',
+      'Dispatched operation interval, including preparation and scheduler waits; not simultaneous computation.',
     operationStartedAtEpochMs: operation.startedAtEpochMs,
     operationFinishedAtEpochMs: end,
     inputStartedAtEpochMs: first,
@@ -251,13 +251,33 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
       })
       await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
       await page.getByTestId('console-toggle').click()
-      if (workload !== 'import')
+      if (workload !== 'import') {
         await importPhotos(
           app,
           page,
           originals.map((source) => source.path),
           false,
         )
+        // The prior import's retained status can still be visible after accepting this one.
+        // Freeze benchmark sources only after every required record is published and work ends.
+        await expect
+          .poll(
+            () =>
+              page.evaluate(async () => ({
+                names: (await window.luma.listPhotos()).photos
+                  .map((photo) => photo.filename)
+                  .sort(),
+                running: (await window.luma.listTasks()).some(
+                  (task) => task.status === 'running' || task.status === 'cancelling',
+                ),
+              })),
+            { timeout: 60000 },
+          )
+          .toEqual({
+            names: ['sony-zv1.ARW', ...originals.map((source) => source.name)].sort(),
+            running: false,
+          })
+      }
       const photos = (await page.evaluate(() => window.luma.listPhotos())).photos,
         editorId = photos.find((photo) => photo.filename === 'sony-zv1.ARW')!.id,
         sourceIds = originals.map(
