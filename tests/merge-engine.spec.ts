@@ -264,6 +264,12 @@ test('native validation accepts independently generated perspective with noise a
       d.nativePatches.filter((p) => p.accepted).length / d.nativePatches.length,
     ).toBeGreaterThanOrEqual(0.7)
     expect(f.result.recipe.affectedPercent).toBeGreaterThan(0)
+    const attempt = f.result.measurements.attempts.find((a) => a.success)!
+    expect([0, 1]).toContain(attempt.lane)
+    expect(attempt.queuedMs).toBeGreaterThanOrEqual(0)
+    expect(attempt.reads!.nativePlanes.cacheMisses).toBeGreaterThanOrEqual(2)
+    expect(attempt.reads!.nativePlanes.verifiedBytes).toBeGreaterThan(0)
+    expect(attempt.reads!.nativePlanes.verifiedBytes).toBe(attempt.reads!.nativePlanes.readBytes)
   } finally {
     await f.close()
   }

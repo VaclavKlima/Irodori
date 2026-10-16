@@ -4,6 +4,7 @@ import type { PreparedSource } from './prepare'
 import type { MergeTransform } from '../../shared/merge'
 import { warp } from './math'
 import { transformMatrix, tileOffset } from './matrix'
+import { mergeReadMeasurements, resetMergeReadMeasurements } from './read-metrics'
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 let readBytes = 0
 type CachedStrip = { source: PreparedSource; row: number; bytes: Buffer }
@@ -13,6 +14,7 @@ let cachedBytes = 0
 const cacheLimit = 128 * 1024 ** 2
 export function resetMergeReads() {
   readBytes = 0
+  resetMergeReadMeasurements()
   strips.clear()
   recent.clear()
   cachedBytes = 0
@@ -43,12 +45,16 @@ export async function bandData(
   rows: number,
   staging?: Buffer<ArrayBuffer>,
 ) {
-  const { first, rows: count } = bandBounds(source, t, top, rows),
+  const metrics = mergeReadMeasurements().bands,
+    { first, rows: count } = bandBounds(source, t, top, rows),
     last = first + count - 1,
     // Every byte is filled from a verified strip before this band is exposed.
     byteLength = count * source.width * 16,
     bytes = staging ? staging.subarray(0, byteLength) : Buffer.allocUnsafe(byteLength),
     cache = strips.get(source) ?? new Map<number, CachedStrip>()
+  metrics.requests++
+  metrics.peakCacheBytes = Math.max(metrics.peakCacheBytes, cachedBytes)
+  if (!staging) metrics.allocatedBytes += bytes.byteLength
   strips.set(source, cache)
   if (bytes.length !== byteLength)
     throw new Error('Source band exceeds its CPU staging allocation.')
@@ -59,9 +65,12 @@ export async function bandData(
     for (let row = first; row <= last;) {
       const found = cache.get(row)
       if (found) {
+        metrics.cacheHits++
         recent.delete(found)
         recent.set(found, true)
+        const copying = performance.now()
         found.bytes.copy(bytes, (row - first) * source.width * 16)
+        metrics.copyingMs += performance.now() - copying
         row += 64
         continue
       }
@@ -73,7 +82,8 @@ export async function bandData(
       } while (row <= last && !cache.has(row))
       const end = Math.min(row, source.height, last + 1),
         length = (end - start) * source.width * 16,
-        destination = (start - first) * source.width * 16
+        destination = (start - first) * source.width * 16,
+        reading = performance.now()
       file ??= await open(source.path, 'r')
       let offset = 0
       while (offset < length) {
@@ -86,14 +96,22 @@ export async function bandData(
         if (!read.bytesRead) throw new Error('Damaged merge source strip.')
         offset += read.bytesRead
         readBytes += read.bytesRead
+        metrics.fileReads++
+        metrics.readBytes += read.bytesRead
       }
+      metrics.readingMs += performance.now() - reading
       for (let r = start; r < end; r += 64) {
+        metrics.cacheMisses++
         const position = (r - first) * source.width * 16,
           view = bytes.subarray(
             position,
             position + Math.min(64, source.height - r) * source.width * 16,
           )
-        if (hash(view) !== source.strips[r / 64]) throw new Error('Damaged merge source strip.')
+        const hashing = performance.now(),
+          digest = hash(view)
+        metrics.hashingMs += performance.now() - hashing
+        if (digest !== source.strips[r / 64]) throw new Error('Damaged merge source strip.')
+        metrics.verifiedBytes += view.byteLength
         if (view.length > cacheLimit) continue
         // Own only the strip bytes: retaining a view would pin the entire band
         // and violate the 128 MiB physical cache bound after eviction.
@@ -107,11 +125,16 @@ export async function bandData(
           if (oldest.bytes.length === view.length) reusable = oldest.bytes
         }
         const strip = reusable ?? Buffer.allocUnsafe(view.length)
+        if (reusable) metrics.reusedStripBuffers++
+        else metrics.allocatedBytes += strip.byteLength
+        const copying = performance.now()
         view.copy(strip)
+        metrics.copyingMs += performance.now() - copying
         const entry = { source, row: r, bytes: strip }
         strips.set(source, cache)
         cache.set(r, entry)
         cachedBytes += strip.length
+        metrics.peakCacheBytes = Math.max(metrics.peakCacheBytes, cachedBytes)
         recent.set(entry, true)
       }
     }

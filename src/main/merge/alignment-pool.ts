@@ -6,21 +6,29 @@ import {
   type MergeFailure,
   type MergeTransform,
   type MergeMeasurements,
+  type MergeReadMeasurements,
 } from '../../shared/merge'
 import type { PreparedSource } from './prepare'
 import type { registerNative } from './registration'
 
-type Result = Awaited<ReturnType<typeof registerNative>> & {
+type LaneResult = Awaited<ReturnType<typeof registerNative>> & {
   readBytes: number
   runtimeMs: number
+  queuedMs: number
+  reads: MergeReadMeasurements
   patches?: MergeMeasurements['attempts'][number]['patches']
 }
+type Result = LaneResult & { lane: number }
 /** A sequential lane owns immutable descriptors and native planes. */
 class AlignmentLane {
   private worker: Worker
   private tail: Promise<unknown> = Promise.resolve()
   private sequence = 0
-  private pending?: { resolve: (value: Result) => void; reject: (error: unknown) => void }
+  private pending?: {
+    resolve: (value: LaneResult) => void
+    reject: (error: unknown) => void
+    queuedMs: number
+  }
   private sent = new Set<string>()
   private closed = false
   heapBytes = 0
@@ -32,9 +40,10 @@ class AlignmentLane {
     this.worker.on(
       'message',
       (m: {
-        result?: Result
+        result?: Omit<LaneResult, 'readBytes' | 'queuedMs' | 'reads'>
         error?: MergeFailure
         readBytes: number
+        reads: MergeReadMeasurements
         timings?: Result['timings']
         wasmBytes: number
         runtimeMs?: number
@@ -43,7 +52,13 @@ class AlignmentLane {
         this.heapBytes = Math.max(this.heapBytes, m.wasmBytes)
         const pending = this.pending
         this.pending = undefined
-        if (m.result) pending?.resolve({ ...m.result, readBytes: m.readBytes })
+        if (m.result && pending)
+          pending.resolve({
+            ...m.result,
+            readBytes: m.readBytes,
+            reads: m.reads,
+            queuedMs: pending.queuedMs,
+          })
         else
           pending?.reject(
             Object.assign(new MergeError(m.error!), {
@@ -51,6 +66,8 @@ class AlignmentLane {
               readBytes: m.readBytes,
               runtimeMs: m.runtimeMs,
               patches: m.patches,
+              reads: m.reads,
+              queuedMs: pending?.queuedMs,
             }),
           )
       },
@@ -70,12 +87,13 @@ class AlignmentLane {
     neighbor: [string, PreparedSource],
     source: [string, PreparedSource],
     transform: MergeTransform,
-  ): Promise<Result> {
+  ): Promise<LaneResult> {
+    const queued = performance.now()
     const result = this.tail
       .catch(() => {})
       .then(
         () =>
-          new Promise<Result>((resolve, reject) => {
+          new Promise<LaneResult>((resolve, reject) => {
             if (this.closed) {
               reject(new Error('Alignment cancelled.'))
               return
@@ -86,7 +104,7 @@ class AlignmentLane {
                 this.sent.add(entry[0])
                 sources.push(entry)
               }
-            this.pending = { resolve, reject }
+            this.pending = { resolve, reject, queuedMs: performance.now() - queued }
             this.worker.postMessage({
               id: ++this.sequence,
               referenceId: reference[0],
@@ -128,7 +146,13 @@ export class AlignmentPool {
     const index = this.queued[0] <= this.queued[1] ? 0 : 1
     this.queued[index]++
     try {
-      return await this.lanes[index].run(reference, neighbor, source, transform)
+      return {
+        ...(await this.lanes[index].run(reference, neighbor, source, transform)),
+        lane: index,
+      }
+    } catch (error) {
+      if (error instanceof Error) Object.assign(error, { lane: index })
+      throw error
     } finally {
       this.queued[index]--
     }

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import type { PreparedSource } from './prepare'
 import type { MergeTransform } from '../../shared/merge'
 import { bandBounds, noteMergeRead } from './sampling'
+import { mergeReadMeasurements } from './read-metrics'
 
 // Two maximum-size luminance planes fit within 192 MiB. The alignment worker
 // owns this immutable cache and releases it when its review terminates.
@@ -10,20 +11,35 @@ const cache = new Map<PreparedSource, Float32Array>()
 const limit = 192 * 1024 ** 2
 let bytes = 0
 export async function nativePlane(source: PreparedSource, checkpoint: () => Promise<void>) {
-  const found = cache.get(source)
+  const metrics = mergeReadMeasurements().nativePlanes,
+    found = cache.get(source)
+  metrics.peakCacheBytes = Math.max(metrics.peakCacheBytes, bytes)
   if (found) {
+    metrics.cacheHits++
     cache.delete(source)
     cache.set(source, found)
     return found
   }
+  metrics.cacheMisses++
+  const channel = source.registrationChannel
+  if (channel !== undefined && (!Number.isInteger(channel) || channel < 0 || channel > 2))
+    throw new Error('Invalid camera registration channel.')
   const plane = new Float32Array(source.width * source.height),
+    staging = Buffer.allocUnsafe(source.width * Math.min(64, source.height) * 16),
+    opening = performance.now(),
     file = await open(source.path, 'r')
+  metrics.allocatedBytes += plane.byteLength + staging.byteLength
+  metrics.stripBufferBytes += staging.byteLength
   try {
     if ((await file.stat()).size !== plane.length * 16)
       throw new Error('Damaged merge source dimensions.')
+    metrics.readingMs += performance.now() - opening
     for (let top = 0; top < source.height; top += 64) {
       await checkpoint()
-      const strip = Buffer.alloc(source.width * Math.min(64, source.height - top) * 16)
+      // One bounded buffer serves every original strip. The final partial strip
+      // exposes only bytes filled by this read and verified against its checksum.
+      const strip = staging.subarray(0, source.width * Math.min(64, source.height - top) * 16),
+        reading = performance.now()
       let offset = 0
       while (offset < strip.length) {
         const read = await file.read(
@@ -35,13 +51,17 @@ export async function nativePlane(source: PreparedSource, checkpoint: () => Prom
         if (!read.bytesRead) throw new Error('Damaged merge source strip.')
         offset += read.bytesRead
         noteMergeRead(read.bytesRead)
+        metrics.fileReads++
+        metrics.readBytes += read.bytesRead
       }
-      if (createHash('sha256').update(strip).digest('hex') !== source.strips[top / 64])
-        throw new Error('Damaged merge source strip.')
+      metrics.readingMs += performance.now() - reading
+      const hashing = performance.now(),
+        digest = createHash('sha256').update(strip).digest('hex')
+      metrics.hashingMs += performance.now() - hashing
+      if (digest !== source.strips[top / 64]) throw new Error('Damaged merge source strip.')
+      metrics.verifiedBytes += strip.byteLength
+      const conversion = performance.now()
       const rgba = new Float32Array(strip.buffer, strip.byteOffset, strip.byteLength / 4)
-      const channel = source.registrationChannel
-      if (channel !== undefined && (!Number.isInteger(channel) || channel < 0 || channel > 2))
-        throw new Error('Invalid camera registration channel.')
       for (let k = 0; k < rgba.length / 4; k++) {
         if (
           channel !== undefined &&
@@ -60,6 +80,7 @@ export async function nativePlane(source: PreparedSource, checkpoint: () => Prom
               ? rgba[k * 4 + channel]
               : NaN
       }
+      metrics.conversionMs += performance.now() - conversion
     }
   } finally {
     await file.close()
@@ -72,6 +93,7 @@ export async function nativePlane(source: PreparedSource, checkpoint: () => Prom
   }
   cache.set(source, plane)
   bytes += plane.byteLength
+  metrics.peakCacheBytes = Math.max(metrics.peakCacheBytes, bytes)
   return plane
 }
 export async function nativeBand(

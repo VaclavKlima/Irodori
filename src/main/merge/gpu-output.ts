@@ -6,8 +6,17 @@ import type { RawGpuRenderer } from '../gpu/raw-renderer'
 
 /** The same Float32 SDR conversion as HDR presentation, with bounded readback. */
 export async function gpuOutput(gpu: Pick<RawGpuRenderer, 'mergeDevice'>, capacity: number) {
-  const { device } = await gpu.mergeDevice(),
+  const start = performance.now(),
+    { device } = await gpu.mergeDevice(),
     resources: GPUBuffer[] = []
+  const timings = {
+    setupMs: 0,
+    uploadMs: 0,
+    dispatchMs: 0,
+    readbackMs: 0,
+    copyingMs: 0,
+    batches: 0,
+  }
   const buffer = (size: number, usage: number) => {
     const b = device.createBuffer({ size, usage })
     resources.push(b)
@@ -55,14 +64,19 @@ struct Params { values:array<vec4f,11> }
           { binding: 4, resource: { buffer: tables } },
         ],
       })
+    timings.setupMs = performance.now() - start
     return {
       peakBytes: resources.reduce((n, b) => n + b.size, 0),
+      timings,
       async convert(pixels: Float32Array<ArrayBuffer>): Promise<Buffer> {
         const count = pixels.length / 4
         if (count > capacity) throw new Error('Output tile exceeds its allocation.')
+        const upload = performance.now()
         values[0] = count
         device.queue.writeBuffer(uniform, 0, values)
         device.queue.writeBuffer(input, 0, pixels)
+        timings.uploadMs += performance.now() - upload
+        const dispatch = performance.now()
         const encoder = device.createCommandEncoder(),
           pass = encoder.beginComputePass()
         pass.setPipeline(pipeline)
@@ -71,9 +85,15 @@ struct Params { values:array<vec4f,11> }
         pass.end()
         encoder.copyBufferToBuffer(output, 0, staging, 0, count * 4)
         device.queue.submit([encoder.finish()])
+        timings.dispatchMs += performance.now() - dispatch
+        const readback = performance.now()
         await staging.mapAsync(GPUMapMode.READ)
+        timings.readbackMs += performance.now() - readback
+        const copying = performance.now()
         const bytes = Buffer.from(new Uint8Array(staging.getMappedRange()).slice(0, count * 4))
         staging.unmap()
+        timings.copyingMs += performance.now() - copying
+        timings.batches++
         return bytes
       },
       close() {

@@ -13,6 +13,42 @@ export const MERGE_PIPELINE = Object.freeze({
   accumulation: 'tiled-inverse-variance-confidence-v4',
   referenceFallback: 'sony-camera-highlight-blend-frozen-missing-reference-v4',
 })
+export interface MergeReadMeasurements {
+  bands: {
+    requests: number
+    cacheHits: number
+    cacheMisses: number
+    fileReads: number
+    readBytes: number
+    readingMs: number
+    verifiedBytes: number
+    hashingMs: number
+    copyingMs: number
+    allocatedBytes: number
+    reusedStripBuffers: number
+    peakCacheBytes: number
+  }
+  nativePlanes: {
+    cacheHits: number
+    cacheMisses: number
+    fileReads: number
+    readBytes: number
+    readingMs: number
+    verifiedBytes: number
+    hashingMs: number
+    conversionMs: number
+    allocatedBytes: number
+    stripBufferBytes: number
+    peakCacheBytes: number
+  }
+  sensors: {
+    files: number
+    readBytes: number
+    readingMs: number
+    verifiedBytes: number
+    hashingMs: number
+  }
+}
 export interface MergeMeasurements {
   stages: Record<
     | 'decoding'
@@ -31,6 +67,18 @@ export interface MergeMeasurements {
     reused: boolean
     decodingMs: number
     preparationMs: number
+    cacheLookupMs?: number
+    cacheWriteMs?: number
+    gpu?: Record<string, number>
+    work?: {
+      maskRepairMs: number
+      cameraRegistrationMs: number
+      hashingMs: number
+      writingMs: number
+      sensorCacheMs: number
+      reductionMs: number
+      conversionMs: number
+    }
   }[]
   referenceFallback?: {
     backend: 'cpu'
@@ -55,17 +103,32 @@ export interface MergeMeasurements {
     }
   }
   coverage?: { backend: 'gpu' | 'cpu'; fallback?: string }
-  output?: { backend: 'gpu' | 'cpu'; fallback?: string }
+  output?: {
+    backend: 'gpu' | 'cpu'
+    fallback?: string
+    conversion?: {
+      setupMs: number
+      uploadMs: number
+      dispatchMs: number
+      readbackMs: number
+      copyingMs: number
+      batches: number
+    }
+  }
   attempts: {
     sourceId: string
     referenceId: string
     success: boolean
     runtimeMs: number
+    lane?: number
+    queuedMs?: number
+    reads?: MergeReadMeasurements
     patches?: { samplingMs: number; optimizationMs: number; count: number; pixels: number }
     diagnostics?: AlignmentDiagnostics[]
     reason?: string
   }[]
   disk: { readBytes: number; writtenBytes: number }
+  reads?: MergeReadMeasurements
   peak: { workerBytes: number; gpuBytes: number; wasmBytes: number }
   runtimeMs: number
 }

@@ -17,6 +17,18 @@ import type { MergePreparation } from '../../shared/merge'
 import { cameraRegistrationWriter, type CameraRegistration } from './camera-registration'
 import { sensorBlendParameters, sensorBlendRgb } from '../gpu/sensor-blend'
 
+function preparationWork(): NonNullable<MergeMeasurements['preparation'][number]['work']> {
+  return {
+    maskRepairMs: 0,
+    cameraRegistrationMs: 0,
+    hashingMs: 0,
+    writingMs: 0,
+    sensorCacheMs: 0,
+    reductionMs: 0,
+    conversionMs: 0,
+  }
+}
+
 function sensorMask(raw: RawSource) {
   const mask = new Uint8Array(raw.width * raw.height)
   for (let y = 0; y < raw.height; y++) {
@@ -153,7 +165,8 @@ export async function prepareSource(
   checkpoint: () => Promise<void> = async () => {},
   preparation?: MergePreparation,
 ): Promise<PreparedSource> {
-  const start = performance.now()
+  const start = performance.now(),
+    work = preparationWork()
   let fallback: string | undefined
   if (gpu && process.env.LUMA_MERGE_BACKEND !== 'cpu') {
     const decoder = rawDecoder(path)
@@ -182,31 +195,45 @@ export async function prepareSource(
         target = join(directory, `source-${index}.f32`),
         file = await open(target, 'wx'),
         strips: string[] = [],
+        maskStart = performance.now(),
         saturated = sensorMask(raw),
         alpha = new Uint32Array(Math.ceil((width * height) / 32)),
         invalidated: number[] = []
+      work.maskRepairMs += performance.now() - maskStart
       let camera: Awaited<ReturnType<typeof cameraRegistrationWriter>> | undefined
       try {
-        if (preparation)
+        if (preparation) {
+          const cameraStart = performance.now()
           camera = await cameraRegistrationWriter(directory, index, raw, plan, pw, ph)
+          work.cameraRegistrationMs += performance.now() - cameraStart
+        }
         const frame = await gpu.render(raw, plan, undefined, false, false, {
           gains: reference.metadata.whiteBalance!.asShotGains,
           reviewWidth: pw,
           reviewHeight: ph,
           checkpoint,
           strip: async (top, bytes) => {
+            const maskStart = performance.now()
             invalidated.push(...repairMask(bytes, top, width, raw, plan, saturated, alpha))
+            work.maskRepairMs += performance.now() - maskStart
+            const cameraStart = performance.now()
             await camera?.write(top, bytes)
+            work.cameraRegistrationMs += performance.now() - cameraStart
+            const hashing = performance.now()
             for (let offset = 0; offset < bytes.length; offset += width * 64 * 16)
               strips.push(
                 createHash('sha256')
                   .update(bytes.subarray(offset, Math.min(bytes.length, offset + width * 64 * 16)))
                   .digest('hex'),
               )
+            work.hashingMs += performance.now() - hashing
+            const writing = performance.now()
             await file.writeFile(bytes)
+            work.writingMs += performance.now() - writing
           },
         })
-        const data = new Float32Array(pw * ph),
+        const reduction = performance.now(),
+          data = new Float32Array(pw * ph),
           mask = new Uint8Array(pw * ph)
         for (let i = 0; i < data.length; i++) {
           const reduced = frame.mergeReduced!,
@@ -233,6 +260,8 @@ export async function prepareSource(
               data[i] = 0
             }
         }
+        work.reductionMs += performance.now() - reduction
+        const sensorStart = performance.now()
         const sensor = await saveSensorCache(
           directory,
           index,
@@ -241,7 +270,10 @@ export async function prepareSource(
           plan,
           alpha,
         )
+        work.sensorCacheMs += performance.now() - sensorStart
+        const cameraStart = performance.now()
         const cameraRegistration = await camera?.finish()
+        work.cameraRegistrationMs += performance.now() - cameraStart
         return {
           path: target,
           strips,
@@ -257,6 +289,8 @@ export async function prepareSource(
             reused: false,
             decodingMs,
             preparationMs: performance.now() - start - decodingMs,
+            work,
+            gpu: frame.timings,
           },
           gpuBytes: frame.gpuBytes,
           sensor,
@@ -290,6 +324,7 @@ export async function prepareSource(
     reused: false,
     decodingMs: result.measurement!.decodingMs,
     preparationMs: performance.now() - start - result.measurement!.decodingMs,
+    work: result.measurement!.work,
   }
   return result
 }
@@ -320,7 +355,8 @@ async function prepareCpu(
   preparation?: MergePreparation,
   highlightSafe = false,
 ): Promise<PreparedSource> {
-  const start = performance.now()
+  const start = performance.now(),
+    work = preparationWork()
   const decoder = rawDecoder(path)
   if (!decoder) throw new Error('Merge requires RAW sources.')
   const session = await decoder.open(path)
@@ -398,9 +434,11 @@ async function prepareCpu(
   let camera: Awaited<ReturnType<typeof cameraRegistrationWriter>> | undefined
   const cx = (frame.width - 1) / 2,
     cy = (frame.height - 1) / 2,
-    radius = Math.hypot(cx, cy)
+    radius = Math.hypot(cx, cy),
+    staging = new Float32Array(width * Math.min(64, height) * 4)
   try {
-    if (preparation && !highlightSafe)
+    if (preparation && !highlightSafe) {
+      const cameraStart = performance.now()
       camera = await cameraRegistrationWriter(
         directory,
         index,
@@ -409,10 +447,13 @@ async function prepareCpu(
         plane.width,
         plane.height,
       )
+      work.cameraRegistrationMs += performance.now() - cameraStart
+    }
     for (let top = 0; top < height; top += 64) {
       await checkpoint()
       const rows = Math.min(64, height - top),
-        out = new Float32Array(width * rows * 4)
+        out = staging.subarray(0, width * rows * 4),
+        conversion = performance.now()
       for (let y = top; y < top + rows; y++)
         for (let x = 0; x < width; x++) {
           let sx = frame.flip & 4 ? y : x,
@@ -471,20 +512,31 @@ async function prepareCpu(
               }
             }
         }
-      const bytes = Buffer.from(out.buffer)
+      work.conversionMs += performance.now() - conversion
+      const bytes = Buffer.from(out.buffer, out.byteOffset, out.byteLength),
+        hashing = performance.now()
       strips.push(createHash('sha256').update(bytes).digest('hex'))
+      work.hashingMs += performance.now() - hashing
+      const cameraStart = performance.now()
       await camera?.write(top, bytes)
+      work.cameraRegistrationMs += performance.now() - cameraStart
+      const writing = performance.now()
       await file.writeFile(bytes)
+      work.writingMs += performance.now() - writing
     }
   } finally {
     await camera?.close()
     await file.close()
   }
-  const cameraRegistration = await camera?.finish()
+  const cameraStart = performance.now(),
+    cameraRegistration = await camera?.finish()
+  work.cameraRegistrationMs += performance.now() - cameraStart
+  const reduction = performance.now()
   for (let i = 0; i < plane.data.length; i++) {
     plane.mask[i] = Math.abs(counts[i] - totals[i]) < 1e-8 && counts[i] > 0 ? 255 : 0
     plane.data[i] = plane.mask[i] ? plane.data[i] / counts[i] : 0
   }
+  work.reductionMs += performance.now() - reduction
   return {
     path: target,
     strips,
@@ -499,6 +551,7 @@ async function prepareCpu(
       reused: false,
       decodingMs,
       preparationMs: performance.now() - start - decodingMs,
+      work,
     },
     cameraRegistration,
   }

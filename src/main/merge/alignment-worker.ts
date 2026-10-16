@@ -4,6 +4,7 @@ import { mergeFailure, type MergeTransform } from '../../shared/merge'
 import type { PreparedSource } from './prepare'
 import { mergeReadBytes, resetMergeReads } from './sampling'
 import { openCv } from './opencv'
+import { mergeReadMeasurements } from './read-metrics'
 
 const sources = new Map<string, PreparedSource>()
 let paused = false
@@ -50,6 +51,7 @@ parentPort!.on(
             patches: (await openCv()).patchStats(),
           },
           readBytes: mergeReadBytes(),
+          reads: mergeReadMeasurements(),
           wasmBytes: (await openCv()).memory(),
         }),
       async (error) =>
@@ -57,6 +59,7 @@ parentPort!.on(
           id: message.id,
           error: mergeFailure(error),
           readBytes: mergeReadBytes(),
+          reads: mergeReadMeasurements(),
           timings: error.timings,
           runtimeMs: performance.now() - start,
           patches: (await openCv().catch(() => undefined))?.patchStats(),

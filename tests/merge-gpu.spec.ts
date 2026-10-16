@@ -505,7 +505,10 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
     })
     expect(gpu.measurements.accumulation.backend, JSON.stringify(gpu.measurements)).toBe('gpu')
     expect(gpu.measurements.coverage, JSON.stringify(gpu.measurements)).toEqual({ backend: 'gpu' })
-    expect(gpu.measurements.output, JSON.stringify(gpu.measurements)).toEqual({ backend: 'gpu' })
+    expect(gpu.measurements.output, JSON.stringify(gpu.measurements)).toMatchObject({
+      backend: 'gpu',
+      conversion: { batches: Math.ceil(gpu.asset.height / 64) * 2 + 1 },
+    })
     process.env.LUMA_MERGE_BACKEND = 'cpu'
     const cpu = await runMerge({
       ...f.job,
@@ -569,6 +572,7 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
     })
     expect(reused.measurements.attempts).toHaveLength(0)
     expect(reused.measurements.preparation.every((p) => p.reused)).toBe(true)
+    expect(reused.measurements.preparation.every((p) => !p.work && !p.gpu)).toBe(true)
     delete process.env.LUMA_MERGE_BACKEND
     const method = RawGpuRenderer.prototype.mergeDevice
     RawGpuRenderer.prototype.mergeDevice = async () => {

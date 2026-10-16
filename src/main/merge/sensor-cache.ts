@@ -5,6 +5,7 @@ import type { RawSource } from '../gpu/raw-source'
 import type { CorrectionPlan } from '../processing/lens-correction'
 import { MERGE_LIMITS } from '../../shared/merge'
 import { noteMergeRead } from './sampling'
+import { mergeReadMeasurements } from './read-metrics'
 
 interface BinaryPlane {
   path: string
@@ -115,11 +116,20 @@ export async function validateSensorCache(
       throw new Error('Invalid merge sensor cache.')
 }
 export async function readSensorCache(cache: SensorCache) {
+  const metrics = mergeReadMeasurements().sensors
   const read = async (p: BinaryPlane) => {
+    const reading = performance.now()
     const bytes = await readFile(p.path)
+    metrics.readingMs += performance.now() - reading
+    metrics.files++
+    metrics.readBytes += bytes.length
     noteMergeRead(bytes.length)
-    if (bytes.length !== p.bytes || hash(bytes) !== p.sha256)
+    const hashing = performance.now(),
+      digest = hash(bytes)
+    metrics.hashingMs += performance.now() - hashing
+    if (bytes.length !== p.bytes || digest !== p.sha256)
       throw new Error('Damaged merge sensor cache.')
+    metrics.verifiedBytes += bytes.length
     return bytes
   }
   const bytes = await read(cache.sensor),

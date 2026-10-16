@@ -2,6 +2,7 @@ import { identityTransform } from './alignment'
 import { AlignmentPool } from './alignment-pool'
 import { resizedTransform, validateTransform, multiply, inverse } from './matrix'
 import { band, bandData, resetMergeReads, mergeReadBytes } from './sampling'
+import { mergeReadMeasurements } from './read-metrics'
 import { loadPreparation, savePreparation } from './preparation-cache'
 import { RawGpuRenderer } from '../gpu/raw-renderer'
 import { accumulateGpu } from './gpu-accumulation'
@@ -116,6 +117,7 @@ export async function runMerge(job: MergeJob): Promise<MergeResult> {
     return await runMergeInternal(job, gpu, alignment, measurements)
   } catch (error) {
     const failure = mergeFailure(error)
+    measurements.reads = structuredClone(mergeReadMeasurements())
     measurements.runtimeMs = performance.now() - start
     measurements.peak.workerBytes = process.resourceUsage().maxRSS * 1024
     measurements.peak.wasmBytes = Math.max(
@@ -198,6 +200,7 @@ async function runMergeInternal(
         }),
       ),
     )
+    const cacheLookup = performance.now()
     let p = await loadPreparation(
       directory,
       i,
@@ -207,7 +210,9 @@ async function runMergeInternal(
       },
       identity,
     )
-    const reused = !!p
+    const cacheLookupMs = performance.now() - cacheLookup,
+      reused = !!p
+    let cacheWriteMs = 0
     if (!p) {
       // Cancelled decoding can leave an incomplete, unindexed scratch frame.
       await rm(join(directory, `source-${i}.f32`), { force: true })
@@ -226,7 +231,9 @@ async function runMergeInternal(
       p.identity = identity
       measurements.disk.readBytes +=
         (await stat(job.paths[i])).size * (p.measurement?.fallback ? 2 : 1)
+      const cacheWrite = performance.now()
       measurements.disk.writtenBytes += await savePreparation(directory, i, settings.referenceId, p)
+      cacheWriteMs = performance.now() - cacheWrite
       measurements.disk.writtenBytes +=
         p.width * p.height * 16 * (p.cameraRegistration ? 2 : 1) +
         (p.sensor ? p.sensor.sensor.bytes + p.sensor.alpha.bytes + p.sensor.lens.bytes : 0)
@@ -313,13 +320,17 @@ async function runMergeInternal(
             (failure) => ({ failure }),
           ),
       )
-    const m = {
+    const m: MergeMeasurements['preparation'][number] = {
       ...(p.measurement ?? { backend: 'cpu' as const, decodingMs: 0, preparationMs: 0 }),
       reused,
+      cacheLookupMs,
+      cacheWriteMs,
     }
     if (reused) {
       m.decodingMs = 0
       m.preparationMs = 0
+      m.work = undefined
+      m.gpu = undefined
     }
     measurements.preparation[i] = m
     measurements.stages.decoding += m.decodingMs
@@ -479,6 +490,9 @@ async function runMergeInternal(
             measurements.disk.readBytes += result.readBytes
             workerRuntime = result.runtimeMs
             attempt.patches = result.patches
+            attempt.lane = result.lane
+            attempt.queuedMs = result.queuedMs
+            attempt.reads = result.reads
             attempt.diagnostics = result.diagnostics
             transforms[i] = result.transform
             if (neighbor !== referenceIndex)
@@ -491,12 +505,18 @@ async function runMergeInternal(
               readBytes?: number
               runtimeMs?: number
               patches?: MergeMeasurements['attempts'][number]['patches']
+              lane?: number
+              queuedMs?: number
+              reads?: MergeMeasurements['reads']
             }
             measurements.stages.matching += work.timings?.matching ?? 0
             measurements.stages.nativeValidation += work.timings?.nativeValidation ?? 0
             measurements.disk.readBytes += work.readBytes ?? 0
             workerRuntime = work.runtimeMs
             attempt.patches = work.patches
+            attempt.lane = work.lane
+            attempt.queuedMs = work.queuedMs
+            attempt.reads = work.reads
             const failure = mergeFailure(error)
             attempt.diagnostics = failure.diagnostics
             attempt.reason = failure.message
@@ -893,7 +913,7 @@ async function runMergeInternal(
   if (usedGpu) {
     try {
       converter = await gpuOutput(gpu, Math.max(crop.width * 64, tw * th))
-      measurements.output = { backend: 'gpu' }
+      measurements.output = { backend: 'gpu', conversion: converter.timings }
       measurements.peak.gpuBytes = Math.max(measurements.peak.gpuBytes, converter.peakBytes)
     } catch (error) {
       measurements.output = { backend: 'cpu', fallback: mergeFailure(error).message }
@@ -1025,7 +1045,11 @@ async function runMergeInternal(
           resultBytes = await converter.convert(out)
           referenceBytes = await converter.convert(referenceOut)
         } catch (error) {
-          measurements.output = { backend: 'cpu', fallback: mergeFailure(error).message }
+          measurements.output = {
+            ...measurements.output,
+            backend: 'cpu',
+            fallback: mergeFailure(error).message,
+          }
           converter.close()
           converter = undefined
           resultBytes = displayLinear(out)
@@ -1072,7 +1096,11 @@ async function runMergeInternal(
         if (!converter) throw new Error(measurements.output?.fallback ?? 'GPU output unavailable.')
         preview.set(await converter.convert(previewLinear))
       } catch (error) {
-        measurements.output = { backend: 'cpu', fallback: mergeFailure(error).message }
+        measurements.output = {
+          ...measurements.output,
+          backend: 'cpu',
+          fallback: mergeFailure(error).message,
+        }
         preview.set(displayLinear(previewLinear))
       }
     }
@@ -1162,6 +1190,7 @@ async function runMergeInternal(
     ...transforms.map((t) => t.diagnostics?.wasmMemoryBytes ?? 0),
   )
   measurements.runtimeMs = performance.now() - start
+  measurements.reads = structuredClone(mergeReadMeasurements())
   return {
     asset,
     recipe,
