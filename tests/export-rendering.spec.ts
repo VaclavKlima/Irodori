@@ -13,6 +13,7 @@ import { renderHdrContent } from '../src/shared/display-rendering'
 import { adjustHdr } from '../src/shared/hdr'
 import { PreviewEngine } from '../src/main/preview-engine'
 import { ExportProcess } from '../src/main/export/process'
+import { workingSourceIdentity, validateWorkingAsset } from '../src/main/working-assets'
 import { automaticLensSettings } from '../src/shared/lens'
 import { processingMetadata } from '../src/main/processing/metadata'
 import type { ExportSource } from '../src/main/export/types'
@@ -307,6 +308,45 @@ test('real Sony RAW prepares independently, retains frozen white balance/lens ed
     await engine.close()
     await rm(join(directory, 'linear.f32'), { force: true })
   }
+})
+
+test('the isolated exporter consumes a matching validated working asset without launching a decoder', async () => {
+  const directory = test.info().outputPath('leased-working-source')
+  await mkdir(directory)
+  const source = await syntheticExportSource(directory, 13, 9, () => [0.18, 0.5, 4])
+  source.processing.processing = 'hdr-v1'
+  source.processing.adjustments = { ...neutralAdjustments, exposureEv: 0.25, highlights: -25 }
+  const asset = source.processing.workingAsset!
+  const signal = new AbortController().signal
+  await validateWorkingAsset(asset, signal)
+  const exporter = new ExportProcess(
+    resolve('out/main/export-worker.js'),
+    join(directory, 'decoder-must-not-launch.js'),
+  )
+  const result = await exporter.render(
+    {
+      source,
+      options: { ...defaultExportOptions, metadata: 'none' },
+      directory,
+      hdr: true,
+      workingAsset: {
+        identity: workingSourceIdentity(source.photo.id, source.processing),
+        asset,
+        backend: 'cpu',
+      },
+    },
+    signal,
+  )
+  expect(result.diagnostics?.sourcePreparation).toBe('preview-cache')
+  expect(result.diagnostics?.sourceBackend).toBe('cpu')
+  expect(await sharp(result.path).metadata()).toMatchObject({
+    width: 13,
+    height: 9,
+    format: 'jpeg',
+  })
+  expect(readGainJpeg(await readFile(result.path)).gain.length).toBeGreaterThan(0)
+  expect(source.processing.adjustments.exposureEv).toBe(0.25)
+  await expect(stat(join(directory, 'linear.f32'))).rejects.toThrow('ENOENT')
 })
 
 test('the full Sony fixture dimensions fit the capped single-threaded encoder heap without downscaling', async () => {

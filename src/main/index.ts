@@ -813,7 +813,7 @@ app
       if ((kind !== 'files' && kind !== 'folder') || typeof recursive !== 'boolean')
         throw new Error('Invalid import source.')
       if (picking) throw new Error('A file picker is already open.')
-      if (library!.hasActiveTask())
+      if (library!.hasActiveTask(false))
         throw new Error('Finish or cancel the current library operation first.')
       picking = true
       try {

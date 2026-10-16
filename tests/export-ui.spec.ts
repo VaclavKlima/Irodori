@@ -3,9 +3,146 @@ import { join, resolve } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { test, expect } from './electron.fixture'
-import { importPhotos } from './import.helpers'
+import { choose, importPhotos } from './import.helpers'
 import { holdBrowseSelections, seedLargeBrowser } from './all-photos.helpers'
 import { DEFAULT_BROWSE_QUERY } from '../src/shared/browse'
+
+test('an active export permits a new file import while preserving the current photo and selection', async ({
+  luma,
+}) => {
+  const { app, page } = luma
+  await importPhotos(app, page)
+  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  await page.getByTestId(`photo-card-${photos[0].id}`).click()
+  await page.getByTestId(`photo-card-${photos[1].id}`).click({ modifiers: ['ControlOrMeta'] })
+  await expect(page.getByTestId('preview-filename')).toHaveText(photos[1].filename)
+  for (const photo of photos)
+    await expect(page.getByTestId(`photo-card-${photo.id}`)).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+  const destination = join(luma.userDataDir, 'exports')
+  await mkdir(destination)
+  await app.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
+  }, destination)
+  // Hold only the real export worker's initial IPC message. Admission, source
+  // validation, cancellation, scanning and both background jobs remain production code.
+  const hold = await app.evaluateHandle(() => {
+    const children = process.getBuiltinModule(
+      'child_process',
+    ) as typeof import('node:child_process')
+    const original = children.fork
+    const pending: (() => void)[] = []
+    let held = true,
+      calls = 0
+    children.fork = ((...args: Parameters<typeof children.fork>) => {
+      const child = original(...args)
+      if (String(args[0]).endsWith('export-worker.js')) {
+        const send = child.send
+        child.send = ((...message: unknown[]) => {
+          if (!held) return Reflect.apply(send, child, message) as boolean
+          calls++
+          pending.push(() => {
+            if (child.connected && !child.killed) Reflect.apply(send, child, message)
+          })
+          return true
+        }) as typeof child.send
+      }
+      return child
+    }) as typeof children.fork
+    process.getBuiltinModule('module').syncBuiltinESMExports()
+    const release = () => {
+      held = false
+      for (const send of pending.splice(0)) send()
+    }
+    return {
+      get calls() {
+        return calls
+      },
+      release,
+      restore: () => {
+        release()
+        children.fork = original
+        process.getBuiltinModule('module').syncBuiltinESMExports()
+      },
+    }
+  })
+  try {
+    await page.getByRole('button', { name: 'Export photo', exact: true }).click()
+    const chooser = page.getByRole('dialog', { name: 'Export JPEG', exact: true })
+    await chooser.getByRole('button', { name: 'Change folder…' }).click()
+    await chooser.getByRole('button', { name: /High quality/ }).click()
+    await expect.poll(() => hold.evaluate((gate) => gate.calls)).toBeGreaterThan(0)
+    const exportId = await page.evaluate(
+      async () =>
+        (await window.luma.listTasks()).find(
+          (task) => task.kind === 'export' && task.status === 'running',
+        )!.id,
+    )
+    await page.getByRole('button', { name: 'Close task details', exact: true }).click()
+    await page.getByRole('button', { name: 'Import photos', exact: true }).click()
+    await choose(app, page, ['tests/fixtures/photos/forest-light.jpg'])
+    await expect(page.getByTestId('import-status')).toContainText('Ready to import', {
+      timeout: 30000,
+    })
+    await expect(page.getByTestId('import-status')).toContainText('1 awaiting checks')
+    const previousImports = await page.evaluate(async () =>
+      (await window.luma.listTasks())
+        .filter((task) => task.kind === 'import')
+        .map((task) => task.id),
+    )
+    await page.getByRole('button', { name: 'Import 1 photos', exact: true }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    const importId = await page.evaluate(
+      async (previous) =>
+        (await window.luma.listTasks()).find(
+          (task) => task.kind === 'import' && !previous.includes(task.id),
+        )!.id,
+      previousImports,
+    )
+    await expect(page.getByTestId('preview-filename')).toHaveText(photos[1].filename)
+    for (const photo of photos)
+      await expect(page.getByTestId(`photo-card-${photo.id}`)).toHaveAttribute(
+        'aria-selected',
+        'true',
+      )
+    await hold.evaluate((gate) => gate.release())
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            async (ids) =>
+              Object.fromEntries(
+                (await window.luma.listTasks())
+                  .filter((task) => ids.includes(task.id))
+                  .map((task) => [task.id, task.status]),
+              ),
+            [exportId, importId],
+          ),
+        { timeout: 30000 },
+      )
+      .toEqual({ [exportId]: 'completed', [importId]: 'completed' })
+    expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(3)
+    await expect(page.getByTestId('preview-filename')).toHaveText(photos[1].filename)
+    for (const photo of photos)
+      await expect(page.getByTestId(`photo-card-${photo.id}`)).toHaveAttribute(
+        'aria-selected',
+        'true',
+      )
+    expect((await readdir(destination)).sort()).toEqual(['alpine-lake.jpg', 'mountain-ridge.jpg'])
+    expect(await readdir(join(luma.userDataDir, 'library', 'staging'))).toEqual([])
+    expect(
+      await readdir(join(luma.userDataDir, 'library', 'export-work', exportId)).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+        throw error
+      }),
+    ).toEqual([])
+  } finally {
+    await hold.evaluate((gate) => gate.restore())
+    await hold.dispose()
+  }
+})
 
 test('chooser reuses the destination, picker cancellation changes no preferences and retained results show counts', async ({
   luma,

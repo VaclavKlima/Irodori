@@ -8,6 +8,8 @@ import { PreviewEngine } from '../src/main/preview-engine'
 import type { FullPreviewProcessor, FullPreviewResult } from '../src/main/preview-types'
 import { unavailableProfile } from '../src/main/processing/metadata'
 import { automaticLensSettings, type ProcessingOptions } from '../src/shared/lens'
+import { srgbTransform } from '../src/shared/adjustments'
+import { workingAsset } from './export.helpers'
 
 async function writeFrame(
   output: string,
@@ -31,6 +33,114 @@ async function writeFrame(
 const ids = ['a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64)]
 const original = (id: string) =>
   ids.includes(id) ? resolve('tests/fixtures/sony-zv1.ARW') : undefined
+
+async function writeWorkingFrame(output: string): Promise<FullPreviewResult> {
+  const data = new Float32Array(12 * 8 * 4).fill(0.25)
+  for (let i = 3; i < data.length; i += 4) data[i] = 1
+  const bytes = Buffer.from(data.buffer)
+  const hdr = workingAsset(bytes, 12, 8)
+  await writeFile(join(output, 'linear.f32'), bytes)
+  return {
+    width: 12,
+    height: 8,
+    format: 'hdr-working',
+    byteLength: 0,
+    sha256: hdr.sha256,
+    renderId: 'synthetic-hdr',
+    placeholderBytes: 0,
+    linear: { byteLength: bytes.length, sha256: hdr.sha256, transform: srgbTransform, hdr },
+  }
+}
+
+test('main-only export leases match frozen preparation and protect working assets during eviction', async () => {
+  const root = test.info().outputPath('export-lease')
+  let options: ProcessingOptions = {
+    processing: 'hdr-v1',
+    metadata: { version: 1, lensProfile: unavailableProfile },
+    settings: { ...automaticLensSettings },
+    revision: 0,
+  }
+  const frozen = structuredClone(options)
+  const cache = new FullPreviews(
+    root,
+    original,
+    { renderFull: (_path, output) => writeWorkingFrame(output), close: async () => {} },
+    12 * 8 * 16,
+    async () => ({ ...options }),
+  )
+  const signal = new AbortController().signal
+  try {
+    await cache.open()
+    expect(await cache.acquireWorkingAsset(ids[0], frozen, signal)).toBeUndefined()
+    await cache.requestHdr(ids[0], randomUUID())
+    const lease = await cache.acquireWorkingAsset(ids[0], frozen, signal)
+    expect(lease).toBeTruthy()
+    await cache.release()
+    options = { ...options, revision: 1, settings: { ...options.settings, distortion: false } }
+    expect(await cache.acquireWorkingAsset(ids[0], options, signal)).toBeUndefined()
+    const frozenAgain = await cache.acquireWorkingAsset(ids[0], frozen, signal)
+    expect(frozenAgain?.asset.path).toBe(lease!.asset.path)
+    frozenAgain?.release()
+    await cache.requestHdr(ids[1], randomUUID())
+    expect(await readFile(lease!.asset.path)).toHaveLength(12 * 8 * 16)
+    lease!.release()
+    lease!.release()
+    await cache.release()
+    await expect(readFile(lease!.asset.path)).rejects.toThrow('ENOENT')
+  } finally {
+    await cache.close()
+  }
+})
+
+test('export working-asset corruption is a cache miss and repaired source preparation remains reusable', async () => {
+  const root = test.info().outputPath('export-corruption')
+  const options: ProcessingOptions = {
+    processing: 'hdr-v1',
+    metadata: { version: 1, lensProfile: unavailableProfile },
+    settings: { ...automaticLensSettings },
+    revision: 0,
+  }
+  let renders = 0
+  const cache = new FullPreviews(
+    root,
+    original,
+    {
+      renderFull: (_path, output) => {
+        renders++
+        return writeWorkingFrame(output)
+      },
+      close: async () => {},
+    },
+    undefined,
+    async () => ({ ...options }),
+  )
+  const signal = new AbortController().signal
+  try {
+    await cache.open()
+    const frame = await cache.requestHdr(ids[0], randomUUID())
+    const stream = cache.acquire(new URL(frame!.linear!.url!))!
+    await writeFile(stream.path, Buffer.alloc(stream.byteLength))
+    expect(await cache.acquireWorkingAsset(ids[0], options, signal)).toBeUndefined()
+    stream.release()
+    await cache.release()
+    await cache.requestHdr(ids[0], randomUUID())
+    const interrupted = new AbortController()
+    const validating = cache.acquireWorkingAsset(ids[0], options, interrupted.signal)
+    interrupted.abort(new Error('Stopped during validation.'))
+    await expect(validating).rejects.toThrow('Stopped during validation')
+    const lease = await cache.acquireWorkingAsset(ids[0], options, signal)
+    expect(lease?.asset.hdr?.sha256).toBeTruthy()
+    expect(renders).toBe(2)
+    lease?.release()
+    const aborted = new AbortController()
+    aborted.abort(new Error('Stopped before validation.'))
+    await expect(cache.acquireWorkingAsset(ids[0], options, aborted.signal)).rejects.toThrow(
+      'Stopped before validation',
+    )
+  } finally {
+    await cache.close()
+  }
+})
 
 test('correction variants share the cache budget, carry the current revision and survive restart', async () => {
   const root = test.info().outputPath('variants')

@@ -82,7 +82,7 @@ import {
   type TaskErrorPage,
   type ForegroundActivity,
 } from '../shared/contracts'
-import type { PreviewProcessor } from './preview-types'
+import type { FullPreviewProcessor, PreviewProcessor } from './preview-types'
 import { ReviewThumbnails, type ReviewThumbnailState } from './review-thumbnails'
 import { DeviceDirectoryVisibility } from './device-directory-visibility'
 import {
@@ -240,6 +240,7 @@ export class PhotoLibrary {
     private hashSource = hashImportSource,
     private sampleSource = sampleCameraOriginal,
     private exportRenderer?: Pick<ExportProcess, 'render'>,
+    fullPreviewProcessor: FullPreviewProcessor = new PreviewProcess(),
   ) {
     void obsoleteImportPreference // Old internal callers cannot select a previous rendering path.
 
@@ -288,7 +289,7 @@ export class PhotoLibrary {
             )
           : undefined
       },
-      new PreviewProcess(),
+      fullPreviewProcessor,
       undefined,
       (id, signal) => this.processingOptions(id, signal),
       undefined,
@@ -524,6 +525,9 @@ export class PhotoLibrary {
       },
       () => this.changed(),
       this.exportRenderer,
+      undefined,
+      (source, signal) =>
+        this.fullPreviews.acquireWorkingAsset(source.photo.id, source.processing, signal),
     )
     await this.exports.recover()
     await rm(join(this.root, 'merge-reviews'), { recursive: true, force: true })

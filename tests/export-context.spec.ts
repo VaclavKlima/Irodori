@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { readFile, readdir, rename, writeFile, lstat, mkdir, link } from 'node:fs/promises'
+import { readFile, readdir, rename, writeFile, lstat, mkdir, link, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { resolve } from 'node:path'
@@ -10,13 +10,19 @@ import { identity } from '../src/main/export/files'
 import { defaultExportOptions } from '../src/shared/export'
 import type { ExportRenderJob } from '../src/main/export/types'
 import { neutralAdjustments } from '../src/shared/adjustments'
-import { exportFixture, sha } from './export.helpers'
+import { exportFixture, sha, syntheticExportSource } from './export.helpers'
 import { finishTask } from './stack.helpers'
+import { prepareExportWorkingSource } from '../src/main/export/preparation'
+import { workingSourceIdentity, type WorkingAssetLease } from '../src/main/working-assets'
 
 async function controlled(
   t: Awaited<ReturnType<typeof exportFixture>>,
   render: (job: ExportRenderJob, signal: AbortSignal) => Promise<{ path: string; sha256: string }>,
   boundary?: (b: ExportBoundary) => Promise<void>,
+  working?: {
+    hdr: boolean
+    acquire?: ConstructorParameters<typeof ExportJobs>[8]
+  },
 ) {
   t.library.exports = new ExportJobs(
     new ExportStore(t.db),
@@ -33,9 +39,10 @@ async function controlled(
         photo,
         path,
         identity: identity(await lstat(path)),
-        hdr: false,
+        hdr: working?.hdr ?? false,
         processing: {
           ...JSON.parse(row.data),
+          ...(working?.hdr ? { processing: 'hdr-v1' } : {}),
           revision: edits.revision,
           adjustments: { ...neutralAdjustments, ...edits.settings },
         },
@@ -49,6 +56,7 @@ async function controlled(
     () => {},
     { render },
     boundary,
+    working?.acquire,
   )
 }
 async function fakeRender(job: ExportRenderJob) {
@@ -323,6 +331,10 @@ test('restart reconciles a linked publication by inode and hash, cleans only own
     task.status = 'running'
     task.finishedAt = undefined
     t.library.exports.store.task(task)
+    const scratch = join(t.root, 'library', 'export-work', id, '0-preparation')
+    await mkdir(scratch, { recursive: true })
+    await writeFile(join(scratch, 'source.json'), '{"version":1}')
+    await writeFile(join(scratch, 'linear.f32'), 'interrupted preparation')
     await t.library.exports.recover()
     expect(t.library.exports.results(id).results.map((f) => f.status)).toEqual([
       'exported',
@@ -331,6 +343,7 @@ test('restart reconciles a linked publication by inode and hash, cleans only own
     expect(await readFile(join(t.destination, foreign), 'utf8')).toBe('untouched')
     expect((await readdir(t.destination)).includes(partial)).toBe(false)
     expect(t.library.exports.list()[0].title).toBe('Export interrupted')
+    await expect(lstat(join(t.root, 'library', 'export-work'))).rejects.toThrow('ENOENT')
     const before = await readdir(t.destination)
     await t.library.exports.recover()
     expect(await readdir(t.destination)).toEqual(before)
@@ -426,6 +439,218 @@ test('foreground interaction drains an export worker and retries only the unfini
     await t.close()
   }
 })
+
+test('completed source preparation survives foreground retry while output and frozen edits stay isolated', async () => {
+  const t = await exportFixture(1)
+  const descriptorDirectory = test.info().outputPath('prepared-source')
+  await mkdir(descriptorDirectory)
+  const synthetic = await syntheticExportSource(descriptorDirectory, 12, 8, () => [0.18, 0.2, 1])
+  const bytes = await readFile(synthetic.path)
+  let decodes = 0,
+    attempts = 0
+  let entered!: () => void
+  const started = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  try {
+    await controlled(
+      t,
+      async (job, signal) => {
+        attempts++
+        const prepared = await prepareExportWorkingSource(job, signal, async (directory) => {
+          decodes++
+          await writeFile(join(directory, 'linear.f32'), bytes)
+          return {
+            width: 12,
+            height: 8,
+            format: 'hdr-working',
+            byteLength: 0,
+            sha256: sha(bytes),
+            renderId: 'synthetic',
+            placeholderBytes: 0,
+            linear: synthetic.processing.workingAsset!,
+          }
+        })
+        expect(job.source.processing.adjustments?.exposureEv).toBe(0)
+        if (attempts === 1) {
+          expect(prepared.preparation).toBe('decoded')
+          await writeFile(join(job.directory, 'unfinished.jpg'), 'discard on retry')
+          entered()
+          await new Promise<void>((_, reject) =>
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+          )
+        }
+        expect(prepared.preparation).toBe('retained')
+        expect(await readdir(job.directory)).toEqual([])
+        return fakeRender(job)
+      },
+      undefined,
+      { hdr: true },
+    )
+    const grant = await t.library.exports.store.authorize(t.destination)
+    const prepared = await t.library.prepareExport([t.photos[0].id])
+    const id = await t.library.startExport({
+      preparationId: prepared.id,
+      destinationId: grant.id,
+      action: 'high',
+    })
+    await started
+    await t.library.updateEdits(t.photos[0].id, { exposureEv: 1 }, 0)
+    expect((await wait(t, id)).export).toMatchObject({ exported: 1, failed: 0 })
+    expect(decodes).toBe(1)
+    expect(attempts).toBe(2)
+    expect(await readFile(join(t.destination, 'Photo-0.jpg'), 'utf8')).toBe('jpeg-0')
+    expect(await readdir(join(t.root, 'library', 'export-work', id))).toEqual([])
+  } finally {
+    await t.close()
+  }
+})
+
+test('retained preparation validates its identity and bytes before avoiding original decoding', async () => {
+  const root = test.info().outputPath('retained-source')
+  await mkdir(root)
+  const source = await syntheticExportSource(root, 12, 8, () => [0.18, 0.2, 1])
+  source.processing.processing = 'hdr-v1'
+  const bytes = await readFile(source.path)
+  const job: ExportRenderJob = {
+    source,
+    options: defaultExportOptions,
+    directory: join(root, 'output'),
+    preparationDirectory: join(root, 'prepared'),
+    hdr: true,
+  }
+  const signal = new AbortController().signal
+  let decodes = 0
+  const decode = async (directory: string) => {
+    decodes++
+    await writeFile(join(directory, 'linear.f32'), bytes)
+    return {
+      width: 12,
+      height: 8,
+      format: 'hdr-working' as const,
+      byteLength: 0,
+      sha256: sha(bytes),
+      renderId: 'synthetic',
+      placeholderBytes: 0,
+      linear: source.processing.workingAsset!,
+    }
+  }
+  expect((await prepareExportWorkingSource(job, signal, decode)).preparation).toBe('decoded')
+  source.processing.revision++
+  source.processing.adjustments = { ...neutralAdjustments, exposureEv: 1 }
+  expect((await prepareExportWorkingSource(job, signal, decode)).preparation).toBe('retained')
+  expect(decodes).toBe(1)
+  source.processing.settings = { ...source.processing.settings, distortion: false }
+  expect((await prepareExportWorkingSource(job, signal, decode)).preparation).toBe('decoded')
+  expect(decodes).toBe(2)
+  await writeFile(join(job.preparationDirectory!, 'linear.f32'), Buffer.alloc(bytes.length))
+  expect((await prepareExportWorkingSource(job, signal, decode)).preparation).toBe('decoded')
+  expect(decodes).toBe(3)
+  await writeFile(join(job.preparationDirectory!, 'source.json'), '{incomplete')
+  expect((await prepareExportWorkingSource(job, signal, decode)).preparation).toBe('decoded')
+  expect(decodes).toBe(4)
+  const damagedDescriptor = JSON.parse(
+    await readFile(join(job.preparationDirectory!, 'source.json'), 'utf8'),
+  )
+  damagedDescriptor.asset.hdr.strips[0].sha256 = '0'.repeat(64)
+  await writeFile(join(job.preparationDirectory!, 'source.json'), JSON.stringify(damagedDescriptor))
+  expect((await prepareExportWorkingSource(job, signal, decode)).preparation).toBe('decoded')
+  expect(decodes).toBe(5)
+  job.workingAsset = {
+    identity: workingSourceIdentity(source.photo.id, source.processing),
+    asset: source.processing.workingAsset!,
+  }
+  expect((await prepareExportWorkingSource(job, signal, decode)).preparation).toBe('preview-cache')
+  expect(decodes).toBe(5)
+  job.workingAsset.identity = 'mismatched-preparation'
+  expect((await prepareExportWorkingSource(job, signal, decode)).preparation).toBe('retained')
+  expect(decodes).toBe(5)
+  delete job.workingAsset
+  await rm(job.preparationDirectory!, { recursive: true })
+  await expect(
+    prepareExportWorkingSource(job, signal, async () => {
+      throw new Error('Decoder interrupted.')
+    }),
+  ).rejects.toThrow('Decoder interrupted')
+  await expect(lstat(job.preparationDirectory!)).rejects.toThrow('ENOENT')
+})
+
+for (const outcome of ['success', 'failure', 'cancellation', 'shutdown'] as const)
+  test(`export releases its working-asset lease after ${outcome} and keeps it across foreground retry`, async () => {
+    const t = await exportFixture(1)
+    const directory = test.info().outputPath('lease-source')
+    await mkdir(directory)
+    const synthetic = await syntheticExportSource(directory, 12, 8, () => [0.18, 0.2, 1])
+    let acquisitions = 0,
+      releases = 0,
+      attempts = 0,
+      exited = false
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    try {
+      await controlled(
+        t,
+        async (job, signal) => {
+          attempts++
+          expect(releases).toBe(0)
+          expect(job.workingAsset?.asset.path).toBe(synthetic.path)
+          try {
+            if (attempts === 1 || outcome === 'cancellation' || outcome === 'shutdown') {
+              entered()
+              await new Promise<void>((_, reject) =>
+                signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+              )
+            }
+            if (outcome === 'failure') throw new Error('Encoder failed after preparation.')
+            return fakeRender(job)
+          } finally {
+            exited = true
+          }
+        },
+        undefined,
+        {
+          hdr: true,
+          acquire: async (source) => {
+            acquisitions++
+            const lease: WorkingAssetLease = {
+              identity: workingSourceIdentity(source.photo.id, source.processing),
+              asset: synthetic.processing.workingAsset!,
+              release: () => {
+                expect(exited).toBe(true)
+                releases++
+              },
+            }
+            return lease
+          },
+        },
+      )
+      const grant = await t.library.exports.store.authorize(t.destination)
+      const p = await t.library.prepareExport([t.photos[0].id])
+      const id = await t.library.startExport({
+        preparationId: p.id,
+        destinationId: grant.id,
+        action: 'high',
+      })
+      await started
+      expect(t.library.exports.leased([t.photos[0].id])).toBe(true)
+      if (outcome === 'cancellation') await t.library.cancelTask(id)
+      else if (outcome === 'shutdown') await t.library.exports.close()
+      else await t.library.scheduler.run('interactive', async () => {})
+      const task = await wait(t, id)
+      expect(task.status).toBe(
+        outcome === 'success' ? 'completed' : outcome === 'failure' ? 'failed' : 'cancelled',
+      )
+      expect(acquisitions).toBe(1)
+      expect(releases).toBe(1)
+      expect(attempts).toBe(outcome === 'success' || outcome === 'failure' ? 2 : 1)
+      expect(t.library.exports.leased([t.photos[0].id])).toBe(false)
+      expect(await readdir(join(t.root, 'library', 'export-work', id))).toEqual([])
+    } finally {
+      await t.close()
+    }
+  })
 
 test('a destination write failure cleans its owned partial and retains independent file outcomes', async () => {
   const t = await exportFixture(2)

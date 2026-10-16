@@ -34,6 +34,7 @@ export async function setup(
     undefined,
     undefined,
     exportRenderer,
+    new PreviewProcess(resolve('out/main/preview-worker.js')),
   )
   await service.open()
   return {

@@ -24,6 +24,11 @@ import { createReadStream } from 'node:fs'
 import type { FullPreview, HdrPreview, DisplayPreview } from '../shared/contracts'
 import type { FullPreviewProcessor, FullPreviewResult, HdrStatisticsJob } from './preview-types'
 import type { WorkScheduler } from './work-scheduler'
+import {
+  validateWorkingAsset,
+  workingSourceIdentity,
+  type WorkingAssetLease,
+} from './working-assets'
 
 // Cache layout version. Source and output identities separately invalidate pixel variants.
 export const PREVIEW_VERSION = 'v9'
@@ -281,33 +286,7 @@ export class FullPreviews {
               options.workingOnly = workingOnly
             }
             check()
-            const sourceKey = options
-              ? createHash('sha256')
-                  .update(
-                    JSON.stringify([
-                      id,
-                      options.metadata.hdrJpeg
-                        ? workingOnly
-                          ? HDR_JPEG_SOURCE_VERSION
-                          : 'jpeg-sdr-primary-v1'
-                        : null,
-                      options.processing ?? 'display-referred-v1',
-                      options.processing === 'hdr-v1'
-                        ? options.metadata.mergeMaster
-                          ? HDR_SOURCE_VERSION
-                          : HDR_RAW_SOURCE_VERSION
-                        : null,
-                      LENS_RENDER_VERSION,
-                      CROP_POLICY,
-                      rawDecoderDefinitions,
-                      cameraProfiles,
-                      options.metadata.lensProfile.identity,
-                      options.metadata.whiteBalance?.identity,
-                      options.settings,
-                    ]),
-                  )
-                  .digest('hex')
-              : undefined
+            const sourceKey = options ? workingSourceIdentity(id, options, workingOnly) : undefined
             let linearEntry =
               sourceKey && !regenerate
                 ? [...this.entries.values()].find(
@@ -748,6 +727,70 @@ export class FullPreviews {
     if (token !== undefined && this.active?.token !== token) return
     this.detach(token === undefined)
     await this.enqueue(() => this.prune())
+  }
+
+  /** Main-only export reuse never starts a preview or consults mutable current edits. */
+  async acquireWorkingAsset(
+    id: string,
+    options: ProcessingOptions,
+    signal: AbortSignal,
+  ): Promise<WorkingAssetLease | undefined> {
+    signal.throwIfAborted()
+    if (
+      this.closed ||
+      this.blocked.has(id) ||
+      !this.original(id) ||
+      options.processing !== 'hdr-v1' ||
+      options.metadata.mergeMaster
+    )
+      return
+    const identity = workingSourceIdentity(id, options)
+    const entry = [...this.entries.values()]
+      .filter(
+        (candidate) =>
+          candidate.id === id &&
+          candidate.sourceKey === identity &&
+          candidate.linear?.hdr &&
+          !candidate.invalid,
+      )
+      .sort((a, b) => b.usedAt - a.usedAt)[0]
+    if (!entry?.linear) return
+    // Pin synchronously before the first disk await, including validation itself.
+    entry.pins++
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      entry.pins--
+      void this.enqueue(() => this.prune()).catch(() => undefined)
+    }
+    const asset = {
+      ...structuredClone(entry.linear),
+      path: join(entry.path, 'linear.f32'),
+      width: entry.width,
+      height: entry.height,
+    }
+    try {
+      await validateWorkingAsset(asset, signal)
+      signal.throwIfAborted()
+      if (this.closed || this.blocked.has(id) || entry.invalid || !this.original(id)) {
+        release()
+        return
+      }
+      entry.usedAt = Date.now()
+      return {
+        identity,
+        asset,
+        backend: entry.diagnostics?.backend,
+        fallback: entry.diagnostics?.fallback,
+        release,
+      }
+    } catch {
+      if (!signal.aborted) entry.invalid = true
+      release()
+      signal.throwIfAborted()
+      return
+    }
   }
 
   /** Acquire synchronously before opening the stream, so eviction cannot remove its file. */
