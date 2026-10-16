@@ -582,6 +582,20 @@ export class PhotoLibrary {
     }
   }
 
+  private reusableProcessing(
+    id: string,
+    data: ProcessingOptions | undefined,
+  ): ProcessingOptions | undefined {
+    const photo = this.find(id)
+    if (!photo) return undefined
+    if (photo.assetKind === 'derived') {
+      if (!data?.metadata.mergeMaster) throw new Error('The merged working source is unavailable.')
+      // A validated master has no original container to inspect when metadata versions change.
+      return data
+    }
+    return data?.metadata.version === PROCESSING_METADATA_VERSION ? data : undefined
+  }
+
   private async processingOptions(
     id: string,
     signal = new AbortController().signal,
@@ -592,7 +606,8 @@ export class PhotoLibrary {
       throw new Error('This photo is unavailable.')
     // Cached catalog reads need no original-file access or foreground admission.
     const existing = this.readProcessing(id)
-    if (existing?.metadata.version === PROCESSING_METADATA_VERSION) return existing
+    const cached = this.reusableProcessing(id, existing)
+    if (cached) return cached
     return this.scheduler.run('interactive', () => this.loadProcessingOptions(id, signal), signal)
   }
   private async loadProcessingOptions(
@@ -603,11 +618,13 @@ export class PhotoLibrary {
     if (typeof id !== 'string' || !hashPattern.test(id) || this.closed || !this.find(id))
       throw new Error('This photo is unavailable.')
     const existing = this.readProcessing(id)
-    if (existing?.metadata.version === PROCESSING_METADATA_VERSION) return existing
+    const cached = this.reusableProcessing(id, existing)
+    if (cached) return cached
     const work = this.metadataTail.then(async () => {
       signal.throwIfAborted()
       const existing = this.readProcessing(id)
-      if (existing?.metadata.version === PROCESSING_METADATA_VERSION) return existing
+      const cached = this.reusableProcessing(id, existing)
+      if (cached) return cached
       const photo = this.find(id)
       if (!photo || this.closed) throw new Error('This photo is unavailable.')
       const path = join(
@@ -803,15 +820,19 @@ export class PhotoLibrary {
       history.revision !== expectedRevision
     )
       throw new Error('Edit conflict: reload the confirmed settings and try again.')
-    const previous = this.ensureEdits(history.photoId, this.readProcessing(history.photoId)!)
-    const lensChanged =
-      previous.settings.processing !== history.settings.processing ||
-      JSON.stringify(previous.settings.lens) !== JSON.stringify(history.settings.lens)
-    history.revision++
-    history.canUndo = history.cursor > 0
-    history.canRedo = history.cursor < history.snapshots.length - 1
+    let lensChanged: boolean
     this.db.exec('BEGIN IMMEDIATE')
     try {
+      if (this.closed || !this.find(history.photoId)) throw new Error('This photo is unavailable.')
+      const previous = this.ensureEdits(history.photoId, this.readProcessing(history.photoId)!)
+      if (previous.revision !== expectedRevision)
+        throw new Error('Edit conflict: reload the confirmed settings and try again.')
+      lensChanged =
+        previous.settings.processing !== history.settings.processing ||
+        JSON.stringify(previous.settings.lens) !== JSON.stringify(history.settings.lens)
+      history.revision++
+      history.canUndo = history.cursor > 0
+      history.canRedo = history.cursor < history.snapshots.length - 1
       this.db
         .prepare('UPDATE edits SET data = ? WHERE id = ?')
         .run(JSON.stringify(history), history.photoId)
@@ -2589,7 +2610,11 @@ export class PhotoLibrary {
         .run(photo.id, JSON.stringify(manifest))
       const options: ProcessingOptions = {
         processing: 'hdr-v1',
-        metadata: { ...metadata, mergeMaster: { asset: manifest.asset, recipe: manifest.recipe } },
+        metadata: {
+          ...metadata,
+          version: PROCESSING_METADATA_VERSION,
+          mergeMaster: { asset: manifest.asset, recipe: manifest.recipe },
+        },
         settings: { distortion: false, vignetting: false, chromaticAberration: false },
         revision: 0,
       }
