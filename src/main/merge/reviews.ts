@@ -32,6 +32,10 @@ interface ReviewState {
   updating?: boolean
   closing?: boolean
 }
+interface SourceInput {
+  source: MergeSource
+  path: string
+}
 export class MergeReviews {
   private state?: ReviewState
   private creating?: string[]
@@ -41,13 +45,11 @@ export class MergeReviews {
   readonly worker: MergeProcess
   constructor(
     private root: string,
-    private source: (
-      id: string,
-      signal: AbortSignal,
-    ) => Promise<{ source: MergeSource; path: string }>,
+    private source: (id: string, signal: AbortSignal) => Promise<SourceInput>,
     workerPath?: string,
     private scheduler?: WorkScheduler,
     private onAvailabilityChange: () => void = () => {},
+    private inspectSources?: (ids: string[], signal: AbortSignal) => Promise<SourceInput[]>,
   ) {
     this.worker = new MergeProcess(workerPath)
   }
@@ -100,13 +102,21 @@ export class MergeReviews {
     const abort = (this.createAbort = new AbortController())
     try {
       const work = this.foreground(async () => {
-        const inputs = []
-        for (const id of ids) {
-          abort.signal.throwIfAborted()
-          await this.scheduler?.checkpoint(abort.signal)
-          inputs.push(await this.source(id, abort.signal))
-        }
+        const inputs: SourceInput[] = this.inspectSources
+          ? await this.inspectSources(ids, abort.signal)
+          : []
+        if (!this.inspectSources)
+          for (const id of ids) {
+            abort.signal.throwIfAborted()
+            await this.scheduler?.checkpoint(abort.signal)
+            inputs.push(await this.source(id, abort.signal))
+          }
         abort.signal.throwIfAborted()
+        if (
+          inputs.length !== ids.length ||
+          inputs.some((input, index) => input.source.photo.id !== ids[index])
+        )
+          throw new Error('Invalid merge sources.')
         const sources = structuredClone(inputs.map((i) => i.source))
         validateMergeSources(sources, mode)
         const sorted = [...sources].sort(

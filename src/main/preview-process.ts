@@ -19,6 +19,7 @@ import type {
 export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, ThumbnailProcessor {
   private child?: ChildProcess
   private busy = false
+  private captureSession = false
   private idle?: ReturnType<typeof setTimeout>
 
   constructor(
@@ -67,6 +68,7 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     fallback: boolean,
     seed?: PreviewResult,
   ): Promise<PreviewResult> {
+    this.assertIdle()
     // Forced fallback cancellation must never kill a process with a live ExifTool child.
     if (fallback) await this.close()
     return this.run<PreviewResult>(
@@ -97,6 +99,7 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
   }
 
   async inspect(path: string, signal: AbortSignal): Promise<ProcessingMetadata> {
+    this.assertIdle()
     try {
       return await this.run<ProcessingMetadata>('metadata', path, '', signal)
     } finally {
@@ -108,6 +111,7 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     path: string,
     signal: AbortSignal,
   ): Promise<import('../shared/capture-sequence').CaptureMetadata> {
+    this.assertIdle()
     try {
       return await this.run<import('../shared/capture-sequence').CaptureMetadata>(
         'capture-metadata',
@@ -120,12 +124,48 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     }
   }
 
+  async inspectCaptures(
+    paths: string[],
+    signal: AbortSignal,
+    beforeRead?: (index: number) => Promise<void>,
+  ): Promise<import('../shared/capture-sequence').CaptureMetadata[]> {
+    signal.throwIfAborted()
+    this.assertIdle()
+    this.captureSession = true
+    try {
+      const results: import('../shared/capture-sequence').CaptureMetadata[] = []
+      for (let index = 0; index < paths.length; index++) {
+        signal.throwIfAborted()
+        await beforeRead?.(index)
+        signal.throwIfAborted()
+        results.push(
+          await this.run<import('../shared/capture-sequence').CaptureMetadata>(
+            'capture-metadata-session',
+            paths[index],
+            '',
+            signal,
+          ),
+        )
+      }
+      signal.throwIfAborted()
+      return results
+    } finally {
+      try {
+        // The worker closes its retained ExifTool before the source lease ends.
+        await this.close()
+      } finally {
+        this.captureSession = false
+      }
+    }
+  }
+
   async renderFull(
     path: string,
     output: string,
     signal: AbortSignal,
     options?: ProcessingOptions,
   ): Promise<FullPreviewResult> {
+    this.assertIdle()
     const result = await this.run<FullPreviewResult>('full', path, output, signal, options).catch(
       async (error) => {
         await this.close(true)
@@ -142,11 +182,12 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     return result
   }
 
-  statistics(
+  async statistics(
     path: string,
     frame: { width: number; height: number; sha256: string },
     signal: AbortSignal,
   ): Promise<ImageStatistics> {
+    this.assertIdle()
     return this.run<ImageStatistics>('statistics', path, '', signal, undefined, frame).finally(
       () => {
         this.idle = setTimeout(() => {
@@ -157,7 +198,12 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     )
   }
 
-  hdrStatistics(path: string, job: HdrStatisticsJob, signal: AbortSignal): Promise<HdrStatistics> {
+  async hdrStatistics(
+    path: string,
+    job: HdrStatisticsJob,
+    signal: AbortSignal,
+  ): Promise<HdrStatistics> {
+    this.assertIdle()
     return this.run<HdrStatistics>('statistics', path, '', signal, undefined, {
       width: job.asset.width,
       height: job.asset.height,
@@ -171,7 +217,8 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     })
   }
 
-  hdrPixel(path: string, job: HdrPixelJob, signal: AbortSignal): Promise<HdrPixel> {
+  async hdrPixel(path: string, job: HdrPixelJob, signal: AbortSignal): Promise<HdrPixel> {
+    this.assertIdle()
     return this.run<HdrPixel>('pixel', path, '', signal, undefined, undefined, job).finally(() => {
       this.idle = setTimeout(() => {
         void this.close()
@@ -182,6 +229,10 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
 
   releaseFrame(): void {
     if (!this.busy && this.child?.connected) this.child.send({ type: 'release' }, () => {})
+  }
+
+  private assertIdle() {
+    if (this.busy || this.captureSession) throw new Error('The preview worker is busy.')
   }
 
   private async run<T>(
@@ -197,7 +248,8 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
   ): Promise<T> {
     signal.throwIfAborted()
     clearTimeout(this.idle)
-    if (this.busy) throw new Error('The preview worker is busy.')
+    if (this.busy || (this.captureSession && mode !== 'capture-metadata-session'))
+      throw new Error('The preview worker is busy.')
     this.busy = true
     let child: ChildProcess | undefined
     let diagnostics = ''

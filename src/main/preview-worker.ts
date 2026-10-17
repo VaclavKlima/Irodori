@@ -39,8 +39,8 @@ process.on('message', async (data: PreviewWorkerRequest) => {
             : await engine.statistics(data.path, data.frame!)
           : data.type === 'thumbnail' || data.type === 'thumbnail-fallback'
             ? await engine.thumbnail(data.path, data.output, data.type === 'thumbnail-fallback')
-            : data.type === 'capture-metadata'
-              ? await engine.inspectCapture(data.path)
+            : data.type === 'capture-metadata' || data.type === 'capture-metadata-session'
+              ? await engine.inspectCapture(data.path, data.type === 'capture-metadata-session')
               : data.type === 'metadata'
                 ? await engine.inspect(data.path)
                 : data.type === 'full'

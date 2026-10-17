@@ -28,6 +28,7 @@ export type PreviewWorkerRequest =
         | 'full'
         | 'metadata'
         | 'capture-metadata'
+        | 'capture-metadata-session'
         | 'statistics'
         | 'pixel'
       path: string
@@ -73,6 +74,19 @@ export interface PreviewProcessor {
     seed?: PreviewResult,
   ): Promise<PreviewResult>
   process(path: string, output: string, signal: AbortSignal): Promise<PreviewResult>
+  close(): Promise<void>
+}
+
+export interface CaptureMetadataProcessor {
+  inspectCapture(
+    path: string,
+    signal: AbortSignal,
+  ): Promise<import('../shared/capture-sequence').CaptureMetadata>
+  inspectCaptures?(
+    paths: string[],
+    signal: AbortSignal,
+    beforeRead?: (index: number) => Promise<void>,
+  ): Promise<import('../shared/capture-sequence').CaptureMetadata[]>
   close(): Promise<void>
 }
 

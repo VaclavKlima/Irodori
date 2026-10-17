@@ -21,6 +21,7 @@ import {
   type MergeManifest,
   type MergeMode,
   type MergeSettings,
+  type MergeSource,
 } from '../shared/merge'
 import { srgbTransform } from '../shared/adjustments'
 import type { HdrAnalysisRequest, HdrPhotoStatistics } from '../shared/hdr-statistics'
@@ -82,7 +83,11 @@ import {
   type TaskErrorPage,
   type ForegroundActivity,
 } from '../shared/contracts'
-import type { FullPreviewProcessor, PreviewProcessor } from './preview-types'
+import type {
+  CaptureMetadataProcessor,
+  FullPreviewProcessor,
+  PreviewProcessor,
+} from './preview-types'
 import { ReviewThumbnails, type ReviewThumbnailState } from './review-thumbnails'
 import { DeviceDirectoryVisibility } from './device-directory-visibility'
 import {
@@ -224,10 +229,7 @@ export class PhotoLibrary {
     private mergeBoundary?: (
       boundary: 'staged' | 'journaled' | 'published' | 'committed',
     ) => Promise<void>,
-    private captureProcessor: Pick<
-      PreviewProcess,
-      'inspectCapture' | 'close'
-    > = new PreviewProcess(),
+    private captureProcessor: CaptureMetadataProcessor = new PreviewProcess(),
     private reviewThumbnailFactory: (
       onState: (id: string, state: ReviewThumbnailState) => void,
     ) => Pick<ReviewThumbnails, 'request' | 'cancel'> = (onState) => new ReviewThumbnails(onState),
@@ -246,32 +248,11 @@ export class PhotoLibrary {
 
     this.merges = new MergeReviews(
       root,
-      async (id, signal) => {
-        const photo = this.find(id)
-        if (
-          !photo ||
-          photo.assetKind === 'derived' ||
-          extname(photo.filename).toLowerCase() !== '.arw'
-        )
-          throw new Error('Merge requires original Sony RAW photographs.')
-        const path = join(root, 'originals', id, `original${extname(photo.filename).toLowerCase()}`)
-        let metadata = (await this.processingOptions(id, signal)).metadata
-        if (!metadata.capture) {
-          const work = this.metadataTail.then(() => this.metadataProcessor.inspect(path, signal))
-          this.metadataTail = work.catch(() => undefined)
-          metadata = await work
-        }
-        if (!metadata.capture)
-          throw new Error(`${photo.filename}: numeric exposure metadata is unavailable.`)
-        const captureMetadata = await this.inspectCapture(path, signal)
-        return {
-          path,
-          source: { photo, metadata, capture: metadata.capture, captureMetadata, relativeEv: 0 },
-        }
-      },
+      async (id, signal) => (await this.inspectMergeSources([id], signal))[0],
       mergeWorkerPath,
       this.scheduler,
       () => this.changed(),
+      (ids, signal) => this.inspectMergeSources(ids, signal),
     )
     this.fullPreviews = new FullPreviews(
       join(root, 'cache', 'previews'),
@@ -319,6 +300,73 @@ export class PhotoLibrary {
     })
     this.captureTail = work.catch(() => undefined)
     return work
+  }
+
+  private async inspectMergeSources(ids: string[], signal: AbortSignal) {
+    const inputs: { source: MergeSource; path: string }[] = []
+    for (const id of ids) {
+      signal.throwIfAborted()
+      await this.scheduler.checkpoint(signal)
+      const photo = this.find(id)
+      if (
+        !photo ||
+        photo.assetKind === 'derived' ||
+        extname(photo.filename).toLowerCase() !== '.arw'
+      )
+        throw new Error('Merge requires original Sony RAW photographs.')
+      const path = join(
+        this.root,
+        'originals',
+        id,
+        `original${extname(photo.filename).toLowerCase()}`,
+      )
+      let metadata = (await this.processingOptions(id, signal)).metadata
+      if (!metadata.capture) {
+        const work = this.metadataTail.then(() => this.metadataProcessor.inspect(path, signal))
+        this.metadataTail = work.catch(() => undefined)
+        metadata = await work
+      }
+      signal.throwIfAborted()
+      if (!metadata.capture)
+        throw new Error(`${photo.filename}: numeric exposure metadata is unavailable.`)
+      inputs.push({ path, source: { photo, metadata, capture: metadata.capture, relativeEv: 0 } })
+    }
+    const beforeRead = async (index: number) => {
+      signal.throwIfAborted()
+      await this.scheduler.checkpoint(signal)
+      const input = inputs[index],
+        current = this.find(input.source.photo.id)
+      if (
+        this.closed ||
+        !current ||
+        current.assetKind === 'derived' ||
+        current.filename !== input.source.photo.filename ||
+        !existsSync(input.path)
+      )
+        throw new Error('This photo is unavailable.')
+    }
+    const work = this.captureTail.then(async () => {
+      signal.throwIfAborted()
+      if (this.captureProcessor.inspectCaptures)
+        return this.captureProcessor.inspectCaptures(
+          inputs.map((input) => input.path),
+          signal,
+          beforeRead,
+        )
+      const results = []
+      for (let index = 0; index < inputs.length; index++) {
+        await beforeRead(index)
+        results.push(await this.captureProcessor.inspectCapture(inputs[index].path, signal))
+      }
+      return results
+    })
+    this.captureTail = work.catch(() => undefined)
+    const captures = await work
+    signal.throwIfAborted()
+    if (captures.length !== inputs.length) throw new Error('Invalid merge capture metadata.')
+    for (let index = 0; index < inputs.length; index++)
+      inputs[index].source.captureMetadata = captures[index]
+    return inputs
   }
 
   private closeCaptureProcessor() {
