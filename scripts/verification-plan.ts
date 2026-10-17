@@ -26,6 +26,7 @@ const definitions: Suite[] = [
     'research-wgpu',
     'research-presentation',
     'research-background',
+    'research-merge-gpu',
   ].map((file) => ({
     file,
     group: 'benchmark' as const,
