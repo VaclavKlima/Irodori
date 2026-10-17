@@ -985,6 +985,187 @@ tests pass.
 | Individual/batch SDR/HDR JPEG export, retry/cancel/publication          | Functional and warm-source checks passed; cold first-launch gate remains variable                    | External reader interoperability and physical HDR display are separate.                                   |
 | Merge review, alignment, publication, restart, source deletion          | Sony workflows and final 2/3/5/9-source noise 15-second gates pass; three-RAW five-second gates fail | Missing private BRK sets, larger controlled HDR brackets and distinct 32-RAW sequences remain incomplete. |
 
+## Next Mac merge improvement plan
+
+The next milestone establishes a competitive target on this M4 Pro before another
+Mac optimization pass. Published timings do not establish a universal five-second
+expectation. HDR brackets and equal-exposure noise stacks remain separate workloads.
+The existing five-second test and its failures stay unchanged while the comparison
+is measured; no acceptance threshold is revised by this plan.
+
+### Application research and target proposal
+
+Primary sources reviewed on October 17, 2026 provide context with different inputs,
+machines and completion boundaries:
+
+| Source                                                                                                                                                                                                                                               | Reported behavior or timing                                                                                                     | Comparison limit                                                                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [Capture One HDR overview](https://support.captureone.com/hc/en-us/articles/4410014730257-HDR-merging-overview)                                                                                                                                      | The vendor gives 10 seconds to five minutes depending on hardware, source count and resolution; Auto Align adds time.           | A broad support range, without a matched M4 Pro benchmark or fixed quality settings.                                                                                                                                                                               |
+| [Capture One worked interior example](https://www.captureone.com/blog/hdr-101-interior-christophe-benard-capture-one)                                                                                                                                | Three full-resolution Sony A7R IV exposures produced an HDR DNG in 30 seconds, with Auto Align on and Auto Adjust off.          | Vendor-published practitioner example; hardware and repeated-run variation are unspecified. Different source resolution from Luma's fixtures.                                                                                                                      |
+| [Puget Bench for Lightroom Classic comparison](https://www.pugetsystems.com/pugetbench/results/compare/Puget%20Bench%20for%20Lightroom%20Classic/20/CPU/Intel%20Core%20i7-8700K%20CPU%20%40%203.70GHz/AMD%20Ryzen%205%207600X%206-Core%20Processor/) | The legacy 42 MP ARW HDR metric is 11.51 seconds for Ryzen 5 7600X and 17.68 seconds for Core i7-8700K.                         | Aggregated public desktop results, not M4 Pro. The displayed comparison does not establish source count, merge settings or Luma's durable completion boundary.                                                                                                     |
+| [Adobe Lightroom desktop HDR workflow](https://helpx.adobe.com/lightroom/desktop/edit-photos/hdr-panorama.html)                                                                                                                                      | Lightroom presents an adjustable preview before generating the final merged HDR DNG.                                            | A workflow definition, not a numerical performance claim. Preview and final generation need separate clocks.                                                                                                                                                       |
+| [Burst Photo pull request 38](https://github.com/martin-marek/hdr-plus-swift/pull/38)                                                                                                                                                                | The author reports 3.23 seconds for alignment and merging of seven bracketed 20.3 MP images on a seven-GPU-core M1 MacBook Air. | A component result from a different algorithm; conversion, loading and saving are outside the reported stage. Its GPU completion boundary is not established as equivalent to Luma's completed-work fences. Context for research, not a complete-operation target. |
+
+The user selected Adobe Lightroom as the practical reference and authorized
+measurement with the same images. Lightroom desktop 9.3 (build
+`2026.0407.1239`, not Lightroom Classic) was measured on this M4 Pro through its
+[Local workflow](https://helpx.adobe.com/lightroom/desktop/add-import-and-capture-photos/access-photos.html).
+Seven separate folders contain verified copies of `DSC03243.ARW`, `DSC03244.ARW`
+and `DSC03245.ARW`; no Cloud import was used. Setup is excluded from five timed
+fresh-folder runs; one of those has an agent review interruption and is retained
+separately from the four uninterrupted workflow results. Auto Align is on, Auto Settings off, Deghost High, Apply HDR
+Always on and Show Deghost Overlay on; Create stack is disabled in Local view.
+
+| Lightroom sample                      | Preview ready (s) | Merge to local result ready (s) | Active workflow (s) |
+| ------------------------------------- | ----------------- | ------------------------------- | ------------------- |
+| Fresh folder 1 (interrupted)          | 6.810             | 3.786                           | 10.596              |
+| Fresh folder 2                        | 6.987             | 3.542                           | 10.529              |
+| Fresh folder 3                        | 6.737             | 3.155                           | 9.892               |
+| Fresh folder 4                        | 6.548             | 3.392                           | 9.940               |
+| Fresh folder 5                        | 6.936             | 3.200                           | 10.136              |
+| First merge after application restart | 7.675             | 3.428                           | 11.103              |
+
+The four uninterrupted running-application samples have a **10.038 s median**
+and **10.529 s maximum**. Sample 1 retains its **10.596 s active-stage sum** but
+has a 12.869 s agent review pause, during which hidden work could occur; it is
+excluded from the primary uninterrupted summary. The five preview observations
+have a 6.810 s median. The restart control is recorded
+separately; application startup, source browsing and OS-cache flushing are outside
+its clock. Runs are sequential, not randomized or interleaved with fresh Luma
+measurements. OS, disk, driver and application caches are uncontrolled. AC power
+and a full battery were confirmed. These are measured samples, not a population
+p95 or proof of performance across cameras.
+
+Native UI actions carry before/after timestamps. Preview ends when its creation/
+refinement progress disappears; final generation ends when Creating HDR ends and
+the fourth local photograph is available. Active workflow adds those two stages,
+excluding the agent review gap (12.869 s in sample 1, 0–1 ms in the others).
+A 100 ms filesystem observer independently records the complete-size DNG appearing
+for the five fresh-folder samples. UI observations are upper bounds and include
+action transport; native accessibility calls can block during processing.
+Neither local-file availability nor UI completion certifies internal `fsync` or
+power-loss durability. The original five-second Luma clock remains a separate,
+stricter managed-publication measurement.
+
+Each Lightroom result is a 25,233,408-byte DNG 1.7 with 16-bit floating-point RGB
+and JPEG XL compression, encoded at 3648 × 5472. The application displays a
+3607 × 5410 crop for the inspected result. Luma retains a 3654 × 5450 Float32 RGBA
+master of 318,628,800 bytes plus full native comparison images, checksums, durable
+publication and cleanup. Different crops, rendering, precision, compression and
+validation prevent an equal-quality or identical-work claim. The DNG opens at
+100% in Lightroom; ExifTool reports two minor metadata warnings and no error.
+A complete cross-application registration, motion, highlight, noise and native-detail
+quality comparison remains pending. No lossy/precision change is authorized by
+these timing results.
+
+All 21 copied originals retain their committed hashes. Original fixture integrity
+also passes. Generated evidence remains outside Git:
+`artifacts/lightroom-merge-comparison-2026-10-17/results.json`,
+`file-observations.jsonl`, `outputs-metadata.json` and `fresh-output-metadata.json`;
+original integrity is recorded under
+`artifacts/fixture-integrity/2026-10-17T10-59-13.584Z-35528.json`.
+The six timed results completed; the setup run is excluded from timing claims.
+No Luma code or automated threshold changed during this research.
+
+The proposed Mac product target is **about 10 seconds typical, at most 12 seconds
+for the complete three-RAW HDR workflow**, with **7–8 seconds to a usable
+review**. Lightroom preview resolution is not established by these observations;
+this is a proposed user-visible goal, not proof of native-detail equivalence.
+These rounded planning goals come from the local Lightroom samples,
+including its first merge after restart. Confirm them against new Luma measurements
+using the same visible clocks and a quality review before registering a competitive
+acceptance gate. Keep Luma's managed durability and numerical gates as additional
+requirements. First aim for a **15-second engineering checkpoint** after the exact
+scheduling/reduction work; this is an intermediate milestone, not competitive
+acceptance or a promised result. Five seconds remains an unmet stretch goal and
+the current registered test remains in force until an explicit target decision.
+
+Adobe HDR merging does not establish a temporal noise-stack target. Keep the
+current 7.59–7.65 s three-source noise result and its unmet five-second stretch
+separate; use a genuine burst-noise merger such as Burst Photo for a later matched
+quality/mode comparison. Lightroom AI Denoise is a different single-image workload.
+The existing sharp-editor latency, progress and refinement goals stay unchanged.
+
+Measure first usable review, native review ready on screen, acceptance to completed
+result, and uninterrupted complete operation separately. Human review time stays
+outside processing time. Luma currently prepares the full native master and all
+three comparison images before returning its review; its dialog also waits for
+those images to decode before enabling Merge. The strict processing benchmark
+excludes Electron image decoding and presentation, so that clock cannot be compared
+directly to an application's visible preview. An externally observed competitor
+completion does not prove an internal durable-sync guarantee. Keep Luma's verified
+durable-publication clock as an additional result.
+
+### Work order and experiment decisions
+
+The Adobe part of N0 is measured; matching Luma clocks and cross-application
+quality remain pending. N1–N7 are planned. Existing component costs select
+experiments; their exposed ceilings are hypotheses, not promised savings. The
+coordinator owns shared integration, builds,
+verification registration and every Electron/GPU/benchmark run. Agents may edit
+disjoint areas; shared preparation hooks integrate sequentially.
+
+| Task                                  | Owner                              | Depends on                              | Experiment and decision evidence                                                                                                                                                                                                                                                                                     |
+| ------------------------------------- | ---------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| N0 — Comparable application baseline  | Coordinator                        | Existing frozen Mac results             | Lightroom: four uninterrupted fresh-folder runs, one interrupted control and one restart control complete. Add equivalent Luma UI clocks and cross-application native-quality review; retain service durability separately. Noise needs a genuine temporal merger, with cold/warm modes separated.                   |
+| N1 — Critical-path attribution        | Coordinator                        | N0                                      | Add bounded timeline spans for source preparation, alignment submission/completion, fallback, output and publication substeps. Establish which intervals are exposed on the critical path; keep parallel sums, device execution and map wait separate.                                                               |
+| N2 — Fallback scheduling              | Coordinator                        | N1                                      | Submit unchanged source preparation and existing early alignment requests before preparing the reference's highlight-safe fallback. Test whether the existing two lanes can hide currently exposed HDR alignment work during fallback. Keep worker counts, source order, fallback pixels and output order unchanged. |
+| N3 — Exact ordered reductions         | CPU preparation agent              | N1; integrate after N2                  | Move camera-channel and CPU-fallback area accumulation into the maintained WASM source. Preserve y/x/contribution/channel order, Float64 sums and every Float32 store. Account for reduction tables/state inside the 128 MiB aggregate arena bound; unsupported capacities retain scalar recovery.                   |
+| N4 — Canonical clipping and masks     | CPU preparation agent              | N3                                      | Compile the remaining sensor-mask dilation and boundary repair where profiling still shows exposed cost. Retain exact tap selection, positive-weight tests, Float64 lens geometry, orientation and mask bits. Share preparation integration with N3 sequentially.                                                    |
+| N5 — Publication attribution          | Coordinator or available I/O agent | N1                                      | Attribute source verification, copying, destination verification, file/directory sync, catalog commit and cleanup separately. Change I/O only for measured exposed cost; retain checksum validation, journal ordering and recovery at every publication boundary.                                                    |
+| N6 — Resident GPU preparation         | GPU research agent                 | N1; review N2–N5 outcomes first         | Extend the isolated camera-evidence study only if the remaining gap justifies it. Include canonical masks, bounded transfer/readback, native evidence, registration decisions and complete output. Keep the prototype disabled until full quality, resource, fallback and lifecycle evidence passes.                 |
+| N7 — Mac acceptance and Linux handoff | Coordinator                        | Adopted experiments, N0 target decision | Run focused correctness first, then sequential affected performance and foreground-interference families. Record every target miss and incomplete hardware result. Freeze the reviewed revision and update the Bazzite continuation after the Mac experiments are assessed.                                          |
+
+N2 has a concrete scheduling hypothesis: the reference is currently prepared first,
+followed by roughly 4.9 seconds of highlight-safe fallback before either other
+source launches alignment. Deferring that fallback could hide part of the final
+roughly 2.14-second HDR residual. That residual includes more than alignment and
+is not a guaranteed saving. Extra CPU contention or higher combined memory can
+invalidate the experiment; verify both existing alignment lanes and the main
+kernel together. The actual HDR fixture uses clipped-reference fallback, so
+omitting it would change quality.
+
+N3 addresses approximately 4.1 seconds in the three HDR camera writers, of which
+about 1.5 seconds is already compiled conversion, plus roughly 0.7 seconds inside
+fallback conversion outside its compiled loop and copying. The remainder includes
+ordered JavaScript reductions and other writer work; measure them before claiming
+a saving. Camera values/weights retain their ordered Float64 sums; fallback
+luminance accumulation must retain its existing Float32 rounding on every write,
+not only at the final store. Ordinary noise stacking does not run camera-channel
+evidence. N4 targets
+approximately 0.6 seconds of mask work in noise and 0.7 seconds in HDR. N5 starts
+from only about 0.77–0.84 seconds of measured publication, with roughly 0.07–0.15
+seconds more to the final cleanup event; no multi-second copy bottleneck is known.
+
+The current native decoder remains the production source. HDR fallback spends
+about 1.30 seconds in its CPU linear decode; reopening the session costs only a few
+milliseconds. Native decoder replacement remains separate research with an
+unresolved Mac numerical mismatch. A replacement is not justified by avoiding
+those small opens, and a faster mismatching output does not pass.
+
+For N2–N5, adoption requires exact frozen prepared planes/strips, clipping and
+motion masks, registration and published master identities, source hashes,
+cancellation/recovery, scalar fallback, existing memory bounds and a repeatable
+complete-operation gain in matched controls. Retain all three fresh runs and
+their slowest result; component speed alone is insufficient. Reject or archive an
+experiment when its full-operation gain is lost in matched variation, tail time
+regresses, or any quality/resource/lifecycle gate fails. Do not revisit the rejected
+64-thread output workgroup without new evidence of a different bottleneck.
+
+N6 retains the existing pixel tolerance and exact masks, but passing those alone
+does not establish equivalent registration or masters. Its roughly six-millisecond
+resident numerical result excludes decode, canonical clipping, upload, proof
+readback, validation and saving. Any intentional pixel-policy change needs explicit
+versioning and a reviewed numerical/quality contract rather than weakening frozen
+identity assertions. A quick-review workflow, if later selected, must have its own
+product decision and final-native acceptance gate; it cannot stand in for faster
+complete processing.
+
+After this bounded Mac pass, assess achieved competitive times and remaining
+quality gaps, freeze the implementation and continue on Bazzite. Further Mac
+experiments need a measured critical-path opportunity rather than an indefinite
+attempt to reach an unsupported absolute target.
+
 ## Bazzite continuation
 
 Run against the final implementation revision recorded above, with the committed
