@@ -87,6 +87,13 @@ export interface MergeMeasurements {
       reductionMs: number
       conversionMs: number
       highlightBlendMs?: number
+      cpuKernel?: {
+        backend: 'wasm-simd' | 'scalar'
+        heapBytes: number
+        copyMs: number
+        processingMs: number
+        gainCacheEntries?: 2048 | 32768
+      }
     }
   }[]
   referenceFallback?: {
@@ -126,6 +133,12 @@ export interface MergeMeasurements {
       batches: number
       pairedBatches?: number
       images?: number
+      slots?: 1 | 2
+      pendingPeak?: number
+      timestampStatus?: 'disabled' | 'unavailable' | 'available' | 'error'
+      gpuMs?: number
+      gpuBatches?: number
+      timestampErrors?: number
     }
     work?: {
       validityMs: number

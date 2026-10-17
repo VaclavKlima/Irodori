@@ -8,6 +8,7 @@ import { radial, type CorrectionPlan } from '../processing/lens-correction'
 import { areaContributions } from './area'
 import type { Plane } from './math'
 import type { PreparedSource } from './prepare'
+import { createCameraKernel, type CpuKernelMeasurement } from './cpu-kernels'
 
 export const CAMERA_REGISTRATION_POLICY = ALIGNMENT_CONSTANTS.cameraRegistrationPolicy
 export const CAMERA_CHANNELS = ['red', 'green', 'blue'] as const
@@ -50,9 +51,9 @@ function inverseCameraMatrix(matrix: number[]) {
 /** Separate sensor masks retain surviving camera channels. Dilation covers the
  * demosaic stencil; each lens/CA channel then samples its own canonical mask.
  */
-function channelClipping(raw: RawSource) {
+function channelClipping(raw: RawSource, storage?: Uint8Array[]) {
   if (!raw.normalization!.sourceSaturation!.saturatedSites) return
-  const masks = Array.from({ length: 3 }, () => new Uint8Array(raw.width * raw.height)),
+  const masks = storage ?? Array.from({ length: 3 }, () => new Uint8Array(raw.width * raw.height)),
     thresholds = raw.normalization!.sourceSaturation!.thresholds
   for (let y = 0; y < raw.height; y++)
     for (let parity = 0; parity < 2; parity++) {
@@ -89,124 +90,165 @@ export async function cameraRegistrationWriter(
   plan: CorrectionPlan,
   previewWidth: number,
   previewHeight: number,
+  measurement: CpuKernelMeasurement = {
+    backend: 'scalar',
+    heapBytes: 0,
+    copyMs: 0,
+    processingMs: 0,
+  },
 ) {
   const width = raw.flip & 4 ? plan.height : plan.width,
     height = raw.flip & 4 ? plan.width : plan.height,
     path = join(directory, `source-${index}.camera.f32`),
     cameraToWorking = cameraMatrix(raw),
     inverse = inverseCameraMatrix(cameraToWorking),
-    masks = channelClipping(raw),
-    count = previewWidth * previewHeight,
-    values = Array.from({ length: 3 }, () => new Float64Array(count)),
-    weights = Array.from({ length: 3 }, () => new Float64Array(count)),
-    totals = new Float64Array(count),
-    xs = areaContributions(width, previewWidth),
-    ys = areaContributions(height, previewHeight),
-    strips: string[] = [],
-    cx = (raw.width - 1) / 2,
-    cy = (raw.height - 1) / 2,
-    radius = Math.hypot(cx, cy),
-    file = await open(path, 'wx')
-  let next = 0,
-    closed = false,
-    staging = new Float32Array(0)
-  const close = async () => {
-    if (!closed) {
-      closed = true
-      await file.close()
+    kernel = await createCameraKernel(raw, plan, inverse, measurement)
+  try {
+    const masks = channelClipping(raw, kernel?.masks),
+      count = previewWidth * previewHeight,
+      values = Array.from({ length: 3 }, () => new Float64Array(count)),
+      weights = Array.from({ length: 3 }, () => new Float64Array(count)),
+      totals = new Float64Array(count),
+      xs = areaContributions(width, previewWidth),
+      ys = areaContributions(height, previewHeight),
+      strips: string[] = [],
+      cx = (raw.width - 1) / 2,
+      cy = (raw.height - 1) / 2,
+      radius = Math.hypot(cx, cy),
+      file = await open(path, 'wx')
+    let next = 0,
+      closed = false,
+      staging = new Float32Array(0),
+      accelerated = kernel
+    const close = async () => {
+      if (!closed) {
+        closed = true
+        try {
+          await file.close()
+        } finally {
+          kernel?.close()
+        }
+      }
     }
-  }
-  return {
-    close,
-    async write(top: number, bytes: Buffer) {
-      if (closed || top !== next || bytes.length % (width * 16))
-        throw new Error('Invalid camera registration strip.')
-      const rgb = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4),
-        rows = rgb.length / 4 / width
-      if (staging.length < rgb.length) staging = new Float32Array(rgb.length)
-      const output = staging.subarray(0, rgb.length)
-      for (let row = 0; row < rows; row++)
-        for (let x = 0; x < width; x++) {
-          const y = top + row,
-            at = (row * width + x) * 4
-          let sx = raw.flip & 4 ? y : x,
-            sy = raw.flip & 4 ? x : y
-          if (raw.flip & 1) sx = plan.width - 1 - sx
-          if (raw.flip & 2) sy = plan.height - 1 - sy
-          const qx = sx + plan.left - cx,
-            qy = sy + plan.top - cy,
-            r = masks ? Math.hypot(qx, qy) / radius : 0
-          let valid = 0
-          for (let channel = 0; channel < 3; channel++) {
-            const value =
-                inverse[channel * 3] * rgb[at] +
-                inverse[channel * 3 + 1] * rgb[at + 1] +
-                inverse[channel * 3 + 2] * rgb[at + 2],
-              channelMask = masks?.[channel]
-            if (!Number.isFinite(value)) throw new Error('Non-finite camera registration sample.')
-            output[at + channel] = value
-            let clipped = false
-            if (channelMask) {
-              const scale = radial(plan.lut, r, channel),
-                px = cx + qx * scale,
-                py = cy + qy * scale,
-                ix = Math.floor(px),
-                iy = Math.floor(py),
-                dx = px - ix,
-                dy = py - iy
-              for (let yy = 0; yy < 2 && !clipped; yy++)
-                for (let xx = 0; xx < 2; xx++)
-                  if (
-                    (xx ? dx : 1 - dx) * (yy ? dy : 1 - dy) > 0 &&
-                    channelMask[
-                      Math.max(0, Math.min(raw.height - 1, iy + yy)) * raw.width +
-                        Math.max(0, Math.min(raw.width - 1, ix + xx))
-                    ]
-                  )
-                    clipped = true
+    return {
+      close,
+      async write(top: number, bytes: Buffer) {
+        if (closed || top !== next || bytes.length % (width * 16))
+          throw new Error('Invalid camera registration strip.')
+        const input = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4),
+          inputRows = input.length / 4 / width
+        // GPU readbacks contain 256 rows. Keep conversion and borrowed output
+        // bounded to canonical 64-row strips, awaiting writes before reuse.
+        for (let offset = 0; offset < inputRows; offset += 64) {
+          const rows = Math.min(64, inputRows - offset),
+            stripTop = top + offset,
+            rgb = input.subarray(offset * width * 4, (offset + rows) * width * 4)
+          let output: Float32Array<ArrayBuffer> | undefined
+          if (accelerated) {
+            try {
+              output = accelerated.convert(stripTop, rgb)
+            } catch {
+              accelerated = undefined
+              measurement.backend = 'scalar'
             }
-            if (!clipped) valid |= 1 << channel
           }
-          output[at + 3] = valid
-          const columns = xs[x],
-            rowWeights = ys[y]
-          for (let xi = 0; xi < columns.length; xi++)
-            for (let yi = 0; yi < rowWeights.length; yi++) {
-              const px = columns[xi][0],
-                wx = columns[xi][1],
-                py = rowWeights[yi][0],
-                wy = rowWeights[yi][1]
-              const p = py * previewWidth + px,
-                weight = wx * wy
-              totals[p] += weight
-              for (let c = 0; c < 3; c++)
-                if (valid & (1 << c) && output[at + c] > MERGE_LIMITS.readNoise * 3) {
-                  values[c][p] += output[at + c] * weight
-                  weights[c][p] += weight
+          if (!output) {
+            if (staging.length < rgb.length) staging = new Float32Array(rgb.length)
+            output = staging.subarray(0, rgb.length)
+            for (let row = 0; row < rows; row++)
+              for (let x = 0; x < width; x++) {
+                const y = stripTop + row,
+                  at = (row * width + x) * 4
+                let sx = raw.flip & 4 ? y : x,
+                  sy = raw.flip & 4 ? x : y
+                if (raw.flip & 1) sx = plan.width - 1 - sx
+                if (raw.flip & 2) sy = plan.height - 1 - sy
+                const qx = sx + plan.left - cx,
+                  qy = sy + plan.top - cy,
+                  r = masks ? Math.hypot(qx, qy) / radius : 0
+                let valid = 0
+                for (let channel = 0; channel < 3; channel++) {
+                  const value =
+                      inverse[channel * 3] * rgb[at] +
+                      inverse[channel * 3 + 1] * rgb[at + 1] +
+                      inverse[channel * 3 + 2] * rgb[at + 2],
+                    channelMask = masks?.[channel]
+                  if (!Number.isFinite(value))
+                    throw new Error('Non-finite camera registration sample.')
+                  output[at + channel] = value
+                  let clipped = false
+                  if (channelMask) {
+                    const scale = radial(plan.lut, r, channel),
+                      px = cx + qx * scale,
+                      py = cy + qy * scale,
+                      ix = Math.floor(px),
+                      iy = Math.floor(py),
+                      dx = px - ix,
+                      dy = py - iy
+                    for (let yy = 0; yy < 2 && !clipped; yy++)
+                      for (let xx = 0; xx < 2; xx++)
+                        if (
+                          (xx ? dx : 1 - dx) * (yy ? dy : 1 - dy) > 0 &&
+                          channelMask[
+                            Math.max(0, Math.min(raw.height - 1, iy + yy)) * raw.width +
+                              Math.max(0, Math.min(raw.width - 1, ix + xx))
+                          ]
+                        )
+                          clipped = true
+                  }
+                  if (!clipped) valid |= 1 << channel
+                }
+                output[at + 3] = valid
+              }
+          }
+          for (let row = 0; row < rows; row++)
+            for (let x = 0; x < width; x++) {
+              const y = stripTop + row,
+                at = (row * width + x) * 4,
+                valid = output[at + 3]
+              const columns = xs[x],
+                rowWeights = ys[y]
+              for (let xi = 0; xi < columns.length; xi++)
+                for (let yi = 0; yi < rowWeights.length; yi++) {
+                  const px = columns[xi][0],
+                    wx = columns[xi][1],
+                    py = rowWeights[yi][0],
+                    wy = rowWeights[yi][1]
+                  const p = py * previewWidth + px,
+                    weight = wx * wy
+                  totals[p] += weight
+                  for (let c = 0; c < 3; c++)
+                    if (valid & (1 << c) && output[at + c] > MERGE_LIMITS.readNoise * 3) {
+                      values[c][p] += output[at + c] * weight
+                      weights[c][p] += weight
+                    }
                 }
             }
+          const out = Buffer.from(output.buffer, output.byteOffset, output.byteLength)
+          strips.push(hash(out))
+          await file.writeFile(out)
+          next += rows
         }
-      const out = Buffer.from(output.buffer, output.byteOffset, output.byteLength)
-      for (let offset = 0; offset < out.length; offset += width * 64 * 16)
-        strips.push(hash(out.subarray(offset, Math.min(out.length, offset + width * 64 * 16))))
-      await file.writeFile(out)
-      next += rows
-    },
-    async finish(): Promise<CameraRegistration> {
-      if (next !== height || strips.length !== Math.ceil(height / 64))
-        throw new Error('Incomplete camera registration evidence.')
-      await close()
-      const planes = [0, 1, 2].map((c) => {
-        const data = new Float32Array(count),
-          mask = new Uint8Array(count)
-        for (let p = 0; p < count; p++) {
-          mask[p] = weights[c][p] > 0 && Math.abs(weights[c][p] - totals[p]) < 1e-8 ? 255 : 0
-          data[p] = mask[p] ? values[c][p] / weights[c][p] : 0
-        }
-        return { width: previewWidth, height: previewHeight, data, mask }
-      }) as [Plane, Plane, Plane]
-      return { version: CAMERA_REGISTRATION_POLICY, path, strips, planes }
-    },
+      },
+      async finish(): Promise<CameraRegistration> {
+        if (next !== height || strips.length !== Math.ceil(height / 64))
+          throw new Error('Incomplete camera registration evidence.')
+        await close()
+        const planes = [0, 1, 2].map((c) => {
+          const data = new Float32Array(count),
+            mask = new Uint8Array(count)
+          for (let p = 0; p < count; p++) {
+            mask[p] = weights[c][p] > 0 && Math.abs(weights[c][p] - totals[p]) < 1e-8 ? 255 : 0
+            data[p] = mask[p] ? values[c][p] / weights[c][p] : 0
+          }
+          return { width: previewWidth, height: previewHeight, data, mask }
+        }) as [Plane, Plane, Plane]
+        return { version: CAMERA_REGISTRATION_POLICY, path, strips, planes }
+      },
+    }
+  } catch (error) {
+    kernel?.close()
+    throw error
   }
 }
 

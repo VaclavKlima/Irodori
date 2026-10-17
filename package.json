@@ -36,6 +36,7 @@
     "benchmark:merge": "node scripts/verify.mjs --merge-benchmark",
     "benchmark:export": "node scripts/verify.mjs --export-benchmark",
     "build:export-native": "bash scripts/ultrahdr/build-native.sh",
+    "build:merge-kernels": "node scripts/merge-kernels/build.mjs",
     "benchmark:all": "node scripts/verify.mjs --benchmark-all",
     "research:pipeline": "node scripts/verify.mjs --target research-pipeline --target research-native",
     "research:measure": "node scripts/verify.mjs --target research-measurements --target research-libraries --target research-gpu",

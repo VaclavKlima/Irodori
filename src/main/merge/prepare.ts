@@ -16,6 +16,7 @@ import { sourceCorrectionPlan } from './preparation-policy'
 import type { MergePreparation } from '../../shared/merge'
 import { cameraRegistrationWriter, type CameraRegistration } from './camera-registration'
 import { sensorBlendParameters, sensorBlendRgb } from '../gpu/sensor-blend'
+import { createPreparationKernel } from './cpu-kernels'
 
 function preparationWork(): NonNullable<MergeMeasurements['preparation'][number]['work']> {
   return {
@@ -27,6 +28,7 @@ function preparationWork(): NonNullable<MergeMeasurements['preparation'][number]
     reductionMs: 0,
     conversionMs: 0,
     highlightBlendMs: 0,
+    cpuKernel: { backend: 'scalar', heapBytes: 0, copyMs: 0, processingMs: 0 },
   }
 }
 
@@ -215,7 +217,15 @@ export async function prepareSource(
       try {
         if (preparation) {
           const cameraStart = performance.now()
-          camera = await cameraRegistrationWriter(directory, index, raw, plan, pw, ph)
+          camera = await cameraRegistrationWriter(
+            directory,
+            index,
+            raw,
+            plan,
+            pw,
+            ph,
+            work.cpuKernel,
+          )
           work.cameraRegistrationMs += performance.now() - cameraStart
         }
         const frame = await gpu.render(raw, plan, undefined, false, false, {
@@ -482,6 +492,8 @@ async function prepareCpu(
     }
     return gainValues[slot]
   }
+  const kernel = await createPreparationKernel(frame, plan, saturated, gains, work.cpuKernel!)
+  let accelerated = kernel
   try {
     if (preparation && !highlightSafe) {
       const cameraStart = performance.now()
@@ -492,77 +504,109 @@ async function prepareCpu(
         plan,
         plane.width,
         plane.height,
+        work.cpuKernel,
       )
       work.cameraRegistrationMs += performance.now() - cameraStart
     }
     for (let top = 0; top < height; top += 64) {
       await checkpoint()
       const rows = Math.min(64, height - top),
-        out = staging.subarray(0, width * rows * 4),
         conversion = performance.now()
-      for (let y = top; y < top + rows; y++)
-        for (let x = 0; x < width; x++) {
-          let sx = frame.flip & 4 ? y : x,
-            sy = frame.flip & 4 ? x : y
-          if (frame.flip & 1) sx = plan.width - 1 - sx
-          if (frame.flip & 2) sy = plan.height - 1 - sy
-          const qx = sx + plan.left - cx,
-            qy = sy + plan.top - cy,
-            r = Math.hypot(qx, qy) / radius
-          let clipped = false
-          for (let c = 0; c < 3; c++) {
-            const scale = radial(plan.lut, r, c),
-              px = cx + qx * scale,
-              py = cy + qy * scale
-            const ix = Math.floor(px),
-              iy = Math.floor(py),
-              dx = px - ix,
-              dy = py - iy
-            let value = 0
-            for (let yy = 0; yy < 2; yy++)
-              for (let xx = 0; xx < 2; xx++) {
-                const tx = Math.max(0, Math.min(frame.width - 1, ix + xx)),
-                  ty = Math.max(0, Math.min(frame.height - 1, iy + yy))
-                const weight = (xx ? dx : 1 - dx) * (yy ? dy : 1 - dy)
-                value += frame.data[(ty * frame.width + tx) * 4 + c] * weight * gainAt(tx, ty)
-                if (weight > 0 && saturated[ty * frame.width + tx]) clipped = true
-              }
-            cameraRgb[c] = (((value * maximumGain) / normal.gains[c]) * gains[c]) / minimumGain
-          }
-          const cameraRed =
-              frame.matrix[0] * cameraRgb[0] +
-              frame.matrix[1] * cameraRgb[1] +
-              frame.matrix[2] * cameraRgb[2],
-            cameraGreen =
-              frame.matrix[4] * cameraRgb[0] +
-              frame.matrix[5] * cameraRgb[1] +
-              frame.matrix[6] * cameraRgb[2],
-            cameraBlue =
-              frame.matrix[8] * cameraRgb[0] +
-              frame.matrix[9] * cameraRgb[1] +
-              frame.matrix[10] * cameraRgb[2]
-          for (let c = 0; c < 3; c++)
-            rgb[c] =
-              SRGB_TO_2020[c * 3] * cameraRed +
-              SRGB_TO_2020[c * 3 + 1] * cameraGreen +
-              SRGB_TO_2020[c * 3 + 2] * cameraBlue
-          const i = ((y - top) * width + x) * 4
-          out[i] = rgb[0]
-          out[i + 1] = rgb[1]
-          out[i + 2] = rgb[2]
-          out[i + 3] = Number(!clipped)
-          const value = Math.max(0, luminance(rgb))
-          for (const [px, wx] of xs[x])
-            for (const [py, wy] of ys[y]) {
-              const p = py * plane.width + px,
-                weight = wx * wy
-              totals[p] += weight
-              if (!clipped && value > MERGE_LIMITS.readNoise * 3) {
-                plane.data[p] += value * weight
-                counts[p] += weight
-              }
-            }
+      let out = staging.subarray(0, width * rows * 4),
+        native: ReturnType<NonNullable<typeof kernel>['convert']> | undefined
+      if (accelerated) {
+        try {
+          native = accelerated.convert(top, rows)
+          out = native.pixels
+        } catch {
+          accelerated = undefined
+          work.cpuKernel!.backend = 'scalar'
         }
+      }
+      if (native) {
+        // Keep the original ordered Float32 plane accumulation. Luminance was
+        // computed from the unquantized Float64 color, before native F32 stores.
+        for (let y = top; y < top + rows; y++)
+          for (let x = 0; x < width; x++) {
+            const i = (y - top) * width + x,
+              value = native.luma[i],
+              clipped = !out[i * 4 + 3]
+            for (const [px, wx] of xs[x])
+              for (const [py, wy] of ys[y]) {
+                const p = py * plane.width + px,
+                  weight = wx * wy
+                totals[p] += weight
+                if (!clipped && value > MERGE_LIMITS.readNoise * 3) {
+                  plane.data[p] += value * weight
+                  counts[p] += weight
+                }
+              }
+          }
+      } else {
+        for (let y = top; y < top + rows; y++)
+          for (let x = 0; x < width; x++) {
+            let sx = frame.flip & 4 ? y : x,
+              sy = frame.flip & 4 ? x : y
+            if (frame.flip & 1) sx = plan.width - 1 - sx
+            if (frame.flip & 2) sy = plan.height - 1 - sy
+            const qx = sx + plan.left - cx,
+              qy = sy + plan.top - cy,
+              r = Math.hypot(qx, qy) / radius
+            let clipped = false
+            for (let c = 0; c < 3; c++) {
+              const scale = radial(plan.lut, r, c),
+                px = cx + qx * scale,
+                py = cy + qy * scale
+              const ix = Math.floor(px),
+                iy = Math.floor(py),
+                dx = px - ix,
+                dy = py - iy
+              let value = 0
+              for (let yy = 0; yy < 2; yy++)
+                for (let xx = 0; xx < 2; xx++) {
+                  const tx = Math.max(0, Math.min(frame.width - 1, ix + xx)),
+                    ty = Math.max(0, Math.min(frame.height - 1, iy + yy))
+                  const weight = (xx ? dx : 1 - dx) * (yy ? dy : 1 - dy)
+                  value += frame.data[(ty * frame.width + tx) * 4 + c] * weight * gainAt(tx, ty)
+                  if (weight > 0 && saturated[ty * frame.width + tx]) clipped = true
+                }
+              cameraRgb[c] = (((value * maximumGain) / normal.gains[c]) * gains[c]) / minimumGain
+            }
+            const cameraRed =
+                frame.matrix[0] * cameraRgb[0] +
+                frame.matrix[1] * cameraRgb[1] +
+                frame.matrix[2] * cameraRgb[2],
+              cameraGreen =
+                frame.matrix[4] * cameraRgb[0] +
+                frame.matrix[5] * cameraRgb[1] +
+                frame.matrix[6] * cameraRgb[2],
+              cameraBlue =
+                frame.matrix[8] * cameraRgb[0] +
+                frame.matrix[9] * cameraRgb[1] +
+                frame.matrix[10] * cameraRgb[2]
+            for (let c = 0; c < 3; c++)
+              rgb[c] =
+                SRGB_TO_2020[c * 3] * cameraRed +
+                SRGB_TO_2020[c * 3 + 1] * cameraGreen +
+                SRGB_TO_2020[c * 3 + 2] * cameraBlue
+            const i = ((y - top) * width + x) * 4
+            out[i] = rgb[0]
+            out[i + 1] = rgb[1]
+            out[i + 2] = rgb[2]
+            out[i + 3] = Number(!clipped)
+            const value = Math.max(0, luminance(rgb))
+            for (const [px, wx] of xs[x])
+              for (const [py, wy] of ys[y]) {
+                const p = py * plane.width + px,
+                  weight = wx * wy
+                totals[p] += weight
+                if (!clipped && value > MERGE_LIMITS.readNoise * 3) {
+                  plane.data[p] += value * weight
+                  counts[p] += weight
+                }
+              }
+          }
+      }
       work.conversionMs += performance.now() - conversion
       const bytes = Buffer.from(out.buffer, out.byteOffset, out.byteLength),
         hashing = performance.now()
@@ -576,8 +620,15 @@ async function prepareCpu(
       work.writingMs += performance.now() - writing
     }
   } finally {
-    await camera?.close()
-    await file.close()
+    try {
+      try {
+        await camera?.close()
+      } finally {
+        await file.close()
+      }
+    } finally {
+      kernel?.close()
+    }
   }
   const cameraStart = performance.now(),
     cameraRegistration = await camera?.finish()

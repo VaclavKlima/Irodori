@@ -108,6 +108,8 @@ const definitions: Suite[] = [
   { file: 'merge-photographs', group: 'service', scopes: ['preview', 'library'] },
   { file: 'merge', group: 'node', scopes: ['preview', 'library'] },
   { file: 'merge-io', group: 'node', scopes: ['preview', 'library'] },
+  { file: 'merge-gpu-output', group: 'node', scopes: ['preview', 'library'] },
+  { file: 'merge-cpu-kernels', group: 'node', scopes: ['preview', 'library'] },
   { file: 'merge-engine', group: 'service', scopes: ['preview', 'library'] },
   { file: 'hdr', group: 'node', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-content', group: 'node', scopes: ['preview', 'adjustments'] },

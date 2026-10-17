@@ -72,6 +72,10 @@ export class RawGpuRenderer {
       throw new Error('No hardware GPU adapter is available.')
     this.adapter = `${adapter.info.vendor} ${adapter.info.device} (${adapter.info.description})`
     const device = await adapter.requestDevice({
+      requiredFeatures:
+        process.env.LUMA_MERGE_GPU_TIMESTAMPS === '1' && adapter.features.has('timestamp-query')
+          ? ['timestamp-query']
+          : [],
       requiredLimits: {
         maxBufferSize: Math.min(1024 ** 3, adapter.limits.maxBufferSize),
         maxStorageBufferBindingSize: Math.min(

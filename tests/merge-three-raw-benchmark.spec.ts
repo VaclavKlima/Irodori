@@ -30,6 +30,19 @@ interface FrozenMergeEvidence {
   publishedAsset: HdrWorkingAsset
   registration: { key: string; sha256: string; data: string }
   recipe?: Pick<MergeRecipe, 'width' | 'height' | 'crop' | 'maskSha256'>
+  preparationManifests?: Awaited<ReturnType<typeof preparationManifests>>
+}
+
+function preparationIdentity(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(preparationIdentity)
+  if (!value || typeof value !== 'object') return value
+  return normalizedRegistration(
+    Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !['measurement', 'gpuBytes'].includes(key))
+        .map(([key, item]) => [key, preparationIdentity(item)]),
+    ),
+  )
 }
 
 function normalizedRegistration(value: unknown): unknown {
@@ -256,6 +269,11 @@ for (const mode of ['noise', 'hdr'] as const)
           'src/main/merge/engine.ts',
           'src/main/merge/prepare.ts',
           'src/main/merge/camera-registration.ts',
+          'src/main/merge/cpu-kernels.ts',
+          'src/main/merge/kernels/prepare.c',
+          'src/main/merge/gpu-output.ts',
+          'vendor/merge-kernels/luma-merge-kernels.wasm',
+          'vendor/merge-kernels/manifest.json',
           'src/main/merge/preparation-policy.ts',
           'src/main/preview-process.ts',
           'src/main/preview-engine.ts',
@@ -518,11 +536,43 @@ for (const mode of ['noise', 'hdr'] as const)
         if (cleanupFailure) throw cleanupFailure.error
       }
       expect(samples).toHaveLength(3)
+      for (const sample of samples) {
+        const measured = sample.recipe.measurements
+        expect(measured?.peak.gpuBytes).toBeLessThanOrEqual(1024 ** 3)
+        expect(measured?.peak.wasmBytes).toBeLessThanOrEqual(512 * 1024 ** 2)
+        if (mode === 'hdr' && process.env.LUMA_MERGE_CPU_KERNEL === 'wasm') {
+          for (const prepared of measured!.preparation)
+            expect(prepared.work?.cpuKernel?.backend, 'Requested SIMD preparation ran').toBe(
+              'wasm-simd',
+            )
+          expect(
+            measured?.referenceFallback?.work?.cpuKernel?.backend,
+            'Requested SIMD highlight fallback ran',
+          ).toBe('wasm-simd')
+          if (process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES)
+            expect(measured?.referenceFallback?.work?.cpuKernel?.gainCacheEntries).toBe(
+              Number(process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES),
+            )
+        }
+        if (process.env.LUMA_MERGE_OUTPUT_SLOTS) {
+          expect(measured?.output?.backend).toBe('gpu')
+          expect(measured?.output?.conversion?.slots).toBe(
+            Number(process.env.LUMA_MERGE_OUTPUT_SLOTS),
+          )
+          expect(measured?.output?.conversion?.pendingPeak).toBeLessThanOrEqual(2)
+        }
+      }
       if (baseline)
-        for (const [index, sample] of samples.entries())
+        for (const [index, sample] of samples.entries()) {
           expect(frozenIdentity(sample), `${mode} run ${index + 1} frozen baseline`).toEqual(
             frozenIdentity(baseline.samples[index]),
           )
+          if (baseline.samples[index].preparationManifests)
+            expect(
+              digest(preparationIdentity(sample.preparationManifests)),
+              `${mode} run ${index + 1} prepared linear, camera-channel, clipping and fallback evidence`,
+            ).toBe(digest(preparationIdentity(baseline.samples[index].preparationManifests)))
+        }
       for (const sample of samples)
         expect(sample.completeOperationMs, `${mode} run ${sample.iteration + 1}`).toBeLessThan(5000)
     } catch (error) {
@@ -560,6 +610,12 @@ for (const mode of ['noise', 'hdr'] as const)
           includesFreshManagedCaptureVerification: true,
           includesDiagnosticSnapshot: true,
           includesElectronPresentation: false,
+          experiment: {
+            outputSlots: process.env.LUMA_MERGE_OUTPUT_SLOTS ?? 'default',
+            gpuTimestamps: process.env.LUMA_MERGE_GPU_TIMESTAMPS === '1',
+            cpuKernel: process.env.LUMA_MERGE_CPU_KERNEL ?? 'default',
+            gainCacheEntries: process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES ?? 'default',
+          },
           publicationFilesystem: 'project-filesystem',
           clock:
             'performance.now before createMergeReview through immediate finished task event after cleanup',
