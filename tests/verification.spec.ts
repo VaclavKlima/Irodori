@@ -223,7 +223,9 @@ test('explicit scope unions and benchmark families preserve gates without overla
             'tests/mac-workability-interference.spec.ts',
           ]
         : []),
-      ...(file === 'merge' ? ['tests/merge-preview-benchmark.spec.ts'] : []),
+      ...(file === 'merge'
+        ? ['tests/merge-preview-benchmark.spec.ts', 'tests/merge-three-raw-benchmark.spec.ts']
+        : []),
     ])
   expect(selectPlan(['--benchmark-all']).groups).toHaveLength(6)
   expect(files(['--target', 'research-presentation'])).toContain(

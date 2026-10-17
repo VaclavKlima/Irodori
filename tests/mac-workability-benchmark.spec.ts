@@ -55,9 +55,13 @@ for (const [width, height, consoleOpen] of [
         const source = {
           ...(await provenance([
             'tests/fixtures/sony-zv1.ARW',
+            'tests/mac-workability.helpers.ts',
             'src/renderer/src/preview/hdr-presenter.ts',
+            'src/renderer/src/preview/hdr-shader.ts',
+            'src/renderer/src/preview/hdr-gpu-timings.ts',
             'src/renderer/src/preview/hdr-render-cache.ts',
             'src/shared/aces-wgsl.ts',
+            'src/shared/display-rendering-wgsl.ts',
             'src/shared/aces-precision-wgsl.ts',
             'src/shared/aces-data.ts',
           ])),
@@ -87,12 +91,16 @@ for (const [width, height, consoleOpen] of [
                 ),
               )
             }
-        const metrics = trials.map(({ inputs, presentations, histograms, ...trial }) => ({
-          ...trial,
-          inputCount: inputs.length,
-          presentationCount: presentations.length,
-          histogramCount: histograms.length,
-        }))
+        const metrics = trials.map(
+          ({ inputs, requests, presentations, histograms, gpuObservations, ...trial }) => ({
+            ...trial,
+            inputCount: inputs.length,
+            observedRequestCount: requests.length,
+            presentationCount: presentations.length,
+            histogramCount: histograms.length,
+            observedGpuSampleCount: gpuObservations.length,
+          }),
+        )
         await recordBenchmark(info, {
           family: 'hdr',
           measurements: { viewport, consoleOpen, display, trials: metrics },

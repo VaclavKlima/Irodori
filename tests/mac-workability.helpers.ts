@@ -67,7 +67,42 @@ export async function sustainedEditorInput(
     await device.queue.onSubmittedWorkDone()
     await frame()
 
-    const inputs: { serial: number; value: number; at: number; raf: number }[] = []
+    const inputs: {
+      serial: number
+      value: number
+      at: number
+      raf: number
+      dispatchCompletedAt?: number
+    }[] = []
+    const requests: {
+      editSerial: number
+      inputSerial: number
+      value: number
+      at: number | null
+      observedAt: number
+      inputToRequestMs: number | null
+      observationDelayMs: number | null
+      sourceIdentity: string
+      epoch: number | null
+      intent: string
+    }[] = []
+    type GpuObservation = {
+      inputSerial: number
+      epoch: number
+      sourceIdentity: string
+      tileGpuMs: number
+      offscreenGpuMs: number
+      blitGpuMs: number
+      measuredPasses: number
+      droppedPasses: number
+      complete: number
+      imagePresented: number
+      observedAt: number
+    }
+    const gpuByRequest = new Map<string, GpuObservation>()
+    const requestKey = (sourceIdentity: string, epoch: number | null, serial: number) =>
+      JSON.stringify([sourceIdentity, epoch, serial])
+    const requestBySerial = new Map<number, (typeof requests)[number]>()
     const presentations: {
       serial: number
       editSerial: number
@@ -76,6 +111,17 @@ export async function sustainedEditorInput(
       latencyMs: number
       quality: string
       timings?: Record<string, number>
+      publicationObservedAt: number
+      sourceIdentity?: string
+      epoch?: number | null
+      inputToRequestMs?: number | null
+      requestToPublicationObservedMs?: number | null
+      requestToPresentationMs?: number | null
+      publicationObservationToPresentationMs?: number
+      latestInputSerialAtPresentation?: number
+      inputsBehindAtPresentation?: number
+      intentLagAtPresentationMs?: number
+      gpu?: GpuObservation
     }[] = []
     const histograms: { editSerial: number; at: number; latencyMs: number }[] = []
     const requestedInputs = new Map<number, (typeof inputs)[number]>()
@@ -90,6 +136,8 @@ export async function sustainedEditorInput(
       previousSerial = Number(canvas.dataset.completedEditSerial),
       loaders = 0,
       hidden = 0,
+      unobservedRequestSerials = 0,
+      previousRequestedSerial = Number(canvas.dataset.requestedSerial),
       lastPresentedInputAt = performance.now()
     const observeFrame = () => {
       const editSerial = Number(canvas.dataset.completedEditSerial)
@@ -103,12 +151,22 @@ export async function sustainedEditorInput(
       regressed ||= editSerial < previousSerial
       previousSerial = editSerial
       seenFrames.add(editSerial)
-      const completed = {
+      const publicationObservedAt = performance.now(),
+        request = requestBySerial.get(editSerial)
+      const completed: (typeof presentations)[number] = {
         serial: input.serial,
         editSerial,
         analysisSerial: editSerial,
-        at: performance.now(),
-        latencyMs: performance.now() - input.at,
+        at: publicationObservedAt,
+        publicationObservedAt,
+        latencyMs: publicationObservedAt - input.at,
+        sourceIdentity: request?.sourceIdentity,
+        epoch: request?.epoch,
+        inputToRequestMs: request?.inputToRequestMs,
+        requestToPublicationObservedMs:
+          request?.at === null || request?.at === undefined
+            ? null
+            : publicationObservedAt - request.at,
         quality: canvas.dataset.quality ?? 'unknown',
         timings: canvas.dataset.frameTimings
           ? (JSON.parse(canvas.dataset.frameTimings) as Record<string, number>)
@@ -127,6 +185,13 @@ export async function sustainedEditorInput(
             return
           completed.at = performance.now()
           completed.latencyMs = completed.at - input.at
+          completed.publicationObservationToPresentationMs = completed.at - publicationObservedAt
+          completed.requestToPresentationMs =
+            request?.at === null || request?.at === undefined ? null : completed.at - request.at
+          const latest = inputs.at(-1)!
+          completed.latestInputSerialAtPresentation = latest.serial
+          completed.inputsBehindAtPresentation = latest.serial - input.serial
+          completed.intentLagAtPresentationMs = latest.at - input.at
           lastPresentedInputAt = input.at
           presentations.push(completed)
         })(),
@@ -145,9 +210,31 @@ export async function sustainedEditorInput(
         latencyMs: performance.now() - inputs[presented.serial].at,
       })
     }
+    const observeGpu = () => {
+      if (!canvas.dataset.gpuFrameTimings) return
+      const timing = JSON.parse(canvas.dataset.gpuFrameTimings) as Omit<
+          GpuObservation,
+          'observedAt'
+        >,
+        request = requestBySerial.get(timing.inputSerial)
+      if (
+        !request ||
+        timing.sourceIdentity !== request.sourceIdentity ||
+        timing.epoch !== request.epoch
+      )
+        return
+      const key = requestKey(timing.sourceIdentity, timing.epoch, timing.inputSerial)
+      if (!gpuByRequest.has(key))
+        gpuByRequest.set(key, { ...timing, observedAt: performance.now() })
+    }
     const canvasObserver = new MutationObserver((records) => {
       if (records.some((record) => record.attributeName === 'data-requested-serial')) {
-        const requested = JSON.parse(canvas.dataset.requestedParameters!)
+        const observedAt = performance.now(),
+          timestamp = Number(canvas.dataset.requestedAt),
+          at = Number.isFinite(timestamp) ? timestamp : null,
+          epoch = Number(canvas.dataset.requestedEpoch),
+          editSerial = Number(canvas.dataset.requestedSerial),
+          requested = JSON.parse(canvas.dataset.requestedParameters!)
         const value =
           label === 'Temperature'
             ? requested.whiteBalance.kelvin
@@ -156,17 +243,43 @@ export async function sustainedEditorInput(
               : requested[label === 'Exposure' ? 'exposureEv' : label.toLowerCase()]
         let input: (typeof inputs)[number] | undefined
         for (let index = inputs.length - 1; index >= 0; index--)
-          if (inputs[index].value === value) {
+          if (inputs[index].value === value && inputs[index].at <= (at ?? observedAt)) {
             input = inputs[index]
             break
           }
-        if (input) requestedInputs.set(Number(canvas.dataset.requestedSerial), input)
+        if (editSerial > previousRequestedSerial + 1)
+          unobservedRequestSerials += editSerial - previousRequestedSerial - 1
+        previousRequestedSerial = editSerial
+        if (input) {
+          requestedInputs.set(editSerial, input)
+          if (!requestBySerial.has(editSerial)) {
+            const request = {
+              editSerial,
+              inputSerial: input.serial,
+              value,
+              at,
+              observedAt,
+              inputToRequestMs: at === null ? null : at - input.at,
+              observationDelayMs: at === null ? null : observedAt - at,
+              sourceIdentity: canvas.dataset.requestedSourceIdentity ?? '',
+              epoch: Number.isFinite(epoch) ? epoch : null,
+              intent: canvas.dataset.requestIntent ?? 'unknown',
+            }
+            requests.push(request)
+            requestBySerial.set(editSerial, request)
+          }
+        }
       }
       observeFrame()
+      if (records.some((record) => record.attributeName === 'data-gpu-frame-timings')) observeGpu()
     })
     canvasObserver.observe(canvas, {
       attributes: true,
-      attributeFilter: ['data-requested-serial', 'data-completed-edit-serial'],
+      attributeFilter: [
+        'data-requested-serial',
+        'data-completed-edit-serial',
+        'data-gpu-frame-timings',
+      ],
     })
     const histogramObserver = new MutationObserver(observeHistogram)
     histogramObserver.observe(histogram, {
@@ -196,10 +309,11 @@ export async function sustainedEditorInput(
               : label === 'Exposure'
                 ? Number((-1.2 + serial * 0.01).toFixed(2))
                 : (serial % 201) - 100
-        const input = { serial, value, at: performance.now(), raf }
+        const input: (typeof inputs)[number] = { serial, value, at: performance.now(), raf }
         inputs.push(input)
         setter.call(slider, String(value))
         slider.dispatchEvent(new Event('input', { bubbles: true }))
+        input.dispatchCompletedAt = performance.now()
         deadline += 1000 / frequency
         loaders += Number(document.body.textContent?.includes('Loading preview…'))
         hidden += Number(getComputedStyle(canvas).visibility === 'hidden')
@@ -242,6 +356,7 @@ export async function sustainedEditorInput(
       )
       finalHistogramConvergenceMs = performance.now() - inputs.at(-1)!.at
       await Promise.all(completions)
+      observeGpu()
     } catch (failure) {
       error = String(failure)
     } finally {
@@ -253,6 +368,42 @@ export async function sustainedEditorInput(
     const p95 = (values: number[]) =>
       values.length ? [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1] : null
     const intervals = inputs.slice(1).map((input, i) => input.at - inputs[i].at)
+    for (const presentation of presentations)
+      if (presentation.sourceIdentity !== undefined)
+        presentation.gpu = gpuByRequest.get(
+          requestKey(
+            presentation.sourceIdentity,
+            presentation.epoch ?? null,
+            presentation.editSerial,
+          ),
+        )
+    const gpuObservations = [...gpuByRequest.values()]
+    const summarize = (values: number[]) => ({
+      count: values.length,
+      mean: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null,
+      p95: p95(values),
+      maximum: values.length ? Math.max(...values) : null,
+    })
+    const completeGpuObservations = gpuObservations.filter((sample) => sample.complete === 1)
+    const gpuTimingSummary = Object.fromEntries(
+      (['tileGpuMs', 'offscreenGpuMs', 'blitGpuMs'] as const).map((key) => [
+        key,
+        summarize(completeGpuObservations.map((sample) => sample[key])),
+      ]),
+    )
+    const matchedGpuObservations = presentations
+      .map((presentation) => presentation.gpu)
+      .filter(
+        (sample): sample is GpuObservation => sample?.complete === 1 && sample.imagePresented === 1,
+      )
+    const matchedGpuTimingSummary = Object.fromEntries(
+      (['tileGpuMs', 'offscreenGpuMs', 'blitGpuMs'] as const).map((key) => [
+        key,
+        summarize(matchedGpuObservations.map((sample) => sample[key])),
+      ]),
+    )
+    const optionalValues = (values: (number | null | undefined)[]) =>
+      values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
     const frameTimings = presentations
       .filter((presentation) => presentation.timings?.inputSerial === presentation.editSerial)
       .map((presentation) => presentation.timings!)
@@ -277,7 +428,70 @@ export async function sustainedEditorInput(
       achievedHz: (inputs.length - 1) / ((inputs.at(-1)!.at - inputs[0].at) / 1000),
       inputIntervalP95Ms: p95(intervals),
       inputs,
+      requests,
       presentations,
+      requestCount: requests.length,
+      unobservedRequestSerials,
+      inputToRequestSummary: summarize(
+        optionalValues(requests.map((request) => request.inputToRequestMs)),
+      ),
+      requestObservationDelaySummary: summarize(
+        optionalValues(requests.map((request) => request.observationDelayMs)),
+      ),
+      inputDispatchSummary: summarize(
+        optionalValues(
+          inputs.map((input) =>
+            input.dispatchCompletedAt === undefined
+              ? undefined
+              : input.dispatchCompletedAt - input.at,
+          ),
+        ),
+      ),
+      requestToPublicationObservedSummary: summarize(
+        optionalValues(
+          presentations.map((presentation) => presentation.requestToPublicationObservedMs),
+        ),
+      ),
+      requestToPresentationSummary: summarize(
+        optionalValues(presentations.map((presentation) => presentation.requestToPresentationMs)),
+      ),
+      publicationObservationToPresentationSummary: summarize(
+        optionalValues(
+          presentations.map((presentation) => presentation.publicationObservationToPresentationMs),
+        ),
+      ),
+      inputsBehindAtPresentationSummary: summarize(
+        optionalValues(
+          presentations.map((presentation) => presentation.inputsBehindAtPresentation),
+        ),
+      ),
+      intentLagAtPresentationSummary: summarize(
+        optionalValues(presentations.map((presentation) => presentation.intentLagAtPresentationMs)),
+      ),
+      gpuObservations,
+      gpuTimingStatus: canvas.dataset.gpuTimings ?? 'unavailable',
+      gpuFrameTimingSampleCount: gpuObservations.length,
+      gpuCompleteTimingSampleCount: completeGpuObservations.length,
+      gpuIncompleteTimingSampleCount: gpuObservations.length - completeGpuObservations.length,
+      gpuMatchedPresentationCount: presentations.filter((presentation) => presentation.gpu).length,
+      gpuCompleteMatchedPresentationCount: matchedGpuObservations.length,
+      gpuTimingSummary,
+      matchedGpuTimingSummary,
+      requestTimingByIntent: Object.fromEntries(
+        [...new Set(requests.map((request) => request.intent))].map((intent) => [
+          intent,
+          {
+            count: requests.filter((request) => request.intent === intent).length,
+            inputToRequestSummary: summarize(
+              optionalValues(
+                requests
+                  .filter((request) => request.intent === intent)
+                  .map((request) => request.inputToRequestMs),
+              ),
+            ),
+          },
+        ]),
+      ),
       frameTimingSampleCount: frameTimings.length,
       frameTimingSummary,
       histograms,
@@ -306,6 +520,8 @@ export async function sustainedEditorInput(
       sidebarMovement: Math.max(...heights) - Math.min(...heights),
       historyEntriesAdded: historyAfter.snapshots.length - historyBefore.snapshots.length,
       sourceUploads: Number(canvas.dataset.sourceUploads),
+      tileKernel: canvas.dataset.tileKernel ?? 'unknown',
+      tileBatch: Number(canvas.dataset.tileBatch),
       backend: canvas.dataset.backend,
       error,
     }

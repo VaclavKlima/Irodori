@@ -101,6 +101,7 @@ const definitions: Suite[] = [
     exclusive: true,
   },
   { file: 'merge-preview-benchmark', group: 'benchmark', scopes: [], family: 'merge' },
+  { file: 'merge-three-raw-benchmark', group: 'benchmark', scopes: [], family: 'merge' },
   { file: 'merge-library', group: 'service', scopes: ['library', 'adjustments', 'preview'] },
   { file: 'merge-raw', group: 'raw-gpu', scopes: ['preview', 'library'] },
   { file: 'merge-gpu', group: 'raw-gpu', scopes: ['preview', 'library'] },

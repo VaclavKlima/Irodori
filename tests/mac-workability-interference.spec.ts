@@ -172,12 +172,14 @@ async function stopSourceObserver(page: Page): Promise<SourceChange[]> {
 
 function editorMetrics(editor?: EditorResult) {
   if (!editor?.trial) return { error: editor?.error ?? 'Missing editor trial.' }
-  const { inputs, presentations, histograms, ...metrics } = editor.trial
+  const { inputs, requests, presentations, histograms, gpuObservations, ...metrics } = editor.trial
   return {
     ...metrics,
     inputCount: inputs.length,
+    observedRequestCount: requests.length,
     presentationCount: presentations.length,
     histogramCount: histograms.length,
+    observedGpuSampleCount: gpuObservations.length,
     presentationsDuringInput: metrics.completedDuringInput,
     settledAtEpochMs: editor.settledAtEpochMs,
   }
@@ -302,9 +304,13 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
           ...(await provenance([
             'tests/fixtures/sony-zv1.ARW',
             'tests/fixtures/research-sony/manifest.json',
+            'tests/mac-workability.helpers.ts',
             'src/renderer/src/preview/hdr-presenter.ts',
+            'src/renderer/src/preview/hdr-shader.ts',
+            'src/renderer/src/preview/hdr-gpu-timings.ts',
             'src/shared/display-rendering.ts',
             'src/shared/aces-wgsl.ts',
+            'src/shared/display-rendering-wgsl.ts',
             'src/shared/aces-precision-wgsl.ts',
             'src/shared/aces-data.ts',
           ])),
