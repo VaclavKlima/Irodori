@@ -11,12 +11,13 @@ import { retainHdrContent } from './hdr-sample'
 import type { Size, View } from './geometry'
 import { hdrDevice } from './hdr-device'
 import { uploadHdr } from './hdr-upload'
-import { hdrShader, hdrMipShader, hdrCacheShader } from './hdr-shader'
+import { hdrShader, hdrMipShader, hdrCacheKernel } from './hdr-shader'
 import { ACES_DATA_BYTES } from '../../../shared/aces-data'
 import { hdrCachePlan, HdrRenderCache, HDR_CACHE_MAX_TILES } from './hdr-render-cache'
 import { HdrEditQueue, type HdrEditRequest } from './hdr-edit-queue'
 import { hdrHistogramShader, HDR_HISTOGRAM_WORDS, readHdrHistogram } from './hdr-histogram'
 import type { HdrStatistics } from '../../../shared/hdr-statistics'
+import { HdrGpuTimings, HDR_GPU_TIMING_BYTES, type HdrGpuTimingFrame } from './hdr-gpu-timings'
 
 // Paired application trials retain the bounded 32-tile default; eight remains an internal comparison.
 const HDR_TILE_BATCH = import.meta.env.VITE_LUMA_HDR_TILE_BATCH === '8' ? 8 : 32
@@ -55,6 +56,8 @@ interface PresentationRequest {
   inputSerial: number
   analysisSamples: number
   requestedAt: number
+  sourceIdentity: string
+  epoch: number
 }
 interface HistogramRequest {
   key: string
@@ -71,6 +74,7 @@ interface RenderedPresentation {
 export class HdrPresenter {
   private abort = new AbortController()
   private device?: GPUDevice
+  private gpuTimings?: HdrGpuTimings
   private context?: GPUCanvasContext
   private texture?: GPUTexture
   private uniform?: GPUBuffer
@@ -79,6 +83,9 @@ export class HdrPresenter {
   private layout?: GPUBindGroupLayout
   private cacheLayout?: GPUBindGroupLayout
   private cachePipeline?: GPUComputePipeline
+  private cacheKernel = hdrCacheKernel(
+    import.meta.env.VITE_LUMA_HDR_KERNEL === 'grid8' ? 'grid8' : 'linear64',
+  )
   private cacheTexture?: GPUTexture
   private cache?: HdrRenderCache
   private cacheGroups = new Map<number, GPUBindGroup>()
@@ -135,6 +142,7 @@ export class HdrPresenter {
   ) {
     canvas.dataset.backend = 'webgpu-hdr'
     canvas.dataset.tileBatch = String(HDR_TILE_BATCH)
+    canvas.dataset.tileKernel = this.cacheKernel.kind
     this.renderingWorker.onmessage = ({ data }) => {
       if (this.abort.signal.aborted) return
       if (data.error) {
@@ -230,10 +238,49 @@ export class HdrPresenter {
     if (this.abort.signal.aborted) return
     this.releaseBitmaps = reservePresentationBitmaps(256 * 1024 ** 2)
     this.device = device
+    const gpuTimingRequested = import.meta.env.VITE_LUMA_HDR_GPU_TIMINGS === '1'
+    this.canvas.dataset.gpuTimings = gpuTimingRequested ? 'unavailable' : 'disabled'
+    if (gpuTimingRequested && device.features.has('timestamp-query')) {
+      const failed = (reason: string) => {
+        if (this.abort.signal.aborted) return
+        this.canvas.dataset.gpuTimings = 'error'
+        this.canvas.dataset.gpuTimingError = reason
+      }
+      try {
+        this.canvas.dataset.gpuTimings = 'initializing'
+        const timings = new HdrGpuTimings(
+          device,
+          (result) => {
+            this.canvas.dataset.gpuFrameTimings = JSON.stringify(result)
+          },
+          failed,
+        )
+        this.gpuTimings = timings
+        void timings.ready.then((ready) => {
+          if (this.abort.signal.aborted || this.gpuTimings !== timings) {
+            timings.dispose()
+            return
+          }
+          if (ready) this.canvas.dataset.gpuTimings = 'available'
+          else this.gpuTimings = undefined
+        })
+      } catch (error) {
+        failed(String(error))
+      }
+    }
     this.context = this.canvas.getContext('webgpu') ?? undefined
     if (!this.context) throw new Error('HDR canvas unavailable.')
     this.levels = Math.floor(Math.log2(Math.max(frame.width, frame.height))) + 1
-    if (hdrPresentationMemory(frame.width, frame.height).total > HDR_PRESENTATION_BUDGET)
+    if (
+      hdrPresentationMemory(
+        frame.width,
+        frame.height,
+        0,
+        0,
+        HDR_CACHE_MAX_TILES,
+        this.gpuTimings ? HDR_GPU_TIMING_BYTES : 0,
+      ).total > HDR_PRESENTATION_BUDGET
+    )
       throw new Error('This HDR frame exceeds the renderer memory limit.')
     if (
       frame.width > device.limits.maxTextureDimension2D ||
@@ -354,16 +401,17 @@ export class HdrPresenter {
         size: 176,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       })
+      const tableUsage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       this.rendering = device.createBuffer({
         size: ACES_DATA_BYTES,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        usage: tableUsage,
       })
       for (const space of ['srgb', 'display-p3'])
         this.sdrRendering.set(
           space,
           device.createBuffer({
             size: ACES_DATA_BYTES,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            usage: tableUsage,
           }),
         )
       this.histogramUniform = device.createBuffer({
@@ -434,14 +482,18 @@ export class HdrPresenter {
               viewDimension: '2d-array',
             },
           },
-          { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+          {
+            binding: 4,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: 'read-only-storage' },
+          },
           { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         ],
       })
       this.cachePipeline = await device.createComputePipelineAsync({
         layout: device.createPipelineLayout({ bindGroupLayouts: [this.cacheLayout] }),
         compute: {
-          module: device.createShaderModule({ code: hdrCacheShader }),
+          module: device.createShaderModule({ code: this.cacheKernel.shader }),
           entryPoint: 'renderTile',
         },
       })
@@ -499,6 +551,8 @@ export class HdrPresenter {
           ? 'interactive'
           : 'navigation'
     this.refinementPending = false
+    const requestedAt = performance.now()
+    const sourceIdentity = this.frame.identity ?? this.frame.hdr!.sha256
     this.queue.request(
       {
         image: { ...image },
@@ -511,11 +565,16 @@ export class HdrPresenter {
         ranges: this.hdrRanges,
         inputSerial: ++this.inputSerial,
         analysisSamples: this.gesturing ? 8192 : 65536,
-        requestedAt: performance.now(),
+        requestedAt,
+        sourceIdentity,
+        epoch: this.epoch,
       },
       intent,
     )
     this.canvas.dataset.requestedParameters = editsKey
+    this.canvas.dataset.requestedAt = String(requestedAt)
+    this.canvas.dataset.requestedSourceIdentity = sourceIdentity
+    this.canvas.dataset.requestedEpoch = String(this.epoch)
     this.canvas.dataset.requestedSerial = String(this.inputSerial)
     this.canvas.dataset.requestIntent = intent
     void this.run()
@@ -525,15 +584,23 @@ export class HdrPresenter {
     const request = this.queue.take()
     if (!request || this.abort.signal.aborted) return
     this.running = true
+    const gpuFrame = this.gpuTimings?.begin(
+      request.value.inputSerial,
+      request.value.epoch,
+      request.value.sourceIdentity,
+    )
+    let imagePresented = false
     try {
-      const rendered = await this.render(request)
+      const rendered = await this.render(request, gpuFrame)
       const present = this.queue.finish(request)
       if (present && rendered && !this.abort.signal.aborted) {
-        await this.present(request, rendered)
+        imagePresented = await this.present(request, rendered, gpuFrame)
       }
     } catch (error) {
       this.queue.finish(request)
       if (!this.abort.signal.aborted) this.lost(`GPU presentation failed: ${String(error)}`)
+    } finally {
+      this.gpuTimings?.finish(gpuFrame, imagePresented)
     }
     this.running = false
     if (!this.queue.hasPending) {
@@ -542,7 +609,7 @@ export class HdrPresenter {
     }
     if (!this.abort.signal.aborted) void this.run()
   }
-  private async render(request: HdrEditRequest<PresentationRequest>) {
+  private async render(request: HdrEditRequest<PresentationRequest>, gpuFrame?: HdrGpuTimingFrame) {
     const startedAt = performance.now()
     const timings: HdrFrameTimings = {
       inputSerial: request.value.inputSerial,
@@ -577,6 +644,7 @@ export class HdrPresenter {
       width,
       height,
       device.limits.maxTextureArrayLayers,
+      this.gpuTimings ? HDR_GPU_TIMING_BYTES : 0,
     )
     this.canvas.dataset.allocatedBytes = String(memory.total)
     if (memory.total > HDR_PRESENTATION_BUDGET)
@@ -723,13 +791,13 @@ export class HdrPresenter {
           const submitting = performance.now()
           device.queue.writeBuffer(this.jobs!, 0, jobs)
           const computation = device.createCommandEncoder()
-          const compute = computation.beginComputePass()
+          const compute = computation.beginComputePass({
+            timestampWrites: this.gpuTimings?.writes(gpuFrame, 'tile'),
+          })
           compute.setPipeline(this.cachePipeline!)
           compute.setBindGroup(0, cacheGroup)
           compute.dispatchWorkgroups(
-            Math.ceil((memory.tileSize + 2) / 8),
-            Math.ceil((memory.tileSize + 2) / 8),
-            jobs.length / 4,
+            ...this.cacheKernel.dispatch(memory.tileSize + 2, jobs.length / 4),
           )
           compute.end()
           this.renderedTiles += jobs.length / 4
@@ -757,6 +825,7 @@ export class HdrPresenter {
         const submitting = performance.now()
         const encoder = device.createCommandEncoder()
         const pass = encoder.beginRenderPass({
+          timestampWrites: this.gpuTimings?.writes(gpuFrame, 'offscreen'),
           colorAttachments: [
             {
               view: surface,
@@ -812,6 +881,7 @@ export class HdrPresenter {
   private async present(
     request: HdrEditRequest<PresentationRequest>,
     rendered: RenderedPresentation,
+    gpuFrame?: HdrGpuTimingFrame,
   ) {
     const { viewport, parameters, target, mode, ranges, inputSerial } = request.value
     const { timings } = rendered
@@ -830,6 +900,7 @@ export class HdrPresenter {
     }
     const encoder = this.device!.createCommandEncoder()
     const pass = encoder.beginRenderPass({
+      timestampWrites: this.gpuTimings?.writes(gpuFrame, 'blit'),
       colorAttachments: [
         { view: this.context!.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store' },
       ],
@@ -848,7 +919,7 @@ export class HdrPresenter {
     const fencing = performance.now()
     await this.device!.queue.onSubmittedWorkDone()
     timings.finalBlitFenceMs = performance.now() - fencing
-    if (this.abort.signal.aborted || this.queue.superseded(request)) return
+    if (this.abort.signal.aborted || this.queue.superseded(request)) return false
     // These elapsed CPU stages include scheduling/queue waits, not hardware timestamps.
     timings.totalMs = performance.now() - rendered.startedAt
     timings.unattributedMs = Math.max(
@@ -875,6 +946,7 @@ export class HdrPresenter {
           width,
           height,
           this.device!.limits.maxTextureArrayLayers,
+          this.gpuTimings ? HDR_GPU_TIMING_BYTES : 0,
         ).cacheBytes,
       ),
       presentationSerial: String(Number(this.canvas.dataset.presentationSerial ?? 0) + 1),
@@ -898,6 +970,7 @@ export class HdrPresenter {
       this.retainedCanvas.dataset.presentationSerial = this.canvas.dataset.presentationSerial
     this.loaded()
     this.requestHistogram(rendered.histogram)
+    return true
   }
   private requestHistogram(snapshot: HistogramRequest) {
     if (snapshot.key === this.publishedStatisticsKey) {
@@ -1018,6 +1091,7 @@ export class HdrPresenter {
     this.cacheTexture?.destroy()
     this.lookup?.destroy()
     this.jobs?.destroy()
+    this.gpuTimings?.dispose()
     this.uniform?.destroy()
     this.rendering?.destroy()
     for (const buffer of this.sdrRendering.values()) buffer.destroy()

@@ -16,3 +16,6 @@ for (let r = -2; r <= 2; r++)
           new Float32Array(new Uint32Array([bits[0] + r, bits[1] + g, bits[2] + b]).buffer),
         ),
       )
+
+// Signed cancellation near the blue gamut boundary must retain the independent CTL tolerance.
+acesRegressionInputs.push([205 / 75, 394 / 120, Math.sin(205) * 0.1].map(Math.fround))

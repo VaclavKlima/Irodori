@@ -7,6 +7,10 @@ export function hdrDevice(): Promise<GPUDevice> {
     if (!adapter || adapter.info.isFallbackAdapter)
       throw new Error('A hardware WebGPU adapter is unavailable.')
     const device = await adapter.requestDevice({
+      requiredFeatures:
+        import.meta.env.VITE_LUMA_HDR_GPU_TIMINGS === '1' && adapter.features.has('timestamp-query')
+          ? ['timestamp-query']
+          : [],
       requiredLimits: {
         maxTextureDimension2D: Math.min(16384, adapter.limits.maxTextureDimension2D),
         maxBufferSize: Math.min(512 * 1024 ** 2, adapter.limits.maxBufferSize),

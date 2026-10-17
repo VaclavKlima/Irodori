@@ -9,6 +9,7 @@ export function hdrPresentationMemory(
   canvasWidth = 0,
   canvasHeight = 0,
   maximumLayers = HDR_CACHE_MAX_TILES,
+  diagnosticBytes = 0,
 ) {
   let textureBytes = 0,
     maskBytes = 0
@@ -32,7 +33,7 @@ export function hdrPresentationMemory(
   const canvasBytes = canvasWidth * canvasHeight * 32
   const transportBytes = HDR_TRANSPORT_CHUNK_BYTES * 2
   const sampleBytes = retainedSamples
-  const renderingBytes = ACES_DATA_BYTES * 3 + 176 * 2 + 1801 * 4 * 2
+  const renderingBytes = ACES_DATA_BYTES * 3 + 176 * 2 + 1801 * 4 * 2 + diagnosticBytes
   const tileSize = hdrCacheTileSize(width, height)
   const tileBytes = (tileSize + 2) ** 2 * 16
   const cacheControlBytes =
