@@ -10,15 +10,191 @@ The final 2/3/5/9-source noise family passes its existing 15-second gate. Cold
 export has an intermittent first-launch miss. Hardware and Linux gaps remain open.
 
 Implementation branch: `perf/mac-workability`, based on upstream research revision
-`3c5fcb1` (fast-forwarded from `c69c40f`). Final production and verification
-handoff revision: `03d633ceeed05ec06c6b627508d393ae8e9dd3b5`. Follow-up commits
+`3c5fcb1` (fast-forwarded from `c69c40f`). The October 16 production and verification
+handoff was `03d633ceeed05ec06c6b627508d393ae8e9dd3b5`; the October 17 handoff is
+recorded in the acceleration section below. Follow-up commits
 `fc6674b`, `5565f79` and `34ce777` implement capture batching, exact merge work
 reduction and linear tile workgroups; `03d633c` records their acceptance contracts.
-Measurements retain actual revision/dirty state and source/build hashes; measured
-sources match this handoff. Subsequent report, README and testing-guide changes
-are documentation only. The original milestone below retains its `cedef59` code,
+Measurements for that earlier handoff retain actual revision/dirty state and
+source/build hashes. Its subsequent report, README and testing-guide changes were
+documentation only. The original milestone below retains its `cedef59` code,
 `980435a` pixel-processing and `0b4f99f` early editor/export provenance. Linux
 acceptance remains pending.
+
+## October 17 merge acceleration
+
+The internet-research follow-up starts from `a06e74c`. The user authorized three
+parallel experiments: exact compiled preparation, bounded GPU/output overlap, and
+an isolated GPU preparation study. The strict complete-operation target remains
+less than 5000 ms for each of three fresh-worker runs in both HDR and noise modes.
+Native detail, source integrity, independent registration, clipping, deghosting,
+numerical bounds, durable publication and cancellation retain their current gates.
+
+Production acceleration is committed as `64065da`; isolated research and its
+registration are committed as `76d1408`. The code/verification handoff is
+`76d1408bd76e7a412c69eec2d23f4ab2410aba90`; documentation-only descendants are
+allowed. The pinned 4113-byte ABI 2 binary rebuilt identically with SHA-256
+`4c3f88ba5fb75ff52c8a80ad9981e3591a8db7a09b43ae5f76ec381b11591f2c`.
+An independent read-only review found no production blockers in arithmetic,
+borrowed views, scalar recovery, GPU draining or packaged-asset resolution.
+
+| Task                            | Owner                      | Dependencies                        | Status                                   | Evidence / next step                                                                                                             |
+| ------------------------------- | -------------------------- | ----------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| A0 — Matching baseline          | Coordinator                | `a06e74c`, committed Sony originals | Complete; five-second gates fail         | Noise 8.597/8.230/8.136 s; HDR 23.603/23.647/23.830 s. All integrity/publication checks passed.                                  |
+| A1 — Exact preparation          | Merge agent                | A0, reproducible SIMD build         | Implemented; exact checks passed         | Float64 SIMD and bounded arenas; native preparation, masks, planes, registration and published master match the frozen baseline. |
+| A2 — GPU/output overlap         | Export agent + coordinator | A0, bounded slot ownership          | Implemented; functional checks passed    | One/two-slot output equality and in-flight fallback pass; device timestamps remain separate from map wait.                       |
+| A3 — GPU preparation study      | Rendering agent            | Existing CPU camera evidence oracle | Complete, research only                  | Synthetic and both native Sony cases pass pixel/mask bounds; production byte identity and end-to-end integration are unproven.   |
+| A4 — Integration and acceptance | Coordinator                | A1–A3                               | Complete; acceptance failed / incomplete | 328 focused passes; 12 benchmark passes and two five-second misses; foreground latency failure replayed; Bazzite pending.        |
+
+Matching baseline: 283 passed, two unchanged five-second failures, zero skipped,
+115.26 s. Evidence:
+`artifacts/merge-acceleration-2026-10-17/baseline/artifacts/verification/2026-10-17T09-43-09.978Z-benchmark-NAbCez/summary.md`.
+The detached worktree is source-identical to `a06e74c`; its only untracked entry is
+the shared `node_modules` symlink. The initial sandbox-blocked localhost test and
+passing exact replay remain retained separately. Compiler downloads and all
+generated measurements stay under ignored artifacts.
+
+Focused checks: `merge-cpu-kernels` and `merge-gpu-output` pass 296 cases in
+14.27 s. The affected `brk-merge`, `merge-engine`, `merge-gpu` and `merge-library`
+selection passes 348 cases in 64.31 s with zero skips. It retains scalar/GPU
+agreement, full output/master identity across one/two slots, partial strips,
+device-failure fallback, native validation and managed publication/recovery.
+Evidence: `artifacts/verification/2026-10-17T09-57-52.973Z-check-UAxR96/summary.md`
+and `artifacts/verification/2026-10-17T09-58-19.465Z-check-n6XQ9l/summary.md`.
+
+The first GPU study passes its 16 synthetic orientation/lens/clipping probes.
+Both native cases then fail because Dawn's internal texture-initialization staging
+exceeds the study device's buffer limit. Those results and invalid timings remain
+under `artifacts/verification/playwright-1792231016939-3c0fee04-09db-449c-8ce2-5498e5fe5d14/`.
+The repaired study uses bounded 64-row texture layers and passes all three cases,
+including every native sample and exact clipping masks. Combined CPU/GPU/research
+verification passes 304 cases with zero skips in 68.25 s:
+`artifacts/verification/2026-10-17T10-05-37.724Z-benchmark-b1WduT/summary.md`.
+The resident numerical stage takes roughly 6 ms on M4 Pro. RAW decode, canonical
+CPU clipping geometry, upload, full proof readback, validation and publication are
+outside that clock. Many Float32 words differ within the unchanged pixel tolerance;
+this does not establish identical alignment decisions or master bytes. Nothing
+from the research prototype is enabled in production.
+
+The first complete SIMD attempt detects scalar fallback at the camera handoff:
+production emits 256-row chunks while the optional kernel accepts 64. Evidence:
+`artifacts/verification/2026-10-17T10-00-32.493Z-benchmark-6UX2lO/summary.md`.
+The repaired writer subdivides borrowed chunks, preserves ordered area sums and
+awaits each native write before buffer reuse. Exact 64/128/256-row integration
+coverage now proves actual SIMD execution. The HDR-only replay records
+20.941/20.772/20.604 s with every prepared/source/master identity matching the
+baseline, before failing only the unchanged five-second gate. Evidence:
+`artifacts/verification/playwright-1792231667929-33721087-eda3-4afe-aa7f-02856e8aaff4/`.
+
+Two-slot diagnostic runs retain all identities and reduce complete maxima to
+7.628 s for noise and 19.232 s for HDR. Output device time is about 1.72/1.76 s;
+summed map waits overlap and cannot be added to stage wall time. Evidence:
+`artifacts/verification/2026-10-17T10-09-12.074Z-benchmark-fxaQlk/summary.md`.
+Final adoption measurements disable optional timestamp queries. The 32,768-entry
+tagged gain-cache and 64-thread output experiments first passed their arithmetic,
+resource and exact-output checks: 304 cases in 52.70 s:
+`artifacts/verification/2026-10-17T10-14-50.186Z-check-ludIgO/summary.md`.
+
+The 64-thread workgroup produced less than a one-percent device-time difference
+and no application gain. Its option and test scaffolding were removed; production
+retains 256 threads. The rejected patch and measurements remain under ignored
+artifacts, including
+`artifacts/verification/2026-10-17T10-16-01.269Z-benchmark-WeBGmm/summary.md`.
+
+The fixed-256, two-slot, timestamp-disabled 2048-entry control retained all frozen
+identities: noise 8.682/8.404/8.618 s and HDR 21.128/19.884/20.124 s. Evidence:
+`artifacts/verification/2026-10-17T10-19-59.285Z-benchmark-qRAZnb/summary.md`
+(298 passed, two five-second failures, zero skipped, 108.00 s).
+Matched HDR-only 32768-entry runs take 19.358/19.360/19.650 s; the following
+2048-entry replay takes 19.433/19.752/19.716 s. Both retain all prepared/master,
+registration and mask identities. Evidence:
+`artifacts/verification/playwright-1792232556021-d74deb8b-38a4-4a53-9f68-d14409b74beb/`
+and
+`artifacts/verification/playwright-1792232657640-17ee7f4b-9dce-4814-834f-1b1485c2d3b7/`.
+Direct Playwright replays retain JSON/reporter evidence rather than a runner summary.
+The compiled fallback loop consistently saves about 0.4 s; complete-operation
+gains are smaller and vary with other stages. Production adopts 32768 tagged
+entries (384 KiB, 360 KiB above the control) and two bounded output slots for
+native comparisons. The 128 MiB kernel arena cap, GPU bounds, algorithms and
+exact arithmetic remain unchanged. Non-comparison output retains one slot.
+`LUMA_MERGE_GAIN_CACHE_ENTRIES=2048` and `LUMA_MERGE_OUTPUT_SLOTS=1` select controls.
+AC power and a full battery were confirmed; macOS thermal telemetry was unavailable.
+
+Final default correctness/lifecycle verification selects `merge-cpu-kernels`,
+`merge-gpu-output`, `merge-engine`, `merge-gpu` and `merge-library`: **328 passed,
+zero failed/skipped in 63.87 s**, including typecheck, lint, formatting and build.
+Evidence: `artifacts/verification/2026-10-17T10-26-14.358Z-check-RQ3Wn8/summary.md`.
+This run verifies the adopted 32768-entry default and fixed 256-thread shader.
+The duration warning is retained; no assertions were removed or cut short.
+
+Final foreground `benchmark:merge` selects `merge-benchmark`,
+`merge-preview-benchmark` and `merge-three-raw-benchmark`: **12 passed, two failed,
+zero skipped in 378.48 s**. Only the unchanged five-second cases fail. Evidence:
+`artifacts/verification/2026-10-17T10-27-58.766Z-benchmark-KJ6213/summary.md`.
+The actual default-path HDR samples all execute SIMD; fallback selects 32768
+entries, output owns two slots and diagnostic timestamps remain disabled.
+
+| Complete three-RAW operation | Baseline runs (s)        | Final runs (s)           | Maximum reduction | Five-second gate |
+| ---------------------------- | ------------------------ | ------------------------ | ----------------- | ---------------- |
+| Noise                        | 8.597 / 8.230 / 8.136    | 7.624 / 7.646 / 7.594    | 11.1%             | Failed           |
+| HDR                          | 23.603 / 23.647 / 23.830 | 18.801 / 19.205 / 19.007 | 19.4%             | Failed           |
+
+All native preparation, registration, motion-mask and published master identities
+match the frozen baseline. Earlier controls show full-operation variance, retained
+above; the table reports every final sample rather than selecting the fastest run.
+Distinct 2/3/5/9-source noise maxima are 7.073/7.662/9.721/12.925 s, all below
+15 s with three cold runs per count. Prepared synthetic 2/9/32-source and repeated-
+fixture calibrations remain separate passing results. All sixteen native merge
+view gestures pass, with maximum p95 11.4 ms against 33 ms. This is merge-view
+presentation, separate from editor sliders and physical scanout.
+
+Final strict-series logical peaks are 932,630,072 GPU bytes and 101,777,408 WASM
+bytes; maximum worker RSS is 2,492,301,312 bytes. These retain their limits and do
+not measure driver-internal GPU allocations. All fifteen committed originals match
+before and after the family:
+`artifacts/fixture-integrity/2026-10-17T10-27-58.469Z-30519.json`.
+Consolidated experiment measurements remain out of Git:
+`artifacts/merge-acceleration-2026-10-17/outcomes.json`.
+
+The focused foreground merge-interference case retains three matched 240-input
+trials at 60 Hz, 1100 × 700 with Console. Its first run fails only twelve unchanged
+33 ms latency/histogram assertions: frame p95 42.0–42.6 ms, histogram p95
+49.8–50.7 ms, refinement 32.5–41.2 ms. All six idle/editing trials meet cadence,
+sharpness, progress, final image/histogram, history and source-reuse assertions;
+there are no drafts, loaders, hidden/regressed frames or cleanup errors. Every
+idle/editing nine-source task completes. Idle tasks take 13.13–13.39 s, editing
+tasks 17.10–17.23 s: foreground work retains priority. The dispatched operation
+interval overlaps 238–239 of 240 inputs. This includes scheduler waits and does
+not establish simultaneous GPU computation or output-stage overlap.
+Evidence: `artifacts/verification/playwright-1792233422867-bc1dcdd9-b4de-4227-9784-cfeaca6a9e0c/playwright/summary.json`
+(zero passed, one failed, zero skipped, 119.24 s).
+
+The exact replay again fails only the twelve 33 ms assertions: frame p95
+41.9–42.5 ms, histogram 49.8–51.1 ms, refinement 32.6–41.1 ms. All other
+assertions pass, with actual cadence 60.00–60.13 Hz. Evidence:
+`artifacts/verification/playwright-1792233572775-e51c4348-32f9-444e-8109-a9b73ee4f7b6/playwright/summary.json`
+(zero passed, one failed, zero skipped, 119.86 s). No latency target was relaxed.
+
+Final integrity check:
+`artifacts/fixture-integrity/2026-10-17T10-42-02.315Z-32147.json`.
+All three recorded Electron launches have closed processes, removed isolated
+profiles and zero window-policy violations; the invocation lock is released.
+The read-only process audit found no processing workers or test profiles running.
+Evidence: `artifacts/merge-acceleration-2026-10-17/cleanup.json`.
+The detached source baseline and pinned compiler remain under ignored artifacts
+for reproduction. Generated measurements stay out of Git. The earlier agreed
+full checkpoint was not repeated; no `check:all` was run. Linux and physical HDR
+results remain pending.
+
+The remaining HDR serial costs in the 2048-entry control are approximately
+11.47–12.35 s decoding/preparation, 2.05–2.08 s remaining alignment/coverage work,
+1.31–1.56 s accumulation, 3.36–3.54 s output and 1.21–1.25 s publication/cleanup.
+The remaining-work bucket is derived wall time, not a new alignment measurement.
+Parallel alignment sums and overlapping map waits must not be added as serial
+costs. No multi-second copying or cleanup bottleneck was found. Exact ordered
+area accumulation and attributed durable publication are focused future studies;
+the new GPU numerical prototype needs full registration/master validation before
+production integration. Five seconds requires gains across several stages.
 
 ## Task register
 
@@ -28,7 +204,7 @@ acceptance remains pending.
 | M1 — Exact rendering   | Rendering agent                    | M0                 | Focused checks passed                                         | CPU/GPU/pinned Float64 CTL agree on Mac; maintained compensated range-reduced math shared across production shaders. Bazzite remains pending.                                                     |
 | M2 — Sharp interaction | Rendering agent                    | M1                 | Implemented; performance gates fail                           | Immutable active/latest pending intent, normal-detail interaction and independent bounded histogram work. Measured 32-tile batches retained; sharpness passes, latency/progress miss their gates. |
 | M3 — Export            | Export agent                       | M0, shared M1 math | Functional and warm gates passed; cold variance               | Internal validated working-asset leases, frozen preparation reuse across retries; initial cold miss retained alongside passing exact replay.                                                      |
-| M4 — Merge             | Merge agent                        | M0                 | Functional and 15-second gates pass; five-second target fails | Exact CPU/cache/capture and lossless output changes; final family: 11 passed, two three-RAW five-second failures.                                                                                 |
+| M4 — Merge             | Merge agent                        | M0                 | Functional and 15-second gates pass; five-second target fails | Exact SIMD/cache/capture and bounded output; October 17 family: 12 passed, two three-RAW five-second failures.                                                                                    |
 | M5 — Enabled workflows | Coordinator, then subsystem agents | M1–M4              | Mac software repairs verified; hardware gaps deferred         | Import/device adapters, library/selection/groups/Trash/recovery, adjustments/history/MCP, export and merge; physical/private-fixture gaps remain explicit.                                        |
 | M6 — Integration       | Coordinator                        | M1–M5              | Execution complete; acceptance failed / incomplete            | One agreed full checkpoint completed; exact failures replayed, focused repairs verified and final Bazzite handoff recorded below.                                                                 |
 
@@ -821,10 +997,11 @@ git switch perf/mac-workability
 git pull --ff-only origin perf/mac-workability
 # Confirm the tested code after transferring the reviewed branch; documentation-only descendants are allowed.
 git rev-parse HEAD
-git diff --exit-code 03d633ceeed05ec06c6b627508d393ae8e9dd3b5 HEAD -- . ':(exclude)docs/**' ':(exclude)README.md' ':(exclude)Luma.md'
+git diff --exit-code 76d1408bd76e7a412c69eec2d23f4ab2410aba90 HEAD -- . ':(exclude)docs/**' ':(exclude)README.md' ':(exclude)Luma.md'
 node scripts/research/sony-fixtures.mjs check
 npm run verify -- --target display-rendering-reference --target hdr-render-cache-gpu --target hdr-math-gpu
-npm run verify -- --target brk-merge --target capture-metadata --target merge-engine --target merge-io --target merge-gpu
+npm run verify -- --target merge-cpu-kernels --target merge-gpu-output --target brk-merge --target capture-metadata --target merge-engine --target merge-io --target merge-gpu
+npm run verify -- --target research-merge-gpu
 npm run verify -- --target edit-history --target merge-library --target import-pipeline --target stack-group-actions
 node scripts/research/sony-fixtures.mjs hdr -- npm run verify -- --foreground --target adjustment-engine-raw --target adjustment-renderer-raw-ui --target full-previews-raw --target gpu-preview --target lens-correction-raw --target white-balance-raw --target hdr-content-ui --target hdr-editor-ui
 npm run verify -- --foreground --target hdr-slider-benchmark --target hdr-interaction-benchmark
@@ -842,6 +1019,19 @@ node scripts/research/sony-fixtures.mjs hdr -- npm run verify -- --foreground --
 # Select a saved, same-configuration pre-change baseline, never candidate output.
 LUMA_PREVIEW_BASELINE=/absolute/path/to/saved-baseline.json npm run benchmark:preview -- --foreground
 ```
+
+For the October 17 kernels, create Linux scalar-control evidence at `a06e74c`
+in an isolated checkout before measuring the candidate, retaining the three full
+samples and preparation manifests for both modes. Supply that saved report via
+`LUMA_MERGE_THREE_RAW_BASELINE`. Compare scalar/optional-WASM preparation,
+2048/32768 gain-cache entries and one/two output slots with matched diagnostic
+settings and source identities. Record three fresh-worker operations per mode;
+keep the five-second and 15-second gates separate. Optional GPU timestamps need
+an explicit supported/unsupported result and must remain separate from map wait.
+Check memory peaks, actual selected backend, cache corruption/fallback,
+cancellation/device loss and foreground editing before adopting Linux defaults.
+The GPU camera study remains isolated and needs fresh native pixel/mask results;
+its resident calculation is not an end-to-end merge measurement.
 
 The acceptance harness separates 60 Hz and 120 Hz configurations and retains
 three 240-input trials for all eight sliders at Fit and 100% in each layout.
