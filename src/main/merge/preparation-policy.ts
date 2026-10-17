@@ -7,6 +7,7 @@ import {
   type MergePreparation,
   type MergeSettings,
   type MergeSource,
+  type MergeMeasurements,
 } from '../../shared/merge'
 
 /** Probe one decoder at a time; catalog dimensions never define the common crop. */
@@ -15,7 +16,9 @@ export async function mergePreparation(
   sources: MergeSource[],
   settings: MergeSettings,
   checkpoint: () => Promise<void>,
+  measurement?: NonNullable<MergeMeasurements['preparationProbe']>,
 ): Promise<MergePreparation | undefined> {
+  const start = performance.now()
   const capture = settings.mode === 'hdr' ? verifiedBracket(sources) : null
   if (!capture) return
   const dimensions: MergePreparation['sources'] = [],
@@ -25,7 +28,12 @@ export async function mergePreparation(
     const source = sources[index],
       decoder = rawDecoder(paths[index])
     if (!decoder) throw new Error(`${source.photo.filename}: a RAW decoder is required.`)
-    const session = await decoder.open(paths[index])
+    const opening = performance.now(),
+      session = await decoder.open(paths[index])
+    if (measurement) {
+      measurement.opens++
+      measurement.openingMs += performance.now() - opening
+    }
     try {
       const raw = session.dimensions
       if (!session.metadata.hdrEligible)
@@ -55,6 +63,7 @@ export async function mergePreparation(
   }
   const left = Math.max(...plans.map((p) => p.left)),
     top = Math.max(...plans.map((p) => p.top))
+  if (measurement) measurement.runtimeMs = performance.now() - start
   return {
     policy: MERGE_PIPELINE.preparation,
     capture,

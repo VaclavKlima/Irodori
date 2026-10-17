@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { rawDecoder } from '../processing/decoders'
 import { cameraProfile } from '../processing/cameras'
 import { correctionPlan, radial } from '../processing/lens-correction'
-import { SRGB_TO_2020, matrixRgb, luminance } from '../../shared/hdr'
+import { SRGB_TO_2020, luminance } from '../../shared/hdr'
 import { MERGE_LIMITS, mergeFailure, type MergeSource } from '../../shared/merge'
 import { expandMask, type Plane } from './math'
 import { RawGpuRenderer } from '../gpu/raw-renderer'
@@ -26,7 +26,12 @@ function preparationWork(): NonNullable<MergeMeasurements['preparation'][number]
     sensorCacheMs: 0,
     reductionMs: 0,
     conversionMs: 0,
+    highlightBlendMs: 0,
   }
+}
+
+function decoderWork(): NonNullable<MergeMeasurements['preparation'][number]['decoder']> {
+  return { opens: 0, openingMs: 0, sensorMs: 0, linearMs: 0, saturationMaskMs: 0 }
 }
 
 function sensorMask(raw: RawSource) {
@@ -166,16 +171,22 @@ export async function prepareSource(
   preparation?: MergePreparation,
 ): Promise<PreparedSource> {
   const start = performance.now(),
-    work = preparationWork()
+    work = preparationWork(),
+    decoding = decoderWork()
   let fallback: string | undefined
   if (gpu && process.env.LUMA_MERGE_BACKEND !== 'cpu') {
     const decoder = rawDecoder(path)
     if (!decoder) throw new Error('Merge requires RAW sources.')
-    const session = await decoder.open(path)
+    const opening = performance.now(),
+      session = await decoder.open(path)
+    decoding.opens++
+    decoding.openingMs += performance.now() - opening
     try {
       if (!session.metadata.hdrEligible || session.metadata.model !== source.metadata.model)
         throw new Error('Unverified Sony RAW recording mode.')
-      const raw = session.gpuSource(true)
+      const sensorStart = performance.now(),
+        raw = session.gpuSource(true)
+      decoding.sensorMs += performance.now() - sensorStart
       if (!raw?.normalization?.sourceSaturation)
         throw new Error('Source saturation metadata is unavailable.')
       const decodingMs = performance.now() - start
@@ -290,6 +301,7 @@ export async function prepareSource(
             decodingMs,
             preparationMs: performance.now() - start - decodingMs,
             work,
+            decoder: decoding,
             gpu: frame.timings,
           },
           gpuBytes: frame.gpuBytes,
@@ -317,6 +329,8 @@ export async function prepareSource(
     reference,
     checkpoint,
     preparation,
+    false,
+    decoding,
   )
   result.measurement = {
     backend: 'cpu',
@@ -325,6 +339,7 @@ export async function prepareSource(
     decodingMs: result.measurement!.decodingMs,
     preparationMs: performance.now() - start - result.measurement!.decodingMs,
     work: result.measurement!.work,
+    decoder: result.measurement!.decoder,
   }
   return result
 }
@@ -354,21 +369,28 @@ async function prepareCpu(
   checkpoint: () => Promise<void>,
   preparation?: MergePreparation,
   highlightSafe = false,
+  decoding = decoderWork(),
 ): Promise<PreparedSource> {
   const start = performance.now(),
     work = preparationWork()
   const decoder = rawDecoder(path)
   if (!decoder) throw new Error('Merge requires RAW sources.')
-  const session = await decoder.open(path)
+  const opening = performance.now(),
+    session = await decoder.open(path)
+  decoding.opens++
+  decoding.openingMs += performance.now() - opening
   let frame: ReturnType<typeof session.linear>, saturated: Uint8Array, raw: RawSource
   try {
     if (!session.metadata.hdrEligible || session.metadata.model !== source.metadata.model)
       throw new Error('Unverified Sony RAW recording mode.')
-    const sourceRaw = session.gpuSource(true)
+    const sensorStart = performance.now(),
+      sourceRaw = session.gpuSource(true)
+    decoding.sensorMs += performance.now() - sensorStart
     if (!sourceRaw?.normalization?.sourceSaturation)
       throw new Error('Source saturation metadata is unavailable.')
     const thresholds = sourceRaw.normalization.sourceSaturation.thresholds
     raw = sourceRaw
+    const saturationStart = performance.now()
     saturated = new Uint8Array(raw.width * raw.height)
     for (let y = 0; y < raw.height; y++)
       for (let x = 0; x < raw.width; x++) {
@@ -378,7 +400,10 @@ async function prepareCpu(
         )
       }
     saturated = expandMask(saturated, raw.width, raw.height, 2)
+    decoding.saturationMaskMs += performance.now() - saturationStart
+    const linearStart = performance.now()
     frame = session.linear(true)
+    decoding.linearMs += performance.now() - linearStart
   } finally {
     session.close()
   }
@@ -386,6 +411,7 @@ async function prepareCpu(
   const normal = frame.normalization!,
     gains = reference.metadata.whiteBalance!.asShotGains
   if (highlightSafe) {
+    const blending = performance.now()
     const blend = sensorBlendParameters(normal)
     if (!blend) throw new Error('Verified camera highlight parameters are unavailable.')
     for (let top = 0; top < frame.height; top += 64) {
@@ -402,6 +428,7 @@ async function prepareCpu(
             i,
           )
     }
+    work.highlightBlendMs = performance.now() - blending
   }
   const plan = sourceCorrectionPlan(
     frame.width,
@@ -435,7 +462,26 @@ async function prepareCpu(
   const cx = (frame.width - 1) / 2,
     cy = (frame.height - 1) / 2,
     radius = Math.hypot(cx, cy),
-    staging = new Float32Array(width * Math.min(64, height) * 4)
+    staging = new Float32Array(width * Math.min(64, height) * 4),
+    maximumGain = Math.max(...normal.gains),
+    minimumGain = Math.min(...gains),
+    cameraRgb = [0, 0, 0],
+    rgb: [number, number, number] = [0, 0, 0],
+    gainKeys = new Int32Array(2048).fill(-1),
+    gainValues = new Float64Array(gainKeys.length),
+    cacheableGainCoordinates = frame.width * frame.height <= 0x7fffffff
+  // Integer sensor coordinates identify exact Float64 gains. Collisions only
+  // recompute values; this local cache owns a fixed 24 KiB for one preparation.
+  const gainAt = (x: number, y: number) => {
+    if (!cacheableGainCoordinates) return radial(plan.lut, Math.hypot(x - cx, y - cy) / radius, 3)
+    const key = y * frame.width + x,
+      slot = key & (gainKeys.length - 1)
+    if (gainKeys[slot] !== key) {
+      gainValues[slot] = radial(plan.lut, Math.hypot(x - cx, y - cy) / radius, 3)
+      gainKeys[slot] = key
+    }
+    return gainValues[slot]
+  }
   try {
     if (preparation && !highlightSafe) {
       const cameraStart = performance.now()
@@ -463,7 +509,6 @@ async function prepareCpu(
           const qx = sx + plan.left - cx,
             qy = sy + plan.top - cy,
             r = Math.hypot(qx, qy) / radius
-          const camera = [0, 0, 0]
           let clipped = false
           for (let c = 0; c < 3; c++) {
             const scale = radial(plan.lut, r, c),
@@ -479,27 +524,33 @@ async function prepareCpu(
                 const tx = Math.max(0, Math.min(frame.width - 1, ix + xx)),
                   ty = Math.max(0, Math.min(frame.height - 1, iy + yy))
                 const weight = (xx ? dx : 1 - dx) * (yy ? dy : 1 - dy)
-                value +=
-                  frame.data[(ty * frame.width + tx) * 4 + c] *
-                  weight *
-                  radial(plan.lut, Math.hypot(tx - cx, ty - cy) / radius, 3)
+                value += frame.data[(ty * frame.width + tx) * 4 + c] * weight * gainAt(tx, ty)
                 if (weight > 0 && saturated[ty * frame.width + tx]) clipped = true
               }
-            camera[c] =
-              (((value * Math.max(...normal.gains)) / normal.gains[c]) * gains[c]) /
-              Math.min(...gains)
+            cameraRgb[c] = (((value * maximumGain) / normal.gains[c]) * gains[c]) / minimumGain
           }
-          const rgb = matrixRgb(
-            SRGB_TO_2020,
-            [0, 1, 2].map(
-              (c) =>
-                frame.matrix[c * 4] * camera[0] +
-                frame.matrix[c * 4 + 1] * camera[1] +
-                frame.matrix[c * 4 + 2] * camera[2],
-            ),
-          )
+          const cameraRed =
+              frame.matrix[0] * cameraRgb[0] +
+              frame.matrix[1] * cameraRgb[1] +
+              frame.matrix[2] * cameraRgb[2],
+            cameraGreen =
+              frame.matrix[4] * cameraRgb[0] +
+              frame.matrix[5] * cameraRgb[1] +
+              frame.matrix[6] * cameraRgb[2],
+            cameraBlue =
+              frame.matrix[8] * cameraRgb[0] +
+              frame.matrix[9] * cameraRgb[1] +
+              frame.matrix[10] * cameraRgb[2]
+          for (let c = 0; c < 3; c++)
+            rgb[c] =
+              SRGB_TO_2020[c * 3] * cameraRed +
+              SRGB_TO_2020[c * 3 + 1] * cameraGreen +
+              SRGB_TO_2020[c * 3 + 2] * cameraBlue
           const i = ((y - top) * width + x) * 4
-          out.set([...rgb, Number(!clipped)], i)
+          out[i] = rgb[0]
+          out[i + 1] = rgb[1]
+          out[i + 2] = rgb[2]
+          out[i + 3] = Number(!clipped)
           const value = Math.max(0, luminance(rgb))
           for (const [px, wx] of xs[x])
             for (const [py, wy] of ys[y]) {
@@ -552,6 +603,7 @@ async function prepareCpu(
       decodingMs,
       preparationMs: performance.now() - start - decodingMs,
       work,
+      decoder: decoding,
     },
     cameraRegistration,
   }

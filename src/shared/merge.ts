@@ -60,6 +60,7 @@ export interface MergeMeasurements {
     | 'publication',
     number
   >
+  preparationProbe?: { runtimeMs: number; openingMs: number; opens: number }
   preparation: {
     backend: 'gpu' | 'cpu'
     adapter?: string
@@ -70,6 +71,13 @@ export interface MergeMeasurements {
     cacheLookupMs?: number
     cacheWriteMs?: number
     gpu?: Record<string, number>
+    decoder?: {
+      opens: number
+      openingMs: number
+      sensorMs: number
+      linearMs: number
+      saturationMaskMs: number
+    }
     work?: {
       maskRepairMs: number
       cameraRegistrationMs: number
@@ -78,6 +86,7 @@ export interface MergeMeasurements {
       sensorCacheMs: number
       reductionMs: number
       conversionMs: number
+      highlightBlendMs?: number
     }
   }[]
   referenceFallback?: {
@@ -85,6 +94,8 @@ export interface MergeMeasurements {
     reused: boolean
     decodingMs: number
     preparationMs: number
+    decoder?: MergeMeasurements['preparation'][number]['decoder']
+    work?: MergeMeasurements['preparation'][number]['work']
   }
   accumulation: {
     backend: 'gpu' | 'cpu'

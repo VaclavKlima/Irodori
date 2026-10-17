@@ -108,7 +108,8 @@ export async function cameraRegistrationWriter(
     radius = Math.hypot(cx, cy),
     file = await open(path, 'wx')
   let next = 0,
-    closed = false
+    closed = false,
+    staging = new Float32Array(0)
   const close = async () => {
     if (!closed) {
       closed = true
@@ -121,8 +122,9 @@ export async function cameraRegistrationWriter(
       if (closed || top !== next || bytes.length % (width * 16))
         throw new Error('Invalid camera registration strip.')
       const rgb = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4),
-        rows = rgb.length / 4 / width,
-        output = new Float32Array(rgb.length)
+        rows = rgb.length / 4 / width
+      if (staging.length < rgb.length) staging = new Float32Array(rgb.length)
+      const output = staging.subarray(0, rgb.length)
       for (let row = 0; row < rows; row++)
         for (let x = 0; x < width; x++) {
           const y = top + row,
@@ -133,7 +135,7 @@ export async function cameraRegistrationWriter(
           if (raw.flip & 2) sy = plan.height - 1 - sy
           const qx = sx + plan.left - cx,
             qy = sy + plan.top - cy,
-            r = Math.hypot(qx, qy) / radius
+            r = masks ? Math.hypot(qx, qy) / radius : 0
           let valid = 0
           for (let channel = 0; channel < 3; channel++) {
             const value =
@@ -166,8 +168,14 @@ export async function cameraRegistrationWriter(
             if (!clipped) valid |= 1 << channel
           }
           output[at + 3] = valid
-          for (const [px, wx] of xs[x])
-            for (const [py, wy] of ys[y]) {
+          const columns = xs[x],
+            rowWeights = ys[y]
+          for (let xi = 0; xi < columns.length; xi++)
+            for (let yi = 0; yi < rowWeights.length; yi++) {
+              const px = columns[xi][0],
+                wx = columns[xi][1],
+                py = rowWeights[yi][0],
+                wy = rowWeights[yi][1]
               const p = py * previewWidth + px,
                 weight = wx * wy
               totals[p] += weight
@@ -178,7 +186,7 @@ export async function cameraRegistrationWriter(
                 }
             }
         }
-      const out = Buffer.from(output.buffer)
+      const out = Buffer.from(output.buffer, output.byteOffset, output.byteLength)
       for (let offset = 0; offset < out.length; offset += width * 64 * 16)
         strips.push(hash(out.subarray(offset, Math.min(out.length, offset + width * 64 * 16))))
       await file.writeFile(out)

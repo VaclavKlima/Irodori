@@ -569,45 +569,44 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
       await readFile(join(f.directory, 'cpu', 'motion.mask')),
     )
     const sharp = (await import('sharp')).default
-    for (const filename of ['result.png', 'reference.png', 'overlay.png']) {
-      for (const [directory, asset] of [
-        ['gpu', gpu.asset],
-        ['cpu', cpu.asset],
+    for (const name of ['result', 'reference', 'overlay'] as const) {
+      const filename = `${name}.png`
+      for (const [directory, result] of [
+        ['gpu', gpu],
+        ['cpu', cpu],
       ] as const) {
-        const raw = await readFile(join(f.directory, directory, filename.replace('.png', '.rgba'))),
-          previous = await sharp(raw, {
-            raw: { width: asset.width, height: asset.height, channels: 4 },
-          })
-            .png()
-            .toBuffer(),
-          current = await readFile(join(f.directory, directory, filename))
-        // Both lossless levels share the same raw scanlines and worst-case
+        const asset = result.asset,
+          raw = await readFile(join(f.directory, directory, `${name}.rgba`)),
+          current = await readFile(join(f.directory, directory, filename)),
+          currentLevel = name === 'overlay' ? 1 : 0
+        expect(result.measurements.output?.work?.png[name]?.compressionLevel).toBe(currentLevel)
+        // All lossless levels share the same raw scanlines and worst-case
         // stream bound, including alpha and the partial final native strip.
         const encodedBound = asset.width * asset.height * 5 + 1024 ** 2
-        expect(previous.byteLength, `${directory} previous ${filename}`).toBeLessThanOrEqual(
-          encodedBound,
-        )
-        expect(current.byteLength, `${directory} current ${filename}`).toBeLessThanOrEqual(
-          encodedBound,
-        )
-        const decodedPrevious = await sharp(previous)
-            .ensureAlpha()
-            .raw()
-            .toBuffer({ resolveWithObject: true }),
-          decodedCurrent = await sharp(current)
+        for (const level of [0, 1, 6] as const) {
+          const encoded =
+            level === currentLevel
+              ? current
+              : await sharp(raw, {
+                  raw: { width: asset.width, height: asset.height, channels: 4 },
+                })
+                  .png({ compressionLevel: level })
+                  .toBuffer()
+          expect(encoded.byteLength, `${directory} level ${level} ${filename}`).toBeLessThanOrEqual(
+            encodedBound,
+          )
+          const decoded = await sharp(encoded)
             .ensureAlpha()
             .raw()
             .toBuffer({ resolveWithObject: true })
-        for (const decoded of [decodedPrevious, decodedCurrent]) {
           expect(decoded.info).toMatchObject({
             width: asset.width,
             height: asset.height,
             channels: 4,
           })
           expect(decoded.data.byteLength).toBe(asset.width * asset.height * 4)
-          expect(decoded.data, `${directory} lossless RGBA ${filename}`).toEqual(raw)
+          expect(decoded.data, `${directory} level ${level} lossless RGBA ${filename}`).toEqual(raw)
         }
-        expect(decodedCurrent.data).toEqual(decodedPrevious.data)
       }
       const ar = await sharp(join(f.directory, 'gpu', filename))
           .raw()

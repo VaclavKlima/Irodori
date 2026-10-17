@@ -67,7 +67,7 @@ export interface MergeResult {
   measurements: MergeMeasurements
 }
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
-const reviewPngCompressionLevel = 1
+const reviewPngCompressionLevel = { result: 0, reference: 0, overlay: 1 } as const
 const send = (value: unknown) => {
   if (process.connected) process.send?.(value)
 }
@@ -147,7 +147,9 @@ async function runMergeInternal(
     reference = sources[referenceIndex]
   const prepared: PreparedSource[] = []
   let fallbackReference: PreparedSource | undefined
-  const preparation = await mergePreparation(job.paths, sources, settings, checkpoint)
+  const probe = { runtimeMs: 0, openingMs: 0, opens: 0 }
+  measurements.preparationProbe = probe
+  const preparation = await mergePreparation(job.paths, sources, settings, checkpoint, probe)
   const registrationKey = JSON.stringify({
     pipeline: MERGE_PIPELINE,
     alignment: ALIGNMENT_CONSTANTS,
@@ -304,6 +306,8 @@ async function runMergeInternal(
         reused: reusedFallback,
         decodingMs: reusedFallback ? 0 : (fallbackReference.measurement?.decodingMs ?? 0),
         preparationMs: reusedFallback ? 0 : (fallbackReference.measurement?.preparationMs ?? 0),
+        decoder: reusedFallback ? undefined : fallbackReference.measurement?.decoder,
+        work: reusedFallback ? undefined : fallbackReference.measurement?.work,
       }
     }
     if (i !== referenceIndex && settings.autoAlign && !job.recipe && !cachedRegistration)
@@ -332,6 +336,7 @@ async function runMergeInternal(
       m.preparationMs = 0
       m.work = undefined
       m.gpu = undefined
+      m.decoder = undefined
     }
     measurements.preparation[i] = m
     measurements.stages.decoding += m.decodingMs
@@ -1186,12 +1191,12 @@ async function runMergeInternal(
       encoded = await sharp(await readFile(join(output, `${name}.rgba`)), {
         raw: { width: crop.width, height: crop.height, channels: 4 },
       })
-        .png({ compressionLevel: reviewPngCompressionLevel })
+        .png({ compressionLevel: reviewPngCompressionLevel[name] })
         .toFile(join(output, `${name}.png`))
     outputWork.png[name] = {
       ms: performance.now() - encoding,
       bytes: encoded.size,
-      compressionLevel: reviewPngCompressionLevel,
+      compressionLevel: reviewPngCompressionLevel[name],
     }
   }
   asset.sha256 = digest.digest('hex')
