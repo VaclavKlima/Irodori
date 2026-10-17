@@ -4,32 +4,237 @@ This milestone improves the current production pipeline on the M4 Pro. Sharp
 detail takes priority over presenting every intermediate input. Processing-graph,
 native-service and decoder research remain separate. Disabled controls and the
 read-only Console retain their existing scope. Mac acceptance remains **failed / incomplete**:
-sharp frames and numerical checks pass, but sustained interaction, nine-source
-merge and GPU-versus-legacy preview performance still miss existing gates. Cold
+sharp frames and numerical checks pass, but sustained interaction, three-RAW
+five-second merging and GPU-versus-legacy preview performance miss their gates.
+The final 2/3/5/9-source noise family passes its existing 15-second gate. Cold
 export has an intermittent first-launch miss. Hardware and Linux gaps remain open.
 
 Implementation branch: `perf/mac-workability`, based on upstream research revision
-`3c5fcb1` (fast-forwarded from `c69c40f`). Production implementation revision:
-`cedef59` (pixel-processing source `980435a`). The editor/export acceptance
-measurements use `0b4f99f`; later changes affect merge output, library publication
-and recovery, canvas configuration, and verification. Verified code and test
-handoff revision: `cedef590fdf53c0c558d4a3c10b4fd6abc2368f7`. Subsequent report,
-README and testing-guide changes are documentation only. Linux acceptance remains
-pending.
+`3c5fcb1` (fast-forwarded from `c69c40f`). Final production and verification
+handoff revision: `03d633ceeed05ec06c6b627508d393ae8e9dd3b5`. Follow-up commits
+`fc6674b`, `5565f79` and `34ce777` implement capture batching, exact merge work
+reduction and linear tile workgroups; `03d633c` records their acceptance contracts.
+Measurements retain actual revision/dirty state and source/build hashes; measured
+sources match this handoff. Subsequent report, README and testing-guide changes
+are documentation only. The original milestone below retains its `cedef59` code,
+`980435a` pixel-processing and `0b4f99f` early editor/export provenance. Linux
+acceptance remains pending.
 
 ## Task register
 
-| Task                   | Owner                              | Dependencies       | Status                                                   | Evidence / remaining work                                                                                                                                                                         |
-| ---------------------- | ---------------------------------- | ------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M0 — Baseline          | Coordinator                        | Upstream research  | Complete                                                 | Upstream integrated; all 15 committed Sony original hashes verified. Unchanged baseline runs in a detached, isolated checkout.                                                                    |
-| M1 — Exact rendering   | Rendering agent                    | M0                 | Focused checks passed                                    | CPU/GPU/pinned Float64 CTL agree on Mac; maintained compensated range-reduced math shared across production shaders. Bazzite remains pending.                                                     |
-| M2 — Sharp interaction | Rendering agent                    | M1                 | Implemented; performance gates fail                      | Immutable active/latest pending intent, normal-detail interaction and independent bounded histogram work. Measured 32-tile batches retained; sharpness passes, latency/progress miss their gates. |
-| M3 — Export            | Export agent                       | M0, shared M1 math | Functional and warm gates passed; cold variance          | Internal validated working-asset leases, frozen preparation reuse across retries; initial cold miss retained alongside passing exact replay.                                                      |
-| M4 — Merge             | Merge agent                        | M0                 | Functional checks passed; nine-source performance failed | Stage attribution, bounded verified strip reuse and lossless review-output optimization; final family: 11 passed, one performance failure.                                                        |
-| M5 — Enabled workflows | Coordinator, then subsystem agents | M1–M4              | Mac software repairs verified; hardware gaps deferred    | Import/device adapters, library/selection/groups/Trash/recovery, adjustments/history/MCP, export and merge; physical/private-fixture gaps remain explicit.                                        |
-| M6 — Integration       | Coordinator                        | M1–M5              | Execution complete; acceptance failed / incomplete       | One agreed full checkpoint completed; exact failures replayed, focused repairs verified and final Bazzite handoff recorded below.                                                                 |
+| Task                   | Owner                              | Dependencies       | Status                                                        | Evidence / remaining work                                                                                                                                                                         |
+| ---------------------- | ---------------------------------- | ------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0 — Baseline          | Coordinator                        | Upstream research  | Complete                                                      | Upstream integrated; all 15 committed Sony original hashes verified. Unchanged baseline runs in a detached, isolated checkout.                                                                    |
+| M1 — Exact rendering   | Rendering agent                    | M0                 | Focused checks passed                                         | CPU/GPU/pinned Float64 CTL agree on Mac; maintained compensated range-reduced math shared across production shaders. Bazzite remains pending.                                                     |
+| M2 — Sharp interaction | Rendering agent                    | M1                 | Implemented; performance gates fail                           | Immutable active/latest pending intent, normal-detail interaction and independent bounded histogram work. Measured 32-tile batches retained; sharpness passes, latency/progress miss their gates. |
+| M3 — Export            | Export agent                       | M0, shared M1 math | Functional and warm gates passed; cold variance               | Internal validated working-asset leases, frozen preparation reuse across retries; initial cold miss retained alongside passing exact replay.                                                      |
+| M4 — Merge             | Merge agent                        | M0                 | Functional and 15-second gates pass; five-second target fails | Exact CPU/cache/capture and lossless output changes; final family: 11 passed, two three-RAW five-second failures.                                                                                 |
+| M5 — Enabled workflows | Coordinator, then subsystem agents | M1–M4              | Mac software repairs verified; hardware gaps deferred         | Import/device adapters, library/selection/groups/Trash/recovery, adjustments/history/MCP, export and merge; physical/private-fixture gaps remain explicit.                                        |
+| M6 — Integration       | Coordinator                        | M1–M5              | Execution complete; acceptance failed / incomplete            | One agreed full checkpoint completed; exact failures replayed, focused repairs verified and final Bazzite handoff recorded below.                                                                 |
 
 ## Machine and baseline
+
+### Follow-up: slider latency and three-RAW processing
+
+The October 16 follow-up starts from `5df6ae8` on the existing implementation
+branch. Sharp interactive frames retain the 33 ms frame/histogram p95, sustained
+progress and 500 ms release-refinement gates. The new three-source target applies
+separately to HDR and noise: every one of three fresh-worker, empty-preparation-
+cache operations must finish in less than 5000 ms. The clock includes review
+creation, RAW preparation, Auto Align, native review output, durable publication
+of that same frozen revision and cleanup. Import and human review time are outside
+the clock. Filesystem and driver caches are uncontrolled; idle AC-powered acceptance
+and background interference are reported separately.
+
+| Task                               | Owner                      | Dependencies                   | Status                                             | Verification / remaining work                                                                                                       |
+| ---------------------------------- | -------------------------- | ------------------------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| P0 — Matching baseline             | Coordinator                | `5df6ae8`, committed originals | Complete                                           | Fresh editor and both complete-operation series archived; all quality and source-integrity assertions pass, performance gates fail. |
+| P1 — Exact tile processing         | Rendering agent            | P0                             | Complete; performance fails                        | Linear workgroups verified through all 192 trials and lifecycle checks. Uniform tables and alternate rounding rejected.             |
+| P2 — RAW preparation and merge     | Merge agent                | P0                             | Complete; five-second target fails                 | Exact CPU/cache/capture and mixed-PNG changes verified; existing 15-second family passes.                                           |
+| P3 — Complete-operation acceptance | Export agent / coordinator | P0, P1, P2                     | Complete; five-second gates fail                   | Independent three-source HDR/noise series retains all three runs, exact identities and failures.                                    |
+| P4 — Integration                   | Coordinator                | P1–P3                          | Execution complete; acceptance failed / incomplete | Focused checks, sequential performance families, reviewable commits, cleanup and final Bazzite handoff recorded.                    |
+
+The five-second target remains unmet. Fresh complete-operation baseline maxima are
+9698.36 ms for noise and 33481.21 ms for HDR (all three operations per mode retained).
+The new clock publishes the same reviewed revision and includes awaited cleanup;
+prior calibration is not a substitute for this measurement.
+No approximation, reduced native output, skipped validation, increased worker
+count or processing-graph/native-decoder rewrite is part of this follow-up.
+Public application/MCP operations and numeric edit history retain their contracts.
+
+Follow-up evidence (original milestone evidence below remains unchanged):
+
+- Baseline `mac-workability-batching`: 280 passed, two existing performance failures,
+  zero skipped, 79.97 s. Minimum Fit frame p95 42.2–42.3 ms; large Fit 101.2–109.1 ms,
+  with zero draft frames. History/source retention and invalidation pass. Evidence:
+  `artifacts/verification/2026-10-16T21-16-43.068Z-benchmark-fhTxv8/summary.md`.
+- Baseline `merge-three-raw-benchmark`: 279 passed, two new five-second gate failures,
+  zero skipped, 147.50 s. Noise 9696.16/9698.36/9560.04 ms; HDR
+  32398.01/33481.21/32161.27 ms. Every native/master/revision/hash/cleanup assertion
+  passed. HDR fallback conversion costs 9923.93–10066.01 ms; three dimension probes
+  total only 29.68–32.04 ms. Evidence:
+  `artifacts/verification/2026-10-16T21-18-47.165Z-benchmark-jKGV8j/summary.md`.
+- Exact kernel targets `display-rendering-reference`, `hdr-render-cache-gpu` and
+  `hdr-math-gpu`: 286 passed, zero failed/skipped, 52.08 s. Both grid8 and linear64
+  pass the same independent CTL, alpha and sampling checks at 64/256-pixel tiles.
+  Evidence: `artifacts/verification/2026-10-16T21-22-16.809Z-check-1TnVVK/summary.md`.
+- A diagnostic application attempt was blocked by a CPU-loop local-variable naming
+  collision, without running tests. It was fixed; exact typecheck replay passed.
+  Evidence: `artifacts/verification/2026-10-16T21-25-32.868Z-benchmark-tYXFry/summary.md`.
+
+Baseline source hashes, diagnostic-only patch, original master checksums and compact
+timings are archived under `artifacts/mac-latency-followup-2026-10-16/`.
+
+The retained preparation changes preserve scalar evaluation and accumulation order:
+reused RGB/strip storage, hoisted white-balance extrema, indexed camera reduction
+and a preparation-local 24 KiB Float64 gain cache. Cache collisions recompute the
+original expression. Independent uncached tests cover nonidentity lens corrections,
+portrait orientation, clipping, partial strips and cache collisions. Fresh capture
+inspection uses one owned worker/ExifTool session, retaining admission, scheduler
+checkpoints, current source checks and awaited cleanup. Decoder dimension probes
+cost only about 30 ms across the HDR triad; decoder-session restructuring was
+deferred because it does not address the measured critical path.
+
+| Follow-up selection / experiment                                       | Result                                                                         | Duration | Evidence under `artifacts/verification/`               |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------: | ------------------------------------------------------ |
+| `brk-merge`, `capture-metadata`, `merge-engine`, `merge-io`, cache GPU | 328 passed, zero failed, one unavailable private capture fixture               |  76.27 s | `2026-10-17T08-16-27.035Z-check-sGgG1E/summary.md`     |
+| CPU/capture complete-operation candidate                               | 280 passed, two five-second failures; noise max 9.298 s, HDR max 27.635 s      | 129.48 s | `2026-10-17T08-19-14.600Z-benchmark-NMwby8/summary.md` |
+| Bounded gain cache/indexed reductions + exact CPU oracle               | 302 passed, two five-second failures; noise max 9.443 s, HDR max 25.124 s      | 132.06 s | `2026-10-17T08-26-45.830Z-benchmark-txvpOx/summary.md` |
+| Lossless PNG level 0 trial                                             | 280 passed, two five-second failures; noise 8.448–8.645 s, HDR 23.858–24.003 s | 117.50 s | `2026-10-17T08-33-33.571Z-benchmark-6EjYMb/summary.md` |
+
+All six native masters, geometry, crops, motion masks and normalized registration
+records match the original complete-operation baseline in each candidate series.
+Original fixture hashes and durable publication/cleanup checks pass. GPU/WASM
+bounds and worker counts are unchanged. HDR worker RSS already exceeds 2 GiB in
+the baseline and candidates; the 1 GiB GPU bound is separate from process RSS.
+The final review PNG policy uses level 0 for color result/reference and level 1
+for the sparse overlay. The overlay retains compression because level 0 added
+73–77 MB per operation without a useful timing benefit. Decoded RGBA, alpha and
+native dimensions agree exactly across levels 0/1/6; this is a temporary review
+encoding change, without a rendering-version or master policy change.
+
+Four matched 1440 × 900 application trials compare grid8/linear64 workgroups and
+storage/uniform tables, three 240-input repetitions at Fit and 100%. Linear64 with
+storage increases sharp progress from 46–49 to 55 frames at Fit and 87 to 97 at
+100%; matched tile GPU time falls from 72.5–73.4 to 64.8–65.0 ms and about 39–40 to
+35 ms respectively. Frame p95 remains 92–100 ms at Fit and about 59 ms at 100%,
+above the unchanged 33 ms gate. Diagnostic input-to-request p95 is at most 0.8 ms;
+tile evaluation dominates the delay. Uniform tables provide no repeatable application benefit and
+were removed. Evidence: `2026-10-17T08-23-17.041Z-benchmark-I0BgPx`,
+`08-23-48.858Z-benchmark-4dEScv`, `08-24-20.506Z-benchmark-65gecW` and
+`08-24-51.626Z-benchmark-VtGTca`; full paths and compact comparisons are archived
+in `artifacts/mac-latency-followup-2026-10-16/slider-four-candidate-comparison.json`.
+
+An integer rounding-barrier experiment passed compensated scalar bounds but
+failed independent CTL pixel accuracy at a 256-pixel tile (error/tolerance ratio
+1.07128). It was rejected and removed; the existing frexp/ldexp implementation and
+`2e-6 + 2e-5 * abs(reference)` pixel bound remain unchanged. No performance claim
+uses that candidate. Exact failure evidence:
+`artifacts/verification/playwright-1792226421927-be27779f-394b-4e4a-b796-3c625cdb9160/`.
+Earlier diagnostic harness mistakes and their exact replays remain archived;
+they do not represent production failures or passed acceptance.
+
+The final production-default eight-slider matrix records **192/192 trials**:
+eight sliders × Fit/100% × three repetitions × two layouts × two input rates.
+All configurations meet Retina and actual cadence requirements. There are zero
+drafts, regressed frames, attribution errors, loaders, hidden frames or history/
+source/analysis failures. Final refinement is at most 99.5 ms. All four test cases
+still fail their unchanged performance gates: **zero passed, four failed, zero
+skipped, 637.90 s**. Evidence:
+`artifacts/verification/2026-10-17T08-51-47.652Z-benchmark-8Mfwgr/summary.md`.
+
+| Layout / input              | Zoom |     Frame p95 |  Histogram p95 | Presentations during 240 inputs |
+| --------------------------- | ---- | ------------: | -------------: | ------------------------------: |
+| 1100 × 700, Console, 60 Hz  | Fit  |  41.7–42.5 ms |   42.0–50.8 ms |                         192–200 |
+| 1100 × 700, Console, 60 Hz  | 100% |  25.5–34.3 ms |   33.4–41.9 ms |                         236–238 |
+| 1100 × 700, Console, 120 Hz | Fit  |  34.0–34.7 ms |   35.1–42.8 ms |                          96–100 |
+| 1100 × 700, Console, 120 Hz | 100% |  26.0–26.4 ms |   33.6–34.5 ms |                         102–119 |
+| 1440 × 900, 60 Hz           | Fit  | 92.2–101.2 ms | 100.9–109.3 ms |                           54–55 |
+| 1440 × 900, 60 Hz           | 100% |  58.8–67.5 ms |   66.8–75.0 ms |                           95–98 |
+| 1440 × 900, 120 Hz          | Fit  |  84.5–93.5 ms |  92.7–101.1 ms |                           25–27 |
+| 1440 × 900, 120 Hz          | 100% |  51.0–52.0 ms |   58.6–59.7 ms |                           47–48 |
+
+The matched large-workspace Exposure-only comparison to the fresh follow-up
+baseline reduces the mean of trial frame p95 values by 8.69% at Fit and 8.47% at
+100%. This does not imply a 33 ms pass or a percentage gain for every adjustment.
+Full missing-presentation, stale-frame, histogram and per-trial measurements are
+retained in `artifacts/mac-latency-followup-2026-10-16/final-editor-matrix-analysis.json`.
+
+The matched 1100 × 700 Console-open Exposure trials also show no greater-than-5%
+regression in any repetition. Fit frame p95 changes from 42.2–42.3 to 41.9–42.1 ms,
+with 196–198 presentations versus 178–179. At 100%, p95 changes from 34.1 to
+26.0–33.2 ms, with 238 presentations versus 233–237. Across the entire matrix,
+151/192 trials miss frame latency, 192/192 miss histogram latency, and 144/192
+miss each sustained-progress gate. Every trial meets the 500 ms refinement gate.
+
+Final focused functional selection: **375 passed, zero failed, one unavailable
+private capture fixture, 168.85 s**, including type/lint/format/build, optional
+diagnostic cleanup/ownership, CPU preparation oracles, frozen export contexts,
+managed merge publication/recovery and actual RAW editor/device/fallback paths.
+The signed regression triplet passes independent CTL with the retained math.
+All fifteen committed originals match before and after. Evidence:
+`artifacts/verification/2026-10-17T09-04-32.201Z-check-o5bm5L/summary.md`.
+The earlier attempt stopped before tests on a benchmark cleanup-handler lint error;
+the exact lint replay passed after moving the throw outside `finally`.
+Evidence: `2026-10-17T09-02-59.482Z-check-yDIPwI/summary.md`.
+
+The final merge family completes **11 passed, two five-second performance failures,
+zero skipped, 405.57 s**. Existing 2/3/5/9-source clocks pass all three repetitions;
+the new strict clocks remain separate:
+
+| Mode / clock                                     | Source count | Three measured operations  | Maximum / gate         |
+| ------------------------------------------------ | -----------: | -------------------------- | ---------------------- |
+| Repeated-original calibration                    |            9 | 13.329 / 13.669 / 12.723 s | 13.669 s / ≤15 s: pass |
+| Distinct Sony noise, existing clock              |            9 | 13.997 / 13.870 / 13.826 s | 13.997 s / ≤15 s: pass |
+| Distinct Sony noise, strict complete clock       |            3 | 8.684 / 8.546 / 8.473 s    | 8.684 s / <5 s: fail   |
+| Complete Sony HDR bracket, strict complete clock |            3 | 24.538 / 24.304 / 24.550 s | 24.550 s / <5 s: fail  |
+
+Against the matching complete-operation baseline, maximum noise time falls
+10.46% and HDR 26.68%. Every frozen master/strip, crop, motion mask and normalized
+registration identity matches in all six strict operations. Every attempt retains
+source identities, timings and any errors before assertions can throw; all six
+finish successfully before their performance assertions fail. Actual PNG policy
+is 0/0/1 in every operation. GPU allocations remain 901,807,848 bytes for noise and
+932,630,072 bytes for HDR. Final strict peak worker RSS is about 1.64/2.06 GB;
+earlier higher peaks remain recorded and no process-RSS limit is inferred.
+All fifteen original hashes match before/after. Evidence:
+`artifacts/verification/2026-10-17T09-07-59.182Z-benchmark-YngRxK/summary.md` and
+`artifacts/mac-latency-followup-2026-10-16/final-merge-family.json`.
+
+Final foreground interference retains **12/12 matched pairs**, three for each
+workload, at 1100 × 700 with Console open and actual 60 Hz cadence. The invocation
+reports **283 passed, four latency failures, zero skipped, 486.26 s**. All tasks,
+cleanup, source retention, expected history, final image/analysis identity,
+sharpness and progress checks pass. There are no draft frames or source changes;
+refinement is at most 41.4 ms. Frame/histogram p95 still misses 33 ms in every
+idle and editing trial.
+
+| Operation               |     Idle task |  With editing | Editing frame p95 | Editing histogram p95 | Sharp progress / 240 |
+| ----------------------- | ------------: | ------------: | ----------------: | --------------------: | -------------------: |
+| Import nine originals   |   3.03–3.05 s |   7.00–7.12 s |      42.0–42.5 ms |          50.6–50.8 ms |                  196 |
+| Individual export       |   3.99–4.90 s |   8.17–8.32 s |      42.0–42.1 ms |          50.8–51.0 ms |              193–196 |
+| Nine-photo batch export | 33.20–36.00 s | 37.26–37.99 s |      42.1–42.3 ms |          50.8–51.0 ms |              190–193 |
+| Nine-source merge       | 13.88–14.19 s | 17.82–18.07 s |      42.4–42.6 ms |          50.1–50.9 ms |              193–195 |
+
+These task clocks include preparation, publication and scheduling waits. They
+are separate from the isolated export and strict three-RAW gates. Operation/input
+overlap remains partial and recorded; no simultaneous-computation or historical
+percentage claim is inferred. Export checks retain frozen settings and actual
+published-byte/hash evidence. Evidence:
+`artifacts/verification/2026-10-17T09-16-30.085Z-benchmark-gtYutc/summary.md` and
+`artifacts/mac-latency-followup-2026-10-16/final-interference-analysis.json`.
+
+Final cleanup finds **22 recorded launches, all 21 temporary profiles removed,
+no remaining profile processes or project workers, and no window-policy
+violations**. All fifteen Sony originals match after the final invocation, and
+the common Sony fixture retains SHA-256
+`14c9d2912584a3ccc5cf10f554fbe495fc960c36758a14d7d858b36ac5ca88e2`.
+Evidence: `artifacts/mac-latency-followup-2026-10-16/final-cleanup.json` and
+`artifacts/fixture-integrity/2026-10-17T09-16-29.784Z-96981.json`.
+Generated evidence stays outside Git. The original agreed full checkpoint is
+retained; this follow-up does not run another full checkpoint or `check:all`.
+
+### Original milestone configuration
 
 October 16, 2026: MacBook Pro Mac16,8, Apple M4 Pro (12 CPU cores: 8 performance,
 4 efficiency; 16 GPU cores), 24 GiB unified memory, macOS 26.7 (25G229), Darwin
@@ -76,8 +281,9 @@ Missing measurements remain incomplete.
 - Merge diagnostics attribute preparation, alignment lanes, verified reads,
   conversion and output. Bounded strip reuse and paired readbacks reduce allocation
   and mapping without changing image work or worker limits. Temporary review PNGs
-  use compression level 1, validated byte-exact after decoding against prior PNGs
-  and raw pixels; durable masters and checksums retain their existing policy.
+  use compression level 0 for color result/reference and level 1 for the overlay,
+  validated byte-exact after decoding against prior PNGs and raw pixels; durable
+  masters and checksums retain their existing policy.
 - Registered Mac targets measure real editor inputs, tile batches and matched
   foreground interference. They retain all existing progress, latency, memory,
   cancellation and numerical limits and preserve failed evidence.
@@ -96,6 +302,10 @@ artifact path and limits here. Builds, GPU/Electron tests and benchmarks ran
 sequentially. Tests use isolated libraries/profiles and shared launch/cleanup.
 The agreed full checkpoint was `npm run check:full -- --foreground`; `check:all`
 is outside this checkpoint.
+
+The following detailed sections retain the original October 16 checkpoint and
+its failures. The October 17 follow-up results above supersede its current
+performance status without removing the historical evidence.
 
 ### Unchanged baseline findings
 
@@ -587,17 +797,17 @@ The agreed foreground functional checkpoint and focused repairs supply the Mac
 software results below. Native integration gaps remain explicit even when adapter
 tests pass.
 
-| Enabled area                                                            | Mac software result                                                               | Additional limits                                                                                         |
-| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| File/folder import, review, duplicates, background tasks                | Full/focused import, review, duplicate and task checks passed; picker bug fixed   | Native picker and macOS permission dialogs are injected in automation.                                    |
-| Device discovery, missing-photo recognition, disconnection              | Adapter/service/UI checks passed; private capture cases deferred                  | Real card mounting/unplugging and TCC access are unverified; diskutil/plutil facts are fixture-backed.    |
-| Library search, scrolling, selection, ranges and groups                 | Full and focused browsing/group checks passed                                     | Automated profiles contain fixture libraries only.                                                        |
-| Confirmed Trash and recovery/restart                                    | Full and focused journal/transaction/recovery checks passed                       | Isolated Trash adapters; real Finder/OS Trash restoration is unverified.                                  |
-| Eight enabled sliders, lens toggles, comparison, overlays and Undo/Redo | Shared inputs/history/MCP passed; sharp trials functional, performance failed     | Other editing controls stay disabled.                                                                     |
-| Zoom/pan, cached navigation, CPU fallback, device loss                  | RAW/GPU/CPU fallback and display lifecycle passed; sustained performance failed   | Physical scanout/luminance is unmeasured.                                                                 |
-| Typed MCP revisions, statistics, pixels, export and isolated import     | Full and focused protocol checks passed                                           | A specific external client connection is not certified.                                                   |
-| Individual/batch SDR/HDR JPEG export, retry/cancel/publication          | Functional and warm-source checks passed; cold first-launch gate remains variable | External reader interoperability and physical HDR display are separate.                                   |
-| Merge review, alignment, publication, restart, source deletion          | Sony review/publication/restart/source deletion passed; nine-source timing failed | Missing private BRK sets, larger controlled HDR brackets and distinct 32-RAW sequences remain incomplete. |
+| Enabled area                                                            | Mac software result                                                                                  | Additional limits                                                                                         |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| File/folder import, review, duplicates, background tasks                | Full/focused import, review, duplicate and task checks passed; picker bug fixed                      | Native picker and macOS permission dialogs are injected in automation.                                    |
+| Device discovery, missing-photo recognition, disconnection              | Adapter/service/UI checks passed; private capture cases deferred                                     | Real card mounting/unplugging and TCC access are unverified; diskutil/plutil facts are fixture-backed.    |
+| Library search, scrolling, selection, ranges and groups                 | Full and focused browsing/group checks passed                                                        | Automated profiles contain fixture libraries only.                                                        |
+| Confirmed Trash and recovery/restart                                    | Full and focused journal/transaction/recovery checks passed                                          | Isolated Trash adapters; real Finder/OS Trash restoration is unverified.                                  |
+| Eight enabled sliders, lens toggles, comparison, overlays and Undo/Redo | Shared inputs/history/MCP passed; sharp trials functional, performance failed                        | Other editing controls stay disabled.                                                                     |
+| Zoom/pan, cached navigation, CPU fallback, device loss                  | RAW/GPU/CPU fallback and display lifecycle passed; sustained performance failed                      | Physical scanout/luminance is unmeasured.                                                                 |
+| Typed MCP revisions, statistics, pixels, export and isolated import     | Full and focused protocol checks passed                                                              | A specific external client connection is not certified.                                                   |
+| Individual/batch SDR/HDR JPEG export, retry/cancel/publication          | Functional and warm-source checks passed; cold first-launch gate remains variable                    | External reader interoperability and physical HDR display are separate.                                   |
+| Merge review, alignment, publication, restart, source deletion          | Sony workflows and final 2/3/5/9-source noise 15-second gates pass; three-RAW five-second gates fail | Missing private BRK sets, larger controlled HDR brackets and distinct 32-RAW sequences remain incomplete. |
 
 ## Bazzite continuation
 
@@ -611,19 +821,22 @@ git switch perf/mac-workability
 git pull --ff-only origin perf/mac-workability
 # Confirm the tested code after transferring the reviewed branch; documentation-only descendants are allowed.
 git rev-parse HEAD
-git diff --exit-code cedef590fdf53c0c558d4a3c10b4fd6abc2368f7 HEAD -- . ':(exclude)docs/**' ':(exclude)README.md' ':(exclude)Luma.md'
+git diff --exit-code 03d633ceeed05ec06c6b627508d393ae8e9dd3b5 HEAD -- . ':(exclude)docs/**' ':(exclude)README.md' ':(exclude)Luma.md'
 node scripts/research/sony-fixtures.mjs check
 npm run verify -- --target display-rendering-reference --target hdr-render-cache-gpu --target hdr-math-gpu
+npm run verify -- --target brk-merge --target capture-metadata --target merge-engine --target merge-io --target merge-gpu
 npm run verify -- --target edit-history --target merge-library --target import-pipeline --target stack-group-actions
 node scripts/research/sony-fixtures.mjs hdr -- npm run verify -- --foreground --target adjustment-engine-raw --target adjustment-renderer-raw-ui --target full-previews-raw --target gpu-preview --target lens-correction-raw --target white-balance-raw --target hdr-content-ui --target hdr-editor-ui
 npm run verify -- --foreground --target hdr-slider-benchmark --target hdr-interaction-benchmark
 VITE_LUMA_HDR_TILE_BATCH=8 npm run verify -- --foreground --target mac-workability-batching
 npm run verify -- --foreground --target mac-workability-batching
+VITE_LUMA_HDR_KERNEL=grid8 npm run verify -- --foreground --target mac-workability-batching
 npm run verify -- --foreground --target mac-workability-benchmark
 node scripts/research/sony-fixtures.mjs noise -- npm run verify -- --foreground --target mac-workability-interference
 npm run verify -- --target export-context --target export-rendering --target export-gpu
 npm run benchmark:export -- --foreground
 node scripts/research/sony-fixtures.mjs noise -- npm run benchmark:merge -- --foreground
+npm run verify -- --target merge-three-raw-benchmark
 node scripts/research/sony-fixtures.mjs hdr -- npm run verify -- --target merge-raw
 node scripts/research/sony-fixtures.mjs hdr -- npm run verify -- --foreground --target merge-raw-ui
 # Select a saved, same-configuration pre-change baseline, never candidate output.

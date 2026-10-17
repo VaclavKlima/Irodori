@@ -59,6 +59,20 @@ For HDR slider performance, `npm run verify -- --foreground --target hdr-slider-
 
 Merge timing separates repeated-original calibration from distinct Sony sequences. Supply `LUMA_MERGE_SONY_SEQUENCE` as a JSON array of unmodified compatible Sony RAW paths (at least nine to select all workloads), and optionally `LUMA_MERGE_SONY_MODE=hdr` (default `noise`). Each 2/3/5/9 case selects distributed subsets and creates three fresh isolated libraries, with no preparation reuse before publication. RAW preparation, alignment, native review accumulation/comparison output and durable publication are timed; import copying/metadata inspection and human review are excluded. Every run must finish within 15 seconds. Reports separate native review preparation from publication; rendering before acceptance remains part of the cold total. The first published master and per-run diagnostics are retained. Repeated-file calibration never substitutes for distinct-sequence acceptance. Libraries and prepared synthetic scratch reside under the invocation's project-filesystem output, so publication uses the SSD rather than this machine's RAM-backed `/tmp`. Cold means fresh workers and preparation, not flushed OS file caches. Use `LUMA_MERGE_BENCHMARK_NATIVE=1` for the separate 2/9/32 native prepared-input scaling measurements. Avoid competing GPU workloads during performance measurements and retain any earlier failures.
 
+The additional `merge-three-raw-benchmark` target uses the committed Sony manifest
+directly and requires both the complete HDR bracket and three distinct distributed
+noise-burst sources. Each mode has three fresh-library/worker operations, and
+**every run must finish in less than five seconds**. The clock starts before review
+creation and ends after durable publication and awaited scratch cleanup, using the
+same frozen review revision. Native review output and fresh managed capture
+verification are included; import setup and human review time are excluded. Missing
+or changed committed originals fail this target. Source/master hashes, per-run
+timings and earlier failures remain in ignored evidence. Run
+`npm run verify -- --target merge-three-raw-benchmark` independently while iterating;
+the full merge family retains the existing calibration and larger-count gates.
+The [Mac report](mac-workability.md#follow-up-slider-latency-and-three-raw-processing)
+records measured compliance and remaining gaps.
+
 The isolated [image-pipeline research](performance-research.md) adds `research-pipeline` and `research-resources` (fast Node graph/accounting proofs) and `research-native`, `research-measurements`, `research-libraries`, `research-gpu`, `research-wgpu`, `research-presentation`, `research-background` (the exclusive `research` benchmark family). The latter are explicit targets or part of benchmark-all/check-all, excluded from full functional coverage. Research correctness failures and missing hardware remain visible; no existing gate is relaxed. Use `npm run research:pipeline`, `npm run research:measure`, or `npm run research:presentation -- --foreground`. The paired wgpu target needs its separately built pinned helper and an explicit shared adapter name. See the [Bazzite continuation brief](performance-research-bazzite.md) for Linux setup, committed Sony sequences, actual input cadence and remaining evidence.
 
 1. Select the relevant target IDs and implement the change.
