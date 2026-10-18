@@ -37,7 +37,7 @@ For direct whole-group actions (#14), select `stack-group-actions` (service) and
 | `npm run benchmark:adjustments -- --foreground highlights` | Only the named warmed RAW adjustment; accepts exposure, contrast, highlights, shadows, whites, blacks, temperature |
 | `npm run benchmark:preview -- --foreground`                | Preview processing and actual Electron presentation only                                                           |
 | `npm run benchmark:hdr -- --foreground`                    | HDR edit, cold selection, and cached native-resolution presentation                                                |
-| `npm run benchmark:merge -- --foreground`                  | Existing 2/9/32 prepared cases plus three cold native RAW/publication runs at 2/3/5/9 sources                      |
+| `npm run benchmark:merge -- --foreground`                  | Prepared 2/9/32, cold RAW/publication 2/3/5/9, three-RAW stretch and visible HDR workflow measurements             |
 | `npm run benchmark:export`                                 | Quality-100 original-size HDR export, twenty isolated complete library-job samples and a 4-second p95 target       |
 | `npm run benchmark:all -- --foreground`                    | All preview, adjustment, HDR, merge and export measurements and existing regression gates                          |
 
@@ -49,7 +49,7 @@ Device import and progressive review use focused targets `device-discovery`, `de
 
 Repeat device imports (#16) use `import-source-records` (Node), `import-missing` (service), and `import-missing-ui` (Electron). Select `device-service`, `device-ui`, `progressive-review`, `progressive-review-ui`, `import`, `background-import`, `import-pipeline`, `import-foreground-ui`, `library`, `deletion`, and `workspace` for affected regressions; select the registered catalog migration targets when changing the schema. Coverage distinguishes strong filesystem change observations from uncertain observations that require complete read-only hashing. Same-size changes with restored modification times, middle-block changes, cancellation, paused-read device validation, deletion/recovery, persisted collection counts, mode/selection queues, and the minimum console layout must remain covered. See [repeat-import behavior and acceptance](import-pipeline.md#repeat-device-imports).
 
-For merge processing, `npm run verify -- --target merge-cpu-kernels --target merge-gpu-output` selects fast Node checks without RAW decoding or a GPU. SIMD coverage requires exact native Float32 bytes and unrounded Float64 luminance, all orientations, lens/clipping masks, partial strips, checksums, scalar recovery and the aggregate arena bound. Output coverage checks two-slot admission, immutable upload ownership, owned readback copies, release, cancellation, device/scoped failures, partial mappings and optional timestamps. Select `merge-gpu` separately for hardware CPU/GPU agreement, complete sequential/two-slot master and comparison equality, partial strips and in-flight failure recovery; `merge-engine` and `brk-merge` retain service behavior.
+For merge processing, `npm run verify -- --target merge-cpu-kernels --target merge-gpu-output` selects fast Node checks without RAW decoding or a GPU. SIMD coverage requires exact native Float32 bytes and unrounded Float64 luminance, all orientations, lens/clipping masks, partial strips, ordered reductions with per-update Float32 rounding, transactional recovery and the aggregate arena bound. Output coverage checks two-slot admission, immutable upload ownership, owned readback copies, release, cancellation, device/scoped failures, partial mappings and optional timestamps. Select `merge-gpu` separately for hardware CPU/GPU agreement, complete sequential/two-slot master and comparison equality, partial strips and in-flight failure recovery; `merge-engine` and `brk-merge` retain service behavior.
 
 The optional SIMD binary is shipped with its manifest. Changes to its maintained C source require `LUMA_EMCC=/path/to/emsdk-4.0.20/upstream/emscripten/emcc npm run build:merge-kernels` before verification; ordinary builds copy the versioned binary rather than rebuilding it. The pinned compiler, SIMD/strict floating-point flags, source/binary hashes, ABI and bounded borrowed-view lifetimes are documented in [merge processing](merge-processing.md#algorithms-and-bounds) and [the kernel build instructions](../vendor/merge-kernels/README.md). Compare `LUMA_MERGE_CPU_KERNEL=scalar` with the optional `wasm` path and `LUMA_MERGE_OUTPUT_SLOTS=1` with normal two-slot comparison output using the same source/recipe hashes. `LUMA_MERGE_GPU_TIMESTAMPS=1` requests supported compute timestamps; record its status and measured batch count, keeping the diagnostic mode matched between trials. Host dispatch and map wait are not device compute measurements. These controls do not relax pixel, checksum, memory or complete-operation gates.
 
@@ -80,6 +80,22 @@ timings and earlier failures remain in ignored evidence. Run
 the full merge family retains the existing calibration and larger-count gates.
 The [Mac report](mac-workability.md#follow-up-slider-latency-and-three-raw-processing)
 records measured compliance and remaining gaps.
+
+`merge-workflow-benchmark` adds the comparable foreground HDR clock. It uses the
+committed three-RAW bracket in an isolated library, waits for native image decoding,
+a real review draw, its GPU fence when applicable and a post-paint observation,
+then accepts immediately. One uninterrupted renderer clock ends after task cleanup
+and the final sharp editor frame's post-paint observation. Five fresh-preparation
+operations require median ≤10 seconds and maximum ≤12 seconds; a separate
+application-restart control also requires ≤12 seconds. Import, startup and human
+review are excluded. The 15-second checkpoint is reported separately; the existing
+five-second service stretch remains unchanged. `LUMA_MERGE_WORKFLOW_RUNS=3` selects
+a matched experiment series and explicitly records insufficient final acceptance
+sample count. Use `npm run verify -- --foreground --target merge-workflow-benchmark`
+or the sequential foreground merge family. Backend and every sample remain in the
+report, including Canvas2D review fallback. Worker-relative timeline spans and
+main-process publication/validation/sync/cleanup timings have separate clock labels;
+parallel alignment and nested spans must not be summed into serial time.
 
 The isolated [image-pipeline research](performance-research.md) adds `research-pipeline` and `research-resources` (fast Node graph/accounting proofs) and `research-native`, `research-measurements`, `research-libraries`, `research-gpu`, `research-wgpu`, `research-presentation`, `research-background`, `research-merge-gpu` (the exclusive `research` benchmark family). The latter are explicit targets or part of benchmark-all/check-all, excluded from full functional coverage. `research-merge-gpu` compares a separate GPU camera-evidence candidate with independent Float64 references and the maintained CPU writer, including orientations, lens masks, native strips and source integrity. It does not select that implementation for production or establish five-second acceptance. Research correctness failures and missing hardware remain visible; no existing gate is relaxed. Use `npm run research:pipeline`, `npm run research:measure`, or `npm run research:presentation -- --foreground`; select the merge study explicitly with `npm run verify -- --target research-merge-gpu`. The paired wgpu target needs its separately built pinned helper and an explicit shared adapter name. See the [Bazzite continuation brief](performance-research-bazzite.md) for Linux setup, committed Sony sequences, actual input cadence and remaining evidence.
 

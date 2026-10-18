@@ -21,6 +21,160 @@ documentation only. The original milestone below retains its `cedef59` code,
 `980435a` pixel-processing and `0b4f99f` early editor/export provenance. Linux
 acceptance remains pending.
 
+## October 17–18 competitive HDR workflow pass
+
+The bounded Mac pass is implemented, verified and frozen; **competitive acceptance
+remains failed**. The final visible-workflow replay measures an **18.220 s median
+and 18.779 s maximum**, versus the matching 24.817/25.572 s baseline. This is a
+26.6% median reduction, but neither the 10 s median / 12 s maximum target nor the
+15 s visible engineering checkpoint is met. Five seconds remains the separate,
+unmet service stretch. No timing or numerical gate was relaxed.
+
+Production changes are `9c2db1604ce56b67d1eb72ac588c99a24e6de3f1`; the isolated
+GPU study is `a739a0ce9f6b3507ec4f5f7dc174d6f41a85a116`. The latter is the
+**implementation freeze for Bazzite**, with documentation-only descendants allowed.
+These commits are local. Measurements retain their actual `81bec53` dirty-state
+provenance and source/build hashes: all 24 final replay inputs still match the
+frozen implementation. The earlier handoffs below remain historical evidence.
+
+| Task                           | Owner                   | Dependencies                     | Adopted result / decision                                                                                                                                                          | Commit    |
+| ------------------------------ | ----------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| N0 — Matching Luma clocks      | Coordinator             | `81bec53`, committed HDR bracket | Native decode/draw/fence/post-paint review; immediate acceptance; uninterrupted final editor clock. Baseline, five-run series and restart controls retained.                       | `9c2db16` |
+| N1 — Critical-path attribution | Coordinator             | N0                               | Bounded worker-relative spans, alignment submission/admission/completion, separate main publication and verification/sync/cleanup durations.                                       | `9c2db16` |
+| N2 — Fallback scheduling       | Coordinator             | N1                               | Reference-first source order retained; early alignment precedes unchanged fallback. Actual fallback/alignment overlap is 1.66–1.70 s in the final service replay.                  | `9c2db16` |
+| N3 — Ordered reductions        | CPU agent               | N1–N2                            | Exact Float64 camera sums and per-update Float32 fallback sums; two live rows, arena preflight and transactional scalar replay.                                                    | `9c2db16` |
+| N4 — Clipping and masks        | CPU agent               | N3                               | Compiled canonical/channel sensor masks and atomic boundary repair preserve the original 64/128/256-row producer boundaries.                                                       | `9c2db16` |
+| N5 — Publication               | I/O agent + coordinator | N1                               | Attributed both validations, copying, sync, admission, journal, commit and cleanup. Publication algorithm remains unchanged: no repeatable multi-second I/O opportunity was found. | `9c2db16` |
+| N6 — GPU preparation study     | GPU agent               | N2–N5                            | Fresh evidence clocks and cancellation/device-loss recovery pass; complete merge integration remains unvalidated. Production enabling rejected.                                    | `a739a0c` |
+| N7 — Acceptance / handoff      | Coordinator             | N0–N6                            | Focused checks and sequential performance replays complete; speed and existing slider-latency misses retained. Linux measurements remain pending.                                  | `a739a0c` |
+
+The optional binary is ABI/manifest 3, 9488 bytes, reproducibly built with pinned
+Emscripten 4.0.20. Its SHA-256 is
+`8ae83ee75c22b1489c64eb7f5400326e1c4db1c074e482729c14c7cc1c6c7771`.
+The 128 MiB aggregate preparation arena remains enforced. An optional reduction
+allocation miss keeps compiled conversion and bounded scalar reduction. Late
+reduction failures restore live state before scalar replay; failed repair never
+publishes partial RGB, alpha or changed positions. Pixel policy and cache identities
+remain unchanged, including legacy manifests without a stored source identity.
+
+### Comparable visible results
+
+The new `merge-workflow-benchmark` target belongs to the sequential foreground
+merge family. It uses `DSC03243.ARW`–`DSC03245.ARW`, actual native image decoding,
+a real review draw, completed WebGL work when applicable and a post-paint task.
+It accepts immediately and retains one uninterrupted renderer clock through
+publication, cleanup and a sharp final editor frame's post-paint observation.
+Import, startup and human review are outside the clock. Every operation prepares
+the sources afresh. The source library is isolated; OS/driver caches are uncontrolled.
+
+| Series                                  | Ordinary samples (s)                       | Median (s) | Maximum (s) | Separate restart (s) |
+| --------------------------------------- | ------------------------------------------ | ---------- | ----------- | -------------------- |
+| Matching baseline, three-run experiment | 24.098 / 24.817 / 25.572                   | 24.817     | 25.572      | 23.924               |
+| Candidate merge family, five runs       | 18.494 / 18.492 / 18.933 / 18.059 / 18.468 | 18.492     | 18.933      | 18.082               |
+| Final build exact replay, five runs     | 18.220 / 18.403 / 18.202 / 18.779 / 17.861 | 18.220     | 18.779      | 18.366               |
+
+Both five-run series fail the competitive and intermediate visible gates. All
+review backends are the application's actual Canvas2D fallback; final editing uses
+WebGPU HDR at normal detail. The first draft incorrectly required WebGL review and
+stopped after one operation in each case. Its partial-series 28.511/23.601 s results
+remain retained separately, with incomplete integrity assertions; they are not
+substitutes for the complete baseline series. The recorded Lightroom 10.038 s
+median / 10.529 s maximum remains faster. Different precision, crops and publication
+work still prevent an equal-work or cross-application quality claim.
+
+[Baseline evidence](../artifacts/merge-lightroom-2026-10-17/baseline/artifacts/verification/playwright-1792235997919-8646cea5-bf11-42a4-97b6-a67fe4ca81f5/playwright/summary.json),
+[candidate family](../artifacts/verification/2026-10-17T11-28-36.657Z-benchmark-59bn3O/summary.md),
+[final replay](../artifacts/verification/playwright-1792237140413-50bfcfc6-9318-4eac-88c4-6164d7cb6696/playwright/summary.json),
+and [all retained samples and timing breakdowns](../artifacts/merge-lightroom-2026-10-17/outcomes.json).
+
+### Remaining critical path and regression results
+
+The candidate family service HDR runs are 15.139/14.780/14.710 s, compared with
+18.801/19.205/19.007 s before this pass. The final exact replay is
+15.203/15.075/15.326 s. Every preparation/registration/mask/crop/master identity
+matches the frozen pre-acceleration CPU reference. Three-source noise is
+7.602/7.560/7.501 s in the family and 8.651/7.907/7.481 s in the isolated replay;
+all samples, including the slower first replay, remain retained. These service
+clocks include diagnostics and omit Electron presentation; they cannot replace
+visible acceptance.
+
+Final HDR worker spans expose 4.38–4.50 s of source preparation, 4.20–4.23 s of
+highlight-safe fallback, 0.12–0.13 s of remaining registration, 0.22–0.25 s of
+coverage, 1.42–1.48 s of accumulation and 3.03–3.32 s of output. The 1.66–1.70 s
+alignment overlap is already hidden inside preparation/fallback; parallel matching
+and nested durations must not be added again. Source/fallback preparation and
+native output remain the main processing bottlenecks.
+
+Durable service publication costs 0.85–0.99 s, plus 0.16–0.18 s cleanup. Source and
+destination checksum work account for roughly 0.44 s together; copies are about
+0.25 s, with file sync around 0.02–0.03 s. The visible family additionally records
+1.66–2.09 s of main scheduler admission after acceptance, then 0.59–0.72 s of
+final editor presentation after observed task completion. This identifies a further
+application scheduling cost; changing foreground editing priority was not adopted.
+Dropping validation or durable sync would not establish the required safe workflow.
+
+The full foreground merge family has **12 passed, four time-gate failures, zero
+skips in 501.74 s**. Its prepared 2/9/32, repeated-original calibration and distinct
+2/3/5/9-source noise cases pass. Distinct maxima are **6.956/7.746/9.676/12.889 s**, all
+within their unchanged 15 s bound. All sixteen warmed merge gestures pass. The
+four exact failed-case replays retain only the same time misses, in 205.46 s.
+Strict-series reported peaks are 932,630,072 logical GPU bytes and 145,358,848
+merge/alignment WASM bytes, below 1 GiB / 512 MiB. Maximum worker RSS is
+2,423,750,656 bytes, below the earlier 2,492,301,312-byte series. Driver allocations
+and physical VRAM remain outside these logical counters.
+
+Focused numerical/lifecycle verification passes **364 cases, zero failed/skipped,
+105.60 s**, selecting `merge-cpu-kernels`, `merge-io`, `merge-engine`, `merge-library`,
+`merge-gpu`, `brk-merge`, both real RAW import paths and `research-merge-gpu`.
+Publication attribution replay passes 319 cases in 20.95 s; the final legacy-key
+engine replay passes 317 in 30.46 s. These selections overlap and are not additive.
+Type checking, lint, formatting and builds pass. The duration warning is retained.
+Evidence: [focused checks](../artifacts/verification/2026-10-17T11-25-04.055Z-benchmark-XRHBJN/summary.md),
+[publication replay](../artifacts/verification/2026-10-17T11-27-20.818Z-check-GxG53V/summary.md),
+[final engine replay](../artifacts/verification/2026-10-17T11-38-13.594Z-check-Rkbchl/summary.md).
+
+October 18 foreground merge interference retains three matched idle/editing trials
+at 60 Hz, 1100 × 700 with Console. Both invocations fail only twelve unchanged
+33 ms frame/histogram assertions: frame p95 42.0–42.7 ms, histogram 49.6–51.2 ms.
+Sharpness, progress, cadence, final image/histogram, history, source reuse and cleanup
+assertions pass. The first invocation retains a 22.916 s idle first task, then
+14.344/14.666 s idle and 17.949–18.458 s editing tasks. Its exact replay records
+14.189/14.390/14.245 s idle and 18.473/18.269/18.366 s editing tasks. The slower
+first task is not discarded or attributed to a code cause. These do not establish
+an overall latency or cold-tail acceptance pass. Durations are 136.57/128.11 s.
+[First interference result](../artifacts/verification/playwright-1792332578741-7268a5a3-dfbe-4a31-8310-f68342ab4be7/playwright/summary.json),
+[exact replay](../artifacts/verification/playwright-1792332737874-4bbcf793-ee14-4113-a02e-b48bea64fd8e/playwright/summary.json).
+
+### Rejected GPU integration and Bazzite freeze
+
+The isolated study passes sixteen synthetic probes, both native Sony cases and
+six complete scalar camera-evidence recoveries after cancellation/device loss.
+Its fresh native preparation-through-proof clocks are 4.790/4.289 s, including
+canonical CPU oracle/mask work and full readback/verification; warmed resident
+GPU medians are only 5.98/6.08 ms. The fresh clocks explicitly include duplicate
+CPU evidence work. Registration decisions, fusion/motion masks, crop, complete
+Float32 master, publication and full-merge CPU recovery remain unvalidated.
+`productionSpeedEvidence` remains false. These resident timings do not justify
+production enabling or promise a complete-operation saving.
+
+The Mac pass stops at the measured remaining preparation/output/admission costs
+and the retained latency/cold-tail misses. AC power and a full battery were verified
+on both days; low-power mode was off for the October 17 performance series.
+All fifteen originals retain their committed hashes. All sixteen recorded Electron
+launches exited, twelve isolated profiles were removed, window-policy violations
+are zero, no owned processing workers remain and invocation locks are released.
+[Integrity](../artifacts/fixture-integrity/2026-10-18T14-15-10.177Z-68061.json) and
+[cleanup audit](../artifacts/merge-lightroom-2026-10-17/cleanup.json) remain outside Git,
+with all generated measurements. No comprehensive checkpoint was repeated.
+
+Continue the existing [Bazzite checklist](#bazzite-continuation) from the frozen
+`a739a0c` implementation (documentation-only descendants allowed). Add
+`npm run verify -- --foreground --target merge-workflow-benchmark` to that local
+acceptance sequence, retaining five ordinary operations and a separate restart
+control. Obtain a same-configuration Linux scalar/pre-change control before
+adopting acceleration there. Mac measurements establish no Linux performance,
+window/display, package or hardware result; Bazzite remains pending.
+
 ## October 17 merge acceleration
 
 The internet-research follow-up starts from `a06e74c`. The user authorized three
@@ -1098,8 +1252,10 @@ durable-publication clock as an additional result.
 
 ### Work order and experiment decisions
 
-The Adobe part of N0 is measured; matching Luma clocks and cross-application
-quality remain pending. N1–N7 are planned. Existing component costs select
+The initial experiment decisions below are retained for provenance. The later
+[competitive workflow pass](#october-1718-competitive-hdr-workflow-pass) records
+N0–N7 implementation and measurements; cross-application quality remains pending.
+Existing component costs select
 experiments; their exposed ceilings are hypotheses, not promised savings. The
 coordinator owns shared integration, builds,
 verification registration and every Electron/GPU/benchmark run. Agents may edit
