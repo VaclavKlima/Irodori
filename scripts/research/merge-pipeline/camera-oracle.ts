@@ -63,7 +63,9 @@ export async function cameraOracle(
   rgba: Float32Array<ArrayBuffer>,
   reducedWidth: number,
   reducedHeight: number,
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted()
   const width = raw.flip & 4 ? plan.height : plan.width,
     height = raw.flip & 4 ? plan.width : plan.height
   if (rgba.length !== width * height * 4) throw new Error('Invalid research native oracle size.')
@@ -83,9 +85,11 @@ export async function cameraOracle(
       reducedHeight,
     )
     for (let top = 0; top < height; top += 64) {
+      signal?.throwIfAborted()
       const values = rgba.subarray(top * width * 4, Math.min(height, top + 64) * width * 4)
       await writer.write(top, Buffer.from(values.buffer, values.byteOffset, values.byteLength))
     }
+    signal?.throwIfAborted()
     oracle = await writer.finish()
   } finally {
     try {
@@ -103,6 +107,7 @@ export async function cameraOracle(
     if ((await file.stat()).size !== rgba.byteLength)
       throw new Error('Invalid CPU oracle byte count.')
     for (let top = 0; top < height; top += 64) {
+      signal?.throwIfAborted()
       const bytes = await readStrip(file, width, height, top)
       if (digest(bytes) !== oracle.strips[top / 64]) throw new Error('Changed CPU oracle strip.')
       const values = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4)
@@ -235,13 +240,14 @@ export async function compareCameraStudy(
   study: CameraStudy,
   input: CameraStudyInput,
   oracle: CameraRegistration,
+  signal?: AbortSignal,
 ) {
   const native = comparison(),
     reduced = comparison(),
     file = await open(oracle.path, 'r'),
     started = performance.now()
   try {
-    for await (const strip of study.nativeStrips()) {
+    for await (const strip of study.nativeStrips(signal)) {
       const bytes = await readStrip(file, input.width, input.height, strip.top)
       if (digest(bytes) !== oracle.strips[strip.top / 64])
         throw new Error('Changed CPU native evidence.')
@@ -255,7 +261,7 @@ export async function compareCameraStudy(
   } finally {
     await file.close()
   }
-  for await (const strip of study.reducedStrips())
+  for await (const strip of study.reducedStrips(signal))
     for (let i = 0; i < strip.data.length; i += 4) {
       const at = strip.top * input.reducedWidth + i / 4,
         bits = strip.data[i + 3]
@@ -266,5 +272,10 @@ export async function compareCameraStudy(
         reduced.maskMismatches += Number(oracle.planes[c].mask![at] !== (bits & (1 << c) ? 255 : 0))
       }
     }
+  if (
+    native.samples !== input.width * input.height * 3 ||
+    reduced.samples !== input.reducedWidth * input.reducedHeight * 3
+  )
+    throw new Error('Incomplete research camera evidence comparison.')
   return { native, reduced, proofReadbackAndComparisonMs: performance.now() - started }
 }

@@ -60,15 +60,29 @@ resident runs, optional hardware projection/reduction timestamps, CPU numerical
 runs, CPU oracle/mask extraction, and full proof readback/comparison separately.
 Resident work excludes RAW decode, existing RGB/lens processing, canonical masks,
 hashing, encoding, disk publication and proof readback. GPU timestamp resolve/copy
-is included when supported; actual physical VRAM and process peak RSS are not
-measured. A fixed 1 GiB logical GPU preflight includes both native textures, mask
+is included when supported; actual physical VRAM is not measured. The first-evidence
+clock records point RSS and process-lifetime peak RSS, without attributing a separate
+resident-kernel peak. A fixed 1 GiB logical GPU preflight includes both native textures, mask
 texture, final-layer padding, reduced texture, one 64-row readback and optional
 query resources. Array layers and readback are checked against requested device
 limits. Driver-internal allocations remain outside that explicit logical count;
 neither this count nor the transfer bound establishes a physical VRAM cap.
 Evidence records requested device limits, layer geometry and maximum upload size.
-Calls are single-flight; cancellation is
-checked before submission and after the completed-work fence, not mid-dispatch.
+Calls are single-flight. Cancellation covers allocation admission, upload layers,
+post-submission completion and both readback streams. Submitted work drains before
+resource release; device loss still releases owned resources. Lifecycle probes
+re-prepare complete exact scalar camera evidence after each failure. They do not
+establish complete merge recovery for this research candidate.
+
+An additional uninterrupted first-evidence clock includes source integrity,
+the complete scalar oracle/canonical-mask extraction, allocation/upload/compilation,
+completed GPU work and full native/reduced readback and verification. Native cases
+also retain the enclosing RAW inspection/decode/RGB-lens preparation clock. This
+deliberately includes duplicate CPU oracle work. Contiguous phase spans, point RSS
+and process-lifetime peak RSS remain separate from the warmed resident samples.
+`productionSpeedEvidence` stays false: independent registration, fusion, motion
+masks, final crop/master, publication and visible workflow gains remain unvalidated.
+The candidate stays isolated until that complete path and its recovery are proven.
 
 Run through the coordinator's registered research target, sequentially with other
 GPU work:

@@ -8,6 +8,8 @@ import { join, resolve } from 'node:path'
 import {
   createCameraStudy,
   CAMERA_STUDY_GPU_LIMIT,
+  type CameraStudy,
+  type CameraStudyCheckpoint,
 } from '../scripts/research/merge-pipeline/camera-study'
 import {
   cameraOracle,
@@ -153,33 +155,79 @@ async function measure(
   plan: CorrectionPlan,
   rgba: Float32Array<ArrayBuffer>,
   native: boolean,
+  nativePathStarted?: number,
 ) {
   const width = raw.flip & 4 ? plan.height : plan.width,
     height = raw.flip & 4 ? plan.width : plan.height,
     scale = native ? Math.min(1, 1024 / Math.max(width, height)) : 0,
     reducedWidth = native ? Math.max(1, Math.floor(width * scale)) : 11,
     reducedHeight = native ? Math.max(1, Math.floor(height * scale)) : 7,
+    started = performance.now(),
+    rssBeforeBytes = process.memoryUsage().rss,
     inputHash = createHash('sha256').update(new Uint8Array(rgba.buffer)).digest('hex'),
+    hashed = performance.now(),
     prepared = await cameraOracle(directory, index, raw, plan, rgba, reducedWidth, reducedHeight),
+    masksReady = performance.now(),
     cpuSamples: number[] = [],
     cpuProofs = []
-  for (let i = 0; i < 3; i++) {
-    const started = performance.now(),
-      result = cpuCameraStage(prepared.input)
-    cpuSamples.push(performance.now() - started)
-    cpuProofs.push(comparePlanes(prepared.oracle.planes, result))
-  }
-  const study = await createCameraStudy(device, prepared.input)
+  const study = await createCameraStudy(device, prepared.input),
+    gpuReady = performance.now()
   try {
+    // This uninterrupted first path includes the duplicate CPU evidence/mask cost.
+    // It is preparation research, never an adopted merge-speed measurement.
+    const firstCompleted = await study.run(),
+      completed = performance.now(),
+      proof = await compareCameraStudy(study, prepared.input, prepared.oracle),
+      verified = performance.now(),
+      after = createHash('sha256').update(new Uint8Array(rgba.buffer)).digest('hex'),
+      finished = performance.now(),
+      boundaries = [started, hashed, masksReady, gpuReady, completed, verified, finished],
+      stages = [
+        'input-integrity-before',
+        'complete-scalar-oracle-and-canonical-mask-extraction',
+        'gpu-allocation-upload-and-compilation',
+        'completed-gpu-work-and-timestamp-readback',
+        'full-native-and-reduced-readback-and-verification',
+        'input-integrity-after',
+      ],
+      freshEvidence = {
+        clock: 'research-node-performance',
+        elapsedMs: finished - started,
+        nativePreparationThroughEvidenceMs:
+          nativePathStarted === undefined ? null : finished - nativePathStarted,
+        spans: stages.map((stage, i) => ({
+          stage,
+          startMs: boundaries[i] - started,
+          endMs: boundaries[i + 1] - started,
+        })),
+        firstCompleted,
+        rssBeforeBytes,
+        rssAfterBytes: process.memoryUsage().rss,
+        processLifetimePeakRssBytes: process.resourceUsage().maxRSS * 1024,
+        duplicateCpuOracleWorkIncluded: true,
+        productionSpeedEvidence: false,
+        excluded: [
+          ...(nativePathStarted === undefined ? ['RAW decode and RGB/lens preparation'] : []),
+          'independent native registration and exposure estimation',
+          'fusion, deghosting, motion masks and final crop',
+          'full Float32 merged master output',
+          'review, publication, cleanup and final editor presentation',
+        ],
+      }
+    // Numerical comparisons and resident timing diagnostics are outside the first-path clock.
+    for (let i = 0; i < 3; i++) {
+      const numericalStarted = performance.now(),
+        result = cpuCameraStage(prepared.input)
+      cpuSamples.push(performance.now() - numericalStarted)
+      cpuProofs.push(comparePlanes(prepared.oracle.planes, result))
+    }
     // One separately reported warm-up; every measured run still executes all native pixels.
     const warmup = await study.run(),
       observations = []
     for (let i = 0; i < 3; i++) observations.push(await study.run())
-    const proof = await compareCameraStudy(study, prepared.input, prepared.oracle)
     const abort = new AbortController()
     abort.abort(new Error('Research pre-submission cancellation.'))
     await expect(study.run(abort.signal)).rejects.toThrow('Research pre-submission cancellation.')
-    const after = createHash('sha256').update(new Uint8Array(rgba.buffer)).digest('hex')
     return {
       width,
       height,
@@ -191,6 +239,7 @@ async function measure(
       sourceSaturation: raw.normalization?.sourceSaturation,
       inputHash,
       inputUnchanged: after === inputHash,
+      freshEvidence,
       oracleWallMs: prepared.oracleWallMs,
       canonicalMaskExtractionMs: prepared.canonicalMaskExtractionMs,
       cpuNumericalMs: distribution(cpuSamples),
@@ -214,7 +263,7 @@ async function measure(
       ...proof,
     }
   } finally {
-    study.destroy()
+    await study.close()
   }
 }
 
@@ -222,6 +271,14 @@ function assertResult(result: Awaited<ReturnType<typeof measure>>) {
   expect(result.inputUnchanged).toBe(true)
   expect(result.allocatedGpuBytes).toBeLessThanOrEqual(result.gpuLimitBytes)
   expect(result.maximumUploadBytes).toBeLessThanOrEqual(8 * 1024 ** 2)
+  expect(result.freshEvidence.productionSpeedEvidence).toBe(false)
+  expect(result.freshEvidence.spans[0].startMs).toBe(0)
+  expect(result.freshEvidence.spans.at(-1)!.endMs).toBe(result.freshEvidence.elapsedMs)
+  for (let i = 0; i < result.freshEvidence.spans.length; i++) {
+    const span = result.freshEvidence.spans[i]
+    expect(span.endMs).toBeGreaterThanOrEqual(span.startMs)
+    if (i) expect(span.startMs).toBe(result.freshEvidence.spans[i - 1].endMs)
+  }
   for (const proof of [result.native, result.reduced, ...result.cpuProofs]) {
     expect.soft(proof.nonFinite, JSON.stringify(proof.worst)).toBe(0)
     expect.soft(proof.overTolerance, JSON.stringify(proof.worst)).toBe(0)
@@ -270,6 +327,129 @@ test('research camera evidence compares all orientations, signed pixels, lens cl
   }
 })
 
+test('research camera evidence drains cancellation and device loss before complete scalar evidence recovery', async ({}, info) => {
+  test.setTimeout(180000)
+  const { device, adapter } = await hardware(),
+    directory = await mkdtemp(join(tmpdir(), 'luma-research-camera-recovery-')),
+    { raw, plan, rgba } = numericInput(7, true),
+    inputHash = createHash('sha256').update(new Uint8Array(rgba.buffer)).digest('hex'),
+    errors: string[] = [],
+    cases: unknown[] = [],
+    recoveries: unknown[] = [],
+    kernelBefore = process.env.LUMA_MERGE_CPU_KERNEL
+  let study: CameraStudy | undefined
+  device.addEventListener('uncapturederror', (event) => errors.push(event.error.message))
+  try {
+    const reference = await cameraOracle(directory, 0, raw, plan, rgba, 11, 7)
+    let index = 0
+    const recover = async (reason: string) => {
+      const started = performance.now(),
+        recovered = await cameraOracle(directory, ++index, raw, plan, rgba, 11, 7),
+        proof = comparePlanes(reference.oracle.planes, recovered.oracle.planes),
+        stripsMatch =
+          JSON.stringify(reference.oracle.strips) === JSON.stringify(recovered.oracle.strips)
+      recoveries.push({
+        reason,
+        elapsedMs: performance.now() - started,
+        completeNativeCameraEvidence: true,
+        strips: recovered.oracle.strips.length,
+        nativeBytes: (await stat(recovered.oracle.path)).size,
+        stripsMatch,
+        reduced: proof,
+      })
+      expect(stripsMatch).toBe(true)
+      expect(proof.differingWords).toBe(0)
+      expect(proof.nonFinite).toBe(0)
+      expect(proof.maskMismatches).toBe(0)
+      expect(process.env.LUMA_MERGE_CPU_KERNEL).toBe(kernelBefore)
+    }
+    const preallocation = new AbortController()
+    preallocation.abort(new Error('Research cancellation before allocation.'))
+    await expect(
+      createCameraStudy(device, reference.input, { signal: preallocation.signal }),
+    ).rejects.toThrow('Research cancellation before allocation.')
+    await recover('preallocation cancellation')
+
+    for (const phase of [
+      'uploaded-layer',
+      'submitted',
+      'native-readback',
+      'reduced-readback',
+    ] as const) {
+      const abort = new AbortController(),
+        events: CameraStudyCheckpoint[] = [],
+        message = `Research cancellation at ${phase}.`,
+        creating = createCameraStudy(device, reference.input, {
+          signal: abort.signal,
+          checkpoint: (event) => {
+            events.push(event)
+            if (event.phase === phase) abort.abort(new Error(message))
+          },
+        })
+      if (phase === 'uploaded-layer') await expect(creating).rejects.toThrow(message)
+      else {
+        study = await creating
+        if (phase === 'submitted') await expect(study.run()).rejects.toThrow(message)
+        else {
+          await study.run()
+          await expect(
+            compareCameraStudy(study, reference.input, reference.oracle, abort.signal),
+          ).rejects.toThrow(message)
+        }
+        await study.close()
+        study = undefined
+      }
+      expect(events.some((event) => event.phase === phase)).toBe(true)
+      cases.push({ phase, events, cancelled: abort.signal.aborted })
+      await recover(phase)
+    }
+
+    let loss: GPUDeviceLostInfo | undefined
+    study = await createCameraStudy(device, reference.input, {
+      checkpoint: async (event) => {
+        if (event.phase !== 'submitted') return
+        device.destroy()
+        loss = await device.lost
+      },
+    })
+    await expect(study.run()).rejects.toThrow(/device lost/i)
+    await study.close()
+    study = undefined
+    cases.push({ phase: 'submitted-device-loss', reason: loss?.reason, message: loss?.message })
+    expect(loss?.reason).toBe('destroyed')
+    await recover('submitted device loss')
+    expect(createHash('sha256').update(new Uint8Array(rgba.buffer)).digest('hex')).toBe(inputHash)
+    assertNoGpuErrors(errors)
+  } finally {
+    await study?.close()
+    await writeFile(
+      info.outputPath('camera-recovery.json'),
+      JSON.stringify(
+        {
+          provenance: await provenance(sources),
+          adapter: adapter.info,
+          errors,
+          cases,
+          recoveries,
+          classification: 'isolated camera-evidence lifecycle proof; production enabling rejected',
+          recoveryScope: 'full native camera evidence and reduced planes, using the scalar writer',
+          missingValidation: [
+            'complete merge recovery after GPU preparation failure',
+            'independent native registration, motion masks and crop',
+            'full final linear master and image-quality comparison',
+            'matched fresh three-source operation and native workflow gains',
+          ],
+        },
+        null,
+        2,
+      ),
+    )
+    device.destroy()
+    retainedGpu = undefined
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 async function identity(path: string) {
   const hash = createHash('sha256')
   for await (const bytes of createReadStream(path)) hash.update(bytes)
@@ -297,7 +477,7 @@ for (const name of ['DSC03245.ARW', 'DSC03246.ARW'])
       adapter: GPUAdapterInfo | undefined
     const errors: string[] = []
     try {
-      const started = performance.now(),
+      const nativePathStarted = performance.now(),
         metadata = await inspector.inspect(path),
         session = await librawDecoder.open(path)
       let raw: RawSource, plan: CorrectionPlan, rgba: Float32Array<ArrayBuffer>
@@ -328,12 +508,12 @@ for (const name of ['DSC03245.ARW', 'DSC03246.ARW'])
         gpu.close()
       }
       await inspector.close()
-      setupMs = performance.now() - started
+      setupMs = performance.now() - nativePathStarted
       const hardwareContext = await hardware()
       device = hardwareContext.device
       adapter = hardwareContext.adapter.info
       device.addEventListener('uncapturederror', (event) => errors.push(event.error.message))
-      result = await measure(directory, 0, device, raw, plan, rgba, true)
+      result = await measure(directory, 0, device, raw, plan, rgba, true, nativePathStarted)
       assertResult(result)
       assertNoGpuErrors(errors)
     } finally {
@@ -350,11 +530,11 @@ for (const name of ['DSC03245.ARW', 'DSC03246.ARW'])
             result,
             errors,
             classification:
-              'native fixture stage research; not three-source merge or end-to-end five-second evidence',
+              'fresh native preparation evidence plus resident diagnostics; no complete-merge or competitive acceptance',
             exclusions: [
-              'RAW decode and existing GPU RGB/lens preparation are setup',
-              'Canonical clipping masks are computed by the production CPU oracle and uploaded once',
-              'Resident timings exclude all proof readback, source hashing, encoding and publication',
+              'The fresh clock includes RAW decode/RGB-lens preparation and duplicate scalar canonical evidence',
+              'Canonical clipping masks are computed by the maintained scalar CPU oracle',
+              'Resident timings remain separate and exclude setup, readback, hashing and publication',
               'No alignment transforms, deghosting, exposure weighting or CFA fusion algorithm is replaced',
             ],
           },

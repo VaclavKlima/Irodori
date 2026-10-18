@@ -88,8 +88,24 @@ export interface CameraStudyObservation {
   timestampReadbackMs: number
 }
 
+export interface CameraStudyCheckpoint {
+  phase: 'uploaded-layer' | 'submitted' | 'completed' | 'native-readback' | 'reduced-readback'
+  top?: number
+}
+
+export interface CameraStudyOptions {
+  signal?: AbortSignal
+  /** Research-only deterministic lifecycle probes, outside the production API. */
+  checkpoint?: (event: CameraStudyCheckpoint) => void | Promise<void>
+}
+
 /** Native Dawn research only; production keeps its current CPU camera evidence writer. */
-export async function createCameraStudy(device: GPUDevice, input: CameraStudyInput) {
+export async function createCameraStudy(
+  device: GPUDevice,
+  input: CameraStudyInput,
+  options: CameraStudyOptions = {},
+) {
+  options.signal?.throwIfAborted()
   const { width, height, reducedWidth, reducedHeight } = input
   if (
     ![width, height, reducedWidth, reducedHeight].every((v) => Number.isSafeInteger(v) && v > 0) ||
@@ -127,13 +143,64 @@ export async function createCameraStudy(device: GPUDevice, input: CameraStudyInp
     buffers: GPUBuffer[] = []
   let queries: GPUQuerySet | undefined
   let disposed = false,
+    active = false,
+    closing = false,
+    lost: GPUDeviceLostInfo | undefined,
+    settle: (() => void) | undefined,
+    idle = Promise.resolve()
+  void device.lost.then((info) => {
+    lost = info
+  })
+  const check = (signal = options.signal) => {
+    signal?.throwIfAborted()
+    if (disposed) throw new Error('Research camera study is disposed.')
+    if (lost) throw new Error(`Research camera study device lost: ${lost.reason}.`)
+  }
+  const fence = async () => {
+    try {
+      await device.queue.onSubmittedWorkDone()
+    } catch (error) {
+      if (lost)
+        throw new Error(`Research camera study device lost: ${lost.reason}.`, { cause: error })
+      throw error
+    }
+  }
+  const checkpoint = async (event: CameraStudyCheckpoint, signal = options.signal) => {
+    await options.checkpoint?.(event)
+    check(signal)
+  }
+  const begin = (signal?: AbortSignal) => {
+    check(signal)
+    if (closing || active) throw new Error('Research camera study is closing or already active.')
+    active = true
+    idle = new Promise<void>((resolve) => {
+      settle = resolve
+    })
+  }
+  const end = () => {
     active = false
+    settle?.()
+    settle = undefined
+  }
   const destroy = () => {
     if (disposed) return
+    if (active) throw new Error('Research camera study must drain before resource destruction.')
+    closing = true
     disposed = true
     queries?.destroy()
     for (const texture of textures) texture.destroy()
     for (const buffer of buffers) buffer.destroy()
+  }
+  const close = async () => {
+    closing = true
+    await idle
+    try {
+      await fence()
+    } catch {
+      // A lost device still needs all research-owned resources released.
+    } finally {
+      destroy()
+    }
   }
   const texture = (w: number, h: number, format: GPUTextureFormat, layers = 1) => {
     const value = device.createTexture({
@@ -199,7 +266,8 @@ export async function createCameraStudy(device: GPUDevice, input: CameraStudyInp
         { bytesPerRow: width * 4 },
         [width, layerRows],
       )
-      await device.queue.onSubmittedWorkDone()
+      await fence()
+      await checkpoint({ phase: 'uploaded-layer', top })
     }
     const uploadMs = performance.now() - uploading
     const compiling = performance.now()
@@ -254,6 +322,7 @@ export async function createCameraStudy(device: GPUDevice, input: CameraStudyInp
       layout: device.createPipelineLayout({ bindGroupLayouts: [reduceLayout] }),
       compute: { module, entryPoint: 'reduce' },
     })
+    check()
     const projectGroup = device.createBindGroup({
       layout: projectLayout,
       entries: [
@@ -272,11 +341,8 @@ export async function createCameraStudy(device: GPUDevice, input: CameraStudyInp
       ],
     })
     const compileMs = performance.now() - compiling
-    async function run(signal?: AbortSignal): Promise<CameraStudyObservation> {
-      if (disposed || active)
-        throw new Error('Research camera study is disposed or already active.')
-      signal?.throwIfAborted()
-      active = true
+    async function run(signal = options.signal): Promise<CameraStudyObservation> {
+      begin(signal)
       const at = performance.now()
       try {
         const encoder = device.createCommandEncoder()
@@ -305,10 +371,15 @@ export async function createCameraStudy(device: GPUDevice, input: CameraStudyInp
         device.queue.submit([encoder.finish()])
         const submissionMs = performance.now() - at,
           fencing = performance.now()
-        await device.queue.onSubmittedWorkDone()
+        // Cancellation after submission waits for the owned work before rejecting.
+        try {
+          await options.checkpoint?.({ phase: 'submitted' })
+        } finally {
+          await fence()
+        }
         const completedWallMs = performance.now() - at,
           completionFenceMs = performance.now() - fencing
-        signal?.throwIfAborted()
+        await checkpoint({ phase: 'completed' }, signal)
         let projectionGpuMs: number | null = null,
           reductionGpuMs: number | null = null
         const reading = performance.now()
@@ -322,6 +393,7 @@ export async function createCameraStudy(device: GPUDevice, input: CameraStudyInp
             queryReadback.unmap()
           }
         }
+        check(signal)
         return {
           completedWallMs,
           submissionMs,
@@ -331,14 +403,20 @@ export async function createCameraStudy(device: GPUDevice, input: CameraStudyInp
           timestampReadbackMs: performance.now() - reading,
         }
       } finally {
-        active = false
+        end()
       }
     }
-    async function* strips(source: GPUTexture, w: number, h: number, layered = false) {
-      if (disposed || active) throw new Error('Research proof requires an idle owned study.')
-      active = true
+    async function* strips(
+      source: GPUTexture,
+      w: number,
+      h: number,
+      layered = false,
+      signal = options.signal,
+    ) {
+      begin(signal)
       try {
         for (let top = 0; top < h; top += STRIP_ROWS) {
+          check(signal)
           const rows = Math.min(STRIP_ROWS, h - top),
             bytesPerRow = align(w * 16),
             encoder = device.createCommandEncoder()
@@ -361,16 +439,18 @@ export async function createCameraStudy(device: GPUDevice, input: CameraStudyInp
           } finally {
             staging.unmap()
           }
+          await checkpoint({ phase: layered ? 'native-readback' : 'reduced-readback', top }, signal)
           yield { top, rows, data }
         }
       } finally {
-        active = false
+        end()
       }
     }
     return {
       run,
-      nativeStrips: () => strips(native, width, height, true),
-      reducedStrips: () => strips(reduced, reducedWidth, reducedHeight),
+      nativeStrips: (signal?: AbortSignal) => strips(native, width, height, true, signal),
+      reducedStrips: (signal?: AbortSignal) =>
+        strips(reduced, reducedWidth, reducedHeight, false, signal),
       allocatedGpuBytes,
       layerRows,
       layerCount,
@@ -381,9 +461,10 @@ export async function createCameraStudy(device: GPUDevice, input: CameraStudyInp
       compileMs,
       timestamped,
       destroy,
+      close,
     }
   } catch (error) {
-    destroy()
+    await close()
     throw error
   }
 }
