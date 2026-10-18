@@ -5,6 +5,202 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import sharp from 'sharp'
 import type { BackgroundTask } from '../src/shared/contracts'
+import type { ElectronApplication, Page } from '@playwright/test'
+import { setupMergePreview } from './merge-preview.helpers'
+
+async function acceptMergeHandoff(app: ElectronApplication, page: Page) {
+  await setupMergePreview(app, page, 800, 600)
+  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const control = await app.evaluateHandle(({ ipcMain, BrowserWindow }) => {
+    const handlers = (
+      ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
+    )._invokeHandlers
+    let task: import('../src/shared/contracts').BackgroundTask | undefined
+    let holdId: string | undefined
+    let release: (() => void) | undefined
+    let located = false
+    const completedLocates: string[] = []
+    const previewRequests: string[] = []
+    const notify = () =>
+      BrowserWindow.getAllWindows()[0].webContents.send('library:event', { tasksChanged: true })
+    for (const name of ['preview:hdr', 'preview:editing', 'preview:request', 'preview:cached']) {
+      const original = handlers.get(name)!
+      ipcMain.removeHandler(name)
+      ipcMain.handle(name, (...args: unknown[]) => {
+        previewRequests.push(args[1] as string)
+        return original(...args)
+      })
+    }
+    const originalLocate = handlers.get('gallery:locate')!
+    ipcMain.removeHandler('gallery:locate')
+    ipcMain.handle('gallery:locate', async (...args: unknown[]) => {
+      if (args[1] === holdId) {
+        located = true
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+      }
+      const result = await originalLocate(...args)
+      completedLocates.push(args[1] as string)
+      return result
+    })
+    ipcMain.removeHandler('tasks:list')
+    ipcMain.handle('tasks:list', () => (task ? [task] : []))
+    ipcMain.removeHandler('merge:start')
+    ipcMain.handle('merge:start', () => {
+      task = {
+        id: 'accepted-merge-handoff',
+        kind: 'merge',
+        status: 'running',
+        title: 'Publishing accepted merge',
+        errorCount: 0,
+      }
+      notify()
+      return { result: task.id }
+    })
+    return {
+      holdResult(id: string) {
+        holdId = id
+      },
+      release() {
+        holdId = undefined
+        release?.()
+      },
+      update(
+        status: import('../src/shared/contracts').BackgroundTask['status'],
+        resultPhotoId?: string,
+      ) {
+        task = { ...task!, status, resultPhotoId, title: `Accepted merge ${status}` }
+        notify()
+      },
+      state: () => ({ located, completedLocates, previewRequests }),
+    }
+  })
+  await page.getByRole('button', { name: 'Merge', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByTestId('task-progress')).toContainText('Publishing accepted merge')
+  await expect(page.getByTestId('main-preview')).toHaveAttribute('data-suspended', 'true')
+  return { photos, control }
+}
+
+test('accepted merge keeps its source suspended through publication and asynchronous result selection', async ({
+  luma,
+}) => {
+  const { page, app } = luma
+  const { photos, control } = await acceptMergeHandoff(app, page)
+  try {
+    await control.evaluate((c, id) => c.holdResult(id), photos[0].id)
+    await control.evaluate((c, id) => c.update('completed', id), photos[0].id)
+    await expect.poll(() => control.evaluate((c) => c.state().located)).toBe(true)
+    await expect(page.getByTestId('preview-filename')).toHaveText(photos[1].filename)
+    await expect(page.getByTestId('main-preview')).toHaveAttribute('data-suspended', 'true')
+    expect(await control.evaluate((c) => c.state().previewRequests)).not.toContain(photos[1].id)
+  } finally {
+    await control.evaluate((c) => c.release())
+  }
+  await expect(page.getByTestId('preview-filename')).toHaveText(photos[0].filename)
+  await expect(page.getByTestId('main-preview')).toHaveAttribute('data-suspended', 'false')
+  await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
+  expect(await control.evaluate((c) => c.state().previewRequests)).not.toContain(photos[1].id)
+})
+
+test('editing while an automatic merge result lookup is pending preserves the edited source', async ({
+  luma,
+}) => {
+  const { page, app } = luma
+  const { photos, control } = await acceptMergeHandoff(app, page)
+  try {
+    await control.evaluate((c, id) => c.holdResult(id), photos[0].id)
+    await control.evaluate((c, id) => c.update('completed', id), photos[0].id)
+    await expect.poll(() => control.evaluate((c) => c.state().located)).toBe(true)
+    await page.getByRole('button', { name: 'Light', exact: true }).click()
+    await page.getByRole('button', { name: 'Light', exact: true }).click()
+    const field = page.getByRole('spinbutton', { name: 'Exposure value' })
+    await expect(field).toBeEnabled()
+    await field.fill('0.50')
+    await field.press('Enter')
+    await expect
+      .poll(() => page.evaluate((id) => window.luma.getEdits(id), photos[1].id))
+      .toMatchObject({
+        settings: { exposureEv: 0.5 },
+      })
+  } finally {
+    await control.evaluate((c) => c.release())
+  }
+  await expect
+    .poll(() => control.evaluate((c) => c.state().completedLocates))
+    .toContain(photos[0].id)
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  )
+  await expect(page.getByTestId('preview-filename')).toHaveText(photos[1].filename)
+  await expect(page.getByTestId('main-preview')).toHaveAttribute('data-suspended', 'false')
+  await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
+  await expect(page.getByRole('spinbutton', { name: 'Exposure value' })).toHaveValue('0.50')
+  expect(await control.evaluate((c) => c.state().previewRequests)).not.toContain(photos[0].id)
+})
+
+for (const status of ['failed', 'cancelled'] as const) {
+  test(`accepted merge ${status} resumes its unchanged source`, async ({ luma }) => {
+    const { page, app } = luma
+    const { photos, control } = await acceptMergeHandoff(app, page)
+    await control.evaluate((c, status) => c.update(status), status)
+    await expect(page.getByTestId('main-preview')).toHaveAttribute('data-suspended', 'false')
+    await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
+    await expect(page.getByTestId('preview-filename')).toHaveText(photos[1].filename)
+    expect(await control.evaluate((c) => c.state().previewRequests)).toContain(photos[1].id)
+  })
+}
+
+for (const intent of ['navigation', 'adjustment'] as const) {
+  test(`explicit ${intent} resumes editing and supersedes an accepted merge's automatic result selection`, async ({
+    luma,
+  }) => {
+    const { page, app } = luma
+    const { photos, control } = await acceptMergeHandoff(app, page)
+    if (intent === 'navigation') {
+      await page.getByTestId(`photo-card-${photos[0].id}`).click()
+      await expect(page.getByTestId('preview-filename')).toHaveText(photos[0].filename)
+    } else {
+      await page.getByRole('button', { name: 'Light', exact: true }).click()
+      await page.getByRole('button', { name: 'Light', exact: true }).click()
+    }
+    await expect(page.getByTestId('main-preview')).toHaveAttribute('data-suspended', 'false')
+    await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
+    const active = intent === 'navigation' ? photos[0] : photos[1]
+    if (intent === 'adjustment') {
+      const field = page.getByRole('spinbutton', { name: 'Exposure value' })
+      await expect(field).toBeEnabled()
+      await field.fill('0.50')
+      await field.press('Enter')
+      await expect
+        .poll(() => page.evaluate((id) => window.luma.getEdits(id), active.id))
+        .toMatchObject({
+          settings: { exposureEv: 0.5 },
+        })
+    }
+    const requestsBeforeCompletion = await control.evaluate((c) => c.state().previewRequests.length)
+    await control.evaluate(
+      (c, id) => c.update('completed', id),
+      photos[intent === 'navigation' ? 1 : 0].id,
+    )
+    await expect(page.getByTestId('task-progress')).toContainText('Accepted merge completed')
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    )
+    await expect(page.getByTestId('preview-filename')).toHaveText(active.filename)
+    expect(await control.evaluate((c) => c.state().previewRequests)).toContain(active.id)
+    expect(
+      (await control.evaluate((c) => c.state().previewRequests)).slice(requestsBeforeCompletion),
+    ).not.toContain(photos[intent === 'navigation' ? 1 : 0].id)
+  })
+}
 
 test('shared Actions menu hides inapplicable merges and preserves pending right-click selection', async ({
   luma,

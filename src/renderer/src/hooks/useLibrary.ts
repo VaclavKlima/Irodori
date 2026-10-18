@@ -293,11 +293,15 @@ export function useLibrary(onError: (error: string) => void, onActivePhotoChange
   )
 
   const openPhoto = useCallback(
-    (id: string, preserveSelection = false) =>
+    (id: string, preserveSelection = false, isCurrent: () => boolean = () => true) =>
       enqueueSelection(async (since) => {
+        if (!isCurrent()) return
         const ticket = request.current
-        const result = await window.luma.locateGalleryPhoto(id)
-        if (!result) return
+        const result = await window.luma.locateGalleryPhoto(id).catch((error) => {
+          if (isCurrent()) throw error
+          return null
+        })
+        if (!result || !isCurrent()) return
         const photo = result.photo
         const entry = result.entries[result.index - result.offset]
         const hidden = entry.photo.id !== photo.id
@@ -318,7 +322,9 @@ export function useLibrary(onError: (error: string) => void, onActivePhotoChange
           },
           since,
         )
-      }).catch((error) => onError(String(error))),
+      }).catch((error) => {
+        if (isCurrent()) onError(String(error))
+      }),
     [enqueueSelection, onError, updateSelection],
   )
 

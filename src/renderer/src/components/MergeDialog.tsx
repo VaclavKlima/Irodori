@@ -19,7 +19,7 @@ export function MergeDialog({
   ids: string[]
   mode: MergeMode
   onClose: () => void
-  onStarted: () => void
+  onStarted: (taskId: string) => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null),
     reviewRef = useRef<MergeReview | null>(null)
@@ -147,10 +147,10 @@ export function MergeDialog({
     if (!review || !preview || decodedPreview !== preview || updating || error) return
     setStarting(true)
     try {
-      await window.luma.startMerge(review.id, preview.revision)
+      const taskId = await window.luma.startMerge(review.id, preview.revision)
       reviewRef.current = null
       dialog.current?.close()
-      onStarted()
+      onStarted(taskId)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setStarting(false)
