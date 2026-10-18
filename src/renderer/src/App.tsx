@@ -982,6 +982,9 @@ export function App() {
             initialView={restoringPreview?.photoId === photo?.id ? restoringPreview : null}
             onViewChange={savePreviewView}
             adjustments={edits.adjustments}
+            confirmedEdits={
+              edits.confirmed && edits.state?.photoId === photo?.id ? edits.state : null
+            }
             tools={previewTools}
             gesturing={edits.gesturing}
             editingEpoch={edits.epoch}

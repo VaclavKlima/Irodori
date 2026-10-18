@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { validatePatch, type EditState } from '../../../shared/edits'
 import { useForegroundActivity } from './useForegroundActivity'
 
@@ -16,6 +16,9 @@ export function useEdits(photoId: string | undefined, enabled = true) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [epoch, setEpoch] = useState(0)
+  // Returning to the same photo requires a fresh authoritative read for this enabled cycle.
+  const confirmationScope = useMemo(() => ({ photoId, enabled }), [photoId, enabled])
+  const [confirmedScope, setConfirmedScope] = useState<typeof confirmationScope | null>(null)
   const current = useRef<EditState | null>(null)
   const gesture = useRef<{ state: EditState; patch: AdjustmentPatch } | null>(null)
   const busy = useRef(false)
@@ -66,29 +69,44 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     return work
   }, [accept])
   useEffect(() => {
-    let active = true
+    let active = true,
+      requested = 0
     if (current.current?.photoId !== photoId) current.current = null
     const refresh = () => {
       if (!photoId || !enabled) return
+      const request = ++requested
       void window.luma
         .getEdits(photoId)
         .then((next) => {
-          if (active) accept(next)
+          if (!active || request !== requested) return
+          if (next.photoId !== photoId)
+            throw new Error('The edit response does not match this photo.')
+          if (current.current?.photoId === photoId && current.current.revision > next.revision)
+            return
+          accept(next)
+          setConfirmedScope(confirmationScope)
+          setError('')
         })
         .catch((error) => {
-          if (active) setError(String(error))
+          if (active && request === requested) {
+            setConfirmedScope(null)
+            setError(String(error))
+          }
         })
     }
     refresh()
     const unsubscribe = window.luma.onLibraryEvent((event) => {
-      if (event.editsChanged?.photoId === photoId) refresh()
+      if (enabled && event.editsChanged?.photoId === photoId) {
+        setConfirmedScope(null)
+        refresh()
+      }
     })
     return () => {
       active = false
       unsubscribe()
       void flush().catch(() => undefined)
     }
-  }, [photoId, enabled, accept, flush])
+  }, [photoId, enabled, accept, flush, confirmationScope])
   useEffect(() => window.luma.onFlushEdits(flush), [flush])
   const cancel = () => {
     gesture.current = null
@@ -156,6 +174,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
   const visible = state?.photoId === photoId ? state : null
   return {
     state: visible,
+    confirmed: enabled && !!visible && confirmedScope === confirmationScope,
     adjustments: {
       whiteBalance:
         draft?.whiteBalance ?? visible?.settings.whiteBalance ?? neutralAdjustments.whiteBalance,

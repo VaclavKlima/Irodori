@@ -370,8 +370,26 @@ def wg_expr(expr):
     return expr
 
 
+# Interactive preview evaluation deliberately keeps the CTL equations and the
+# uploaded target-table layout while using native binary32 operations. It is a
+# separately versioned approximation; the canonical/export shader below remains
+# generated with the existing compensated arithmetic.
+preview_helpers = '''// Preview-only binary32 evaluation; settled previews and exports use acesWgsl.
+fn mult_f3_f33(v:vec3f,m:mat3x3f)->vec3f {return m*v;}
+fn clamp_f3(v:vec3f,lo:f32,hi:f32)->vec3f {return clamp(v,vec3f(lo),vec3f(hi));}
+fn lerp(a:f32,b:f32,t:f32)->f32 {return a+t*(b-a);}
+fn copysign(x:f32,y:f32)->f32 {return sign(y)*abs(x);}
+fn degrees_to_radians(v:f32)->f32 {return v/180.*3.141592653589793;}
+fn radians_to_degrees(v:f32)->f32 {return v*57.29577951308232;}
+fn acesLog10(v:f32)->f32 {return log(v)/log(10.);}
+fn acesPow(a:f32,b:f32)->f32 {return pow(a,b);}
+'''
+preview_wg = preview_helpers + wg[wg.index('struct AcesData'):]
+compensated_functions = ['RGB_to_Aab', 'Aab_to_RGB', 'Y_to_J', 'J_to_Y', 'Aab_to_JMh', 'JMh_to_Aab', 'solve_J_intersect']
+
+
 for name, (kind, dims, args, body) in functions.items():
-    if name not in pixel or name in provided or name in ['RGB_to_Aab', 'Aab_to_RGB', 'Y_to_J', 'J_to_Y', 'Aab_to_JMh', 'JMh_to_Aab', 'solve_J_intersect']:
+    if name not in pixel or name in provided:
         continue
     parameters = []
     symbols = {}
@@ -463,7 +481,10 @@ for name, (kind, dims, args, body) in functions.items():
         body = body.replace('h - base', 'h - f32(base)')
     body = body.replace('midpoint(low_i, high_i)', '(low_i+high_i)/2')
     body = body.replace('midpoint(i_lo, i_hi)', '(i_lo+i_hi)/2')
-    wg += f'fn {name}({",".join(parameters)})->{wg_type(kind, dimensions(dims))} {{\n{wg_expr(body)}\n}}\n'
+    generated = f'fn {name}({",".join(parameters)})->{wg_type(kind, dimensions(dims))} {{\n{wg_expr(body)}\n}}\n'
+    preview_wg += generated
+    if name not in compensated_functions:
+        wg += generated
 
 wg += 'fn acesMath(index:u32)->vec2f {\n  let pair=acesData.values[' + str(precision_offset) + '+i32(index>>1u)];\n  return select(pair.xy,pair.zw,(index&1u)!=0u);\n}\n'
 wg += (ROOT / 'scripts/aces-precision.wgsl').read_text()
@@ -471,6 +492,13 @@ wg += (ROOT / 'scripts/aces-precision.wgsl').read_text()
 # Matrices are filled by the generated CPU port, not independently tuned.
 wg_header = header + "import { acesPrecisionWgsl } from './aces-precision-wgsl'\nimport { AP0_TO_AP1, AP1_TO_AP0 } from './aces-core'\nconst matrix=(m:number[][])=>'mat3x3f('+m.map(r=>'vec3f('+r.map(v=>String(v).includes('.')?String(v):v+'.0').join(',')+')').join(',')+')'\nconst acesMatrices='const AP0_TO_AP1='+matrix(AP0_TO_AP1)+';\\nconst AP1_TO_AP0='+matrix(AP1_TO_AP0)+';'\n"
 (ROOT / 'src/shared/aces-wgsl.ts').write_text(wg_header + 'export const acesWgsl = `\n' + wg + '`\n')
+
+preview_header = header + "import { AP0_TO_AP1, AP1_TO_AP0 } from './aces-core'\nconst matrix=(m:number[][])=>'mat3x3f('+m.map(r=>'vec3f('+r.map(v=>String(v).includes('.')?String(v):v+'.0').join(',')+')').join(',')+')'\nconst acesMatrices='const AP0_TO_AP1='+matrix(AP0_TO_AP1)+';\\nconst AP1_TO_AP0='+matrix(AP1_TO_AP0)+';'\n"
+(ROOT / 'src/shared/aces-preview-wgsl.ts').write_text(
+    preview_header +
+    "// This policy is an interactive preview approximation, never an export rendition.\n" +
+    "export const ACES_INTERACTIVE_PREVIEW_VERSION = 'aces2-f32-interactive-v1' as const\n" +
+    'export const acesPreviewWgsl = `\n' + preview_wg + '`\n')
 
 # Storage packing is generated from the same field layout as shader accessors.
 packer = header + "import { acesPrecisionData } from './aces-precision-wgsl'\nimport type { ODTParams } from './aces-core'\nexport const ACES_DATA_BYTES=" + str(cursor * 16) + "\nexport function packAces(p:ODTParams):Float32Array<ArrayBuffer> {\n const result=new Float32Array(" + str(cursor * 4) + ");\n"

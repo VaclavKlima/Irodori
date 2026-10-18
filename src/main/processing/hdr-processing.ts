@@ -13,7 +13,7 @@ import type { RawGpuRenderer } from '../gpu/raw-renderer'
 import { gpuOutput } from '../merge/gpu-output'
 import type { LinearFrame } from './contracts'
 import type { ProcessingOptions } from '../../shared/lens'
-import type { FullPreviewResult } from '../preview-types'
+import type { FullPreviewResult, HdrPreparationTimings } from '../preview-types'
 import { frameByteLength } from '../../shared/preview-frame'
 import { neutralAdjustments, sameAdjustments, srgbTransform } from '../../shared/adjustments'
 import {
@@ -38,6 +38,15 @@ import {
 } from '../../shared/hdr'
 
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+const gpuPreparationTimingFields = [
+  ['initializeMs', 'workerGpuInitializeMs'],
+  ['uploadMs', 'workerGpuUploadMs'],
+  ['processingMs', 'workerGpuProcessingMs'],
+  ['correctionMs', 'workerGpuCorrectionMs'],
+  ['displayReadbackMs', 'workerGpuReadbackMs'],
+  ['hdrReadbackMapMs', 'workerGpuReadbackMapMs'],
+  ['hdrOrientationCopyMs', 'workerGpuOrientationCopyMs'],
+] as const
 export async function scanHdr(path: string, job: HdrStatisticsJob) {
   const result = hdrStatistics(job.domain, job.target, job.asset)
   for await (const data of readHdrStrips(path, job.asset))
@@ -151,29 +160,47 @@ async function prepare(
     Partial<Pick<RawGpuRenderer, 'mergeDevice'>>,
   backend: string,
 ) {
+  const started = performance.now()
+  const timings: HdrPreparationTimings = {}
   const decoder = rawDecoder(path)
   if (!decoder) throw new Error('HDR processing requires a verified Sony RAW.')
+  const opening = performance.now()
   const session = await decoder.open(path)
+  timings.workerDecoderOpenMs = performance.now() - opening
   let frame: LinearFrame
   let gpuPrepared = false
   let gpuPlan: ReturnType<typeof correctionPlan> | undefined
   let actualBackend: 'cpu' | 'gpu' = 'cpu'
   let fallback: string | undefined
+  let gpuStarted: number | undefined
   const profile = cameraProfile(session.metadata.make, session.metadata.model)
   try {
     if (!session.metadata.hdrEligible)
       throw new Error('HDR processing is unavailable for this RAW mode.')
+    const unpacking = performance.now()
     session.unpack()
+    timings.workerUnpackMs = performance.now() - unpacking
+    const extracting = performance.now()
     const source = backend !== 'cpu' ? session.gpuSource(true) : null
+    timings.workerSensorSourceMs = performance.now() - extracting
     if (source?.normalization) {
       try {
+        const planning = performance.now()
         gpuPlan = correctionPlan(
           source.width,
           source.height,
           options.metadata.lensProfile,
           options.settings,
         )
+        timings.workerCorrectionPlanMs = performance.now() - planning
+        gpuStarted = performance.now()
         const rendered = await gpu.render(source, gpuPlan, neutralAdjustments, true)
+        timings.workerGpuTotalMs = performance.now() - gpuStarted
+        for (const [sourceKey, outputKey] of gpuPreparationTimingFields) {
+          const value = rendered.timings?.[sourceKey]
+          if (typeof value === 'number' && Number.isFinite(value) && value >= 0)
+            timings[outputKey] = value
+        }
         if (!rendered.working || !rendered.hdrPrepared) throw new Error('GPU HDR data unavailable.')
         frame = {
           data: rendered.working.data,
@@ -186,28 +213,47 @@ async function prepare(
         gpuPrepared = true
         actualBackend = 'gpu'
       } catch (error) {
+        if (gpuStarted !== undefined && timings.workerGpuTotalMs === undefined)
+          timings.workerGpuTotalMs = performance.now() - gpuStarted
         fallback = String(error)
+        const recovering = performance.now()
         frame = session.linear(true)
+        timings.workerCpuFallbackMs = performance.now() - recovering
       }
-    } else frame = session.linear(true)
+    } else {
+      const recovering = performance.now()
+      frame = session.linear(true)
+      timings.workerCpuFallbackMs = performance.now() - recovering
+    }
   } finally {
+    const closing = performance.now()
     session.close()
+    timings.workerDecoderCloseMs = performance.now() - closing
+    const releasing = performance.now()
     gpu.releaseFrame()
+    timings.workerGpuReleaseMs = performance.now() - releasing
   }
   if (!frame.normalization || !profile) throw new Error('Missing HDR normalization.')
   const normal = frame.normalization
   // Capture scale is fixed at 1; image contents never determine exposure.
   normal.referenceWhite = 1
   const blend = sensorBlendParameters(normal)
-  if (!gpuPrepared && blend)
+  if (!gpuPrepared && blend) {
+    const blending = performance.now()
     for (let i = 0; i < frame.data.length; i += 4)
       frame.data.set(
         sensorBlendRgb([frame.data[i], frame.data[i + 1], frame.data[i + 2]], blend),
         i,
       )
+    timings.workerHighlightBlendMs = performance.now() - blending
+  }
+  const planning = performance.now()
   const plan = gpuPrepared
     ? { ...gpuPlan!, width: frame.width, height: frame.height }
     : correctionPlan(frame.width, frame.height, options.metadata.lensProfile, options.settings)
+  if (!gpuPrepared)
+    timings.workerCorrectionPlanMs =
+      (timings.workerCorrectionPlanMs ?? 0) + performance.now() - planning
   const width = frame.flip & 4 ? plan.height : plan.width,
     height = frame.flip & 4 ? plan.width : plan.height
   const byteLength = frameByteLength(width, height) * 4
@@ -235,7 +281,9 @@ async function prepare(
       orientation: 'applied-once',
     },
   }
+  const openingNative = performance.now()
   const file = await open(join(output, 'linear.f32'), 'wx')
+  timings.workerNativeOpenMs = performance.now() - openingNative
   const digest = createHash('sha256')
   const cx = (frame.width - 1) / 2,
     cy = (frame.height - 1) / 2,
@@ -243,12 +291,16 @@ async function prepare(
   const geometric = plan.applied.distortion || plan.applied.chromaticAberration
   const gain = (x: number, y: number) => radial(plan.lut, Math.hypot(x - cx, y - cy) / radius, 3)
   const camera: RGB = [0, 0, 0]
+  timings.workerNativeWriteMs = 0
+  timings.workerNativeWholeHashMs = 0
+  timings.workerNativeStripHashMs = 0
   try {
     for (let top = 0; top < height; top += 64) {
       const count = Math.min(64, height - top)
       const data = gpuPrepared
         ? frame.data.subarray(top * width * 4, (top + count) * width * 4)
         : new Float32Array(width * count * 4)
+      const geometry = performance.now()
       for (let y = top; !gpuPrepared && y < top + count; y++)
         for (let x = 0; x < width; x++) {
           let sx = frame.flip & 4 ? y : x,
@@ -295,16 +347,30 @@ async function prepare(
           if (!converted.every(Number.isFinite)) throw new Error('Invalid HDR conversion.')
           data.set([...converted, 1], ((y - top) * width + x) * 4)
         }
+      if (!gpuPrepared)
+        timings.workerCpuGeometryMs =
+          (timings.workerCpuGeometryMs ?? 0) + performance.now() - geometry
       const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+      const writing = performance.now()
       await file.writeFile(bytes)
+      timings.workerNativeWriteMs += performance.now() - writing
+      const hashingWhole = performance.now()
       digest.update(bytes)
+      timings.workerNativeWholeHashMs += performance.now() - hashingWhole
+      const hashingStrip = performance.now()
       asset.strips.push({ byteLength: bytes.byteLength, sha256: sha(bytes) })
+      timings.workerNativeStripHashMs += performance.now() - hashingStrip
     }
+    const hashingWhole = performance.now()
     asset.sha256 = digest.digest('hex')
+    timings.workerNativeWholeHashMs += performance.now() - hashingWhole
   } finally {
+    const closingNative = performance.now()
     await file.close()
+    timings.workerNativeCloseMs = performance.now() - closingNative
   }
-  return { asset, backend: actualBackend, fallback, applied: plan.applied }
+  timings.workerPreparationMs = performance.now() - started
+  return { asset, backend: actualBackend, fallback, applied: plan.applied, timings }
 }
 
 export async function renderHdr(
@@ -347,9 +413,10 @@ export async function renderHdr(
       appliedCorrections: prepared?.applied,
       renderId: `${sourceVersion}-${asset.sha256}`,
       diagnostics: {
+        clock: 'worker-performance',
         backend: prepared?.backend ?? 'cpu',
         fallback: prepared?.fallback,
-        timings: { totalMs: performance.now() - start },
+        timings: { ...prepared?.timings, totalMs: performance.now() - start },
       },
     }
   const wb = hdrAdjustmentMatrix(adjustments, asset.whiteBalance) ?? undefined
@@ -444,9 +511,14 @@ export async function renderHdr(
     appliedCorrections: prepared?.applied,
     renderId: `${sourceVersion}-${HDR_ADJUSTMENT_VERSION}-${HDR_OUTPUT_VERSION}-${JSON.stringify(adjustments)}`,
     diagnostics: {
+      clock: 'worker-performance',
       backend: prepared?.backend ?? 'cpu',
       fallback: proofFallback ?? prepared?.fallback,
-      timings: { totalMs: performance.now() - start, proofMs: performance.now() - proofStarted },
+      timings: {
+        ...prepared?.timings,
+        totalMs: performance.now() - start,
+        proofMs: performance.now() - proofStarted,
+      },
     },
   }
 }

@@ -110,6 +110,8 @@ export async function sustainedEditorInput(
       at: number
       latencyMs: number
       quality: string
+      previewPolicy: string
+      intent: string
       timings?: Record<string, number>
       publicationObservedAt: number
       sourceIdentity?: string
@@ -168,6 +170,8 @@ export async function sustainedEditorInput(
             ? null
             : publicationObservedAt - request.at,
         quality: canvas.dataset.quality ?? 'unknown',
+        previewPolicy: canvas.dataset.interactivePolicy ?? 'reference',
+        intent: request?.intent ?? canvas.dataset.presentationIntent ?? 'unknown',
         timings: canvas.dataset.frameTimings
           ? (JSON.parse(canvas.dataset.frameTimings) as Record<string, number>)
           : undefined,
@@ -328,6 +332,7 @@ export async function sustainedEditorInput(
         () =>
           readValue() === finalValue &&
           canvas.dataset.quality === 'normal' &&
+          canvas.dataset.completedEditSerial === canvas.dataset.requestedSerial &&
           canvas.dataset.gesturing === 'false',
         `Final sharp ${label} frame did not converge.`,
       )
@@ -365,9 +370,31 @@ export async function sustainedEditorInput(
       histogramObserver.disconnect()
     }
     const historyAfter = await window.luma.getEditHistory(photoId)
+    const requestedInputSerials = new Set(requests.map((request) => request.inputSerial))
+    const presentedInputSerials = new Set(presentations.map((presentation) => presentation.serial))
     const p95 = (values: number[]) =>
       values.length ? [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1] : null
     const intervals = inputs.slice(1).map((input, i) => input.at - inputs[i].at)
+    const duringInput = presentations.filter(
+      (presentation) => presentation.at >= inputs[0].at && presentation.at <= releaseAt,
+    )
+    const presentationBoundaries = [
+      inputs[0].at,
+      ...duringInput.map((frame) => frame.at),
+      releaseAt,
+    ]
+    const presentationGaps = presentationBoundaries
+      .slice(1)
+      .map((at, i) => at - presentationBoundaries[i])
+    const latencySorted = presentations.map((frame) => frame.latencyMs).sort((a, b) => a - b)
+    const interactionLatencies = presentations
+      .filter((frame) => frame.intent === 'interactive')
+      .map((frame) => frame.latencyMs)
+      .sort((a, b) => a - b)
+    const interactionQuantile = (p: number) =>
+      interactionLatencies.length
+        ? interactionLatencies[Math.ceil(interactionLatencies.length * p) - 1]
+        : null
     for (const presentation of presentations)
       if (presentation.sourceIdentity !== undefined)
         presentation.gpu = gpuByRequest.get(
@@ -425,12 +452,21 @@ export async function sustainedEditorInput(
       zoom,
       epochMs: performance.timeOrigin,
       requestedHz: frequency,
+      inputStartedAt: inputs[0].at,
+      inputReleasedAt: releaseAt,
+      inputDurationMs: releaseAt - inputs[0].at,
       achievedHz: (inputs.length - 1) / ((inputs.at(-1)!.at - inputs[0].at) / 1000),
       inputIntervalP95Ms: p95(intervals),
       inputs,
       requests,
       presentations,
       requestCount: requests.length,
+      observedRequestedInputCount: requestedInputSerials.size,
+      observedPresentedInputCount: presentedInputSerials.size,
+      observedCoalescedBeforeRequest: inputs.length - requestedInputSerials.size,
+      observedRequestedWithoutVisible: [...requestedInputSerials].filter(
+        (serial) => !presentedInputSerials.has(serial),
+      ).length,
       unobservedRequestSerials,
       inputToRequestSummary: summarize(
         optionalValues(requests.map((request) => request.inputToRequestMs)),
@@ -501,6 +537,22 @@ export async function sustainedEditorInput(
       histogramsDuringInput: histograms.filter((histogram) => histogram.at <= releaseAt).length,
       sharp: presentations.filter((presentation) => presentation.quality === 'normal').length,
       draft: presentations.filter((presentation) => presentation.quality === 'draft').length,
+      interactive: presentations.filter((presentation) => presentation.quality === 'interactive')
+        .length,
+      visibleUpdatesPerSecond: duringInput.length / ((releaseAt - inputs[0].at) / 1000),
+      longestPresentationGapMs: Math.max(...presentationGaps),
+      latencyP50Ms: latencySorted.length
+        ? latencySorted[Math.ceil(latencySorted.length * 0.5) - 1]
+        : null,
+      latencyP99Ms: latencySorted.length
+        ? latencySorted[Math.ceil(latencySorted.length * 0.99) - 1]
+        : null,
+      latencyMaximumMs: latencySorted.length ? latencySorted.at(-1)! : null,
+      interactionPresentationCount: interactionLatencies.length,
+      interactionLatencyP50Ms: interactionQuantile(0.5),
+      interactionLatencyP95Ms: interactionQuantile(0.95),
+      interactionLatencyP99Ms: interactionQuantile(0.99),
+      interactionLatencyMaximumMs: interactionLatencies.at(-1) ?? null,
       missing:
         inputs.length - new Set(presentations.map((presentation) => presentation.serial)).size,
       latencyP95Ms: p95(presentations.map((presentation) => presentation.latencyMs)),

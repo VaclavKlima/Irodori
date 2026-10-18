@@ -2,7 +2,8 @@ import type { PreviewViewState } from '../../../shared/workspace'
 import { useHdrAnalysis } from '../hooks/useHdrAnalysis'
 import { SDR_TARGET } from '../../../shared/hdr'
 import type { DisplayTarget } from '../../../shared/hdr'
-import { HdrPresenter } from '../preview/hdr-presenter'
+import { HdrPresenter, type HdrPresentationState } from '../preview/hdr-presenter'
+import { HDR_PRESENTATION_CACHE_BUDGET } from '../preview/hdr-presentation-cache'
 import { useForegroundActivity } from '../hooks/useForegroundActivity'
 import { HdrCpuPresenter } from '../preview/hdr-cpu-presenter'
 import { hdrPresentationMemory, HDR_PRESENTATION_BUDGET } from '../preview/hdr-memory'
@@ -45,6 +46,8 @@ import { usePreviewWheel } from '../hooks/usePreviewWheel'
 import { ProgressSpinner } from './ProgressSpinner'
 import { PreviewMetadata } from './PreviewMetadata'
 
+const PRESENTATION_CACHE = import.meta.env.VITE_LUMA_HDR_PRESENTATION_CACHE === '1'
+
 interface Model {
   loaded: boolean
   image: Size
@@ -61,6 +64,7 @@ interface Props {
   gesturing: boolean
   editingEpoch?: number
   adjustments: AdjustmentParameters
+  confirmedEdits?: HdrPresentationState | null
   onEditingReady: (photoId: string | null) => void
   photo: Photo | null
   total: number
@@ -79,6 +83,7 @@ export function PhotoPreview({
   displayTarget,
   photo,
   adjustments,
+  confirmedEdits = null,
   tools,
   gesturing,
   editingEpoch = 0,
@@ -89,6 +94,7 @@ export function PhotoPreview({
   onImport,
   onContextMenu,
 }: Props) {
+  const presentationState = PRESENTATION_CACHE ? confirmedEdits : null
   const recoveryView = useRef(initialView)
   const initialTarget = useRef(displayTarget)
   const overlay = useRef<HTMLCanvasElement>(null)
@@ -147,6 +153,7 @@ export function PhotoPreview({
   const [displayedUrl, setDisplayedUrl] = useState('')
   const presenter = useRef<PreviewPresenter | HdrPresenter | HdrCpuPresenter | null>(null)
   const [hdrReady, setHdrReady] = useState(false)
+  const [cachedDisplayReady, setCachedDisplayReady] = useState(false)
   useEffect(() => {
     if (!hdrReady) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -154,10 +161,16 @@ export function PhotoPreview({
   }, [hdrReady])
   const selectedAt = useRef(0)
   const firstPresentedMs = useRef<number | undefined>(undefined)
+  const firstUsefulMs = useRef<number | undefined>(undefined)
   useEffect(() => {
     selectedAt.current = performance.now()
     firstPresentedMs.current = undefined
+    firstUsefulMs.current = undefined
   }, [photo?.id])
+  const cachedPresented = useCallback((presented: boolean) => {
+    if (presented) firstUsefulMs.current ??= performance.now() - selectedAt.current
+    setCachedDisplayReady(presented)
+  }, [])
   const fallbackReason = useRef('')
   const fullVisible = Boolean(full.preview && (displayedUrl || full.preview.linear?.hdr))
   const live = useWorkingPreview(full.preview, fullVisible && !suspended)
@@ -225,6 +238,7 @@ export function PhotoPreview({
     const report = () => {
       if (cancelled) return
       if (ready) firstPresentedMs.current ??= performance.now() - selectedAt.current
+      if (ready) firstUsefulMs.current ??= firstPresentedMs.current
       void window.luma.reportPreviewPresentation({
         photoId: preview.photoId,
         revision: preview.settingsRevision ?? 0,
@@ -247,13 +261,21 @@ export function PhotoPreview({
                 ? fallbackReason.current
                 : displayTarget.reason
               : 'Legacy SDR processing.',
-        timings: ready
-          ? {
-              ...JSON.parse(image.current?.dataset.loadTimings ?? '{}'),
-              selectionToPresentedMs: firstPresentedMs.current!,
-              uploadMs: Number(image.current?.dataset.uploadMs ?? 0),
-            }
-          : {},
+        timings:
+          ready || cachedDisplayReady
+            ? {
+                ...JSON.parse(image.current?.dataset.loadTimings ?? '{}'),
+                firstUsefulMs: firstUsefulMs.current!,
+                ...(ready
+                  ? {
+                      selectionToPresentedMs: firstPresentedMs.current!,
+                      nativeEditingReadyMs: firstPresentedMs.current!,
+                    }
+                  : {}),
+                cachedPresentation: Number(cachedDisplayReady),
+                uploadMs: Number(image.current?.dataset.uploadMs ?? 0),
+              }
+            : {},
       })
     }
     if (ready) requestAnimationFrame(() => requestAnimationFrame(report))
@@ -266,6 +288,7 @@ export function PhotoPreview({
     full.preview,
     working?.hdr,
     hdrReady,
+    cachedDisplayReady,
     displayedUrl,
     fallback,
     hdrJpeg,
@@ -281,6 +304,8 @@ export function PhotoPreview({
     presenter.current?.setComparison(mode, split)
     if (presenter.current instanceof HdrPresenter || presenter.current instanceof HdrCpuPresenter)
       presenter.current.setHdrRanges(hdrRanges)
+    if (presenter.current instanceof HdrPresenter)
+      presenter.current.setPresentationState(presentationState)
     if (presenter.current instanceof HdrPresenter)
       presenter.current.setEditing(gesturing, editingEpoch)
     presenter.current?.draw(model.image, model.viewport, model.view, {
@@ -519,6 +544,7 @@ export function PhotoPreview({
               retainedSurface.current ?? undefined,
               beginActivity,
               analysisPending,
+              cachedPresented,
             )
       } else
         presenter.current = new PreviewPresenter(canvas, fallback || !editingSurface, () =>
@@ -542,6 +568,7 @@ export function PhotoPreview({
     analyze,
     beginActivity,
     analysisPending,
+    cachedPresented,
   ])
 
   useEffect(() => {
@@ -593,15 +620,28 @@ export function PhotoPreview({
       return
     }
     try {
+      if (presenter.current instanceof HdrPresenter)
+        presenter.current.setPresentationState(presentationState)
       if (working) presenter.current?.setWorking(working)
-      onEditingReady(working ? (photo?.id ?? null) : null)
+      onEditingReady(
+        working && (!PRESENTATION_CACHE || !working.hdr || hdrReady) ? (photo?.id ?? null) : null,
+      )
     } catch {
       // Canvas capability checks can require replacing the DOM canvas with a 2D surface.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFallback(true)
     }
     return () => onEditingReady(null)
-  }, [working, fallback, generation, photo?.id, onEditingReady, suspended])
+  }, [
+    working,
+    fallback,
+    generation,
+    photo?.id,
+    onEditingReady,
+    suspended,
+    presentationState,
+    hdrReady,
+  ])
 
   useEffect(() => {
     if (
@@ -635,6 +675,9 @@ export function PhotoPreview({
         working.height,
         Math.round(model.viewport.width * dpr),
         Math.round(model.viewport.height * dpr),
+        undefined,
+        0,
+        PRESENTATION_CACHE ? HDR_PRESENTATION_CACHE_BUDGET : 0,
       ).total <= HDR_PRESENTATION_BUDGET
     ) {
       // A smaller viewport can recover without changing the photograph or display target.
@@ -669,6 +712,7 @@ export function PhotoPreview({
     generation,
     gesturing,
     editingEpoch,
+    presentationState,
     mask,
     shadows,
     highlights,
@@ -776,7 +820,15 @@ export function PhotoPreview({
           data-pan-x={view.x}
           data-pan-y={view.y}
           data-loading={Boolean(photo && !fullVisible && !full.error)}
-          data-resolution={fullVisible ? 'full' : full.placeholder ? 'placeholder' : 'loading'}
+          data-resolution={
+            cachedDisplayReady && !hdrReady
+              ? 'cached-exact'
+              : fullVisible
+                ? 'full'
+                : full.placeholder
+                  ? 'placeholder'
+                  : 'loading'
+          }
           data-image-width={model.image.width}
           data-image-height={model.image.height}
           data-dragging={dragging}
@@ -823,6 +875,7 @@ export function PhotoPreview({
                 data-suspended={suspended}
                 data-gesturing={gesturing}
                 data-editing-epoch={editingEpoch}
+                data-cached-display-ready={cachedDisplayReady}
                 data-src={full.preview?.url}
                 tabIndex={0}
                 aria-keyshortcuts="+ - 0 1 ArrowLeft ArrowRight ArrowUp ArrowDown"
@@ -830,7 +883,8 @@ export function PhotoPreview({
                   width: model.viewport.width || undefined,
                   height: model.viewport.height || undefined,
                   visibility:
-                    fullVisible && ready && (!full.preview?.linear?.hdr || hdrReady)
+                    (!suspended && !full.error && cachedDisplayReady) ||
+                    (fullVisible && ready && (!full.preview?.linear?.hdr || hdrReady))
                       ? 'visible'
                       : 'hidden',
                 }}
@@ -843,7 +897,7 @@ export function PhotoPreview({
                 style={{
                   width: model.viewport.width || undefined,
                   height: model.viewport.height || undefined,
-                  visibility: retained && !hdrReady ? 'visible' : 'hidden',
+                  visibility: retained && !hdrReady && !cachedDisplayReady ? 'visible' : 'hidden',
                   pointerEvents: 'none',
                 }}
               />
@@ -928,7 +982,8 @@ export function PhotoPreview({
                   }}
                 />
               )}
-              {(!fullVisible || (!!full.preview?.linear?.hdr && !hdrReady && !retained)) && (
+              {(!fullVisible ||
+                (!!full.preview?.linear?.hdr && !hdrReady && !retained && !cachedDisplayReady)) && (
                 <div className={styles.message} role={full.error ? 'alert' : 'status'}>
                   {full.error ? (
                     <span>Could not load this preview.</span>

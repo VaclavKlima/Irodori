@@ -25,7 +25,11 @@ export interface GpuFrame {
   width: number
   height: number
   adapter: string
-  timings: Record<string, number>
+  timings: Record<string, number> & {
+    /** Children of displayReadbackMs, observed on this worker's performance clock. */
+    hdrReadbackMapMs?: number
+    hdrOrientationCopyMs?: number
+  }
 }
 export interface GpuMergePreparation {
   gains: number[]
@@ -162,7 +166,7 @@ export class RawGpuRenderer {
       this.close()
       throw error
     })
-    const timings: Record<string, number> = { initializeMs: performance.now() - start }
+    const timings: GpuFrame['timings'] = { initializeMs: performance.now() - start }
     const { width, height } = source
     const bytes = frameByteLength(width, height)
     const rows = consumer ? 128 : 256,
@@ -673,6 +677,8 @@ export class RawGpuRenderer {
         if (source.normalization) {
           const orientedWidth = source.flip & 4 ? outHeight : outWidth
           const pixels = new Float32Array(outWidth * outHeight * 4)
+          timings.hdrReadbackMapMs = 0
+          timings.hdrOrientationCopyMs = 0
           for (let top = 0; top < outHeight; top += 64) {
             const count = Math.min(64, outHeight - top)
             const staging = makeBuffer(
@@ -686,8 +692,11 @@ export class RawGpuRenderer {
               [outWidth, count],
             )
             device.queue.submit([copy.finish()])
+            const mapping = performance.now()
             await staging.mapAsync(GPUMapMode.READ)
+            timings.hdrReadbackMapMs += performance.now() - mapping
             const values = new Float32Array(staging.getMappedRange())
+            const orienting = performance.now()
             for (let row = 0; row < count; row++)
               for (let x = 0; x < outWidth; x++) {
                 const y = top + row
@@ -698,6 +707,7 @@ export class RawGpuRenderer {
                   to = (dy * orientedWidth + dx) * 4
                 for (let c = 0; c < 4; c++) pixels[to + c] = values[from + c]
               }
+            timings.hdrOrientationCopyMs += performance.now() - orienting
             staging.unmap()
             staging.destroy()
           }

@@ -6,6 +6,19 @@ import { HdrGpuTimings, type HdrGpuFrameTimings } from '../src/renderer/src/prev
 const frame = { width: 4096, height: 3072 },
   viewport = { width: 1100, height: 700 }
 const view = { fit: false, scale: 1, x: 0, y: 0 }
+test('interactive arithmetic tiles cannot satisfy the full-quality settled cache identity', () => {
+  const source = { width: 64, height: 64 }
+  const cache = new HdrRenderCache(8)
+  const plan = hdrCachePlan(source, source, { width: 16, height: 16 }, view, 'after', 0.5)
+  const exact = { ...plan, variant: 'content-hdr' }
+  const preview = { ...plan, variant: 'content-hdr:aces2-f32-interactive-v1' }
+  const render = (p: typeof plan) => [...cache.batches(p, true)].map((batch) => batch.renderedTiles)
+  expect(render(preview).some((count) => count > 0)).toBe(true)
+  expect(cache.has(exact, true)).toBe(false)
+  expect(render(exact).some((count) => count > 0)).toBe(true)
+  expect(render(preview).every((count) => count === 0)).toBe(true)
+  expect(render(exact).every((count) => count === 0)).toBe(true)
+})
 test('nearby pan and zoom reuse rendered texels without evaluating ACES in presentation', () => {
   const cache = new HdrRenderCache(128)
   const first = hdrCachePlan(frame, frame, viewport, view, 'after', 0.5)

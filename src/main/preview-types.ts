@@ -103,6 +103,37 @@ export interface ThumbnailProcessor {
   close(): Promise<void>
 }
 
+/** Elapsed worker-process clocks, including CPU scheduling and GPU waits, never GPU timestamps.
+ * workerPreparationMs encloses the preparation stages. workerGpuTotalMs encloses GPU stages;
+ * workerGpuProcessingMs includes workerGpuCorrectionMs, and workerGpuReadbackMs includes its
+ * map and orientation-copy children. Parent and child durations must not be added together.
+ */
+export interface HdrPreparationTimings {
+  workerPreparationMs?: number
+  workerDecoderOpenMs?: number
+  workerUnpackMs?: number
+  workerSensorSourceMs?: number
+  workerCorrectionPlanMs?: number
+  workerGpuTotalMs?: number
+  workerGpuInitializeMs?: number
+  workerGpuUploadMs?: number
+  workerGpuProcessingMs?: number
+  workerGpuCorrectionMs?: number
+  workerGpuReadbackMs?: number
+  workerGpuReadbackMapMs?: number
+  workerGpuOrientationCopyMs?: number
+  workerCpuFallbackMs?: number
+  workerDecoderCloseMs?: number
+  workerGpuReleaseMs?: number
+  workerHighlightBlendMs?: number
+  workerCpuGeometryMs?: number
+  workerNativeOpenMs?: number
+  workerNativeWriteMs?: number
+  workerNativeWholeHashMs?: number
+  workerNativeStripHashMs?: number
+  workerNativeCloseMs?: number
+}
+
 export interface FullPreviewResult {
   statistics?: ImageStatistics
   adjustments?: AdjustmentParameters
@@ -117,10 +148,11 @@ export interface FullPreviewResult {
   renderId: string
   placeholderBytes: number
   diagnostics?: {
+    clock?: 'worker-performance'
     backend: 'cpu' | 'gpu'
     adapter?: string
     fallback?: string
-    timings: Record<string, number>
+    timings: Record<string, number> & HdrPreparationTimings
   }
 }
 

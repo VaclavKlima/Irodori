@@ -2,6 +2,8 @@ import { hdrRangesWgsl } from './hdr-ranges'
 import { hdrAdjustmentsWgsl } from '../../../shared/hdr-adjustments-wgsl'
 import { displayRenderingWgsl, displayEncodingWgsl } from '../../../shared/display-rendering-wgsl'
 import { REC2020_TO_P3, REC2020_TO_SRGB } from '../../../shared/hdr'
+import { acesWgsl } from '../../../shared/aces-wgsl'
+import { acesPreviewWgsl } from '../../../shared/aces-preview-wgsl'
 const primaryMatrix = (m: number[]) =>
   [0, 1, 2].map((c) => `vec3f(${m[c]},${m[c + 3]},${m[c + 6]})`).join(',')
 export const hdrPresentationWgsl = `
@@ -31,11 +33,14 @@ fn encoded(v:vec3f)->vec3f {return encodeDisplayRgb(v);}
 export type HdrCacheKernelKind = 'grid8' | 'linear64'
 
 /** Keep the shader's invocation mapping and its host dispatch dimensions together. */
-export function hdrCacheKernel(kind: HdrCacheKernelKind = 'grid8') {
+export function hdrCacheKernel(
+  kind: HdrCacheKernelKind = 'grid8',
+  precision: 'reference' | 'interactive' = 'reference',
+) {
   const linear = kind === 'linear64'
   const texel = linear ? 'at' : 'vec2i(p.xy)'
   const shader = `
-${hdrRenderingWgsl}
+${precision === 'interactive' ? hdrRenderingWgsl.replace(acesWgsl, acesPreviewWgsl) : hdrRenderingWgsl}
 @group(0) @binding(3) var cached: texture_storage_2d_array<rgba32float,write>;
 @group(0) @binding(5) var<storage,read> jobs:array<vec4u>;
 @compute @workgroup_size(${linear ? '64' : '8,8'}) fn renderTile(@builtin(global_invocation_id) p:vec3u) {

@@ -23,7 +23,7 @@ export async function importPhotos(
   paths = ['tests/fixtures/photos/alpine-lake.jpg', 'tests/fixtures/photos/mountain-ridge.jpg'],
   waitForPreview = true,
 ) {
-  await page.getByRole('button', { name: 'Import photos', exact: true }).click()
+  await page.getByLabel('Import photos', { exact: true }).click()
   await choose(app, page, paths)
   await expect(page.getByTestId('import-status')).toContainText('Ready to import', {
     timeout: 30_000,

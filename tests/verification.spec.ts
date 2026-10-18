@@ -213,6 +213,14 @@ test('explicit scope unions and benchmark families preserve gates without overla
     ['--export-benchmark', 'export'],
   ])
     expect(files([mode])).toEqual([
+      ...(file === 'hdr'
+        ? [
+            'tests/editor-navigation-responsiveness-benchmark.spec.ts',
+            'tests/editor-responsiveness-benchmark.spec.ts',
+            'tests/editor-responsiveness-interference.spec.ts',
+            'tests/editor-spatial-responsiveness-benchmark.spec.ts',
+          ]
+        : []),
       `tests/${file}-benchmark.spec.ts`,
       ...(file === 'hdr'
         ? [

@@ -10,7 +10,10 @@ export function hdrPresentationMemory(
   canvasHeight = 0,
   maximumLayers = HDR_CACHE_MAX_TILES,
   diagnosticBytes = 0,
+  retainedPresentationBytes = 0,
 ) {
+  if (!Number.isSafeInteger(retainedPresentationBytes) || retainedPresentationBytes < 0)
+    throw new Error('Invalid retained HDR presentation reservation.')
   let textureBytes = 0,
     maskBytes = 0
   for (
@@ -38,13 +41,20 @@ export function hdrPresentationMemory(
   const tileBytes = (tileSize + 2) ** 2 * 16
   const cacheControlBytes =
     Math.ceil(width / tileSize) * Math.ceil(height / tileSize) * 8 + HDR_CACHE_MAX_TILES * 16
-  const uploadPeak = textureBytes + uploadBytes + transportBytes + sampleBytes + renderingBytes
+  const uploadPeak =
+    textureBytes +
+    uploadBytes +
+    transportBytes +
+    sampleBytes +
+    renderingBytes +
+    retainedPresentationBytes
   const uncachedPresentationPeak =
     textureBytes +
     analysisBytes +
     canvasBytes +
     transportBytes +
     renderingBytes +
+    retainedPresentationBytes +
     1024 ** 2 * 4 +
     64 * 1024
   const maximumSlots = Math.min(
@@ -69,6 +79,7 @@ export function hdrPresentationMemory(
     canvasBytes,
     transportBytes,
     renderingBytes,
+    retainedPresentationBytes,
     cacheSlots,
     cacheBytes,
     tileSize,
