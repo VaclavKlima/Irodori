@@ -1330,11 +1330,11 @@ Do not substitute Mac measurements for Linux results. Start with compact reports
 rerun the exact failure before broader selections. Preserve all gates.
 
 ```sh
-git switch perf/mac-workability
-git pull --ff-only origin perf/mac-workability
-# Confirm the tested code after transferring the reviewed branch; documentation-only descendants are allowed.
+git switch main
+git pull --ff-only origin main
+# Confirm the tested code after merging the reviewed branch; documentation-only descendants are allowed.
 git rev-parse HEAD
-git diff --exit-code 76d1408bd76e7a412c69eec2d23f4ab2410aba90 HEAD -- . ':(exclude)docs/**' ':(exclude)README.md' ':(exclude)Luma.md'
+git diff --exit-code a739a0ce9f6b3507ec4f5f7dc174d6f41a85a116 HEAD -- . ':(exclude)docs/**' ':(exclude)README.md' ':(exclude)Luma.md'
 node scripts/research/sony-fixtures.mjs check
 npm run verify -- --target display-rendering-reference --target hdr-render-cache-gpu --target hdr-math-gpu
 npm run verify -- --target merge-cpu-kernels --target merge-gpu-output --target brk-merge --target capture-metadata --target merge-engine --target merge-io --target merge-gpu
@@ -1372,9 +1372,10 @@ its resident calculation is not an end-to-end merge measurement.
 
 The acceptance harness separates 60 Hz and 120 Hz configurations and retains
 three 240-input trials for all eight sliders at Fit and 100% in each layout.
-Transfer/publish the reviewed branch before using the pull command; these commits
-are currently local. A saved Linux preview baseline must come from pre-change
-production code on the same configuration. Linux encoding backend availability, real input cadence (60/120 Hz separately),
+The pull command assumes the reviewed branch has been merged into `main`; the
+revision guard above checks that its implementation still matches the Mac freeze.
+A saved Linux preview baseline must come from pre-change production code on the
+same configuration. Linux encoding backend availability, real input cadence (60/120 Hz separately),
 GPU/CPU/CTL agreement, memory/cancellation, HDR display and background interference
 need local results. Physical HDR measurements, larger controlled brackets and a
 distinct 32-RAW sequence remain incomplete wherever the equipment/fixtures are
