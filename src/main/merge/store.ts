@@ -2,7 +2,13 @@ import { createHash } from 'node:crypto'
 import { open, mkdir, readFile, readdir, rename, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { MERGE_VERSION, MERGE_PIPELINE, type MergeManifest } from '../../shared/merge'
+import {
+  MERGE_VERSION,
+  MERGE_PIPELINE,
+  GPU_CAMERA_PREPARATION,
+  GPU_REFERENCE_PREPARATION,
+  type MergeManifest,
+} from '../../shared/merge'
 import { validateHdrSource } from '../../shared/hdr'
 
 /** Disjoint wall-time aggregates on the caller's process clock, including failures. */
@@ -56,6 +62,16 @@ export async function verifyMaster(
       manifest.asset.width !== manifest.recipe.crop.width ||
       manifest.asset.height !== manifest.recipe.crop.height ||
       manifest.recipe.version !== manifest.version ||
+      (manifest.recipe.cameraPreparation !== undefined &&
+        manifest.recipe.cameraPreparation !== GPU_CAMERA_PREPARATION) ||
+      (manifest.recipe.referenceFallbackPreparation !== undefined &&
+        manifest.recipe.referenceFallbackPreparation !== GPU_REFERENCE_PREPARATION) ||
+      manifest.recipe.sources.some(
+        (source) =>
+          source.cameraPreparation !== undefined &&
+          (source.cameraPreparation !== GPU_CAMERA_PREPARATION ||
+            manifest.recipe.cameraPreparation !== GPU_CAMERA_PREPARATION),
+      ) ||
       (manifest.version === MERGE_VERSION &&
         JSON.stringify(manifest.recipe.pipeline) !== JSON.stringify(MERGE_PIPELINE))
     )

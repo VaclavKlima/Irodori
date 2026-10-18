@@ -30,6 +30,8 @@ const flags = [
   '-Wl,--export=__heap_base',
   '-Wl,--export=luma_kernel_version',
   '-Wl,--export=luma_camera_strip',
+  '-Wl,--export=luma_camera_validity_strip',
+  '-Wl,--export=luma_fallback_geometry_strip',
   '-Wl,--export=luma_prepare_strip',
   '-Wl,--export=luma_reduce_strip',
   '-Wl,--export=luma_sensor_mask',
@@ -48,7 +50,7 @@ await writeFile(
   join(directory, 'manifest.json'),
   JSON.stringify(
     {
-      version: 3,
+      version: 5,
       sha256: sha256(bytes),
       sourceSha256: sha256(await readFile(join(root, source))),
       compiler: compilerVersion,

@@ -13,6 +13,11 @@ export const MERGE_PIPELINE = Object.freeze({
   accumulation: 'tiled-inverse-variance-confidence-v4',
   referenceFallback: 'sony-camera-highlight-blend-frozen-missing-reference-v4',
 })
+/** Versioned camera evidence arithmetic; omitted fields retain exact CPU preparation. */
+export const GPU_CAMERA_PREPARATION = 'gpu-camera-v2-exact'
+export type CameraPreparationPolicy = typeof GPU_CAMERA_PREPARATION
+export const GPU_REFERENCE_PREPARATION = 'gpu-reference-fallback-v2-compensated'
+export type ReferencePreparationPolicy = typeof GPU_REFERENCE_PREPARATION
 export interface MergeReadMeasurements {
   bands: {
     requests: number
@@ -116,6 +121,44 @@ export interface MergeMeasurements {
       reductionMs: number
       conversionMs: number
       highlightBlendMs?: number
+      cameraPreparation?: {
+        policy: CameraPreparationPolicy
+        backend: 'gpu' | 'cpu'
+        fallback?: string
+        allocatedGpuBytes: number
+        runtimeMs: number
+        setupMs?: number
+        uploadMs?: number
+        dispatchReadbackMs?: number
+        verificationMs?: number
+        reductionMs?: number
+        hashingMs?: number
+        writingMs?: number
+        closingMs?: number
+        batches?: number
+        inputBytes?: number
+        outputBytes?: number
+        scalarRepairs?: number
+        thresholdRepairs?: number
+        conditionRepairs?: number
+        roundingRepairs?: number
+      }
+      referencePreparation?: {
+        policy: ReferencePreparationPolicy
+        backend: 'gpu' | 'cpu'
+        fallback?: string
+        allocatedGpuBytes: number
+        runtimeMs: number
+        setupMs?: number
+        uploadMs?: number
+        geometryMs?: number
+        conversionMs?: number
+        readbackMs?: number
+        verificationMs?: number
+        scalarRepairs?: number
+        prefetchedStrips?: number
+        discardedPrefetches?: number
+      }
       cpuKernel?: {
         backend: 'wasm-simd' | 'scalar'
         heapBytes: number
@@ -126,7 +169,7 @@ export interface MergeMeasurements {
     }
   }[]
   referenceFallback?: {
-    backend: 'cpu'
+    backend: 'cpu' | 'gpu'
     reused: boolean
     decodingMs: number
     preparationMs: number
@@ -414,6 +457,8 @@ export interface MergeRecipe {
   constants: typeof MERGE_LIMITS
   alignment?: typeof ALIGNMENT_CONSTANTS
   pipeline?: typeof MERGE_PIPELINE
+  cameraPreparation?: CameraPreparationPolicy
+  referenceFallbackPreparation?: ReferencePreparationPolicy
   measurements?: MergeMeasurements
   settings: MergeSettings
   sources: {
@@ -426,6 +471,7 @@ export interface MergeRecipe {
     cameraProfile: string
     lensIdentity: string
     photometry?: ExposureDiagnostics
+    cameraPreparation?: CameraPreparationPolicy
   }[]
   width: number
   height: number

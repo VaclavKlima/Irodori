@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto'
 import { readFile, writeFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { MERGE_PIPELINE, MERGE_LIMITS } from '../../shared/merge'
+import {
+  MERGE_PIPELINE,
+  MERGE_LIMITS,
+  GPU_CAMERA_PREPARATION,
+  GPU_REFERENCE_PREPARATION,
+} from '../../shared/merge'
 import type { PreparedSource } from './prepare'
 import { validateSensorCache } from './sensor-cache'
 import { CAMERA_REGISTRATION_POLICY } from './camera-registration'
@@ -59,6 +64,7 @@ export async function loadPreparation(
   reference: string,
   read: (bytes: number) => void = () => {},
   identity?: string,
+  expected?: Pick<PreparedSource, 'cameraPreparation' | 'referenceFallbackPreparation'>,
 ): Promise<PreparedSource | undefined> {
   let json: string
   try {
@@ -71,10 +77,20 @@ export async function loadPreparation(
   const cached = JSON.parse(json)
   if (cached.reference !== reference) return
   const p = cached.source as PreparedSource
+  if (
+    expected &&
+    (p.cameraPreparation !== expected.cameraPreparation ||
+      p.referenceFallbackPreparation !== expected.referenceFallbackPreparation)
+  )
+    return
   if (cached.version && (cached.version !== MERGE_PIPELINE.preparation || p.identity !== identity))
     return
   if (
     p.path !== join(directory, `source-${index}.f32`) ||
+    (p.cameraPreparation !== undefined && p.cameraPreparation !== GPU_CAMERA_PREPARATION) ||
+    (p.cameraPreparation !== undefined && !p.cameraRegistration) ||
+    (p.referenceFallbackPreparation !== undefined &&
+      p.referenceFallbackPreparation !== GPU_REFERENCE_PREPARATION) ||
     !Number.isSafeInteger(p.width) ||
     !Number.isSafeInteger(p.height) ||
     p.width < 1 ||

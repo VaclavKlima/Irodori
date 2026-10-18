@@ -1,7 +1,7 @@
 {
-  "version": 3,
-  "sha256": "8ae83ee75c22b1489c64eb7f5400326e1c4db1c074e482729c14c7cc1c6c7771",
-  "sourceSha256": "11ec806a40581089c3bb136a1403fedf0dc7a6e79b93fca0d5913fcb64f43ac3",
+  "version": 5,
+  "sha256": "53064a44d404c49cf01851e22bc7e96efa56c37277bbc3036ef5a922ac5d6879",
+  "sourceSha256": "cdc92aec5079f6e5ec305b6de31092bf759d898a9bea7143a418fa99c849a329",
   "compiler": "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 4.0.20 (6913738ec5371a88c4af5a80db0ab42bad3de681)",
   "flags": [
     "-O3",
@@ -22,6 +22,8 @@
     "-Wl,--export=__heap_base",
     "-Wl,--export=luma_kernel_version",
     "-Wl,--export=luma_camera_strip",
+    "-Wl,--export=luma_camera_validity_strip",
+    "-Wl,--export=luma_fallback_geometry_strip",
     "-Wl,--export=luma_prepare_strip",
     "-Wl,--export=luma_reduce_strip",
     "-Wl,--export=luma_sensor_mask",

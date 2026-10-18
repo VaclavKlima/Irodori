@@ -7,8 +7,22 @@ Missing, unsupported, damaged or unsuitable
 kernels fall back to the scalar path. `LUMA_MERGE_CPU_KERNEL=scalar` selects that
 control explicitly; `wasm` selects the normal optional-kernel path.
 
-Kernel ABI and manifest version 3 add ordered reductions and canonical sensor and
-boundary masks. They retain the explicitly validated vignette gain
+Kernel ABI and manifest version 5 add a fallback geometry-only planner, alongside
+the camera-validity-only strip export from version 4 and the ordered reductions
+and canonical sensor and boundary masks from version 3.
+The validity provider shares the existing source clipping planes and retains only
+one 64-row byte strip, without performing RGB matrix projection or creating a
+full native validity image. Failed strip calls publish no bytes before scalar
+replay. The ordinary CPU writer retains its original exact projection.
+The geometry planner reads no RGB and evaluates no per-neighbor vignette gains.
+Each channel stores signed source floor indices and Float32 high/low interpolation
+fractions; canonical alpha uses the original Float64 fractions and union mask.
+Only one 64-row geometry strip is retained. Selected scalar repairs can recover
+the original Float64 coordinate without a native geometry image. Optional luma
+reduction allocations are a separate arena transaction; allocation misses retain
+compiled geometry and scalar reduction. Aborted or failed reads publish no partial
+strip, and scalar replay reuses the same bounded storage.
+These kernels retain the explicitly validated vignette gain
 cache capacity. The default is 32768 tagged entries (384 KiB).
 `LUMA_MERGE_GAIN_CACHE_ENTRIES=2048` selects the prior 24 KiB control;
 `32768` selects the production capacity explicitly. Other capacities retain scalar processing.

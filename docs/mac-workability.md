@@ -21,6 +21,169 @@ documentation only. The original milestone below retains its `cedef59` code,
 `980435a` pixel-processing and `0b4f99f` early editor/export provenance. Linux
 acceptance remains pending.
 
+## October 18 GPU preparation follow-up
+
+The previous pass was merged to production in
+`d39ecb391e237565efaf11b065bb9c0c68914e9d`. The follow-up was completed on
+`perf/gpu-merge-preparation` under the user's Goal: validate complete Mac GPU
+preparation, accuracy, cancellation, CPU recovery and workflow performance, then
+prepare a tested revision for Bazzite. Both new GPU selectors remain opt-in.
+The coordinator owns integration and every verification/benchmark run; the CPU
+agent owns canonical geometry and native comparisons, the GPU agent owns
+conversion, and the validation agent owns independent numerical/lifecycle cases.
+Dependencies, rejected candidates and current evidence are recorded in
+[GPU merge preparation](gpu-merge-preparation.md). Complete native numerical,
+policy/cache, cancellation and CPU recovery checks pass on this Mac, including
+actual shared-device destruction. **Both GPU preparation paths are rejected as
+defaults for measured performance; the visible competitive target remains failed.**
+The bounded Mac pass is complete, with its measured speed and interaction misses
+retained. The exact implementation/Bazzite revision is
+**`0a70599669c884fc70d2e2afe5f9a6527df44dbb`** on
+`perf/gpu-merge-preparation`; subsequent report commits are documentation only.
+The earlier freezes remain historical evidence. No Linux acceptance is claimed.
+
+On October 18 the user deferred Bazzite verification because the machine is
+unavailable and authorized merging the Mac-tested work and continuing feature
+development. [Backlog item 29](features/README.md#workspace-feedback-backlog)
+retains the Linux checks and remaining performance gates. Both GPU paths stay
+opt-in; this deferral does not block the production merge or unrelated features.
+
+The final independent three-pair service cohorts retain every uninterrupted time:
+
+| Candidate                                                                 | CPU seconds, pairs 1 / 2 / 3 | GPU seconds, pairs 1 / 2 / 3 | CPU / GPU median seconds | CPU / GPU maximum seconds |
+| ------------------------------------------------------------------------- | ---------------------------- | ---------------------------- | -----------------------: | ------------------------: |
+| Camera `gpu-camera-v2-exact`                                              | 16.2308 / 16.0386 / 15.7124  | 17.5616 / 17.5611 / 18.0717  |        16.0386 / 17.5616 |         16.2308 / 18.0717 |
+| Reference `gpu-reference-fallback-v2-compensated`, with geometry prefetch | 17.1516 / 17.2100 / 18.1450  | 21.6236 / 17.1206 / 16.1948  |        17.2100 / 17.1206 |         18.1450 / 21.6236 |
+
+Camera GPU is slower in all three pairs. Reference GPU's 0.52% median difference
+does not establish a repeatable complete-operation saving and retains a slower
+21.6236-second tail. Native camera/reduced evidence, final master, motion, crop
+and registration are exact. Reference conversion changes one fallback Float32
+word by 9.3133e-10, within the unchanged tolerance, with exact reduced fallback,
+master, masks, crop and registration. Each reference candidate exercises 84
+prefetched strips and zero scalar repairs. Import/startup are excluded; RAW decode,
+registration, output, immediate acceptance, durable publication and cleanup are
+inside these service clocks. Independent full-file comparisons retain their
+separate post-clock durations. Electron presentation remains a separate clock.
+[Camera cohort](../artifacts/verification/playwright-1792341379023-a9303446-a1e5-43dc-8564-2fbb06caf7b2/playwright/summary.json),
+[reference cohort](../artifacts/verification/playwright-1792341030511-b10f4791-bc74-4cad-8b35-0548815c5ccf/playwright/summary.json).
+
+The current foreground clocks also retain every ordinary operation and restart:
+
+| Pre-handoff series                               | All ordinary seconds                            | Median seconds | Maximum seconds | Separate restart seconds |
+| ------------------------------------------------ | ----------------------------------------------- | -------------: | --------------: | -----------------------: |
+| CPU camera/reference policies, diagnostic three  | 20.9922 / 20.9833 / 20.4985                     |        20.9833 |         20.9922 |             Not measured |
+| CPU camera / opt-in GPU reference, five ordinary | 19.5764 / 19.7961 / 19.1384 / 17.0594 / 16.8064 |        19.1384 |         19.7961 |                  16.9682 |
+
+The CPU control is not a five-run acceptance cohort. The GPU-reference cohort
+has the required five operations and restart but fails both 10-second median and
+12-second maximum gates, and the 15-second visible checkpoint. The five-second
+service stretch remains unmet. Review uses actual native decode, Canvas2D draw
+and post-paint; the final sharp normal-detail editor uses WebGPU HDR. Pre-handoff
+publication/cleanup observation is 1.777–4.034 seconds and final editor presentation
+0.567–0.833 seconds across the retained operations. Main scheduler admission is
+measured separately and must not be added again to renderer elapsed time. These
+UI reports ran the built candidate despite stale provenance-helper text saying
+production modules were unchanged; their source/build hashes remain recorded.
+[CPU control](../artifacts/verification/playwright-1792341590886-374fd5e1-13d9-4c3f-b596-9164e746c865/playwright/summary.json),
+[GPU ordinary and restart](../artifacts/verification/playwright-1792341871022-6e7b0d35-dca3-422c-8a3d-6aa54d405a74/playwright/summary.json).
+
+Focused selections pass **405 cases in 85.05 seconds** and **402 in 48.97 seconds**,
+both with zero failures/skips and type/lint/format/build checks. The former's
+existing 23.77-second tiled GPU case retains its routine-budget warning. These
+overlapping selections are not additive. Six complete RAW lifecycle cases pass
+in 228.59 seconds. Actual shared-device loss then exposed empty Dawn error text
+clearing the worker's unavailable state and allowing mixed CPU/GPU preparation;
+that failed experiment is retained. The sticky nonempty failure fix passes its
+exact real-camera recovery replay in 184.09 seconds, alongside the retained
+passing reference-loss case and three targeted GPU regressions in 10.93 seconds.
+Both paths preserve complete CPU recovery, durable publication, cleanup and
+original hashes. The [detailed verification record](gpu-merge-preparation.md#verification-record)
+links each invocation and preserves earlier rejected arithmetic and tail samples.
+
+The distinct 2/3/5/9-source foreground noise control passes all four tests/twelve
+fresh operations in **129.70 seconds**. Its all-sample series are
+7.014/7.028/6.971, 7.774/7.724/7.816, 10.016/10.191/9.883 and
+13.497/13.141/13.267 seconds, respectively; every result meets the existing
+15-second gate. All fifteen fixture hashes match before/after.
+[Regression evidence](../artifacts/verification/playwright-1792342186875-95a35b70-e41b-4484-b5a4-5d95fd87ec32/playwright/summary.json),
+[integrity](../artifacts/fixture-integrity/2026-10-18T16-49-46.130Z-3868.json).
+
+Recorded cohort peaks are 932,630,072 logical GPU bytes, 145,358,848 measured
+merge/alignment WASM bytes and at most 2,225,274,880 worker RSS bytes. Camera and
+reference converters own 11,515,552 and 364,081,456 logical GPU bytes. The 1 GiB
+logical GPU, 128 MiB aggregate preparation arena and 512 MiB measured aggregate
+WASM limits stay in place. A later audit found about 8 MiB of RAW reduced-map
+staging missing from the conservative estimate. The corrected estimate now
+includes the larger readback phase and retained base uniform. Exact-limit and
+one-byte-over-limit admission tests pass without changing allocations or pixels.
+These earlier cohorts retain their pre-correction counters and `d8e3e95` dirty-state
+provenance; final workflow measurements use `0a70599`, with only documentation
+changes remaining dirty. The bracket's final overall logical maximum is still
+932,630,072 bytes because another phase determines its peak. These counters are
+not physical VRAM measurements. No comprehensive checkpoint was repeated.
+
+### Final visible workflow, implementation freeze and next platform
+
+The accepted-task handoff keeps only the unchanged source preview suspended until
+publication and result selection finish. Explicit navigation/editing resumes it
+and cancels automatic opening, including an in-flight result lookup. Failure,
+cancellation and matching task dismissal release the source. This removes redundant
+interactive source-preview work while preserving scheduler priorities, validation,
+checksums, copying, durable sync, journals, catalog commit and cleanup.
+
+| Final series                              | All ordinary seconds                            | Median seconds | Ordinary maximum seconds | Separate restart seconds |
+| ----------------------------------------- | ----------------------------------------------- | -------------: | -----------------------: | -----------------------: |
+| CPU camera/reference, diagnostic three    | 17.6676 / 17.1853 / 17.2382                     |        17.2382 |                  17.6676 |             Not measured |
+| CPU camera / GPU reference, required five | 16.3872 / 16.3524 / 16.5651 / 16.4283 / 16.3234 |        16.3872 |                  16.5651 |                  16.8395 |
+
+All six final GPU operations actually use `gpu-reference-fallback-v2-compensated`
+without CPU recovery and pass complete master/source integrity and staging cleanup.
+The **16.3872-second ordinary median** and **16.8395-second maximum including
+restart** fail the 10/12-second target; the 15-second intermediate and five-second
+service stretch remain unmet. The CPU control is diagnostic, not a five-run
+acceptance cohort. The visible reference median improves by 0.8510 seconds against
+this adjacent CPU control, while the earlier 21.6236-second service tail and higher
+RSS remain retained. Both GPU paths stay opt-in; neither becomes a default.
+[Final CPU control, 63.60 seconds](../artifacts/verification/playwright-1792343044973-833a5580-91c9-4aca-802f-4e57d18b9ea4/playwright/summary.json),
+[final GPU five plus restart, 119.89 seconds](../artifacts/verification/playwright-1792343125082-90a65661-aeaa-4ca5-8abe-9f0bece01d9a/playwright/summary.json).
+
+Final ordinary GPU native review is 14.2803–14.5712 seconds, publication/cleanup
+1.2344–1.3024 seconds and editor presentation 0.6250–0.7407 seconds. Restart retains
+14.6799/1.5759/0.5837 seconds respectively. Main operation admission is now
+0.1532–0.1599 seconds across final CPU/GPU operations, versus roughly 2.5 seconds
+in the earlier CPU controls. This admission is nested in observed publication;
+process clocks and parallel/nested stages must not be added twice.
+
+The representative GPU worker critical path remains source preparation 4.778
+seconds, fallback 3.581, exposed registration 0.128, coverage 0.229, accumulation
+1.697 and output 3.220. Alignment already overlaps preparation/fallback. Removing
+all post-acceptance time still leaves approximately 14.53 seconds to native review;
+removing fallback alone exposes alignment and cannot reach the target. The
+[detailed report](gpu-merge-preparation.md#final-visible-workflow-and-remaining-miss)
+retains the clock boundaries, component attribution and remaining bottleneck.
+
+Final affected verification includes type/lint/format/build, CPU kernels, engine,
+I/O and library passes; **318 passing cases in 51.95 seconds** in the complete
+handoff selection; **75 camera/reference GPU cases in 23.59 seconds** including
+late-close cancellation/CPU cleanup; and **two RAW GPU regressions in 5.40 seconds**
+for memory admission and sticky device loss. Counts overlap and are not additive.
+One earlier UI assertion counted requests before completion; its exact corrected
+replay and the full eight-case UI rerun pass. All failures remain linked in the
+[detailed verification record](gpu-merge-preparation.md#final-implementation-checks-and-handoff-behavior).
+The matched noise/HDR editing controls complete all twelve tasks with intact
+originals, actual requested backends and bounded resources, but retain the
+33 ms gate failures: latency 41.9–42.6 ms, histogram 42.8–51.3 ms. No threshold is
+relaxed. [Interference evidence, 256.04 seconds](../artifacts/verification/playwright-1792342350972-a5f92ad1-310b-437c-ba46-d8b071d46636/playwright/summary.json).
+
+The implementation commits are `d8e3e95` (CPU agent's exact providers, coordinator's
+pinned ABI 5 build), `3c31505` (GPU/validation agents' versioned opt-in paths and
+coordinator integration), and `0a70599` (publication agent's result handoff and
+coordinator validation). Source/build hashes are retained in every final report;
+all later changes in this handoff are documentation only. Continue with the exact
+revision guard and [Bazzite checklist](#bazzite-continuation). Mac measurements
+establish no Linux result.
+
 ## October 17–18 competitive HDR workflow pass
 
 The bounded Mac pass is implemented, verified and frozen; **competitive acceptance
@@ -33,7 +196,7 @@ unmet service stretch. No timing or numerical gate was relaxed.
 Production changes are `9c2db1604ce56b67d1eb72ac588c99a24e6de3f1`; the isolated
 GPU study is `a739a0ce9f6b3507ec4f5f7dc174d6f41a85a116`. The latter is the
 **implementation freeze for Bazzite**, with documentation-only descendants allowed.
-These commits are local. Measurements retain their actual `81bec53` dirty-state
+These commits were subsequently included in the production merge above. Measurements retain their actual `81bec53` dirty-state
 provenance and source/build hashes: all 24 final replay inputs still match the
 frozen implementation. The earlier handoffs below remain historical evidence.
 
@@ -1324,17 +1487,22 @@ attempt to reach an unsupported absolute target.
 
 ## Bazzite continuation
 
+**Deferred — awaiting hardware access.** Track resumption in
+[backlog item 29](features/README.md#workspace-feedback-backlog). This checklist
+remains required for Linux acceptance and GPU default adoption, while the
+Mac-tested work can merge and feature development can continue.
+
 Run against the final implementation revision recorded above, with the committed
 Sony fixtures and a separately recorded Linux runtime/display/power configuration.
 Do not substitute Mac measurements for Linux results. Start with compact reports;
 rerun the exact failure before broader selections. Preserve all gates.
 
 ```sh
-git switch main
-git pull --ff-only origin main
-# Confirm the tested code after merging the reviewed branch; documentation-only descendants are allowed.
+git fetch origin main
+git switch --detach 0a70599669c884fc70d2e2afe5f9a6527df44dbb
+# Reproduce the exact Mac implementation even after main gains further features.
 git rev-parse HEAD
-git diff --exit-code a739a0ce9f6b3507ec4f5f7dc174d6f41a85a116 HEAD -- . ':(exclude)docs/**' ':(exclude)README.md' ':(exclude)Luma.md'
+git diff --exit-code 0a70599669c884fc70d2e2afe5f9a6527df44dbb HEAD -- . ':(exclude)docs/**' ':(exclude)README.md' ':(exclude)Luma.md'
 node scripts/research/sony-fixtures.mjs check
 npm run verify -- --target display-rendering-reference --target hdr-render-cache-gpu --target hdr-math-gpu
 npm run verify -- --target merge-cpu-kernels --target merge-gpu-output --target brk-merge --target capture-metadata --target merge-engine --target merge-io --target merge-gpu
@@ -1357,6 +1525,32 @@ node scripts/research/sony-fixtures.mjs hdr -- npm run verify -- --foreground --
 LUMA_PREVIEW_BASELINE=/absolute/path/to/saved-baseline.json npm run benchmark:preview -- --foreground
 ```
 
+For the October 18 GPU handoff, first record Node/runtime versions, the actual
+Dawn adapter/driver, Wayland/X11 session, display refresh/color state, AC/power mode
+and available memory. Keep original fixtures unchanged and run each command
+sequentially. GPU fallback is a functional recovery result, not a GPU performance
+sample. Missing hardware or display support remains incomplete verification.
+
+```sh
+npm run verify -- --target merge-cpu-kernels --target merge-engine --target merge-io --target merge-library --target merge-ui --target merge-gpu --target merge-gpu-preparation --target merge-gpu-reference
+LUMA_MERGE_GPU_PREPARATION_STAGE=camera npm run verify -- --target merge-gpu-preparation-native
+LUMA_MERGE_GPU_PREPARATION_STAGE=reference npm run verify -- --target merge-gpu-preparation-native
+LUMA_MERGE_CAMERA_PREPARATION=cpu LUMA_MERGE_REFERENCE_PREPARATION=cpu npm run verify -- --foreground --target merge-workflow-benchmark
+LUMA_MERGE_CAMERA_PREPARATION=cpu LUMA_MERGE_REFERENCE_PREPARATION=gpu npm run verify -- --foreground --target merge-workflow-benchmark
+LUMA_MERGE_CAMERA_PREPARATION=cpu LUMA_MERGE_REFERENCE_PREPARATION=gpu node scripts/research/sony-fixtures.mjs noise -- npm run verify -- --foreground --target mac-workability-interference
+```
+
+The native cohorts retain three CPU/candidate pairs, including every slowest
+sample, full camera/reduced/fallback/master comparisons and exact masks/crop.
+The workflow target retains five fresh ordinary operations plus one separate
+restart control, with native review draw/post-paint, publication/cleanup and final
+editor presentation. Preserve the 10-second median, 12-second maximum, separate
+15-second checkpoint, five-second service stretch and 33 ms interaction gates.
+Only test combined camera/reference selection after both independent paths pass;
+use `LUMA_MERGE_GPU_PREPARATION_STAGE=both` for its complete native proof before
+any combined performance/default decision. Do not adopt a default based on resident
+kernel timing, a CPU-recovered sample, or a median with a worse retained tail.
+
 For the October 17 kernels, create Linux scalar-control evidence at `a06e74c`
 in an isolated checkout before measuring the candidate, retaining the three full
 samples and preparation manifests for both modes. Supply that saved report via
@@ -1367,13 +1561,17 @@ keep the five-second and 15-second gates separate. Optional GPU timestamps need
 an explicit supported/unsupported result and must remain separate from map wait.
 Check memory peaks, actual selected backend, cache corruption/fallback,
 cancellation/device loss and foreground editing before adopting Linux defaults.
-The GPU camera study remains isolated and needs fresh native pixel/mask results;
-its resident calculation is not an end-to-end merge measurement.
+The earlier GPU camera study remains separate research. The versioned October 18
+paths have complete Mac native proof but require fresh Linux native pixel/mask,
+recovery and full-operation results before any Linux adoption; resident calculation
+is not an end-to-end merge measurement.
 
 The acceptance harness separates 60 Hz and 120 Hz configurations and retains
 three 240-input trials for all eight sliders at Fit and 100% in each layout.
-The pull command assumes the reviewed branch has been merged into `main`; the
-revision guard above checks that its implementation still matches the Mac freeze.
+The fetch command retrieves production history; the detached checkout and revision
+guard reproduce the exact implementation tested on Mac. Verify later processing
+changes separately when resuming Linux acceptance. Both GPU selectors remain
+disabled by default.
 A saved Linux preview baseline must come from pre-change production code on the
 same configuration. Linux encoding backend availability, real input cadence (60/120 Hz separately),
 GPU/CPU/CTL agreement, memory/cancellation, HDR display and background interference

@@ -1,9 +1,293 @@
 import { test, expect } from '@playwright/test'
 import { syntheticMerge } from './merge.helpers'
-import { ALIGNMENT_CONSTANTS } from '../src/shared/merge'
+import {
+  ALIGNMENT_CONSTANTS,
+  GPU_CAMERA_PREPARATION,
+  GPU_REFERENCE_PREPARATION,
+} from '../src/shared/merge'
+import {
+  cameraPreparationPolicy,
+  referencePreparationPolicy,
+} from '../src/main/merge/camera-preparation-policy'
+import { CAMERA_REGISTRATION_POLICY } from '../src/main/merge/camera-registration'
+import { loadPreparation, savePreparation } from '../src/main/merge/preparation-cache'
+import type { PreparedSource } from '../src/main/merge/prepare'
 import { runMerge } from '../src/main/merge/engine'
-import { readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+type PreparationPolicy = Pick<PreparedSource, 'cameraPreparation' | 'referenceFallbackPreparation'>
+const cameraPolicy: PreparationPolicy = { cameraPreparation: GPU_CAMERA_PREPARATION },
+  referencePolicy: PreparationPolicy = { referenceFallbackPreparation: GPU_REFERENCE_PREPARATION }
+
+function planeContent(plane?: PreparedSource['plane']) {
+  return (
+    plane && {
+      width: plane.width,
+      height: plane.height,
+      data: plane.data,
+      mask: plane.mask,
+    }
+  )
+}
+
+async function preparationFixture(directory: string, policy: PreparationPolicy = {}) {
+  const native = Float32Array.from([
+      0.1, 0.2, -0.03, 1, 0.3, 0.4, 0.05, 1, 0.6, 0.7, 0.08, 0, 0.9, 1.1, 0.12, 1, 1.2, 1.4, 0.16,
+      1, 1.5, 1.7, 0.2, 1,
+    ]),
+    nativeBytes = Buffer.from(native.buffer),
+    hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex'),
+    source: PreparedSource = {
+      path: join(directory, 'source-0.f32'),
+      strips: [hash(nativeBytes)],
+      width: 3,
+      height: 2,
+      plane: {
+        width: 2,
+        height: 1,
+        data: Float32Array.from([0.25, 0]),
+        mask: Uint8Array.from([255, 0]),
+      },
+      identity: 'c'.repeat(64),
+      decoder: 'independent-cache-fixture-1',
+      cameraProfile: 'independent-cache-camera-1',
+      normalization: {
+        black: [0, 0, 0, 0],
+        maximum: 4095,
+        gains: [2, 1, 1.5, 1],
+        restoreGain: 2,
+        referenceWhite: 1,
+        sourceSaturation: null,
+      },
+      ...policy,
+    }
+  await writeFile(source.path, nativeBytes)
+  if (policy.cameraPreparation) {
+    const camera = new Float32Array(native)
+    for (let i = 3; i < camera.length; i += 4) camera[i] = 7
+    const bytes = Buffer.from(camera.buffer)
+    source.cameraRegistration = {
+      version: CAMERA_REGISTRATION_POLICY,
+      path: join(directory, 'source-0.camera.f32'),
+      strips: [hash(bytes)],
+      planes: [0, 1, 2].map((channel) => ({
+        width: 2,
+        height: 1,
+        data: Float32Array.from([0.1 + channel / 10, 0.5 + channel / 10]),
+        mask: Uint8Array.from([255, 255]),
+      })) as NonNullable<PreparedSource['cameraRegistration']>['planes'],
+    }
+    await writeFile(source.cameraRegistration.path, bytes)
+  }
+  return { source, reference: 'a'.repeat(64) }
+}
+
+async function expectPolicyMiss(
+  directory: string,
+  reference: string,
+  identity: string | undefined,
+  expected: PreparationPolicy,
+) {
+  const reads: number[] = [],
+    manifest = await readFile(join(directory, 'source-0.json'))
+  expect(
+    await loadPreparation(
+      directory,
+      0,
+      reference,
+      (bytes) => reads.push(bytes),
+      identity,
+      expected,
+    ),
+  ).toBeUndefined()
+  // Policy admission precedes native-file stats and binary-plane verification.
+  expect(reads).toEqual([manifest.byteLength])
+}
+
+test('legacy CPU preparation remains reusable for CPU and misses both requested GPU policies', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'luma-preparation-legacy-policy-'))
+  try {
+    const { source, reference } = await preparationFixture(directory)
+    await writeFile(
+      join(directory, 'source-0.json'),
+      JSON.stringify({
+        reference,
+        source: {
+          ...source,
+          identity: undefined,
+          plane: {
+            ...source.plane,
+            data: Array.from(source.plane.data),
+            mask: Array.from(source.plane.mask!),
+          },
+        },
+      }),
+    )
+    const cached = await loadPreparation(directory, 0, reference, undefined, source.identity, {})
+    expect(planeContent(cached?.plane)).toEqual(planeContent(source.plane))
+    expect(cached?.strips).toEqual(source.strips)
+    expect(cached?.cameraPreparation).toBeUndefined()
+    expect(cached?.referenceFallbackPreparation).toBeUndefined()
+    expect(planeContent((await loadPreparation(directory, 0, reference))?.plane)).toEqual(
+      planeContent(source.plane),
+    )
+    await expectPolicyMiss(directory, reference, source.identity, cameraPolicy)
+    await expectPolicyMiss(directory, reference, source.identity, referencePolicy)
+    // A mismatched policy must remain a miss even when the legacy native file is absent.
+    await rm(source.path)
+    await expectPolicyMiss(directory, reference, source.identity, cameraPolicy)
+    await expectPolicyMiss(directory, reference, source.identity, referencePolicy)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('versioned CPU preparation keeps identity validation and fails closed on corrupted planes', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'luma-preparation-cpu-policy-'))
+  try {
+    const { source, reference } = await preparationFixture(directory)
+    await savePreparation(directory, 0, reference, source)
+    expect(
+      planeContent(
+        (await loadPreparation(directory, 0, reference, undefined, source.identity, {}))?.plane,
+      ),
+    ).toEqual(planeContent(source.plane))
+    expect(
+      await loadPreparation(directory, 0, reference, undefined, 'd'.repeat(64), {}),
+    ).toBeUndefined()
+    await expectPolicyMiss(directory, reference, source.identity, cameraPolicy)
+    await expectPolicyMiss(directory, reference, source.identity, referencePolicy)
+    const planePath = join(directory, 'source-0.plane'),
+      bytes = await readFile(planePath)
+    bytes[0] ^= 1
+    await writeFile(planePath, bytes)
+    await expect(
+      loadPreparation(directory, 0, reference, undefined, source.identity, {}),
+    ).rejects.toThrow('Damaged merge preparation plane.')
+    await expectPolicyMiss(directory, reference, source.identity, cameraPolicy)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+for (const [label, policy, opposite] of [
+  ['camera', cameraPolicy, referencePolicy],
+  ['reference', referencePolicy, cameraPolicy],
+] as const)
+  test(`versioned ${label} preparation reuses only its matching policy and retains corruption checks`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), `luma-preparation-${label}-policy-`))
+    try {
+      const { source, reference } = await preparationFixture(directory, policy)
+      await savePreparation(directory, 0, reference, source)
+      const cached = await loadPreparation(
+        directory,
+        0,
+        reference,
+        undefined,
+        source.identity,
+        policy,
+      )
+      expect(planeContent(cached?.plane)).toEqual(planeContent(source.plane))
+      expect(cached?.cameraRegistration?.planes.map(planeContent)).toEqual(
+        source.cameraRegistration?.planes.map(planeContent),
+      )
+      expect(cached?.cameraPreparation).toBe(source.cameraPreparation)
+      expect(cached?.referenceFallbackPreparation).toBe(source.referenceFallbackPreparation)
+      // Standalone readers that omit an expected policy retain their previous behavior.
+      expect(
+        planeContent(
+          (await loadPreparation(directory, 0, reference, undefined, source.identity))?.plane,
+        ),
+      ).toEqual(planeContent(source.plane))
+      await expectPolicyMiss(directory, reference, source.identity, {})
+      await expectPolicyMiss(directory, reference, source.identity, opposite)
+      const path = join(
+          directory,
+          policy.cameraPreparation ? 'source-0.camera.plane' : 'source-0.plane',
+        ),
+        bytes = await readFile(path)
+      bytes[0] ^= 1
+      await writeFile(path, bytes)
+      await expect(
+        loadPreparation(directory, 0, reference, undefined, source.identity, policy),
+      ).rejects.toThrow(
+        policy.cameraPreparation
+          ? 'Damaged camera registration plane.'
+          : 'Damaged merge preparation plane.',
+      )
+      await expectPolicyMiss(directory, reference, source.identity, {})
+      await expectPolicyMiss(directory, reference, source.identity, opposite)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+test('versioned camera policy keeps legacy recipes exact and rejects unknown arithmetic', async () => {
+  const f = await syntheticMerge([0.5, 1, 2]),
+    previous = process.env.LUMA_MERGE_CAMERA_PREPARATION,
+    previousReference = process.env.LUMA_MERGE_REFERENCE_PREPARATION
+  try {
+    process.env.LUMA_MERGE_CAMERA_PREPARATION = 'gpu'
+    process.env.LUMA_MERGE_REFERENCE_PREPARATION = 'gpu'
+    expect(cameraPreparationPolicy()).toBe(GPU_CAMERA_PREPARATION)
+    expect(cameraPreparationPolicy(f.result.recipe)).toBeUndefined()
+    expect(referencePreparationPolicy()).toBe(GPU_REFERENCE_PREPARATION)
+    expect(referencePreparationPolicy(f.result.recipe)).toBeUndefined()
+    const replay = await runMerge({
+      ...f.job,
+      recipe: f.result.recipe,
+      output: join(f.directory, 'legacy-policy'),
+    })
+    expect(replay.recipe.cameraPreparation).toBeUndefined()
+    expect(replay.recipe.referenceFallbackPreparation).toBeUndefined()
+    expect(replay.asset).toEqual(f.result.asset)
+    const fresh = await runMerge({
+      ...f.job,
+      output: join(f.directory, 'unverified-fresh-policy'),
+    })
+    expect(fresh.recipe.cameraPreparation).toBeUndefined()
+    expect(fresh.recipe.referenceFallbackPreparation).toBeUndefined()
+    const unknown = structuredClone(f.result.recipe)
+    Object.assign(unknown, { cameraPreparation: 'gpu-camera-unknown' })
+    expect(() => cameraPreparationPolicy(unknown)).toThrow('Unsupported camera preparation policy')
+    const mismatched = structuredClone(f.result.recipe)
+    mismatched.sources[0].cameraPreparation = GPU_CAMERA_PREPARATION
+    expect(() => cameraPreparationPolicy(mismatched)).toThrow(
+      'Unsupported source camera preparation policy',
+    )
+    const versioned = structuredClone(mismatched)
+    versioned.cameraPreparation = GPU_CAMERA_PREPARATION
+    expect(cameraPreparationPolicy(versioned)).toBe(GPU_CAMERA_PREPARATION)
+    await expect(
+      runMerge({ ...f.job, recipe: versioned, output: join(f.directory, 'invalid-policy') }),
+    ).rejects.toThrow('requires a verified RAW bracket')
+    const unsupportedReference = structuredClone(f.result.recipe)
+    Object.assign(unsupportedReference, {
+      referenceFallbackPreparation: 'unknown-reference-policy',
+    })
+    expect(() => referencePreparationPolicy(unsupportedReference)).toThrow(
+      'Unsupported reference fallback preparation policy',
+    )
+    const versionedReference = structuredClone(f.result.recipe)
+    versionedReference.referenceFallbackPreparation = GPU_REFERENCE_PREPARATION
+    await expect(
+      runMerge({
+        ...f.job,
+        recipe: versionedReference,
+        output: join(f.directory, 'invalid-reference-policy'),
+      }),
+    ).rejects.toThrow('requires a verified RAW bracket')
+  } finally {
+    if (previous === undefined) delete process.env.LUMA_MERGE_CAMERA_PREPARATION
+    else process.env.LUMA_MERGE_CAMERA_PREPARATION = previous
+    if (previousReference === undefined) delete process.env.LUMA_MERGE_REFERENCE_PREPARATION
+    else process.env.LUMA_MERGE_REFERENCE_PREPARATION = previousReference
+    await f.close()
+  }
+})
 
 test('independent HDR ramp recovers ratios above white and negative color values', async () => {
   const f = await syntheticMerge([0.25, 1, 4], { isoVariation: true })

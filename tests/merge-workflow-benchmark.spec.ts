@@ -9,6 +9,7 @@ import { foregroundTest, requiresForeground } from './foreground'
 import { recordBenchmark } from './benchmark.helpers'
 import { provenance } from '../scripts/research/pipeline/provenance'
 import { verifyMaster } from '../src/main/merge/store'
+import { GPU_CAMERA_PREPARATION, GPU_REFERENCE_PREPARATION } from '../src/shared/merge'
 
 const reason =
   'Comparable HDR workflow timing requires visible native review and editor presentation.'
@@ -197,11 +198,14 @@ for (const restartControl of [false, true])
         runs = restartControl ? 1 : requested ? Number(requested) : 5,
         samples = [],
         evidence = info.outputPath('merge-workflow.json'),
-        source = await provenance([
-          'tests/merge-workflow-benchmark.spec.ts',
-          'out/main/index.js',
-          'out/main/merge-worker.js',
-        ])
+        source = {
+          ...(await provenance([
+            'tests/merge-workflow-benchmark.spec.ts',
+            'out/main/index.js',
+            'out/main/merge-worker.js',
+          ])),
+          build: 'Production Electron application and bundled processing workers.',
+        }
       expect([3, 5]).toContain(restartControl ? 5 : runs)
       await importPhotos(
         luma.app,
@@ -250,6 +254,20 @@ for (const restartControl of [false, true])
             true,
           )
           expect(manifest.recipe.measurements!.referenceFallback?.reused).toBe(false)
+          if (process.env.LUMA_MERGE_CAMERA_PREPARATION === 'gpu') {
+            expect(manifest.recipe.cameraPreparation).toBe(GPU_CAMERA_PREPARATION)
+            for (const source of manifest.recipe.measurements!.preparation) {
+              expect(source.work?.cameraPreparation?.backend).toBe('gpu')
+              expect(source.work?.cameraPreparation?.fallback).toBeUndefined()
+            }
+          }
+          if (process.env.LUMA_MERGE_REFERENCE_PREPARATION === 'gpu') {
+            expect(manifest.recipe.referenceFallbackPreparation).toBe(GPU_REFERENCE_PREPARATION)
+            const fallback = manifest.recipe.measurements!.referenceFallback
+            expect(fallback?.backend).toBe('gpu')
+            expect(fallback?.work?.referencePreparation?.backend).toBe('gpu')
+            expect(fallback?.work?.referencePreparation?.fallback).toBeUndefined()
+          }
           expect(sample.review).toMatchObject({
             width: manifest.asset.width,
             height: manifest.asset.height,
@@ -281,6 +299,10 @@ for (const restartControl of [false, true])
             uninterruptedClock: true,
             excludesImportStartupAndHumanReview: true,
             freshPreparationPerOperation: true,
+            requestedMergeBackends: {
+              camera: process.env.LUMA_MERGE_CAMERA_PREPARATION ?? 'cpu',
+              reference: process.env.LUMA_MERGE_REFERENCE_PREPARATION ?? 'cpu',
+            },
             isolatedLibrary: true,
             filesystemAndDriverCaches: 'uncontrolled',
             display,

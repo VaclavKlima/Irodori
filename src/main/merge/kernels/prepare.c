@@ -76,7 +76,59 @@ static int channel_clipped(const double *p, double qx, double qy,
       (const uint8_t *)ptr(p[MASK]) + channel * (int)p[RAW_WIDTH] * (int)p[RAW_HEIGHT]);
 }
 
-int luma_kernel_version(void) { return 3; }
+int luma_kernel_version(void) { return 5; }
+
+typedef struct {
+  int32_t ix, iy;
+  float dx_hi, dx_lo, dy_hi, dy_lo;
+} FallbackGeometryTap;
+_Static_assert(sizeof(FallbackGeometryTap) == 24, "Fallback geometry tap ABI");
+
+// The planner selects exact Float64 source footprints and canonical alpha only.
+// RGB sampling, integer-coordinate vignette gains, WB and matrices are consumers.
+int luma_fallback_geometry_strip(double *p, int top, int rows) {
+  const int width = (int)p[WIDTH], raw_width = (int)p[RAW_WIDTH];
+  const int raw_height = (int)p[RAW_HEIGHT];
+  if (top < 0 || rows < 1 || rows > 64 || top + rows > (int)p[HEIGHT] ||
+      width * rows > (int)p[CAPACITY]) return 3;
+  FallbackGeometryTap *output = (FallbackGeometryTap *)ptr(p[OUTPUT]);
+  uint8_t *alpha = (uint8_t *)ptr(p[ALPHA]);
+  const uint8_t *saturated = (const uint8_t *)ptr(p[MASK]);
+  const float *lut = (const float *)ptr(p[LUT]);
+  for (int row = 0; row < rows; row++)
+    for (int x = 0; x < width; x++) {
+      double qx, qy;
+      coordinates(p, x, top + row, &qx, &qy);
+      const double radius = canonical_hypot(qx, qy) / p[RADIUS];
+      const int pixel = row * width + x;
+      int clipped = 0;
+      for (int c = 0; c < 3; c++) {
+        const double scale = radial(lut, radius, c);
+        const double px = p[CX] + qx * scale, py = p[CY] + qy * scale;
+        if (!__builtin_isfinite(px) || !__builtin_isfinite(py) ||
+            px < -2147483647.0 || px >= 2147483646.0 ||
+            py < -2147483647.0 || py >= 2147483646.0) return 2;
+        const int ix = (int)__builtin_floor(px), iy = (int)__builtin_floor(py);
+        const double dx = px - ix, dy = py - iy;
+        FallbackGeometryTap *tap = output + pixel * 3 + c;
+        tap->ix = ix;
+        tap->iy = iy;
+        tap->dx_hi = (float)dx;
+        tap->dx_lo = (float)(dx - (double)tap->dx_hi);
+        tap->dy_hi = (float)dy;
+        tap->dy_lo = (float)(dy - (double)tap->dy_hi);
+        for (int yy = 0; yy < 2; yy++)
+          for (int xx = 0; xx < 2; xx++) {
+            const double weight = (xx ? dx : 1.0 - dx) * (yy ? dy : 1.0 - dy);
+            if (weight > 0.0 &&
+                saturated[clamp_int(iy + yy, 0, raw_height - 1) * raw_width +
+                          clamp_int(ix + xx, 0, raw_width - 1)]) clipped = 1;
+          }
+      }
+      alpha[pixel] = clipped ? 0 : 1;
+    }
+  return 0;
+}
 
 int luma_camera_strip(double *p, int top, int rows) {
   const int width = (int)p[WIDTH];
@@ -106,6 +158,28 @@ int luma_camera_strip(double *p, int top, int rows) {
           if (channel_clipped(p, qx, qy, radius, channel)) valid &= ~(1 << channel);
       }
       output[at + 3] = (float)valid;
+    }
+  return 0;
+}
+
+// Canonical validity is independent of RGB projection. The bounded byte strip
+// supplies GPU camera evidence without materializing another native image.
+int luma_camera_validity_strip(double *p, int top, int rows) {
+  const int width = (int)p[WIDTH];
+  if (top < 0 || rows < 1 || rows > 64 || top + rows > (int)p[HEIGHT] ||
+      width * rows > (int)p[CAPACITY]) return 3;
+  uint8_t *output = (uint8_t *)ptr(p[OUTPUT]);
+  for (int row = 0; row < rows; row++)
+    for (int x = 0; x < width; x++) {
+      int valid = 7;
+      if (p[HAS_MASK]) {
+        double qx, qy;
+        coordinates(p, x, top + row, &qx, &qy);
+        const double radius = canonical_hypot(qx, qy) / p[RADIUS];
+        for (int channel = 0; channel < 3; channel++)
+          if (channel_clipped(p, qx, qy, radius, channel)) valid &= ~(1 << channel);
+      }
+      output[row * width + x] = (uint8_t)valid;
     }
   return 0;
 }

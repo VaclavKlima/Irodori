@@ -51,6 +51,13 @@ interface MenuState {
   initialFocus: MenuInitialFocus
 }
 
+interface MergeHandoff {
+  taskId: string
+  photoId: string | null
+  automatic: boolean
+  opening: boolean
+}
+
 export function App() {
   const recovery = useWorkspaceCheckpoint()
   const { checkpoint, patch: saveWorkspace } = recovery
@@ -61,7 +68,21 @@ export function App() {
   const [editorFocusId, setEditorFocusId] = useState<string | null>(null)
   const [workspace, setWorkspace] = useState<'editor' | 'library'>('editor')
   const workspaceRef = useRef(workspace)
+  const [mergeHandoffPhoto, setMergeHandoffPhoto] = useState<string | null>(null)
+  const mergeHandoffRef = useRef<MergeHandoff | null>(null)
+  const finishMergeHandoff = useCallback((handoff: MergeHandoff) => {
+    if (mergeHandoffRef.current !== handoff) return
+    mergeHandoffRef.current = null
+    setMergeHandoffPhoto(null)
+  }, [])
+  const resumeEditing = useCallback(() => {
+    const handoff = mergeHandoffRef.current
+    if (!handoff?.automatic) return
+    handoff.automatic = false
+    setMergeHandoffPhoto(null)
+  }, [])
   const switchWorkspace = (next: 'editor' | 'library') => {
+    resumeEditing()
     workspaceRef.current = next
     setWorkspace(next)
   }
@@ -329,25 +350,55 @@ export function App() {
       const completed = current.filter(
         (task) => task.kind === 'merge' && task.status === 'completed' && task.resultPhotoId,
       )
+      const handoff = mergeHandoffRef.current
+      const accepted = handoff && current.find((task) => task.id === handoff.taskId)
+      if (
+        handoff &&
+        accepted &&
+        accepted.status !== 'running' &&
+        accepted.status !== 'cancelling'
+      ) {
+        if (
+          accepted.status === 'completed' &&
+          accepted.resultPhotoId &&
+          handoff.automatic &&
+          workspaceRef.current === 'editor'
+        ) {
+          if (!handoff.opening) {
+            handoff.opening = true
+            void openPhoto(
+              accepted.resultPhotoId,
+              false,
+              () =>
+                mergeHandoffRef.current === handoff &&
+                handoff.automatic &&
+                workspaceRef.current === 'editor',
+            ).finally(() => finishMergeHandoff(handoff))
+          }
+        } else finishMergeHandoff(handoff)
+      }
       if (!completedMerges.current) {
         completedMerges.current = new Set(completed.map((task) => task.id))
       } else {
         for (const task of completed) {
           if (completedMerges.current.has(task.id)) continue
           completedMerges.current.add(task.id)
+          if (task.id === handoff?.taskId) continue
           if (workspaceRef.current === 'editor') void openPhoto(task.resultPhotoId!)
         }
       }
     } catch (error) {
       setError(String(error))
     }
-  }, [openPhoto])
+  }, [openPhoto, finishMergeHandoff])
   const dismissTask = useCallback(
     async (id: string) => {
       await window.luma.dismissTask(id)
+      const handoff = mergeHandoffRef.current
+      if (handoff?.taskId === id) finishMergeHandoff(handoff)
       await refreshTasks()
     },
-    [refreshTasks],
+    [refreshTasks, finishMergeHandoff],
   )
 
   useEffect(() => {
@@ -630,11 +681,13 @@ export function App() {
     }
   }
   async function openResult(id: string) {
+    resumeEditing()
     await openPhoto(id, true)
     switchWorkspace('editor')
     setTasksOpen(false)
   }
   async function openBrowserPhoto(id: string, doubleClick = false) {
+    resumeEditing()
     if (doubleClick) await library.restoreBrowserClick(id)
     await openPhoto(id, true)
     switchWorkspace('editor')
@@ -683,7 +736,20 @@ export function App() {
       </div>
     )
   return (
-    <div className={styles.app}>
+    <div
+      className={styles.app}
+      onKeyDownCapture={(event) => {
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          !event.altKey &&
+          ['z', 'y'].includes(event.key.toLowerCase()) &&
+          !(event.target as HTMLElement).closest(
+            'input, textarea, select, [contenteditable], #agent-console',
+          )
+        )
+          resumeEditing()
+      }}
+    >
       <header className={styles.appHeader}>
         <div className={styles.brand}>
           <Aperture size={23} strokeWidth={1.35} />
@@ -765,6 +831,19 @@ export function App() {
         data-testid="workspace"
         hidden={workspace !== 'editor'}
         inert={workspace !== 'editor'}
+        onPointerDownCapture={(event) => {
+          if (!(event.target as HTMLElement).closest('#agent-console')) resumeEditing()
+        }}
+        onKeyDownCapture={(event) => {
+          if (
+            !['Tab', 'Escape', 'Shift', 'Control', 'Alt', 'Meta'].includes(event.key) &&
+            !(event.target as HTMLElement).closest('#agent-console')
+          )
+            resumeEditing()
+        }}
+        onWheelCapture={(event) => {
+          if (!(event.target as HTMLElement).closest('#agent-console')) resumeEditing()
+        }}
       >
         <Library
           active={
@@ -892,7 +971,11 @@ export function App() {
           )}
           <PhotoPreview
             hdrJpeg={edits.state?.hdrJpeg?.state === 'supported'}
-            suspended={!!mergeTargets || workspace !== 'editor'}
+            suspended={
+              !!mergeTargets ||
+              workspace !== 'editor' ||
+              (mergeHandoffPhoto !== null && mergeHandoffPhoto === photo?.id)
+            }
             displayTarget={displayTarget}
             key={photo?.id ?? 'empty'}
             photo={photo}
@@ -1024,7 +1107,15 @@ export function App() {
             setMergeTargets(null)
             restoreFocus()
           }}
-          onStarted={() => {
+          onStarted={(taskId) => {
+            const handoff: MergeHandoff = {
+              taskId,
+              photoId: photo?.id ?? null,
+              automatic: workspaceRef.current === 'editor',
+              opening: false,
+            }
+            mergeHandoffRef.current = handoff
+            setMergeHandoffPhoto(handoff.automatic ? handoff.photoId : null)
             setMergeTargets(null)
             restoreFocus()
             void refreshTasks()
