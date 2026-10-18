@@ -97,6 +97,16 @@ report, including Canvas2D review fallback. Worker-relative timeline spans and
 main-process publication/validation/sync/cleanup timings have separate clock labels;
 parallel alignment and nested spans must not be summed into serial time.
 
+The opt-in [GPU preparation follow-up](gpu-merge-preparation.md) has three focused
+targets: `merge-gpu-preparation` (camera numerical/lifecycle),
+`merge-gpu-reference` (reference conversion numerical/lifecycle), and
+`merge-gpu-preparation-native` (complete isolated RAW operations through
+publication). The native target uses three interleaved CPU/GPU pairs;
+`LUMA_MERGE_GPU_PREPARATION_PAIRS=1` is diagnostic only. Select
+`LUMA_MERGE_GPU_PREPARATION_STAGE=camera`, `reference`, or `both` to attribute
+each candidate separately. These service comparisons exclude Electron
+presentation and cannot replace the foreground workflow acceptance above.
+
 The isolated [image-pipeline research](performance-research.md) adds `research-pipeline` and `research-resources` (fast Node graph/accounting proofs) and `research-native`, `research-measurements`, `research-libraries`, `research-gpu`, `research-wgpu`, `research-presentation`, `research-background`, `research-merge-gpu` (the exclusive `research` benchmark family). The latter are explicit targets or part of benchmark-all/check-all, excluded from full functional coverage. `research-merge-gpu` compares a separate GPU camera-evidence candidate with independent Float64 references and the maintained CPU writer, including orientations, lens masks, native strips and source integrity. It does not select that implementation for production or establish five-second acceptance. Research correctness failures and missing hardware remain visible; no existing gate is relaxed. Use `npm run research:pipeline`, `npm run research:measure`, or `npm run research:presentation -- --foreground`; select the merge study explicitly with `npm run verify -- --target research-merge-gpu`. The paired wgpu target needs its separately built pinned helper and an explicit shared adapter name. See the [Bazzite continuation brief](performance-research-bazzite.md) for Linux setup, committed Sony sequences, actual input cadence and remaining evidence.
 
 1. Select the relevant target IDs and implement the change.
