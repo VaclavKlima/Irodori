@@ -2,13 +2,12 @@ import { createHash } from 'node:crypto'
 import { open } from 'node:fs/promises'
 import { join } from 'node:path'
 import { SRGB_TO_2020 } from '../../shared/hdr'
-import { ALIGNMENT_CONSTANTS, MERGE_LIMITS } from '../../shared/merge'
+import { ALIGNMENT_CONSTANTS } from '../../shared/merge'
 import type { RawSource } from '../gpu/raw-source'
 import { radial, type CorrectionPlan } from '../processing/lens-correction'
-import { areaContributions } from './area'
 import type { Plane } from './math'
 import type { PreparedSource } from './prepare'
-import { createCameraKernel, type CpuKernelMeasurement } from './cpu-kernels'
+import { createAreaReducer, createCameraKernel, type CpuKernelMeasurement } from './cpu-kernels'
 
 export const CAMERA_REGISTRATION_POLICY = ALIGNMENT_CONSTANTS.cameraRegistrationPolicy
 export const CAMERA_CHANNELS = ['red', 'green', 'blue'] as const
@@ -102,15 +101,15 @@ export async function cameraRegistrationWriter(
     path = join(directory, `source-${index}.camera.f32`),
     cameraToWorking = cameraMatrix(raw),
     inverse = inverseCameraMatrix(cameraToWorking),
-    kernel = await createCameraKernel(raw, plan, inverse, measurement)
+    kernel = await createCameraKernel(raw, plan, inverse, measurement, undefined, {
+      width: previewWidth,
+      height: previewHeight,
+    })
   try {
-    const masks = channelClipping(raw, kernel?.masks),
-      count = previewWidth * previewHeight,
-      values = Array.from({ length: 3 }, () => new Float64Array(count)),
-      weights = Array.from({ length: 3 }, () => new Float64Array(count)),
-      totals = new Float64Array(count),
-      xs = areaContributions(width, previewWidth),
-      ys = areaContributions(height, previewHeight),
+    const masks = kernel?.populateMasks() ?? channelClipping(raw, kernel?.masks),
+      reduction =
+        kernel?.reduction ??
+        createAreaReducer(width, height, { width: previewWidth, height: previewHeight }, 'camera'),
       strips: string[] = [],
       cx = (raw.width - 1) / 2,
       cy = (raw.height - 1) / 2,
@@ -201,29 +200,7 @@ export async function cameraRegistrationWriter(
                 output[at + 3] = valid
               }
           }
-          for (let row = 0; row < rows; row++)
-            for (let x = 0; x < width; x++) {
-              const y = stripTop + row,
-                at = (row * width + x) * 4,
-                valid = output[at + 3]
-              const columns = xs[x],
-                rowWeights = ys[y]
-              for (let xi = 0; xi < columns.length; xi++)
-                for (let yi = 0; yi < rowWeights.length; yi++) {
-                  const px = columns[xi][0],
-                    wx = columns[xi][1],
-                    py = rowWeights[yi][0],
-                    wy = rowWeights[yi][1]
-                  const p = py * previewWidth + px,
-                    weight = wx * wy
-                  totals[p] += weight
-                  for (let c = 0; c < 3; c++)
-                    if (valid & (1 << c) && output[at + c] > MERGE_LIMITS.readNoise * 3) {
-                      values[c][p] += output[at + c] * weight
-                      weights[c][p] += weight
-                    }
-                }
-            }
+          reduction.add(stripTop, output)
           const out = Buffer.from(output.buffer, output.byteOffset, output.byteLength)
           strips.push(hash(out))
           await file.writeFile(out)
@@ -234,15 +211,7 @@ export async function cameraRegistrationWriter(
         if (next !== height || strips.length !== Math.ceil(height / 64))
           throw new Error('Incomplete camera registration evidence.')
         await close()
-        const planes = [0, 1, 2].map((c) => {
-          const data = new Float32Array(count),
-            mask = new Uint8Array(count)
-          for (let p = 0; p < count; p++) {
-            mask[p] = weights[c][p] > 0 && Math.abs(weights[c][p] - totals[p]) < 1e-8 ? 255 : 0
-            data[p] = mask[p] ? values[c][p] / weights[c][p] : 0
-          }
-          return { width: previewWidth, height: previewHeight, data, mask }
-        }) as [Plane, Plane, Plane]
+        const planes = reduction.finish() as [Plane, Plane, Plane]
         return { version: CAMERA_REGISTRATION_POLICY, path, strips, planes }
       },
     }

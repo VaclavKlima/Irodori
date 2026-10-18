@@ -12,3 +12,24 @@ export function areaContributions(native: number, reduced: number): [number, num
     return result
   })
 }
+
+/** Keep the authoritative Float64 footprint values and their contribution order. */
+export function flattenedAreaContributions(native: number, reduced: number) {
+  const contributions = areaContributions(native, reduced),
+    offsets = new Uint32Array(native + 1),
+    count = contributions.reduce((sum, cells) => sum + cells.length, 0),
+    targets = new Int32Array(count),
+    weights = new Float64Array(count),
+    last = new Int32Array(reduced).fill(-1)
+  let next = 0
+  for (let i = 0; i < native; i++) {
+    offsets[i] = next
+    for (const [target, weight] of contributions[i]) {
+      targets[next] = target
+      weights[next++] = weight
+      last[target] = i
+    }
+  }
+  offsets[native] = next
+  return { offsets, targets, weights, last }
+}

@@ -224,7 +224,11 @@ test('explicit scope unions and benchmark families preserve gates without overla
           ]
         : []),
       ...(file === 'merge'
-        ? ['tests/merge-preview-benchmark.spec.ts', 'tests/merge-three-raw-benchmark.spec.ts']
+        ? [
+            'tests/merge-preview-benchmark.spec.ts',
+            'tests/merge-three-raw-benchmark.spec.ts',
+            'tests/merge-workflow-benchmark.spec.ts',
+          ]
         : []),
     ])
   expect(selectPlan(['--benchmark-all']).groups).toHaveLength(6)

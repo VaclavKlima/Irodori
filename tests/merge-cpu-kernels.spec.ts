@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
   createCameraKernel,
+  createAreaReducer,
+  createMaskRepairKernel,
   createPreparationKernel,
+  createSensorClippingMask,
   getMergeKernelHeapBytes,
   MERGE_KERNEL_HEAP_LIMIT,
   mergeKernelDirectory,
@@ -18,6 +21,8 @@ import { cameraRegistrationWriter } from '../src/main/merge/camera-registration'
 import { correctionPlan, type CorrectionPlan } from '../src/main/processing/lens-correction'
 import { automaticLensSettings, type LensProfile } from '../src/shared/lens'
 import { REC2020_LUMA, SRGB_TO_2020 } from '../src/shared/hdr'
+import { MERGE_LIMITS } from '../src/shared/merge'
+import { areaContributions, flattenedAreaContributions } from '../src/main/merge/area'
 
 const repository = resolve(import.meta.dirname, '..'),
   vendor = join(repository, 'vendor/merge-kernels'),
@@ -121,6 +126,115 @@ function taps(frame: LinearFrame, plan: CorrectionPlan, x: number, y: number, ch
   return result
 }
 
+// The frozen full-plane algorithm is intentionally independent of the bounded
+// row implementation. Its Float32 luma assignment occurs after every update.
+function referenceReduction(
+  pixels: Float32Array,
+  luma: Float64Array | undefined,
+  width: number,
+  height: number,
+  pw: number,
+  ph: number,
+  doubleLuma = false,
+) {
+  const channels = luma ? 1 : 3,
+    xs = areaContributions(width, pw),
+    ys = areaContributions(height, ph),
+    totals = new Float64Array(pw * ph),
+    counts = Array.from({ length: channels }, () => new Float64Array(pw * ph)),
+    sums = Array.from({ length: channels }, () =>
+      luma && !doubleLuma ? new Float32Array(pw * ph) : new Float64Array(pw * ph),
+    )
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x,
+        valid = pixels[i * 4 + 3]
+      for (const [px, wx] of xs[x])
+        for (const [py, wy] of ys[y]) {
+          const p = py * pw + px,
+            weight = wx * wy
+          totals[p] += weight
+          for (let c = 0; c < channels; c++) {
+            const value = luma ? luma[i] : pixels[i * 4 + c]
+            if ((luma ? valid : valid & (1 << c)) && value > MERGE_LIMITS.readNoise * 3) {
+              sums[c][p] += value * weight
+              counts[c][p] += weight
+            }
+          }
+        }
+    }
+  return sums.map((sum, c) => {
+    const data = new Float32Array(pw * ph),
+      mask = new Uint8Array(pw * ph)
+    for (let p = 0; p < data.length; p++) {
+      mask[p] = counts[c][p] > 0 && Math.abs(counts[c][p] - totals[p]) < 1e-8 ? 255 : 0
+      data[p] = mask[p] ? sum[p] / counts[c][p] : 0
+    }
+    return { width: pw, height: ph, data, mask }
+  })
+}
+
+function referenceSensorMasks(raw: RawSource) {
+  const canonical = new Uint8Array(raw.width * raw.height),
+    channels = Array.from({ length: 3 }, () => new Uint8Array(raw.width * raw.height)),
+    thresholds = raw.normalization!.sourceSaturation!.thresholds
+  for (let y = 0; y < raw.height; y++)
+    for (let x = 0; x < raw.width; x++) {
+      const c = raw.cfa[(y & 1) * 2 + (x & 1)],
+        channel = c === 3 ? 1 : c
+      if (raw.pixels[(y + raw.top) * raw.rawWidth + raw.left + x] < thresholds[c]) continue
+      for (let yy = Math.max(0, y - 2); yy < Math.min(raw.height, y + 3); yy++)
+        for (let xx = Math.max(0, x - 2); xx < Math.min(raw.width, x + 3); xx++) {
+          canonical[yy * raw.width + xx] = 1
+          channels[channel][yy * raw.width + xx] = 1
+        }
+    }
+  return { canonical, channels }
+}
+
+function referenceRepair(
+  pixels: Float32Array,
+  top: number,
+  frame: LinearFrame,
+  plan: CorrectionPlan,
+  saturated: Uint8Array,
+  alpha: Uint32Array,
+) {
+  const width = frame.flip & 4 ? plan.height : plan.width,
+    rows = pixels.length / 4 / width,
+    original = Uint8Array.from({ length: width * rows }, (_, i) => pixels[i * 4 + 3]),
+    changed: number[] = []
+  for (let k = 0; k < original.length; k++) {
+    const i = top * width + k
+    alpha[i >>> 5] |= original[k] << (i & 31)
+  }
+  for (let row = 0; row < rows; row++)
+    for (let x = 0; x < width; x++) {
+      const k = row * width + x,
+        a = original[k]
+      if (
+        row > 0 &&
+        row < rows - 1 &&
+        a === original[k - width] &&
+        a === original[k + width] &&
+        (x === 0 || a === original[k - 1]) &&
+        (x === width - 1 || a === original[k + 1])
+      )
+        continue
+      const clipped = [0, 1, 2].some((c) =>
+          taps(frame, plan, x, top + row, c).some(
+            (tap) => tap.weight > 0 && saturated[tap.y * frame.width + tap.x],
+          ),
+        ),
+        i = top * width + k
+      pixels[k * 4 + 3] = Number(!clipped)
+      if (clipped) alpha[i >>> 5] &= ~(1 << (i & 31))
+      else alpha[i >>> 5] |= 1 << (i & 31)
+      if (clipped && a) changed.push(i)
+    }
+  return changed
+}
+
 test('optional SIMD assets verify checksums and resolve beside the packaged worker', async () => {
   expect(mergeKernelDirectory(join(repository, 'src/main/merge'))).toBe(vendor)
   const directory = await mkdtemp(join(tmpdir(), 'luma-merge-kernel-assets-'))
@@ -152,7 +266,7 @@ test('optional SIMD assets verify checksums and resolve beside the packaged work
     const invalid = new Uint8Array([0])
     await writeFile(
       join(directory, 'manifest.json'),
-      JSON.stringify({ version: 2, sha256: createHash('sha256').update(invalid).digest('hex') }),
+      JSON.stringify({ version: 3, sha256: createHash('sha256').update(invalid).digest('hex') }),
     )
     // A checksum alone does not make malformed or unsupported bytecode usable.
     await writeFile(join(directory, 'luma-merge-kernels.wasm'), invalid)
@@ -336,8 +450,8 @@ test('gain cache capacity defaults to 32768 and rejects unsupported allocations'
     },
     configAt = Number(kernelExports.__heap_base.value),
     config = new Float64Array(kernelExports.memory.buffer, configAt, 32)
-  expect(kernelExports.luma_kernel_version()).toBe(2)
-  // ABI2 validates slot27 before any strip pointer can be read. An invalid
+  expect(kernelExports.luma_kernel_version()).toBe(3)
+  // ABI3 validates slot27 before any strip pointer can be read. An invalid
   // capacity must never index the caller's smaller allocation with a larger mask.
   for (const invalid of [0, 2049, 16384, 32767, 65536, NaN]) {
     config[27] = invalid
@@ -507,4 +621,418 @@ test('simultaneous kernel arenas respect the aggregate cap and release ownership
   const reopened = await createCameraKernel(raw, plan, inverse, measurement(), module)
   expect(reopened).toBeDefined()
   reopened!.close()
+})
+
+test('flattened footprints retain exact weights, order and final contributing rows', () => {
+  for (const [native, reduced] of [
+    [139, 7],
+    [331, 139],
+    [71, 71],
+    [17, 1],
+  ]) {
+    const expected = areaContributions(native, reduced),
+      flat = flattenedAreaContributions(native, reduced)
+    for (let i = 0; i < native; i++) {
+      const actual: [number, number][] = []
+      for (let k = flat.offsets[i]; k < flat.offsets[i + 1]; k++)
+        actual.push([flat.targets[k], flat.weights[k]])
+      expect(actual).toEqual(expected[i])
+    }
+    for (let target = 0; target < reduced; target++) {
+      let last = -1
+      for (let i = 0; i < expected.length; i++)
+        if (expected[i].some(([p]) => p === target)) last = i
+      expect(flat.last[target]).toBe(last)
+    }
+  }
+})
+
+test('compiled camera and luma reducers preserve ordered Float64 and per-update Float32 bytes', async () => {
+  const module = await readMergeKernel(vendor),
+    inverse = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+  expect(module).toBeDefined()
+  for (const flip of [0, 1, 2, 3, 4, 5, 6, 7]) {
+    const { raw, frame, plan } = fixture(flip, 139, 71),
+      width = flip & 4 ? plan.height : plan.width,
+      height = flip & 4 ? plan.width : plan.height,
+      reduced = { width: 7, height: 11 },
+      saturated = Uint8Array.from({ length: frame.width * frame.height }, (_, i) =>
+        Number(i % 101 === 0),
+      ),
+      input = Float32Array.from({ length: width * height * 4 }, (_, i) =>
+        i % 4 === 3
+          ? 1
+          : [0, -1, Math.fround(MERGE_LIMITS.readNoise * 3), 0.0044999993, 0.0045000007, 1e8, 7][
+              i % 7
+            ],
+      ),
+      camera = await createCameraKernel(raw, plan, inverse, measurement(), module, reduced),
+      preparation = await createPreparationKernel(
+        frame,
+        plan,
+        saturated,
+        [1.75, 1, 1.25],
+        measurement(),
+        module,
+        reduced,
+      )
+    expect(camera?.reduction).toBeDefined()
+    expect(preparation?.reduction).toBeDefined()
+    const cameraPixels = new Float32Array(input.length),
+      preparedPixels = new Float32Array(input.length),
+      luma = new Float64Array(width * height)
+    try {
+      for (let c = 0; c < 3; c++)
+        for (let i = 0; i < raw.width * raw.height; i++)
+          camera!.masks![c][i] = Number((i + c * 11) % 127 === 0)
+      for (let top = 0; top < height; top += 64) {
+        const rows = Math.min(64, height - top),
+          output = camera!.convert(top, input.subarray(top * width * 4, (top + rows) * width * 4)),
+          prepared = preparation!.convert(top, rows)
+        cameraPixels.set(output, top * width * 4)
+        preparedPixels.set(prepared.pixels, top * width * 4)
+        luma.set(prepared.luma, top * width)
+        camera!.reduction!.add(top, output)
+        preparation!.reduction!.add(top, prepared.pixels, prepared.luma)
+      }
+      expect(camera!.reduction!.finish()).toEqual(
+        referenceReduction(cameraPixels, undefined, width, height, reduced.width, reduced.height),
+      )
+      expect(preparation!.reduction!.finish()).toEqual(
+        referenceReduction(preparedPixels, luma, width, height, reduced.width, reduced.height),
+      )
+    } finally {
+      camera?.close()
+      preparation?.close()
+    }
+  }
+  const width = 29,
+    height = 139,
+    reduced = { width: 6, height: 5 },
+    pixels = Float32Array.from({ length: width * height * 4 }, (_, i) => (i % 4 === 3 ? 1 : 0.5)),
+    luma = Float64Array.from({ length: width * height }, (_, i) => 1e8 + (i % 17)),
+    scalar = createAreaReducer(width, height, reduced, 'luma')
+  for (let top = 0; top < height; top += 64) {
+    const last = Math.min(height, top + 64) * width
+    scalar.add(top, pixels.subarray(top * width * 4, last * 4), luma.subarray(top * width, last))
+  }
+  const exact = referenceReduction(pixels, luma, width, height, reduced.width, reduced.height),
+    double = referenceReduction(pixels, luma, width, height, reduced.width, reduced.height, true)
+  expect(scalar.finish()).toEqual(exact)
+  expect(bytes(exact[0].data).equals(bytes(double[0].data))).toBe(false)
+  expect(() => scalar.add(height, pixels.subarray(0, width * 4), luma.subarray(0, width))).toThrow(
+    'Invalid',
+  )
+  expect(() => createAreaReducer(width, height, { width: width + 1, height }, 'luma')).toThrow(
+    'geometry',
+  )
+})
+
+test('late reducer status, traps and malformed emissions restore live rows before scalar replay', async () => {
+  const module = await readMergeKernel(vendor),
+    Instance = WebAssembly.Instance
+  expect(module).toBeDefined()
+  for (const failure of ['status', 'trap', 'emission'] as const)
+    for (const mode of ['camera', 'luma'] as const) {
+      const { raw, frame, plan } = fixture(0, 139, 331),
+        width = plan.width,
+        height = plan.height,
+        reduced = { width: 7, height: 11 },
+        pixels = Float32Array.from({ length: width * height * 4 }, (_, i) =>
+          i % 4 === 3 ? (mode === 'camera' ? 7 : 1) : (i % 31) / 17 + 0.02,
+        ),
+        luma =
+          mode === 'luma'
+            ? Float64Array.from({ length: width * height }, (_, i) => 1e8 + (i % 17))
+            : undefined
+      raw.normalization!.sourceSaturation!.saturatedSites = 0
+      let calls = 0,
+        kernel:
+          | Awaited<ReturnType<typeof createCameraKernel>>
+          | Awaited<ReturnType<typeof createPreparationKernel>>
+      try {
+        WebAssembly.Instance = function (code: WebAssembly.Module, imports?: WebAssembly.Imports) {
+          const instance = new Instance(code, imports),
+            original = instance.exports.luma_reduce_strip as (
+              config: number,
+              top: number,
+              rows: number,
+            ) => number,
+            exports = {
+              ...instance.exports,
+              luma_reduce_strip(configAt: number, top: number, rows: number) {
+                const status = original(configAt, top, rows)
+                if (++calls !== 2) return status
+                if (failure === 'trap')
+                  throw new WebAssembly.RuntimeError('Injected late reduction trap.')
+                if (failure === 'emission') {
+                  const memory = instance.exports.memory as WebAssembly.Memory,
+                    config = new Float64Array(memory.buffer, configAt, 48)
+                  expect(config[21]).toBeGreaterThan(0)
+                  new Int32Array(memory.buffer, config[20], config[22])[config[21] - 1] = height
+                  return status
+                }
+                return 5
+              },
+            }
+          return new Proxy(instance, {
+            get: (target, key) => (key === 'exports' ? exports : Reflect.get(target, key)),
+          })
+        } as unknown as typeof WebAssembly.Instance
+        kernel =
+          mode === 'camera'
+            ? await createCameraKernel(
+                raw,
+                plan,
+                [1, 0, 0, 0, 1, 0, 0, 0, 1],
+                measurement(),
+                module,
+                reduced,
+              )
+            : await createPreparationKernel(
+                frame,
+                plan,
+                new Uint8Array(raw.width * raw.height),
+                [1, 1, 1],
+                measurement(),
+                module,
+                reduced,
+              )
+      } finally {
+        WebAssembly.Instance = Instance
+      }
+      expect(kernel?.reduction).toBeDefined()
+      try {
+        expect(() => kernel!.reduction!.finish()).toThrow('Incomplete')
+        for (let top = 0; top < height; top += 64)
+          kernel!.reduction!.add(
+            top,
+            pixels.subarray(top * width * 4, Math.min(top + 64, height) * width * 4),
+            luma?.subarray(top * width, Math.min(top + 64, height) * width),
+          )
+        expect(kernel!.reduction!.finish()).toEqual(
+          referenceReduction(pixels, luma, width, height, reduced.width, reduced.height),
+        )
+        expect(calls).toBe(2)
+      } finally {
+        kernel?.close()
+      }
+    }
+})
+
+test('compiled sensor masks and canonical repair retain threshold, orientation and producer boundaries', async () => {
+  const module = await readMergeKernel(vendor)
+  expect(module).toBeDefined()
+  for (const flip of [0, 1, 2, 3, 4, 5, 6, 7]) {
+    const { raw, frame, plan } = fixture(flip, 331, 139)
+    raw.normalization!.sourceSaturation!.thresholds = [3800, 3799, 3801, 3798]
+    for (let y = 0; y < raw.height; y++)
+      for (let x = 0; x < raw.width; x++) {
+        const c = raw.cfa[(y & 1) * 2 + (x & 1)],
+          at = (y + raw.top) * raw.rawWidth + raw.left + x
+        raw.pixels[at] =
+          raw.normalization!.sourceSaturation!.thresholds[c] + ((x * 7 + y * 11) % 101 < 3 ? 0 : -1)
+      }
+    const original = raw.pixels.slice(),
+      expected = referenceSensorMasks(raw),
+      canonical = await createSensorClippingMask(raw, measurement(), module),
+      camera = await createCameraKernel(
+        raw,
+        plan,
+        [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        measurement(),
+        module,
+      ),
+      repair = await createMaskRepairKernel(raw, plan, expected.canonical, measurement(), module),
+      width = flip & 4 ? plan.height : plan.width,
+      height = flip & 4 ? plan.width : plan.height
+    expect(canonical).toEqual(expected.canonical)
+    expect(camera).toBeDefined()
+    expect(repair).toBeDefined()
+    try {
+      expect(camera!.populateMasks()).toEqual(expected.channels)
+      for (const batch of [64, 128, 256]) {
+        const alpha = new Uint32Array(Math.ceil((width * height) / 32)),
+          expectedAlpha = new Uint32Array(alpha.length)
+        for (let top = 0; top < height; top += batch) {
+          const rows = Math.min(batch, height - top),
+            pixels = Float32Array.from({ length: width * rows * 4 }, (_, i) =>
+              i % 4 === 3
+                ? Number((Math.floor(i / 4 / width) + top) % 97 > 45)
+                : (i % 31) / 17 - 0.2,
+            ),
+            scalar = pixels.slice(),
+            changed = referenceRepair(scalar, top, frame, plan, expected.canonical, expectedAlpha)
+          expect(repair!.repair(top, pixels, alpha)).toEqual(changed)
+          expect(bytes(pixels).equals(bytes(scalar))).toBe(true)
+          expect(alpha).toEqual(expectedAlpha)
+        }
+      }
+      expect(raw.pixels).toEqual(original)
+      expect(() =>
+        repair!.repair(
+          height,
+          new Float32Array(width * 4),
+          new Uint32Array(Math.ceil((width * height) / 32)),
+        ),
+      ).toThrow('Invalid')
+    } finally {
+      camera?.close()
+      repair?.close()
+    }
+  }
+  const { raw } = fixture(0)
+  raw.normalization!.sourceSaturation!.saturatedSites = 0
+  expect(await createSensorClippingMask(raw, measurement(), module)).toEqual(
+    new Uint8Array(raw.width * raw.height),
+  )
+})
+
+test('reduction allocation pressure retains compiled conversion and bounded scalar rows', async () => {
+  const module = await readMergeKernel(vendor),
+    small = fixture(0),
+    large = fixture(0, 1500, 1000),
+    inverse = [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    held: NonNullable<Awaited<ReturnType<typeof createCameraKernel>>>[] = [],
+    Instance = WebAssembly.Instance
+  expect(module).toBeDefined()
+  small.raw.normalization!.sourceSaturation!.saturatedSites = 0
+  large.raw.normalization!.sourceSaturation!.saturatedSites = 0
+  let candidate: Awaited<ReturnType<typeof createCameraKernel>>,
+    reductions = 0
+  try {
+    const attempts = await Promise.all(
+      Array.from({ length: 62 }, () =>
+        createCameraKernel(small.raw, small.plan, inverse, measurement(), module),
+      ),
+    )
+    for (const kernel of attempts) if (kernel) held.push(kernel)
+    expect(held).toHaveLength(62)
+    const work = measurement()
+    try {
+      WebAssembly.Instance = function (code: WebAssembly.Module, imports?: WebAssembly.Imports) {
+        const instance = new Instance(code, imports),
+          original = instance.exports.luma_reduce_strip as (...args: number[]) => number,
+          exports = {
+            ...instance.exports,
+            luma_reduce_strip(...args: number[]) {
+              reductions++
+              return original(...args)
+            },
+          }
+        return new Proxy(instance, {
+          get: (target, key) => (key === 'exports' ? exports : Reflect.get(target, key)),
+        })
+      } as unknown as typeof WebAssembly.Instance
+      candidate = await createCameraKernel(large.raw, large.plan, inverse, work, module, {
+        width: large.plan.width,
+        height: large.plan.height,
+      })
+    } finally {
+      WebAssembly.Instance = Instance
+    }
+    expect(candidate?.reduction).toBeDefined()
+    expect(work.backend).toBe('wasm-simd')
+    expect(work.heapBytes).toBeLessThanOrEqual(4 * 1024 ** 2)
+    const maskWork = measurement()
+    expect(
+      await createMaskRepairKernel(
+        large.raw,
+        large.plan,
+        new Uint8Array(large.raw.width * large.raw.height),
+        maskWork,
+        module,
+      ),
+    ).toBeUndefined()
+    expect(maskWork.backend).toBe('scalar')
+    // Conversion keeps its arena while additional mask work declines admission.
+    const sensor = {
+      ...large.raw,
+      height: 1500,
+      pixels: new Uint16Array(large.raw.rawWidth * 1502),
+      normalization: {
+        ...large.raw.normalization!,
+        sourceSaturation: { ...large.raw.normalization!.sourceSaturation!, saturatedSites: 1 },
+      },
+    }
+    expect(await createSensorClippingMask(sensor, measurement(), module)).toBeUndefined()
+    expect(
+      await createCameraKernel(
+        sensor,
+        { ...large.plan, height: 1500, top: 0 },
+        inverse,
+        measurement(),
+        module,
+      ),
+    ).toBeUndefined()
+    const width = large.plan.width,
+      height = large.plan.height,
+      input = Float32Array.from({ length: width * 64 * 4 }, (_, i) => (i % 4 === 3 ? 1 : 0.125))
+    for (let top = 0; top < height; top += 64) {
+      const output = candidate!.convert(
+        top,
+        input.subarray(0, Math.min(64, height - top) * width * 4),
+      )
+      candidate!.reduction!.add(top, output)
+    }
+    for (const plane of candidate!.reduction!.finish()) {
+      expect(plane.data.every((value) => value === 0.125)).toBe(true)
+      expect(plane.mask!.every((value) => value === 255)).toBe(true)
+    }
+    expect(reductions).toBe(0)
+    expect(getMergeKernelHeapBytes()).toBeLessThanOrEqual(MERGE_KERNEL_HEAP_LIMIT)
+  } finally {
+    WebAssembly.Instance = Instance
+    candidate?.close()
+    for (const kernel of held) kernel.close()
+  }
+})
+
+test('failed canonical repair publishes no partial RGB, alpha or changed positions', async () => {
+  const module = await readMergeKernel(vendor),
+    { raw, frame, plan } = fixture(5, 331, 139),
+    width = plan.height,
+    height = plan.width,
+    saturated = Uint8Array.from({ length: raw.width * raw.height }, (_, i) => Number(i % 37 === 0)),
+    Instance = WebAssembly.Instance
+  expect(module).toBeDefined()
+  let repair: Awaited<ReturnType<typeof createMaskRepairKernel>>
+  try {
+    WebAssembly.Instance = function (code: WebAssembly.Module, imports?: WebAssembly.Imports) {
+      const instance = new Instance(code, imports),
+        original = instance.exports.luma_repair_mask as (...args: number[]) => number,
+        exports = {
+          ...instance.exports,
+          luma_repair_mask(...args: number[]) {
+            original(...args)
+            return 5
+          },
+        }
+      return new Proxy(instance, {
+        get: (target, key) => (key === 'exports' ? exports : Reflect.get(target, key)),
+      })
+    } as unknown as typeof WebAssembly.Instance
+    repair = await createMaskRepairKernel(raw, plan, saturated, measurement(), module)
+  } finally {
+    WebAssembly.Instance = Instance
+  }
+  expect(repair).toBeDefined()
+  try {
+    const rows = Math.min(256, height),
+      pixels = Float32Array.from({ length: rows * width * 4 }, (_, i) =>
+        i % 4 === 3 ? 1 : (i % 17) / 11,
+      ),
+      original = pixels.slice(),
+      alpha = new Uint32Array(Math.ceil((width * height) / 32)),
+      expectedAlpha = alpha.slice(),
+      scalar = pixels.slice()
+    expect(() => repair!.repair(0, pixels, alpha)).toThrow('failed')
+    expect(pixels).toEqual(original)
+    expect(alpha).toEqual(expectedAlpha)
+    const changed = referenceRepair(scalar, 0, frame, plan, saturated, expectedAlpha)
+    expect(changed.length).toBeGreaterThan(0)
+    expect(bytes(scalar).equals(bytes(original))).toBe(false)
+  } finally {
+    repair?.close()
+  }
 })

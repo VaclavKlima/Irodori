@@ -540,6 +540,28 @@ for (const mode of ['noise', 'hdr'] as const)
         const measured = sample.recipe.measurements
         expect(measured?.peak.gpuBytes).toBeLessThanOrEqual(1024 ** 3)
         expect(measured?.peak.wasmBytes).toBeLessThanOrEqual(512 * 1024 ** 2)
+        if (mode === 'hdr' && measured?.timeline?.referenceFallback) {
+          const timeline = measured.timeline,
+            fallback = timeline.referenceFallback!
+          expect(timeline.preparation).toHaveLength(3)
+          expect(fallback.startedMs).toBeGreaterThanOrEqual(
+            timeline.preparation.at(-1)!.span.completedMs,
+          )
+          expect(measured.attempts).toHaveLength(2)
+          const alignment = measured.attempts.map((attempt) => attempt.timeline!)
+          for (const span of alignment) {
+            expect(span.submittedMs).toBeLessThanOrEqual(fallback.startedMs)
+            expect(span.admittedMs).toBeGreaterThanOrEqual(span.submittedMs)
+            expect(span.completedMs).toBeGreaterThanOrEqual(span.admittedMs)
+          }
+          expect(
+            alignment.some(
+              (span) =>
+                span.admittedMs < fallback.completedMs && span.completedMs > fallback.startedMs,
+            ),
+            'Alignment overlaps unchanged reference fallback',
+          ).toBe(true)
+        }
         if (mode === 'hdr' && process.env.LUMA_MERGE_CPU_KERNEL === 'wasm') {
           for (const prepared of measured!.preparation)
             expect(prepared.work?.cpuKernel?.backend, 'Requested SIMD preparation ran').toBe(

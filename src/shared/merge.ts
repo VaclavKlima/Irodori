@@ -50,6 +50,35 @@ export interface MergeReadMeasurements {
   }
 }
 export interface MergeMeasurements {
+  /** Relative spans in the merge process; nested/parallel spans must not be added. */
+  timeline?: {
+    clock: 'merge-worker-performance'
+    preflight?: MergeTimingSpan
+    preparation: { sourceId: string; span: MergeTimingSpan }[]
+    referenceFallback?: MergeTimingSpan
+    registration?: MergeTimingSpan
+    coverage?: MergeTimingSpan
+    accumulation?: MergeTimingSpan
+    output?: MergeTimingSpan
+  }
+  /** Main-process durations, separate from worker clocks and overlapping stage totals. */
+  publication?: {
+    clock: 'main-performance'
+    runtimeMs: number
+    operationQueueMs: number
+    reviewHandoffMs: number
+    sourceVerification?: MergeVerificationTiming
+    destinationVerification?: MergeVerificationTiming
+    copyingMs: number
+    fileSyncMs: number
+    manifestMs: number
+    directorySyncMs: number
+    mutationQueueMs: number
+    journalMs: number
+    renameMs: number
+    catalogCommitMs: number
+    cleanupMs: number
+  }
   stages: Record<
     | 'decoding'
     | 'preparation'
@@ -172,6 +201,8 @@ export interface MergeMeasurements {
     runtimeMs: number
     lane?: number
     queuedMs?: number
+    /** Dispatch and completion observations on the merge process clock. */
+    timeline?: { submittedMs: number; admittedMs: number; completedMs: number }
     reads?: MergeReadMeasurements
     patches?: { samplingMs: number; optimizationMs: number; count: number; pixels: number }
     diagnostics?: AlignmentDiagnostics[]
@@ -181,6 +212,17 @@ export interface MergeMeasurements {
   reads?: MergeReadMeasurements
   peak: { workerBytes: number; gpuBytes: number; wasmBytes: number }
   runtimeMs: number
+}
+export interface MergeTimingSpan {
+  startedMs: number
+  completedMs: number
+}
+export interface MergeVerificationTiming {
+  readingMs: number
+  hashingMs: number
+  pixelValidationMs: number
+  metadataMs: number
+  closingMs: number
 }
 export const MERGE_LIMITS = Object.freeze({
   minSources: 2,

@@ -495,6 +495,29 @@ for (const boundary of ['staged', 'journaled', 'published', 'committed'] as cons
         .poll(() => library.listTasks().find((t) => t.id === task)?.finishedAt)
         .toBeTruthy()
       expect(library.listTasks().find((t) => t.id === task)?.status).toBe('failed')
+      const publication = library.listTasks().find((t) => t.id === task)!.mergeMeasurements!
+        .publication!
+      expect(publication.clock).toBe('main-performance')
+      expect(publication.cleanupMs).toBeGreaterThanOrEqual(0)
+      const durations = [
+        publication.operationQueueMs,
+        publication.reviewHandoffMs,
+        publication.copyingMs,
+        publication.fileSyncMs,
+        publication.manifestMs,
+        publication.directorySyncMs,
+        publication.mutationQueueMs,
+        publication.journalMs,
+        publication.renameMs,
+        publication.catalogCommitMs,
+        publication.cleanupMs,
+        ...Object.values(publication.sourceVerification!),
+        ...Object.values(publication.destinationVerification!),
+      ]
+      expect(durations.every((ms) => Number.isFinite(ms) && ms >= 0)).toBe(true)
+      expect(durations.reduce((sum, ms) => sum + ms, 0)).toBeLessThanOrEqual(publication.runtimeMs)
+      expect(publication.sourceVerification!.hashingMs).toBeGreaterThan(0)
+      expect(publication.destinationVerification!.hashingMs).toBeGreaterThan(0)
       await library.close()
       fail = false
       library = make()

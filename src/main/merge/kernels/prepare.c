@@ -15,7 +15,9 @@ enum {
   WIDTH, HEIGHT, RAW_WIDTH, RAW_HEIGHT, FLIP, PLAN_WIDTH, PLAN_HEIGHT,
   PLAN_LEFT, PLAN_TOP, CX, CY, RADIUS, INPUT, OUTPUT, LUMA, MASK,
   LUT, MATRIX, GAINS, ROI_LEFT, ROI_TOP, ROI_WIDTH, ROI_HEIGHT,
-  GAIN_KEYS, GAIN_VALUES, CAPACITY, HAS_MASK, GAIN_CACHE_ENTRIES
+  GAIN_KEYS, GAIN_VALUES, CAPACITY, HAS_MASK, GAIN_CACHE_ENTRIES,
+  SENSOR_INPUT, SENSOR_CFA, SENSOR_THRESHOLDS, SENSOR_MODE, SENSOR_CAPACITY,
+  ALPHA, CHANGED, CHANGE_COUNT, REPAIR_ORIGINAL
 };
 
 static void *ptr(double offset) { return (void *)(uintptr_t)(uint32_t)offset; }
@@ -52,12 +54,10 @@ static void coordinates(const double *p, int x, int y, double *qx, double *qy) {
   *qx = (double)(sx + (int)p[PLAN_LEFT]) - p[CX];
   *qy = (double)(sy + (int)p[PLAN_TOP]) - p[CY];
 }
-static int channel_clipped(const double *p, double qx, double qy,
-                           double radius, int channel) {
+static int mask_clipped(const double *p, double qx, double qy,
+                        double radius, int channel, const uint8_t *mask) {
   const float *lut = (const float *)ptr(p[LUT]);
   const int raw_width = (int)p[RAW_WIDTH], raw_height = (int)p[RAW_HEIGHT];
-  const uint8_t *mask = (const uint8_t *)ptr(p[MASK]) +
-                        channel * raw_width * raw_height;
   const double scale = radial(lut, radius, channel);
   const double px = p[CX] + qx * scale, py = p[CY] + qy * scale;
   const int ix = (int)__builtin_floor(px), iy = (int)__builtin_floor(py);
@@ -70,8 +70,13 @@ static int channel_clipped(const double *p, double qx, double qy,
         return 1;
   return 0;
 }
+static int channel_clipped(const double *p, double qx, double qy,
+                           double radius, int channel) {
+  return mask_clipped(p, qx, qy, radius, channel,
+      (const uint8_t *)ptr(p[MASK]) + channel * (int)p[RAW_WIDTH] * (int)p[RAW_HEIGHT]);
+}
 
-int luma_kernel_version(void) { return 2; }
+int luma_kernel_version(void) { return 3; }
 
 int luma_camera_strip(double *p, int top, int rows) {
   const int width = (int)p[WIDTH];
@@ -102,6 +107,94 @@ int luma_camera_strip(double *p, int top, int rows) {
       }
       output[at + 3] = (float)valid;
     }
+  return 0;
+}
+
+static void dilate_sensor_run(uint8_t *mask, int width, int height,
+                              int y, int first, int end) {
+  const int left = clamp_int(first - 2, 0, width);
+  const int right = clamp_int(end, 0, width);
+  const int top = clamp_int(y - 2, 0, height), bottom = clamp_int(y + 3, 0, height);
+  const v128_t ones = wasm_i8x16_splat(1);
+  for (int yy = top; yy < bottom; yy++) {
+    uint8_t *line = mask + yy * width;
+    int x = left;
+    for (; x + 16 <= right; x += 16) wasm_v128_store(line + x, ones);
+    for (; x < right; x++) line[x] = 1;
+  }
+}
+
+// Input is a packed active-sensor strip; dilated output remains in native sensor
+// coordinates. Camera masks keep the two green CFA positions in one channel.
+int luma_sensor_mask(double *p, int top, int rows) {
+  const int width = (int)p[RAW_WIDTH], height = (int)p[RAW_HEIGHT];
+  const int channel_masks = (int)p[SENSOR_MODE];
+  if (top < 0 || rows < 1 || rows > 64 || top + rows > height ||
+      width < 1 || width * rows > (int)p[SENSOR_CAPACITY] ||
+      (channel_masks != 0 && channel_masks != 1)) return 3;
+  const uint16_t *input = (const uint16_t *)ptr(p[SENSOR_INPUT]);
+  const int32_t *cfa = (const int32_t *)ptr(p[SENSOR_CFA]);
+  const double *thresholds = (const double *)ptr(p[SENSOR_THRESHOLDS]);
+  uint8_t *masks = (uint8_t *)ptr(p[MASK]);
+  const int step = channel_masks ? 2 : 1;
+  for (int row = 0; row < rows; row++) {
+    const int y = top + row;
+    for (int parity = 0; parity < step; parity++) {
+      const int sensor_channel = cfa[(y & 1) * 2 + parity];
+      const int channel = sensor_channel == 3 ? 1 : sensor_channel;
+      int first = -1;
+      for (int x = parity; x < width + step; x += step) {
+        const int c = channel_masks ? sensor_channel : cfa[(y & 1) * 2 + (x & 1)];
+        if (c < 0 || c > 3) return 2;
+        const int clipped = x < width && (double)input[row * width + x] >= thresholds[c];
+        if (clipped && first < 0) first = x;
+        if (!clipped && first >= 0) {
+          dilate_sensor_run(masks + (channel_masks ? channel * width * height : 0),
+                            width, height, y, first, x + (channel_masks ? 1 : 2));
+          first = -1;
+        }
+      }
+    }
+  }
+  return 0;
+}
+
+int luma_repair_mask(double *p, int top, int rows) {
+  const int width = (int)p[WIDTH];
+  if (top < 0 || rows < 1 || rows > 256 || top + rows > (int)p[HEIGHT] ||
+      width * rows > (int)p[CAPACITY]) return 3;
+  float *pixels = (float *)ptr(p[INPUT]);
+  uint8_t *original = (uint8_t *)ptr(p[REPAIR_ORIGINAL]);
+  uint32_t *alpha = (uint32_t *)ptr(p[ALPHA]);
+  int32_t *changed = (int32_t *)ptr(p[CHANGED]);
+  const uint8_t *saturated = (const uint8_t *)ptr(p[MASK]);
+  const int first = top * width;
+  int count = 0;
+  for (int k = 0; k < rows * width; k++) {
+    const int i = first + k;
+    const int a = (int)pixels[k * 4 + 3];
+    original[k] = (uint8_t)a;
+    alpha[i >> 5] |= (uint32_t)a << (i & 31);
+  }
+  for (int row = 0; row < rows; row++)
+    for (int x = 0; x < width; x++) {
+      const int k = row * width + x, a = original[k];
+      if (row > 0 && row < rows - 1 && a == original[k - width] &&
+          a == original[k + width] && (x == 0 || a == original[k - 1]) &&
+          (x == width - 1 || a == original[k + 1])) continue;
+      double qx, qy;
+      coordinates(p, x, top + row, &qx, &qy);
+      const double radius = canonical_hypot(qx, qy) / p[RADIUS];
+      int clipped = 0;
+      for (int c = 0; c < 3 && !clipped; c++)
+        if (mask_clipped(p, qx, qy, radius, c, saturated)) clipped = 1;
+      pixels[k * 4 + 3] = clipped ? 0.0f : 1.0f;
+      const int i = first + k;
+      if (clipped) alpha[i >> 5] &= ~(1u << (i & 31));
+      else alpha[i >> 5] |= 1u << (i & 31);
+      if (clipped && a) changed[count++] = i;
+    }
+  p[CHANGE_COUNT] = (double)count;
   return 0;
 }
 
@@ -169,5 +262,109 @@ int luma_prepare_strip(double *p, int top, int rows) {
       const double value = r * working[9] + g * working[10] + b * working[11];
       luma[at / 4] = value > 0.0 ? value : value == value ? 0.0 : value;
     }
+  return 0;
+}
+
+// Ordered source-pixel area contributions. The host flattens the authoritative
+// Float64 tables without changing their values or x-before-y contribution order.
+enum {
+  RED_WIDTH, RED_HEIGHT, REDUCED_WIDTH, REDUCED_HEIGHT, RED_CHANNELS,
+  RED_X_OFFSETS, RED_X_TARGETS, RED_X_WEIGHTS,
+  RED_Y_OFFSETS, RED_Y_TARGETS, RED_Y_WEIGHTS, RED_ROW_LAST,
+  RED_TOTALS, RED_COUNTS, RED_SUMS, RED_ROW_IDS, RED_INPUT, RED_LUMA,
+  RED_EMIT_DATA, RED_EMIT_MASKS, RED_EMIT_ROWS, RED_EMIT_COUNT,
+  RED_EMIT_CAPACITY, RED_THRESHOLD
+};
+
+static int emit_reduced_row(double *p, int slot) {
+  const int width = (int)p[REDUCED_WIDTH], channels = (int)p[RED_CHANNELS];
+  const int row_pixels = width * 2, emitted = (int)p[RED_EMIT_COUNT];
+  if (emitted >= (int)p[RED_EMIT_CAPACITY]) return 5;
+  int32_t *ids = (int32_t *)ptr(p[RED_ROW_IDS]);
+  double *totals = (double *)ptr(p[RED_TOTALS]);
+  double *counts = (double *)ptr(p[RED_COUNTS]);
+  double *camera = (double *)ptr(p[RED_SUMS]);
+  float *luma = (float *)ptr(p[RED_SUMS]);
+  float *data = (float *)ptr(p[RED_EMIT_DATA]);
+  uint8_t *masks = (uint8_t *)ptr(p[RED_EMIT_MASKS]);
+  int32_t *rows = (int32_t *)ptr(p[RED_EMIT_ROWS]);
+  rows[emitted] = ids[slot];
+  for (int x = 0; x < width; x++) {
+    const int at = slot * width + x;
+    for (int c = 0; c < channels; c++) {
+      const int k = c * row_pixels + at;
+      const int out = (emitted * channels + c) * width + x;
+      const int valid = counts[k] > 0.0 &&
+                        __builtin_fabs(counts[k] - totals[at]) < 1e-8;
+      masks[out] = valid ? 255 : 0;
+      const double sum = channels == 3 ? camera[k] : (double)luma[k];
+      data[out] = valid ? (float)(sum / counts[k]) : 0.0f;
+      counts[k] = 0.0;
+      if (channels == 3) camera[k] = 0.0;
+      else luma[k] = 0.0f;
+    }
+    totals[at] = 0.0;
+  }
+  ids[slot] = -1;
+  p[RED_EMIT_COUNT] = (double)(emitted + 1);
+  return 0;
+}
+
+int luma_reduce_strip(double *p, int top, int rows) {
+  const int width = (int)p[RED_WIDTH], height = (int)p[RED_HEIGHT];
+  const int reduced_width = (int)p[REDUCED_WIDTH];
+  const int channels = (int)p[RED_CHANNELS], row_pixels = reduced_width * 2;
+  if (top < 0 || rows < 1 || rows > 64 || top + rows > height ||
+      width < 1 || reduced_width < 1 || reduced_width > width ||
+      (int)p[REDUCED_HEIGHT] < 1 || (int)p[REDUCED_HEIGHT] > height ||
+      (channels != 1 && channels != 3) || p[RED_EMIT_CAPACITY] < 1.0) return 3;
+  const uint32_t *xs = (const uint32_t *)ptr(p[RED_X_OFFSETS]);
+  const uint32_t *ys = (const uint32_t *)ptr(p[RED_Y_OFFSETS]);
+  const int32_t *xt = (const int32_t *)ptr(p[RED_X_TARGETS]);
+  const int32_t *yt = (const int32_t *)ptr(p[RED_Y_TARGETS]);
+  const double *xw = (const double *)ptr(p[RED_X_WEIGHTS]);
+  const double *yw = (const double *)ptr(p[RED_Y_WEIGHTS]);
+  const int32_t *last = (const int32_t *)ptr(p[RED_ROW_LAST]);
+  int32_t *ids = (int32_t *)ptr(p[RED_ROW_IDS]);
+  const float *input = (const float *)ptr(p[RED_INPUT]);
+  const double *luma = (const double *)ptr(p[RED_LUMA]);
+  double *totals = (double *)ptr(p[RED_TOTALS]);
+  double *counts = (double *)ptr(p[RED_COUNTS]);
+  double *camera_sums = (double *)ptr(p[RED_SUMS]);
+  float *luma_sums = (float *)ptr(p[RED_SUMS]);
+  p[RED_EMIT_COUNT] = 0.0;
+  for (int row = 0; row < rows; row++) {
+    const int y = top + row;
+    for (int x = 0; x < width; x++) {
+      const int pixel = row * width + x;
+      const int valid = (int)input[pixel * 4 + 3];
+      for (uint32_t xi = xs[x]; xi < xs[x + 1]; xi++)
+        for (uint32_t yi = ys[y]; yi < ys[y + 1]; yi++) {
+          const int px = xt[xi], py = yt[yi], slot = py & 1;
+          if (px < 0 || px >= reduced_width || py < 0 || py >= (int)p[REDUCED_HEIGHT]) return 2;
+          if (ids[slot] < 0) ids[slot] = py;
+          if (ids[slot] != py) return 5;
+          const int at = slot * reduced_width + px;
+          const double weight = xw[xi] * yw[yi];
+          totals[at] += weight;
+          for (int c = 0; c < channels; c++) {
+            const double value = channels == 3 ? (double)input[pixel * 4 + c] : luma[pixel];
+            const int usable = channels == 3 ? valid & (1 << c) : valid;
+            if (usable && value > p[RED_THRESHOLD]) {
+              const int k = c * row_pixels + at;
+              // The luma recipe rounds every individual update to Float32.
+              if (channels == 3) camera_sums[k] += value * weight;
+              else luma_sums[k] = (float)((double)luma_sums[k] + value * weight);
+              counts[k] += weight;
+            }
+          }
+        }
+    }
+    for (int slot = 0; slot < 2; slot++)
+      if (ids[slot] >= 0 && last[ids[slot]] == y) {
+        const int status = emit_reduced_row(p, slot);
+        if (status) return status;
+      }
+  }
   return 0;
 }

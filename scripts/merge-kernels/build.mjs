@@ -31,6 +31,9 @@ const flags = [
   '-Wl,--export=luma_kernel_version',
   '-Wl,--export=luma_camera_strip',
   '-Wl,--export=luma_prepare_strip',
+  '-Wl,--export=luma_reduce_strip',
+  '-Wl,--export=luma_sensor_mask',
+  '-Wl,--export=luma_repair_mask',
 ]
 await mkdir(directory, { recursive: true })
 const output = join(directory, 'luma-merge-kernels.wasm')
@@ -45,7 +48,7 @@ await writeFile(
   join(directory, 'manifest.json'),
   JSON.stringify(
     {
-      version: 2,
+      version: 3,
       sha256: sha256(bytes),
       sourceSha256: sha256(await readFile(join(root, source))),
       compiler: compilerVersion,

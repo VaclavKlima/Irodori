@@ -19,6 +19,7 @@ import { durableJson, recoverMerges, syncDirectory, verifyMaster } from './merge
 import {
   MERGE_VERSION,
   type MergeManifest,
+  type MergeMeasurements,
   type MergeMode,
   type MergeSettings,
   type MergeSource,
@@ -2704,14 +2705,55 @@ export class PhotoLibrary {
     task.work = (async () => {
       let pendingDirectory: string | undefined
       let journaled = false
+      const acceptedAt = performance.now()
+      let publication: MergeMeasurements['publication']
+      const timed = async <T>(
+        field: 'copyingMs' | 'fileSyncMs' | 'manifestMs' | 'directorySyncMs' | 'renameMs',
+        work: () => Promise<T>,
+      ): Promise<T> => {
+        const started = performance.now()
+        try {
+          return await work()
+        } finally {
+          if (publication) publication[field] += performance.now() - started
+        }
+      }
+      const verification = () => ({
+        readingMs: 0,
+        hashingMs: 0,
+        pixelValidationMs: 0,
+        metadataMs: 0,
+        closingMs: 0,
+      })
       try {
         await this.scheduler.run(
           'operation',
           async () => {
+            const admittedAt = performance.now()
             const { review } = accepted
             const { result, output } = await accepted.render(task.abort.signal)
             task.snapshot.title = 'Publishing merged photo'
             const publicationStart = performance.now()
+            publication = {
+              clock: 'main-performance',
+              runtimeMs: 0,
+              operationQueueMs: admittedAt - acceptedAt,
+              reviewHandoffMs: publicationStart - admittedAt,
+              sourceVerification: verification(),
+              destinationVerification: verification(),
+              copyingMs: 0,
+              fileSyncMs: 0,
+              manifestMs: 0,
+              directorySyncMs: 0,
+              mutationQueueMs: 0,
+              journalMs: 0,
+              renameMs: 0,
+              catalogCommitMs: 0,
+              cleanupMs: 0,
+            }
+            const measurements = structuredClone(result.measurements)
+            measurements.publication = publication
+            task.snapshot.mergeMeasurements = measurements
             task.snapshot.phase = 'Verifying master'
             task.snapshot.detail = undefined
             this.changed()
@@ -2764,50 +2806,81 @@ export class PhotoLibrary {
               asset: result.asset,
               recipe: result.recipe,
             }
-            await verifyMaster(output, manifest)
+            await verifyMaster(output, manifest, publication.sourceVerification)
             task.abort.signal.throwIfAborted()
             pendingDirectory = directory
             await mkdir(directory, { recursive: true })
             let copiedBytes = 0
             for (const name of ['linear.f32', 'motion.mask', 'thumb.jpg', 'preview.jpg']) {
               task.abort.signal.throwIfAborted()
-              await cp(join(output, name), join(directory, name), {
-                errorOnExist: true,
-                force: false,
+              await timed('copyingMs', async () => {
+                await cp(join(output, name), join(directory, name), {
+                  errorOnExist: true,
+                  force: false,
+                })
+                copiedBytes += (await stat(join(directory, name))).size
               })
-              copiedBytes += (await stat(join(directory, name))).size
-              const file = await open(join(directory, name), 'r+')
-              try {
-                await file.sync()
-              } finally {
-                await file.close()
-              }
+              await timed('fileSyncMs', async () => {
+                const file = await open(join(directory, name), 'r+')
+                try {
+                  await file.sync()
+                } finally {
+                  await file.close()
+                }
+              })
             }
-            await durableJson(join(directory, 'manifest.json'), manifest)
-            await verifyMaster(directory, manifest)
-            await syncDirectory(directory)
-            await syncDirectory(join(this.root, 'merge-publications'))
+            await timed('manifestMs', () => durableJson(join(directory, 'manifest.json'), manifest))
+            await verifyMaster(directory, manifest, publication.destinationVerification)
+            await timed('directorySyncMs', () => syncDirectory(directory))
+            await timed('directorySyncMs', () =>
+              syncDirectory(join(this.root, 'merge-publications')),
+            )
             await this.mergeBoundary?.('staged')
             task.abort.signal.throwIfAborted()
-            await this.scheduler.mutate(async () => {
-              this.assertRecovered()
-              // Once journaled, finish publication even when cancellation arrives.
-              this.db
-                .prepare('INSERT INTO merge_publications (id, manifest_sha256) VALUES (?, ?)')
-                .run(photoId, createHash('sha256').update(JSON.stringify(manifest)).digest('hex'))
-              journaled = true
-              await this.mergeBoundary?.('journaled')
-              task.snapshot.phase = 'Publishing master'
-              task.snapshot.progress!.completed = 2
-              this.changed()
-              await rename(directory, join(this.root, 'originals', photoId))
-              await syncDirectory(join(this.root, 'originals'))
-              await syncDirectory(join(this.root, 'merge-publications'))
-              await this.mergeBoundary?.('published')
-              this.commitMerge(manifest)
-              await this.mergeBoundary?.('committed')
-            }, task.abort.signal)
-            const measurements = structuredClone(result.measurements)
+            const mutationQueuedAt = performance.now()
+            let mutationAdmitted = false
+            await this.scheduler
+              .mutate(async () => {
+                mutationAdmitted = true
+                publication!.mutationQueueMs = performance.now() - mutationQueuedAt
+                this.assertRecovered()
+                const journalStart = performance.now()
+                // Once journaled, finish publication even when cancellation arrives.
+                try {
+                  this.db
+                    .prepare('INSERT INTO merge_publications (id, manifest_sha256) VALUES (?, ?)')
+                    .run(
+                      photoId,
+                      createHash('sha256').update(JSON.stringify(manifest)).digest('hex'),
+                    )
+                } finally {
+                  publication!.journalMs = performance.now() - journalStart
+                }
+                journaled = true
+                await this.mergeBoundary?.('journaled')
+                task.snapshot.phase = 'Publishing master'
+                task.snapshot.progress!.completed = 2
+                this.changed()
+                await timed('renameMs', () =>
+                  rename(directory, join(this.root, 'originals', photoId)),
+                )
+                await timed('directorySyncMs', () => syncDirectory(join(this.root, 'originals')))
+                await timed('directorySyncMs', () =>
+                  syncDirectory(join(this.root, 'merge-publications')),
+                )
+                await this.mergeBoundary?.('published')
+                const commitStart = performance.now()
+                try {
+                  this.commitMerge(manifest)
+                } finally {
+                  publication!.catalogCommitMs = performance.now() - commitStart
+                }
+                await this.mergeBoundary?.('committed')
+              }, task.abort.signal)
+              .finally(() => {
+                if (!mutationAdmitted)
+                  publication!.mutationQueueMs = performance.now() - mutationQueuedAt
+              })
             measurements.stages.publication = performance.now() - publicationStart
             measurements.runtimeMs += measurements.stages.publication
             measurements.disk.readBytes +=
@@ -2833,9 +2906,17 @@ export class PhotoLibrary {
           task.snapshot.errorCount = 1
         }
       } finally {
-        if (pendingDirectory && !journaled)
-          await rm(pendingDirectory, { recursive: true, force: true })
-        await this.merges.dispose(reviewId, true)
+        const cleanupStart = performance.now()
+        try {
+          if (pendingDirectory && !journaled)
+            await rm(pendingDirectory, { recursive: true, force: true })
+          await this.merges.dispose(reviewId, true)
+        } finally {
+          if (publication) {
+            publication.cleanupMs = performance.now() - cleanupStart
+            publication.runtimeMs = performance.now() - acceptedAt
+          }
+        }
         task.snapshot.finishedAt = Date.now()
         this.changed(undefined, true)
       }

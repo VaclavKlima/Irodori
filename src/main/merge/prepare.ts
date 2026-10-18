@@ -1,4 +1,3 @@
-import { areaContributions } from './area'
 import { createHash } from 'node:crypto'
 import { open } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -16,7 +15,12 @@ import { sourceCorrectionPlan } from './preparation-policy'
 import type { MergePreparation } from '../../shared/merge'
 import { cameraRegistrationWriter, type CameraRegistration } from './camera-registration'
 import { sensorBlendParameters, sensorBlendRgb } from '../gpu/sensor-blend'
-import { createPreparationKernel } from './cpu-kernels'
+import {
+  createAreaReducer,
+  createMaskRepairKernel,
+  createPreparationKernel,
+  createSensorClippingMask,
+} from './cpu-kernels'
 
 function preparationWork(): NonNullable<MergeMeasurements['preparation'][number]['work']> {
   return {
@@ -209,11 +213,12 @@ export async function prepareSource(
         file = await open(target, 'wx'),
         strips: string[] = [],
         maskStart = performance.now(),
-        saturated = sensorMask(raw),
+        saturated = (await createSensorClippingMask(raw, work.cpuKernel!)) ?? sensorMask(raw),
         alpha = new Uint32Array(Math.ceil((width * height) / 32)),
         invalidated: number[] = []
       work.maskRepairMs += performance.now() - maskStart
-      let camera: Awaited<ReturnType<typeof cameraRegistrationWriter>> | undefined
+      let camera: Awaited<ReturnType<typeof cameraRegistrationWriter>> | undefined,
+        maskKernel: Awaited<ReturnType<typeof createMaskRepairKernel>> | undefined
       try {
         if (preparation) {
           const cameraStart = performance.now()
@@ -228,6 +233,8 @@ export async function prepareSource(
           )
           work.cameraRegistrationMs += performance.now() - cameraStart
         }
+        maskKernel = await createMaskRepairKernel(raw, plan, saturated, work.cpuKernel!)
+        let acceleratedMask = maskKernel
         const frame = await gpu.render(raw, plan, undefined, false, false, {
           gains: reference.metadata.whiteBalance!.asShotGains,
           reviewWidth: pw,
@@ -235,7 +242,20 @@ export async function prepareSource(
           checkpoint,
           strip: async (top, bytes) => {
             const maskStart = performance.now()
-            invalidated.push(...repairMask(bytes, top, width, raw, plan, saturated, alpha))
+            let changed: number[] | undefined
+            if (acceleratedMask)
+              try {
+                changed = acceleratedMask.repair(
+                  top,
+                  new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4),
+                  alpha,
+                )
+              } catch {
+                acceleratedMask = undefined
+              }
+            invalidated.push(
+              ...(changed ?? repairMask(bytes, top, width, raw, plan, saturated, alpha)),
+            )
             work.maskRepairMs += performance.now() - maskStart
             const cameraStart = performance.now()
             await camera?.write(top, bytes)
@@ -319,8 +339,15 @@ export async function prepareSource(
           cameraRegistration,
         }
       } finally {
-        await camera?.close()
-        await file.close()
+        try {
+          await camera?.close()
+        } finally {
+          try {
+            maskKernel?.close()
+          } finally {
+            await file.close()
+          }
+        }
       }
     } catch (error) {
       fallback = mergeFailure(error).message
@@ -401,15 +428,19 @@ async function prepareCpu(
     const thresholds = sourceRaw.normalization.sourceSaturation.thresholds
     raw = sourceRaw
     const saturationStart = performance.now()
-    saturated = new Uint8Array(raw.width * raw.height)
-    for (let y = 0; y < raw.height; y++)
-      for (let x = 0; x < raw.width; x++) {
-        const c = raw.cfa[(y % 2) * 2 + (x % 2)]
-        saturated[y * raw.width + x] = Number(
-          raw.pixels[(y + raw.top) * raw.rawWidth + x + raw.left] >= thresholds[c],
-        )
-      }
-    saturated = expandMask(saturated, raw.width, raw.height, 2)
+    const nativeMask = await createSensorClippingMask(raw, work.cpuKernel!)
+    if (nativeMask) saturated = nativeMask
+    else {
+      saturated = new Uint8Array(raw.width * raw.height)
+      for (let y = 0; y < raw.height; y++)
+        for (let x = 0; x < raw.width; x++) {
+          const c = raw.cfa[(y % 2) * 2 + (x % 2)]
+          saturated[y * raw.width + x] = Number(
+            raw.pixels[(y + raw.top) * raw.rawWidth + x + raw.left] >= thresholds[c],
+          )
+        }
+      saturated = expandMask(saturated, raw.width, raw.height, 2)
+    }
     decoding.saturationMaskMs += performance.now() - saturationStart
     const linearStart = performance.now()
     frame = session.linear(true)
@@ -456,16 +487,9 @@ async function prepareCpu(
   const plane: Plane = {
     width: Math.max(1, Math.floor(width * ratio)),
     height: Math.max(1, Math.floor(height * ratio)),
-    data: new Float32Array(
-      Math.max(1, Math.floor(width * ratio)) * Math.max(1, Math.floor(height * ratio)),
-    ),
+    data: new Float32Array(0),
   }
   const strips: string[] = []
-  const counts = new Float64Array(plane.data.length)
-  const totals = new Float64Array(plane.data.length)
-  plane.mask = new Uint8Array(plane.data.length)
-  const xs = areaContributions(width, plane.width),
-    ys = areaContributions(height, plane.height)
   const target = join(directory, `source-${index}.f32`),
     file = await open(target, 'wx')
   let camera: Awaited<ReturnType<typeof cameraRegistrationWriter>> | undefined
@@ -473,6 +497,7 @@ async function prepareCpu(
     cy = (frame.height - 1) / 2,
     radius = Math.hypot(cx, cy),
     staging = new Float32Array(width * Math.min(64, height) * 4),
+    stagingLuma = new Float64Array(width * Math.min(64, height)),
     maximumGain = Math.max(...normal.gains),
     minimumGain = Math.min(...gains),
     cameraRgb = [0, 0, 0],
@@ -492,7 +517,18 @@ async function prepareCpu(
     }
     return gainValues[slot]
   }
-  const kernel = await createPreparationKernel(frame, plan, saturated, gains, work.cpuKernel!)
+  const kernel = await createPreparationKernel(
+      frame,
+      plan,
+      saturated,
+      gains,
+      work.cpuKernel!,
+      undefined,
+      { width: plane.width, height: plane.height },
+    ),
+    reduction =
+      kernel?.reduction ??
+      createAreaReducer(width, height, { width: plane.width, height: plane.height }, 'luma')
   let accelerated = kernel
   try {
     if (preparation && !highlightSafe) {
@@ -523,26 +559,7 @@ async function prepareCpu(
           work.cpuKernel!.backend = 'scalar'
         }
       }
-      if (native) {
-        // Keep the original ordered Float32 plane accumulation. Luminance was
-        // computed from the unquantized Float64 color, before native F32 stores.
-        for (let y = top; y < top + rows; y++)
-          for (let x = 0; x < width; x++) {
-            const i = (y - top) * width + x,
-              value = native.luma[i],
-              clipped = !out[i * 4 + 3]
-            for (const [px, wx] of xs[x])
-              for (const [py, wy] of ys[y]) {
-                const p = py * plane.width + px,
-                  weight = wx * wy
-                totals[p] += weight
-                if (!clipped && value > MERGE_LIMITS.readNoise * 3) {
-                  plane.data[p] += value * weight
-                  counts[p] += weight
-                }
-              }
-          }
-      } else {
+      if (!native) {
         for (let y = top; y < top + rows; y++)
           for (let x = 0; x < width; x++) {
             let sx = frame.flip & 4 ? y : x,
@@ -594,19 +611,10 @@ async function prepareCpu(
             out[i + 1] = rgb[1]
             out[i + 2] = rgb[2]
             out[i + 3] = Number(!clipped)
-            const value = Math.max(0, luminance(rgb))
-            for (const [px, wx] of xs[x])
-              for (const [py, wy] of ys[y]) {
-                const p = py * plane.width + px,
-                  weight = wx * wy
-                totals[p] += weight
-                if (!clipped && value > MERGE_LIMITS.readNoise * 3) {
-                  plane.data[p] += value * weight
-                  counts[p] += weight
-                }
-              }
+            stagingLuma[i / 4] = Math.max(0, luminance(rgb))
           }
       }
+      reduction.add(top, out, native?.luma ?? stagingLuma.subarray(0, width * rows))
       work.conversionMs += performance.now() - conversion
       const bytes = Buffer.from(out.buffer, out.byteOffset, out.byteLength),
         hashing = performance.now()
@@ -633,12 +641,11 @@ async function prepareCpu(
   const cameraStart = performance.now(),
     cameraRegistration = await camera?.finish()
   work.cameraRegistrationMs += performance.now() - cameraStart
-  const reduction = performance.now()
-  for (let i = 0; i < plane.data.length; i++) {
-    plane.mask[i] = Math.abs(counts[i] - totals[i]) < 1e-8 && counts[i] > 0 ? 255 : 0
-    plane.data[i] = plane.mask[i] ? plane.data[i] / counts[i] : 0
-  }
-  work.reductionMs += performance.now() - reduction
+  const reducing = performance.now()
+  const reduced = reduction.finish()[0]
+  plane.data = reduced.data
+  plane.mask = reduced.mask
+  work.reductionMs += performance.now() - reducing
   return {
     path: target,
     strips,

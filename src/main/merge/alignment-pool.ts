@@ -15,6 +15,7 @@ type LaneResult = Awaited<ReturnType<typeof registerNative>> & {
   readBytes: number
   runtimeMs: number
   queuedMs: number
+  timeline: { submittedMs: number; admittedMs: number; completedMs: number }
   reads: MergeReadMeasurements
   patches?: MergeMeasurements['attempts'][number]['patches']
 }
@@ -28,11 +29,12 @@ class AlignmentLane {
     resolve: (value: LaneResult) => void
     reject: (error: unknown) => void
     queuedMs: number
+    timeline: LaneResult['timeline']
   }
   private sent = new Set<string>()
   private closed = false
   heapBytes = 0
-  constructor() {
+  constructor(private clockOrigin: number) {
     const path = existsSync(join(import.meta.dirname, 'alignment-worker.js'))
       ? join(import.meta.dirname, 'alignment-worker.js')
       : resolve('out/main/alignment-worker.js')
@@ -40,7 +42,7 @@ class AlignmentLane {
     this.worker.on(
       'message',
       (m: {
-        result?: Omit<LaneResult, 'readBytes' | 'queuedMs' | 'reads'>
+        result?: Omit<LaneResult, 'readBytes' | 'queuedMs' | 'reads' | 'timeline'>
         error?: MergeFailure
         readBytes: number
         reads: MergeReadMeasurements
@@ -52,12 +54,14 @@ class AlignmentLane {
         this.heapBytes = Math.max(this.heapBytes, m.wasmBytes)
         const pending = this.pending
         this.pending = undefined
+        if (pending) pending.timeline.completedMs = performance.now() - this.clockOrigin
         if (m.result && pending)
           pending.resolve({
             ...m.result,
             readBytes: m.readBytes,
             reads: m.reads,
             queuedMs: pending.queuedMs,
+            timeline: pending.timeline,
           })
         else
           pending?.reject(
@@ -68,6 +72,7 @@ class AlignmentLane {
               patches: m.patches,
               reads: m.reads,
               queuedMs: pending?.queuedMs,
+              timeline: pending?.timeline,
             }),
           )
       },
@@ -104,7 +109,17 @@ class AlignmentLane {
                 this.sent.add(entry[0])
                 sources.push(entry)
               }
-            this.pending = { resolve, reject, queuedMs: performance.now() - queued }
+            const admitted = performance.now()
+            this.pending = {
+              resolve,
+              reject,
+              queuedMs: admitted - queued,
+              timeline: {
+                submittedMs: queued - this.clockOrigin,
+                admittedMs: admitted - this.clockOrigin,
+                completedMs: 0,
+              },
+            }
             this.worker.postMessage({
               id: ++this.sequence,
               referenceId: reference[0],
@@ -127,7 +142,10 @@ class AlignmentLane {
 
 /** Two lanes each have a 256 MiB WASM cap, preserving the combined 512 MiB bound. */
 export class AlignmentPool {
-  private lanes = [new AlignmentLane(), new AlignmentLane()]
+  private lanes: AlignmentLane[]
+  constructor(clockOrigin = performance.now()) {
+    this.lanes = [new AlignmentLane(clockOrigin), new AlignmentLane(clockOrigin)]
+  }
   private queued = [0, 0]
   private closed = false
   get wasmBytes() {

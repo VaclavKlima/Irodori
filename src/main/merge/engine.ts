@@ -93,30 +93,31 @@ async function checkpoint() {
 }
 
 export async function runMerge(job: MergeJob): Promise<MergeResult> {
-  const gpu = new RawGpuRenderer(),
-    alignment = new AlignmentPool()
+  const start = performance.now(),
+    gpu = new RawGpuRenderer(),
+    alignment = new AlignmentPool(start)
   const measurements: MergeMeasurements = {
-      stages: {
-        decoding: 0,
-        preparation: 0,
-        matching: 0,
-        nativeValidation: 0,
-        accumulation: 0,
-        output: 0,
-        publication: 0,
-      },
-      preparation: [],
-      accumulation: { backend: 'cpu' },
-      attempts: [],
-      disk: { readBytes: 0, writtenBytes: 0 },
-      peak: { workerBytes: 0, gpuBytes: 0, wasmBytes: 0 },
-      runtimeMs: 0,
+    stages: {
+      decoding: 0,
+      preparation: 0,
+      matching: 0,
+      nativeValidation: 0,
+      accumulation: 0,
+      output: 0,
+      publication: 0,
     },
-    start = performance.now()
+    preparation: [],
+    accumulation: { backend: 'cpu' },
+    attempts: [],
+    disk: { readBytes: 0, writtenBytes: 0 },
+    peak: { workerBytes: 0, gpuBytes: 0, wasmBytes: 0 },
+    runtimeMs: 0,
+    timeline: { clock: 'merge-worker-performance', preparation: [] },
+  }
   activeAlignment = alignment
   alignment.pause(paused)
   try {
-    return await runMergeInternal(job, gpu, alignment, measurements)
+    return await runMergeInternal(job, gpu, alignment, measurements, start)
   } catch (error) {
     const failure = mergeFailure(error)
     measurements.reads = structuredClone(mergeReadMeasurements())
@@ -138,15 +139,19 @@ async function runMergeInternal(
   gpu: RawGpuRenderer,
   alignment: AlignmentPool,
   measurements: MergeMeasurements,
+  start: number,
 ): Promise<MergeResult> {
-  const start = performance.now(),
-    { directory, settings, sources, output } = job
+  const { directory, settings, sources, output } = job
+  const timeline = measurements.timeline!,
+    relative = () => performance.now() - start,
+    preflightStart = relative()
   resetMergeReads()
   await mkdir(output, { recursive: true })
   const referenceIndex = sources.findIndex((s) => s.photo.id === settings.referenceId),
     reference = sources[referenceIndex]
   const prepared: PreparedSource[] = []
   let fallbackReference: PreparedSource | undefined
+  let referencePreparationIdentity = ''
   const probe = { runtimeMs: 0, openingMs: 0, opens: 0 }
   measurements.preparationProbe = probe
   const preparation = await mergePreparation(job.paths, sources, settings, checkpoint, probe)
@@ -187,7 +192,9 @@ async function runMergeInternal(
     referenceIndex,
     ...sources.map((_, i) => i).filter((i) => i !== referenceIndex),
   ]
+  timeline.preflight = { startedMs: preflightStart, completedMs: relative() }
   for (const i of preparationOrder) {
+    const sourceStart = relative()
     await checkpoint()
     send({ phase: 'Decoding originals', completed: i, total: sources.length })
     const metadataPath = join(directory, `source-${i}.json`)
@@ -204,6 +211,9 @@ async function runMergeInternal(
       ),
     )
     const cacheLookup = performance.now()
+    // Legacy preparation manifests can omit their stored identity. The fallback
+    // key still uses the current verified inputs, exactly as before rescheduling.
+    if (i === referenceIndex) referencePreparationIdentity = identity
     let p = await loadPreparation(
       directory,
       i,
@@ -264,55 +274,6 @@ async function runMergeInternal(
     // Later stages use verified disk strips or sensor caches. Do not retain a
     // separate full GPU frame beside their independently bounded allocations.
     gpu.releaseFrame()
-    if (i === referenceIndex && preparation && p.normalization.sourceSaturation?.saturatedSites) {
-      const safeDirectory = join(directory, 'reference-fallback'),
-        safeIdentity = hash(
-          Buffer.from(JSON.stringify({ identity, policy: MERGE_PIPELINE.referenceFallback })),
-        )
-      await mkdir(safeDirectory, { recursive: true })
-      fallbackReference = await loadPreparation(
-        safeDirectory,
-        0,
-        settings.referenceId,
-        (bytes) => {
-          measurements.disk.readBytes += bytes
-        },
-        safeIdentity,
-      )
-      const reusedFallback = !!fallbackReference
-      if (!fallbackReference) {
-        await rm(join(safeDirectory, 'source-0.f32'), { force: true })
-        await rm(join(safeDirectory, 'source-0.json'), { force: true })
-        fallbackReference = await prepareReferenceFallback(
-          job.paths[i],
-          safeDirectory,
-          0,
-          sources[i],
-          reference,
-          checkpoint,
-          preparation,
-        )
-        fallbackReference.identity = safeIdentity
-        measurements.disk.readBytes += (await stat(job.paths[i])).size
-        measurements.disk.writtenBytes += await savePreparation(
-          safeDirectory,
-          0,
-          settings.referenceId,
-          fallbackReference,
-        )
-        measurements.disk.writtenBytes += p.width * p.height * 16
-      }
-      if (fallbackReference.width !== p.width || fallbackReference.height !== p.height)
-        throw new Error('Highlight fallback reference dimensions differ.')
-      measurements.referenceFallback = {
-        backend: 'cpu',
-        reused: reusedFallback,
-        decodingMs: reusedFallback ? 0 : (fallbackReference.measurement?.decodingMs ?? 0),
-        preparationMs: reusedFallback ? 0 : (fallbackReference.measurement?.preparationMs ?? 0),
-        decoder: reusedFallback ? undefined : fallbackReference.measurement?.decoder,
-        work: reusedFallback ? undefined : fallbackReference.measurement?.work,
-      }
-    }
     if (i !== referenceIndex && settings.autoAlign && !job.recipe && !cachedRegistration)
       early.set(
         i,
@@ -345,10 +306,74 @@ async function runMergeInternal(
     measurements.stages.decoding += m.decodingMs
     measurements.stages.preparation += m.preparationMs
     measurements.peak.gpuBytes = Math.max(measurements.peak.gpuBytes, p.gpuBytes ?? 0)
+    timeline.preparation.push({
+      sourceId: sources[i].photo.id,
+      span: { startedMs: sourceStart, completedMs: relative() },
+    })
   }
   const ref = prepared[referenceIndex]
+  // Fallback supplies output pixels only. Submit both independent alignment lanes
+  // before its unchanged preparation so their work can overlap without new workers.
+  if (preparation && ref.normalization.sourceSaturation?.saturatedSites) {
+    const fallbackStart = relative()
+    const safeDirectory = join(directory, 'reference-fallback'),
+      safeIdentity = hash(
+        Buffer.from(
+          JSON.stringify({
+            identity: referencePreparationIdentity,
+            policy: MERGE_PIPELINE.referenceFallback,
+          }),
+        ),
+      )
+    await mkdir(safeDirectory, { recursive: true })
+    fallbackReference = await loadPreparation(
+      safeDirectory,
+      0,
+      settings.referenceId,
+      (bytes) => {
+        measurements.disk.readBytes += bytes
+      },
+      safeIdentity,
+    )
+    const reusedFallback = !!fallbackReference
+    if (!fallbackReference) {
+      await rm(join(safeDirectory, 'source-0.f32'), { force: true })
+      await rm(join(safeDirectory, 'source-0.json'), { force: true })
+      fallbackReference = await prepareReferenceFallback(
+        job.paths[referenceIndex],
+        safeDirectory,
+        0,
+        sources[referenceIndex],
+        reference,
+        checkpoint,
+        preparation,
+      )
+      fallbackReference.identity = safeIdentity
+      measurements.disk.readBytes += (await stat(job.paths[referenceIndex])).size
+      measurements.disk.writtenBytes += await savePreparation(
+        safeDirectory,
+        0,
+        settings.referenceId,
+        fallbackReference,
+      )
+      measurements.disk.writtenBytes += ref.width * ref.height * 16
+    }
+    if (fallbackReference.width !== ref.width || fallbackReference.height !== ref.height)
+      throw new Error('Highlight fallback reference dimensions differ.')
+    timeline.referenceFallback = { startedMs: fallbackStart, completedMs: relative() }
+    measurements.referenceFallback = {
+      backend: 'cpu',
+      reused: reusedFallback,
+      decodingMs: reusedFallback ? 0 : (fallbackReference.measurement?.decodingMs ?? 0),
+      preparationMs: reusedFallback ? 0 : (fallbackReference.measurement?.preparationMs ?? 0),
+      decoder: reusedFallback ? undefined : fallbackReference.measurement?.decoder,
+      work: reusedFallback ? undefined : fallbackReference.measurement?.work,
+    }
+  }
+
   measurements.stages.decoding += measurements.referenceFallback?.decodingMs ?? 0
   measurements.stages.preparation += measurements.referenceFallback?.preparationMs ?? 0
+  const registrationStart = relative()
   const { width, height } = ref
   if (prepared.some((p) => p.width !== width || p.height !== height))
     throw new Error('Prepared native dimensions differ.')
@@ -501,6 +526,7 @@ async function runMergeInternal(
             attempt.patches = result.patches
             attempt.lane = result.lane
             attempt.queuedMs = result.queuedMs
+            attempt.timeline = result.timeline
             attempt.reads = result.reads
             attempt.diagnostics = result.diagnostics
             transforms[i] = result.transform
@@ -516,6 +542,7 @@ async function runMergeInternal(
               patches?: MergeMeasurements['attempts'][number]['patches']
               lane?: number
               queuedMs?: number
+              timeline?: MergeMeasurements['attempts'][number]['timeline']
               reads?: MergeMeasurements['reads']
             }
             measurements.stages.matching += work.timings?.matching ?? 0
@@ -525,6 +552,7 @@ async function runMergeInternal(
             attempt.patches = work.patches
             attempt.lane = work.lane
             attempt.queuedMs = work.queuedMs
+            attempt.timeline = work.timeline
             attempt.reads = work.reads
             const failure = mergeFailure(error)
             attempt.diagnostics = failure.diagnostics
@@ -659,6 +687,7 @@ async function runMergeInternal(
   })
   measurements.disk.writtenBytes += Buffer.byteLength(registrationJson)
   await writeFile(join(directory, 'registration.json'), registrationJson)
+  timeline.registration = { startedMs: registrationStart, completedMs: relative() }
   const coverageStart = performance.now()
   let common: ReturnType<typeof coverage>
   try {
@@ -682,6 +711,7 @@ async function runMergeInternal(
     }
   } finally {
     measurements.stages.nativeValidation += performance.now() - coverageStart
+    timeline.coverage = { startedMs: coverageStart - start, completedMs: relative() }
   }
   const crop = settings.autoCrop ? common.crop : { left: 0, top: 0, width, height }
   const nativeGeometry = { width, height, crop, transforms: transforms.map((t) => ({ ...t })) }
@@ -847,6 +877,7 @@ async function runMergeInternal(
     }
   }
   measurements.stages.accumulation = performance.now() - accumulationStart
+  timeline.accumulation = { startedMs: accumulationStart - start, completedMs: relative() }
   const outputStart = performance.now(),
     outputWork: NonNullable<NonNullable<MergeMeasurements['output']>['work']> = {
       validityMs: 0,
@@ -1324,6 +1355,7 @@ async function runMergeInternal(
   if (job.recipe?.resolution === 'native' && job.recipe.maskSha256 !== recipe.maskSha256)
     throw new Error('Recipe motion mask could not be reproduced.')
   measurements.stages.output = performance.now() - outputStart
+  timeline.output = { startedMs: outputStart - start, completedMs: relative() }
   measurements.disk.readBytes += mergeReadBytes() + crop.height * width * 32
   measurements.disk.writtenBytes +=
     width * height * (measurements.accumulation.referenceReused ? 16 : 32) +

@@ -1,13 +1,14 @@
 # Exact merge preparation kernels
 
 `luma-merge-kernels.wasm` is an optional, worker-only acceleration of the existing
-Float64 HDR preparation and camera-registration strip loops. It does not decode
-RAW data, change lens geometry, reduce registration planes, or replace the
-application's scalar implementation. Missing, unsupported, damaged or unsuitable
+Float64 HDR preparation, camera-registration strips, ordered area reductions and
+canonical clipping masks. It does not decode RAW data or change lens geometry.
+Missing, unsupported, damaged or unsuitable
 kernels fall back to the scalar path. `LUMA_MERGE_CPU_KERNEL=scalar` selects that
 control explicitly; `wasm` selects the normal optional-kernel path.
 
-Kernel ABI and manifest version 2 carry an explicitly validated vignette gain
+Kernel ABI and manifest version 3 add ordered reductions and canonical sensor and
+boundary masks. They retain the explicitly validated vignette gain
 cache capacity. The default is 32768 tagged entries (384 KiB).
 `LUMA_MERGE_GAIN_CACHE_ENTRIES=2048` selects the prior 24 KiB control;
 `32768` selects the production capacity explicitly. Other capacities retain scalar processing.
@@ -26,7 +27,12 @@ multiply and ordered add operations. There is no horizontal reduction,
 reassociation, contraction, approximate transcendental, or relaxed SIMD. Radial
 geometry imports the host's `Math.hypot` so it retains the same numerical policy.
 Camera/native stores remain Float32; luminance is computed before that rounding.
-The application retains all ordered area accumulations and source checksums.
+Camera reductions retain Float64 sums and exact footprint weights/contribution
+order. Fallback luminance rounds to Float32 after every update. Two live output
+rows replace full accumulation planes; completed planes remain independent of the
+arena. Each strip snapshots its live state before reducing and publishes rows only
+after successful validation. A failed reduction restores state before scalar replay.
+Source checksums and pixel policy remain unchanged.
 
 Each kernel owns bounded strip input/output and fixed tables. Preparation copies
 only a conservative sensor region for the current 64-row output strip, with every
@@ -34,12 +40,17 @@ tap checked inside the kernel. A profile that would duplicate an entire large
 camera frame or exceed capacity falls back to scalar processing. Live kernel
 arenas have an aggregate 128 MiB logical ownership limit. Reported heap peaks are
 logical ownership; process RSS is measured separately and can retain released
-WASM memory until garbage collection. Borrowed output/mask views stay valid until
+WASM memory until garbage collection. Optional reduction allocations are preflighted;
+an allocation miss retains compiled conversion with scalar reduction. Sensor input
+uses bounded strips. Boundary repair keeps the producer's original 64/128/256-row
+batch boundaries and publishes RGB, alpha and changed positions transactionally.
+Borrowed output/mask views stay valid until
 the next conversion or writer close; writes finish before those buffers are reused.
 
 `merge-cpu-kernels` verifies exact native Float32 bytes, unrounded Float64 luminance,
 all decoder orientations, non-identity distortion/CA/vignetting, clipping masks,
-cache collisions, partial strips, asset checksums and scalar fallback. The merge
+cache collisions, partial strips, Float32-sensitive sums, late failure rollback,
+allocation pressure, asset checksums and scalar fallback. The merge
 service suites and strict three-source benchmark additionally compare complete
 prepared strips/planes and published result identities with the frozen scalar
 baseline. Performance claims require matched full-operation measurements.

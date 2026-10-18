@@ -1,13 +1,23 @@
 import { test, expect } from '@playwright/test'
 import { createHash } from 'node:crypto'
-import { mkdtemp, open, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { PreparedSource } from '../src/main/merge/prepare'
 import { bandData, mergeReadBytes, resetMergeReads } from '../src/main/merge/sampling'
 import { identityTransform } from '../src/main/merge/alignment'
 import { nativePlane } from '../src/main/merge/native-plane'
 import { mergeReadMeasurements } from '../src/main/merge/read-metrics'
+import { verifyMaster, type MasterVerificationMeasurements } from '../src/main/merge/store'
+import {
+  MERGE_LIMITS,
+  MERGE_PIPELINE,
+  MERGE_VERSION,
+  type MergeManifest,
+} from '../src/shared/merge'
+import { HDR_SOURCE_VERSION } from '../src/shared/hdr'
+import { PROCESSING_METADATA_VERSION } from '../src/shared/lens'
+import { unavailableProfile } from '../src/main/processing/metadata'
 
 async function sourceFixture(width = 13, height = 139, channel?: number) {
   const directory = await mkdtemp(join(tmpdir(), 'luma-merge-io-')),
@@ -166,6 +176,138 @@ test('a corrupt partial native strip never publishes a plane and can be repaired
       cacheMisses: 1,
       verifiedBytes: f.bytes.length,
     })
+  } finally {
+    await f.close()
+  }
+})
+
+test('master verification attributes disjoint work without changing partial-strip validation or recovery', async () => {
+  const f = await sourceFixture(),
+    directory = dirname(f.source.path),
+    path = join(directory, 'linear.f32'),
+    mask = Buffer.from([0, 1, 0, 1, 0, 1]),
+    id = 'a'.repeat(64),
+    capture = { shutterSeconds: 0.01, iso: 100, aperture: 2.8, focalLength: 9.4 },
+    manifest: MergeManifest = {
+      version: MERGE_VERSION,
+      photo: {
+        id,
+        assetKind: 'derived',
+        filename: 'independent-io-fixture.luma',
+        format: 'LUMA HDR',
+        bytes: f.bytes.length,
+        width: f.source.width,
+        height: f.source.height,
+        importedAt: '2026-10-17',
+        thumbnailUrl: '',
+        previewUrl: '',
+        previewSource: 'decoded',
+      },
+      metadata: { version: PROCESSING_METADATA_VERSION, lensProfile: unavailableProfile },
+      asset: {
+        kind: 'hdr-working-v1',
+        width: f.source.width,
+        height: f.source.height,
+        byteLength: f.bytes.length,
+        sha256: createHash('sha256').update(f.bytes).digest('hex'),
+        strips: f.source.strips.map((sha256, index) => ({
+          byteLength: Math.min(
+            f.source.width * 64 * 16,
+            f.bytes.length - index * 64 * f.source.width * 16,
+          ),
+          sha256,
+        })),
+        source: {
+          version: HDR_SOURCE_VERSION,
+          processing: 'hdr-v1',
+          colorSpace: 'rec2020',
+          whitePoint: 'D65',
+          transfer: 'linear',
+          alpha: 'straight',
+          decoder: MERGE_VERSION,
+          cameraProfile: 'independent-io-fixture',
+          orientation: 'applied-once',
+          composite: { kind: 'noise', sourceCount: 2 },
+          normalization: { ...f.source.normalization, gains: [1, 1, 1, 1] },
+        },
+      },
+      recipe: {
+        version: MERGE_VERSION,
+        pipeline: MERGE_PIPELINE,
+        constants: MERGE_LIMITS,
+        resolution: 'native',
+        width: f.source.width,
+        height: f.source.height,
+        crop: { left: 0, top: 0, width: f.source.width, height: f.source.height },
+        maskDimensions: { width: 3, height: 2 },
+        maskSha256: createHash('sha256').update(mask).digest('hex'),
+        affectedPercent: 0,
+        referenceClippedPercent: 0,
+        settings: {
+          mode: 'noise',
+          referenceId: id,
+          autoAlign: false,
+          autoCrop: false,
+          deghost: false,
+          strength: 50,
+        },
+        sources: [id, 'b'.repeat(64)].map((sourceId) => ({
+          id: sourceId,
+          filename: 'independent-io-fixture.ARW',
+          capture,
+          scale: 1,
+          transform: identityTransform(),
+          decoder: 'independent-io-fixture',
+          cameraProfile: 'test',
+          lensIdentity: 'none',
+        })),
+      },
+    },
+    emptyMeasurements = (): MasterVerificationMeasurements => ({
+      readingMs: 0,
+      hashingMs: 0,
+      pixelValidationMs: 0,
+      metadataMs: 0,
+      closingMs: 0,
+    }),
+    assertMeasurements = (measurements: MasterVerificationMeasurements, elapsed: number) => {
+      expect(Object.values(measurements)).toHaveLength(5)
+      for (const duration of Object.values(measurements)) {
+        expect(Number.isFinite(duration)).toBe(true)
+        expect(duration).toBeGreaterThan(0)
+      }
+      expect(
+        Object.values(measurements).reduce((total, duration) => total + duration, 0),
+      ).toBeLessThanOrEqual(elapsed)
+    }
+  try {
+    await Promise.all([
+      writeFile(path, f.bytes),
+      writeFile(join(directory, 'motion.mask'), mask),
+      writeFile(join(directory, 'thumb.jpg'), 'independent preview presence fixture'),
+      writeFile(join(directory, 'preview.jpg'), 'independent preview presence fixture'),
+    ])
+    const frozen = structuredClone(manifest),
+      measurements = emptyMeasurements(),
+      started = performance.now()
+    await verifyMaster(directory, manifest, measurements)
+    assertMeasurements(measurements, performance.now() - started)
+    expect(manifest).toEqual(frozen)
+    expect(await readFile(path)).toEqual(f.bytes)
+
+    const damaged = Buffer.from(f.bytes)
+    damaged[damaged.length - 1] ^= 0xff
+    await writeFile(path, damaged)
+    const failed = emptyMeasurements(),
+      failedStarted = performance.now()
+    await expect(verifyMaster(directory, manifest, failed)).rejects.toThrow('Damaged master strip.')
+    assertMeasurements(failed, performance.now() - failedStarted)
+    await expect(verifyMaster(directory, manifest)).rejects.toThrow('Damaged master strip.')
+
+    await writeFile(path, f.bytes)
+    await verifyMaster(directory, manifest)
+    expect(await readFile(path)).toEqual(f.bytes)
+    expect(manifest).toEqual(frozen)
   } finally {
     await f.close()
   }
