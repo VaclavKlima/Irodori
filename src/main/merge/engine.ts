@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import sharp from 'sharp'
 import { prepareSource, prepareReferenceFallback, type PreparedSource } from './prepare'
 import { mergePreparation } from './preparation-policy'
+import { cameraPreparationPolicy, referencePreparationPolicy } from './camera-preparation-policy'
 import { estimateBracketExposure } from './exposure'
 import {
   coverage,
@@ -68,6 +69,22 @@ export interface MergeResult {
   measurements: MergeMeasurements
 }
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+function cameraEvidenceProof(prepared: PreparedSource[]) {
+  return prepared.map((source) => {
+    const camera = source.cameraRegistration
+    return (
+      camera && {
+        strips: camera.strips,
+        planes: camera.planes.map((plane) =>
+          createHash('sha256')
+            .update(Buffer.from(plane.data.buffer, plane.data.byteOffset, plane.data.byteLength))
+            .update(plane.mask!)
+            .digest('hex'),
+        ),
+      }
+    )
+  })
+}
 const reviewPngCompressionLevel = { result: 0, reference: 0, overlay: 1 } as const
 const send = (value: unknown) => {
   if (process.connected) process.send?.(value)
@@ -155,6 +172,14 @@ async function runMergeInternal(
   const probe = { runtimeMs: 0, openingMs: 0, opens: 0 }
   measurements.preparationProbe = probe
   const preparation = await mergePreparation(job.paths, sources, settings, checkpoint, probe)
+  const requestedCameraPreparation = cameraPreparationPolicy(job.recipe)
+  const requestedReferencePreparation = referencePreparationPolicy(job.recipe)
+  if (job.recipe?.cameraPreparation && !preparation)
+    throw new Error('Camera preparation policy requires a verified RAW bracket.')
+  if (job.recipe?.referenceFallbackPreparation && !preparation)
+    throw new Error('Reference fallback policy requires a verified RAW bracket.')
+  const cameraPreparation = preparation ? requestedCameraPreparation : undefined
+  const referencePreparation = preparation ? requestedReferencePreparation : undefined
   const registrationKey = JSON.stringify({
     pipeline: MERGE_PIPELINE,
     alignment: ALIGNMENT_CONSTANTS,
@@ -162,6 +187,7 @@ async function runMergeInternal(
     reference: settings.referenceId,
     autoAlign: settings.autoAlign,
     preparation,
+    ...(cameraPreparation ? { cameraPreparation } : {}),
     sources: sources.map((s) => ({
       id: s.photo.id,
       capture: s.capture,
@@ -197,7 +223,10 @@ async function runMergeInternal(
     const sourceStart = relative()
     await checkpoint()
     send({ phase: 'Decoding originals', completed: i, total: sources.length })
-    const metadataPath = join(directory, `source-${i}.json`)
+    const metadataPath = join(directory, `source-${i}.json`),
+      sourceCameraPreparation = job.recipe
+        ? job.recipe.sources[i].cameraPreparation
+        : cameraPreparation
     const identity = hash(
       Buffer.from(
         JSON.stringify({
@@ -207,6 +236,7 @@ async function runMergeInternal(
           lens: (preparation ? sources[i] : reference).metadata.lensProfile.identity,
           wb: reference.metadata.whiteBalance?.asShotGains,
           preparation,
+          ...(sourceCameraPreparation ? { cameraPreparation: sourceCameraPreparation } : {}),
         }),
       ),
     )
@@ -222,6 +252,7 @@ async function runMergeInternal(
         measurements.disk.readBytes += bytes
       },
       identity,
+      { cameraPreparation: sourceCameraPreparation },
     )
     const cacheLookupMs = performance.now() - cacheLookup,
       reused = !!p
@@ -240,6 +271,12 @@ async function runMergeInternal(
         gpu,
         checkpoint,
         preparation,
+        sourceCameraPreparation,
+        {
+          observeGpuBytes(bytes) {
+            measurements.peak.gpuBytes = Math.max(measurements.peak.gpuBytes, bytes)
+          },
+        },
       )
       p.identity = identity
       measurements.disk.readBytes +=
@@ -322,6 +359,7 @@ async function runMergeInternal(
           JSON.stringify({
             identity: referencePreparationIdentity,
             policy: MERGE_PIPELINE.referenceFallback,
+            ...(referencePreparation ? { referencePreparation } : {}),
           }),
         ),
       )
@@ -334,6 +372,7 @@ async function runMergeInternal(
         measurements.disk.readBytes += bytes
       },
       safeIdentity,
+      { referenceFallbackPreparation: referencePreparation },
     )
     const reusedFallback = !!fallbackReference
     if (!fallbackReference) {
@@ -347,6 +386,16 @@ async function runMergeInternal(
         reference,
         checkpoint,
         preparation,
+        gpu,
+        referencePreparation,
+        {
+          observeMetrics(metrics) {
+            measurements.peak.gpuBytes = Math.max(
+              measurements.peak.gpuBytes,
+              metrics.allocatedGpuBytes,
+            )
+          },
+        },
       )
       fallbackReference.identity = safeIdentity
       measurements.disk.readBytes += (await stat(job.paths[referenceIndex])).size
@@ -360,9 +409,13 @@ async function runMergeInternal(
     }
     if (fallbackReference.width !== ref.width || fallbackReference.height !== ref.height)
       throw new Error('Highlight fallback reference dimensions differ.')
+    measurements.peak.gpuBytes = Math.max(
+      measurements.peak.gpuBytes,
+      fallbackReference.gpuBytes ?? 0,
+    )
     timeline.referenceFallback = { startedMs: fallbackStart, completedMs: relative() }
     measurements.referenceFallback = {
-      backend: 'cpu',
+      backend: fallbackReference.measurement?.backend ?? 'cpu',
       reused: reusedFallback,
       decodingMs: reusedFallback ? 0 : (fallbackReference.measurement?.decodingMs ?? 0),
       preparationMs: reusedFallback ? 0 : (fallbackReference.measurement?.preparationMs ?? 0),
@@ -433,10 +486,14 @@ async function runMergeInternal(
       transforms: MergeTransform[]
       scales: number[]
       checksums: string[][]
+      cameraEvidence?: ReturnType<typeof cameraEvidenceProof>
       photometry?: (ExposureDiagnostics | undefined)[]
     }
     if (
       JSON.stringify(recorded.checksums) === JSON.stringify(prepared.map((p) => p.strips)) &&
+      (!cameraPreparation ||
+        JSON.stringify(recorded.cameraEvidence) ===
+          JSON.stringify(cameraEvidenceProof(prepared))) &&
       recorded.transforms.length === sources.length &&
       recorded.scales.length === sources.length &&
       recorded.scales.every((v) => Number.isFinite(v) && v > 0)
@@ -470,6 +527,7 @@ async function runMergeInternal(
           recorded?.id !== sources[i].photo.id ||
           recorded.decoder !== prepared[i].decoder ||
           recorded.cameraProfile !== prepared[i].cameraProfile ||
+          recorded.cameraPreparation !== prepared[i].cameraPreparation ||
           recorded.lensIdentity !== sources[i].metadata.lensProfile.identity ||
           !Number.isFinite(recorded.scale) ||
           recorded.scale <= 0
@@ -679,6 +737,7 @@ async function runMergeInternal(
     scales,
     photometry,
     checksums: prepared.map((p) => p.strips),
+    ...(cameraPreparation ? { cameraEvidence: cameraEvidenceProof(prepared) } : {}),
   })
   const registrationJson = JSON.stringify({
     key: registrationKey,
@@ -1332,6 +1391,8 @@ async function runMergeInternal(
     alignment: ALIGNMENT_CONSTANTS,
     pipeline: MERGE_PIPELINE,
     preparation,
+    ...(cameraPreparation ? { cameraPreparation } : {}),
+    ...(referencePreparation ? { referenceFallbackPreparation: referencePreparation } : {}),
     measurements,
     settings,
     sources: sources.map((s, i) => ({
@@ -1344,6 +1405,9 @@ async function runMergeInternal(
       cameraProfile: prepared[i].cameraProfile,
       lensIdentity: s.metadata.lensProfile.identity,
       photometry: photometry[i],
+      ...(prepared[i].cameraPreparation
+        ? { cameraPreparation: prepared[i].cameraPreparation }
+        : {}),
     })),
     width: nativeGeometry.width,
     height: nativeGeometry.height,

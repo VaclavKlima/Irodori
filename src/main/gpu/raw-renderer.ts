@@ -32,6 +32,10 @@ export interface GpuMergePreparation {
   reviewWidth: number
   reviewHeight: number
   checkpoint: () => Promise<void>
+  /** Simultaneously live camera-evidence buffers share the renderer's allocation bound. */
+  reservedBytes?: number
+  /** Internal admitted logical ownership, including attempts that later recover on CPU. */
+  observeGpuBytes?: (bytes: number) => void
   // The buffer is borrowed until the returned promise settles; retained data must be copied.
   strip: (top: number, bytes: Buffer) => Promise<void>
 }
@@ -58,7 +62,7 @@ export class RawGpuRenderer {
   }
 
   private async initialize(): Promise<GPUDevice> {
-    if (this.unavailable) throw new Error(this.unavailable)
+    if (this.unavailable !== undefined) throw new Error(this.unavailable)
     if (this.device) return this.device
     const { create, globals } = await import('webgpu')
     Object.assign(globalThis, globals)
@@ -87,7 +91,7 @@ export class RawGpuRenderer {
     this.device = device
     void device.lost.then((info) => {
       if (this.device !== device) return
-      this.unavailable = `GPU device lost: ${info.message}`
+      this.unavailable ||= `GPU device lost: ${info.message}`
       this.close()
     })
     const module = device.createShaderModule({ code: ahdShader, label: 'Luma AHD' })
@@ -152,7 +156,9 @@ export class RawGpuRenderer {
   ): Promise<GpuFrame> {
     const start = performance.now()
     const device = await this.initialize().catch((error) => {
-      this.unavailable = error instanceof Error ? error.message : String(error)
+      this.unavailable ||=
+        (error instanceof Error ? error.message : String(error)).trim() ||
+        'GPU initialization failed.'
       this.close()
       throw error
     })
@@ -161,14 +167,40 @@ export class RawGpuRenderer {
     const bytes = frameByteLength(width, height)
     const rows = consumer ? 128 : 256,
       stripePixels = width * (rows + 12)
-    const estimatedBytes = consumer
-      ? bytes * 4 + source.pixels.byteLength + stripePixels * 80 + 623072 + consumer.reservedBytes
-      : Math.max(
-          bytes * 6 + source.pixels.byteLength + stripePixels * 80,
-          correction ? bytes * 9 + source.pixels.byteLength : 0,
-          exportLinear ? bytes * 12 + height * 256 : 0,
-        )
+    const mergeReservedBytes = merge?.reservedBytes ?? 0
+    if (!Number.isSafeInteger(mergeReservedBytes) || mergeReservedBytes < 0)
+      throw new Error('Invalid merge preparation GPU reservation.')
+    const nativeMergeBytes =
+      merge && correction && source.normalization?.sourceSaturation
+        ? width * height * 20 +
+          correction.width * correction.height * 16 +
+          Math.ceil(source.pixels.byteLength / 4) * 4 +
+          // The complete reduced readback is live beside the linear texture;
+          // native image readback uses a separate, later 256-row staging buffer.
+          Math.max(
+            Math.ceil(((source.flip & 4 ? correction.height : correction.width) * 16) / 256) *
+              256 *
+              256,
+            merge.reviewWidth * merge.reviewHeight * 32,
+          ) +
+          merge.reviewWidth * merge.reviewHeight * 32 +
+          272 +
+          144 +
+          correction.lut.byteLength +
+          mergeReservedBytes
+        : 0
+    const estimatedBytes = Math.max(
+      (consumer
+        ? bytes * 4 + source.pixels.byteLength + stripePixels * 80 + 623072 + consumer.reservedBytes
+        : Math.max(
+            bytes * 6 + source.pixels.byteLength + stripePixels * 80,
+            correction ? bytes * 9 + source.pixels.byteLength : 0,
+            exportLinear ? bytes * 12 + height * 256 : 0,
+          )) + mergeReservedBytes,
+      nativeMergeBytes,
+    )
     if (
+      !Number.isSafeInteger(estimatedBytes) ||
       estimatedBytes > 1024 ** 3 ||
       bytes * 4 > device.limits.maxBufferSize ||
       Math.max(width, height) > device.limits.maxTextureDimension2D ||
@@ -176,6 +208,7 @@ export class RawGpuRenderer {
         device.limits.maxStorageBufferBindingSize
     )
       throw new Error('This photo exceeds the GPU processing memory limit.')
+    merge?.observeGpuBytes?.(estimatedBytes)
     const reuse =
       this.cameraSource === source && !!this.linear && this.correctedMode === !!correction
     if (!reuse) this.releaseFrame()
@@ -472,7 +505,8 @@ export class RawGpuRenderer {
                 rowBytes * 256 +
                 reduced.size +
                 uniform.size +
-                lut.size,
+                lut.size +
+                mergeReservedBytes,
             ),
           }
         } finally {
@@ -728,7 +762,8 @@ export class RawGpuRenderer {
     } catch (error) {
       this.releaseFrame()
       // A device error disables this worker's GPU path; the caller regenerates on CPU.
-      this.unavailable = error instanceof Error ? error.message : String(error)
+      this.unavailable ||=
+        (error instanceof Error ? error.message : String(error)).trim() || 'GPU processing failed.'
       this.close()
       throw error
     } finally {

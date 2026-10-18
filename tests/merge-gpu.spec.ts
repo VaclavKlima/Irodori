@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RawGpuRenderer } from '../src/main/gpu/raw-renderer'
+import type { RawSource } from '../src/main/gpu/raw-source'
 import { PreviewEngine } from '../src/main/preview-engine'
 import { prepareSource, type PreparedSource } from '../src/main/merge/prepare'
 import { syntheticMerge } from './merge.helpers'
@@ -21,6 +22,96 @@ import { identityTransform } from '../src/main/merge/alignment'
 import { saveSensorCache, readSensorCache, packedBits } from '../src/main/merge/sensor-cache'
 import { accumulateGpu } from '../src/main/merge/gpu-accumulation'
 import { band, resetMergeReads } from '../src/main/merge/sampling'
+
+test('empty Dawn map errors keep RAW GPU disabled without repeated initialization', async () => {
+  const renderer = new RawGpuRenderer(),
+    width = 64,
+    height = 48,
+    gains = [2, 1, 1.5, 1],
+    raw: RawSource = {
+      width,
+      height,
+      rawWidth: width,
+      left: 0,
+      top: 0,
+      flip: 0,
+      cfa: [0, 1, 3, 2],
+      pixels: Uint16Array.from(
+        { length: width * height },
+        (_, i) => 1200 + (i % width) * 5 + Math.floor(i / width) * 3,
+      ),
+      black: [0, 0, 0, 0],
+      scale: gains.map((gain) => Math.fround(Math.fround(Math.fround(gain / 2) * 65535) / 4095)),
+      matrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0],
+      normalization: {
+        black: [0, 0, 0, 0],
+        maximum: 4095,
+        gains,
+        restoreGain: 2,
+        referenceWhite: 1,
+        sourceSaturation: {
+          thresholds: [3800, 3700, 3900, 3600],
+          saturatedSites: 0,
+          totalSites: width * height,
+        },
+      },
+    },
+    plan = correctionPlan(width, height, unavailableProfile, {
+      distortion: false,
+      vignetting: false,
+      chromaticAberration: false,
+    }),
+    empty = new DOMException('', 'OperationError')
+  let restore: (() => void) | undefined,
+    maps = 0,
+    repeatedInitializations = 0,
+    strips = 0
+  const render = () =>
+    renderer.render(raw, plan, undefined, false, false, {
+      gains: gains.slice(0, 3),
+      reviewWidth: 8,
+      reviewHeight: 6,
+      checkpoint: async () => {},
+      strip: async () => {
+        strips++
+      },
+    })
+  try {
+    const { device } = await renderer.mergeDevice(),
+      map = GPUBuffer.prototype.mapAsync,
+      requestDevice = GPUAdapter.prototype.requestDevice
+    restore = () => {
+      GPUBuffer.prototype.mapAsync = map
+      GPUAdapter.prototype.requestDevice = requestDevice
+    }
+    GPUBuffer.prototype.mapAsync = function (mode, offset, size) {
+      if (++maps === 1) return Promise.reject(empty)
+      return map.call(this, mode, offset, size)
+    }
+    GPUAdapter.prototype.requestDevice = function (descriptor) {
+      repeatedInitializations++
+      return requestDevice.call(this, descriptor)
+    }
+    expect(empty.message).toBe('')
+    await expect(render()).rejects.toBe(empty)
+    expect(maps).toBe(1)
+    expect(strips).toBe(0)
+    const failure = renderer.failure
+    expect(failure?.trim().length).toBeGreaterThan(0)
+    await device.lost
+    expect(renderer.failure).toBe(failure)
+    await expect(renderer.mergeDevice()).rejects.toThrow(failure!)
+    expect(renderer.failure).toBe(failure)
+    await expect(render()).rejects.toThrow(failure!)
+    expect(renderer.failure).toBe(failure)
+    expect(maps).toBe(1)
+    expect(repeatedInitializations).toBe(0)
+    expect(strips).toBe(0)
+  } finally {
+    restore?.()
+    renderer.close()
+  }
+})
 
 test('merge GPU preparation applies every sensor orientation exactly once with clipping masks', async () => {
   const session = await librawDecoder.open('tests/fixtures/sony-zv1.ARW'),
@@ -311,6 +402,91 @@ test('merge GPU preparation applies every sensor orientation exactly once with c
             },
           }),
         ).rejects.toThrow('GPU processing memory limit')
+        let admittedStrips = 0
+        await expect(
+          gpu.render({ ...raw, flip }, plan, undefined, false, false, {
+            gains: original.normalization!.gains.slice(0, 3),
+            reviewWidth: 8,
+            reviewHeight: 6,
+            reservedBytes: 1024 ** 3,
+            checkpoint: async () => {},
+            strip: async () => {
+              admittedStrips++
+            },
+          }),
+        ).rejects.toThrow('GPU processing memory limit')
+        expect(admittedStrips).toBe(0)
+        const recovered = await gpu.render({ ...raw, flip }, plan, undefined, false, false, {
+          gains: original.normalization!.gains.slice(0, 3),
+          reviewWidth: 8,
+          reviewHeight: 6,
+          reservedBytes: 4096,
+          checkpoint: async () => {},
+          strip: async () => {
+            admittedStrips++
+          },
+        })
+        expect(admittedStrips).toBeGreaterThan(0)
+        expect(recovered.gpuBytes).toBeGreaterThan(4096)
+        expect(recovered.gpuBytes).toBeLessThanOrEqual(1024 ** 3)
+        const reviewWidth = 256,
+          reviewHeight = 256,
+          reducedBytes = reviewWidth * reviewHeight * 32,
+          nativeReadbackBytes = Math.ceil((frame.width * 16) / 256) * 256 * 256,
+          // Enumerate the live native phase independently: both uniforms, raw
+          // input, linear/validity/prepared planes, LUT, reduction and its copy.
+          nativePhaseBytes =
+            272 +
+            144 +
+            Math.ceil(raw.pixels.byteLength / 4) * 4 +
+            width * height * 16 +
+            width * height * 4 +
+            frame.width * frame.height * 16 +
+            plan.lut.byteLength +
+            reducedBytes * 2,
+          reservation = 1024 ** 3 - nativePhaseBytes,
+          admissionPeaks: number[] = [],
+          admittedBuffers: Buffer[] = []
+        expect(reducedBytes).toBeGreaterThan(nativeReadbackBytes)
+        expect(nativePhaseBytes).toBeGreaterThan(
+          Math.max(
+            width * height * 4 * 6 + raw.pixels.byteLength + width * (256 + 12) * 80,
+            width * height * 4 * 9 + raw.pixels.byteLength,
+          ),
+        )
+        await expect(
+          gpu.render({ ...raw, flip }, plan, undefined, false, false, {
+            gains: original.normalization!.gains.slice(0, 3),
+            reviewWidth,
+            reviewHeight,
+            reservedBytes: reservation + 1,
+            observeGpuBytes: (bytes) => admissionPeaks.push(bytes),
+            checkpoint: async () => {},
+            strip: async (_, bytes) => {
+              admittedBuffers.push(Buffer.from(bytes))
+            },
+          }),
+        ).rejects.toThrow('GPU processing memory limit')
+        expect(admissionPeaks, 'Over-budget attempts have no admitted logical peak').toEqual([])
+        expect(admittedBuffers).toEqual([])
+        const atLimit = await gpu.render({ ...raw, flip }, plan, undefined, false, false, {
+          gains: original.normalization!.gains.slice(0, 3),
+          reviewWidth,
+          reviewHeight,
+          reservedBytes: reservation,
+          observeGpuBytes: (bytes) => admissionPeaks.push(bytes),
+          checkpoint: async () => {},
+          strip: async (_, bytes) => {
+            admittedBuffers.push(Buffer.from(bytes))
+          },
+        })
+        expect(admissionPeaks).toEqual([1024 ** 3])
+        expect(atLimit.gpuBytes).toBe(1024 ** 3)
+        expect(atLimit.mergeReduced?.byteLength).toBe(reducedBytes)
+        expect(
+          Buffer.concat(admittedBuffers),
+          'Reservation does not change successful pixels',
+        ).toEqual(buffer)
       }
     }
     expect(baseline![(12 * width + 10) * 4 + 3]).toBe(0)

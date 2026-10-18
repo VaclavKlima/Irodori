@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { Page } from '@playwright/test'
@@ -18,7 +19,7 @@ const reason =
 requiresForeground(test, reason)
 test.use({ hdrDisplay: true })
 
-type Workload = 'import' | 'export-individual' | 'export-batch' | 'merge'
+type Workload = 'import' | 'export-individual' | 'export-batch' | 'merge' | 'merge-hdr'
 type InputTrial = Awaited<ReturnType<typeof sustainedEditorInput>>
 type EditorResult = { trial?: InputTrial; settledAtEpochMs: number; error?: string }
 interface PreparedOperation {
@@ -56,6 +57,14 @@ interface SourceChange {
   atEpochMs: number
   filename: string | null
 }
+interface SourceIntegrity {
+  phase: 'before' | 'after'
+  filename: string
+  expected: { sha256: string; bytes: number }
+  fixture?: { sha256: string; bytes: number }
+  managed?: { sha256: string; bytes: number }
+  error?: string
+}
 interface MatchedTrial {
   repetition: number
   idleEditor?: EditorResult
@@ -83,8 +92,11 @@ async function runOperation(page: Page, prepared: PreparedOperation): Promise<Op
       if (prepared.workload === 'import') {
         await window.luma.importSelected(prepared.sessionId!)
         taskId = prepared.sessionId!
-      } else if (prepared.workload === 'merge') {
-        const review = await window.luma.createMergeReview(prepared.sourceIds, 'noise')
+      } else if (prepared.workload === 'merge' || prepared.workload === 'merge-hdr') {
+        const review = await window.luma.createMergeReview(
+          prepared.sourceIds,
+          prepared.workload === 'merge-hdr' ? 'hdr' : 'noise',
+        )
         await window.luma.requestMergePreview(review.id, review.revision)
         result.previewReadyAtEpochMs = now()
         result.mergeDiagnostics = await window.luma.getMergeDiagnostics(review.id, review.revision)
@@ -218,24 +230,32 @@ function overlap(editor?: EditorResult, operation?: OperationResult) {
   }
 }
 
-for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] as const)
+for (const workload of [
+  'import',
+  'export-individual',
+  'export-batch',
+  'merge',
+  'merge-hdr',
+] as const)
   test(
     `${workload}: three matched idle and editing trials at 60Hz, 1100x700 with Console`,
     foregroundTest(reason),
     async ({ luma }, info) => {
       test.setTimeout(1200000)
       const { app, page } = luma,
+        mergeWorkload = workload === 'merge' || workload === 'merge-hdr',
+        editorStartDelayMs = workload === 'merge-hdr' ? 6000 : 0,
         manifest = JSON.parse(
           await readFile('tests/fixtures/research-sony/manifest.json', 'utf8'),
         ) as {
-          sequences: { id: string; files: string[] }[]
-          files: { name: string; path: string; sha256: string }[]
+          sequences: { id: string; files: string[]; mode: string; complete: boolean }[]
+          files: { name: string; path: string; sha256: string; bytes: number }[]
         },
         burst = manifest.sequences.find((sequence) => sequence.id === 'noise-burst')!.files,
-        selected = Array.from(
-          { length: 9 },
-          (_, i) => burst[Math.round((i * (burst.length - 1)) / 8)],
-        ),
+        selected =
+          workload === 'merge-hdr'
+            ? manifest.sequences.find((sequence) => sequence.id === 'hdr-brk')!.files
+            : Array.from({ length: 9 }, (_, i) => burst[Math.round((i * (burst.length - 1)) / 8)]),
         originals = selected.map((name) => {
           const entry = manifest.files.find((file) => file.name === name)!
           return { ...entry, path: resolve('tests/fixtures/research-sony', entry.path) }
@@ -243,7 +263,16 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
         trash = await isolateTrash(app),
         destination = info.outputPath('exports'),
         evidencePath = info.outputPath('interference.json'),
-        trials: MatchedTrial[] = []
+        trials: MatchedTrial[] = [],
+        sourceIntegrity: SourceIntegrity[] = []
+      if (workload === 'merge-hdr') {
+        expect(manifest.sequences.find((sequence) => sequence.id === 'hdr-brk')).toMatchObject({
+          mode: 'hdr',
+          complete: true,
+        })
+        expect(originals).toHaveLength(3)
+        expect(new Set(originals.map((source) => source.sha256)).size).toBe(3)
+      }
       await mkdir(destination, { recursive: true })
       await (
         await app.browserWindow(page)
@@ -313,6 +342,20 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
             'src/shared/display-rendering-wgsl.ts',
             'src/shared/aces-precision-wgsl.ts',
             'src/shared/aces-data.ts',
+            ...(workload === 'merge-hdr'
+              ? [
+                  'tests/mac-workability-interference.spec.ts',
+                  'src/main/merge/engine.ts',
+                  'src/main/merge/prepare.ts',
+                  'src/main/merge/gpu-camera-registration.ts',
+                  'src/main/merge/gpu-reference-fallback.ts',
+                  'src/main/merge/fallback-geometry.ts',
+                  'src/main/merge/cpu-kernels.ts',
+                  'src/main/merge/kernels/prepare.c',
+                  'src/shared/merge.ts',
+                  'vendor/merge-kernels/manifest.json',
+                ]
+              : []),
           ])),
           build: 'Production Electron application and bundled processing workers.',
         },
@@ -334,8 +377,23 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
         requestedHz: 60,
         inputsPerTrial: 240,
         sourceOriginals: originals.map(({ name, sha256 }) => ({ name, sha256 })),
+        sourceIntegrity: workload === 'merge-hdr' ? sourceIntegrity : undefined,
         workload,
-        mergeSources: workload === 'merge' ? 9 : undefined,
+        mergeSources: workload === 'merge' ? 9 : workload === 'merge-hdr' ? 3 : undefined,
+        mergeMode: workload === 'merge-hdr' ? 'hdr' : undefined,
+        editorStartDelayMs: workload === 'merge-hdr' ? editorStartDelayMs : undefined,
+        editingOrder:
+          workload === 'merge-hdr'
+            ? 'Operation first; wait 6000 ms, then run the unchanged 240-input Exposure trial.'
+            : undefined,
+        requestedMergeBackends:
+          workload === 'merge-hdr'
+            ? await app.evaluate(() => ({
+                merge: process.env.LUMA_MERGE_BACKEND ?? 'auto',
+                camera: process.env.LUMA_MERGE_CAMERA_PREPARATION ?? 'cpu',
+                reference: process.env.LUMA_MERGE_REFERENCE_PREPARATION ?? 'cpu',
+              }))
+            : undefined,
         exportSources:
           workload === 'export-batch' ? 9 : workload === 'export-individual' ? 1 : undefined,
         importSources: workload === 'import' ? 9 : undefined,
@@ -354,6 +412,36 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
               ? originals.map((source) => source.name)
               : undefined,
       }
+      const verifyHdrOriginals = async (phase: SourceIntegrity['phase']) => {
+        for (const original of originals) {
+          const result: SourceIntegrity = {
+            phase,
+            filename: original.name,
+            expected: { sha256: original.sha256, bytes: original.bytes },
+          }
+          sourceIntegrity.push(result)
+          try {
+            for (const [kind, path] of [
+              ['fixture', original.path],
+              [
+                'managed',
+                join(luma.userDataDir, 'library/originals', original.sha256, 'original.arw'),
+              ],
+            ] as const) {
+              const digest = createHash('sha256')
+              for await (const bytes of createReadStream(path)) digest.update(bytes)
+              result[kind] = { sha256: digest.digest('hex'), bytes: (await stat(path)).size }
+              expect
+                .soft(result[kind], `${phase} ${original.name} ${kind}`)
+                .toEqual(result.expected)
+            }
+          } catch (error) {
+            result.error = String(error)
+            expect.soft(result.error, `${phase} ${original.name} integrity`).toBeUndefined()
+          }
+        }
+      }
+      if (workload === 'merge-hdr') await verifyHdrOriginals('before')
       const save = () =>
         writeFile(evidencePath, JSON.stringify({ ...environment, trials }, null, 2))
       const restoreEditor = async () => {
@@ -403,7 +491,7 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
           currentPreparation = { workload, sourceIds: [], sessionId }
           return currentPreparation
         }
-        if (workload === 'merge') {
+        if (mergeWorkload) {
           currentPreparation = { workload, sourceIds: sourceIds as string[] }
           return currentPreparation
         }
@@ -499,15 +587,21 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
           idleCleaned = true
           const prepared = await prepare()
           await startSourceObserver(page)
-          editingWork = editorTrial(page)
-          await page.waitForFunction(
-            () =>
-              document.querySelector<HTMLElement>('[data-testid="main-preview"]')?.dataset
-                .gesturing === 'true',
-            undefined,
-            { timeout: 15000 },
-          )
-          operationWork = runOperation(page, prepared)
+          if (workload === 'merge-hdr') {
+            operationWork = runOperation(page, prepared)
+            await page.waitForTimeout(editorStartDelayMs)
+            editingWork = editorTrial(page)
+          } else {
+            editingWork = editorTrial(page)
+            await page.waitForFunction(
+              () =>
+                document.querySelector<HTMLElement>('[data-testid="main-preview"]')?.dataset
+                  .gesturing === 'true',
+              undefined,
+              { timeout: 15000 },
+            )
+            operationWork = runOperation(page, prepared)
+          }
           ;[trial.editing, trial.editingTask] = await Promise.all([editingWork, operationWork])
           trial.sourceChanges = await stopSourceObserver(page)
           await save()
@@ -528,6 +622,7 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
           await save()
         }
       }
+      if (workload === 'merge-hdr') await verifyHdrOriginals('after')
       const comparisons = trials.map((trial) => {
         const changedDuringEditor =
           trial.sourceChanges?.filter(
@@ -546,9 +641,21 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
               ? trial.editingTask.durationMs / trial.idleTask.durationMs
               : null,
           overlap: overlap(trial.editing, trial.editingTask),
+          operationToFirstInputMs:
+            workload === 'merge-hdr' && trial.editing?.trial && trial.editingTask
+              ? trial.editing.trial.epochMs +
+                trial.editing.trial.inputs[0].at -
+                trial.editingTask.startedAtEpochMs
+              : undefined,
+          mergeMeasurements:
+            workload === 'merge-hdr'
+              ? {
+                  idle: trial.idleTask?.mergeDiagnostics?.measurements,
+                  editing: trial.editingTask?.mergeDiagnostics?.measurements,
+                }
+              : undefined,
           changedDuringEditor,
-          expectedMergeAutoOpenInterruptedTrial:
-            workload === 'merge' && changedDuringEditor.length > 0,
+          expectedMergeAutoOpenInterruptedTrial: mergeWorkload && changedDuringEditor.length > 0,
         }
       })
       await writeFile(
@@ -593,7 +700,25 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
             .soft(operation?.taskErrors?.total, `${workload} errors ${trial.repetition}`)
             .toBe(0)
           if (workload === 'import') expect.soft(operation?.task?.outcomes?.imported).toBe(9)
-          if (workload === 'merge') expect.soft(operation?.task?.resultPhotoId).toBeTruthy()
+          if (mergeWorkload) expect.soft(operation?.task?.resultPhotoId).toBeTruthy()
+          if (workload === 'merge-hdr')
+            for (const measurements of [
+              operation?.mergeDiagnostics?.measurements,
+              operation?.task?.mergeMeasurements,
+            ]) {
+              expect.soft(measurements?.preparation).toHaveLength(3)
+              expect.soft(measurements?.peak.gpuBytes).toBeLessThanOrEqual(1024 ** 3)
+              expect.soft(measurements?.peak.wasmBytes).toBeLessThanOrEqual(512 * 1024 ** 2)
+              if (environment.requestedMergeBackends?.reference === 'gpu') {
+                expect.soft(measurements?.referenceFallback?.backend).toBe('gpu')
+                expect
+                  .soft(measurements?.referenceFallback?.work?.referencePreparation?.backend)
+                  .toBe('gpu')
+                expect
+                  .soft(measurements?.referenceFallback?.work?.referencePreparation?.fallback)
+                  .toBeUndefined()
+              }
+            }
           if (workload.startsWith('export')) {
             const count = workload === 'export-individual' ? 1 : 9
             expect.soft(operation?.frozenExport?.targets).toHaveLength(count)
@@ -604,7 +729,7 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
           }
         }
         const comparison = comparisons[trial.repetition]
-        if (workload !== 'merge')
+        if (!mergeWorkload)
           expect
             .soft(comparison.changedDuringEditor, `${workload} preserves the editor source`)
             .toEqual([])
