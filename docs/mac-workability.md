@@ -24,7 +24,7 @@ acceptance remains pending.
 ## October 18 GPU preparation follow-up
 
 The previous pass was merged to production in
-`d39ecb391e237565efaf11b065bb9c0c68914e9d`. Active work continues on
+`d39ecb391e237565efaf11b065bb9c0c68914e9d`. The follow-up was completed on
 `perf/gpu-merge-preparation` under the user's Goal: validate complete Mac GPU
 preparation, accuracy, cancellation, CPU recovery and workflow performance, then
 prepare a tested revision for Bazzite. Both new GPU selectors remain opt-in.
@@ -41,6 +41,12 @@ retained. The exact implementation/Bazzite revision is
 **`0a70599669c884fc70d2e2afe5f9a6527df44dbb`** on
 `perf/gpu-merge-preparation`; subsequent report commits are documentation only.
 The earlier freezes remain historical evidence. No Linux acceptance is claimed.
+
+On October 18 the user deferred Bazzite verification because the machine is
+unavailable and authorized merging the Mac-tested work and continuing feature
+development. [Backlog item 29](features/README.md#workspace-feedback-backlog)
+retains the Linux checks and remaining performance gates. Both GPU paths stay
+opt-in; this deferral does not block the production merge or unrelated features.
 
 The final independent three-pair service cohorts retain every uninterrupted time:
 
@@ -1481,15 +1487,20 @@ attempt to reach an unsupported absolute target.
 
 ## Bazzite continuation
 
+**Deferred — awaiting hardware access.** Track resumption in
+[backlog item 29](features/README.md#workspace-feedback-backlog). This checklist
+remains required for Linux acceptance and GPU default adoption, while the
+Mac-tested work can merge and feature development can continue.
+
 Run against the final implementation revision recorded above, with the committed
 Sony fixtures and a separately recorded Linux runtime/display/power configuration.
 Do not substitute Mac measurements for Linux results. Start with compact reports;
 rerun the exact failure before broader selections. Preserve all gates.
 
 ```sh
-git fetch origin perf/gpu-merge-preparation
+git fetch origin main
 git switch --detach 0a70599669c884fc70d2e2afe5f9a6527df44dbb
-# This opt-in GPU revision is separate from production main. Documentation-only descendants are allowed.
+# Reproduce the exact Mac implementation even after main gains further features.
 git rev-parse HEAD
 git diff --exit-code 0a70599669c884fc70d2e2afe5f9a6527df44dbb HEAD -- . ':(exclude)docs/**' ':(exclude)README.md' ':(exclude)Luma.md'
 node scripts/research/sony-fixtures.mjs check
@@ -1557,10 +1568,10 @@ is not an end-to-end merge measurement.
 
 The acceptance harness separates 60 Hz and 120 Hz configurations and retains
 three 240-input trials for all eight sliders at Fit and 100% in each layout.
-The fetch command selects the opt-in GPU handoff branch; it does not assume a
-production merge. The revision guard checks the exact implementation tested on Mac.
-A later production merge must preserve that implementation or receive fresh
-affected verification. Both GPU selectors remain disabled by default.
+The fetch command retrieves production history; the detached checkout and revision
+guard reproduce the exact implementation tested on Mac. Verify later processing
+changes separately when resuming Linux acceptance. Both GPU selectors remain
+disabled by default.
 A saved Linux preview baseline must come from pre-change production code on the
 same configuration. Linux encoding backend availability, real input cadence (60/120 Hz separately),
 GPU/CPU/CTL agreement, memory/cancellation, HDR display and background interference

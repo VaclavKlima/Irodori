@@ -2,7 +2,7 @@
 
 Status: **Mac numerical and recovery cohorts pass; competitive acceptance fails.
 Both GPU selectors remain opt-in and are rejected as defaults.**
-This pass runs on `perf/gpu-merge-preparation`, following production merge
+This pass was developed on `perf/gpu-merge-preparation`, following production merge
 `d39ecb391e237565efaf11b065bb9c0c68914e9d`. It preserves the historical CPU evidence and records a new opt-in implementation
 freeze below; it claims no Linux results.
 
@@ -15,6 +15,13 @@ The 15-second visible checkpoint, separate five-second service stretch and
 measured misses; the tested revision is prepared for Bazzite verification.
 Service completion and visible presentation are separate clocks. No Linux result
 or new GPU production default is claimed.
+
+The user deferred Bazzite verification on October 18 because the machine is
+unavailable and authorized merging the Mac-tested work and continuing feature
+development. [Backlog item 29](features/README.md#workspace-feedback-backlog)
+retains the Linux work and remaining performance gates. Production integration
+keeps both GPU selectors opt-in; deferred Linux acceptance does not block this
+merge or unrelated feature work.
 
 ## Scope and ownership
 
@@ -493,8 +500,8 @@ slots and are not kernel time; device timestamps were disabled.
 The native review alone remains 14.28–14.68 seconds in this final GPU cohort,
 before about 1.23–1.58 seconds publication/cleanup and 0.58–0.74 seconds final
 editor presentation. Eliminating the remaining approximately 0.15-second
-admission cannot achieve the target. Continue with the existing Bazzite checklist
-and the same full-path proof before choosing further processing work or defaults.
+admission cannot achieve the target. Resume the deferred Bazzite checklist when
+hardware is available, using the same full-path proof before changing GPU defaults.
 
 ## Implementation revision
 
@@ -509,9 +516,10 @@ final measurements; they must not change this implementation guard.
 | `3c31505` | GPU/validation agents; coordinator integration        | Versioned opt-in camera/reference GPU paths, cache isolation, full CPU recovery, resource admission and independent native/lifecycle coverage |
 | `0a70599` | Publication inspection agent; coordinator integration | Accepted-task preview suspension, user-intent cancellation of automatic opening and held-lookup lifecycle coverage                            |
 
-Both GPU selectors stay opt-in. The prior production merge is `d39ecb3`; this
-experimental branch is prepared for review and Bazzite verification and does not
-claim a new production default. Generated binary snapshots, diagnostic contact
+Both GPU selectors stay opt-in. The prior production merge is `d39ecb3`; the user
+authorized production integration of this Mac-tested implementation while
+deferring Bazzite verification in backlog item 29. This does not enable a new GPU
+default. Generated binary snapshots, diagnostic contact
 sheets, logs and benchmark reports remain outside Git.
 
 ## Final implementation checks and handoff behavior
@@ -568,3 +576,5 @@ The implementation is frozen below the documentation-only report commits and the
 revision. Linux adapter/driver arithmetic, cancellation/recovery, performance,
 HDR presentation and input behavior require independent local results. Mac
 measurements establish no Linux result. No comprehensive checkpoint was repeated.
+The Linux continuation is deferred in [backlog item 29](features/README.md#workspace-feedback-backlog)
+until hardware access returns; further feature work can proceed.
