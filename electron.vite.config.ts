@@ -15,6 +15,7 @@ export default defineConfig(({ command }) => {
             await mkdir('out/main/opencv', { recursive: true })
             await cp('vendor/opencv', 'out/main/opencv', { recursive: true })
             await cp('vendor/ultrahdr', 'out/main/ultrahdr', { recursive: true })
+            await cp('vendor/merge-kernels', 'out/main/merge-kernels', { recursive: true })
           },
         },
       ],

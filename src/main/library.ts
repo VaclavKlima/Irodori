@@ -19,8 +19,10 @@ import { durableJson, recoverMerges, syncDirectory, verifyMaster } from './merge
 import {
   MERGE_VERSION,
   type MergeManifest,
+  type MergeMeasurements,
   type MergeMode,
   type MergeSettings,
+  type MergeSource,
 } from '../shared/merge'
 import { srgbTransform } from '../shared/adjustments'
 import type { HdrAnalysisRequest, HdrPhotoStatistics } from '../shared/hdr-statistics'
@@ -82,7 +84,11 @@ import {
   type TaskErrorPage,
   type ForegroundActivity,
 } from '../shared/contracts'
-import type { PreviewProcessor } from './preview-types'
+import type {
+  CaptureMetadataProcessor,
+  FullPreviewProcessor,
+  PreviewProcessor,
+} from './preview-types'
 import { ReviewThumbnails, type ReviewThumbnailState } from './review-thumbnails'
 import { DeviceDirectoryVisibility } from './device-directory-visibility'
 import {
@@ -224,10 +230,7 @@ export class PhotoLibrary {
     private mergeBoundary?: (
       boundary: 'staged' | 'journaled' | 'published' | 'committed',
     ) => Promise<void>,
-    private captureProcessor: Pick<
-      PreviewProcess,
-      'inspectCapture' | 'close'
-    > = new PreviewProcess(),
+    private captureProcessor: CaptureMetadataProcessor = new PreviewProcess(),
     private reviewThumbnailFactory: (
       onState: (id: string, state: ReviewThumbnailState) => void,
     ) => Pick<ReviewThumbnails, 'request' | 'cancel'> = (onState) => new ReviewThumbnails(onState),
@@ -240,37 +243,17 @@ export class PhotoLibrary {
     private hashSource = hashImportSource,
     private sampleSource = sampleCameraOriginal,
     private exportRenderer?: Pick<ExportProcess, 'render'>,
+    fullPreviewProcessor: FullPreviewProcessor = new PreviewProcess(),
   ) {
     void obsoleteImportPreference // Old internal callers cannot select a previous rendering path.
 
     this.merges = new MergeReviews(
       root,
-      async (id, signal) => {
-        const photo = this.find(id)
-        if (
-          !photo ||
-          photo.assetKind === 'derived' ||
-          extname(photo.filename).toLowerCase() !== '.arw'
-        )
-          throw new Error('Merge requires original Sony RAW photographs.')
-        const path = join(root, 'originals', id, `original${extname(photo.filename).toLowerCase()}`)
-        let metadata = (await this.processingOptions(id, signal)).metadata
-        if (!metadata.capture) {
-          const work = this.metadataTail.then(() => this.metadataProcessor.inspect(path, signal))
-          this.metadataTail = work.catch(() => undefined)
-          metadata = await work
-        }
-        if (!metadata.capture)
-          throw new Error(`${photo.filename}: numeric exposure metadata is unavailable.`)
-        const captureMetadata = await this.inspectCapture(path, signal)
-        return {
-          path,
-          source: { photo, metadata, capture: metadata.capture, captureMetadata, relativeEv: 0 },
-        }
-      },
+      async (id, signal) => (await this.inspectMergeSources([id], signal))[0],
       mergeWorkerPath,
       this.scheduler,
       () => this.changed(),
+      (ids, signal) => this.inspectMergeSources(ids, signal),
     )
     this.fullPreviews = new FullPreviews(
       join(root, 'cache', 'previews'),
@@ -288,7 +271,7 @@ export class PhotoLibrary {
             )
           : undefined
       },
-      new PreviewProcess(),
+      fullPreviewProcessor,
       undefined,
       (id, signal) => this.processingOptions(id, signal),
       undefined,
@@ -318,6 +301,73 @@ export class PhotoLibrary {
     })
     this.captureTail = work.catch(() => undefined)
     return work
+  }
+
+  private async inspectMergeSources(ids: string[], signal: AbortSignal) {
+    const inputs: { source: MergeSource; path: string }[] = []
+    for (const id of ids) {
+      signal.throwIfAborted()
+      await this.scheduler.checkpoint(signal)
+      const photo = this.find(id)
+      if (
+        !photo ||
+        photo.assetKind === 'derived' ||
+        extname(photo.filename).toLowerCase() !== '.arw'
+      )
+        throw new Error('Merge requires original Sony RAW photographs.')
+      const path = join(
+        this.root,
+        'originals',
+        id,
+        `original${extname(photo.filename).toLowerCase()}`,
+      )
+      let metadata = (await this.processingOptions(id, signal)).metadata
+      if (!metadata.capture) {
+        const work = this.metadataTail.then(() => this.metadataProcessor.inspect(path, signal))
+        this.metadataTail = work.catch(() => undefined)
+        metadata = await work
+      }
+      signal.throwIfAborted()
+      if (!metadata.capture)
+        throw new Error(`${photo.filename}: numeric exposure metadata is unavailable.`)
+      inputs.push({ path, source: { photo, metadata, capture: metadata.capture, relativeEv: 0 } })
+    }
+    const beforeRead = async (index: number) => {
+      signal.throwIfAborted()
+      await this.scheduler.checkpoint(signal)
+      const input = inputs[index],
+        current = this.find(input.source.photo.id)
+      if (
+        this.closed ||
+        !current ||
+        current.assetKind === 'derived' ||
+        current.filename !== input.source.photo.filename ||
+        !existsSync(input.path)
+      )
+        throw new Error('This photo is unavailable.')
+    }
+    const work = this.captureTail.then(async () => {
+      signal.throwIfAborted()
+      if (this.captureProcessor.inspectCaptures)
+        return this.captureProcessor.inspectCaptures(
+          inputs.map((input) => input.path),
+          signal,
+          beforeRead,
+        )
+      const results = []
+      for (let index = 0; index < inputs.length; index++) {
+        await beforeRead(index)
+        results.push(await this.captureProcessor.inspectCapture(inputs[index].path, signal))
+      }
+      return results
+    })
+    this.captureTail = work.catch(() => undefined)
+    const captures = await work
+    signal.throwIfAborted()
+    if (captures.length !== inputs.length) throw new Error('Invalid merge capture metadata.')
+    for (let index = 0; index < inputs.length; index++)
+      inputs[index].source.captureMetadata = captures[index]
+    return inputs
   }
 
   private closeCaptureProcessor() {
@@ -524,6 +574,9 @@ export class PhotoLibrary {
       },
       () => this.changed(),
       this.exportRenderer,
+      undefined,
+      (source, signal) =>
+        this.fullPreviews.acquireWorkingAsset(source.photo.id, source.processing, signal),
     )
     await this.exports.recover()
     await rm(join(this.root, 'merge-reviews'), { recursive: true, force: true })
@@ -578,6 +631,20 @@ export class PhotoLibrary {
     }
   }
 
+  private reusableProcessing(
+    id: string,
+    data: ProcessingOptions | undefined,
+  ): ProcessingOptions | undefined {
+    const photo = this.find(id)
+    if (!photo) return undefined
+    if (photo.assetKind === 'derived') {
+      if (!data?.metadata.mergeMaster) throw new Error('The merged working source is unavailable.')
+      // A validated master has no original container to inspect when metadata versions change.
+      return data
+    }
+    return data?.metadata.version === PROCESSING_METADATA_VERSION ? data : undefined
+  }
+
   private async processingOptions(
     id: string,
     signal = new AbortController().signal,
@@ -588,7 +655,8 @@ export class PhotoLibrary {
       throw new Error('This photo is unavailable.')
     // Cached catalog reads need no original-file access or foreground admission.
     const existing = this.readProcessing(id)
-    if (existing?.metadata.version === PROCESSING_METADATA_VERSION) return existing
+    const cached = this.reusableProcessing(id, existing)
+    if (cached) return cached
     return this.scheduler.run('interactive', () => this.loadProcessingOptions(id, signal), signal)
   }
   private async loadProcessingOptions(
@@ -599,11 +667,13 @@ export class PhotoLibrary {
     if (typeof id !== 'string' || !hashPattern.test(id) || this.closed || !this.find(id))
       throw new Error('This photo is unavailable.')
     const existing = this.readProcessing(id)
-    if (existing?.metadata.version === PROCESSING_METADATA_VERSION) return existing
+    const cached = this.reusableProcessing(id, existing)
+    if (cached) return cached
     const work = this.metadataTail.then(async () => {
       signal.throwIfAborted()
       const existing = this.readProcessing(id)
-      if (existing?.metadata.version === PROCESSING_METADATA_VERSION) return existing
+      const cached = this.reusableProcessing(id, existing)
+      if (cached) return cached
       const photo = this.find(id)
       if (!photo || this.closed) throw new Error('This photo is unavailable.')
       const path = join(
@@ -799,15 +869,19 @@ export class PhotoLibrary {
       history.revision !== expectedRevision
     )
       throw new Error('Edit conflict: reload the confirmed settings and try again.')
-    const previous = this.ensureEdits(history.photoId, this.readProcessing(history.photoId)!)
-    const lensChanged =
-      previous.settings.processing !== history.settings.processing ||
-      JSON.stringify(previous.settings.lens) !== JSON.stringify(history.settings.lens)
-    history.revision++
-    history.canUndo = history.cursor > 0
-    history.canRedo = history.cursor < history.snapshots.length - 1
+    let lensChanged: boolean
     this.db.exec('BEGIN IMMEDIATE')
     try {
+      if (this.closed || !this.find(history.photoId)) throw new Error('This photo is unavailable.')
+      const previous = this.ensureEdits(history.photoId, this.readProcessing(history.photoId)!)
+      if (previous.revision !== expectedRevision)
+        throw new Error('Edit conflict: reload the confirmed settings and try again.')
+      lensChanged =
+        previous.settings.processing !== history.settings.processing ||
+        JSON.stringify(previous.settings.lens) !== JSON.stringify(history.settings.lens)
+      history.revision++
+      history.canUndo = history.cursor > 0
+      history.canRedo = history.cursor < history.snapshots.length - 1
       this.db
         .prepare('UPDATE edits SET data = ? WHERE id = ?')
         .run(JSON.stringify(history), history.photoId)
@@ -2585,7 +2659,11 @@ export class PhotoLibrary {
         .run(photo.id, JSON.stringify(manifest))
       const options: ProcessingOptions = {
         processing: 'hdr-v1',
-        metadata: { ...metadata, mergeMaster: { asset: manifest.asset, recipe: manifest.recipe } },
+        metadata: {
+          ...metadata,
+          version: PROCESSING_METADATA_VERSION,
+          mergeMaster: { asset: manifest.asset, recipe: manifest.recipe },
+        },
         settings: { distortion: false, vignetting: false, chromaticAberration: false },
         revision: 0,
       }
@@ -2627,14 +2705,55 @@ export class PhotoLibrary {
     task.work = (async () => {
       let pendingDirectory: string | undefined
       let journaled = false
+      const acceptedAt = performance.now()
+      let publication: MergeMeasurements['publication']
+      const timed = async <T>(
+        field: 'copyingMs' | 'fileSyncMs' | 'manifestMs' | 'directorySyncMs' | 'renameMs',
+        work: () => Promise<T>,
+      ): Promise<T> => {
+        const started = performance.now()
+        try {
+          return await work()
+        } finally {
+          if (publication) publication[field] += performance.now() - started
+        }
+      }
+      const verification = () => ({
+        readingMs: 0,
+        hashingMs: 0,
+        pixelValidationMs: 0,
+        metadataMs: 0,
+        closingMs: 0,
+      })
       try {
         await this.scheduler.run(
           'operation',
           async () => {
+            const admittedAt = performance.now()
             const { review } = accepted
             const { result, output } = await accepted.render(task.abort.signal)
             task.snapshot.title = 'Publishing merged photo'
             const publicationStart = performance.now()
+            publication = {
+              clock: 'main-performance',
+              runtimeMs: 0,
+              operationQueueMs: admittedAt - acceptedAt,
+              reviewHandoffMs: publicationStart - admittedAt,
+              sourceVerification: verification(),
+              destinationVerification: verification(),
+              copyingMs: 0,
+              fileSyncMs: 0,
+              manifestMs: 0,
+              directorySyncMs: 0,
+              mutationQueueMs: 0,
+              journalMs: 0,
+              renameMs: 0,
+              catalogCommitMs: 0,
+              cleanupMs: 0,
+            }
+            const measurements = structuredClone(result.measurements)
+            measurements.publication = publication
+            task.snapshot.mergeMeasurements = measurements
             task.snapshot.phase = 'Verifying master'
             task.snapshot.detail = undefined
             this.changed()
@@ -2687,50 +2806,81 @@ export class PhotoLibrary {
               asset: result.asset,
               recipe: result.recipe,
             }
-            await verifyMaster(output, manifest)
+            await verifyMaster(output, manifest, publication.sourceVerification)
             task.abort.signal.throwIfAborted()
             pendingDirectory = directory
             await mkdir(directory, { recursive: true })
             let copiedBytes = 0
             for (const name of ['linear.f32', 'motion.mask', 'thumb.jpg', 'preview.jpg']) {
               task.abort.signal.throwIfAborted()
-              await cp(join(output, name), join(directory, name), {
-                errorOnExist: true,
-                force: false,
+              await timed('copyingMs', async () => {
+                await cp(join(output, name), join(directory, name), {
+                  errorOnExist: true,
+                  force: false,
+                })
+                copiedBytes += (await stat(join(directory, name))).size
               })
-              copiedBytes += (await stat(join(directory, name))).size
-              const file = await open(join(directory, name), 'r+')
-              try {
-                await file.sync()
-              } finally {
-                await file.close()
-              }
+              await timed('fileSyncMs', async () => {
+                const file = await open(join(directory, name), 'r+')
+                try {
+                  await file.sync()
+                } finally {
+                  await file.close()
+                }
+              })
             }
-            await durableJson(join(directory, 'manifest.json'), manifest)
-            await verifyMaster(directory, manifest)
-            await syncDirectory(directory)
-            await syncDirectory(join(this.root, 'merge-publications'))
+            await timed('manifestMs', () => durableJson(join(directory, 'manifest.json'), manifest))
+            await verifyMaster(directory, manifest, publication.destinationVerification)
+            await timed('directorySyncMs', () => syncDirectory(directory))
+            await timed('directorySyncMs', () =>
+              syncDirectory(join(this.root, 'merge-publications')),
+            )
             await this.mergeBoundary?.('staged')
             task.abort.signal.throwIfAborted()
-            await this.scheduler.mutate(async () => {
-              this.assertRecovered()
-              // Once journaled, finish publication even when cancellation arrives.
-              this.db
-                .prepare('INSERT INTO merge_publications (id, manifest_sha256) VALUES (?, ?)')
-                .run(photoId, createHash('sha256').update(JSON.stringify(manifest)).digest('hex'))
-              journaled = true
-              await this.mergeBoundary?.('journaled')
-              task.snapshot.phase = 'Publishing master'
-              task.snapshot.progress!.completed = 2
-              this.changed()
-              await rename(directory, join(this.root, 'originals', photoId))
-              await syncDirectory(join(this.root, 'originals'))
-              await syncDirectory(join(this.root, 'merge-publications'))
-              await this.mergeBoundary?.('published')
-              this.commitMerge(manifest)
-              await this.mergeBoundary?.('committed')
-            }, task.abort.signal)
-            const measurements = structuredClone(result.measurements)
+            const mutationQueuedAt = performance.now()
+            let mutationAdmitted = false
+            await this.scheduler
+              .mutate(async () => {
+                mutationAdmitted = true
+                publication!.mutationQueueMs = performance.now() - mutationQueuedAt
+                this.assertRecovered()
+                const journalStart = performance.now()
+                // Once journaled, finish publication even when cancellation arrives.
+                try {
+                  this.db
+                    .prepare('INSERT INTO merge_publications (id, manifest_sha256) VALUES (?, ?)')
+                    .run(
+                      photoId,
+                      createHash('sha256').update(JSON.stringify(manifest)).digest('hex'),
+                    )
+                } finally {
+                  publication!.journalMs = performance.now() - journalStart
+                }
+                journaled = true
+                await this.mergeBoundary?.('journaled')
+                task.snapshot.phase = 'Publishing master'
+                task.snapshot.progress!.completed = 2
+                this.changed()
+                await timed('renameMs', () =>
+                  rename(directory, join(this.root, 'originals', photoId)),
+                )
+                await timed('directorySyncMs', () => syncDirectory(join(this.root, 'originals')))
+                await timed('directorySyncMs', () =>
+                  syncDirectory(join(this.root, 'merge-publications')),
+                )
+                await this.mergeBoundary?.('published')
+                const commitStart = performance.now()
+                try {
+                  this.commitMerge(manifest)
+                } finally {
+                  publication!.catalogCommitMs = performance.now() - commitStart
+                }
+                await this.mergeBoundary?.('committed')
+              }, task.abort.signal)
+              .finally(() => {
+                if (!mutationAdmitted)
+                  publication!.mutationQueueMs = performance.now() - mutationQueuedAt
+              })
             measurements.stages.publication = performance.now() - publicationStart
             measurements.runtimeMs += measurements.stages.publication
             measurements.disk.readBytes +=
@@ -2756,9 +2906,17 @@ export class PhotoLibrary {
           task.snapshot.errorCount = 1
         }
       } finally {
-        if (pendingDirectory && !journaled)
-          await rm(pendingDirectory, { recursive: true, force: true })
-        await this.merges.dispose(reviewId, true)
+        const cleanupStart = performance.now()
+        try {
+          if (pendingDirectory && !journaled)
+            await rm(pendingDirectory, { recursive: true, force: true })
+          await this.merges.dispose(reviewId, true)
+        } finally {
+          if (publication) {
+            publication.cleanupMs = performance.now() - cleanupStart
+            publication.runtimeMs = performance.now() - acceptedAt
+          }
+        }
         task.snapshot.finishedAt = Date.now()
         this.changed(undefined, true)
       }

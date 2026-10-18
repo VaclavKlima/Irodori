@@ -28,20 +28,41 @@ fn outputRgb(rgb: vec3f) -> vec3f {
 fn encoded(v:vec3f)->vec3f {return encodeDisplayRgb(v);}
 `
 
-export const hdrCacheShader = `
+export type HdrCacheKernelKind = 'grid8' | 'linear64'
+
+/** Keep the shader's invocation mapping and its host dispatch dimensions together. */
+export function hdrCacheKernel(kind: HdrCacheKernelKind = 'grid8') {
+  const linear = kind === 'linear64'
+  const texel = linear ? 'at' : 'vec2i(p.xy)'
+  const shader = `
 ${hdrRenderingWgsl}
 @group(0) @binding(3) var cached: texture_storage_2d_array<rgba32float,write>;
 @group(0) @binding(5) var<storage,read> jobs:array<vec4u>;
-@compute @workgroup_size(8,8) fn renderTile(@builtin(global_invocation_id) p:vec3u) {
+@compute @workgroup_size(${linear ? '64' : '8,8'}) fn renderTile(@builtin(global_invocation_id) p:vec3u) {
   let size=vec2i(textureDimensions(cached));
-  if(any(vec2i(p.xy)>=size)) { return; }
+  ${
+    linear
+      ? 'if(p.x>=u32(size.x*size.y)) { return; }\n  let at=vec2i(i32(p.x)%size.x,i32(p.x)/size.x);'
+      : 'if(any(vec2i(p.xy)>=size)) { return; }'
+  }
   let job=jobs[p.z];
-  let point=vec2i(job.xy)*(size-2)+vec2i(p.xy)-1;
+  let point=vec2i(job.xy)*(size-2)+${texel}-1;
   let pixel=textureLoad(pixels,clamp(point,vec2i(0),vec2i(textureDimensions(pixels))-1),0);
   var rgb=pixel.rgb;
   if(job.w==0u) { rgb=adjusted(rgb); }
-  textureStore(cached,vec2i(p.xy),i32(job.z),vec4f(outputRgb(rgb),pixel.a));
+  textureStore(cached,${texel},i32(job.z),vec4f(outputRgb(rgb),pixel.a));
 }`
+  return {
+    kind,
+    shader,
+    dispatch(extent: number, jobs: number): [number, number, number] {
+      return linear
+        ? [Math.ceil((extent * extent) / 64), 1, jobs]
+        : [Math.ceil(extent / 8), Math.ceil(extent / 8), jobs]
+    },
+  }
+}
+export const hdrCacheShader = hdrCacheKernel().shader
 
 // Pan/zoom presentation deliberately contains no ACES evaluation.
 export const hdrShader = `

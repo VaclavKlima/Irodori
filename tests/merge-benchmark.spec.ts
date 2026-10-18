@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { PhotoLibrary } from '../src/main/library'
 import { PreviewEngine } from '../src/main/preview-engine'
+import { PreviewProcess } from '../src/main/preview-process'
 import { syntheticMerge } from './merge.helpers'
 import { recordBenchmark } from './benchmark.helpers'
 import type { MergeMode } from '../src/shared/merge'
@@ -87,9 +88,11 @@ for (const count of [2, 3, 5, 9])
           () => {},
           undefined,
           undefined,
-          undefined,
+          new PreviewProcess(resolve('out/main/preview-worker.js')),
           undefined,
           resolve('out/main/merge-worker.js'),
+          undefined,
+          new PreviewProcess(resolve('out/main/preview-worker.js')),
         )
       try {
         await library.open()
@@ -243,9 +246,11 @@ for (const count of [2, 3, 5, 9])
           () => {},
           undefined,
           undefined,
-          undefined,
+          new PreviewProcess(resolve('out/main/preview-worker.js')),
           undefined,
           resolve('out/main/merge-worker.js'),
+          undefined,
+          new PreviewProcess(resolve('out/main/preview-worker.js')),
         )
       try {
         await library.open()

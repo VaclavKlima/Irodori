@@ -12,6 +12,14 @@ import { MERGE_VERSION, type MergeManifest } from '../src/shared/merge'
 import { syntheticMerge } from './merge.helpers'
 import { verifyMaster } from '../src/main/merge/store'
 import { WorkScheduler } from '../src/main/work-scheduler'
+import { PROCESSING_METADATA_VERSION, type ProcessingOptions } from '../src/shared/lens'
+
+function processingService(library: PhotoLibrary) {
+  return library as unknown as {
+    processingOptions: (id: string) => Promise<ProcessingOptions>
+    loadProcessingOptions: (id: string) => Promise<ProcessingOptions>
+  }
+}
 
 test('closing a queued merge inspection cancels admission and releases source pins', async () => {
   const root = await mkdtemp(join(tmpdir(), 'luma-merge-queued-'))
@@ -50,7 +58,8 @@ for (const version of ['sony-merge-v1', 'sony-merge-v2', 'sony-merge-v3', MERGE_
   test(`${version} journal recovery preserves derived master, neutral history, fixed lens and source-independent previews`, async () => {
     const f = await syntheticMerge([0.25, 1, 4]),
       root = await mkdtemp(join(tmpdir(), 'luma-merge-library-')),
-      id = 'a'.repeat(64)
+      id = 'a'.repeat(64),
+      inspections: string[] = []
     const make = () =>
       new PhotoLibrary(
         root,
@@ -59,6 +68,13 @@ for (const version of ['sony-merge-v1', 'sony-merge-v2', 'sony-merge-v3', MERGE_
         undefined,
         async (path) => {
           await rename(path, join(root, 'test-trash'))
+        },
+        {
+          inspect: async (path) => {
+            inspections.push(path)
+            throw new Error('Unexpected metadata worker invocation.')
+          },
+          close: async () => {},
         },
       )
     let library = make()
@@ -73,7 +89,8 @@ for (const version of ['sony-merge-v1', 'sony-merge-v2', 'sony-merge-v3', MERGE_
         version,
         asset: f.result.asset,
         recipe: f.result.recipe,
-        metadata: f.sources[1].metadata,
+        // This is an explicit legacy manifest, independent of the current fixture version.
+        metadata: { ...f.sources[1].metadata, version: 3 },
         photo: {
           ...f.sources[1].photo,
           id,
@@ -90,7 +107,9 @@ for (const version of ['sony-merge-v1', 'sony-merge-v2', 'sony-merge-v3', MERGE_
         delete manifest.recipe.alignment
         for (const source of manifest.recipe.sources) delete source.transform.matrix
       }
-      const json = JSON.stringify(manifest)
+      const json = JSON.stringify(manifest),
+        frozenManifest = Buffer.from(json),
+        frozenMaster = await readFile(join(f.output, 'linear.f32'))
       await writeFile(join(stage, 'manifest.json'), json)
       const db = new DatabaseSync(join(root, 'catalog.sqlite'))
       db.prepare('INSERT INTO merge_publications VALUES (?, ?)').run(
@@ -102,6 +121,15 @@ for (const version of ['sony-merge-v1', 'sony-merge-v2', 'sony-merge-v3', MERGE_
       await library.open()
       expect(library.list().photos[0].assetKind).toBe('derived')
       expect((await library.getMergeProvenance(id)).reproducible).toBe(false)
+      expect((await library.getMergeProvenance(id)).manifest.metadata.version).toBe(3)
+      const recovered = await processingService(library).processingOptions(id)
+      expect(recovered.metadata.version).toBe(PROCESSING_METADATA_VERSION)
+      expect(recovered.metadata.mergeMaster).toMatchObject({
+        asset: { sha256: f.result.asset.sha256, source: { decoder: version } },
+      })
+      expect(recovered.workingAsset?.path).toBe(join(root, 'originals', id, 'linear.f32'))
+      expect(await readFile(join(root, 'originals', id, 'manifest.json'))).toEqual(frozenManifest)
+      expect(createHash('sha256').update(frozenMaster).digest('hex')).toBe(f.result.asset.sha256)
       const initial = await library.getEdits(id)
       expect(initial.settings).toMatchObject({
         processing: 'hdr-v1',
@@ -115,11 +143,51 @@ for (const version of ['sony-merge-v1', 'sony-merge-v2', 'sony-merge-v3', MERGE_
       )
       await library.updateEdits(id, { exposureEv: 1 }, 0)
       await library.undoEdit(id, 1)
-      const options = (
-        library as unknown as {
-          processingOptions: (id: string) => Promise<import('../src/shared/lens').ProcessingOptions>
+      await library.redoEdit(id, 2)
+      expect((await library.getEdits(id)).settings.exposureEv).toBe(1)
+      await library.undoEdit(id, 3)
+      const history = await library.getEditHistory(id)
+      expect(history).toMatchObject({ revision: 4, canRedo: true, cursor: 0 })
+      expect(history.snapshots).toHaveLength(2)
+      const cached = new DatabaseSync(join(root, 'catalog.sqlite'))
+      try {
+        const row = cached.prepare('SELECT data FROM processing WHERE id = ?').get(id) as {
+            data: string
+          },
+          legacy = JSON.parse(row.data) as ProcessingOptions
+        // Seed after open so startup migration cannot mask the cached-read contract.
+        legacy.metadata.version = 3
+        cached
+          .prepare('UPDATE processing SET data = ? WHERE id = ?')
+          .run(JSON.stringify(legacy), id)
+        expect((await library.getEdits(id)).revision).toBe(4)
+        expect(await library.getLensSettings(id)).toMatchObject({ fixed: true, revision: 4 })
+        for (const options of [
+          await processingService(library).processingOptions(id),
+          await processingService(library).loadProcessingOptions(id),
+        ]) {
+          expect(options.metadata.version).toBe(3)
+          expect(options.metadata.mergeMaster?.asset.sha256).toBe(f.result.asset.sha256)
+          expect(options.workingAsset?.path).toBe(join(root, 'originals', id, 'linear.f32'))
         }
-      ).processingOptions(id)
+        const missing = structuredClone(legacy)
+        missing.metadata.version = PROCESSING_METADATA_VERSION
+        delete missing.metadata.mergeMaster
+        cached
+          .prepare('UPDATE processing SET data = ? WHERE id = ?')
+          .run(JSON.stringify(missing), id)
+        await expect(library.getEdits(id)).rejects.toThrow(
+          'The merged working source is unavailable.',
+        )
+        await expect(processingService(library).loadProcessingOptions(id)).rejects.toThrow(
+          'The merged working source is unavailable.',
+        )
+        expect(inspections).toEqual([])
+        cached.prepare('UPDATE processing SET data = ? WHERE id = ?').run(row.data, id)
+      } finally {
+        cached.close()
+      }
+      const options = await processingService(library).processingOptions(id)
       const worker = new PreviewProcess(resolve('out/main/preview-worker.js')),
         output = join(root, 'test-preview')
       await mkdir(output)
@@ -128,9 +196,10 @@ for (const version of ['sony-merge-v1', 'sony-merge-v2', 'sony-merge-v3', MERGE_
           join(root, 'originals', id, 'linear.f32'),
           output,
           new AbortController().signal,
-          await options,
+          options,
         )
         expect(result.width).toBe(f.result.asset.width)
+        expect(result.height).toBe(f.result.asset.height)
       } finally {
         await worker.close()
       }
@@ -138,10 +207,14 @@ for (const version of ['sony-merge-v1', 'sony-merge-v2', 'sony-merge-v3', MERGE_
       await rm(join(root, 'cache'), { recursive: true, force: true })
       library = make()
       await library.open()
-      expect((await library.getEdits(id)).revision).toBe(2)
-      expect(await readFile(join(root, 'originals', id, 'linear.f32'))).toEqual(
-        await readFile(join(f.output, 'linear.f32')),
+      expect((await library.getEdits(id)).revision).toBe(4)
+      expect(await library.getEditHistory(id)).toEqual(history)
+      expect(inspections).toEqual([])
+      expect((await processingService(library).processingOptions(id)).metadata.version).toBe(
+        PROCESSING_METADATA_VERSION,
       )
+      expect(await readFile(join(root, 'originals', id, 'linear.f32'))).toEqual(frozenMaster)
+      expect(await readFile(join(root, 'originals', id, 'manifest.json'))).toEqual(frozenManifest)
       const task = library.deletePhotos([id])!
       await expect
         .poll(() => library.listTasks().find((t) => t.id === task)?.status)
@@ -422,6 +495,29 @@ for (const boundary of ['staged', 'journaled', 'published', 'committed'] as cons
         .poll(() => library.listTasks().find((t) => t.id === task)?.finishedAt)
         .toBeTruthy()
       expect(library.listTasks().find((t) => t.id === task)?.status).toBe('failed')
+      const publication = library.listTasks().find((t) => t.id === task)!.mergeMeasurements!
+        .publication!
+      expect(publication.clock).toBe('main-performance')
+      expect(publication.cleanupMs).toBeGreaterThanOrEqual(0)
+      const durations = [
+        publication.operationQueueMs,
+        publication.reviewHandoffMs,
+        publication.copyingMs,
+        publication.fileSyncMs,
+        publication.manifestMs,
+        publication.directorySyncMs,
+        publication.mutationQueueMs,
+        publication.journalMs,
+        publication.renameMs,
+        publication.catalogCommitMs,
+        publication.cleanupMs,
+        ...Object.values(publication.sourceVerification!),
+        ...Object.values(publication.destinationVerification!),
+      ]
+      expect(durations.every((ms) => Number.isFinite(ms) && ms >= 0)).toBe(true)
+      expect(durations.reduce((sum, ms) => sum + ms, 0)).toBeLessThanOrEqual(publication.runtimeMs)
+      expect(publication.sourceVerification!.hashingMs).toBeGreaterThan(0)
+      expect(publication.destinationVerification!.hashingMs).toBeGreaterThan(0)
       await library.close()
       fail = false
       library = make()

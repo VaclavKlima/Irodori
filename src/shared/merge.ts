@@ -13,7 +13,72 @@ export const MERGE_PIPELINE = Object.freeze({
   accumulation: 'tiled-inverse-variance-confidence-v4',
   referenceFallback: 'sony-camera-highlight-blend-frozen-missing-reference-v4',
 })
+export interface MergeReadMeasurements {
+  bands: {
+    requests: number
+    cacheHits: number
+    cacheMisses: number
+    fileReads: number
+    readBytes: number
+    readingMs: number
+    verifiedBytes: number
+    hashingMs: number
+    copyingMs: number
+    allocatedBytes: number
+    reusedStripBuffers: number
+    peakCacheBytes: number
+  }
+  nativePlanes: {
+    cacheHits: number
+    cacheMisses: number
+    fileReads: number
+    readBytes: number
+    readingMs: number
+    verifiedBytes: number
+    hashingMs: number
+    conversionMs: number
+    allocatedBytes: number
+    stripBufferBytes: number
+    peakCacheBytes: number
+  }
+  sensors: {
+    files: number
+    readBytes: number
+    readingMs: number
+    verifiedBytes: number
+    hashingMs: number
+  }
+}
 export interface MergeMeasurements {
+  /** Relative spans in the merge process; nested/parallel spans must not be added. */
+  timeline?: {
+    clock: 'merge-worker-performance'
+    preflight?: MergeTimingSpan
+    preparation: { sourceId: string; span: MergeTimingSpan }[]
+    referenceFallback?: MergeTimingSpan
+    registration?: MergeTimingSpan
+    coverage?: MergeTimingSpan
+    accumulation?: MergeTimingSpan
+    output?: MergeTimingSpan
+  }
+  /** Main-process durations, separate from worker clocks and overlapping stage totals. */
+  publication?: {
+    clock: 'main-performance'
+    runtimeMs: number
+    operationQueueMs: number
+    reviewHandoffMs: number
+    sourceVerification?: MergeVerificationTiming
+    destinationVerification?: MergeVerificationTiming
+    copyingMs: number
+    fileSyncMs: number
+    manifestMs: number
+    directorySyncMs: number
+    mutationQueueMs: number
+    journalMs: number
+    renameMs: number
+    catalogCommitMs: number
+    cleanupMs: number
+  }
   stages: Record<
     | 'decoding'
     | 'preparation'
@@ -24,6 +89,7 @@ export interface MergeMeasurements {
     | 'publication',
     number
   >
+  preparationProbe?: { runtimeMs: number; openingMs: number; opens: number }
   preparation: {
     backend: 'gpu' | 'cpu'
     adapter?: string
@@ -31,12 +97,41 @@ export interface MergeMeasurements {
     reused: boolean
     decodingMs: number
     preparationMs: number
+    cacheLookupMs?: number
+    cacheWriteMs?: number
+    gpu?: Record<string, number>
+    decoder?: {
+      opens: number
+      openingMs: number
+      sensorMs: number
+      linearMs: number
+      saturationMaskMs: number
+    }
+    work?: {
+      maskRepairMs: number
+      cameraRegistrationMs: number
+      hashingMs: number
+      writingMs: number
+      sensorCacheMs: number
+      reductionMs: number
+      conversionMs: number
+      highlightBlendMs?: number
+      cpuKernel?: {
+        backend: 'wasm-simd' | 'scalar'
+        heapBytes: number
+        copyMs: number
+        processingMs: number
+        gainCacheEntries?: 2048 | 32768
+      }
+    }
   }[]
   referenceFallback?: {
     backend: 'cpu'
     reused: boolean
     decodingMs: number
     preparationMs: number
+    decoder?: MergeMeasurements['preparation'][number]['decoder']
+    work?: MergeMeasurements['preparation'][number]['work']
   }
   accumulation: {
     backend: 'gpu' | 'cpu'
@@ -55,19 +150,79 @@ export interface MergeMeasurements {
     }
   }
   coverage?: { backend: 'gpu' | 'cpu'; fallback?: string }
-  output?: { backend: 'gpu' | 'cpu'; fallback?: string }
+  output?: {
+    backend: 'gpu' | 'cpu'
+    fallback?: string
+    conversion?: {
+      setupMs: number
+      uploadMs: number
+      dispatchMs: number
+      readbackMs: number
+      copyingMs: number
+      batches: number
+      pairedBatches?: number
+      images?: number
+      slots?: 1 | 2
+      pendingPeak?: number
+      timestampStatus?: 'disabled' | 'unavailable' | 'available' | 'error'
+      gpuMs?: number
+      gpuBatches?: number
+      timestampErrors?: number
+    }
+    work?: {
+      validityMs: number
+      maskMs: number
+      readingMs: number
+      compositionMs: number
+      thumbnailMs: number
+      referenceMs: number
+      writingMs: number
+      hashingMs: number
+      syncMs: number
+      closingMs: number
+      cpuConversionMs: number
+      png: Partial<
+        Record<
+          'result' | 'reference' | 'overlay',
+          {
+            ms: number
+            bytes: number
+            compressionLevel?: number
+          }
+        >
+      >
+      jpeg: Partial<Record<'thumbnail' | 'preview', { ms: number; bytes: number }>>
+    }
+  }
   attempts: {
     sourceId: string
     referenceId: string
     success: boolean
     runtimeMs: number
+    lane?: number
+    queuedMs?: number
+    /** Dispatch and completion observations on the merge process clock. */
+    timeline?: { submittedMs: number; admittedMs: number; completedMs: number }
+    reads?: MergeReadMeasurements
     patches?: { samplingMs: number; optimizationMs: number; count: number; pixels: number }
     diagnostics?: AlignmentDiagnostics[]
     reason?: string
   }[]
   disk: { readBytes: number; writtenBytes: number }
+  reads?: MergeReadMeasurements
   peak: { workerBytes: number; gpuBytes: number; wasmBytes: number }
   runtimeMs: number
+}
+export interface MergeTimingSpan {
+  startedMs: number
+  completedMs: number
+}
+export interface MergeVerificationTiming {
+  readingMs: number
+  hashingMs: number
+  pixelValidationMs: number
+  metadataMs: number
+  closingMs: number
 }
 export const MERGE_LIMITS = Object.freeze({
   minSources: 2,

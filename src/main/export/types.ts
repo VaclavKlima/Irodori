@@ -50,6 +50,7 @@ export interface ExportDiagnostics {
   encoderMemory?: { kind: 'process-rss' | 'wasm-heap'; peakBytes: number }
   sourceBackend?: string
   sourceFallback?: string
+  sourcePreparation?: 'decoded' | 'preview-cache' | 'retained' | 'managed'
   retries?: number
   stages: Record<string, number>
 }
@@ -63,4 +64,7 @@ export interface ExportRenderJob {
   options: ExportOptions
   directory: string
   hdr: boolean
+  /** Main-owned preparation survives foreground retry; output in directory stays disposable. */
+  preparationDirectory?: string
+  workingAsset?: Omit<import('../working-assets').WorkingAssetLease, 'release'>
 }

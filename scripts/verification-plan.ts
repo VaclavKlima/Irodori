@@ -4,7 +4,7 @@ export const scopes = ['ui', 'adjustments', 'preview', 'library', 'mcp'] as cons
 export type Scope = (typeof scopes)[number]
 export type Group = 'node' | 'service' | 'electron' | 'raw-gpu' | 'benchmark'
 export type Phase = 'functional' | 'benchmark'
-export type BenchmarkFamily = 'preview' | 'adjustments' | 'hdr' | 'merge' | 'export'
+export type BenchmarkFamily = 'preview' | 'adjustments' | 'hdr' | 'merge' | 'export' | 'research'
 
 // Every spec belongs to exactly one execution group. Scope membership is explicit;
 // selecting several scopes runs their union, independent of the working tree.
@@ -16,6 +16,23 @@ interface Suite {
   family?: BenchmarkFamily
 }
 const definitions: Suite[] = [
+  { file: 'research-pipeline', group: 'node', scopes: [] },
+  { file: 'research-resources', group: 'node', scopes: [] },
+  ...[
+    'research-native',
+    'research-measurements',
+    'research-libraries',
+    'research-gpu',
+    'research-wgpu',
+    'research-presentation',
+    'research-background',
+    'research-merge-gpu',
+  ].map((file) => ({
+    file,
+    group: 'benchmark' as const,
+    scopes: [] as Scope[],
+    family: 'research' as const,
+  })),
   { file: 'export-model', group: 'node', scopes: ['library'] },
   { file: 'export-jpeg', group: 'node', scopes: ['library'] },
   { file: 'export-gpu', group: 'raw-gpu', scopes: ['preview', 'library'] },
@@ -85,17 +102,25 @@ const definitions: Suite[] = [
     exclusive: true,
   },
   { file: 'merge-preview-benchmark', group: 'benchmark', scopes: [], family: 'merge' },
+  { file: 'merge-three-raw-benchmark', group: 'benchmark', scopes: [], family: 'merge' },
+  { file: 'merge-workflow-benchmark', group: 'benchmark', scopes: [], family: 'merge' },
   { file: 'merge-library', group: 'service', scopes: ['library', 'adjustments', 'preview'] },
   { file: 'merge-raw', group: 'raw-gpu', scopes: ['preview', 'library'] },
   { file: 'merge-gpu', group: 'raw-gpu', scopes: ['preview', 'library'] },
   { file: 'merge-photographs', group: 'service', scopes: ['preview', 'library'] },
   { file: 'merge', group: 'node', scopes: ['preview', 'library'] },
+  { file: 'merge-io', group: 'node', scopes: ['preview', 'library'] },
+  { file: 'merge-gpu-output', group: 'node', scopes: ['preview', 'library'] },
+  { file: 'merge-cpu-kernels', group: 'node', scopes: ['preview', 'library'] },
   { file: 'merge-engine', group: 'service', scopes: ['preview', 'library'] },
   { file: 'hdr', group: 'node', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-content', group: 'node', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-content-gpu', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-content-ui', group: 'raw-gpu', scopes: ['ui', 'preview', 'adjustments'] },
   { file: 'hdr-slider-benchmark', group: 'benchmark', scopes: [], family: 'hdr' },
+  { file: 'mac-workability-benchmark', group: 'benchmark', scopes: [], family: 'hdr' },
+  { file: 'mac-workability-batching', group: 'benchmark', scopes: [], family: 'hdr' },
+  { file: 'mac-workability-interference', group: 'benchmark', scopes: [], family: 'hdr' },
   { file: 'hdr-render-cache', group: 'node', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-render-cache-gpu', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-interaction-ui', group: 'raw-gpu', scopes: ['ui', 'preview'] },
@@ -262,7 +287,7 @@ export function selectPlan(args: string[]): VerificationPlan {
     '--hdr-benchmark': ['hdr'],
     '--merge-benchmark': ['merge'],
     '--export-benchmark': ['export'],
-    '--benchmark-all': ['preview', 'adjustments', 'hdr', 'merge', 'export'],
+    '--benchmark-all': ['preview', 'adjustments', 'hdr', 'merge', 'export', 'research'],
   }
   let selected: typeof suites
   let mcp = false
@@ -364,7 +389,14 @@ export function selectPlan(args: string[]): VerificationPlan {
       true,
     )
   }
-  for (const family of ['preview', 'adjustments', 'hdr', 'merge', 'export'] as BenchmarkFamily[])
+  for (const family of [
+    'preview',
+    'adjustments',
+    'hdr',
+    'merge',
+    'export',
+    'research',
+  ] as BenchmarkFamily[])
     add(
       'benchmark',
       selected.filter((s) => s.family === family),

@@ -51,13 +51,13 @@ export class PreviewEngine {
 
   private working?: { key: string; frame: WorkingFrame }
 
-  async inspectCapture(path: string): Promise<CaptureMetadata> {
+  async inspectCapture(path: string, retainSession = false): Promise<CaptureMetadata> {
     if (this.tool.ended) this.tool = new ExifTool({ maxProcs: 1, taskTimeoutMillis: 20_000 })
     try {
       const tags = await this.tool.readRaw(path, { readArgs: ['-G1', '-n'] })
       return captureMetadata(tags as Record<string, unknown>, extname(path).slice(1))
     } finally {
-      await this.tool.end()
+      if (!retainSession) await this.tool.end()
     }
   }
 

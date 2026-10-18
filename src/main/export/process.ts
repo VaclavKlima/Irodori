@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { PreviewProcess } from '../preview-process'
 import type { ExportRenderJob, ExportRenderResult } from './types'
+import { prepareExportWorkingSource } from './preparation'
 
 /** Decoder and encoder never retain their WASM heaps in the same process. */
 export class ExportProcess {
@@ -14,28 +15,26 @@ export class ExportProcess {
     const started = performance.now()
     let sourceMs = 0,
       sourceBackend: string | undefined,
-      sourceFallback: string | undefined
+      sourceFallback: string | undefined,
+      sourcePreparation: import('./types').ExportDiagnostics['sourcePreparation'] = 'managed'
     signal.throwIfAborted()
     const source = structuredClone(job.source)
     if (source.hdr && !source.processing.metadata.mergeMaster) {
-      const decoder = new PreviewProcess(this.previewWorkerPath)
-      try {
-        const frame = await decoder.renderFull(source.path, job.directory, signal, {
-          ...source.processing,
-          workingOnly: true,
-        })
-        if (!frame.linear?.hdr) throw new Error('The RAW decoder returned no HDR master.')
-        sourceBackend = frame.diagnostics?.backend
-        sourceFallback = frame.diagnostics?.fallback
-        source.processing.workingAsset = {
-          ...frame.linear,
-          width: frame.width,
-          height: frame.height,
-          path: join(job.directory, 'linear.f32'),
+      const prepared = await prepareExportWorkingSource(job, signal, async (directory) => {
+        const decoder = new PreviewProcess(this.previewWorkerPath)
+        try {
+          return await decoder.renderFull(source.path, directory, signal, {
+            ...source.processing,
+            workingOnly: true,
+          })
+        } finally {
+          await decoder.close(true)
         }
-      } finally {
-        await decoder.close(true)
-      }
+      })
+      sourceBackend = prepared.backend
+      sourceFallback = prepared.fallback
+      sourcePreparation = prepared.preparation
+      source.processing.workingAsset = prepared.asset
       sourceMs = performance.now() - started
     }
     signal.throwIfAborted()
@@ -120,6 +119,7 @@ export class ExportProcess {
           if (result.diagnostics) {
             result.diagnostics.sourceBackend = sourceBackend
             result.diagnostics.sourceFallback = sourceFallback
+            result.diagnostics.sourcePreparation = sourcePreparation
             result.diagnostics.stages.sourcePreparationMs = sourceMs
             result.diagnostics.stages.processMs = performance.now() - started
           }

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { copyFile, mkdtemp, rm, writeFile, readFile, access } from 'node:fs/promises'
+import { copyFile, mkdtemp, rm, writeFile, readFile, access, rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -9,7 +9,11 @@ import { detectCaptureSequences, type CaptureMetadata } from '../src/shared/capt
 import { sequenceMetadata } from './capture.helpers'
 import { stackFixture, finishTask } from './stack.helpers'
 import { scan, commit } from './library.helpers'
-import type { PreviewProcessor } from '../src/main/preview-types'
+import type { CaptureMetadataProcessor, PreviewProcessor } from '../src/main/preview-types'
+import { processingMetadata } from '../src/main/processing/metadata'
+import { noLensSettings } from '../src/shared/lens'
+import { identityMatrix, WHITE_BALANCE_MODEL } from '../src/shared/white-balance'
+import type { WorkScheduler } from '../src/main/work-scheduler'
 
 test('real ZV-1A twelve-frame burst is positive evidence and nine shutter-varied single shots are negative', async () => {
   const directory = resolve(
@@ -219,3 +223,243 @@ test('a scan error remains visible and untouched automatic membership does not a
     await t.close()
   }
 })
+
+test('committed capture batches retain one owned worker, preserve fresh metadata and bytes, and close on abort or read failure', async () => {
+  const fixtureRoot = resolve('tests/fixtures/research-sony'),
+    manifest = JSON.parse(await readFile(join(fixtureRoot, 'manifest.json'), 'utf8')) as {
+      files: { name: string; path: string; sha256: string; captureMetadata: CaptureMetadata }[]
+    },
+    sources = ['DSC03243.ARW', 'DSC03244.ARW', 'DSC03245.ARW'].map((name) =>
+      manifest.files.find((entry) => entry.name === name)!,
+    ),
+    paths = sources.map((entry) => join(fixtureRoot, entry.path)),
+    root = await mkdtemp(join(tmpdir(), 'luma-capture-session-')),
+    worker = new PreviewProcess(resolve('out/main/preview-worker.js')),
+    state = worker as unknown as { child?: { pid?: number }; captureSession: boolean },
+    signal = new AbortController().signal
+  const hash = async (path: string) =>
+    createHash('sha256')
+      .update(await readFile(path))
+      .digest('hex')
+  try {
+    const expected: CaptureMetadata[] = []
+    for (const [index, path] of paths.entries()) {
+      expect(await hash(path)).toBe(sources[index].sha256)
+      expected.push(await worker.inspectCapture(path, signal))
+      expect(state.child).toBeUndefined()
+    }
+    const pids: number[] = [],
+      actual = await worker.inspectCaptures(paths, signal, async (index) => {
+        if (!index) return
+        const pid = state.child!.pid!
+        pids.push(pid)
+        if (index === 1) {
+          // These competing operations have different cleanup paths: standalone
+          // close, fallback pre-close, and the statistics idle-close timer.
+          const rejected = await Promise.allSettled([
+            worker.inspectCapture(paths[0], signal),
+            worker.prepare(paths[0], join(root, 'unused-output'), signal, true),
+            worker.statistics(paths[0], { width: 1, height: 1, sha256: '0'.repeat(64) }, signal),
+          ])
+          expect(
+            rejected.every(
+              (result) =>
+                result.status === 'rejected' && String(result.reason).includes('worker is busy'),
+            ),
+          ).toBe(true)
+          expect(state.child?.pid).toBe(pid)
+        }
+      })
+    expect(actual).toEqual(expected)
+    for (const [index, metadata] of actual.entries())
+      expect(metadata).toMatchObject({ ...sources[index].captureMetadata })
+    expect(pids).toHaveLength(2)
+    expect(new Set(pids).size).toBe(1)
+    expect(state.child).toBeUndefined()
+    expect(state.captureSession).toBe(false)
+
+    const abort = new AbortController(),
+      visited: number[] = []
+    await expect(
+      worker.inspectCaptures(paths, abort.signal, async (index) => {
+        visited.push(index)
+        if (index === 1) abort.abort(new Error('Capture boundary cancelled.'))
+      }),
+    ).rejects.toThrow('Capture boundary cancelled.')
+    expect(visited).toEqual([0, 1])
+    expect(state.child).toBeUndefined()
+    expect(state.captureSession).toBe(false)
+    await expect(
+      worker.inspectCaptures([paths[0], join(root, 'missing.ARW')], signal),
+    ).rejects.toThrow()
+    expect(state.child).toBeUndefined()
+    expect(state.captureSession).toBe(false)
+    expect(await worker.inspectCaptures([paths[0]], signal)).toEqual([expected[0]])
+    expect(state.child).toBeUndefined()
+    for (const [index, path] of paths.entries())
+      expect(await hash(path)).toBe(sources[index].sha256)
+  } finally {
+    await worker.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+async function mergeCaptureFixture(processor: CaptureMetadataProcessor) {
+  const t = await stackFixture(2)
+  try {
+    // Admission-only synthetic catalog; no RAW decoding or image rendering occurs.
+    const metadata = processingMetadata({ 'IFD0:Make': 'SONY', 'IFD0:Model': 'ZV-1' }, [])
+    metadata.hdrEligible = true
+    metadata.capture = { shutterSeconds: 1 / 125, iso: 100, aperture: 4, focalLength: 9.4 }
+    metadata.whiteBalance = {
+      provider: 'test',
+      version: '1',
+      identity: 'capture-admission',
+      model: WHITE_BALANCE_MODEL,
+      asShotGains: [1, 1, 1],
+      cameraToWorking: identityMatrix,
+      xyzToCamera: identityMatrix,
+      ranges: { kelvin: [2000, 25000], tint: [-100, 100] },
+      estimate: { kelvin: 6500, tint: 0 },
+    }
+    for (const [index, photo] of t.photos.entries()) {
+      await rename(
+        join(t.root, 'library', 'originals', photo.id, 'original.jpg'),
+        join(t.root, 'library', 'originals', photo.id, 'original.arw'),
+      )
+      photo.filename = `capture-${index}.ARW`
+      photo.format = 'ARW'
+      photo.bytes = Buffer.byteLength(`original-${index}`)
+      t.db
+        .prepare("UPDATE photos SET photo = ?, processing_identity = 'hdr-v1' WHERE id = ?")
+        .run(JSON.stringify(photo), photo.id)
+      t.db
+        .prepare('INSERT INTO processing VALUES (?, ?)')
+        .run(photo.id, JSON.stringify({ metadata, settings: noLensSettings, revision: 0 }))
+      t.capture(index, sequenceMetadata(index + 1))
+    }
+    ;(t.library as unknown as { captureProcessor: CaptureMetadataProcessor }).captureProcessor =
+      processor
+    return t
+  } catch (error) {
+    await t.close()
+    throw error
+  }
+}
+
+test('merge capture batches checkpoint between fresh reads and preserve the sequential adapter fallback', async () => {
+  let firstRead!: () => void
+  const started = new Promise<void>((resolve) => {
+      firstRead = resolve
+    }),
+    reads: number[] = [],
+    fresh = [sequenceMetadata(10), sequenceMetadata(11)],
+    processor: CaptureMetadataProcessor = {
+      inspectCapture: async () => {
+        throw new Error('The batch operation must own capture reads.')
+      },
+      inspectCaptures: async (paths, _signal, beforeRead) => {
+        for (let index = 0; index < paths.length; index++) {
+          await beforeRead!(index)
+          reads.push(index)
+          if (!index) {
+            scheduler.activity('capture-test-edit', true)
+            firstRead()
+          }
+        }
+        return fresh
+      },
+      close: async () => {},
+    },
+    t = await mergeCaptureFixture(processor),
+    ids = t.photos.map((photo) => photo.id)
+  const scheduler = (t.library as unknown as { scheduler: WorkScheduler }).scheduler
+  try {
+    const creating = t.library.createMergeReview(ids, 'noise')
+    void creating.catch(() => {})
+    await started
+    expect(reads).toEqual([0])
+    expect(t.library.merges.leased(ids)).toBe(true)
+    expect(() => t.library.deletePhotos(ids)).toThrow('merge review')
+    scheduler.activity('capture-test-edit', false)
+    const review = await creating
+    expect(review.sources.map((source) => source.captureMetadata)).toEqual(fresh)
+    expect(t.store.capture(ids[0])).toEqual(sequenceMetadata(1))
+    await t.library.disposeMergeReview(review.id)
+    expect(t.library.merges.leased(ids)).toBe(false)
+    delete processor.inspectCaptures
+    processor.inspectCapture = async (path) => fresh[ids.findIndex((id) => path.includes(id))]
+    const fallback = await t.library.createMergeReview(ids, 'noise')
+    expect(fallback.sources.map((source) => source.captureMetadata)).toEqual(fresh)
+    await t.library.disposeMergeReview(fallback.id)
+  } finally {
+    scheduler.activity('capture-test-edit', false)
+    await t.close()
+  }
+})
+
+for (const failure of ['missing-source', 'shutdown'] as const)
+  test(`merge capture ${failure} retains source leases through awaited session cleanup`, async () => {
+    let firstRead!: () => void, cleanupEntered!: () => void, finishCleanup!: () => void
+    const started = new Promise<void>((resolve) => {
+        firstRead = resolve
+      }),
+      cleaning = new Promise<void>((resolve) => {
+        cleanupEntered = resolve
+      }),
+      cleanup = new Promise<void>((resolve) => {
+        finishCleanup = resolve
+      }),
+      reads: number[] = [],
+      processor: CaptureMetadataProcessor = {
+        inspectCapture: async () => {
+          throw new Error('Unexpected standalone capture read.')
+        },
+        inspectCaptures: async (paths, signal, beforeRead) => {
+          try {
+            await beforeRead!(0)
+            reads.push(0)
+            if (failure === 'missing-source') await rm(paths[1])
+            firstRead()
+            if (failure === 'shutdown')
+              await new Promise<void>((_resolve, reject) =>
+                signal.addEventListener('abort', () => reject(new Error('Capture cancelled.')), {
+                  once: true,
+                }),
+              )
+            await beforeRead!(1)
+            reads.push(1)
+            throw new Error('The unavailable second source must never be read.')
+          } finally {
+            cleanupEntered()
+            await cleanup
+          }
+        },
+        close: async () => {},
+      },
+      t = await mergeCaptureFixture(processor),
+      ids = t.photos.map((photo) => photo.id)
+    let closing: Promise<void> | undefined
+    try {
+      const creating = t.library.createMergeReview(ids, 'noise'),
+        rejected = expect(creating).rejects.toThrow(
+          failure === 'missing-source' ? 'photo is unavailable' : 'Capture cancelled',
+        )
+      await started
+      if (failure === 'shutdown') closing = t.library.close()
+      await cleaning
+      expect(reads).toEqual([0])
+      expect(t.library.merges.leased(ids)).toBe(true)
+      if (failure === 'missing-source')
+        expect(() => t.library.deletePhotos(ids)).toThrow('merge review')
+      finishCleanup()
+      await rejected
+      await closing
+      expect(t.library.merges.leased(ids)).toBe(false)
+      expect(t.library.getActiveMergeReview()).toBeNull()
+    } finally {
+      finishCleanup()
+      await closing
+      await t.close()
+    }
+  })

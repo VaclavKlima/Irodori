@@ -9,6 +9,7 @@ import type { MergeMatrix } from '../src/shared/merge'
 import { luminance } from '../src/shared/hdr'
 import type { MergeSource, MergeSettings } from '../src/shared/merge'
 import { unavailableProfile } from '../src/main/processing/metadata'
+import { PROCESSING_METADATA_VERSION } from '../src/shared/lens'
 
 export async function syntheticMerge(
   scales: number[],
@@ -102,7 +103,7 @@ export async function syntheticMerge(
     },
     relativeEv: Math.log2(scale),
     metadata: {
-      version: 3,
+      version: PROCESSING_METADATA_VERSION,
       model: 'ZV-1',
       make: 'Sony',
       hdrEligible: true,

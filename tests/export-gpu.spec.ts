@@ -11,6 +11,7 @@ import { adjustHdr, outputHdr, contentHdr, SDR_TARGET } from '../src/shared/hdr'
 import { syntheticExportSource } from './export.helpers'
 import { fromHalf } from './export-reference'
 import { buildAcesReference, referenceAces } from './aces-reference'
+import { acesRegressionInputs } from './aces-regression-inputs'
 import reference from './fixtures/aces-reference.json' with { type: 'json' }
 import { exportPrecisionData } from '../src/main/export/precision-wgsl'
 
@@ -114,7 +115,9 @@ test('both export renditions agree with independent Float64 CTL at retained full
   const directory = info.outputPath('ctl')
   await mkdir(directory)
   const binary = buildAcesReference(directory)
-  const input = new Float32Array(reference.inputs.flatMap((v) => [...v, 1]))
+  const input = new Float32Array(
+    [...reference.inputs, ...acesRegressionInputs].flatMap((v) => [...v, 1]),
+  )
   const actualInput = Array.from({ length: input.length / 4 }, (_, i) =>
     Array.from(input.subarray(i * 4, i * 4 + 3)),
   )

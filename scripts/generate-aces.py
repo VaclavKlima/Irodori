@@ -315,6 +315,9 @@ for key, (_, kind, dims) in offsets.items():
         low_offsets[key] = cursor
         cursor += 3 if dims == ['3', '3'] else 1
 
+precision_offset = cursor
+cursor += 192
+
 wg += 'struct AcesData { values:array<vec4f,' + str(cursor) + '> }\n@group(0) @binding(4) var<storage,read> acesData:AcesData;\n'
 
 
@@ -462,14 +465,15 @@ for name, (kind, dims, args, body) in functions.items():
     body = body.replace('midpoint(i_lo, i_hi)', '(i_lo+i_hi)/2')
     wg += f'fn {name}({",".join(parameters)})->{wg_type(kind, dimensions(dims))} {{\n{wg_expr(body)}\n}}\n'
 
+wg += 'fn acesMath(index:u32)->vec2f {\n  let pair=acesData.values[' + str(precision_offset) + '+i32(index>>1u)];\n  return select(pair.xy,pair.zw,(index&1u)!=0u);\n}\n'
 wg += (ROOT / 'scripts/aces-precision.wgsl').read_text()
 
 # Matrices are filled by the generated CPU port, not independently tuned.
-wg_header = header + "import { AP0_TO_AP1, AP1_TO_AP0 } from './aces-core'\nconst matrix=(m:number[][])=>'mat3x3f('+m.map(r=>'vec3f('+r.map(v=>String(v).includes('.')?String(v):v+'.0').join(',')+')').join(',')+')'\nconst acesMatrices='const AP0_TO_AP1='+matrix(AP0_TO_AP1)+';\\nconst AP1_TO_AP0='+matrix(AP1_TO_AP0)+';'\n"
+wg_header = header + "import { acesPrecisionWgsl } from './aces-precision-wgsl'\nimport { AP0_TO_AP1, AP1_TO_AP0 } from './aces-core'\nconst matrix=(m:number[][])=>'mat3x3f('+m.map(r=>'vec3f('+r.map(v=>String(v).includes('.')?String(v):v+'.0').join(',')+')').join(',')+')'\nconst acesMatrices='const AP0_TO_AP1='+matrix(AP0_TO_AP1)+';\\nconst AP1_TO_AP0='+matrix(AP1_TO_AP0)+';'\n"
 (ROOT / 'src/shared/aces-wgsl.ts').write_text(wg_header + 'export const acesWgsl = `\n' + wg + '`\n')
 
 # Storage packing is generated from the same field layout as shader accessors.
-packer = header + "import type { ODTParams } from './aces-core'\nexport const ACES_DATA_BYTES=" + str(cursor * 16) + "\nexport function packAces(p:ODTParams):Float32Array<ArrayBuffer> {\n const result=new Float32Array(" + str(cursor * 4) + ");\n"
+packer = header + "import { acesPrecisionData } from './aces-precision-wgsl'\nimport type { ODTParams } from './aces-core'\nexport const ACES_DATA_BYTES=" + str(cursor * 16) + "\nexport function packAces(p:ODTParams):Float32Array<ArrayBuffer> {\n const result=new Float32Array(" + str(cursor * 4) + ");\n"
 for key, (offset, kind, dims) in offsets.items():
     if dims == ['3', '3'] or len(dims) == 2:
         packer += f'{key}.forEach((row,i)=>result.set(row,({offset}+i)*4));\n'
@@ -484,5 +488,6 @@ for key, offset in low_offsets.items():
         packer += f'{key}.forEach((row,i)=>result.set(row.map(v=>v-Math.fround(v)),({offset}+i)*4));\n'
     else:
         packer += f'result[{offset}*4]={key}-Math.fround({key});\n'
+packer += f'result.set(acesPrecisionData,{precision_offset}*4);\n'
 packer += 'return result;\n}\n'
 (ROOT / 'src/shared/aces-data.ts').write_text(packer)

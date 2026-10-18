@@ -165,6 +165,10 @@ export function PhotoPreview({
   const working = fallback && hdrJpeg ? null : live.working
   const hdrCapable = hdrJpeg || !!working?.hdr
   const { mode, split, hdrRanges, analyze, update } = tools
+  const analysisPending = useCallback(
+    (pending: boolean) => update({ analysisPending: pending }),
+    [update],
+  )
   const actualTarget = useMemo(
     () =>
       fallback
@@ -514,6 +518,7 @@ export function PhotoPreview({
               analyze,
               retainedSurface.current ?? undefined,
               beginActivity,
+              analysisPending,
             )
       } else
         presenter.current = new PreviewPresenter(canvas, fallback || !editingSurface, () =>
@@ -536,6 +541,7 @@ export function PhotoPreview({
     suspended,
     analyze,
     beginActivity,
+    analysisPending,
   ])
 
   useEffect(() => {

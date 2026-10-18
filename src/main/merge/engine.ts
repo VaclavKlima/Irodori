@@ -2,10 +2,12 @@ import { identityTransform } from './alignment'
 import { AlignmentPool } from './alignment-pool'
 import { resizedTransform, validateTransform, multiply, inverse } from './matrix'
 import { band, bandData, resetMergeReads, mergeReadBytes } from './sampling'
+import { mergeReadMeasurements } from './read-metrics'
 import { loadPreparation, savePreparation } from './preparation-cache'
 import { RawGpuRenderer } from '../gpu/raw-renderer'
 import { accumulateGpu } from './gpu-accumulation'
 import { gpuOutput } from './gpu-output'
+import { getMergeKernelHeapBytes } from './cpu-kernels'
 import { coverageGpu } from './gpu-coverage'
 import { excludedBand, excludedCenters, sourceExclusionBand, taperExclusions } from './exclusions'
 import { createHash } from 'node:crypto'
@@ -66,6 +68,7 @@ export interface MergeResult {
   measurements: MergeMeasurements
 }
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+const reviewPngCompressionLevel = { result: 0, reference: 0, overlay: 1 } as const
 const send = (value: unknown) => {
   if (process.connected) process.send?.(value)
 }
@@ -90,38 +93,39 @@ async function checkpoint() {
 }
 
 export async function runMerge(job: MergeJob): Promise<MergeResult> {
-  const gpu = new RawGpuRenderer(),
-    alignment = new AlignmentPool()
+  const start = performance.now(),
+    gpu = new RawGpuRenderer(),
+    alignment = new AlignmentPool(start)
   const measurements: MergeMeasurements = {
-      stages: {
-        decoding: 0,
-        preparation: 0,
-        matching: 0,
-        nativeValidation: 0,
-        accumulation: 0,
-        output: 0,
-        publication: 0,
-      },
-      preparation: [],
-      accumulation: { backend: 'cpu' },
-      attempts: [],
-      disk: { readBytes: 0, writtenBytes: 0 },
-      peak: { workerBytes: 0, gpuBytes: 0, wasmBytes: 0 },
-      runtimeMs: 0,
+    stages: {
+      decoding: 0,
+      preparation: 0,
+      matching: 0,
+      nativeValidation: 0,
+      accumulation: 0,
+      output: 0,
+      publication: 0,
     },
-    start = performance.now()
+    preparation: [],
+    accumulation: { backend: 'cpu' },
+    attempts: [],
+    disk: { readBytes: 0, writtenBytes: 0 },
+    peak: { workerBytes: 0, gpuBytes: 0, wasmBytes: 0 },
+    runtimeMs: 0,
+    timeline: { clock: 'merge-worker-performance', preparation: [] },
+  }
   activeAlignment = alignment
   alignment.pause(paused)
   try {
-    return await runMergeInternal(job, gpu, alignment, measurements)
+    return await runMergeInternal(job, gpu, alignment, measurements, start)
   } catch (error) {
     const failure = mergeFailure(error)
+    measurements.reads = structuredClone(mergeReadMeasurements())
     measurements.runtimeMs = performance.now() - start
     measurements.peak.workerBytes = process.resourceUsage().maxRSS * 1024
-    measurements.peak.wasmBytes = Math.max(
-      alignment.wasmBytes,
-      ...failure.diagnostics.map((d) => d.wasmMemoryBytes),
-    )
+    measurements.peak.wasmBytes =
+      getMergeKernelHeapBytes() +
+      Math.max(alignment.wasmBytes, ...failure.diagnostics.map((d) => d.wasmMemoryBytes))
     failure.measurements = measurements
     throw new MergeError(failure)
   } finally {
@@ -135,16 +139,22 @@ async function runMergeInternal(
   gpu: RawGpuRenderer,
   alignment: AlignmentPool,
   measurements: MergeMeasurements,
+  start: number,
 ): Promise<MergeResult> {
-  const start = performance.now(),
-    { directory, settings, sources, output } = job
+  const { directory, settings, sources, output } = job
+  const timeline = measurements.timeline!,
+    relative = () => performance.now() - start,
+    preflightStart = relative()
   resetMergeReads()
   await mkdir(output, { recursive: true })
   const referenceIndex = sources.findIndex((s) => s.photo.id === settings.referenceId),
     reference = sources[referenceIndex]
   const prepared: PreparedSource[] = []
   let fallbackReference: PreparedSource | undefined
-  const preparation = await mergePreparation(job.paths, sources, settings, checkpoint)
+  let referencePreparationIdentity = ''
+  const probe = { runtimeMs: 0, openingMs: 0, opens: 0 }
+  measurements.preparationProbe = probe
+  const preparation = await mergePreparation(job.paths, sources, settings, checkpoint, probe)
   const registrationKey = JSON.stringify({
     pipeline: MERGE_PIPELINE,
     alignment: ALIGNMENT_CONSTANTS,
@@ -182,7 +192,9 @@ async function runMergeInternal(
     referenceIndex,
     ...sources.map((_, i) => i).filter((i) => i !== referenceIndex),
   ]
+  timeline.preflight = { startedMs: preflightStart, completedMs: relative() }
   for (const i of preparationOrder) {
+    const sourceStart = relative()
     await checkpoint()
     send({ phase: 'Decoding originals', completed: i, total: sources.length })
     const metadataPath = join(directory, `source-${i}.json`)
@@ -198,6 +210,10 @@ async function runMergeInternal(
         }),
       ),
     )
+    const cacheLookup = performance.now()
+    // Legacy preparation manifests can omit their stored identity. The fallback
+    // key still uses the current verified inputs, exactly as before rescheduling.
+    if (i === referenceIndex) referencePreparationIdentity = identity
     let p = await loadPreparation(
       directory,
       i,
@@ -207,7 +223,9 @@ async function runMergeInternal(
       },
       identity,
     )
-    const reused = !!p
+    const cacheLookupMs = performance.now() - cacheLookup,
+      reused = !!p
+    let cacheWriteMs = 0
     if (!p) {
       // Cancelled decoding can leave an incomplete, unindexed scratch frame.
       await rm(join(directory, `source-${i}.f32`), { force: true })
@@ -226,7 +244,9 @@ async function runMergeInternal(
       p.identity = identity
       measurements.disk.readBytes +=
         (await stat(job.paths[i])).size * (p.measurement?.fallback ? 2 : 1)
+      const cacheWrite = performance.now()
       measurements.disk.writtenBytes += await savePreparation(directory, i, settings.referenceId, p)
+      cacheWriteMs = performance.now() - cacheWrite
       measurements.disk.writtenBytes +=
         p.width * p.height * 16 * (p.cameraRegistration ? 2 : 1) +
         (p.sensor ? p.sensor.sensor.bytes + p.sensor.alpha.bytes + p.sensor.lens.bytes : 0)
@@ -251,53 +271,9 @@ async function runMergeInternal(
     )
       throw new Error('Invalid source preparation.')
     prepared[i] = p
-    if (i === referenceIndex && preparation && p.normalization.sourceSaturation?.saturatedSites) {
-      const safeDirectory = join(directory, 'reference-fallback'),
-        safeIdentity = hash(
-          Buffer.from(JSON.stringify({ identity, policy: MERGE_PIPELINE.referenceFallback })),
-        )
-      await mkdir(safeDirectory, { recursive: true })
-      fallbackReference = await loadPreparation(
-        safeDirectory,
-        0,
-        settings.referenceId,
-        (bytes) => {
-          measurements.disk.readBytes += bytes
-        },
-        safeIdentity,
-      )
-      const reusedFallback = !!fallbackReference
-      if (!fallbackReference) {
-        await rm(join(safeDirectory, 'source-0.f32'), { force: true })
-        await rm(join(safeDirectory, 'source-0.json'), { force: true })
-        fallbackReference = await prepareReferenceFallback(
-          job.paths[i],
-          safeDirectory,
-          0,
-          sources[i],
-          reference,
-          checkpoint,
-          preparation,
-        )
-        fallbackReference.identity = safeIdentity
-        measurements.disk.readBytes += (await stat(job.paths[i])).size
-        measurements.disk.writtenBytes += await savePreparation(
-          safeDirectory,
-          0,
-          settings.referenceId,
-          fallbackReference,
-        )
-        measurements.disk.writtenBytes += p.width * p.height * 16
-      }
-      if (fallbackReference.width !== p.width || fallbackReference.height !== p.height)
-        throw new Error('Highlight fallback reference dimensions differ.')
-      measurements.referenceFallback = {
-        backend: 'cpu',
-        reused: reusedFallback,
-        decodingMs: reusedFallback ? 0 : (fallbackReference.measurement?.decodingMs ?? 0),
-        preparationMs: reusedFallback ? 0 : (fallbackReference.measurement?.preparationMs ?? 0),
-      }
-    }
+    // Later stages use verified disk strips or sensor caches. Do not retain a
+    // separate full GPU frame beside their independently bounded allocations.
+    gpu.releaseFrame()
     if (i !== referenceIndex && settings.autoAlign && !job.recipe && !cachedRegistration)
       early.set(
         i,
@@ -313,22 +289,91 @@ async function runMergeInternal(
             (failure) => ({ failure }),
           ),
       )
-    const m = {
+    const m: MergeMeasurements['preparation'][number] = {
       ...(p.measurement ?? { backend: 'cpu' as const, decodingMs: 0, preparationMs: 0 }),
       reused,
+      cacheLookupMs,
+      cacheWriteMs,
     }
     if (reused) {
       m.decodingMs = 0
       m.preparationMs = 0
+      m.work = undefined
+      m.gpu = undefined
+      m.decoder = undefined
     }
     measurements.preparation[i] = m
     measurements.stages.decoding += m.decodingMs
     measurements.stages.preparation += m.preparationMs
     measurements.peak.gpuBytes = Math.max(measurements.peak.gpuBytes, p.gpuBytes ?? 0)
+    timeline.preparation.push({
+      sourceId: sources[i].photo.id,
+      span: { startedMs: sourceStart, completedMs: relative() },
+    })
   }
   const ref = prepared[referenceIndex]
+  // Fallback supplies output pixels only. Submit both independent alignment lanes
+  // before its unchanged preparation so their work can overlap without new workers.
+  if (preparation && ref.normalization.sourceSaturation?.saturatedSites) {
+    const fallbackStart = relative()
+    const safeDirectory = join(directory, 'reference-fallback'),
+      safeIdentity = hash(
+        Buffer.from(
+          JSON.stringify({
+            identity: referencePreparationIdentity,
+            policy: MERGE_PIPELINE.referenceFallback,
+          }),
+        ),
+      )
+    await mkdir(safeDirectory, { recursive: true })
+    fallbackReference = await loadPreparation(
+      safeDirectory,
+      0,
+      settings.referenceId,
+      (bytes) => {
+        measurements.disk.readBytes += bytes
+      },
+      safeIdentity,
+    )
+    const reusedFallback = !!fallbackReference
+    if (!fallbackReference) {
+      await rm(join(safeDirectory, 'source-0.f32'), { force: true })
+      await rm(join(safeDirectory, 'source-0.json'), { force: true })
+      fallbackReference = await prepareReferenceFallback(
+        job.paths[referenceIndex],
+        safeDirectory,
+        0,
+        sources[referenceIndex],
+        reference,
+        checkpoint,
+        preparation,
+      )
+      fallbackReference.identity = safeIdentity
+      measurements.disk.readBytes += (await stat(job.paths[referenceIndex])).size
+      measurements.disk.writtenBytes += await savePreparation(
+        safeDirectory,
+        0,
+        settings.referenceId,
+        fallbackReference,
+      )
+      measurements.disk.writtenBytes += ref.width * ref.height * 16
+    }
+    if (fallbackReference.width !== ref.width || fallbackReference.height !== ref.height)
+      throw new Error('Highlight fallback reference dimensions differ.')
+    timeline.referenceFallback = { startedMs: fallbackStart, completedMs: relative() }
+    measurements.referenceFallback = {
+      backend: 'cpu',
+      reused: reusedFallback,
+      decodingMs: reusedFallback ? 0 : (fallbackReference.measurement?.decodingMs ?? 0),
+      preparationMs: reusedFallback ? 0 : (fallbackReference.measurement?.preparationMs ?? 0),
+      decoder: reusedFallback ? undefined : fallbackReference.measurement?.decoder,
+      work: reusedFallback ? undefined : fallbackReference.measurement?.work,
+    }
+  }
+
   measurements.stages.decoding += measurements.referenceFallback?.decodingMs ?? 0
   measurements.stages.preparation += measurements.referenceFallback?.preparationMs ?? 0
+  const registrationStart = relative()
   const { width, height } = ref
   if (prepared.some((p) => p.width !== width || p.height !== height))
     throw new Error('Prepared native dimensions differ.')
@@ -479,6 +524,10 @@ async function runMergeInternal(
             measurements.disk.readBytes += result.readBytes
             workerRuntime = result.runtimeMs
             attempt.patches = result.patches
+            attempt.lane = result.lane
+            attempt.queuedMs = result.queuedMs
+            attempt.timeline = result.timeline
+            attempt.reads = result.reads
             attempt.diagnostics = result.diagnostics
             transforms[i] = result.transform
             if (neighbor !== referenceIndex)
@@ -491,12 +540,20 @@ async function runMergeInternal(
               readBytes?: number
               runtimeMs?: number
               patches?: MergeMeasurements['attempts'][number]['patches']
+              lane?: number
+              queuedMs?: number
+              timeline?: MergeMeasurements['attempts'][number]['timeline']
+              reads?: MergeMeasurements['reads']
             }
             measurements.stages.matching += work.timings?.matching ?? 0
             measurements.stages.nativeValidation += work.timings?.nativeValidation ?? 0
             measurements.disk.readBytes += work.readBytes ?? 0
             workerRuntime = work.runtimeMs
             attempt.patches = work.patches
+            attempt.lane = work.lane
+            attempt.queuedMs = work.queuedMs
+            attempt.timeline = work.timeline
+            attempt.reads = work.reads
             const failure = mergeFailure(error)
             attempt.diagnostics = failure.diagnostics
             attempt.reason = failure.message
@@ -630,6 +687,7 @@ async function runMergeInternal(
   })
   measurements.disk.writtenBytes += Buffer.byteLength(registrationJson)
   await writeFile(join(directory, 'registration.json'), registrationJson)
+  timeline.registration = { startedMs: registrationStart, completedMs: relative() }
   const coverageStart = performance.now()
   let common: ReturnType<typeof coverage>
   try {
@@ -653,6 +711,7 @@ async function runMergeInternal(
     }
   } finally {
     measurements.stages.nativeValidation += performance.now() - coverageStart
+    timeline.coverage = { startedMs: coverageStart - start, completedMs: relative() }
   }
   const crop = settings.autoCrop ? common.crop : { left: 0, top: 0, width, height }
   const nativeGeometry = { width, height, crop, transforms: transforms.map((t) => ({ ...t })) }
@@ -818,7 +877,24 @@ async function runMergeInternal(
     }
   }
   measurements.stages.accumulation = performance.now() - accumulationStart
-  const outputStart = performance.now()
+  timeline.accumulation = { startedMs: accumulationStart - start, completedMs: relative() }
+  const outputStart = performance.now(),
+    outputWork: NonNullable<NonNullable<MergeMeasurements['output']>['work']> = {
+      validityMs: 0,
+      maskMs: 0,
+      readingMs: 0,
+      compositionMs: 0,
+      thumbnailMs: 0,
+      referenceMs: 0,
+      writingMs: 0,
+      hashingMs: 0,
+      syncMs: 0,
+      closingMs: 0,
+      cpuConversionMs: 0,
+      png: {},
+      jpeg: {},
+    }
+  measurements.output = { backend: 'cpu', work: outputWork }
   if (preparation) {
     // Missing fusion samples need the same conservative boundary as motion.
     // Freeze them before dilation and tapering, rather than adding hard edges
@@ -844,10 +920,13 @@ async function runMergeInternal(
       await accumulated.close()
     }
   }
-  const rejected = expandMask(motion, width, height, MERGE_LIMITS.maskRadius),
+  outputWork.validityMs = performance.now() - outputStart
+  const maskStart = performance.now(),
+    rejected = expandMask(motion, width, height, MERGE_LIMITS.maskRadius),
     mask = preparation
       ? taperExclusions(rejected, width, height, BRK_EXPOSURE_POLICY.sourceExclusionFeatherPixels)
       : rejected
+  outputWork.maskMs = performance.now() - maskStart
   let affected = 0,
     clipped = 0,
     covered = 0
@@ -889,29 +968,99 @@ async function runMergeInternal(
       ? await open(join(output, 'reference.rgba'), 'wx')
       : undefined,
     nativeOverlay = job.comparisons ? await open(join(output, 'overlay.rgba'), 'wx') : undefined
+  const outputSlots = job.comparisons && process.env.LUMA_MERGE_OUTPUT_SLOTS !== '1' ? 2 : 1
   let converter: Awaited<ReturnType<typeof gpuOutput>> | undefined
   if (usedGpu) {
     try {
-      converter = await gpuOutput(gpu, Math.max(crop.width * 64, tw * th))
-      measurements.output = { backend: 'gpu' }
+      converter = await gpuOutput(gpu, Math.max(crop.width * 64, tw * th), {
+        slots: outputSlots,
+        timestamps: process.env.LUMA_MERGE_GPU_TIMESTAMPS === '1',
+      })
+      measurements.output = { backend: 'gpu', conversion: converter.timings, work: outputWork }
       measurements.peak.gpuBytes = Math.max(measurements.peak.gpuBytes, converter.peakBytes)
     } catch (error) {
-      measurements.output = { backend: 'cpu', fallback: mergeFailure(error).message }
+      measurements.output = {
+        backend: 'cpu',
+        fallback: mergeFailure(error).message,
+        work: outputWork,
+      }
     }
   }
-  measurements.output ??= { backend: 'cpu' }
   const preview = Buffer.alloc(tw * th * 4),
     previewLinear = converter ? new Float32Array(tw * th * 4) : undefined
   const stripBytes = width * Math.min(64, crop.height) * 16,
     pixelBuffer = Buffer.allocUnsafe(stripBytes),
     referenceBuffer = Buffer.allocUnsafe(stripBytes),
-    outputPixels = new Float32Array(crop.width * Math.min(64, crop.height) * 4)
+    outputPixels = Array.from(
+      { length: converter && job.comparisons ? outputSlots : 1 },
+      () => new Float32Array(crop.width * Math.min(64, crop.height) * 4),
+    ),
+    referencePixels = outputPixels.map((pixels) =>
+      job.comparisons && (converter || referenceProof)
+        ? new Float32Array(pixels.length)
+        : undefined,
+    ),
+    overlayBuffer = Buffer.allocUnsafe(job.comparisons ? outputPixels[0].length : 0)
+  type OutputTicket = ReturnType<NonNullable<typeof converter>['submit']>
+  const pending: {
+    ticket: OutputTicket
+    pixels: Float32Array<ArrayBuffer>
+    reference: Float32Array<ArrayBuffer>
+  }[] = []
+  const outputFallback = async (error: unknown) => {
+    measurements.output = {
+      ...measurements.output,
+      backend: 'cpu',
+      fallback: mergeFailure(error).message,
+    }
+    const failed = converter
+    converter = undefined
+    await failed?.close()
+  }
+  const writeComparisons = async (result: Buffer, reference: Buffer) => {
+    const writing = performance.now()
+    await nativeResult!.writeFile(result)
+    await nativeReference!.writeFile(reference)
+    outputWork.writingMs += performance.now() - writing
+  }
+  const finishOutput = async () => {
+    const item = pending.shift()
+    if (!item) return
+    try {
+      let converted: Buffer | undefined
+      try {
+        const bytes = await item.ticket.result
+        if (converter) converted = bytes
+      } catch (error) {
+        if (converter) await outputFallback(error)
+      }
+      if (converted) {
+        await writeComparisons(
+          converted.subarray(0, item.pixels.length),
+          converted.subarray(item.pixels.length),
+        )
+      } else {
+        const cpu = performance.now(),
+          result = displayLinear(item.pixels),
+          reference = displayLinear(item.reference)
+        outputWork.cpuConversionMs += performance.now() - cpu
+        await writeComparisons(result, reference)
+      }
+    } finally {
+      item.ticket.release()
+    }
+  }
   try {
     for (let top = 0; top < crop.height; top += 64) {
       await checkpoint()
+      if (pending.length >= outputSlots) await finishOutput()
+      // A device failure drains retained immutable strips before later CPU output.
+      if (!converter) while (pending.length) await finishOutput()
+      const slot = (top / 64) % outputPixels.length
       const rows = Math.min(64, crop.height - top),
         bytes = pixelBuffer.subarray(0, width * rows * 16),
-        refBytes = referenceBuffer.subarray(0, bytes.length)
+        refBytes = referenceBuffer.subarray(0, bytes.length),
+        reading = performance.now()
       for (const [file, buffer] of [
         [accum, bytes],
         [refFile, refBytes],
@@ -937,13 +1086,15 @@ async function runMergeInternal(
             for (let c = 0; c < 3; c++) original[i + c] = corrected[i + c]
           }
       }
+      outputWork.readingMs += performance.now() - reading
+      const composition = performance.now()
       const data = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4),
         referenceData = new Float32Array(
           refBytes.buffer,
           refBytes.byteOffset,
           refBytes.byteLength / 4,
         ),
-        out = outputPixels.subarray(0, crop.width * rows * 4)
+        out = outputPixels[slot].subarray(0, crop.width * rows * 4)
       for (let y = 0; y < rows; y++)
         out.set(
           data.subarray((y * width + crop.left) * 4, (y * width + crop.left + crop.width) * 4),
@@ -951,7 +1102,8 @@ async function runMergeInternal(
         )
       const native = Buffer.alloc(job.comparisons && !converter ? crop.width * rows * 4 : 0),
         nativeRef = Buffer.alloc(native.length),
-        nativeMask = Buffer.alloc(job.comparisons ? crop.width * rows * 4 : 0)
+        nativeMask = overlayBuffer.subarray(0, job.comparisons ? crop.width * rows * 4 : 0)
+      nativeMask.fill(0)
       for (let y = 0; y < rows; y++)
         for (let x = 0; x < crop.width; x++) {
           const global = (top + crop.top + y) * width + crop.left + x,
@@ -983,11 +1135,15 @@ async function runMergeInternal(
               nativeRef[j + c] = Math.round(encodeHdr(nref[c]) * 255)
             }
             native[j + 3] = nativeRef[j + 3] = out[j + 3] * 255
+          }
+          if (job.comparisons) {
             nativeMask[j] = 255
             nativeMask[j + 2] = 180
             nativeMask[j + 3] = m ? Math.round(160 * (preparation ? mask[global] / 255 : 1)) : 0
           }
         }
+      outputWork.compositionMs += performance.now() - composition
+      const thumbnail = performance.now()
       // Visit only thumbnail sample centers; native pixels need no preview-coordinate arithmetic.
       for (
         let py = Math.max(0, Math.ceil((top * th) / crop.height - 0.5));
@@ -1007,8 +1163,10 @@ async function runMergeInternal(
           preview[k + 3] = out[j + 3] * 255
         }
       }
+      outputWork.thumbnailMs += performance.now() - thumbnail
       if (converter && job.comparisons) {
-        const referenceOut = new Float32Array(out.length)
+        const referenceStart = performance.now(),
+          referenceOut = referencePixels[slot]!.subarray(0, out.length)
         for (let y = 0; y < rows; y++) {
           referenceOut.set(
             referenceData.subarray(
@@ -1019,34 +1177,54 @@ async function runMergeInternal(
           )
         }
         for (let i = 3; i < referenceOut.length; i += 4) referenceOut[i] = out[i]
-        await referenceProof?.writeFile(Buffer.from(referenceOut.buffer))
-        let resultBytes: Buffer, referenceBytes: Buffer
-        try {
-          resultBytes = await converter.convert(out)
-          referenceBytes = await converter.convert(referenceOut)
-        } catch (error) {
-          measurements.output = { backend: 'cpu', fallback: mergeFailure(error).message }
-          converter.close()
-          converter = undefined
-          resultBytes = displayLinear(out)
-          referenceBytes = displayLinear(referenceOut)
-        }
-        await nativeResult!.writeFile(resultBytes)
-        await nativeReference!.writeFile(referenceBytes)
-        for (let y = 0; y < rows; y++)
-          for (let x = 0; x < crop.width; x++) {
-            const j = (y * crop.width + x) * 4,
-              global = (top + crop.top + y) * width + crop.left + x
-            nativeMask[j] = 255
-            nativeMask[j + 2] = 180
-            nativeMask[j + 3] =
-              mask[global] && common.mask[global]
-                ? Math.round(160 * (preparation ? mask[global] / 255 : 1))
-                : 0
+        outputWork.referenceMs += performance.now() - referenceStart
+        const proofWrite = performance.now()
+        await referenceProof?.writeFile(
+          Buffer.from(referenceOut.buffer, referenceOut.byteOffset, referenceOut.byteLength),
+        )
+        outputWork.writingMs += performance.now() - proofWrite
+        if (outputSlots === 2 && (out.length + referenceOut.length) / 4 <= converter.capacity) {
+          try {
+            pending.push({
+              ticket: converter.submit(out, referenceOut),
+              pixels: out,
+              reference: referenceOut,
+            })
+          } catch (error) {
+            await outputFallback(error)
+            while (pending.length) await finishOutput()
+            const cpu = performance.now(),
+              resultBytes = displayLinear(out),
+              referenceBytes = displayLinear(referenceOut)
+            outputWork.cpuConversionMs += performance.now() - cpu
+            await writeComparisons(resultBytes, referenceBytes)
           }
+        } else {
+          let resultBytes: Buffer, referenceBytes: Buffer
+          try {
+            if ((out.length + referenceOut.length) / 4 <= converter.capacity) {
+              // Pack adjacent independent images into the existing allocation.
+              // The shader still evaluates every RGBA pixel by the same policy.
+              const both = await converter.convert(out, referenceOut)
+              resultBytes = both.subarray(0, out.length)
+              referenceBytes = both.subarray(out.length)
+            } else {
+              resultBytes = await converter.convert(out)
+              referenceBytes = await converter.convert(referenceOut)
+            }
+          } catch (error) {
+            await outputFallback(error)
+            const cpu = performance.now()
+            resultBytes = displayLinear(out)
+            referenceBytes = displayLinear(referenceOut)
+            outputWork.cpuConversionMs += performance.now() - cpu
+          }
+          await writeComparisons(resultBytes, referenceBytes)
+        }
       } else {
         if (referenceProof) {
-          const referenceOut = new Float32Array(out.length)
+          const referenceStart = performance.now(),
+            referenceOut = referencePixels[slot]!.subarray(0, out.length)
           for (let y = 0; y < rows; y++)
             referenceOut.set(
               referenceData.subarray(
@@ -1056,28 +1234,52 @@ async function runMergeInternal(
               y * crop.width * 4,
             )
           for (let i = 3; i < referenceOut.length; i += 4) referenceOut[i] = out[i]
-          await referenceProof.writeFile(Buffer.from(referenceOut.buffer))
+          outputWork.referenceMs += performance.now() - referenceStart
+          const writing = performance.now()
+          await referenceProof.writeFile(
+            Buffer.from(referenceOut.buffer, referenceOut.byteOffset, referenceOut.byteLength),
+          )
+          outputWork.writingMs += performance.now() - writing
         }
+        const writing = performance.now()
         await nativeResult?.writeFile(native)
         await nativeReference?.writeFile(nativeRef)
+        outputWork.writingMs += performance.now() - writing
       }
+      const writing = performance.now()
       await nativeOverlay?.writeFile(nativeMask)
       const outputBytes = Buffer.from(out.buffer, out.byteOffset, out.byteLength)
       await outputFile.writeFile(outputBytes)
+      outputWork.writingMs += performance.now() - writing
+      const hashing = performance.now()
       digest.update(outputBytes)
       asset.strips.push({ byteLength: outputBytes.length, sha256: hash(outputBytes) })
+      outputWork.hashingMs += performance.now() - hashing
     }
+    while (pending.length) await finishOutput()
     if (previewLinear) {
       try {
         if (!converter) throw new Error(measurements.output?.fallback ?? 'GPU output unavailable.')
         preview.set(await converter.convert(previewLinear))
       } catch (error) {
-        measurements.output = { backend: 'cpu', fallback: mergeFailure(error).message }
+        measurements.output = {
+          ...measurements.output,
+          backend: 'cpu',
+          fallback: mergeFailure(error).message,
+        }
+        const cpu = performance.now()
         preview.set(displayLinear(previewLinear))
+        outputWork.cpuConversionMs += performance.now() - cpu
       }
     }
+    const syncing = performance.now()
     await outputFile.sync()
+    outputWork.syncMs += performance.now() - syncing
   } finally {
+    const closing = performance.now()
+    // Complete/cancel every map before closing files or releasing the GPU device.
+    await converter?.close()
+    for (const item of pending) item.ticket.release()
     await outputFile.close()
     await accum.close()
     await refFile.close()
@@ -1085,29 +1287,43 @@ async function runMergeInternal(
     await nativeResult?.close()
     await nativeReference?.close()
     await nativeOverlay?.close()
-    converter?.close()
+    outputWork.closingMs += performance.now() - closing
   }
   if (covered && affected / covered > 0.95)
     throw new Error(
       'Almost the entire image requires the reference. Choose another reference or reduce deghost strength.',
     )
-  for (const name of job.comparisons ? ['result', 'reference', 'overlay'] : [])
-    await sharp(await readFile(join(output, `${name}.rgba`)), {
-      raw: { width: crop.width, height: crop.height, channels: 4 },
-    })
-      .png()
-      .toFile(join(output, `${name}.png`))
+  for (const name of job.comparisons ? (['result', 'reference', 'overlay'] as const) : []) {
+    const encoding = performance.now(),
+      encoded = await sharp(await readFile(join(output, `${name}.rgba`)), {
+        raw: { width: crop.width, height: crop.height, channels: 4 },
+      })
+        .png({ compressionLevel: reviewPngCompressionLevel[name] })
+        .toFile(join(output, `${name}.png`))
+    outputWork.png[name] = {
+      ms: performance.now() - encoding,
+      bytes: encoded.size,
+      compressionLevel: reviewPngCompressionLevel[name],
+    }
+  }
   asset.sha256 = digest.digest('hex')
   await writeFile(join(output, 'motion.mask'), mask)
-  await sharp(preview, { raw: { width: tw, height: th, channels: 4 } })
-    .resize({ width: 256, height: 256, fit: 'inside' })
-    .flatten({ background: '#171717' })
-    .jpeg()
-    .toFile(join(output, 'thumb.jpg'))
-  await sharp(preview, { raw: { width: tw, height: th, channels: 4 } })
-    .flatten({ background: '#171717' })
-    .jpeg()
-    .toFile(join(output, 'preview.jpg'))
+  const thumbnailStart = performance.now(),
+    thumbnailOutput = await sharp(preview, { raw: { width: tw, height: th, channels: 4 } })
+      .resize({ width: 256, height: 256, fit: 'inside' })
+      .flatten({ background: '#171717' })
+      .jpeg()
+      .toFile(join(output, 'thumb.jpg'))
+  outputWork.jpeg.thumbnail = {
+    ms: performance.now() - thumbnailStart,
+    bytes: thumbnailOutput.size,
+  }
+  const previewStart = performance.now(),
+    previewOutput = await sharp(preview, { raw: { width: tw, height: th, channels: 4 } })
+      .flatten({ background: '#171717' })
+      .jpeg()
+      .toFile(join(output, 'preview.jpg'))
+  outputWork.jpeg.preview = { ms: performance.now() - previewStart, bytes: previewOutput.size }
   const recipe: MergeRecipe = {
     resolution: 'native',
     maskDimensions: { width, height },
@@ -1139,6 +1355,7 @@ async function runMergeInternal(
   if (job.recipe?.resolution === 'native' && job.recipe.maskSha256 !== recipe.maskSha256)
     throw new Error('Recipe motion mask could not be reproduced.')
   measurements.stages.output = performance.now() - outputStart
+  timeline.output = { startedMs: outputStart - start, completedMs: relative() }
   measurements.disk.readBytes += mergeReadBytes() + crop.height * width * 32
   measurements.disk.writtenBytes +=
     width * height * (measurements.accumulation.referenceReused ? 16 : 32) +
@@ -1157,11 +1374,11 @@ async function runMergeInternal(
     measurements.disk.writtenBytes += crop.width * crop.height * 12
   }
   measurements.peak.workerBytes = process.resourceUsage().maxRSS * 1024
-  measurements.peak.wasmBytes = Math.max(
-    alignment.wasmBytes,
-    ...transforms.map((t) => t.diagnostics?.wasmMemoryBytes ?? 0),
-  )
+  measurements.peak.wasmBytes =
+    getMergeKernelHeapBytes() +
+    Math.max(alignment.wasmBytes, ...transforms.map((t) => t.diagnostics?.wasmMemoryBytes ?? 0))
   measurements.runtimeMs = performance.now() - start
+  measurements.reads = structuredClone(mergeReadMeasurements())
   return {
     asset,
     recipe,

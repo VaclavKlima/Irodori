@@ -112,19 +112,23 @@ test(
                     ? JSON.parse(canvas.dataset.whiteBalance!).tint === value
                     : canvas.dataset[label.toLowerCase()] === String(value)
               await changed(canvas, matches)
+              const displayedAnalysisKey = canvas.dataset.displayedAnalysisKey
               await device.queue.onSubmittedWorkDone()
+              const painted = frame().then(() => performance.now() - start)
               const histogram = document.getElementById('histogram')!
               await changed(
                 histogram,
                 () =>
+                  canvas.dataset.analysisPending === 'false' &&
+                  canvas.dataset.analysisKey === displayedAnalysisKey &&
                   histogram.dataset.editSerial === canvas.dataset.analysisSerial &&
                   histogram.querySelector<SVGSVGElement>('svg[role="slider"]')?.dataset
                     .curveEditSerial === canvas.dataset.analysisSerial,
               )
               const histogramMs = performance.now() - start
-              await frame()
+              const frameMs = await painted
               if (i >= 5) {
-                latencies.push(performance.now() - start)
+                latencies.push(frameMs)
                 histograms.push(histogramMs)
               }
               loaders += Number(document.body.textContent?.includes('Loading preview…'))
@@ -172,7 +176,8 @@ test(
             const paintedHistograms = new Set<number>()
             const completions: Promise<void>[] = []
             let previousSerial = 0,
-              regressed = false
+              regressed = false,
+              draftFrames = 0
             const observedFrames: { serial: number; value: number; time: number }[] = []
             const inputFrames: number[] = []
             const histogram = document.getElementById('histogram')!
@@ -197,6 +202,7 @@ test(
             const observer = new MutationObserver(() => {
               const serial = Number(canvas.dataset.completedEditSerial)
               regressed ||= serial < previousSerial
+              draftFrames += Number(canvas.dataset.quality !== 'normal')
               previousSerial = serial
               const value =
                 label === 'Temperature'
@@ -207,7 +213,7 @@ test(
               const at = times.get(value)
               observedFrames.push({ serial, value, time: performance.now() })
               if (at === undefined) return
-              serialTimes.set(Number(canvas.dataset.analysisSerial), at)
+              serialTimes.set(serial, at)
               completions.push(
                 (async () => {
                   await device.queue.onSubmittedWorkDone()
@@ -251,12 +257,20 @@ test(
             )
             await changed(
               histogram,
-              () => histogram.dataset.editSerial === canvas.dataset.analysisSerial,
+              () =>
+                canvas.dataset.analysisKey === canvas.dataset.displayedAnalysisKey &&
+                histogram.dataset.editSerial === canvas.dataset.analysisSerial &&
+                histogram.dataset.pending === 'false',
             )
             await Promise.all(completions)
             observer.disconnect()
             histogramObserver.disconnect()
-            if (regressed || continuous.length < 30 || continuousHistogram.length < 30) {
+            if (
+              regressed ||
+              draftFrames ||
+              continuous.length < 30 ||
+              continuousHistogram.length < 30
+            ) {
               Object.assign(window, {
                 hdrSliderFailure: {
                   zoom,
@@ -266,6 +280,7 @@ test(
                   inputFrames,
                   continuous,
                   continuousHistogram,
+                  draftFrames,
                   canvas: { ...canvas.dataset },
                   histogram: { ...histogram.dataset },
                 },

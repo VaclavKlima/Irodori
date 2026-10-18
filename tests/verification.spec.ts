@@ -215,11 +215,31 @@ test('explicit scope unions and benchmark families preserve gates without overla
     expect(files([mode])).toEqual([
       `tests/${file}-benchmark.spec.ts`,
       ...(file === 'hdr'
-        ? ['tests/hdr-interaction-benchmark.spec.ts', 'tests/hdr-slider-benchmark.spec.ts']
+        ? [
+            'tests/hdr-interaction-benchmark.spec.ts',
+            'tests/hdr-slider-benchmark.spec.ts',
+            'tests/mac-workability-batching.spec.ts',
+            'tests/mac-workability-benchmark.spec.ts',
+            'tests/mac-workability-interference.spec.ts',
+          ]
         : []),
-      ...(file === 'merge' ? ['tests/merge-preview-benchmark.spec.ts'] : []),
+      ...(file === 'merge'
+        ? [
+            'tests/merge-preview-benchmark.spec.ts',
+            'tests/merge-three-raw-benchmark.spec.ts',
+            'tests/merge-workflow-benchmark.spec.ts',
+          ]
+        : []),
     ])
-  expect(selectPlan(['--benchmark-all']).groups).toHaveLength(5)
+  expect(selectPlan(['--benchmark-all']).groups).toHaveLength(6)
+  expect(files(['--target', 'research-presentation'])).toContain(
+    'tests/research-presentation.spec.ts',
+  )
+  expect(files(['--full'])).not.toContain('tests/research-presentation.spec.ts')
+  expect(selectPlan(['--target', 'research-measurements']).groups.at(-1)).toMatchObject({
+    stage: 'benchmark-research',
+    workers: 1,
+  })
   const all = selectPlan(['--all'])
   expect(
     all.groups
@@ -263,7 +283,7 @@ test('one shared build, sequential phases, benchmark-only flags and measurement 
     )
     expect(commands.filter((c) => c.args.join(' ') === 'run --silent build')).toHaveLength(1)
     const mcp = commands.findIndex((c) => c.args[0] === 'scripts/check-mcp.mjs')
-    expect(commands.slice(mcp + 1)).toHaveLength(5)
+    expect(commands.slice(mcp + 1)).toHaveLength(6)
     for (const c of commands.slice(mcp + 1)) {
       expect(c.env.LUMA_PREVIEW_BENCHMARK).toBe('1')
       expect(c.env.LUMA_TEST_TRACE).toBe('0')
@@ -291,6 +311,7 @@ test('one shared build, sequential phases, benchmark-only flags and measurement 
     )
     expect(failed.stages.filter((s) => s.phase === 'benchmark').map((s) => s.status)).toEqual([
       'failed',
+      'passed',
       'passed',
       'passed',
       'passed',

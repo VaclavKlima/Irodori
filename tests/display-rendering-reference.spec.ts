@@ -2,7 +2,8 @@ import { expect, test } from '@playwright/test'
 import { mkdir, writeFile } from 'node:fs/promises'
 import reference from './fixtures/aces-reference.json' with { type: 'json' }
 import { hdrRenderingWgsl } from '../src/renderer/src/preview/hdr-shader'
-import { prepareDisplayRendering } from '../src/shared/display-rendering'
+import { acesRegressionInputs } from './aces-regression-inputs'
+import { prepareDisplayRendering, renderDisplay } from '../src/shared/display-rendering'
 import { packAces, ACES_DATA_BYTES } from '../src/shared/aces-data'
 import { buildAcesReference, referenceAces } from './aces-reference'
 
@@ -21,7 +22,8 @@ test('actual forward WGSL agrees with independent Float64 CTL, including signed 
     'A hardware GPU is required for reference conformance.',
   ).toBe(false)
   const device = await adapter!.requestDevice()
-  const count = reference.inputs.length
+  const inputs = [...reference.inputs, ...acesRegressionInputs]
+  const count = inputs.length
   const texture = device.createTexture({
     size: [count, 1],
     format: 'rgba32float',
@@ -69,18 +71,43 @@ test('actual forward WGSL agrees with independent Float64 CTL, including signed 
   })
   device.queue.writeTexture(
     { texture },
-    new Float32Array(reference.inputs.flatMap((v, i) => [...v, [0, 0.25, 1][i % 3]])),
+    new Float32Array(inputs.flatMap((v, i) => [...v, [0, 0.25, 1][i % 3]])),
     { bytesPerRow: count * 16 },
     [count, 1],
   )
   let maximumRatio = 0,
+    maximumCpuRatio = 0,
     maximumEncodedRatio = 0,
-    worst: unknown
+    worst: unknown,
+    worstCpu: unknown
   try {
     for (const sample of reference.targets) {
       const space = sample.colorSpace as 'srgb' | 'display-p3' | 'rec2020'
-      const independent = referenceAces(binary, reference.inputs, sample.peak, space)
-      expect(independent).toEqual(sample.rgb)
+      const independent = referenceAces(binary, inputs, sample.peak, space)
+      expect(independent.slice(0, reference.inputs.length)).toEqual(sample.rgb)
+      const target = {
+        mode: sample.peak === 1 ? ('sdr' as const) : ('hdr' as const),
+        peak: sample.peak,
+        colorSpace: space,
+      }
+      for (let i = 0; i < inputs.length; i++) {
+        const cpu = renderDisplay(inputs[i] as [number, number, number], target).rgb
+        for (let c = 0; c < 3; c++) {
+          const ratio =
+            Math.abs(cpu[c] - independent[i][c]) / (2e-6 + 2e-5 * Math.abs(independent[i][c]))
+          if (ratio > maximumCpuRatio) {
+            maximumCpuRatio = ratio
+            worstCpu = {
+              i,
+              c,
+              source: inputs[i],
+              target,
+              actual: cpu[c],
+              reference: independent[i][c],
+            }
+          }
+        }
+      }
       device.queue.writeBuffer(
         tables,
         0,
@@ -123,6 +150,7 @@ test('actual forward WGSL agrees with independent Float64 CTL, including signed 
               maximumRatio = ratio
               worst = {
                 i,
+                source: inputs[i],
                 c,
                 space,
                 peak: sample.peak,
@@ -146,12 +174,15 @@ test('actual forward WGSL agrees with independent Float64 CTL, including signed 
           adapter: adapter!.info,
           maximumRatio,
           maximumEncodedRatio,
+          maximumCpuRatio,
+          worstCpu,
           worst,
         },
         null,
         2,
       ),
     )
+    expect(maximumCpuRatio, JSON.stringify(worstCpu)).toBeLessThanOrEqual(1)
     expect(maximumRatio, JSON.stringify(worst)).toBeLessThanOrEqual(1)
   } finally {
     texture.destroy()

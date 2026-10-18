@@ -472,8 +472,10 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
       motion: true,
       deghost: true,
     }),
-    previous = process.env.LUMA_MERGE_BACKEND
+    previous = process.env.LUMA_MERGE_BACKEND,
+    previousOutputSlots = process.env.LUMA_MERGE_OUTPUT_SLOTS
   try {
+    process.env.LUMA_MERGE_OUTPUT_SLOTS = '1'
     const recipe = structuredClone(f.result.recipe)
     recipe.resolution = 'preview'
     recipe.sources[0].transform.matrix![2] = 1.25
@@ -505,7 +507,51 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
     })
     expect(gpu.measurements.accumulation.backend, JSON.stringify(gpu.measurements)).toBe('gpu')
     expect(gpu.measurements.coverage, JSON.stringify(gpu.measurements)).toEqual({ backend: 'gpu' })
-    expect(gpu.measurements.output, JSON.stringify(gpu.measurements)).toEqual({ backend: 'gpu' })
+    expect(gpu.measurements.output, JSON.stringify(gpu.measurements)).toMatchObject({
+      backend: 'gpu',
+      conversion: {
+        batches: Math.ceil(gpu.asset.height / 64) + 1,
+        pairedBatches: Math.ceil(gpu.asset.height / 64),
+        images: Math.ceil(gpu.asset.height / 64) * 2 + 1,
+        slots: 1,
+        pendingPeak: 1,
+      },
+    })
+    process.env.LUMA_MERGE_OUTPUT_SLOTS = '2'
+    const overlapped = await runMerge({
+      ...f.job,
+      recipe,
+      comparisons: true,
+      output: join(f.directory, 'gpu-overlapped'),
+    })
+    expect(overlapped.measurements.output).toMatchObject({
+      backend: 'gpu',
+      conversion: {
+        slots: 2,
+        pendingPeak: 2,
+        batches: Math.ceil(gpu.asset.height / 64) + 1,
+        pairedBatches: Math.ceil(gpu.asset.height / 64),
+      },
+    })
+    expect(overlapped.asset).toEqual(gpu.asset)
+    expect(gpu.asset.height % 64).toBeGreaterThan(0)
+    expect(gpu.asset.strips.at(-1)?.byteLength).toBe(gpu.asset.width * (gpu.asset.height % 64) * 16)
+    for (const name of [
+      'linear.f32',
+      'motion.mask',
+      'result.rgba',
+      'reference.rgba',
+      'overlay.rgba',
+      'result.png',
+      'reference.png',
+      'overlay.png',
+      'thumb.jpg',
+      'preview.jpg',
+    ])
+      expect(await readFile(join(f.directory, 'gpu-overlapped', name)), name).toEqual(
+        await readFile(join(f.directory, 'gpu', name)),
+      )
+    process.env.LUMA_MERGE_OUTPUT_SLOTS = '1'
     process.env.LUMA_MERGE_BACKEND = 'cpu'
     const cpu = await runMerge({
       ...f.job,
@@ -529,6 +575,18 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
         pixels = new Float32Array(bb.slice(0, 512 * 4)),
         bytes = await converter.convert(pixels)
       try {
+        const first = await converter.convert(pixels.subarray(0, 256 * 4)),
+          second = await converter.convert(pixels.subarray(256 * 4)),
+          paired = await converter.convert(pixels.subarray(0, 256 * 4), pixels.subarray(256 * 4))
+        expect(paired).toEqual(Buffer.concat([first, second]))
+        expect(bytes).toEqual(paired)
+        const short = pixels.subarray(0, 11 * 4),
+          shortExpected = await converter.convert(short),
+          shortPair = await converter.convert(short, short)
+        expect(shortPair).toEqual(Buffer.concat([shortExpected, shortExpected]))
+        await expect(converter.convert(pixels, pixels)).rejects.toThrow(
+          'Output tile exceeds its allocation.',
+        )
         for (let i = 0; i < 512; i++) {
           const expected = outputHdr(
             [pixels[i * 4], pixels[i * 4 + 1], pixels[i * 4 + 2]],
@@ -541,7 +599,24 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
           expect(bytes[i * 4 + 3]).toBe(Math.round(pixels[i * 4 + 3] * 255))
         }
       } finally {
-        converter.close()
+        await converter.close()
+      }
+      const overlap = await gpuOutput(renderer, 512, { slots: 2 })
+      try {
+        const first = overlap.submit(pixels),
+          short = pixels.subarray(0, 11 * 4),
+          paired = overlap.submit(short, short)
+        expect(() => overlap.submit(short)).toThrow('occupied')
+        expect(await first.result).toEqual(bytes)
+        const partial = await paired.result
+        first.release()
+        paired.release()
+        expect(partial).toEqual(
+          Buffer.concat([bytes.subarray(0, short.length), bytes.subarray(0, short.length)]),
+        )
+        expect(overlap.timings.pendingPeak).toBe(2)
+      } finally {
+        await overlap.close()
       }
     } finally {
       renderer.close()
@@ -550,7 +625,45 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
       await readFile(join(f.directory, 'cpu', 'motion.mask')),
     )
     const sharp = (await import('sharp')).default
-    for (const filename of ['result.png', 'reference.png', 'overlay.png']) {
+    for (const name of ['result', 'reference', 'overlay'] as const) {
+      const filename = `${name}.png`
+      for (const [directory, result] of [
+        ['gpu', gpu],
+        ['cpu', cpu],
+      ] as const) {
+        const asset = result.asset,
+          raw = await readFile(join(f.directory, directory, `${name}.rgba`)),
+          current = await readFile(join(f.directory, directory, filename)),
+          currentLevel = name === 'overlay' ? 1 : 0
+        expect(result.measurements.output?.work?.png[name]?.compressionLevel).toBe(currentLevel)
+        // All lossless levels share the same raw scanlines and worst-case
+        // stream bound, including alpha and the partial final native strip.
+        const encodedBound = asset.width * asset.height * 5 + 1024 ** 2
+        for (const level of [0, 1, 6] as const) {
+          const encoded =
+            level === currentLevel
+              ? current
+              : await sharp(raw, {
+                  raw: { width: asset.width, height: asset.height, channels: 4 },
+                })
+                  .png({ compressionLevel: level })
+                  .toBuffer()
+          expect(encoded.byteLength, `${directory} level ${level} ${filename}`).toBeLessThanOrEqual(
+            encodedBound,
+          )
+          const decoded = await sharp(encoded)
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true })
+          expect(decoded.info).toMatchObject({
+            width: asset.width,
+            height: asset.height,
+            channels: 4,
+          })
+          expect(decoded.data.byteLength).toBe(asset.width * asset.height * 4)
+          expect(decoded.data, `${directory} level ${level} lossless RGBA ${filename}`).toEqual(raw)
+        }
+      }
       const ar = await sharp(join(f.directory, 'gpu', filename))
           .raw()
           .toBuffer(),
@@ -569,7 +682,56 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
     })
     expect(reused.measurements.attempts).toHaveLength(0)
     expect(reused.measurements.preparation.every((p) => p.reused)).toBe(true)
+    expect(reused.measurements.preparation.every((p) => !p.work && !p.gpu)).toBe(true)
     delete process.env.LUMA_MERGE_BACKEND
+    process.env.LUMA_MERGE_OUTPUT_SLOTS = '2'
+    const outputMap = GPUBuffer.prototype.mapAsync
+    let outputReadbacks = 0
+    GPUBuffer.prototype.mapAsync = function (mode, offset, size) {
+      if (
+        this.label.startsWith('Luma merge output slot ') &&
+        this.label.endsWith(' staging') &&
+        ++outputReadbacks === 2
+      )
+        return Promise.reject(new Error('GPU output lost with two retained strips.'))
+      return outputMap.call(this, mode, offset, size)
+    }
+    try {
+      const fallback = await runMerge({
+        ...f.job,
+        recipe,
+        comparisons: true,
+        output: join(f.directory, 'output-fallback'),
+      })
+      expect(outputReadbacks).toBe(2)
+      expect(fallback.measurements.output).toMatchObject({
+        backend: 'cpu',
+        fallback: 'GPU output lost with two retained strips.',
+        conversion: { slots: 2, pendingPeak: 2 },
+      })
+      expect(fallback.asset).toEqual(gpu.asset)
+      expect(await readFile(join(f.directory, 'output-fallback', 'linear.f32'))).toEqual(a)
+      expect(await readFile(join(f.directory, 'output-fallback', 'overlay.rgba'))).toEqual(
+        await readFile(join(f.directory, 'gpu', 'overlay.rgba')),
+      )
+      for (const name of ['result', 'reference'] as const) {
+        const actual = await readFile(join(f.directory, 'output-fallback', `${name}.rgba`)),
+          reference = await readFile(join(f.directory, 'cpu', `${name}.rgba`))
+        expect(actual.length).toBe(gpu.asset.width * gpu.asset.height * 4)
+        let maximum = 0,
+          alphaMismatch = -1
+        for (let i = 0; i < actual.length; i++) {
+          if (i % 4 === 3) {
+            if (actual[i] !== reference[i] && alphaMismatch < 0) alphaMismatch = i
+          } else maximum = Math.max(maximum, Math.abs(actual[i] - reference[i]))
+        }
+        expect(maximum, `${name} CPU fallback RGB`).toBeLessThanOrEqual(1)
+        expect(alphaMismatch, `${name} CPU fallback alpha`).toBe(-1)
+      }
+    } finally {
+      GPUBuffer.prototype.mapAsync = outputMap
+      process.env.LUMA_MERGE_OUTPUT_SLOTS = '1'
+    }
     const method = RawGpuRenderer.prototype.mergeDevice
     RawGpuRenderer.prototype.mergeDevice = async () => {
       throw new Error('GPU device lost during accumulation.')
@@ -624,6 +786,8 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
   } finally {
     if (previous === undefined) delete process.env.LUMA_MERGE_BACKEND
     else process.env.LUMA_MERGE_BACKEND = previous
+    if (previousOutputSlots === undefined) delete process.env.LUMA_MERGE_OUTPUT_SLOTS
+    else process.env.LUMA_MERGE_OUTPUT_SLOTS = previousOutputSlots
     await f.close()
   }
 })

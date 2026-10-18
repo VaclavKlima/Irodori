@@ -1,0 +1,30 @@
+{
+  "version": 3,
+  "sha256": "8ae83ee75c22b1489c64eb7f5400326e1c4db1c074e482729c14c7cc1c6c7771",
+  "sourceSha256": "11ec806a40581089c3bb136a1403fedf0dc7a6e79b93fca0d5913fcb64f43ac3",
+  "compiler": "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 4.0.20 (6913738ec5371a88c4af5a80db0ab42bad3de681)",
+  "flags": [
+    "-O3",
+    "-std=c11",
+    "-msimd128",
+    "-fno-fast-math",
+    "-ffp-contract=off",
+    "-nostdlib",
+    "-sSTANDALONE_WASM=1",
+    "-sSUPPORT_LONGJMP=0",
+    "-sERROR_ON_UNDEFINED_SYMBOLS=1",
+    "-sALLOW_MEMORY_GROWTH=1",
+    "-sINITIAL_MEMORY=2097152",
+    "-sMAXIMUM_MEMORY=134217728",
+    "-sSTACK_SIZE=65536",
+    "--no-entry",
+    "-Wl,--export-memory",
+    "-Wl,--export=__heap_base",
+    "-Wl,--export=luma_kernel_version",
+    "-Wl,--export=luma_camera_strip",
+    "-Wl,--export=luma_prepare_strip",
+    "-Wl,--export=luma_reduce_strip",
+    "-Wl,--export=luma_sensor_mask",
+    "-Wl,--export=luma_repair_mask"
+  ]
+}

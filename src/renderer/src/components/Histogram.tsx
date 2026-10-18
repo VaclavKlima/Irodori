@@ -28,14 +28,18 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
       cancelAnimationFrame(frame.current)
       frame.current = 0
       animation.current = null
+      const plot = paths.current[0]?.ownerSVGElement
+      if (plot) plot.setAttribute('data-animating', 'false')
     },
     [],
   )
   useLayoutEffect(() => {
+    const plot = paths.current[0]?.ownerSVGElement
     if (!open || !channels) {
       cancelAnimationFrame(frame.current)
       frame.current = 0
       animation.current = null
+      if (plot) plot.setAttribute('data-animating', 'false')
       return
     }
     const max = Math.max(1, ...channels.flat())
@@ -51,6 +55,7 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
       reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
       serial: hdr?.editSerial,
     }
+    if (plot) plot.setAttribute('data-animating', 'true')
     // Retarget the pending paint so continuous edits cannot cancel every next frame.
     if (frame.current) return
     const animate = (time: number) => {
@@ -71,7 +76,10 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
       if (plot && current.serial !== undefined)
         plot.dataset.curveEditSerial = String(current.serial)
       if (fraction < 1) frame.current = requestAnimationFrame(animate)
-      else animation.current = null
+      else {
+        animation.current = null
+        if (plot) plot.setAttribute('data-animating', 'false')
+      }
     }
     frame.current = requestAnimationFrame(animate)
   }, [channels, bins, open, hdr?.editSerial])
@@ -97,6 +105,8 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
           className={styles.content}
           data-edit-serial={hdr?.editSerial}
           data-samples={hdr?.visiblePixels}
+          aria-busy={!!tools.analysisPending}
+          data-pending={!!tools.analysisPending}
         >
           <div className={styles.heading}>
             <span>{tools.hdr ? 'Rec.2020 · HDR content' : 'sRGB · SDR'}</span>
@@ -219,11 +229,21 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
               strokeWidth="0.5"
             />
           </svg>
-          {(tools.analysisError || !channels) && (
-            <p className={styles.status} role="status" title={tools.analysisError}>
-              {tools.analysisError ? 'Histogram unavailable' : 'Preparing histogram…'}
-            </p>
-          )}
+          <p
+            className={styles.status}
+            role="status"
+            title={tools.analysisError}
+            style={{
+              visibility:
+                tools.analysisError || !channels || tools.analysisPending ? 'visible' : 'hidden',
+            }}
+          >
+            {tools.analysisError
+              ? 'Histogram unavailable'
+              : !channels
+                ? 'Preparing histogram…'
+                : 'Updating histogram…'}
+          </p>
           {tools.hdr && tools.hdrRanges && (
             <div className={styles.legend} aria-label="HDR range legend">
               <span>

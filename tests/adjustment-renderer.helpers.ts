@@ -1,5 +1,6 @@
 import { build } from 'esbuild'
 import sharp from 'sharp'
+import { writeFile } from 'node:fs/promises'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { HDR_CACHE_MAX_TILES } from '../src/renderer/src/preview/hdr-render-cache'
@@ -66,6 +67,7 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
             return Reflect.apply(upload, this, args)
           }
           const draw = CanvasRenderingContext2D.prototype.drawImage
+          let publication: MutationObserver | undefined
           CanvasRenderingContext2D.prototype.drawImage = function (...args: unknown[]) {
             Reflect.apply(draw, this, args)
             const source = args[0]
@@ -80,14 +82,38 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
               willReadFrequently: true,
             })!
             copy.drawImage(source, 0, 0)
-            state.readback = {
-              data: copy.getImageData(0, 0, source.width, source.height, {
-                colorSpace: configuration.colorSpace,
-              }).data,
+            publication?.disconnect()
+            const beforePublication = source.dataset.presentationSerial
+            const pixels = copy.getImageData(0, 0, source.width, source.height, {
+              colorSpace: configuration.colorSpace,
+            })
+            const captured = {
+              data: pixels.data,
               width: source.width,
               height: source.height,
-              serial: source.dataset.presentationSerial!,
+              serial: '',
+              colorSpace: pixels.colorSpace,
+              sourceConfiguration: {
+                colorSpace: configuration.colorSpace,
+                toneMapping: configuration.toneMapping,
+              },
+              sourceTestId: source.dataset.testid,
+              sameCanvas: source === document.querySelector('[data-testid="main-preview"]'),
             }
+            state.readback = captured
+            // The retained copy precedes the final blit fence. Stamp these pixels
+            // only when this same canvas publishes its completed presentation.
+            const completed = new MutationObserver(() => {
+              const serial = source.dataset.presentationSerial
+              if (serial === beforePublication || !serial) return
+              if (state.readback === captured) captured.serial = serial
+              completed.disconnect()
+            })
+            publication = completed
+            completed.observe(source, {
+              attributes: true,
+              attributeFilter: ['data-presentation-serial'],
+            })
           }
         } else {
           const upload = WebGL2RenderingContext.prototype.texImage2D
@@ -130,6 +156,7 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
               ? await window.luma.getDisplayState()
               : test.highlightsReference.SDR_TARGET
           let max = 0
+          const samples: unknown[] = []
           for (const dx of [-48, 0, 48]) {
             const x = Math.floor(canvas.width / 2 + dx * devicePixelRatio)
             const y = Math.floor(canvas.height / 2)
@@ -190,10 +217,98 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
               const at = (y * canvas.width + x) * 4
               actual.set(readback.data.subarray(at, at + 4))
             } else actual.set(canvas.getContext('2d')!.getImageData(x, y, 1, 1).data)
+            samples.push({
+              x,
+              y,
+              sx,
+              sy,
+              input: Array.from(data.subarray(offset, offset + 4)),
+              actual: Array.from(actual),
+              expected: Array.from(expected),
+              neighbors: [-1, 0, 1].flatMap((dy) =>
+                [-1, 0, 1].map((dx) => {
+                  const at = ((sy + dy) * frame.width + sx + dx) * 4
+                  return { dx, dy, rgba: Array.from(data.subarray(at, at + 4)) }
+                }),
+              ),
+            })
             for (let c = 0; c < 4; c++) max = Math.max(max, Math.abs(actual[c] - expected[c]))
           }
-          return { max, uploads: test.highlightsTest.uploads }
+          const config =
+            canvas.dataset.backend === 'webgpu-hdr'
+              ? canvas.getContext('webgpu')?.getConfiguration()
+              : undefined
+          return {
+            max,
+            uploads: test.highlightsTest.uploads,
+            samples,
+            parameters,
+            target: hdrTarget,
+            configuration: config && {
+              colorSpace: config.colorSpace,
+              format: config.format,
+              alphaMode: config.alphaMode,
+              toneMapping: config.toneMapping,
+            },
+            readback:
+              test.highlightsTest.readback &&
+              Object.fromEntries(
+                Object.entries(test.highlightsTest.readback).filter(([key]) => key !== 'data'),
+              ),
+            geometry: {
+              width: canvas.width,
+              height: canvas.height,
+              viewport: { width: box.width, height: box.height },
+              dpr: devicePixelRatio,
+              panX: viewport.dataset.panX,
+              panY: viewport.dataset.panY,
+              frame: { width: frame.width, height: frame.height },
+            },
+          }
         })
+      const agree = async (limit: number, timeout?: number) => {
+        try {
+          await expect
+            .poll(async () => (await compare()).max, { timeout })
+            .toBeLessThanOrEqual(limit)
+        } catch (error) {
+          const diagnostic = await compare()
+          const path = info.outputPath('pixel-agreement.json')
+          await writeFile(path, JSON.stringify(diagnostic, null, 2))
+          await info.attach('pixel-agreement', {
+            path,
+            contentType: 'application/json',
+          })
+          throw error
+        }
+      }
+      if (fixture === 'raw') {
+        await page.evaluate(async (id) => {
+          const state = await window.luma.getEdits(id)
+          await window.luma.updateEdits(id, { shadows: 100 }, state.revision)
+        }, id)
+        await expect(preview).toHaveAttribute('data-shadows', '100')
+        await agree(1)
+        // Exercise software presentation primaries independently of the physical panel gamut.
+        // Chromium must discard the old drawing-buffer color space in both directions.
+        for (const [index, p3] of [true, false, true, false].entries()) {
+          const target = await page.evaluate(
+            async ({ p3, unconfigured }) => {
+              const state = await window.luma.getDisplayState()
+              // Source reloads unconfigure the reused canvas before its next presentation.
+              if (unconfigured)
+                document
+                  .querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
+                  .getContext('webgpu')!
+                  .unconfigure()
+              return window.luma.reportDisplayCapabilities({ ...state.capabilities!, p3 })
+            },
+            { p3, unconfigured: index >= 2 },
+          )
+          await expect(preview).toHaveAttribute('data-target-generation', String(target.generation))
+          await agree(1)
+        }
+      }
       for (const [exposureEv, contrast, highlights, shadows = 0, whites = 0, blacks = 0] of [
         [0, 0, 0, -100, 0, 0],
         [0, 0, 0, 100, 0, 0],
@@ -242,7 +357,7 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
         await expect(preview).toHaveAttribute('data-contrast', String(contrast))
         await expect(preview).toHaveAttribute('data-highlights', String(highlights))
         await expect(preview).toHaveAttribute('data-exposure', String(exposureEv))
-        await expect.poll(async () => (await compare()).max).toBeLessThanOrEqual(1)
+        await agree(1)
       }
       await page.evaluate(async (id) => {
         const state = await window.luma.getEdits(id)
@@ -252,10 +367,10 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
       await preview.focus()
       await preview.press('\\')
       await expect(preview).toHaveAttribute('data-comparison', 'before')
-      await expect.poll(async () => (await compare()).max).toBeLessThanOrEqual(1)
+      await agree(1)
       await preview.press('y')
       await expect(preview).toHaveAttribute('data-comparison', 'split')
-      await expect.poll(async () => (await compare()).max).toBeLessThanOrEqual(1)
+      await agree(1)
       await preview.press('y')
       expect((await compare()).uploads).toBe(0)
       if (fixture === 'raw') {
@@ -309,14 +424,10 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
         // The HDR CPU worker publishes a 1024-pixel draft before its native-size refinement.
         // Native source-pixel agreement requires the completed full-resolution bitmap.
         await expect(preview).toHaveAttribute('data-quality', 'normal', { timeout: 180000 })
-      await expect
-        .poll(async () => (await compare()).max, { timeout: 30000 })
-        .toBeLessThanOrEqual(2)
+      await agree(2, 30000)
       await preview.focus()
       await preview.press('y')
       await expect(preview).toHaveAttribute('data-comparison', 'split')
-      await expect
-        .poll(async () => (await compare()).max, { timeout: 30000 })
-        .toBeLessThanOrEqual(2)
+      await agree(2, 30000)
     })
 }

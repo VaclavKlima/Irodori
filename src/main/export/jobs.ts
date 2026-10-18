@@ -32,6 +32,7 @@ import { COLLECTION_CHUNK_SIZE } from '../../shared/collections'
 import { DISPLAY_RENDERING_VERSION, HDR_CONTENT_VERSION } from '../../shared/display-rendering'
 import { ADJUSTMENT_VERSION } from '../../shared/adjustments'
 import { LENS_RENDER_VERSION } from '../processing/lens-correction'
+import type { WorkingAssetLease } from '../working-assets'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const active = (task: BackgroundTask) => task.status === 'running' || task.status === 'cancelling'
@@ -59,6 +60,10 @@ export class ExportJobs {
     private changed: () => void,
     private renderer: Pick<ExportProcess, 'render'> = new ExportProcess(),
     private boundary: (boundary: ExportBoundary) => Promise<void> = async () => {},
+    private acquireWorkingAsset?: (
+      source: ExportSource,
+      signal: AbortSignal,
+    ) => Promise<WorkingAssetLease | undefined>,
   ) {}
   private lease(id: string, delta: number) {
     const count = (this.leases.get(id) ?? 0) + delta
@@ -246,12 +251,19 @@ export class ExportJobs {
           filename: source.photo.filename,
           status: 'pending',
         }
+        let workingAsset: WorkingAssetLease | undefined
         try {
           abort.signal.throwIfAborted()
           task.detail = source.photo.filename
           task.phase = 'Rendering from frozen edits'
           this.persist(job)
           const directory = join(this.root, 'export-work', manifest.id, String(index))
+          const preparationDirectory = join(
+            this.root,
+            'export-work',
+            manifest.id,
+            `${index}-preparation`,
+          )
           let rendered: ExportRenderResult | undefined
           do {
             const waitingStarted = performance.now()
@@ -268,12 +280,23 @@ export class ExportJobs {
                   (await hashFile(source.path)) !== source.photo.id
                 )
                   throw new Error('The managed original is damaged.')
+                if (source.hdr && !source.processing.metadata.mergeMaster && !workingAsset)
+                  workingAsset = await this.acquireWorkingAsset?.(source, signal)
                 sourceValidationMs += performance.now() - validationStarted
                 return this.renderer.render(
                   {
                     source,
                     options: manifest.options,
                     directory,
+                    preparationDirectory,
+                    workingAsset: workingAsset
+                      ? {
+                          identity: workingAsset.identity,
+                          asset: workingAsset.asset,
+                          backend: workingAsset.backend,
+                          fallback: workingAsset.fallback,
+                        }
+                      : undefined,
                     hdr:
                       manifest.options.output === 'hdr' ||
                       (manifest.options.output === 'auto' && source.hdr),
@@ -328,9 +351,15 @@ export class ExportJobs {
           }
           this.store.file(manifest.id, file)
         } finally {
+          // render() settles only after the worker and its process tree have exited.
+          workingAsset?.release()
           this.lease(source.photo.id, -1)
           held.delete(source.photo.id)
           await rm(join(this.root, 'export-work', manifest.id, String(index)), {
+            recursive: true,
+            force: true,
+          }).catch(() => {})
+          await rm(join(this.root, 'export-work', manifest.id, `${index}-preparation`), {
             recursive: true,
             force: true,
           }).catch(() => {})

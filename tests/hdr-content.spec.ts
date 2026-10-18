@@ -76,24 +76,27 @@ test('reference proof separates luminance headroom, channel clipping and gamut l
     relativePeak: 10,
   })
 })
-test('drafts advance monotonically while input coalesces; cancellation and history retire epochs and obsolete refinements', () => {
+test('sharp interactive frames advance monotonically while input coalesces; cancellation and history retire epochs and obsolete refinements', () => {
   const queue = new HdrEditQueue<number>()
-  queue.request(1, true)
+  queue.request(1, 'interactive')
   const first = queue.take()!
-  for (let i = 2; i <= 40; i++) queue.request(i, true)
+  for (let i = 2; i <= 40; i++) queue.request(i, 'interactive')
   expect(queue.take()).toBeUndefined()
+  expect(first.value).toBe(1)
+  expect(first.intent).toBe('interactive')
+  expect(queue.superseded(first)).toBe(false)
   expect(queue.finish(first)).toBe(true)
   const last = queue.take()!
   expect(last.value).toBe(40)
   expect(queue.finish(last)).toBe(true)
-  queue.request(40, false)
+  queue.request(40, 'refinement')
   const refine = queue.take()!
-  queue.request(41, true)
+  queue.request(41, 'interactive')
   expect(queue.superseded(refine)).toBe(true)
   expect(queue.finish(refine)).toBe(false)
   const cancelled = queue.take()!
   queue.invalidate()
-  queue.request(39, false)
+  queue.request(39, 'refinement')
   expect(queue.finish(cancelled)).toBe(false)
   expect(queue.finish(queue.take()!)).toBe(true)
 })
@@ -120,25 +123,25 @@ test('canonical content and SDR variants share a bounded cache without retiring 
 
 test('normal navigation frames continue monotonically with one replaceable pending movement; invalidation cancels them', () => {
   const queue = new HdrEditQueue<number>()
-  queue.request(1, false, true)
+  queue.request(1, 'navigation')
   const first = queue.take()!
-  for (let i = 2; i <= 40; i++) queue.request(i, false, true)
+  for (let i = 2; i <= 40; i++) queue.request(i, 'navigation')
   expect(queue.take()).toBeUndefined()
   expect(queue.superseded(first)).toBe(false)
   expect(queue.finish(first)).toBe(true)
   expect(queue.finish(first)).toBe(false)
   const last = queue.take()!
   expect(last.value).toBe(40)
-  expect(last.draft).toBe(false)
+  expect(last.intent).toBe('navigation')
   expect(queue.finish(last)).toBe(true)
-  queue.request(40, false)
+  queue.request(40, 'refinement')
   const refinement = queue.take()!
-  queue.request(41, false, true)
+  queue.request(41, 'navigation')
   expect(queue.superseded(refinement)).toBe(true)
   expect(queue.finish(refinement)).toBe(false)
   const cancelled = queue.take()!
   queue.invalidate()
-  queue.request(42, false, true)
+  queue.request(42, 'navigation')
   expect(queue.superseded(cancelled)).toBe(true)
   expect(queue.finish(cancelled)).toBe(false)
   expect(queue.finish(queue.take()!)).toBe(true)

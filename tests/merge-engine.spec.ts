@@ -19,6 +19,30 @@ test('independent HDR ramp recovers ratios above white and negative color values
     expect(errors[Math.floor(errors.length * 0.95)]).toBeLessThanOrEqual(0.1)
     expect(Math.max(...f.pixels)).toBeGreaterThan(1)
     expect(f.result.recipe.sources.map((s) => s.scale)).toEqual([0.25, 1, 4])
+    const timeline = f.result.measurements.timeline!
+    expect(timeline.clock).toBe('merge-worker-performance')
+    expect(timeline.preparation.map((source) => source.sourceId)).toEqual([
+      f.job.settings.referenceId,
+      ...f.sources
+        .map((source) => source.photo.id)
+        .filter((id) => id !== f.job.settings.referenceId),
+    ])
+    const spans = [
+      timeline.preflight!,
+      ...timeline.preparation.map((source) => source.span),
+      ...(timeline.referenceFallback ? [timeline.referenceFallback] : []),
+      timeline.registration!,
+      timeline.coverage!,
+      timeline.accumulation!,
+      timeline.output!,
+    ]
+    for (const span of spans) {
+      expect(span.startedMs).toBeGreaterThanOrEqual(0)
+      expect(span.completedMs).toBeGreaterThanOrEqual(span.startedMs)
+      expect(span.completedMs).toBeLessThanOrEqual(f.result.measurements.runtimeMs)
+    }
+    for (let index = 1; index < spans.length; index++)
+      expect(spans[index].startedMs).toBeGreaterThanOrEqual(spans[index - 1].completedMs)
   } finally {
     await f.close()
   }
@@ -264,6 +288,12 @@ test('native validation accepts independently generated perspective with noise a
       d.nativePatches.filter((p) => p.accepted).length / d.nativePatches.length,
     ).toBeGreaterThanOrEqual(0.7)
     expect(f.result.recipe.affectedPercent).toBeGreaterThan(0)
+    const attempt = f.result.measurements.attempts.find((a) => a.success)!
+    expect([0, 1]).toContain(attempt.lane)
+    expect(attempt.queuedMs).toBeGreaterThanOrEqual(0)
+    expect(attempt.reads!.nativePlanes.cacheMisses).toBeGreaterThanOrEqual(2)
+    expect(attempt.reads!.nativePlanes.verifiedBytes).toBeGreaterThan(0)
+    expect(attempt.reads!.nativePlanes.verifiedBytes).toBe(attempt.reads!.nativePlanes.readBytes)
   } finally {
     await f.close()
   }
