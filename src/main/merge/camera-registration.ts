@@ -7,7 +7,13 @@ import type { RawSource } from '../gpu/raw-source'
 import { radial, type CorrectionPlan } from '../processing/lens-correction'
 import type { Plane } from './math'
 import type { PreparedSource } from './prepare'
-import { createAreaReducer, createCameraKernel, type CpuKernelMeasurement } from './cpu-kernels'
+import {
+  createAreaReducer,
+  createCameraKernel,
+  createCameraValidityKernel,
+  type AreaReductionSize,
+  type CpuKernelMeasurement,
+} from './cpu-kernels'
 
 export const CAMERA_REGISTRATION_POLICY = ALIGNMENT_CONSTANTS.cameraRegistrationPolicy
 export const CAMERA_CHANNELS = ['red', 'green', 'blue'] as const
@@ -47,6 +53,11 @@ function inverseCameraMatrix(matrix: number[]) {
   ].map((value) => value / determinant)
 }
 
+/** Float64 coefficients shared by CPU evidence and versioned GPU projection. */
+export function cameraRegistrationInverse(raw: RawSource) {
+  return inverseCameraMatrix(cameraMatrix(raw))
+}
+
 /** Separate sensor masks retain surviving camera channels. Dilation covers the
  * demosaic stencil; each lens/CA channel then samples its own canonical mask.
  */
@@ -78,6 +89,124 @@ function channelClipping(raw: RawSource, storage?: Uint8Array[]) {
   return masks
 }
 
+export interface CameraValidityProvider {
+  readonly width: number
+  readonly height: number
+  readonly reduction?: ReturnType<typeof createAreaReducer>
+  /** Borrowed RGB validity bits; await consumers before the next read or close. */
+  read(top: number, rows: number): Uint8Array<ArrayBuffer>
+  close(): void
+}
+
+/** Canonical, oriented lens/CA validity without CPU RGB matrix projection.
+ * Only the existing native sensor clipping planes and one 64-row output are kept.
+ */
+export async function createCameraValidityProvider(
+  raw: RawSource,
+  plan: CorrectionPlan,
+  measurement: CpuKernelMeasurement = {
+    backend: 'scalar',
+    heapBytes: 0,
+    copyMs: 0,
+    processingMs: 0,
+  },
+  reduced?: AreaReductionSize,
+): Promise<CameraValidityProvider> {
+  const width = raw.flip & 4 ? plan.height : plan.width,
+    height = raw.flip & 4 ? plan.width : plan.height
+  if (
+    ![width, height].every((value) => Number.isSafeInteger(value) && value > 0) ||
+    width * height > 24_000_000
+  )
+    throw new Error('Unsupported camera validity geometry.')
+  const kernel = await createCameraValidityKernel(raw, plan, measurement, undefined, reduced)
+  try {
+    const masks = kernel?.populateMasks() ?? channelClipping(raw, kernel?.masks),
+      cx = (raw.width - 1) / 2,
+      cy = (raw.height - 1) / 2,
+      radius = Math.hypot(cx, cy)
+    let accelerated = kernel,
+      staging: Uint8Array<ArrayBuffer> | undefined,
+      closed = false
+    return {
+      width,
+      height,
+      reduction: kernel?.reduction,
+      read(top, rows) {
+        if (closed) throw new Error('Camera validity provider is closed.')
+        if (
+          !Number.isSafeInteger(top) ||
+          !Number.isSafeInteger(rows) ||
+          top < 0 ||
+          rows < 1 ||
+          rows > 64 ||
+          top + rows > height
+        )
+          throw new Error('Invalid camera validity strip.')
+        if (accelerated)
+          try {
+            return accelerated.read(top, rows)
+          } catch {
+            // No bytes from the failed native call escape. Source masks remain
+            // immutable, so replay can compute the complete strip independently.
+            accelerated = undefined
+            measurement.backend = 'scalar'
+          }
+        staging ??= new Uint8Array(width * Math.min(64, height))
+        const output = staging.subarray(0, width * rows)
+        if (!masks) {
+          output.fill(7)
+          return output
+        }
+        for (let row = 0; row < rows; row++)
+          for (let x = 0; x < width; x++) {
+            const y = top + row
+            let sx = raw.flip & 4 ? y : x,
+              sy = raw.flip & 4 ? x : y
+            if (raw.flip & 1) sx = plan.width - 1 - sx
+            if (raw.flip & 2) sy = plan.height - 1 - sy
+            const qx = sx + plan.left - cx,
+              qy = sy + plan.top - cy,
+              r = Math.hypot(qx, qy) / radius
+            let valid = 7
+            for (let channel = 0; channel < 3; channel++) {
+              const scale = radial(plan.lut, r, channel),
+                px = cx + qx * scale,
+                py = cy + qy * scale,
+                ix = Math.floor(px),
+                iy = Math.floor(py),
+                dx = px - ix,
+                dy = py - iy
+              let clipped = false
+              for (let yy = 0; yy < 2 && !clipped; yy++)
+                for (let xx = 0; xx < 2; xx++)
+                  if (
+                    (xx ? dx : 1 - dx) * (yy ? dy : 1 - dy) > 0 &&
+                    masks[channel][
+                      Math.max(0, Math.min(raw.height - 1, iy + yy)) * raw.width +
+                        Math.max(0, Math.min(raw.width - 1, ix + xx))
+                    ]
+                  )
+                    clipped = true
+              if (clipped) valid &= ~(1 << channel)
+            }
+            output[row * width + x] = valid
+          }
+        return output
+      },
+      close() {
+        if (closed) return
+        closed = true
+        staging = undefined
+        kernel?.close()
+      },
+    }
+  } catch (error) {
+    kernel?.close()
+    throw error
+  }
+}
+
 /** Immutable native camera-channel evidence. RGB inversion removes only the
  * linear color matrix, retaining exact source lens corrections and common WB.
  * The fourth float is a three-bit validity mask, never fusion alpha.
@@ -99,8 +228,7 @@ export async function cameraRegistrationWriter(
   const width = raw.flip & 4 ? plan.height : plan.width,
     height = raw.flip & 4 ? plan.width : plan.height,
     path = join(directory, `source-${index}.camera.f32`),
-    cameraToWorking = cameraMatrix(raw),
-    inverse = inverseCameraMatrix(cameraToWorking),
+    inverse = cameraRegistrationInverse(raw),
     kernel = await createCameraKernel(raw, plan, inverse, measurement, undefined, {
       width: previewWidth,
       height: previewHeight,

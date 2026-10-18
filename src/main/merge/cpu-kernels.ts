@@ -14,7 +14,9 @@ export const MERGE_KERNEL_HEAP_LIMIT = 128 * 1024 ** 2
 const PAGE_BYTES = 65536
 const INITIAL_HEAP_BYTES = 2 * 1024 ** 2
 const CONFIG_SLOTS = 48
-const KERNEL_ABI = 3
+const KERNEL_ABI = 5
+export const FALLBACK_GEOMETRY_CHANNEL_WORDS = 6
+export const FALLBACK_GEOMETRY_PIXEL_WORDS = FALLBACK_GEOMETRY_CHANNEL_WORDS * 3
 // Must match the Float64 slot order in kernels/prepare.c.
 enum P {
   Width,
@@ -67,6 +69,8 @@ interface KernelExports {
   __heap_base: WebAssembly.Global
   luma_kernel_version(): number
   luma_camera_strip(config: number, top: number, rows: number): number
+  luma_camera_validity_strip(config: number, top: number, rows: number): number
+  luma_fallback_geometry_strip(config: number, top: number, rows: number): number
   luma_prepare_strip(config: number, top: number, rows: number): number
   luma_reduce_strip(config: number, top: number, rows: number): number
   luma_sensor_mask(config: number, top: number, rows: number): number
@@ -128,6 +132,8 @@ class Arena {
       typeof e.luma_kernel_version !== 'function' ||
       e.luma_kernel_version() !== KERNEL_ABI ||
       typeof e.luma_camera_strip !== 'function' ||
+      typeof e.luma_camera_validity_strip !== 'function' ||
+      typeof e.luma_fallback_geometry_strip !== 'function' ||
       typeof e.luma_prepare_strip !== 'function' ||
       typeof e.luma_reduce_strip !== 'function' ||
       typeof e.luma_sensor_mask !== 'function' ||
@@ -190,6 +196,9 @@ class Arena {
   }
   i32(at: number, length: number) {
     return new Int32Array(this.exports.memory.buffer, at, length)
+  }
+  u32(at: number, length: number) {
+    return new Uint32Array(this.exports.memory.buffer, at, length)
   }
   u16(at: number, length: number) {
     return new Uint16Array(this.exports.memory.buffer, at, length)
@@ -498,6 +507,7 @@ function planAreaReducer(
   inputAt: number,
   lumaAt: number,
   measurement: CpuKernelMeasurement,
+  allocationMiss?: () => void,
 ) {
   if (!reduced) return () => undefined
   const checkpoint = memory.checkpoint(),
@@ -590,7 +600,105 @@ function planAreaReducer(
     }
   } catch {
     memory.restore(checkpoint)
+    allocationMiss?.()
     return () => areaReducer(width, height, reduced, mode)
+  }
+}
+
+/** Geometry and union clipping only: no RGB input, sampling or vignette gains. */
+export async function createFallbackGeometryKernel(
+  frame: Pick<LinearFrame, 'width' | 'height' | 'flip'>,
+  plan: CorrectionPlan,
+  saturated: Uint8Array,
+  measurement: CpuKernelMeasurement,
+  module?: WebAssembly.Module,
+  reduced?: AreaReductionSize,
+) {
+  const memory = await arena(module)
+  if (!memory) return
+  try {
+    const g = geometry(frame, plan)
+    if (saturated.length !== frame.width * frame.height)
+      throw new Error('Invalid fallback geometry mask.')
+    const configAt = memory.allocate(CONFIG_SLOTS * 8),
+      geometryAt = memory.allocate(g.capacity * FALLBACK_GEOMETRY_PIXEL_WORDS * 4),
+      alphaAt = memory.allocate(g.capacity),
+      maskAt = memory.allocate(saturated.byteLength),
+      lutAt = memory.allocate(plan.lut.byteLength),
+      reductionCheckpoint = memory.checkpoint()
+    if (!memory.canSeal()) throw new Error('Fallback geometry arena limit exceeded.')
+    let reduction = () => undefined as ReturnType<typeof createAreaReducer> | undefined
+    if (reduced)
+      try {
+        const inputAt = memory.allocate(g.capacity * 16),
+          lumaAt = memory.allocate(g.capacity * 8)
+        if (!memory.canSeal()) throw new Error('Fallback geometry reduction allocation exceeded.')
+        reduction = planAreaReducer(
+          memory,
+          g.width,
+          g.height,
+          reduced,
+          'luma',
+          inputAt,
+          lumaAt,
+          measurement,
+          () => memory.restore(reductionCheckpoint),
+        )
+      } catch {
+        memory.restore(reductionCheckpoint)
+        reduction = () => createAreaReducer(g.width, g.height, reduced, 'luma')
+      }
+    memory.seal()
+    const p = configure(memory, configAt, frame, plan)
+    p[P.Output] = geometryAt
+    p[P.Alpha] = alphaAt
+    p[P.Mask] = maskAt
+    p[P.Lut] = lutAt
+    const copying = performance.now()
+    memory.u8(maskAt, saturated.length).set(saturated)
+    memory.f32(lutAt, plan.lut.length).set(plan.lut)
+    measurement.copyMs += performance.now() - copying
+    measurement.backend = 'wasm-simd'
+    measurement.heapBytes = Math.max(measurement.heapBytes, memory.heapBytes)
+    const storage = (top: number, rows: number) => {
+      memory.assertOpen()
+      if (
+        !Number.isSafeInteger(top) ||
+        !Number.isSafeInteger(rows) ||
+        top < 0 ||
+        rows < 1 ||
+        rows > 64 ||
+        top + rows > g.height
+      )
+        throw new Error('Invalid fallback geometry strip.')
+      return {
+        top,
+        rows,
+        geometry: memory.u32(geometryAt, g.width * rows * FALLBACK_GEOMETRY_PIXEL_WORDS),
+        alpha: memory.u8(alphaAt, g.width * rows),
+      }
+    }
+    return {
+      reduction: reduction(),
+      storage,
+      read(top: number, rows: number, signal?: AbortSignal) {
+        signal?.throwIfAborted()
+        const output = storage(top, rows),
+          processing = performance.now()
+        try {
+          if (memory.exports.luma_fallback_geometry_strip(configAt, top, rows))
+            throw new Error('Fallback geometry kernel failed.')
+        } finally {
+          measurement.processingMs += performance.now() - processing
+        }
+        signal?.throwIfAborted()
+        return output
+      },
+      close: () => memory.close(),
+    }
+  } catch {
+    memory.close()
+    return
   }
 }
 
@@ -767,6 +875,101 @@ export async function createMaskRepairKernel(
         measurement.copyMs += performance.now() - publishing
         return changed
       },
+    }
+  } catch {
+    memory.close()
+    return
+  }
+}
+
+/** Camera validity only: source clipping planes and a single borrowed byte strip. */
+export async function createCameraValidityKernel(
+  raw: RawSource,
+  plan: CorrectionPlan,
+  measurement: CpuKernelMeasurement,
+  module?: WebAssembly.Module,
+  reduced?: AreaReductionSize,
+) {
+  const memory = await arena(module)
+  if (!memory) return
+  try {
+    const g = geometry(raw, plan),
+      configAt = memory.allocate(CONFIG_SLOTS * 8),
+      outputAt = memory.allocate(g.capacity),
+      masksAt = memory.allocate(
+        raw.normalization!.sourceSaturation!.saturatedSites ? raw.width * raw.height * 3 : 0,
+      ),
+      lutAt = memory.allocate(plan.lut.byteLength),
+      sensorInputAt = memory.allocate(raw.width * Math.min(64, raw.height) * 2),
+      cfaAt = memory.allocate(4 * 4),
+      thresholdsAt = memory.allocate(4 * 8),
+      reductionCheckpoint = memory.checkpoint()
+    let reduction = () => undefined as ReturnType<typeof createAreaReducer> | undefined
+    if (reduced)
+      try {
+        const inputAt = memory.allocate(g.capacity * 16)
+        reduction = planAreaReducer(
+          memory,
+          g.width,
+          g.height,
+          reduced,
+          'camera',
+          inputAt,
+          0,
+          measurement,
+        )
+      } catch {
+        memory.restore(reductionCheckpoint)
+      }
+    memory.seal()
+    const p = configure(memory, configAt, raw, plan),
+      hasMask = (p[P.HasMask] = Number(!!raw.normalization!.sourceSaturation!.saturatedSites)),
+      masks = hasMask
+        ? [0, 1, 2].map((c) =>
+            memory.u8(masksAt + c * raw.width * raw.height, raw.width * raw.height),
+          )
+        : undefined
+    p[P.Output] = outputAt
+    p[P.Mask] = masksAt
+    p[P.Lut] = lutAt
+    memory.f32(lutAt, plan.lut.length).set(plan.lut)
+    configureSensor(memory, configAt, raw, sensorInputAt, cfaAt, thresholdsAt, true)
+    measurement.backend = 'wasm-simd'
+    measurement.heapBytes = Math.max(measurement.heapBytes, memory.heapBytes)
+    return {
+      reduction: reduction(),
+      masks,
+      populateMasks() {
+        memory.assertOpen()
+        if (!masks) return
+        try {
+          populateSensorMask(memory, configAt, raw, sensorInputAt, measurement)
+          return masks
+        } catch {
+          // Scalar reconstruction starts from empty source planes after any
+          // partial sensor-strip failure; the provider keeps these same planes.
+          memory.u8(masksAt, raw.width * raw.height * 3).fill(0)
+          return
+        }
+      },
+      read(top: number, rows: number) {
+        memory.assertOpen()
+        if (
+          !Number.isSafeInteger(top) ||
+          !Number.isSafeInteger(rows) ||
+          top < 0 ||
+          rows < 1 ||
+          rows > 64 ||
+          top + rows > g.height
+        )
+          throw new Error('Invalid camera validity strip.')
+        const processing = performance.now(),
+          status = memory.exports.luma_camera_validity_strip(configAt, top, rows)
+        measurement.processingMs += performance.now() - processing
+        if (status) throw new Error('Camera validity kernel failed.')
+        return memory.u8(outputAt, g.width * rows)
+      },
+      close: () => memory.close(),
     }
   } catch {
     memory.close()

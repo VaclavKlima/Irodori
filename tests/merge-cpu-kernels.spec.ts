@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
   createCameraKernel,
+  createCameraValidityKernel,
+  createFallbackGeometryKernel,
   createAreaReducer,
   createMaskRepairKernel,
   createPreparationKernel,
@@ -17,12 +19,22 @@ import {
 } from '../src/main/merge/cpu-kernels'
 import type { LinearFrame } from '../src/main/processing/contracts'
 import type { RawSource } from '../src/main/gpu/raw-source'
-import { cameraRegistrationWriter } from '../src/main/merge/camera-registration'
+import {
+  cameraRegistrationInverse,
+  cameraRegistrationWriter,
+  createCameraValidityProvider,
+} from '../src/main/merge/camera-registration'
 import { correctionPlan, type CorrectionPlan } from '../src/main/processing/lens-correction'
 import { automaticLensSettings, type LensProfile } from '../src/shared/lens'
 import { REC2020_LUMA, SRGB_TO_2020 } from '../src/shared/hdr'
 import { MERGE_LIMITS } from '../src/shared/merge'
 import { areaContributions, flattenedAreaContributions } from '../src/main/merge/area'
+import {
+  createFallbackGeometryProvider,
+  fallbackGeometryCoordinate,
+  FALLBACK_GEOMETRY_CHANNEL_WORDS,
+  FALLBACK_GEOMETRY_PIXEL_WORDS,
+} from '../src/main/merge/fallback-geometry'
 
 const repository = resolve(import.meta.dirname, '..'),
   vendor = join(repository, 'vendor/merge-kernels'),
@@ -235,6 +247,50 @@ function referenceRepair(
   return changed
 }
 
+function referenceFallbackGeometry(
+  frame: LinearFrame,
+  plan: CorrectionPlan,
+  saturated: Uint8Array,
+  top: number,
+  rows: number,
+) {
+  const width = frame.flip & 4 ? plan.height : plan.width,
+    geometryWords = new Uint32Array(width * rows * FALLBACK_GEOMETRY_PIXEL_WORDS),
+    integers = new Int32Array(geometryWords.buffer),
+    fractions = new Float32Array(geometryWords.buffer),
+    alpha = new Uint8Array(width * rows)
+  for (let row = 0; row < rows; row++)
+    for (let x = 0; x < width; x++) {
+      const g = geometry(frame, plan, x, top + row),
+        pixel = row * width + x
+      let clipped = false
+      for (let c = 0; c < 3; c++) {
+        const scale = radial(plan.lut, g.radius, c),
+          px = g.cx + g.qx * scale,
+          py = g.cy + g.qy * scale,
+          ix = Math.floor(px),
+          iy = Math.floor(py),
+          dx = px - ix,
+          dy = py - iy,
+          at = pixel * FALLBACK_GEOMETRY_PIXEL_WORDS + c * FALLBACK_GEOMETRY_CHANNEL_WORDS
+        integers[at] = ix
+        integers[at + 1] = iy
+        fractions[at + 2] = dx
+        fractions[at + 3] = dx - Math.fround(dx)
+        fractions[at + 4] = dy
+        fractions[at + 5] = dy - Math.fround(dy)
+        if (
+          taps(frame, plan, x, top + row, c).some(
+            (tap) => tap.weight > 0 && saturated[tap.y * frame.width + tap.x],
+          )
+        )
+          clipped = true
+      }
+      alpha[pixel] = Number(!clipped)
+    }
+  return { geometry: geometryWords, alpha }
+}
+
 test('optional SIMD assets verify checksums and resolve beside the packaged worker', async () => {
   expect(mergeKernelDirectory(join(repository, 'src/main/merge'))).toBe(vendor)
   const directory = await mkdtemp(join(tmpdir(), 'luma-merge-kernel-assets-'))
@@ -266,7 +322,7 @@ test('optional SIMD assets verify checksums and resolve beside the packaged work
     const invalid = new Uint8Array([0])
     await writeFile(
       join(directory, 'manifest.json'),
-      JSON.stringify({ version: 3, sha256: createHash('sha256').update(invalid).digest('hex') }),
+      JSON.stringify({ version: 5, sha256: createHash('sha256').update(invalid).digest('hex') }),
     )
     // A checksum alone does not make malformed or unsupported bytecode usable.
     await writeFile(join(directory, 'luma-merge-kernels.wasm'), invalid)
@@ -450,8 +506,8 @@ test('gain cache capacity defaults to 32768 and rejects unsupported allocations'
     },
     configAt = Number(kernelExports.__heap_base.value),
     config = new Float64Array(kernelExports.memory.buffer, configAt, 32)
-  expect(kernelExports.luma_kernel_version()).toBe(3)
-  // ABI3 validates slot27 before any strip pointer can be read. An invalid
+  expect(kernelExports.luma_kernel_version()).toBe(5)
+  // ABI5 validates slot27 before any strip pointer can be read. An invalid
   // capacity must never index the caller's smaller allocation with a larger mask.
   for (const invalid of [0, 2049, 16384, 32767, 65536, NaN]) {
     config[27] = invalid
@@ -1034,5 +1090,573 @@ test('failed canonical repair publishes no partial RGB, alpha or changed positio
     expect(bytes(scalar).equals(bytes(original))).toBe(false)
   } finally {
     repair?.close()
+  }
+})
+
+test('camera validity strips retain exact channel masks without RGB projection for every orientation', async () => {
+  const module = await readMergeKernel(vendor),
+    previous = process.env.LUMA_MERGE_CPU_KERNEL,
+    Instance = WebAssembly.Instance
+  expect(module).toBeDefined()
+  try {
+    for (const flip of [0, 1, 2, 3, 4, 5, 6, 7])
+      for (const clipped of [false, true]) {
+        const { raw, frame, plan } = fixture(flip, 331, 139),
+          width = flip & 4 ? plan.height : plan.width,
+          height = flip & 4 ? plan.width : plan.height
+        raw.normalization!.sourceSaturation!.saturatedSites = Number(clipped)
+        raw.normalization!.sourceSaturation!.thresholds = [3800, 3799, 3801, 3798]
+        for (let y = 0; y < raw.height; y++)
+          for (let x = 0; x < raw.width; x++) {
+            const channel = raw.cfa[(y & 1) * 2 + (x & 1)]
+            raw.pixels[(y + raw.top) * raw.rawWidth + raw.left + x] =
+              raw.normalization!.sourceSaturation!.thresholds[channel] +
+              (clipped && (x * 7 + y * 11) % 127 < 3 ? 0 : -1)
+          }
+        const original = raw.pixels.slice(),
+          channels = referenceSensorMasks(raw).channels,
+          expected = new Uint8Array(width * height),
+          // Validity must never inspect the matrix or project native RGB.
+          maskRaw = { ...raw, matrix: Array(12).fill(NaN) },
+          work = measurement(),
+          kernel = await createCameraValidityKernel(maskRaw, plan, work, module)
+        expect(kernel).toBeDefined()
+        try {
+          expect(kernel!.populateMasks()).toEqual(clipped ? channels : undefined)
+          for (let y = 0; y < height; y++)
+            for (let x = 0; x < width; x++) {
+              let valid = 7
+              for (let c = 0; c < 3; c++)
+                if (
+                  clipped &&
+                  taps(frame, plan, x, y, c).some(
+                    (tap) => tap.weight > 0 && channels[c][tap.y * raw.width + tap.x],
+                  )
+                )
+                  valid &= ~(1 << c)
+              expected[y * width + x] = valid
+            }
+          for (let top = 0; top < height; top += 64) {
+            const rows = Math.min(64, height - top)
+            expect(kernel!.read(top, rows)).toEqual(
+              expected.subarray(top * width, (top + rows) * width),
+            )
+          }
+          expect(work.backend).toBe('wasm-simd')
+          expect(work.heapBytes).toBeLessThanOrEqual(MERGE_KERNEL_HEAP_LIMIT)
+        } finally {
+          kernel?.close()
+        }
+        let validityCalls = 0,
+          projectionCalls = 0
+        for (const backend of ['scalar', 'wasm']) {
+          process.env.LUMA_MERGE_CPU_KERNEL = backend
+          let provider: Awaited<ReturnType<typeof createCameraValidityProvider>>
+          try {
+            WebAssembly.Instance = function (
+              code: WebAssembly.Module,
+              imports?: WebAssembly.Imports,
+            ) {
+              const instance = new Instance(code, imports),
+                validity = instance.exports.luma_camera_validity_strip as (
+                  ...args: number[]
+                ) => number,
+                exports = {
+                  ...instance.exports,
+                  luma_camera_validity_strip(...args: number[]) {
+                    validityCalls++
+                    return validity(...args)
+                  },
+                  luma_camera_strip() {
+                    projectionCalls++
+                    throw new Error('Validity must not project RGB.')
+                  },
+                }
+              return new Proxy(instance, {
+                get: (target, key) => (key === 'exports' ? exports : Reflect.get(target, key)),
+              })
+            } as unknown as typeof WebAssembly.Instance
+            provider = await createCameraValidityProvider(maskRaw, plan)
+          } finally {
+            WebAssembly.Instance = Instance
+          }
+          try {
+            expect([provider!.width, provider!.height]).toEqual([width, height])
+            for (let top = 0; top < height; top += 64) {
+              const rows = Math.min(64, height - top)
+              expect(provider!.read(top, rows)).toEqual(
+                expected.subarray(top * width, (top + rows) * width),
+              )
+            }
+            expect(provider!.read(1, 5)).toEqual(expected.subarray(width, 6 * width))
+            const borrowed = provider!.read(0, 1)
+            expect(provider!.read(1, 1).buffer).toBe(borrowed.buffer)
+            for (const [top, rows] of [
+              [-1, 1],
+              [0, 0],
+              [0, 65],
+              [height, 1],
+              [1.5, 1],
+            ])
+              expect(() => provider!.read(top, rows)).toThrow('Invalid')
+          } finally {
+            provider!.close()
+            provider!.close()
+          }
+          expect(() => provider!.read(0, 1)).toThrow('closed')
+        }
+        expect(validityCalls).toBeGreaterThan(0)
+        expect(projectionCalls).toBe(0)
+        expect(raw.pixels).toEqual(original)
+        expect(() => cameraRegistrationInverse(maskRaw)).toThrow('invertible')
+      }
+  } finally {
+    WebAssembly.Instance = Instance
+    if (previous === undefined) delete process.env.LUMA_MERGE_CPU_KERNEL
+    else process.env.LUMA_MERGE_CPU_KERNEL = previous
+  }
+})
+
+test('late mask-only failures replay exact validity and rebuild partial sensor masks transactionally', async () => {
+  const module = await readMergeKernel(vendor),
+    previous = process.env.LUMA_MERGE_CPU_KERNEL,
+    Instance = WebAssembly.Instance
+  expect(module).toBeDefined()
+  process.env.LUMA_MERGE_CPU_KERNEL = 'wasm'
+  try {
+    for (const stage of ['sensor', 'validity'] as const)
+      for (const failure of ['status', 'trap'] as const) {
+        const { raw, frame, plan } = fixture(5, 331, 139),
+          width = plan.height,
+          height = plan.width
+        for (let y = 0; y < raw.height; y++)
+          for (let x = 0; x < raw.width; x++)
+            raw.pixels[(y + raw.top) * raw.rawWidth + raw.left + x] =
+              (x * 7 + y * 11) % 101 < 3 ? 3800 : 3799
+        const channels = referenceSensorMasks(raw).channels,
+          work = measurement(),
+          actual = new Uint8Array(width * height),
+          expected = new Uint8Array(width * height)
+        let sensorCalls = 0,
+          validityCalls = 0,
+          provider: Awaited<ReturnType<typeof createCameraValidityProvider>>
+        const fail = () => {
+          if (failure === 'trap') throw new WebAssembly.RuntimeError('Injected late mask trap.')
+          return 5
+        }
+        try {
+          WebAssembly.Instance = function (
+            code: WebAssembly.Module,
+            imports?: WebAssembly.Imports,
+          ) {
+            const instance = new Instance(code, imports),
+              sensor = instance.exports.luma_sensor_mask as (...args: number[]) => number,
+              validity = instance.exports.luma_camera_validity_strip as (
+                ...args: number[]
+              ) => number,
+              exports = {
+                ...instance.exports,
+                luma_sensor_mask(...args: number[]) {
+                  const status = sensor(...args)
+                  sensorCalls++
+                  return stage === 'sensor' && sensorCalls === 2 ? fail() : status
+                },
+                luma_camera_validity_strip(...args: number[]) {
+                  const status = validity(...args)
+                  validityCalls++
+                  if (stage === 'validity' && validityCalls === 2) {
+                    const memory = instance.exports.memory as WebAssembly.Memory,
+                      config = new Float64Array(memory.buffer, args[0], 48)
+                    new Uint8Array(memory.buffer, config[13], width * args[2]).fill(0)
+                    return fail()
+                  }
+                  return status
+                },
+              }
+            return new Proxy(instance, {
+              get: (target, key) => (key === 'exports' ? exports : Reflect.get(target, key)),
+            })
+          } as unknown as typeof WebAssembly.Instance
+          provider = await createCameraValidityProvider(raw, plan, work)
+        } finally {
+          WebAssembly.Instance = Instance
+        }
+        try {
+          for (let top = 0; top < height; top += 64)
+            actual.set(provider!.read(top, Math.min(64, height - top)), top * width)
+          for (let y = 0; y < height; y++)
+            for (let x = 0; x < width; x++) {
+              let valid = 7
+              for (let c = 0; c < 3; c++)
+                if (
+                  taps(frame, plan, x, y, c).some(
+                    (tap) => tap.weight > 0 && channels[c][tap.y * raw.width + tap.x],
+                  )
+                )
+                  valid &= ~(1 << c)
+              expected[y * width + x] = valid
+            }
+          expect(actual).toEqual(expected)
+          if (stage === 'validity') {
+            expect(validityCalls).toBe(2)
+            expect(work.backend).toBe('scalar')
+          } else {
+            expect(sensorCalls).toBe(2)
+            expect(validityCalls).toBe(Math.ceil(height / 64))
+          }
+        } finally {
+          provider!.close()
+        }
+      }
+  } finally {
+    WebAssembly.Instance = Instance
+    if (previous === undefined) delete process.env.LUMA_MERGE_CPU_KERNEL
+    else process.env.LUMA_MERGE_CPU_KERNEL = previous
+  }
+})
+
+test('fallback geometry preserves Float64 tap selection and union alpha without RGB or neighbor gain work', async () => {
+  const module = await readMergeKernel(vendor),
+    previous = process.env.LUMA_MERGE_CPU_KERNEL,
+    Instance = WebAssembly.Instance
+  expect(module).toBeDefined()
+  try {
+    for (const flip of [0, 1, 2, 3, 4, 5, 6, 7])
+      for (const corrected of [false, true]) {
+        const data = fixture(flip),
+          frame = data.frame,
+          plan = corrected
+            ? data.plan
+            : {
+                ...data.plan,
+                left: 0,
+                top: 0,
+                width: frame.width,
+                height: frame.height,
+                lut: Float32Array.from({ length: 4096 * 4 }, () => 1),
+              },
+          width = flip & 4 ? plan.height : plan.width,
+          height = flip & 4 ? plan.width : plan.height,
+          saturated = Uint8Array.from({ length: frame.width * frame.height }, (_, i) =>
+            Number(i % 113 === 0),
+          ),
+          original = saturated.slice(),
+          minimal = { width: frame.width, height: frame.height, flip },
+          reduced = { width: 7, height: 11 },
+          fullRgba = new Float32Array(width * height * 4),
+          fullLuma = Float64Array.from({ length: width * height }, (_, i) => 1e8 + (i % 17))
+        let plannerCalls = 0,
+          hypotCalls = 0,
+          provider: Awaited<ReturnType<typeof createFallbackGeometryProvider>>
+        try {
+          WebAssembly.Instance = function (
+            code: WebAssembly.Module,
+            imports?: WebAssembly.Imports,
+          ) {
+            const instance = new Instance(code, {
+                ...imports,
+                env: {
+                  ...imports?.env,
+                  hypot: (x: number, y: number) => {
+                    hypotCalls++
+                    return Math.hypot(x, y)
+                  },
+                },
+              }),
+              planner = instance.exports.luma_fallback_geometry_strip as (
+                ...args: number[]
+              ) => number,
+              exports = {
+                ...instance.exports,
+                luma_fallback_geometry_strip(...args: number[]) {
+                  plannerCalls++
+                  return planner(...args)
+                },
+              }
+            return new Proxy(instance, {
+              get: (target, key) => (key === 'exports' ? exports : Reflect.get(target, key)),
+            })
+          } as unknown as typeof WebAssembly.Instance
+          provider = await createFallbackGeometryProvider(
+            minimal,
+            plan,
+            saturated,
+            measurement(),
+            module,
+            reduced,
+          )
+        } finally {
+          WebAssembly.Instance = Instance
+        }
+        try {
+          expect(provider!.reduction).toBeDefined()
+          for (let top = 0; top < height; top += 64) {
+            const rows = Math.min(64, height - top),
+              expected = referenceFallbackGeometry(frame, plan, saturated, top, rows),
+              result = provider!.read(top, rows)
+            expect(result.geometry).toEqual(expected.geometry)
+            expect(result.alpha).toEqual(expected.alpha)
+            const floats = new Float32Array(
+                result.geometry.buffer,
+                result.geometry.byteOffset,
+                result.geometry.length,
+              ),
+              integers = new Int32Array(
+                result.geometry.buffer,
+                result.geometry.byteOffset,
+                result.geometry.length,
+              )
+            for (const [x, y] of [
+              [0, top],
+              [width - 1, top + rows - 1],
+            ])
+              for (let c = 0; c < 3; c++) {
+                const exact = provider!.coordinate(x, y, c),
+                  at =
+                    ((y - top) * width + x) * FALLBACK_GEOMETRY_PIXEL_WORDS +
+                    c * FALLBACK_GEOMETRY_CHANNEL_WORDS
+                expect(exact).toEqual(fallbackGeometryCoordinate(minimal, plan, x, y, c))
+                expect([integers[at], integers[at + 1]]).toEqual([exact.ix, exact.iy])
+                expect(Math.abs(floats[at + 2] + floats[at + 3] - exact.dx)).toBeLessThanOrEqual(
+                  2 ** -48,
+                )
+                expect(Math.abs(floats[at + 4] + floats[at + 5] - exact.dy)).toBeLessThanOrEqual(
+                  2 ** -48,
+                )
+              }
+            const rgba = new Float32Array(width * rows * 4)
+            for (let i = 0; i < result.alpha.length; i++) rgba[i * 4 + 3] = result.alpha[i]
+            fullRgba.set(rgba, top * width * 4)
+            provider!.reduction!.add(
+              top,
+              rgba,
+              fullLuma.subarray(top * width, (top + rows) * width),
+            )
+          }
+          expect(plannerCalls).toBe(Math.ceil(height / 64))
+          expect(hypotCalls).toBe(width * height)
+          expect(provider!.reduction!.finish()).toEqual(
+            referenceReduction(fullRgba, fullLuma, width, height, reduced.width, reduced.height),
+          )
+          for (const [top, rows] of [
+            [-1, 1],
+            [0, 0],
+            [0, 65],
+            [height, 1],
+            [1.5, 1],
+          ])
+            expect(() => provider!.read(top, rows)).toThrow('Invalid')
+        } finally {
+          provider!.close()
+          provider!.close()
+        }
+        expect(() => provider!.read(0, 1)).toThrow('closed')
+        expect(() => provider!.coordinate(0, 0, 0)).toThrow('closed')
+        process.env.LUMA_MERGE_CPU_KERNEL = 'scalar'
+        const scalar = await createFallbackGeometryProvider(minimal, plan, saturated)
+        try {
+          for (let top = 0; top < height; top += 64) {
+            const rows = Math.min(64, height - top),
+              result = scalar.read(top, rows),
+              expected = referenceFallbackGeometry(frame, plan, saturated, top, rows)
+            expect(result.geometry).toEqual(expected.geometry)
+            expect(result.alpha).toEqual(expected.alpha)
+          }
+        } finally {
+          scalar.close()
+        }
+        expect(saturated).toEqual(original)
+      }
+  } finally {
+    WebAssembly.Instance = Instance
+    if (previous === undefined) delete process.env.LUMA_MERGE_CPU_KERNEL
+    else process.env.LUMA_MERGE_CPU_KERNEL = previous
+  }
+})
+
+test('fallback geometry late failures and aborts publish only complete independently replayed strips', async () => {
+  const module = await readMergeKernel(vendor),
+    Instance = WebAssembly.Instance,
+    { frame, plan } = fixture(5),
+    minimal = { width: frame.width, height: frame.height, flip: frame.flip },
+    saturated = Uint8Array.from({ length: frame.width * frame.height }, (_, i) =>
+      Number(i % 41 === 0),
+    ),
+    width = plan.height,
+    height = plan.width
+  expect(module).toBeDefined()
+  for (const failure of ['status', 'trap', 'abort'] as const) {
+    const abort = new AbortController(),
+      work = measurement()
+    let calls = 0,
+      hypots = 0,
+      provider: Awaited<ReturnType<typeof createFallbackGeometryProvider>>
+    try {
+      WebAssembly.Instance = function (code: WebAssembly.Module, imports?: WebAssembly.Imports) {
+        const instance = new Instance(code, {
+            ...imports,
+            env: {
+              ...imports?.env,
+              hypot: (x: number, y: number) => {
+                if (failure === 'abort' && ++hypots === 3)
+                  abort.abort(new Error('Cancelled fallback geometry.'))
+                return Math.hypot(x, y)
+              },
+            },
+          }),
+          planner = instance.exports.luma_fallback_geometry_strip as (...args: number[]) => number,
+          exports = {
+            ...instance.exports,
+            luma_fallback_geometry_strip(...args: number[]) {
+              const result = planner(...args)
+              calls++
+              if (failure !== 'abort' && calls === 2) {
+                const memory = instance.exports.memory as WebAssembly.Memory,
+                  config = new Float64Array(memory.buffer, args[0], 48)
+                new Uint32Array(
+                  memory.buffer,
+                  config[13],
+                  width * args[2] * FALLBACK_GEOMETRY_PIXEL_WORDS,
+                ).fill(0)
+                new Uint8Array(memory.buffer, config[33], width * args[2]).fill(0)
+                if (failure === 'trap')
+                  throw new WebAssembly.RuntimeError('Injected partial geometry trap.')
+                return 5
+              }
+              return result
+            },
+          }
+        return new Proxy(instance, {
+          get: (target, key) => (key === 'exports' ? exports : Reflect.get(target, key)),
+        })
+      } as unknown as typeof WebAssembly.Instance
+      provider = await createFallbackGeometryProvider(minimal, plan, saturated, work, module)
+    } finally {
+      WebAssembly.Instance = Instance
+    }
+    try {
+      if (failure === 'abort') {
+        expect(() => provider!.read(0, 64, abort.signal)).toThrow('Cancelled fallback geometry')
+        expect(hypots).toBeGreaterThan(3)
+        expect(work.backend).toBe('wasm-simd')
+      }
+      let backing: ArrayBuffer | undefined
+      for (let top = 0; top < height; top += 64) {
+        const rows = Math.min(64, height - top),
+          output = provider!.read(top, rows),
+          expected = referenceFallbackGeometry(frame, plan, saturated, top, rows)
+        backing ??= output.geometry.buffer
+        expect(output.geometry.buffer).toBe(backing)
+        expect(output.geometry).toEqual(expected.geometry)
+        expect(output.alpha).toEqual(expected.alpha)
+      }
+      if (failure !== 'abort') {
+        expect(calls).toBe(2)
+        expect(work.backend).toBe('scalar')
+      }
+      const before = provider!.read(0, 1),
+        frozen = before.geometry.slice(),
+        cancelled = AbortSignal.abort(new Error('Already cancelled geometry.'))
+      expect(() => provider!.read(0, 1, cancelled)).toThrow('Already cancelled geometry')
+      expect(before.geometry).toEqual(frozen)
+    } finally {
+      provider!.close()
+    }
+  }
+})
+
+test('fallback geometry allocation preflight preserves compiled planning when optional luma reduction misses', async () => {
+  const module = await readMergeKernel(vendor),
+    Instance = WebAssembly.Instance,
+    small = fixture(0),
+    large = fixture(0, 700, 100),
+    held: NonNullable<Awaited<ReturnType<typeof createCameraKernel>>>[] = [],
+    minimal = { width: large.frame.width, height: large.frame.height, flip: large.frame.flip },
+    width = large.plan.width,
+    height = large.plan.height,
+    saturated = new Uint8Array(minimal.width * minimal.height),
+    work = measurement(),
+    reduced = { width: 7, height: 11 }
+  expect(module).toBeDefined()
+  small.raw.normalization!.sourceSaturation!.saturatedSites = 0
+  let provider: Awaited<ReturnType<typeof createFallbackGeometryProvider>> | undefined,
+    plannerCalls = 0,
+    reductionCalls = 0
+  try {
+    for (let i = 0; i < 62; i++) {
+      const kernel = await createCameraKernel(
+        small.raw,
+        small.plan,
+        [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        measurement(),
+        module,
+      )
+      expect(kernel).toBeDefined()
+      held.push(kernel!)
+    }
+    try {
+      WebAssembly.Instance = function (code: WebAssembly.Module, imports?: WebAssembly.Imports) {
+        const instance = new Instance(code, imports),
+          planner = instance.exports.luma_fallback_geometry_strip as (...args: number[]) => number,
+          reduce = instance.exports.luma_reduce_strip as (...args: number[]) => number,
+          exports = {
+            ...instance.exports,
+            luma_fallback_geometry_strip(...args: number[]) {
+              plannerCalls++
+              return planner(...args)
+            },
+            luma_reduce_strip(...args: number[]) {
+              reductionCalls++
+              return reduce(...args)
+            },
+          }
+        return new Proxy(instance, {
+          get: (target, key) => (key === 'exports' ? exports : Reflect.get(target, key)),
+        })
+      } as unknown as typeof WebAssembly.Instance
+      provider = await createFallbackGeometryProvider(
+        minimal,
+        large.plan,
+        saturated,
+        work,
+        module,
+        reduced,
+      )
+    } finally {
+      WebAssembly.Instance = Instance
+    }
+    expect(work.backend).toBe('wasm-simd')
+    expect(work.heapBytes).toBeLessThanOrEqual(4 * 1024 ** 2)
+    expect(provider.reduction).toBeDefined()
+    const rgba = Float32Array.from({ length: width * height * 4 }, (_, i) =>
+        i % 4 === 3 ? 1 : 0.125,
+      ),
+      luma = Float64Array.from({ length: width * height }, (_, i) => 1e8 + (i % 17))
+    for (let top = 0; top < height; top += 64) {
+      const rows = Math.min(64, height - top),
+        output = provider.read(top, rows)
+      expect(output.alpha.every((value) => value === 1)).toBe(true)
+      provider.reduction!.add(
+        top,
+        rgba.subarray(top * width * 4, (top + rows) * width * 4),
+        luma.subarray(top * width, (top + rows) * width),
+      )
+    }
+    expect(provider.reduction!.finish()).toEqual(
+      referenceReduction(rgba, luma, width, height, reduced.width, reduced.height),
+    )
+    expect(plannerCalls).toBe(Math.ceil(height / 64))
+    expect(reductionCalls).toBe(0)
+    expect(getMergeKernelHeapBytes()).toBeLessThanOrEqual(MERGE_KERNEL_HEAP_LIMIT)
+    // An additional planner cannot be admitted while the retained arenas own the cap.
+    expect(
+      await createFallbackGeometryKernel(minimal, large.plan, saturated, measurement(), module),
+    ).toBeUndefined()
+    expect(() => provider!.coordinate(-1, 0, 0)).toThrow('Invalid')
+    expect(() => provider!.coordinate(0, 0, 3)).toThrow('Invalid')
+  } finally {
+    WebAssembly.Instance = Instance
+    provider?.close()
+    for (const kernel of held) kernel.close()
   }
 })
