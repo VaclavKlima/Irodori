@@ -11,7 +11,7 @@ export interface NavigationTarget {
 
 /** The capture-phase click starts the renderer clock before React's selection handler. */
 export async function observePhotoActivation(page: Page) {
-  return page.evaluateHandle(() => {
+  return page.evaluateHandle(async () => {
     type Target = {
       id: string
       filename: string
@@ -44,6 +44,7 @@ export async function observePhotoActivation(page: Page) {
       correctVisibleButNotUsefulFrames: number
       loaderBlockedVisibleFrames: number
       pendingRequestVisibleFrames: number
+      pendingTargetVisibleFrames: number
       frames: Snapshot[]
       firstUseful?: Snapshot
       nativeReady?: Snapshot
@@ -69,6 +70,18 @@ export async function observePhotoActivation(page: Page) {
     let active: Activation | null = null
     let stopped = false,
       raf = 0
+    let authoritativeTargetGeneration = -1
+    const acceptTarget = ({ generation }: { generation: number }) => {
+      if (Number.isSafeInteger(generation) && generation >= authoritativeTargetGeneration)
+        authoritativeTargetGeneration = generation
+    }
+    const stopTarget = window.luma.onDisplayState(acceptTarget)
+    try {
+      acceptTarget(await window.luma.getDisplayState())
+    } catch (error) {
+      stopTarget()
+      throw error
+    }
     const pending = new Set<string>()
     const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     function snapshot() {
@@ -107,6 +120,7 @@ export async function observePhotoActivation(page: Page) {
         cachedReady: canvas?.dataset.cachedDisplayReady === 'true',
         cacheState: canvas?.dataset.presentationCache,
         cacheEligible: canvas?.dataset.presentationCacheEligible,
+        authoritativeTargetGeneration,
         targetGeneration: Number(canvas?.dataset.targetGeneration),
         cachedTargetGeneration: Number(canvas?.dataset.cachedTargetGeneration),
         cachedSource: canvas?.dataset.cachedSourceIdentity,
@@ -114,6 +128,7 @@ export async function observePhotoActivation(page: Page) {
         cachedParameters: parameters,
         cachedPostPaintAt: Number(canvas?.dataset.cachedPostPaintAt),
         nativeSource: canvas?.dataset.presentedSourceIdentity,
+        nativeRevision: Number(canvas?.dataset.presentedSettingsRevision),
         nativeEpoch: Number(canvas?.dataset.presentedEpoch),
         nativeParameters,
         completedSerial: canvas?.dataset.completedEditSerial,
@@ -142,14 +157,17 @@ export async function observePhotoActivation(page: Page) {
       ) &&
       JSON.stringify(a.whiteBalance ?? { mode: 'as-shot' }) ===
         JSON.stringify(b.whiteBalance ?? { mode: 'as-shot' })
+    const sourceMatches = (source: string | undefined, target: Target) =>
+      !!source?.startsWith(`luma-photo://library/${target.id}/`) &&
+      (!target.sourceIdentity || source === target.sourceIdentity)
     const classify = (value: Snapshot, target: Target) => {
       if (!value.visible || value.loader || value.filename !== target.filename) return null
-      const sourceMatches = (source: string | undefined) =>
-        !!source && (!target.sourceIdentity || source === target.sourceIdentity)
+      if (value.authoritativeTargetGeneration < 0) return null
       if (
         value.cachedReady &&
         value.cachedRevision === target.revision &&
-        sourceMatches(value.cachedSource) &&
+        value.cachedTargetGeneration === value.authoritativeTargetGeneration &&
+        sourceMatches(value.cachedSource, target) &&
         sameParameters(value.cachedParameters, target.parameters)
       )
         return 'cached-exact'
@@ -157,7 +175,9 @@ export async function observePhotoActivation(page: Page) {
         value.editing === 'ready' &&
         value.quality === 'normal' &&
         value.completedSerial === value.requestedSerial &&
-        sourceMatches(value.nativeSource) &&
+        value.nativeRevision === target.revision &&
+        value.targetGeneration === value.authoritativeTargetGeneration &&
+        sourceMatches(value.nativeSource, target) &&
         sameParameters(value.nativeParameters, target.parameters)
       )
         return 'native-normal'
@@ -168,11 +188,12 @@ export async function observePhotoActivation(page: Page) {
       if (value.cachedReady)
         return (
           value.cachedRevision !== target.revision ||
-          (!!target.sourceIdentity && value.cachedSource !== target.sourceIdentity) ||
+          !sourceMatches(value.cachedSource, target) ||
           !sameParameters(value.cachedParameters, target.parameters)
         )
       return (
-        (!!target.sourceIdentity && value.nativeSource !== target.sourceIdentity) ||
+        value.nativeRevision !== target.revision ||
+        !sourceMatches(value.nativeSource, target) ||
         !sameParameters(value.nativeParameters, target.parameters)
       )
     }
@@ -193,6 +214,11 @@ export async function observePhotoActivation(page: Page) {
             if (value.loader) sample.loaderBlockedVisibleFrames++
             if (!value.cachedReady && value.completedSerial !== value.requestedSerial)
               sample.pendingRequestVisibleFrames++
+            if (
+              (value.cachedReady ? value.cachedTargetGeneration : value.targetGeneration) !==
+              value.authoritativeTargetGeneration
+            )
+              sample.pendingTargetVisibleFrames++
           }
         }
         if (value.visible && selected && !value.cachedReady && value.editing !== 'ready')
@@ -272,6 +298,7 @@ export async function observePhotoActivation(page: Page) {
         correctVisibleButNotUsefulFrames: 0,
         loaderBlockedVisibleFrames: 0,
         pendingRequestVisibleFrames: 0,
+        pendingTargetVisibleFrames: 0,
         frames: [],
       }
       activations.push(active)
@@ -290,6 +317,7 @@ export async function observePhotoActivation(page: Page) {
           current: active,
           departures,
           epochMs: performance.timeOrigin,
+          observedAt: performance.now(),
         })
       },
       close: () => {
@@ -297,6 +325,7 @@ export async function observePhotoActivation(page: Page) {
         stopped = true
         cancelAnimationFrame(raf)
         document.removeEventListener('click', click, true)
+        stopTarget()
         departingCanvases.clear()
       },
     }

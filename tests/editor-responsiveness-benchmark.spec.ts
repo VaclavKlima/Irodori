@@ -5,6 +5,7 @@ import { importPhotos } from './import.helpers'
 import { foregroundTest, requiresForeground } from './foreground'
 import { recordBenchmark } from './benchmark.helpers'
 import { sustainedEditorInput, type WorkabilitySlider } from './mac-workability.helpers'
+import { editorInputPacingSummary } from './editor-input-pacing.helpers'
 import { HDR_PRESENTATION_BUDGET } from '../src/renderer/src/preview/hdr-memory'
 import { ACES_INTERACTIVE_PREVIEW_VERSION } from '../src/shared/aces-preview-wgsl'
 import { provenance } from '../scripts/research/pipeline/provenance'
@@ -76,6 +77,8 @@ for (const layout of [
             'tests/fixtures/sony-zv1.ARW',
             'tests/editor-responsiveness-benchmark.spec.ts',
             'tests/mac-workability.helpers.ts',
+            'tests/editor-input-pacing.helpers.ts',
+            'tests/editor-input-pacing.spec.ts',
             'src/renderer/src/preview/hdr-presenter.ts',
             'src/renderer/src/preview/hdr-shader.ts',
             'src/renderer/src/preview/hdr-render-cache.ts',
@@ -150,7 +153,12 @@ for (const layout of [
           for (const zoom of ['fit', '100%'] as const)
             for (const label of sliders)
               for (let repetition = 0; repetition < 3; repetition++) {
-                const trial = await sustainedEditorInput(page, { label, zoom, frequency })
+                const trial = await sustainedEditorInput(page, {
+                  label,
+                  zoom,
+                  frequency,
+                  pacing: frequency === 120 ? 'timer-deadline-v1' : 'native-raf',
+                })
                 trials.push({
                   ...trial,
                   repetition,
@@ -221,10 +229,21 @@ for (const layout of [
               clock:
                 'renderer performance; completed GPU blit followed by a native animation frame; physical scanout unmeasured',
               histogramPolicy:
-                'Independent nonblocking analysis; historical 33 ms latency gate recorded separately, final convergence required. Warm input latency excludes separately measured refinement-intent presentations; every observed frame remains in raw evidence.',
+                'Independent nonblocking analysis; historical 33 ms latency gate recorded separately, final convergence required. First-visible gates include first-only final feedback; historical interaction-intent quantiles and duplicate exact refinement remain separate. All observations are retained in raw evidence.',
               trials: trials.map(
-                ({ inputs, requests, presentations, histograms, gpuObservations, ...trial }) => ({
+                ({
+                  inputs,
+                  requests,
+                  presentations,
+                  histograms,
+                  gpuObservations,
+                  publicationIdentities,
+                  pacing,
+                  ...trial
+                }) => ({
                   ...trial,
+                  pacing: editorInputPacingSummary(pacing),
+                  publicationIdentityCount: publicationIdentities.length,
                   inputCount: inputs.length,
                   presentationCount: presentations.length,
                   observedRequestCount: requests.length,
@@ -237,9 +256,9 @@ for (const layout of [
             },
             gates: trials.flatMap((trial) =>
               [
-                ['interactionLatencyP95Ms', 33],
-                ['interactionLatencyP99Ms', 50],
-                ['interactionLatencyMaximumMs', 100],
+                ['firstVisibleLatencyP95Ms', 33],
+                ['firstVisibleLatencyP99Ms', 50],
+                ['firstVisibleLatencyMaximumMs', 100],
                 ['longestPresentationGapMs', 100],
                 ['visibleUpdateShortfall', 0],
                 ['refinementMs', 200],
@@ -290,6 +309,11 @@ for (const layout of [
             .toBe(true)
           expect.soft(trial.regressed, context).toBe(false)
           expect.soft(trial.attributionFailures, context).toBe(0)
+          expect.soft(trial.baselineSourceMatched, context).toBe(true)
+          expect
+            .soft(trial.pacingMode, context)
+            .toBe(frequency === 120 ? 'timer-deadline-v1' : 'native-raf')
+          expect.soft(trial.pacing?.omittedNativeRafSamples, context).toBe(0)
           expect.soft(trial.finalMatched, context).toBe(true)
           expect.soft(trial.histogramMatched, context).toBe(true)
           expect.soft(trial.sourceUploads, context).toBe(1)
@@ -309,16 +333,16 @@ for (const layout of [
         test.skip(
           (environment.viewport as { dpr: number }).dpr !== 2 ||
             trials.some((trial) => trial.achievedHz < frequency * 0.99),
-          'Actual DPR 2 or 99% requested native cadence was not achieved; configuration acceptance is incomplete and all evidence is retained.',
+          'Actual DPR 2 or 99% requested input cadence was not achieved; pacing mode, native rAF samples and dispatch lateness are retained separately. Configuration acceptance is incomplete.',
         )
         for (const trial of trials) {
           const context = `${layout.name} ${frequency}Hz ${trial.zoom} ${trial.label} #${trial.repetition}`
-          expect.soft(trial.interactionLatencyP95Ms, context).not.toBeNull()
-          expect.soft(trial.interactionLatencyP95Ms!, context).toBeLessThanOrEqual(33)
-          expect.soft(trial.interactionLatencyP99Ms, context).not.toBeNull()
-          expect.soft(trial.interactionLatencyP99Ms!, context).toBeLessThanOrEqual(50)
-          expect.soft(trial.interactionLatencyMaximumMs, context).not.toBeNull()
-          expect.soft(trial.interactionLatencyMaximumMs!, context).toBeLessThanOrEqual(100)
+          expect.soft(trial.firstVisibleLatencyP95Ms, context).not.toBeNull()
+          expect.soft(trial.firstVisibleLatencyP95Ms!, context).toBeLessThanOrEqual(33)
+          expect.soft(trial.firstVisibleLatencyP99Ms, context).not.toBeNull()
+          expect.soft(trial.firstVisibleLatencyP99Ms!, context).toBeLessThanOrEqual(50)
+          expect.soft(trial.firstVisibleLatencyMaximumMs, context).not.toBeNull()
+          expect.soft(trial.firstVisibleLatencyMaximumMs!, context).toBeLessThanOrEqual(100)
           expect.soft(trial.longestPresentationGapMs, context).toBeLessThanOrEqual(100)
           expect
             .soft(trial.visibleUpdatesPerSecond, `${context}; not a 120 fps claim`)

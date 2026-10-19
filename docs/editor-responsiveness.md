@@ -187,7 +187,8 @@ fresh-confirmation handling and cancellation guards also received corrections.
 Those later fixes require their focused rerun. Broader sliders, fullscreen/120 Hz,
 navigation, contention and complete lifecycle acceptance remain pending.
 
-The corrected candidate subsequently passed all 48 trials at 1440 × 900,
+The corrected candidate subsequently passed the then-current assertions in all
+48 trials at 1440 × 900,
 Console closed and 60 Hz: eight sliders × Fit/100% × three repetitions. This
 run enables both experimental selectors. Fit's worst interaction p95/p99 were
 26.0/26.4 ms, and 100%'s were 17.9/18.4 ms. Worst individual interaction latency
@@ -198,9 +199,23 @@ history entry and passed source, loader and attribution checks. Logical
 presentation allocation was 754,566,347 bytes, including the 64 MiB reservation.
 [Eight-slider report](../artifacts/verification/playwright-1792347606774-70a84872-0f11-4b05-a68d-9e85df39dea4/playwright/summary.json).
 
+A later audit found that filtering latency to `interactive` request intent omitted
+each gesture's final input, whose first observed feedback arrived as canonical
+output after release. Reanalysis of the preserved raw observations includes the
+first changed visible response regardless of intent and excludes only duplicate
+refinement of an already observed input. **Three of 48 candidate trials exceed
+the 100 ms maximum**, at 107.8, 108.6 and 109.1 ms; worst p95 remains 26.0 ms and
+worst p99 is 32.6 ms. All 48 reference trials miss at least one latency gate.
+This corrects the acceptance interpretation without changing the old artifacts.
+The reanalysis cannot recover unobserved frames, prove completed-frame source
+attribution or remove the recorded display-target mismatch. Final-input feedback
+therefore joins the remaining candidate work before adoption.
+[First-visible audit](../artifacts/verification/2026-10-19T05-17-47.735Z-first-visible-audit/summary.md).
+
 A subsequent canonical reference run used the same Sony fixture, 1440 × 900
 layout, DPR 2, 60 Hz input, eight slider labels and three repetitions at both
-zooms. It failed 165 assertions; the candidate's corresponding 48 trials passed.
+zooms. It failed 165 assertions; the candidate's corresponding 48 trials passed
+the older assertions, subject to the first-visible correction above.
 The following are medians of 24 per-trial quantiles/rates for each zoom, rather
 than pooled percentile estimates. Every corresponding per-trial p95 improved.
 
@@ -417,9 +432,51 @@ default/merge decision remain pending; both experimental selectors remain off
 by default.
 [Consolidation report](../artifacts/verification/2026-10-19T03-09-50.022Z-check-XJjLGt/summary.md).
 
+Read-only macOS power logs subsequently confirmed **973-, 908- and 959-second
+sleep intervals** within that invocation. These correspond in sequence to the
+formatting gap and the two import-setup durations; the original failed result is
+unchanged. A bounded extraction records only the relevant power transitions.
+No power configuration was changed. Native acceptance remains dependent on an
+available awake and unlocked graphical session.
+[Host sleep evidence](../artifacts/verification/2026-10-19T05-16-45.458Z-host-sleep/summary.md).
+
 The two new fast CPU-presenter cases separately passed in 0.32 seconds. They
 exercise late replies, confirmation loss, draft-to-full continuation and
 changed-source bitmap/generation retirement without decoding or native GPU work.
+
+## Measurement corrections before the next native run
+
+The new goal's 120 Hz slider and spatial cases explicitly select
+`timer-deadline-v1` input pacing. Absolute timer deadlines can exercise 120 inputs
+per second even when native animation frames arrive at 60 Hz. Every input yields
+a task, overdue dispatch remains charged as lateness, and independent native-rAF
+timestamps record actual presentation opportunities. The 60 Hz cases retain
+native-rAF pacing; legacy benchmark callers keep their existing driver. Requested
+input rate, actual dispatch rate, native-rAF rate and completed changed visible
+updates remain separate quantities. Timer input is not evidence of 120 fps.
+
+First-visible latency now includes an input first served by final-quality output
+after release. The historical interaction-intent metrics remain available, while
+the new goal gates use first changed visible feedback and exclude only duplicate
+refinement. Contention tails use the same rule even when the first response
+arrives after the background operation ends. Slider attribution also records
+actual completed source/epoch/intent and rechecks them after the presentation
+observation; copying request metadata alone does not prove what was displayed.
+
+Navigation acceptance now requires the current authoritative display generation,
+the exact confirmed native/cached edit revision, the managed target-photo source,
+and the existing settings/quality/presentation criteria at the post-paint endpoint.
+Every ordinary cold and warm sample must complete before percentile aggregation.
+Rapid reversals retain completed, superseded and missing inputs plus the longest
+continuous pending useful wait and any unfinished censored tail. Pending redraws
+for a changed target remain recorded without qualifying as useful output.
+
+Focused selection `editor-input-pacing` plus `verification` passed **362 checks
+in 19.85 seconds**, including type checking, lint, formatting and five new pacing/
+first-visible cases. The initial lint failure was corrected and its exact stage
+rerun before the passing selection. These measurement corrections do not supply
+new native acceptance evidence or enable either experimental rendering selector.
+[Focused verification](../artifacts/verification/2026-10-19T05-21-34.836Z-check-Pmr8xL/summary.md).
 
 ## Primary-source research
 

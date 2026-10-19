@@ -263,14 +263,14 @@ function changedEditorMetrics(trial: InputTrial) {
     ...visible.map((frame) => frame.at),
     trial.inputReleasedAt,
   ]
-  const latencies = changed
-    .filter((frame) => frame.intent === 'interactive')
-    .map((frame) => frame.latencyMs)
-    .sort((a, b) => a - b)
+  // A first response that arrives only after release is still interaction latency.
+  // The changed-input set already excludes duplicate canonical refinement.
+  const latencies = changed.map((frame) => frame.latencyMs).sort((a, b) => a - b)
   const quantile = (p: number) =>
     latencies.length ? latencies[Math.ceil(latencies.length * p) - 1] : null
   const rate = (visible.length * 1000) / (trial.inputReleasedAt - trial.inputs[0].at)
   return {
+    latencyPolicy: 'first-visible-changed-input-v1',
     changedPresentationCount: changed.length,
     duplicatePresentationCount: trial.presentations.length - changed.length,
     visibleUpdatesPerSecond: rate,
@@ -320,8 +320,8 @@ function overlap(editor?: EditorResult, operation?: OperationResult) {
     within = (at: number) =>
       at + trial.epochMs >= operation.startedAtEpochMs && at + trial.epochMs <= end,
     inputCount = trial.inputs.filter((input) => within(input.at)).length,
-    contended = changedEditorPresentations(trial).filter(
-      (frame) => frame.intent === 'interactive' && within(trial.inputs[frame.serial].at),
+    contended = changedEditorPresentations(trial).filter((frame) =>
+      within(trial.inputs[frame.serial].at),
     ),
     visibleDuringOverlap = contended.filter(
       (frame) => frame.at + trial.epochMs >= overlapStart && frame.at + trial.epochMs <= overlapEnd,
@@ -354,7 +354,7 @@ function overlap(editor?: EditorResult, operation?: OperationResult) {
       : 0,
     changedVisiblePresentationsDuringOverlap: visibleDuringOverlap.length,
     latencyObservation:
-      'Contended-input responses retain their full latency even when presentation occurs after task completion; visible rate/gaps use only the actual overlap interval.',
+      'First visible changed-input responses retain their full latency even when presentation occurs after release or task completion; duplicate canonical refinement is excluded, and visible rate/gaps use only the actual overlap interval.',
     inputCount,
     inputFraction: inputCount / trial.inputs.length,
     contendedPresentationCount: contended.length,

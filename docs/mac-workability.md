@@ -36,8 +36,10 @@ GPU merge handoff below.
 The versioned Float32 gesture preview and exact retained presentation cache
 remain opt-in through `VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` and
 `VITE_LUMA_HDR_PRESENTATION_CACHE=1`. The recorded eight-slider, Fit/100%,
-1440 × 900, DPR 2, 60 Hz candidate cohort passed its 48 trials; the reference
-comparison retains a captured display-headroom mismatch, so the descriptive
+1440 × 900, DPR 2, 60 Hz candidate cohort passed its original 48-trial assertions.
+The later first-visible audit retains three maximum-latency misses of
+107.8–109.1 ms after including the final gesture input's first response. The
+reference comparison retains a captured display-headroom mismatch, so the descriptive
 speedup is not a controlled identical-target claim. The 96 MiB cache reservation
 fits within the unchanged 768 MiB aggregate cap and improves measured fullscreen
 revisits, while cold selection and the small-layout first warm miss remain

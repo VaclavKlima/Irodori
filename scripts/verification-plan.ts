@@ -139,6 +139,7 @@ const definitions: Suite[] = [
   { file: 'hdr-readback', group: 'node', scopes: ['preview'] },
   { file: 'hdr-cpu-presenter', group: 'node', scopes: ['preview', 'adjustments'] },
   { file: 'write-hdr-strip', group: 'node', scopes: ['preview'] },
+  { file: 'editor-input-pacing', group: 'node', scopes: ['preview', 'adjustments'] },
   {
     file: 'hdr-presentation-cache-ui',
     group: 'raw-gpu',

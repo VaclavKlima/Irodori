@@ -25,7 +25,12 @@ const hashes = async () =>
     await Promise.all(files.map(async (file) => [file, sha(await readFile(file))])),
   )
 const quantile = (values: (number | null)[], p: number) => {
-  const sorted = values.filter((value): value is number => value !== null).sort((a, b) => a - b)
+  const sorted: number[] = []
+  for (const value of values) {
+    if (value === null || !Number.isFinite(value)) return null
+    sorted.push(value)
+  }
+  sorted.sort((a, b) => a - b)
   return sorted.length ? sorted[Math.ceil(sorted.length * p) - 1] : null
 }
 
@@ -147,6 +152,8 @@ for (const layout of [
             'Fresh isolated library; RAWs imported and edited with Editor suspended. OS/driver caches uncontrolled. First cold activation enters Editor; second uses the native photo button.',
           sampleLimitations:
             'Two cold diagnostics and ten ordinary warm activations per layout; these samples do not establish population-tail confidence or full goal acceptance. First workspace-entry cold clock is distinguished from photo-click clocks.',
+          rapidWaitDefinition:
+            'A pending useful wait starts at the first activation and spans superseded inputs until the next correctly attributed post-paint useful completion. Idle time after a completion is excluded; an unfinished tail remains a censored lower bound.',
         }
         const firstName = await page.getByTestId('main-preview').getAttribute('aria-label')
         const first = targets.find((target) => target.filename === firstName)!
@@ -251,12 +258,18 @@ for (const layout of [
         }
       }
       const result = observed as {
+        observedAt: number
         activations: {
           phase: string
+          startedAt: number
+          supersededAt: number | null
+          firstUsefulAt: number | null
           firstUsefulMs: number | null
+          nativeReadyAt: number | null
           nativeReadyMs: number | null
           firstUsefulKind: string | null
-          nativeReady: {
+          firstUseful?: unknown
+          nativeReady?: {
             allocatedBytes: number
             retainedBytes: number
             viewport: { width: number; height: number; dpr: number }
@@ -272,6 +285,38 @@ for (const layout of [
       const cold = result.activations.filter((sample) => sample.phase.startsWith('cold'))
       const warm = result.activations.filter((sample) => sample.phase.startsWith('warm'))
       const rapid = result.activations.filter((sample) => sample.phase === 'rapid-reversal')
+      expect(cold).toHaveLength(2)
+      expect(warm).toHaveLength(10)
+      expect(rapid).toHaveLength(12)
+      for (const sample of [...cold, ...warm]) {
+        const label = `${sample.phase} ${sample.target.filename}`
+        expect(sample.firstUseful, `${label} useful post-paint snapshot`).toBeDefined()
+        expect(sample.nativeReady, `${label} native post-paint snapshot`).toBeDefined()
+        expect(sample.firstUsefulAt, `${label} useful completion`).not.toBeNull()
+        expect(sample.nativeReadyAt, `${label} native completion`).not.toBeNull()
+        expect(sample.firstUsefulMs, `${label} useful latency`).not.toBeNull()
+        expect(sample.nativeReadyMs, `${label} native latency`).not.toBeNull()
+        expect(Number.isFinite(sample.firstUsefulMs), `${label} finite useful latency`).toBe(true)
+        expect(Number.isFinite(sample.nativeReadyMs), `${label} finite native latency`).toBe(true)
+      }
+      const completedBeforeSupersession = (sample: (typeof rapid)[number], at: number | null) =>
+        at !== null && (sample.supersededAt === null || at <= sample.supersededAt)
+      const rapidUsefulCompleted = rapid.filter((sample) =>
+        completedBeforeSupersession(sample, sample.firstUsefulAt),
+      )
+      const rapidNativeCompleted = rapid.filter((sample) =>
+        completedBeforeSupersession(sample, sample.nativeReadyAt),
+      )
+      const rapidSuperseded = rapid.filter((sample) => sample.supersededAt !== null)
+      const rapidUsefulWaits: number[] = []
+      let rapidWaitingSince: number | null = null
+      for (const sample of rapid) {
+        rapidWaitingSince ??= sample.startedAt
+        if (completedBeforeSupersession(sample, sample.firstUsefulAt)) {
+          rapidUsefulWaits.push(sample.firstUsefulAt! - rapidWaitingSince)
+          rapidWaitingSince = null
+        }
+      }
       const coldP95Ms = quantile(
         cold.map((sample) => sample.firstUsefulMs),
         0.95,
@@ -303,9 +348,22 @@ for (const layout of [
             (sample) => sample.firstUsefulKind === 'native-normal',
           ).length,
           rapidInputs: rapid.length,
-          rapidWithoutUsefulBeforeSupersession: rapid.filter(
-            (sample) => sample.firstUsefulMs === null,
+          rapidUsefulCompletedInputs: rapidUsefulCompleted.length,
+          rapidNativeCompletedInputs: rapidNativeCompleted.length,
+          rapidSupersededInputs: rapidSuperseded.length,
+          rapidSupersededWithoutUseful: rapidSuperseded.filter(
+            (sample) => !completedBeforeSupersession(sample, sample.firstUsefulAt),
           ).length,
+          rapidMissingUsefulInputs: rapid.filter((sample) => sample.firstUsefulAt === null).length,
+          rapidWithoutUsefulBeforeSupersession: rapid.filter(
+            (sample) => !completedBeforeSupersession(sample, sample.firstUsefulAt),
+          ).length,
+          rapidLongestCompletedUsefulWaitMs: rapidUsefulWaits.length
+            ? Math.max(...rapidUsefulWaits)
+            : null,
+          rapidUsefulWaitCensored: rapidWaitingSince !== null,
+          rapidOpenUsefulWaitLowerBoundMs:
+            rapidWaitingSince === null ? 0 : result.observedAt - rapidWaitingSince,
           rapidLastFirstUsefulMs: rapid.at(-1)?.firstUsefulMs ?? null,
           wrongVisiblePublications: result.activations.reduce(
             (sum, sample) => sum + sample.wrongVisiblePublications,
@@ -337,9 +395,6 @@ for (const layout of [
       })
       expect(after).toEqual(before)
       expect(environment.compiledCacheRequested).toBe(true)
-      expect(cold).toHaveLength(2)
-      expect(warm).toHaveLength(10)
-      expect(rapid).toHaveLength(12)
       expect(rapid.at(-1)!.target.id).toBe(
         cold.find((sample) => sample.phase === 'cold-photo-selection')!.target.id,
       )
@@ -351,6 +406,13 @@ for (const layout of [
       expect.soft(rapid.at(-1)!.firstUsefulMs!).toBeLessThanOrEqual(100)
       for (const sample of result.activations) {
         expect.soft(sample.wrongVisiblePublications).toBe(0)
+        for (const at of [sample.firstUsefulAt, sample.nativeReadyAt]) {
+          if (at === null) continue
+          expect.soft(at).toBeGreaterThanOrEqual(sample.startedAt)
+          if (sample.supersededAt !== null) expect.soft(at).toBeLessThanOrEqual(sample.supersededAt)
+        }
+        if (sample.firstUsefulAt !== null && sample.nativeReadyAt !== null)
+          expect.soft(sample.firstUsefulAt).toBeLessThanOrEqual(sample.nativeReadyAt)
         if (!sample.nativeReady) continue
         expect.soft(sample.nativeReady.allocatedBytes).toBeGreaterThan(0)
         expect.soft(sample.nativeReady.allocatedBytes).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)

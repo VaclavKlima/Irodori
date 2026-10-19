@@ -5,6 +5,7 @@ import { importPhotos } from './import.helpers'
 import { foregroundTest, requiresForeground } from './foreground'
 import { focusPreviewWindow } from './preview-pan.helpers'
 import { recordBenchmark } from './benchmark.helpers'
+import { editorInputPacingSummary } from './editor-input-pacing.helpers'
 import {
   warmSpatialPath,
   sustainedSpatialInput,
@@ -61,6 +62,8 @@ for (const layout of [
           ...(await provenance([
             'tests/editor-spatial-responsiveness-benchmark.spec.ts',
             'tests/editor-spatial-responsiveness.helpers.ts',
+            'tests/editor-input-pacing.helpers.ts',
+            'tests/editor-input-pacing.spec.ts',
             'tests/preview-pan.helpers.ts',
             'tests/fixtures/sony-zv1.ARW',
             'src/renderer/src/preview/hdr-presenter.ts',
@@ -154,7 +157,12 @@ for (const layout of [
                   .toBe(true)
               }
               try {
-                const trial = await sustainedSpatialInput(page, { gesture, frequency, cursor })
+                const trial = await sustainedSpatialInput(page, {
+                  gesture,
+                  frequency,
+                  cursor,
+                  pacing: frequency === 120 ? 'timer-deadline-v1' : 'native-raf',
+                })
                 trials.push({
                   ...trial,
                   repetition,
@@ -228,9 +236,11 @@ for (const layout of [
                     analysisObservations,
                     displayTargets,
                     warmup,
+                    pacing,
                     ...trial
                   }) => ({
                     ...trial,
+                    pacing: editorInputPacingSummary(pacing),
                     inputCount: inputs.length,
                     requestCount: requests.length,
                     publicationCount: publications.length,
@@ -281,6 +291,10 @@ for (const layout of [
           expect.soft(trial.regressed, context).toBe(false)
           expect.soft(trial.attributionFailures, context).toBe(0)
           expect
+            .soft(trial.pacingMode, context)
+            .toBe(frequency === 120 ? 'timer-deadline-v1' : 'native-raf')
+          expect.soft(trial.pacing?.omittedNativeRafSamples, context).toBe(0)
+          expect
             .soft(
               trial.publications.every(
                 (frame) => frame.quality === 'normal' && frame.presentedPolicy === 'reference',
@@ -321,7 +335,7 @@ for (const layout of [
         }
         test.skip(
           trials.some((trial) => trial.viewport.dpr !== 2 || trial.achievedHz < frequency * 0.99),
-          'DPR 2 or 99% native input cadence was not achieved; all evidence is retained and configuration acceptance is incomplete.',
+          'DPR 2 or 99% requested input cadence was not achieved; pacing mode, native rAF samples and dispatch lateness are retained separately. Configuration acceptance is incomplete.',
         )
         for (const trial of trials) {
           const context = `${layout.name} ${frequency}Hz ${trial.gesture} #${trial.repetition}`

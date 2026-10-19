@@ -118,6 +118,8 @@ interface PresentationRequest {
   analysisSamples: number
   requestedAt: number
   sourceIdentity: string
+  /** Captured only for non-gesture parameters matching the confirmed edit state. */
+  settingsRevision: number | null
   epoch: number
   interactivePrecision: boolean
 }
@@ -265,6 +267,7 @@ export class HdrPresenter {
       'completedEditSerial',
       'nativeEditingReadyAt',
       'presentedSourceIdentity',
+      'presentedSettingsRevision',
       'presentedEpoch',
       'presentedView',
       'uploadMs',
@@ -978,6 +981,12 @@ export class HdrPresenter {
         analysisSamples: this.gesturing ? 8192 : 65536,
         requestedAt,
         sourceIdentity,
+        settingsRevision:
+          !this.gesturing &&
+          this.presentationState &&
+          sameAdjustments(this.presentationState.settings, parameters)
+            ? this.presentationState.revision
+            : null,
         epoch: this.epoch,
         interactivePrecision: INTERACTIVE_PRECISION && this.gesturing && this.mode === 'after',
       },
@@ -1403,6 +1412,9 @@ export class HdrPresenter {
       nativeEditingReadyAt: String(performance.now()),
       presentedView: JSON.stringify(view),
     })
+    if (request.value.settingsRevision === null)
+      delete this.canvas.dataset.presentedSettingsRevision
+    else this.canvas.dataset.presentedSettingsRevision = String(request.value.settingsRevision)
     this.nativePresented = true
     this.hideCachedPresentation()
     const completedIdentity = this.presentationIdentity(request.value)
