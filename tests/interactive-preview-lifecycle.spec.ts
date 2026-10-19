@@ -9,6 +9,7 @@ import { ACES_INTERACTIVE_PREVIEW_VERSION } from '../src/shared/aces-preview-wgs
 import { encodeHdr } from '../src/shared/hdr'
 import { HDR_PRESENTATION_BUDGET } from '../src/renderer/src/preview/hdr-memory'
 import type { AdjustmentParameters } from '../src/shared/adjustments'
+import type { EditState } from '../src/shared/edits'
 
 const fixture = 'tests/fixtures/sony-zv1.ARW'
 const originalSha256 = '14c9d2912584a3ccc5cf10f554fbe495fc960c36758a14d7d858b36ac5ca88e2'
@@ -360,32 +361,31 @@ async function inputExposure(slider: ReturnType<Page['locator']>, value: number)
   }, value)
 }
 
-async function holdLocalCommitReply(page: Page) {
-  return page.evaluateHandle(() => {
-    const descriptor = Object.getOwnPropertyDescriptor(window, 'luma')!,
-      original = window.luma
+async function holdLocalCommitReply(app: ElectronApplication, photoId: string) {
+  return app.evaluateHandle(({ ipcMain }, photoId) => {
+    const handlers = (
+        ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
+      )._invokeHandlers,
+      original = handlers.get('edits:update')!
     let release!: () => void
     const pending = new Promise<void>((resolve) => {
       release = resolve
     })
     const state = {
       calls: 0,
-      persisted: null as Awaited<ReturnType<typeof original.updateEdits>> | null,
+      persisted: null as EditState | null,
       released: false,
     }
-    Object.defineProperty(window, 'luma', {
-      configurable: true,
-      value: {
-        ...original,
-        updateEdits: async (...args: Parameters<typeof original.updateEdits>) => {
-          state.calls++
-          // Persist and broadcast normally; hold only this caller's real reply.
-          const next = await original.updateEdits(...args)
-          state.persisted = next
-          await pending
-          return next
-        },
-      },
+    ipcMain.removeHandler('edits:update')
+    ipcMain.handle('edits:update', async (...args) => {
+      // Persist and broadcast normally; hold only this caller's real reply.
+      const next = await original(...args)
+      if (args[1] === photoId) {
+        state.calls++
+        state.persisted = next as EditState
+        await pending
+      }
+      return next
     })
     return {
       state,
@@ -396,10 +396,11 @@ async function holdLocalCommitReply(page: Page) {
       close: () => {
         state.released = true
         release()
-        Object.defineProperty(window, 'luma', descriptor)
+        ipcMain.removeHandler('edits:update')
+        ipcMain.handle('edits:update', original)
       },
     }
-  })
+  }, photoId)
 }
 
 async function capture(app: ElectronApplication, page: Page, path: string) {
@@ -572,7 +573,7 @@ test(
         )
         .toBe(true)
       const before = await observation(page)
-      reply = await holdLocalCommitReply(page)
+      reply = await holdLocalCommitReply(app, id)
       // The last input has no intervening animation frame in which to render.
       await slider.evaluate((element) => {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
