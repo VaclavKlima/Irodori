@@ -57,7 +57,12 @@ export function useEdits(photoId: string | undefined, enabled = true) {
         if (current.current?.photoId === edit.state.photoId) {
           setError(String(error))
           setDraft(null)
-          accept(await window.luma.getEdits(edit.state.photoId))
+          const recovered = await window.luma.getEdits(edit.state.photoId)
+          if (
+            current.current?.photoId === edit.state.photoId &&
+            recovered.photoId === edit.state.photoId
+          )
+            accept(recovered)
         }
         throw error
       } finally {
@@ -132,19 +137,25 @@ export function useEdits(photoId: string | undefined, enabled = true) {
   }
   const history = useCallback(
     async (direction: 'undo' | 'redo') => {
+      const photoId = current.current?.photoId
+      if (!photoId) return
       try {
         await flush()
         const confirmed = current.current
-        if (!confirmed || !(direction === 'undo' ? confirmed.canUndo : confirmed.canRedo)) return
-        accept(
-          await window.luma[direction === 'undo' ? 'undoEdit' : 'redoEdit'](
-            confirmed.photoId,
-            confirmed.revision,
-          ),
+        if (
+          confirmed?.photoId !== photoId ||
+          !(direction === 'undo' ? confirmed.canUndo : confirmed.canRedo)
         )
+          return
+        const next = await window.luma[direction === 'undo' ? 'undoEdit' : 'redoEdit'](
+          confirmed.photoId,
+          confirmed.revision,
+        )
+        if (current.current?.photoId !== photoId || next.photoId !== photoId) return
+        accept(next)
         setError('')
       } catch (error) {
-        setError(String(error))
+        if (current.current?.photoId === photoId) setError(String(error))
       }
     },
     [flush, accept],

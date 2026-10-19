@@ -14,6 +14,7 @@ import { frameByteLength } from '../../shared/preview-frame'
 import { mergePrepareShader } from './merge-prepare-shader'
 import { mergePreparationParameters } from './merge-parameters'
 import { sensorBlendParameters } from './sensor-blend'
+import { copyHdrReadbackStrip } from './hdr-readback'
 
 export const GPU_RENDER_ID = 'bayer-ahd-srgb-gpu-2'
 export interface GpuFrame {
@@ -697,16 +698,16 @@ export class RawGpuRenderer {
             timings.hdrReadbackMapMs += performance.now() - mapping
             const values = new Float32Array(staging.getMappedRange())
             const orienting = performance.now()
-            for (let row = 0; row < count; row++)
-              for (let x = 0; x < outWidth; x++) {
-                const y = top + row
-                let dx = source.flip & 1 ? outWidth - 1 - x : x,
-                  dy = source.flip & 2 ? outHeight - 1 - y : y
-                if (source.flip & 4) [dx, dy] = [dy, dx]
-                const from = (row * rowBytes) / 4 + x * 4,
-                  to = (dy * orientedWidth + dx) * 4
-                for (let c = 0; c < 4; c++) pixels[to + c] = values[from + c]
-              }
+            copyHdrReadbackStrip(
+              values,
+              pixels,
+              outWidth,
+              outHeight,
+              rowBytes,
+              top,
+              count,
+              source.flip,
+            )
             timings.hdrOrientationCopyMs += performance.now() - orienting
             staging.unmap()
             staging.destroy()

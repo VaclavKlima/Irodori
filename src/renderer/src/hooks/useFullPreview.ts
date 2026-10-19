@@ -57,6 +57,7 @@ export function useFullPreview(
           regenerate,
           mode,
         )
+        if (cancelled) return
         if (!preview && !regenerate)
           preview = await window.luma.requestCachedFullPreview(photoId, requestId)
         if (cancelled) return

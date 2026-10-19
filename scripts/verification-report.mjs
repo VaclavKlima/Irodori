@@ -24,6 +24,21 @@ export function renderSummary(result) {
     ),
     '',
   ]
+  if (result.plan.candidateBuilds?.length) {
+    lines.push(
+      'Experimental renderer variants require explicit target selection and the matching build environment:',
+      '',
+      ...result.plan.candidateBuilds.map(
+        (candidate) =>
+          `- ${candidate.target}: ${candidate.selected ? 'selected' : 'not selected'}; ${Object.entries(
+            candidate.environment,
+          )
+            .map(([key, value]) => `${key}=${value}`)
+            .join(' ')}.`,
+      ),
+      '',
+    )
+  }
   for (const stage of result.stages.filter((s) =>
     ['blocked', 'skipped', 'incomplete'].includes(s.status),
   ))

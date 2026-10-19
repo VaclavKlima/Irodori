@@ -5,6 +5,7 @@ import { recordBenchmark } from './benchmark.helpers'
 import { focusPreviewWindow } from './preview-pan.helpers'
 import { benchmarkImport, finishBenchmarkImport } from './import-foreground.helpers'
 import { foregroundTest, requiresForeground } from './foreground'
+import { expectReferenceHdrPreview, hdrTestPolicy } from './hdr-test-policy.helpers'
 
 const foregroundReason =
   'HDR navigation latency requires native input and visible presentation against the existing foreground baseline.'
@@ -27,6 +28,7 @@ test(
     const canvas = page.getByTestId('main-preview')
     await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr', { timeout: 60000 })
     await expect(canvas).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
+    await expectReferenceHdrPreview(page)
     const importTask = await benchmarkImport(app, page, info)
     await canvas.focus()
     const initialSerial = Number(await canvas.getAttribute('data-requested-serial'))
@@ -39,6 +41,7 @@ test(
         canvas.evaluate(
           (element) =>
             element.dataset.quality === 'normal' &&
+            element.dataset.presentedPolicy === 'reference' &&
             element.dataset.completedEditSerial === element.dataset.requestedSerial,
         ),
       )
@@ -48,6 +51,7 @@ test(
       const device = canvas.getContext('webgpu')!.getConfiguration()!.device
       const samples: Record<string, number[]> = { pan: [], zoom: [] }
       const states: unknown[] = []
+      const policies: { quality?: string; presentedPolicy?: string }[] = []
       for (const kind of ['pan', 'zoom'] as const) {
         for (let i = 0; i < 45; i++) {
           await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
@@ -79,7 +83,12 @@ test(
             requestAnimationFrame(check)
           })
           await device.queue.onSubmittedWorkDone()
-          if (i >= 5) samples[kind].push(performance.now() - started)
+          const elapsed = performance.now() - started
+          policies.push({
+            quality: canvas.dataset.quality,
+            presentedPolicy: canvas.dataset.presentedPolicy,
+          })
+          if (i >= 5) samples[kind].push(elapsed)
         }
         states.push({
           kind,
@@ -97,6 +106,7 @@ test(
         samples,
         p95,
         states,
+        policies,
         backend: canvas.dataset.backend,
         viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
       }
@@ -111,6 +121,7 @@ test(
         samplesPerGesture: 40,
         backend: result.backend,
         viewport: result.viewport,
+        policy: hdrTestPolicy,
       },
       gates: [
         { metric: 'panP95Ms', operator: '<=', limit: 33 },
@@ -119,6 +130,11 @@ test(
       evidence: [info.outputPath('interaction.json')],
     })
     expect(result.backend).toBe('webgpu-hdr')
+    expect(
+      result.policies.every(
+        (frame) => frame.quality === 'normal' && frame.presentedPolicy === 'reference',
+      ),
+    ).toBe(true)
     expect(result.p95.pan).toBeLessThanOrEqual(33)
     expect(result.p95.zoom).toBeLessThanOrEqual(33)
     await finishBenchmarkImport(page, importTask)
@@ -141,6 +157,7 @@ test(
       viewport = page.getByTestId('preview-viewport')
     await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr', { timeout: 60000 })
     await expect(canvas).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
+    await expectReferenceHdrPreview(page)
     const importTask = await benchmarkImport(app, page, info)
     await canvas.focus()
     const initialSerial = Number(await canvas.getAttribute('data-requested-serial'))
@@ -153,6 +170,7 @@ test(
         canvas.evaluate(
           (element) =>
             element.dataset.quality === 'normal' &&
+            element.dataset.presentedPolicy === 'reference' &&
             element.dataset.completedEditSerial === element.dataset.requestedSerial,
         ),
       )
@@ -168,6 +186,7 @@ test(
         const device = canvas.getContext('webgpu')!.getConfiguration()!.device
         const bounds = el.getBoundingClientRect()
         const latencies: number[] = []
+        const policies: { quality?: string; presentedPolicy?: string }[] = []
         let lastOffset = 0,
           before = 0
         const move = (offset: number) => {
@@ -208,6 +227,10 @@ test(
             requestAnimationFrame(check)
           })
           await device.queue.onSubmittedWorkDone()
+          policies.push({
+            quality: canvas.dataset.quality,
+            presentedPolicy: canvas.dataset.presentedPolicy,
+          })
         }
         for (let i = 0; i < 45; i++) {
           await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
@@ -237,11 +260,17 @@ test(
             requestAnimationFrame(check)
           })
           await device.queue.onSubmittedWorkDone()
+          const elapsed = performance.now() - start
+          policies.push({
+            quality: canvas.dataset.quality,
+            presentedPolicy: canvas.dataset.presentedPolicy,
+          })
           if (i === 4) before = Number(canvas.dataset.renderedTiles)
-          if (i >= 5) latencies.push(performance.now() - start)
+          if (i >= 5) latencies.push(elapsed)
         }
         return {
           latencies,
+          policies,
           p95Ms: [...latencies].sort((a, b) => a - b)[Math.ceil(latencies.length * 0.95) - 1],
           renderedTilesBefore: before,
           renderedTilesAfter: Number(canvas.dataset.renderedTiles),
@@ -261,6 +290,7 @@ test(
         backend: result.backend,
         pointerLocked: result.pointerLocked,
         viewport: result.viewport,
+        policy: hdrTestPolicy,
         samples: 40,
         warmupGestures: 5,
         eventsPerFrame: 4,
@@ -269,6 +299,11 @@ test(
       evidence: [info.outputPath('drag.json')],
     })
     expect(result.backend).toBe('webgpu-hdr')
+    expect(
+      result.policies.every(
+        (frame) => frame.quality === 'normal' && frame.presentedPolicy === 'reference',
+      ),
+    ).toBe(true)
     expect(result.renderedTilesAfter).toBe(result.renderedTilesBefore)
     expect(result.p95Ms).toBeLessThanOrEqual(33)
     await finishBenchmarkImport(page, importTask)
@@ -292,6 +327,7 @@ test(
     await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr', { timeout: 60000 })
     await expect(canvas).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
     await expect(canvas).toHaveAttribute('data-quality', 'normal')
+    await expectReferenceHdrPreview(page)
     await focusPreviewWindow(app, page)
     const importTask = await benchmarkImport(app, page, info)
     const measurements = []
@@ -304,6 +340,7 @@ test(
             canvas.evaluate(
               (el) =>
                 el.dataset.quality === 'normal' &&
+                el.dataset.presentedPolicy === 'reference' &&
                 el.dataset.completedEditSerial === el.dataset.requestedSerial,
             ),
           )
@@ -344,6 +381,7 @@ test(
                   throw new Error('Warm navigation did not settle.')
               } while (
                 canvas.dataset.quality !== 'normal' ||
+                canvas.dataset.presentedPolicy !== 'reference' ||
                 canvas.dataset.completedEditSerial !== canvas.dataset.requestedSerial
               )
             }
@@ -431,7 +469,13 @@ test(
               const inputTimes = new Map<number, number>(),
                 latencies: number[] = [],
                 completions: Promise<void>[] = [],
-                presentations: { at: number; serial: number; quality: string }[] = []
+                presentations: {
+                  at: number
+                  serial: number
+                  quality: string
+                  presentedPolicy: string
+                  previewPolicy: string
+                }[] = []
               let inputFinished = false,
                 regressed = false,
                 histogramUpdates = 0,
@@ -453,6 +497,8 @@ test(
                     at: performance.now(),
                     serial,
                     quality: canvas.dataset.quality!,
+                    presentedPolicy: canvas.dataset.presentedPolicy!,
+                    previewPolicy: canvas.dataset.interactivePolicy!,
                   })
                 const input = inputTimes.get(serial)
                 if (input === undefined) return
@@ -494,6 +540,7 @@ test(
               await wait(
                 () =>
                   canvas.dataset.quality === 'normal' &&
+                  canvas.dataset.presentedPolicy === 'reference' &&
                   canvas.dataset.completedEditSerial === canvas.dataset.requestedSerial,
               )
               await device.queue.onSubmittedWorkDone()
@@ -543,6 +590,7 @@ test(
           refinementMs: result.refinementMs,
           backend: result.backend,
           viewport: result.viewport,
+          policy: hdrTestPolicy,
         },
         gates: [
           ...(!result.cold ? [{ metric: 'p95Ms', operator: '<=' as const, limit: 33 }] : []),
@@ -568,6 +616,13 @@ test(
         expect(result.presentations.every((frame) => frame.quality === 'normal')).toBe(true)
       }
       expect(result.presentations.every((frame) => frame.quality === 'normal')).toBe(true)
+      expect(
+        result.presentations.every(
+          (frame) =>
+            frame.presentedPolicy === 'reference' &&
+            frame.previewPolicy === hdrTestPolicy.interactivePolicy,
+        ),
+      ).toBe(true)
     }
     await finishBenchmarkImport(page, importTask)
   },

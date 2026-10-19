@@ -36,6 +36,9 @@ const requestedPrecision = process.env.VITE_LUMA_HDR_INTERACTIVE_PRECISION ?? 'r
 if (!['reference', 'f32'].includes(requestedPrecision))
   throw new Error('VITE_LUMA_HDR_INTERACTIVE_PRECISION must be unset or f32.')
 const expectedPolicy = requestedPrecision === 'f32' ? ACES_INTERACTIVE_PREVIEW_VERSION : 'reference'
+const displayPreference = process.env.LUMA_RESPONSIVENESS_DISPLAY ?? 'auto'
+if (displayPreference !== 'auto' && displayPreference !== 'sdr')
+  throw new Error('LUMA_RESPONSIVENESS_DISPLAY must be auto or sdr.')
 
 for (const layout of [
   { name: '1100x700-console', width: 1100, height: 700, consoleOpen: true, fullscreen: false },
@@ -92,6 +95,8 @@ for (const layout of [
             window.setContentSize(width, height)
           }, layout)
           await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
+          if (displayPreference === 'sdr')
+            await page.evaluate(() => window.luma.setPreviewPreference('sdr'))
           await expect(canvas).toHaveAttribute('data-quality', 'normal', { timeout: 60000 })
           const toggle = page.getByTestId('console-toggle')
           if (((await toggle.getAttribute('aria-expanded')) === 'true') !== layout.consoleOpen)
@@ -125,6 +130,7 @@ for (const layout of [
             dpr: devicePixelRatio,
           }))
           environment = {
+            displayPreference,
             windowState,
             display,
             viewport,
@@ -272,6 +278,16 @@ for (const layout of [
           if (requestedPrecision === 'f32')
             expect.soft(trial.interactive, context).toBeGreaterThan(0)
           else expect.soft(trial.interactive, context).toBe(0)
+          expect
+            .soft(
+              trial.presentations.every(
+                (frame) =>
+                  frame.presentedPolicy ===
+                  (frame.quality === 'interactive' ? expectedPolicy : 'reference'),
+              ),
+              context,
+            )
+            .toBe(true)
           expect.soft(trial.regressed, context).toBe(false)
           expect.soft(trial.attributionFailures, context).toBe(0)
           expect.soft(trial.finalMatched, context).toBe(true)

@@ -111,6 +111,7 @@ export async function sustainedEditorInput(
       latencyMs: number
       quality: string
       previewPolicy: string
+      presentedPolicy: string
       intent: string
       timings?: Record<string, number>
       publicationObservedAt: number
@@ -171,6 +172,7 @@ export async function sustainedEditorInput(
             : publicationObservedAt - request.at,
         quality: canvas.dataset.quality ?? 'unknown',
         previewPolicy: canvas.dataset.interactivePolicy ?? 'reference',
+        presentedPolicy: canvas.dataset.presentedPolicy ?? 'unknown',
         intent: request?.intent ?? canvas.dataset.presentationIntent ?? 'unknown',
         timings: canvas.dataset.frameTimings
           ? (JSON.parse(canvas.dataset.frameTimings) as Record<string, number>)
@@ -375,7 +377,17 @@ export async function sustainedEditorInput(
     const p95 = (values: number[]) =>
       values.length ? [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1] : null
     const intervals = inputs.slice(1).map((input, i) => input.at - inputs[i].at)
-    const duringInput = presentations.filter(
+    const changedPresentations: typeof presentations = [],
+      seenInput = new Set<number>()
+    let previousValue: number | undefined
+    for (const presentation of [...presentations].sort((a, b) => a.at - b.at)) {
+      const value = inputs[presentation.serial].value
+      if (seenInput.has(presentation.serial) || value === previousValue) continue
+      seenInput.add(presentation.serial)
+      previousValue = value
+      changedPresentations.push(presentation)
+    }
+    const duringInput = changedPresentations.filter(
       (presentation) => presentation.at >= inputs[0].at && presentation.at <= releaseAt,
     )
     const presentationBoundaries = [
@@ -387,7 +399,7 @@ export async function sustainedEditorInput(
       .slice(1)
       .map((at, i) => at - presentationBoundaries[i])
     const latencySorted = presentations.map((frame) => frame.latencyMs).sort((a, b) => a - b)
-    const interactionLatencies = presentations
+    const interactionLatencies = changedPresentations
       .filter((frame) => frame.intent === 'interactive')
       .map((frame) => frame.latencyMs)
       .sort((a, b) => a - b)
@@ -460,6 +472,8 @@ export async function sustainedEditorInput(
       inputs,
       requests,
       presentations,
+      changedPresentationCount: changedPresentations.length,
+      duplicatePresentationCount: presentations.length - changedPresentations.length,
       requestCount: requests.length,
       observedRequestedInputCount: requestedInputSerials.size,
       observedPresentedInputCount: presentedInputSerials.size,

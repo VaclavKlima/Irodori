@@ -18,7 +18,7 @@ const reason =
   'Spatial editor acceptance requires native focus, pointer capture and Retina presentation cadence.'
 requiresForeground(test, reason)
 test.use({ hdrDisplay: true })
-const allGestures: SpatialGesture[] = ['pan', 'zoom', 'drag']
+const allGestures: SpatialGesture[] = ['pan', 'zoom', 'zoom-fit-native', 'drag']
 // A filtered diagnostic retains its samples but cannot establish full spatial acceptance.
 const selected = process.env.LUMA_RESPONSIVENESS_GESTURES?.split(',').map((value) => value.trim())
 if (
@@ -26,7 +26,9 @@ if (
   (selected.some((value) => !allGestures.includes(value as SpatialGesture)) ||
     new Set(selected).size !== selected.length)
 )
-  throw new Error('LUMA_RESPONSIVENESS_GESTURES must contain distinct pan, zoom or drag labels.')
+  throw new Error(
+    'LUMA_RESPONSIVENESS_GESTURES must contain distinct pan, zoom, zoom-fit-native or drag labels.',
+  )
 const gestures = (selected ?? allGestures) as SpatialGesture[]
 const matrixPartial = gestures.length !== allGestures.length
 
@@ -110,7 +112,8 @@ for (const layout of [
             ),
             target: await page.evaluate(() => window.luma.getDisplayState()),
             profileIsolation: 'electron.fixture temporary profile',
-            startingView: '100% native detail; zoom cycles 100–122%, pan/drag remain at 100%',
+            startingView:
+              'Pan/drag at 100%; zoom 100–122%; zoom-fit-native repeatedly crosses Fit→100% around an off-center pointer anchor.',
             requestedInteractivePrecision:
               process.env.VITE_LUMA_HDR_INTERACTIVE_PRECISION ?? 'reference',
           }
@@ -119,16 +122,19 @@ for (const layout of [
               await page
                 .getByRole('combobox', { name: 'Preview zoom', exact: true })
                 .selectOption('fit')
-              await page
-                .getByRole('combobox', { name: 'Preview zoom', exact: true })
-                .selectOption('1')
+              if (gesture !== 'zoom-fit-native')
+                await page
+                  .getByRole('combobox', { name: 'Preview zoom', exact: true })
+                  .selectOption('1')
               await expect
                 .poll(() =>
                   canvas.evaluate(
                     (element) =>
                       element.dataset.quality === 'normal' &&
                       element.dataset.completedEditSerial === element.dataset.requestedSerial &&
-                      element.dataset.analysisPending === 'false',
+                      element.dataset.analysisPending === 'false' &&
+                      !!element.dataset.analysisKey &&
+                      element.dataset.analysisKey === element.dataset.displayedAnalysisKey,
                   ),
                 )
                 .toBe(true)
@@ -212,12 +218,27 @@ for (const layout of [
                 observation:
                   'Only fenced publications surviving the following rAF are visible updates; observed request coalescing and unpublished inputs remain explicit. Release glide is included in refinement.',
                 trials: trials.map(
-                  ({ inputs, requests, publications, presentations, warmup, ...trial }) => ({
+                  ({
+                    inputs,
+                    requests,
+                    publications,
+                    presentations,
+                    changedPresentations,
+                    duplicatePresentations,
+                    analysisObservations,
+                    displayTargets,
+                    warmup,
+                    ...trial
+                  }) => ({
                     ...trial,
                     inputCount: inputs.length,
                     requestCount: requests.length,
                     publicationCount: publications.length,
-                    visiblePresentationCount: presentations.length,
+                    visiblePresentationCount: changedPresentations.length,
+                    observedVisibleRecordCount: presentations.length,
+                    observedDuplicateVisibleRecords: duplicatePresentations.length,
+                    analysisObservationCount: analysisObservations.length,
+                    displayTargetUpdateCount: displayTargets.length,
                     warmupInputs: warmup.inputs.length,
                   }),
                 ),
@@ -261,7 +282,9 @@ for (const layout of [
           expect.soft(trial.attributionFailures, context).toBe(0)
           expect
             .soft(
-              trial.publications.every((frame) => frame.quality === 'normal'),
+              trial.publications.every(
+                (frame) => frame.quality === 'normal' && frame.presentedPolicy === 'reference',
+              ),
               context,
             )
             .toBe(true)
@@ -274,6 +297,10 @@ for (const layout of [
             )
           expect.soft(trial.histogramUpdates, context).toBe(0)
           expect.soft(trial.histogramUnchanged, context).toBe(true)
+          expect.soft(trial.histogramCurveUnchanged, context).toBe(true)
+          expect.soft(trial.finalAnalysisSettled, context).toBe(true)
+          expect.soft(trial.omittedAnalysisObservations, context).toBe(0)
+          expect.soft(trial.omittedDisplayTargets, context).toBe(0)
           expect.soft(trial.historyUnchanged, context).toBe(true)
           expect.soft(trial.editsUnchanged, context).toBe(true)
           expect.soft(trial.uploadsBefore, context).toBe(1)

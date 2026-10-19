@@ -198,6 +198,27 @@ history entry and passed source, loader and attribution checks. Logical
 presentation allocation was 754,566,347 bytes, including the 64 MiB reservation.
 [Eight-slider report](../artifacts/verification/playwright-1792347606774-70a84872-0f11-4b05-a68d-9e85df39dea4/playwright/summary.json).
 
+A subsequent canonical reference run used the same Sony fixture, 1440 × 900
+layout, DPR 2, 60 Hz input, eight slider labels and three repetitions at both
+zooms. It failed 165 assertions; the candidate's corresponding 48 trials passed.
+The following are medians of 24 per-trial quantiles/rates for each zoom, rather
+than pooled percentile estimates. Every corresponding per-trial p95 improved.
+
+| View | Reference / candidate median interaction p95 | Reference / candidate median p99 | Reference / candidate median visible updates/s | Reference / candidate missing input values |
+| ---- | -------------------------------------------: | -------------------------------: | ---------------------------------------------: | -----------------------------------------: |
+| Fit  |                             93.05 / 18.00 ms |                  101.0 / 24.9 ms |                                  13.58 / 59.86 |                           4434 / 5 of 5760 |
+| 100% |                             66.65 / 17.60 ms |                   67.5 / 17.9 ms |                                  23.85 / 59.86 |                           3458 / 8 of 5760 |
+
+Fit's median paired per-trial p95 reduction is 80.63%; native detail's is
+73.54%. These are descriptive comparisons with a presentation-state limitation:
+the reference's captured HDR peak/headroom was 2.5270 (generation 9), whereas the
+candidate's was 1.3552 (generation 4). The fixed content rendition and source,
+layout and input cadence agree, but the actual display target was not identical.
+Do not present the percentage as a fully controlled same-target speedup. Preserve
+the actual target records and obtain a stable-target comparison before making
+that stronger claim.
+[Canonical reference evidence](../artifacts/verification/playwright-1792349350858-3d1b180c-0daf-497f-8522-c7762d79e541/playwright/summary.json).
+
 Independent native UI tests now pass the corrected table selection and tile
 identities in both native gamut and forced sRGB-only canvas configurations.
 Their observer records actual compute pipelines and bound ACES table bytes,
@@ -238,11 +259,17 @@ Do not exclude the first warm miss or describe these navigation gates as passing
 [Large-layout evidence](../artifacts/verification/playwright-1792348783947-eb65e0e2-bf4c-498f-930a-e8f183ae9cca/playwright/summary.json)
 and [small/fullscreen evidence](../artifacts/verification/playwright-1792348865320-4fa835d8-b733-4e15-90eb-439e33447de9/playwright/summary.json).
 
-The navigation observer currently conflates a still-visible loader or a newer
-pending request with wrong pixels in its attribution counter. At least one
-flagged frame has the correct source and committed parameters while React has
-not removed the loader. Preserve conservative first-useful timing, but separate
-identity errors from unfinished presentation before judging attribution.
+The navigation observer initially conflated a still-visible loader or a newer
+pending request with wrong pixels. The large first-control's three flagged
+frames had correct source and committed parameters with completed serial 2 and
+requested serial 3; fullscreen's one flagged frame had correct pixels/identity
+with the loader still present for a React paint. The corrected observer keeps
+wrong photo/source/committed-parameter counters separate from correct-but-not-yet-
+useful, loader-blocked and pending-request observations. It retains the original
+conservative first-useful clock and every first-warm miss. Bounded post-dispose
+departure diagnostics are collected from departing canvases without adding waits.
+The corrected observer has now been rerun with zero wrong-pixel publications;
+the timing misses remain below.
 
 The fixed 64 MiB reservation also narrows the pre-existing GPU frame envelope:
 6400 × 4800 with a 1000 × 1000 physical canvas fits without reservation at
@@ -252,6 +279,147 @@ Float32 asset size limit. This must be corrected by draining/deactivating retain
 presentations and retrying ordinary planning; raising the presentation cap is
 not an option. The cache stays experimental until this and navigation tails are
 resolved.
+
+## Cache and native transport follow-up
+
+The retained cache now has sticky per-presenter bypass. A source or viewport
+that needs ordinary headroom first pauses cache admission, retires all entries,
+waits for pinned GPU leases to drain and then plans with zero reservation. The
+ordinary 768 MiB cap is unchanged. A restored native canvas is also charged
+during source upload; a miss keeps the earlier envelope. This covers the wide
+16384 × 1800 counterexample where an uncharged cached canvas would overlap
+upload allocations. Concurrent drains, disposal and pause tokens are covered by
+the maintained Node cases.
+
+The new cache's reservation was increased from 64 to **96 MiB**, within the
+unchanged aggregate cap; the active tile capacity decreases to make room. This
+holds two native fullscreen surfaces. In the first three-layout comparison,
+all ten fullscreen ordinary warm switches improved from roughly 436–452 ms to
+**52.5–59.0 ms**, preserving exact source/edit identity. All ten large-window
+switches took **54.7–64.1 ms**. The small window retains its first warm miss at
+**395.8 ms**, with subsequent switches **53.7–58.1 ms**. The first photograph's
+initial display generation was 2 and its missed revisit used a later target;
+fresh output for a changed target must not reuse stale pixels. These samples
+are retained, not removed from the ordinary warm distribution. Cold selections
+remain **1.25–1.35 seconds** in this run, above 500 ms.
+[64 MiB run](../artifacts/verification/playwright-1792349999204-11f5eb2a-377d-4688-914b-3a4a83da6ffb/playwright/summary.json),
+[96 MiB run](../artifacts/verification/playwright-1792350142016-82c3b4e3-e363-419a-80ed-65fc0fda2ca8/playwright/summary.json).
+
+Unrotated Float32 readback now copies tight strips or individual padded rows
+without scalar channel assignments. Rotated mappings are unchanged; all eight
+orientations, partial strips, offsets and Float32 encodings are checked. In the
+three-layout diagnostic, its copy span fell from about 124 ms to **31–34 ms**.
+This is a stage improvement; variable native write times prevented a repeatable
+complete cold gain in that comparison. Both recorded working hashes stayed
+unchanged. Native writing is a separate exact candidate: one 64-row explicit-
+offset write replaces Node's internal 512 KiB `writeFile` chunks, with bounded
+short-write recovery. Hash order and bytes remain unchanged; no write/hash
+overlap was introduced. Three fresh application comparisons remain required.
+The inspected Node 24.20.0 implementation bounds each write in
+[`writeFileHandle`](https://github.com/nodejs/node/blob/v24.20.0/lib/internal/fs/promises.js#L1073-L1105),
+using the 512 KiB constant in
+[`internal/fs/utils.js`](https://github.com/nodejs/node/blob/v24.20.0/lib/internal/fs/utils.js#L137).
+This explains the candidate's syscall granularity; it does not establish an
+application speedup or change the durability contract.
+
+Focused type/lint/format and maintained Node verification passed **355 checks
+in 17.52 seconds**. A further sequential run passed the three cache UI cases,
+CPU/GPU corrected preparation agreement and **36 deer/fur photographic pairs**
+in **102.08 seconds**. The deer source retains working hash
+`628bf16922de7b011668611a8d17ed6eb4a942b58601642d0d887b7cc29c8797`.
+Its worst encoded error is 1/1024, p99 is zero, RMS is 0.00001795 and relative
+edge-energy change is 0.00000247. Human Retina/HDR review remains pending.
+[Node report](../artifacts/verification/2026-10-18T19-04-49.151Z-check-wtDuTq/summary.md),
+[GPU and fur evidence](../artifacts/verification/playwright-1792350329648-46a29a01-71bc-4d90-9285-fc925ecb7dc1/playwright/summary.json).
+
+The first native spatial matrix has passing pan, 100–122% zoom and drag at
+roughly 17–18 ms. Its broad Fit-to-native helper initially used fractional wheel
+coordinates that the browser quantized, causing strict expected-view failures.
+The observer now uses the dispatched event's actual coordinates; this changes
+neither the trajectory nor tolerance. That focused rerun and wider matrix remain
+pending. All failed evidence is retained.
+
+## Lifecycle and asynchronous publication ledger
+
+The October 18 focused consolidation remains a **failed** invocation: 362 passed,
+five failed, no skips, with 3051.48 seconds of elapsed time. It selected
+`hdr-content-ui`, `hdr-presentation-cache-ui` and
+`interactive-preview-lifecycle`, plus the routine cheap checks. Type checking,
+lint, formatting, build and the maintained Node cases passed. Host scheduling
+gaps affected the long CPU-recovery and cancellation cases, so their timeout
+durations are not valid performance measurements. They remain failed evidence;
+the later awake reruns below do not turn that invocation into a pass.
+[Failed consolidation](../artifacts/verification/2026-10-18T19-58-42.575Z-check-kF0mLC/summary.md).
+
+Three other failures required concrete metadata/proof corrections. The two
+upload-before-confirmation cases now observe completed GPU publication metadata
+and fresh per-presenter source-upload counters, rather than treating a previous
+presenter's fields as fresh output. Their first visible frame must carry the
+correct source and committed Exposure 1, while native upload alone keeps the
+unconfirmed canvas neutral and editing unavailable. The stale-Undo proof now
+establishes an independently prepared, fully edited raster reference and a
+matching no-Undo control before holding and releasing the previous photograph's
+real Undo reply. Every later source, edit revision, viewport, Inspector value and
+native compositor capture must match that reference exactly. Earlier comparisons
+had sampled preparation still in flight; neither pixel tolerances nor exact
+capture assertions were relaxed.
+
+Production also now requires fresh edit confirmation for initial GPU and CPU
+publication, rejects a stale null HDR response by request token before starting
+legacy fallback, and rechecks the active photo after awaited Undo/Redo replies
+before updating `useEdits`. A changed corrected CPU source retires old bitmaps
+and native-presentation authority before accepting fresh confirmed output.
+These guards address asynchronous ownership, not approximate preview quality.
+
+| Focused result                                                    | Confirmed outcome and measured test duration                                                                                                                                 | Evidence                                                                                                                                          |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native interactive-shader rejection                               | One passed; 40.6 seconds for complete corrected CPU recovery with unchanged history. This is a lifecycle test, not an interaction-latency sample.                            | [Awake rejection rerun](../artifacts/verification/playwright-1792367533806-4c569e88-dafc-4cf9-831a-7e37ccfcf373/playwright/summary.json)          |
+| Cancellation and photo switching with completed Float32 work held | One passed; 7.8 seconds, rejecting stale publication and preserving exact refinement.                                                                                        | [Awake cancellation rerun](../artifacts/verification/playwright-1792372016901-1cc847b8-0766-4774-a04b-b5dcd9ec2b35/playwright/summary.json)       |
+| Native upload completes before edit confirmation                  | Both new-photo and same-photo Library-resume cases passed; 11.5 seconds for the invocation. First visible source/settings and exact confirmed compositor pixels are checked. | [Reverse-completion-order rerun](../artifacts/verification/playwright-1792372076937-d9bc044a-dc59-43f6-aa01-511018f854a4/playwright/summary.json) |
+| Previous-photo Undo finishes after switching                      | One passed; 7.5 seconds, with an independent prepared reference, matching no-Undo control, exact pixels and stable current Inspector/source/revision.                        | [Exact stale-Undo proof](../artifacts/verification/playwright-1792376284621-047d4b7a-c4ef-47fb-82f2-05680e1f488d/playwright/summary.json)         |
+| CPU first publication and corrected-source replacement            | Both maintained Node cases passed; 0.32 seconds for the invocation. They reject superseded replies and close old bitmaps before fresh confirmed output.                      | [CPU ownership cases](../artifacts/verification/playwright-1792372160086-b743f7bf-30c9-4bed-98d2-4e13aca8d96c/playwright/summary.json)            |
+
+The earlier interrupted rejection replay and intermediate Undo proof failures are
+also retained alongside their passing reruns:
+[rejection replay](../artifacts/verification/playwright-1792364525284-c5ebcdce-8593-4a2c-ade1-ed00a1a76460/playwright/summary.json),
+[first Undo setup failure](../artifacts/verification/playwright-1792372102591-fe482219-b129-4d2b-9e43-334f7c1879e5/playwright/summary.json)
+and [incomplete raster-reference failure](../artifacts/verification/playwright-1792372177531-d5b9e74a-b7a1-453c-902f-50359625aa72/playwright/summary.json).
+No failed sample or artifact was removed. Device loss also passed its real
+Float32-to-CPU recovery case within the earlier failed consolidation; the
+coordinator's fresh focused consolidation of the final guards is recorded below.
+Do not claim a final consolidated pass before its compact report is available.
+
+## Pending follow-up experiments
+
+Two setup reruns and subsequent performance acceptance remain pending.
+Broader slider/spatial layouts, separate 120 Hz load and
+import/export/merge contention still require their application evidence after
+the latest publication guards. The preview and cache selectors stay disabled by
+default until the application-level adoption evidence is complete. Cold and
+first-warm navigation misses, human Retina/HDR quality validation and deferred
+Bazzite verification retain their existing status.
+
+## Final focused verification status
+
+The final focused consolidation finished with **367 passed, 2 failed, no skips**.
+Type checking, lint, formatting, build and all **357 Node cases** passed; Node
+execution took 9.24 seconds. Ten native cases passed, including the fresh
+confirmation, exact stale-Undo, CPU rejection recovery and cancellation checks.
+The two remaining cases stopped during import setup, before their tested
+behavior: the stale-null navigation case recorded 908 seconds against a
+120-second timeout, and device-loss setup recorded 959 seconds against a
+180-second timeout. Formatting itself recorded an unrelated 982-second gap.
+These are interrupted host conditions, not usable latency samples; no timing or
+quality threshold was relaxed. Both cases require exact reruns on an available,
+awake and unlocked Mac before adoption. A temporary wake assertion did not make
+the interrupted session reliable. The wider performance matrix and final
+default/merge decision remain pending; both experimental selectors remain off
+by default.
+[Consolidation report](../artifacts/verification/2026-10-19T03-09-50.022Z-check-XJjLGt/summary.md).
+
+The two new fast CPU-presenter cases separately passed in 0.32 seconds. They
+exercise late replies, confirmation loss, draft-to-full continuation and
+changed-source bitmap/generation retirement without decoding or native GPU work.
 
 ## Primary-source research
 
@@ -275,6 +443,33 @@ The darktable snapshot is `47b932b3eb3946583621f9a9515d6efb2b46959c`;
 RawTherapee is `b2ee504c47e5e6d5e054395aa12bf1fe43bd1c3c`. These are source
 inspection references, not new application dependencies. No third-party source
 is copied into Luma by this research.
+
+## Rendering decisions
+
+These decisions preserve the existing pipeline while evaluating the measured
+expensive work. "Retain" describes the current implementation; "experiment"
+does not mean a candidate is enabled by default. The source comparisons above
+motivate mechanisms, while only Luma's recorded trials establish its behavior.
+
+| Mechanism                          | Decision for this pass                                                                                                        | Evidence, constraints and remaining work                                                                                                                                                                                                                                                                                          |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Display-sized working previews     | Retain physical-canvas presentation; defer a separate early display-sized working asset.                                      | Record CSS dimensions, actual canvas dimensions and DPR. At DPR 2, a CSS-sized buffer alone would undersample the display. Cold selection still takes about 1.25–1.35 seconds; a new correctly edited early asset needs its own quality, source-identity and native-refinement proof.                                             |
+| Adaptive preview resolution        | Do not adopt a reduced-resolution gesture mode.                                                                               | The prior draft retained only 0.0772× synthetic and 0.4731× photographic edge energy. The current Float32 experiment changes arithmetic precision while retaining source, mip, sample positions and alpha; its improvement does not approve blur or undersampling.                                                                |
+| Image pyramids                     | Retain the uploaded source/mip pyramid and current detail policy.                                                             | Reuse avoids repeated active-photo uploads. Detail selection currently follows CSS scale; any future change must validate the physical sampling footprint, Fit/100% transitions and all orientations without replacing the frozen reference.                                                                                      |
+| Visible region / ROI               | Retain visible tile planning and the bounded transformed-tile cache.                                                          | Large-window baseline delay is dominated by tile evaluation. Reusing transformed texels is useful for warm navigation inside a photograph. Future neighborhood operators need explicit halos and consistent processing order; no new cropped decoder or spatial pipeline is adopted here.                                         |
+| Retained GPU intermediates         | Retain active-source and transformed-tile residency; experiment with exact completed presentation surfaces.                   | Warm source uploads remain one in the measured gestures. Completed `rgba16float` surface reuse avoids a full source upload before first useful revisit; it does not make Float16 equivalent to arbitrary Float32. The 96 MiB reservation remains inside 768 MiB, with drain/bypass when ordinary source planning needs the space. |
+| Caching and adjacent prefetch      | Keep revision/target-aware exact revisit caching experimental; defer adjacent source prefetch.                                | The 96 MiB candidate holds two fullscreen surfaces and measured ordinary fullscreen revisits at 52.5–59.0 ms. The small-layout first revisit still misses at 395.8 ms after a target change. Never reuse stale target/edit pixels; prefetch must fit existing budgets and yield to the active photograph.                         |
+| Cancellation and coalescing        | Retain immutable active/latest pending requests, stale-publication guards and bounded queues.                                 | Record every dispatched input, unique changed completed frame, coalesced request and gap. Surviving-frame latency alone is insufficient. Active Float32 cancellation, device loss and full CPU recovery require the focused lifecycle results before adoption.                                                                    |
+| Progressive display and refinement | Keep the versioned Float32 gesture candidate followed by canonical normal-quality rendering; defer a new early-mip cold path. | The 1440 × 900 all-slider candidate's longest canonical refinement was 124.1 ms in the recorded cohort. Navigation remains reference quality. Camera JPEGs remain excluded from the large preview, and a temporary frame must match the requested source, edits and output policy. Human Retina/HDR validation remains pending.   |
+| Foreground scheduling              | Retain editing/visible analysis priority, bounded background admission and independent histogram completion.                  | Import can legitimately pause at scheduler boundaries. Import, individual export, batch export and merge need actual overlap/progress evidence and contention-only cadence/gap measurements. Pending contention runs do not establish scheduler acceptance, and unrelated histogram readback must not delay a completed image.    |
+| Direct viewport rendering          | Defer replacement of the tile path; retain it as an exact comparison only if remaining measurements justify it.               | Transform-then-interpolate equivalence can require four transformed source taps per output sample. Retina increases physical sample count, while tiles reuse transformed texels. The completed-frame copy is already a small measured cost. No complete application evidence currently shows that direct rendering would win.     |
+
+The next decision is application-level adoption of the bounded candidates,
+subject to the acceptance matrix, rather than an unmeasured pipeline rewrite.
+Cold transport spans and native I/O remain separate from interactive shader
+timings. A faster copy or syscall sequence cannot stand in for a faster visible
+selection, and an automated numerical match cannot certify universal visual
+imperceptibility.
 
 ## Bounded candidate order
 
@@ -323,3 +518,22 @@ validation remains pending until performed; automated comparisons do not certify
 universal imperceptibility. Prepare reproducible Bazzite commands, fixtures,
 display/adapter metadata and cache conditions under TODO #29, without claiming
 Linux verification while that machine is unavailable.
+
+## Deferred Bazzite handoff
+
+The user deferred Bazzite work while the machine is unavailable. Track everyday
+editor verification alongside merge verification under
+[TODO #29](features/README.md#workspace-feedback-backlog), using
+[the separate editor continuation checklist](mac-workability.md#everyday-editor-continuation).
+The merge implementation remains frozen at
+`0a70599669c884fc70d2e2afe5f9a6527df44dbb`; it is not the revision for this later
+editor experiment. The coordinator must record the final tested editor revision
+and source/build identities before handoff. That revision is still pending.
+
+Keep `VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` and
+`VITE_LUMA_HDR_PRESENTATION_CACHE=1` explicit in candidate builds; an unset
+selector is the reference configuration. Linux acceptance requires its own
+measured cold/warm conditions, 60/120 Hz cadence, native display/DPR, quality,
+history, resources, cancellation/recovery and background-work results. Mac
+measurements provide no Linux result, and deferred Linux work does not block
+continued Mac feature development.

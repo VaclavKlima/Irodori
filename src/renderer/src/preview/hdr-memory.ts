@@ -2,6 +2,10 @@ import { ACES_DATA_BYTES } from '../../../shared/aces-data'
 import { HDR_CACHE_MAX_TILES, hdrCacheTileSize } from './hdr-render-cache'
 export const HDR_PRESENTATION_BUDGET = 768 * 1024 ** 2
 export const HDR_TRANSPORT_CHUNK_BYTES = 1024 * 1024
+/** Native canvas backing can overlap upload only when an exact cached presentation was restored. */
+export function hdrRestoredUploadMemory(width: number, height: number) {
+  return width * height * 32 + 1024 ** 2 * 4 + 64 * 1024
+}
 /** Upload buffers are released before analysis and the full presentation surface are allocated. */
 export function hdrPresentationMemory(
   width: number,
@@ -11,9 +15,12 @@ export function hdrPresentationMemory(
   maximumLayers = HDR_CACHE_MAX_TILES,
   diagnosticBytes = 0,
   retainedPresentationBytes = 0,
+  restoredUploadBytes = 0,
 ) {
   if (!Number.isSafeInteger(retainedPresentationBytes) || retainedPresentationBytes < 0)
     throw new Error('Invalid retained HDR presentation reservation.')
+  if (!Number.isSafeInteger(restoredUploadBytes) || restoredUploadBytes < 0)
+    throw new Error('Invalid restored HDR upload reservation.')
   let textureBytes = 0,
     maskBytes = 0
   for (
@@ -47,7 +54,8 @@ export function hdrPresentationMemory(
     transportBytes +
     sampleBytes +
     renderingBytes +
-    retainedPresentationBytes
+    retainedPresentationBytes +
+    restoredUploadBytes
   const uncachedPresentationPeak =
     textureBytes +
     analysisBytes +
@@ -80,6 +88,7 @@ export function hdrPresentationMemory(
     transportBytes,
     renderingBytes,
     retainedPresentationBytes,
+    restoredUploadBytes,
     cacheSlots,
     cacheBytes,
     tileSize,
@@ -88,5 +97,68 @@ export function hdrPresentationMemory(
     uploadPeak,
     presentationPeak,
     total: Math.max(uploadPeak, presentationPeak),
+  }
+}
+
+interface RetainedPresentationMemory {
+  readonly budget: number
+  pauseRetaining: () => () => void
+  clearAndDrain: () => Promise<void>
+}
+
+/** Cache headroom must never reject a frame that fits the ordinary presentation budget. */
+export class HdrPresentationHeadroom {
+  private bypass = false
+  private closed = false
+  private draining?: Promise<void>
+  private resumeRetaining?: () => void
+  constructor(private cache: RetainedPresentationMemory | null) {}
+  get bypassed() {
+    return this.bypass
+  }
+  get eligible() {
+    return !!this.cache && !this.bypass && !this.closed
+  }
+  get reservationBytes() {
+    return this.eligible ? this.cache!.budget : 0
+  }
+  /** Fitting plans stay synchronous; every ordinary plan waits for outstanding cache leases. */
+  plan(
+    width: number,
+    height: number,
+    canvasWidth = 0,
+    canvasHeight = 0,
+    maximumLayers = HDR_CACHE_MAX_TILES,
+    diagnosticBytes = 0,
+    restoredUploadBytes = 0,
+  ) {
+    if (this.closed) throw new Error('HDR presentation headroom is closed.')
+    const memory = () =>
+      hdrPresentationMemory(
+        width,
+        height,
+        canvasWidth,
+        canvasHeight,
+        maximumLayers,
+        diagnosticBytes,
+        this.reservationBytes,
+        restoredUploadBytes,
+      )
+    const reserved = memory()
+    if (this.eligible && reserved.total > HDR_PRESENTATION_BUDGET) {
+      // Bypass is sticky for this presenter, including subsequent smaller viewports.
+      this.bypass = true
+      this.resumeRetaining = this.cache!.pauseRetaining()
+      this.draining = this.cache!.clearAndDrain()
+    }
+    return this.draining ? this.draining.then(memory) : reserved
+  }
+  dispose() {
+    if (this.closed) return
+    this.closed = true
+    const resume = this.resumeRetaining
+    this.resumeRetaining = undefined
+    // A disposed presenter cannot let new retained surfaces prevent its pending drain.
+    if (resume) void this.draining!.then(resume, resume)
   }
 }

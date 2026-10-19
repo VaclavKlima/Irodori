@@ -21,6 +21,36 @@ documentation only. The original milestone below retains its `cedef59` code,
 `980435a` pixel-processing and `0b4f99f` early editor/export provenance. Linux
 acceptance remains pending.
 
+## October 18 everyday editor responsiveness follow-up
+
+The later everyday editor goal is tracked separately in
+[editor responsiveness](editor-responsiveness.md), including its
+[rendering decision table](editor-responsiveness.md#rendering-decisions), raw
+application evidence, rejected quality experiments and remaining acceptance.
+The coordinator owns integration, all builds/hardware measurements and the final
+implementation freeze on `perf/editor-responsiveness`, based on `bef6a61`.
+The final tested editor revision remains pending; the earlier merge freeze
+`0a70599669c884fc70d2e2afe5f9a6527df44dbb` continues to identify only the separate
+GPU merge handoff below.
+
+The versioned Float32 gesture preview and exact retained presentation cache
+remain opt-in through `VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` and
+`VITE_LUMA_HDR_PRESENTATION_CACHE=1`. The recorded eight-slider, Fit/100%,
+1440 × 900, DPR 2, 60 Hz candidate cohort passed its 48 trials; the reference
+comparison retains a captured display-headroom mismatch, so the descriptive
+speedup is not a controlled identical-target claim. The 96 MiB cache reservation
+fits within the unchanged 768 MiB aggregate cap and improves measured fullscreen
+revisits, while cold selection and the small-layout first warm miss remain
+above target. Broader layout/120 Hz, contention and lifecycle results, as well as
+human Retina/HDR quality validation, remain required. This follow-up does not
+rewrite the earlier failed/incomplete checkpoint or its gates.
+
+The user-requested Bazzite deferral covers this later editor work under
+[TODO #29](features/README.md#workspace-feedback-backlog). Follow
+[the editor continuation](#everyday-editor-continuation) after its own tested
+revision is frozen. No Linux result or preview default adoption follows from
+the Mac measurements.
+
 ## October 18 GPU preparation follow-up
 
 The previous pass was merged to production in
@@ -1578,3 +1608,58 @@ GPU/CPU/CTL agreement, memory/cancellation, HDR display and background interfere
 need local results. Physical HDR measurements, larger controlled brackets and a
 distinct 32-RAW sequence remain incomplete wherever the equipment/fixtures are
 unavailable. A Linux comprehensive checkpoint requires its own agreed checkpoint.
+
+### Everyday editor continuation
+
+This is the later editor experiment's Linux checklist, deferred at the user's
+request under [TODO #29](features/README.md#workspace-feedback-backlog). Keep it
+separate from reproducing merge revision `0a70599669c884fc70d2e2afe5f9a6527df44dbb`.
+The coordinator must first freeze and record the final tested editor revision;
+that handoff revision is currently pending. Use its exact source/build hashes,
+licensed fixture hashes and cache conditions from
+[the editor evidence](editor-responsiveness.md), rather than assuming a later
+production build is equivalent.
+
+Record Linux/Bazzite release, Node/Electron/Dawn versions, GPU/driver, Wayland/X11,
+display dimensions, DPR, actual refresh/color/headroom state, power mode and
+available memory. Compare reference and explicit candidate builds sequentially,
+retaining actual target changes and all first cold/warm samples. A missed cache
+identity after a target change remains a measured navigation miss; it must not
+reuse stale pixels or disappear from the ordinary distribution.
+
+The registered focused targets are reproducible entry points, not a claim that
+they already pass on Linux. Run them sequentially in isolated profiles. Keep
+native focus and `--foreground` for the display/input cases; unsupported display
+or insufficient achieved 60/120 Hz cadence remains incomplete verification.
+
+```sh
+node scripts/research/sony-fixtures.mjs check
+npm run verify -- --target hdr-presentation-cache --target hdr-readback --target write-hdr-strip
+npm run verify -- --foreground --target interactive-preview-quality --target interactive-preview-ui --target interactive-preview-lifecycle --target hdr-presentation-cache-ui
+env -u VITE_LUMA_HDR_INTERACTIVE_PRECISION -u VITE_LUMA_HDR_PRESENTATION_CACHE npm run verify -- --foreground --target editor-responsiveness-benchmark
+VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 npm run verify -- --foreground --target editor-responsiveness-benchmark
+VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 npm run verify -- --foreground --target editor-navigation-responsiveness-benchmark
+VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 npm run verify -- --foreground --target editor-spatial-responsiveness-benchmark
+VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 node scripts/research/sony-fixtures.mjs noise -- npm run verify -- --foreground --target editor-responsiveness-interference
+```
+
+The interference target defaults to a bounded Exposure diagnostic. Its full
+eight-slider run requires the strict selector
+`LUMA_RESPONSIVENESS_SLIDERS=Exposure,Contrast,Highlights,Shadows,Whites,Blacks,Temperature,Tint`.
+Any selected slider/gesture/layout subset is partial evidence. Exercise
+1100 × 700 with Console open, 1440 × 900 and native fullscreen, Fit/100%,
+pointer-centered Fit-to-native zoom, native drag, rapid switching and all four
+background activities. Retain all dispatched inputs, unique changed fenced
+presentations, coalescing, gaps, contention intervals and separate exact
+refinement/native-editing-ready clocks. Preserve 33/50/100 ms interaction
+p95/p99/max, at least 55 completed changed updates/second at the 60 Hz load,
+100 ms cached/500 ms cold selection and 200 ms refinement targets; record the
+separate 120 Hz outcome without assuming 120 presented frames/second.
+
+Validate exact reference navigation/settled/export policy, numerical/quality
+comparisons at actual physical sampling dimensions, committed and pending edit
+identity, original/master/history integrity, cancellation, stale-result rejection,
+device loss and complete CPU recovery. Preserve the 768 MiB presentation cap,
+existing disk/WASM bounds and the separate merge bounds under contention.
+Retain human quality validation as pending until performed on the intended
+display. Linux needs its own results; Mac evidence establishes none.

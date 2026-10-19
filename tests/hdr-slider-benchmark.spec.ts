@@ -4,6 +4,7 @@ import { importPhotos } from './import.helpers'
 import { recordBenchmark } from './benchmark.helpers'
 import { benchmarkImport, finishBenchmarkImport } from './import-foreground.helpers'
 import { foregroundTest, requiresForeground } from './foreground'
+import { hdrTestPolicy, expectReferenceHdrPreview } from './hdr-test-policy.helpers'
 
 const foregroundReason =
   'HDR slider frame and histogram latency requires visible presentation and the existing foreground baseline.'
@@ -19,6 +20,10 @@ interface SliderMeasurement {
   latencies: number[]
   histograms: number[]
   sidebarMovement: number
+  canonicalFrames: number
+  interactiveFrames: number
+  draftFrames: number
+  policyFailures: number
 }
 
 test.use({ hdrDisplay: true })
@@ -33,12 +38,31 @@ test(
     await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
     const canvas = page.getByTestId('main-preview')
     await expect(canvas).toHaveAttribute('data-quality', 'normal', { timeout: 60000 })
+    await expectReferenceHdrPreview(page)
     const importTask = await benchmarkImport(app, page, info)
     const result = await page
-      .evaluate(async () => {
+      .evaluate(async ({ interactivePolicy }) => {
         const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
         const device = canvas.getContext('webgpu')!.getConfiguration()!.device
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+        const readPolicy = () => ({
+          quality: canvas.dataset.quality,
+          previewPolicy: canvas.dataset.interactivePolicy,
+          presentedPolicy: canvas.dataset.presentedPolicy,
+        })
+        const validPolicy = (frame: ReturnType<typeof readPolicy>) =>
+          frame.previewPolicy === interactivePolicy &&
+          (frame.quality === 'normal'
+            ? frame.presentedPolicy === 'reference'
+            : frame.quality === 'interactive' &&
+              interactivePolicy !== 'reference' &&
+              frame.presentedPolicy === interactivePolicy)
+        const canonicalSettled = () =>
+          canvas.dataset.quality === 'normal' &&
+          canvas.dataset.presentedPolicy === 'reference' &&
+          canvas.dataset.gesturing === 'false' &&
+          !!canvas.dataset.requestedSerial &&
+          canvas.dataset.completedEditSerial === canvas.dataset.requestedSerial
         const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve))
         const changed = (element: HTMLElement, matches: () => boolean) =>
           new Promise<void>((resolve, reject) => {
@@ -59,7 +83,9 @@ test(
           })
         const measurements: SliderMeasurement[] = []
         const id = (await window.luma.listPhotos()).photos[0].id
-        Object.assign(window, { hdrSliderBenchmark: { measurements } })
+        Object.assign(window, {
+          hdrSliderBenchmark: { measurements, policy: { interactivePolicy } },
+        })
         const labels = [
           'Exposure',
           'Contrast',
@@ -88,6 +114,10 @@ test(
             const latencies: number[] = [],
               histograms: number[] = []
             const heights: number[] = []
+            let canonicalFrames = 0,
+              interactiveFrames = 0,
+              draftFrames = 0,
+              policyFailures = 0
             for (let i = 0; i < 45; i++) {
               await frame()
               const start = performance.now()
@@ -127,6 +157,11 @@ test(
               )
               const histogramMs = performance.now() - start
               const frameMs = await painted
+              const policy = readPolicy()
+              canonicalFrames += Number(policy.quality === 'normal')
+              interactiveFrames += Number(policy.quality === 'interactive')
+              draftFrames += Number(policy.quality === 'draft')
+              policyFailures += Number(!validPolicy(policy))
               if (i >= 5) {
                 latencies.push(frameMs)
                 histograms.push(histogramMs)
@@ -139,8 +174,7 @@ test(
             slider.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
             await new Promise<void>((resolve, reject) => {
               const check = () => {
-                if (canvas.dataset.quality === 'normal' && canvas.dataset.gesturing === 'false')
-                  resolve()
+                if (canonicalSettled()) resolve()
                 else if (performance.now() - released > 2000)
                   reject(
                     new Error(
@@ -165,6 +199,10 @@ test(
               latencies,
               histograms,
               sidebarMovement: Math.max(...heights) - Math.min(...heights),
+              canonicalFrames,
+              interactiveFrames,
+              draftFrames,
+              policyFailures,
             })
             // New input continues every animation frame while the GPU is busy.
             const history = await window.luma.getEditHistory(id)
@@ -177,8 +215,13 @@ test(
             const completions: Promise<void>[] = []
             let previousSerial = 0,
               regressed = false,
-              draftFrames = 0
-            const observedFrames: { serial: number; value: number; time: number }[] = []
+              continuousCanonical = 0,
+              continuousInteractive = 0,
+              continuousDraft = 0,
+              continuousPolicyFailures = 0
+            const observedFrames: ({ serial: number; value: number; time: number } & ReturnType<
+              typeof readPolicy
+            >)[] = []
             const inputFrames: number[] = []
             const histogram = document.getElementById('histogram')!
             const histogramObserver = new MutationObserver(() => {
@@ -202,7 +245,11 @@ test(
             const observer = new MutationObserver(() => {
               const serial = Number(canvas.dataset.completedEditSerial)
               regressed ||= serial < previousSerial
-              draftFrames += Number(canvas.dataset.quality !== 'normal')
+              const policy = readPolicy()
+              continuousCanonical += Number(policy.quality === 'normal')
+              continuousInteractive += Number(policy.quality === 'interactive')
+              continuousDraft += Number(policy.quality === 'draft')
+              continuousPolicyFailures += Number(!validPolicy(policy))
               previousSerial = serial
               const value =
                 label === 'Temperature'
@@ -211,7 +258,7 @@ test(
                     ? JSON.parse(canvas.dataset.whiteBalance!).tint
                     : Number(canvas.dataset[label.toLowerCase()])
               const at = times.get(value)
-              observedFrames.push({ serial, value, time: performance.now() })
+              observedFrames.push({ serial, value, time: performance.now(), ...policy })
               if (at === undefined) return
               serialTimes.set(serial, at)
               completions.push(
@@ -267,7 +314,8 @@ test(
             histogramObserver.disconnect()
             if (
               regressed ||
-              draftFrames ||
+              continuousDraft ||
+              continuousPolicyFailures ||
               continuous.length < 30 ||
               continuousHistogram.length < 30
             ) {
@@ -280,7 +328,10 @@ test(
                   inputFrames,
                   continuous,
                   continuousHistogram,
-                  draftFrames,
+                  draftFrames: continuousDraft,
+                  canonicalFrames: continuousCanonical,
+                  interactiveFrames: continuousInteractive,
+                  policyFailures: continuousPolicyFailures,
                   canvas: { ...canvas.dataset },
                   histogram: { ...histogram.dataset },
                 },
@@ -291,10 +342,7 @@ test(
             }
             const release = performance.now()
             slider.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
-            await changed(
-              canvas,
-              () => canvas.dataset.quality === 'normal' && canvas.dataset.gesturing === 'false',
-            )
+            await changed(canvas, canonicalSettled)
             await device.queue.onSubmittedWorkDone()
             await frame()
             const refinementMs = performance.now() - release
@@ -311,18 +359,23 @@ test(
               latencies: continuous,
               histograms: continuousHistogram,
               sidebarMovement: Math.max(...heights) - Math.min(...heights),
+              canonicalFrames: continuousCanonical,
+              interactiveFrames: continuousInteractive,
+              draftFrames: continuousDraft,
+              policyFailures: continuousPolicyFailures,
             })
           }
         }
         return {
           measurements,
+          policy: { interactivePolicy },
           loaders,
           hidden,
           sourceUploads: Number(canvas.dataset.sourceUploads),
           backend: canvas.dataset.backend,
           viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
         }
-      })
+      }, hdrTestPolicy)
       .catch(async (error) => {
         await writeFile(
           info.outputPath('partial-hdr-sliders.json'),
@@ -349,8 +402,13 @@ test(
           histogramP95Ms: m.histogramP95Ms,
           refinementMs: m.refinementMs,
           sidebarMovement: m.sidebarMovement,
+          canonicalFrames: m.canonicalFrames,
+          interactiveFrames: m.interactiveFrames,
+          draftFrames: m.draftFrames,
+          policyFailures: m.policyFailures,
         })),
         backend: result.backend,
+        policy: result.policy,
         viewport: result.viewport,
       },
       gates: result.measurements.flatMap((m) => [
@@ -377,6 +435,10 @@ test(
       expect(m.histogramP95Ms, `${m.zoom} ${m.label} histogram`).toBeLessThanOrEqual(33)
       expect(m.refinementMs, `${m.zoom} ${m.label} refinement`).toBeLessThanOrEqual(500)
       expect(m.sidebarMovement).toBeLessThan(0.1)
+      expect(m.draftFrames).toBe(0)
+      expect(m.policyFailures).toBe(0)
+      if (hdrTestPolicy.precision === 'f32') expect(m.interactiveFrames).toBeGreaterThan(0)
+      else expect(m.interactiveFrames).toBe(0)
     }
     await finishBenchmarkImport(page, importTask)
   },

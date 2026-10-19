@@ -9,6 +9,7 @@ import { rawDecoder } from './decoders'
 import { cameraProfile } from './cameras'
 import { correctionPlan, cubic, radial } from './lens-correction'
 import { sensorBlendParameters, sensorBlendRgb } from '../gpu/sensor-blend'
+import { writeHdrStrip } from './write-hdr-strip'
 import type { RawGpuRenderer } from '../gpu/raw-renderer'
 import { gpuOutput } from '../merge/gpu-output'
 import type { LinearFrame } from './contracts'
@@ -352,7 +353,7 @@ async function prepare(
           (timings.workerCpuGeometryMs ?? 0) + performance.now() - geometry
       const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength)
       const writing = performance.now()
-      await file.writeFile(bytes)
+      await writeHdrStrip(file, bytes, top * width * 16)
       timings.workerNativeWriteMs += performance.now() - writing
       const hashingWhole = performance.now()
       digest.update(bytes)

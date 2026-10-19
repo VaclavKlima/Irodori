@@ -1,12 +1,13 @@
 import type { Page } from '@playwright/test'
 
-export type SpatialGesture = 'pan' | 'zoom' | 'drag'
+export type SpatialGesture = 'pan' | 'zoom' | 'zoom-fit-native' | 'drag'
 
 /** Prepare the complete measured path; warm measurements never hide tile misses. */
 export async function warmSpatialPath(page: Page, gesture: SpatialGesture) {
   return page.evaluate(async (gesture) => {
     const viewport = document.querySelector<HTMLElement>('[data-testid="preview-viewport"]')!
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
+    const histogram = document.getElementById('histogram')!
     const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     const settle = async () => {
       const start = performance.now()
@@ -19,6 +20,14 @@ export async function warmSpatialPath(page: Page, gesture: SpatialGesture) {
       )
     }
     const bounds = viewport.getBoundingClientRect()
+    const zooming = gesture === 'zoom' || gesture === 'zoom-fit-native'
+    const fitToNative = gesture === 'zoom-fit-native'
+    const startScale = Number(viewport.dataset.scale)
+    const zoomDelta = fitToNative ? Math.log(1 / startScale) * 5 : 1
+    const anchor = {
+      x: fitToNative ? bounds.width * 0.15 : 0,
+      y: fitToNative ? -bounds.height * 0.1 : 0,
+    }
     let previous = 0
     const positions = Array.from({ length: 40 }, (_, i) => {
       const step = (i + 1) % 40
@@ -27,20 +36,24 @@ export async function warmSpatialPath(page: Page, gesture: SpatialGesture) {
     const inputs = []
     for (const position of positions) {
       const at = performance.now()
-      viewport.dispatchEvent(
-        new WheelEvent('wheel', {
-          bubbles: true,
-          cancelable: true,
-          ctrlKey: gesture === 'zoom',
-          clientX: bounds.x + bounds.width / 2,
-          clientY: bounds.y + bounds.height / 2,
-          deltaX: gesture === 'zoom' ? 0 : (previous - position) * 4,
-          deltaY: gesture === 'zoom' ? previous - position : (previous - position) * 2,
-        }),
-      )
+      const event = new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: zooming,
+        clientX: bounds.x + bounds.width / 2 + anchor.x,
+        clientY: bounds.y + bounds.height / 2 + anchor.y,
+        deltaX: zooming ? 0 : (previous - position) * 4,
+        deltaY: zooming ? (previous - position) * zoomDelta : (previous - position) * 2,
+      })
+      viewport.dispatchEvent(event)
       previous = position
       await settle()
-      inputs.push({ at, position, view: canvas.dataset.presentedView })
+      inputs.push({
+        at,
+        position,
+        view: canvas.dataset.presentedView,
+        wheel: { clientX: event.clientX, clientY: event.clientY, deltaY: event.deltaY },
+      })
     }
     if (gesture === 'drag') {
       // Include the native release glide's bounded 24 CSS-pixel extension.
@@ -65,10 +78,34 @@ export async function warmSpatialPath(page: Page, gesture: SpatialGesture) {
         inputs.push({ at: performance.now(), position: null, view: canvas.dataset.presentedView })
       }
     }
+    const analysisDrainStartedAt = performance.now()
+    const analysisSettled = () => {
+      const curve = histogram.querySelector<SVGSVGElement>('svg[role="slider"]')
+      return (
+        canvas.dataset.quality === 'normal' &&
+        canvas.dataset.completedEditSerial === canvas.dataset.requestedSerial &&
+        canvas.dataset.analysisPending === 'false' &&
+        !!canvas.dataset.analysisKey &&
+        canvas.dataset.analysisKey === canvas.dataset.displayedAnalysisKey &&
+        histogram.dataset.editSerial === canvas.dataset.analysisSerial &&
+        curve?.dataset.curveEditSerial === canvas.dataset.analysisSerial &&
+        curve?.dataset.animating === 'false'
+      )
+    }
+    while (!analysisSettled()) {
+      await frame()
+      if (performance.now() - analysisDrainStartedAt > 10000)
+        throw new Error('Spatial warmup analysis did not converge.')
+    }
     return {
       inputs,
       renderedTiles: Number(canvas.dataset.renderedTiles),
       finalView: canvas.dataset.presentedView,
+      analysisDrainMs: performance.now() - analysisDrainStartedAt,
+      analysisKey: canvas.dataset.analysisKey,
+      analysisSerial: canvas.dataset.analysisSerial,
+      histogramSerial: histogram.dataset.editSerial,
+      targetGeneration: canvas.dataset.targetGeneration,
     }
   }, gesture)
 }
@@ -100,6 +137,46 @@ export async function sustainedSpatialInput(
     )!
     const historyBefore = await window.luma.getEditHistory(photo.id)
     const editsBefore = await window.luma.getEdits(photo.id)
+    const readAnalysis = () => {
+      const curve = histogram.querySelector<SVGSVGElement>('svg[role="slider"]')
+      return {
+        at: performance.now(),
+        pending: canvas.dataset.analysisPending,
+        key: canvas.dataset.analysisKey,
+        displayedKey: canvas.dataset.displayedAnalysisKey,
+        serial: canvas.dataset.analysisSerial,
+        histogramSerial: histogram.dataset.editSerial,
+        curveSerial: curve?.dataset.curveEditSerial,
+        animating: curve?.dataset.animating,
+        targetGeneration: canvas.dataset.targetGeneration,
+      }
+    }
+    const analysisSettled = () => {
+      const analysis = readAnalysis()
+      return (
+        canvas.dataset.quality === 'normal' &&
+        canvas.dataset.completedEditSerial === canvas.dataset.requestedSerial &&
+        analysis.pending === 'false' &&
+        !!analysis.key &&
+        analysis.key === analysis.displayedKey &&
+        analysis.histogramSerial === analysis.serial &&
+        analysis.curveSerial === analysis.serial &&
+        analysis.animating === 'false'
+      )
+    }
+    // A display refresh can arrive between warmup and this call. Drain only actual
+    // outstanding analysis before fixing the baseline and starting the input clock.
+    const baselineDrainStartedAt = performance.now()
+    while (!analysisSettled()) {
+      await frame()
+      if (performance.now() - baselineDrainStartedAt > 10000)
+        throw new Error('Spatial baseline analysis did not converge.')
+    }
+    const baselineAnalysisDrainMs = performance.now() - baselineDrainStartedAt
+    const initialAnalysis = readAnalysis()
+    const initialHistogramCurves = Array.from(histogram.querySelectorAll('svg path')).map((path) =>
+      path.getAttribute('d'),
+    )
     const initialView = readView(canvas.dataset.presentedView)!
     const sourceIdentity = canvas.dataset.presentedSourceIdentity
     const epoch = Number(canvas.dataset.presentedEpoch)
@@ -113,6 +190,14 @@ export async function sustainedSpatialInput(
       raf: number
       position: number
       expectedView: View
+      wheel: {
+        clientX: number
+        clientY: number
+        anchorX: number
+        anchorY: number
+        deltaX: number
+        deltaY: number
+      } | null
       dispatchCompletedAt: number
     }[] = []
     const requests: {
@@ -132,6 +217,7 @@ export async function sustainedSpatialInput(
       sourceIdentity: string | undefined
       epoch: number
       quality: string | undefined
+      presentedPolicy: string | undefined
       intent: string | undefined
       visibility: string
       observation: string
@@ -145,10 +231,47 @@ export async function sustainedSpatialInput(
       sourceIdentity: string | undefined
       epoch: number
       quality: string | undefined
+      presentedPolicy: string | undefined
       intent: string | undefined
     }[] = []
     const requestBySerial = new Map<number, (typeof requests)[number]>()
     const pending: Promise<void>[] = []
+    const analysisObservations: (ReturnType<typeof readAnalysis> & { reason: string })[] = []
+    const displayTargets: {
+      at: number
+      generation: number
+      mode: string
+      colorSpace: string
+      peak: number
+      headroom: number | null
+    }[] = []
+    let omittedAnalysisObservations = 0,
+      omittedDisplayTargets = 0
+    const observeAnalysis = (reason: string) => {
+      if (analysisObservations.length < 512)
+        analysisObservations.push({ ...readAnalysis(), reason })
+      else omittedAnalysisObservations++
+    }
+    const offDisplay = window.luma.onDisplayState((target) => {
+      const snapshot = {
+        at: performance.now(),
+        generation: target.generation,
+        mode: target.mode,
+        colorSpace: target.colorSpace,
+        peak: target.peak,
+        headroom: target.headroom,
+      }
+      const previous = displayTargets.at(-1)
+      if (
+        !previous ||
+        ['generation', 'mode', 'colorSpace', 'peak', 'headroom'].some(
+          (key) =>
+            snapshot[key as keyof typeof snapshot] !== previous[key as keyof typeof previous],
+        )
+      )
+        if (displayTargets.length < 128) displayTargets.push(snapshot)
+        else omittedDisplayTargets++
+    })
     let releaseAt = 0,
       refinementMs = 0,
       histogramUpdates = 0,
@@ -160,12 +283,27 @@ export async function sustainedSpatialInput(
       previousRequested = Number(canvas.dataset.requestedSerial),
       previousPresented = Number(canvas.dataset.completedEditSerial),
       error: string | undefined
-    const histogramObserver = new MutationObserver(() => histogramUpdates++)
+    const histogramObserver = new MutationObserver(() => {
+      histogramUpdates++
+      observeAnalysis('histogram-publication')
+    })
     histogramObserver.observe(histogram, {
       attributes: true,
       attributeFilter: ['data-edit-serial'],
     })
     const observer = new MutationObserver((records) => {
+      if (
+        records.some((record) =>
+          [
+            'data-analysis-key',
+            'data-analysis-pending',
+            'data-analysis-serial',
+            'data-displayed-analysis-key',
+            'data-target-generation',
+          ].includes(record.attributeName ?? ''),
+        )
+      )
+        observeAnalysis('canvas-analysis-or-target')
       if (records.some((record) => record.attributeName === 'data-requested-serial')) {
         const serial = Number(canvas.dataset.requestedSerial),
           at = Number(canvas.dataset.requestedAt)
@@ -209,6 +347,7 @@ export async function sustainedSpatialInput(
         sourceIdentity: canvas.dataset.presentedSourceIdentity,
         epoch: Number(canvas.dataset.presentedEpoch),
         quality: canvas.dataset.quality,
+        presentedPolicy: canvas.dataset.presentedPolicy,
         intent: canvas.dataset.presentationIntent,
         visibility: getComputedStyle(canvas).visibility,
         observation: 'pending',
@@ -251,6 +390,7 @@ export async function sustainedSpatialInput(
             sourceIdentity: publication.sourceIdentity,
             epoch: publication.epoch,
             quality: publication.quality,
+            presentedPolicy: publication.presentedPolicy,
             intent: publication.intent,
           })
         })(),
@@ -258,9 +398,18 @@ export async function sustainedSpatialInput(
     })
     observer.observe(canvas, {
       attributes: true,
-      attributeFilter: ['data-requested-serial', 'data-completed-edit-serial'],
+      attributeFilter: [
+        'data-requested-serial',
+        'data-completed-edit-serial',
+        'data-analysis-key',
+        'data-analysis-pending',
+        'data-analysis-serial',
+        'data-displayed-analysis-key',
+        'data-target-generation',
+      ],
     })
     let previousPosition = 0
+    let expectedPrevious = initialView
     try {
       if (!sourceIdentity || !initialView || !Number.isFinite(epoch))
         throw new Error('Missing authoritative spatial identity.')
@@ -269,26 +418,86 @@ export async function sustainedSpatialInput(
       const started = await frame()
       let deadline = started
       const bounds = viewport.getBoundingClientRect()
+      const zooming = gesture === 'zoom' || gesture === 'zoom-fit-native'
+      const fitToNative = gesture === 'zoom-fit-native'
+      const zoomDelta = fitToNative ? Math.log(1 / initialView.scale) * 5 : 1
+      const anchor = {
+        x: fitToNative ? bounds.width * 0.15 : 0,
+        y: fitToNative ? -bounds.height * 0.1 : 0,
+      }
+      const image = {
+        width: Number(viewport.dataset.imageWidth),
+        height: Number(viewport.dataset.imageHeight),
+      }
       for (let serial = 0; serial < 120; serial++) {
         let raf = await frame()
         while (raf + 0.1 < deadline) raf = await frame()
         const step = (serial + 1) % 40,
           position = step <= 20 ? step : 40 - step
-        const expectedView: View =
-          gesture === 'zoom'
-            ? { fit: false, scale: initialView.scale * Math.exp(position * 0.01), x: 0, y: 0 }
-            : {
-                ...initialView,
-                fit: false,
-                x: initialView.x + position * 4,
-                y: initialView.y + position * 2,
-              }
+        const at = performance.now()
+        const wheel =
+          gesture === 'drag'
+            ? null
+            : new WheelEvent('wheel', {
+                bubbles: true,
+                cancelable: true,
+                ctrlKey: zooming,
+                clientX: bounds.x + bounds.width / 2 + anchor.x,
+                clientY: bounds.y + bounds.height / 2 + anchor.y,
+                deltaX: zooming ? 0 : (previousPosition - position) * 4,
+                deltaY: zooming
+                  ? (previousPosition - position) * zoomDelta
+                  : (previousPosition - position) * 2,
+              })
+        // Derive the independent expectation from the event's represented coordinates:
+        // Chromium can quantize fractional constructor coordinates before dispatch.
+        const eventAnchor = wheel
+          ? {
+              x: wheel.clientX - bounds.left - bounds.width / 2,
+              y: wheel.clientY - bounds.top - bounds.height / 2,
+            }
+          : anchor
+        const scale = initialView.scale * Math.exp(position * zoomDelta * 0.01)
+        const ratio = scale / expectedPrevious.scale
+        const limit = {
+          x: Math.max(0, (image.width * scale - bounds.width) / 2),
+          y: Math.max(0, (image.height * scale - bounds.height) / 2),
+        }
+        const expectedView: View = zooming
+          ? {
+              fit: false,
+              scale,
+              x: Math.max(
+                -limit.x,
+                Math.min(limit.x, eventAnchor.x - (eventAnchor.x - expectedPrevious.x) * ratio),
+              ),
+              y: Math.max(
+                -limit.y,
+                Math.min(limit.y, eventAnchor.y - (eventAnchor.y - expectedPrevious.y) * ratio),
+              ),
+            }
+          : {
+              ...initialView,
+              fit: false,
+              x: initialView.x + position * 4,
+              y: initialView.y + position * 2,
+            }
         const input = {
           serial,
-          at: performance.now(),
+          at,
           raf,
           position,
           expectedView,
+          wheel: wheel
+            ? {
+                clientX: wheel.clientX,
+                clientY: wheel.clientY,
+                anchorX: eventAnchor.x,
+                anchorY: eventAnchor.y,
+                deltaX: wheel.deltaX,
+                deltaY: wheel.deltaY,
+              }
+            : null,
           dispatchCompletedAt: 0,
         }
         inputs.push(input)
@@ -314,22 +523,9 @@ export async function sustainedSpatialInput(
                 clientY: cursor.y + position * 2,
               }),
             )
-        } else
-          viewport.dispatchEvent(
-            new WheelEvent('wheel', {
-              bubbles: true,
-              cancelable: true,
-              ctrlKey: gesture === 'zoom',
-              clientX: bounds.x + bounds.width / 2,
-              clientY: bounds.y + bounds.height / 2,
-              deltaX: gesture === 'zoom' ? 0 : (previousPosition - position) * 4,
-              deltaY:
-                gesture === 'zoom'
-                  ? previousPosition - position
-                  : (previousPosition - position) * 2,
-            }),
-          )
+        } else viewport.dispatchEvent(wheel!)
         previousPosition = position
+        expectedPrevious = expectedView
         input.dispatchCompletedAt = performance.now()
         deadline += 1000 / frequency
         loaders += Number(document.body.textContent?.includes('Loading preview…'))
@@ -366,17 +562,34 @@ export async function sustainedSpatialInput(
     } finally {
       observer.disconnect()
       histogramObserver.disconnect()
+      offDisplay()
     }
     const historyAfter = await window.luma.getEditHistory(photo.id)
     const editsAfter = await window.luma.getEdits(photo.id)
-    const duringInput = presentations.filter((presentation) => presentation.at <= releaseAt)
+    const changedPresentations: typeof presentations = [],
+      duplicatePresentations: typeof presentations = []
+    const changedInputs = new Set<number>()
+    let lastVisibleView = initialView
+    for (const presentation of [...presentations].sort((a, b) => a.at - b.at)) {
+      if (
+        changedInputs.has(presentation.inputSerial) ||
+        sameView(presentation.view, lastVisibleView)
+      )
+        duplicatePresentations.push(presentation)
+      else {
+        changedInputs.add(presentation.inputSerial)
+        changedPresentations.push(presentation)
+        lastVisibleView = presentation.view!
+      }
+    }
+    const duringInput = changedPresentations.filter((presentation) => presentation.at <= releaseAt)
     const boundaries = [
       inputs[0]?.at ?? releaseAt,
       ...duringInput.map((frame) => frame.at),
       releaseAt,
     ]
     const gaps = boundaries.slice(1).map((at, i) => at - boundaries[i])
-    const latencies = presentations.map((frame) => frame.latencyMs).sort((a, b) => a - b)
+    const latencies = changedPresentations.map((frame) => frame.latencyMs).sort((a, b) => a - b)
     const quantile = (p: number) =>
       latencies.length ? latencies[Math.ceil(latencies.length * p) - 1] : null
     const requestedInputs = new Set(
@@ -384,7 +597,7 @@ export async function sustainedSpatialInput(
         .filter((request) => request.phase === 'input' && request.inputSerial !== null)
         .map((request) => request.inputSerial!),
     )
-    const presentedInputs = new Set(presentations.map((frame) => frame.inputSerial))
+    const presentedInputs = new Set(changedPresentations.map((frame) => frame.inputSerial))
     return {
       gesture,
       requestedHz: frequency,
@@ -393,6 +606,10 @@ export async function sustainedSpatialInput(
       requests,
       publications,
       presentations,
+      changedPresentations,
+      duplicatePresentations,
+      changedPresentationCount: changedPresentations.length,
+      duplicatePresentationCount: duplicatePresentations.length,
       sourceIdentity,
       epoch,
       initialView,
@@ -427,6 +644,19 @@ export async function sustainedSpatialInput(
       attributionFailures,
       histogramUpdates,
       histogramUnchanged: histogramSerial === histogram.dataset.editSerial,
+      histogramCurveUnchanged:
+        JSON.stringify(initialHistogramCurves) ===
+        JSON.stringify(
+          Array.from(histogram.querySelectorAll('svg path')).map((path) => path.getAttribute('d')),
+        ),
+      baselineAnalysisDrainMs,
+      initialAnalysis,
+      finalAnalysis: readAnalysis(),
+      finalAnalysisSettled: analysisSettled(),
+      analysisObservations,
+      omittedAnalysisObservations,
+      displayTargets,
+      omittedDisplayTargets,
       historyUnchanged: JSON.stringify(historyBefore) === JSON.stringify(historyAfter),
       editsUnchanged: JSON.stringify(editsBefore) === JSON.stringify(editsAfter),
       uploadsBefore,

@@ -55,7 +55,11 @@ interface OperationResult {
   error?: string
   samples: {
     atEpochMs: number
-    status: BackgroundTask['status']
+    status: BackgroundTask['status'] | MergeDiagnostics['status']
+    observation?: 'merge-preview-diagnostics' | 'background-task'
+    reviewId?: string
+    reviewRevision?: number
+    sourceCount?: number
     phase?: string
     waitingReason?: BackgroundTask['waitingReason']
     completed?: number
@@ -107,7 +111,44 @@ async function runOperation(page: Page, prepared: PreparedOperation): Promise<Op
           prepared.sourceIds,
           prepared.workload === 'merge-hdr' ? 'hdr' : 'noise',
         )
-        await window.luma.requestMergePreview(review.id, review.revision)
+        let previewSettled = false,
+          previewFailed = false,
+          previewFailure: unknown
+        const previewWork = window.luma.requestMergePreview(review.id, review.revision).then(
+          () => {
+            previewSettled = true
+          },
+          (error) => {
+            previewSettled = true
+            previewFailed = true
+            previewFailure = error
+          },
+        )
+        const previewDeadline = performance.now() + 180000
+        try {
+          do {
+            const diagnostics = await window.luma.getMergeDiagnostics(review.id, review.revision)
+            result.samples.push({
+              atEpochMs: now(),
+              status: diagnostics.status,
+              observation: 'merge-preview-diagnostics',
+              phase: 'merge-preview',
+              reviewId: diagnostics.reviewId,
+              reviewRevision: diagnostics.revision,
+              sourceCount: diagnostics.sources.length,
+            })
+            if (!previewSettled) {
+              if (performance.now() > previewDeadline) {
+                await window.luma.disposeMergeReview(review.id)
+                throw new Error('Merge preview did not finish within three minutes.')
+              }
+              await new Promise<void>((accept) => setTimeout(accept, 50))
+            }
+          } while (!previewSettled)
+        } finally {
+          await previewWork
+        }
+        if (previewFailed) throw previewFailure
         result.previewReadyAtEpochMs = now()
         result.mergeDiagnostics = await window.luma.getMergeDiagnostics(review.id, review.revision)
         taskId = await window.luma.startMerge(review.id, review.revision)
@@ -127,6 +168,7 @@ async function runOperation(page: Page, prepared: PreparedOperation): Promise<Op
         result.samples.push({
           atEpochMs: now(),
           status: task.status,
+          observation: 'background-task',
           phase: task.phase,
           waitingReason: task.waitingReason,
           completed: task.progress?.completed,
@@ -200,11 +242,61 @@ async function stopSourceObserver(page: Page): Promise<SourceChange[]> {
   })
 }
 
+function changedEditorPresentations(trial: InputTrial) {
+  const changed: InputTrial['presentations'] = [],
+    seen = new Set<number>()
+  let previousValue: number | undefined
+  for (const frame of [...trial.presentations].sort((a, b) => a.at - b.at)) {
+    const value = trial.inputs[frame.serial].value
+    if (seen.has(frame.serial) || value === previousValue) continue
+    seen.add(frame.serial)
+    previousValue = value
+    changed.push(frame)
+  }
+  return changed
+}
+function changedEditorMetrics(trial: InputTrial) {
+  const changed = changedEditorPresentations(trial)
+  const visible = changed.filter((frame) => frame.at <= trial.inputReleasedAt)
+  const boundaries = [
+    trial.inputs[0].at,
+    ...visible.map((frame) => frame.at),
+    trial.inputReleasedAt,
+  ]
+  const latencies = changed
+    .filter((frame) => frame.intent === 'interactive')
+    .map((frame) => frame.latencyMs)
+    .sort((a, b) => a - b)
+  const quantile = (p: number) =>
+    latencies.length ? latencies[Math.ceil(latencies.length * p) - 1] : null
+  const rate = (visible.length * 1000) / (trial.inputReleasedAt - trial.inputs[0].at)
+  return {
+    changedPresentationCount: changed.length,
+    duplicatePresentationCount: trial.presentations.length - changed.length,
+    visibleUpdatesPerSecond: rate,
+    visibleUpdateShortfall: Math.max(0, 55 - rate),
+    longestPresentationGapMs: Math.max(
+      0,
+      ...boundaries.slice(1).map((at, i) => at - boundaries[i]),
+    ),
+    interactionLatencyP95Ms: quantile(0.95),
+    interactionLatencyP99Ms: quantile(0.99),
+    interactionLatencyMaximumMs: latencies.at(-1) ?? null,
+  }
+}
 function editorMetrics(editor?: EditorResult) {
   if (!editor?.trial) return { error: editor?.error ?? 'Missing editor trial.' }
   const { inputs, requests, presentations, histograms, gpuObservations, ...metrics } = editor.trial
   return {
     ...metrics,
+    ...changedEditorMetrics(editor.trial),
+    rawPresentationMetrics: {
+      visibleUpdatesPerSecond: metrics.visibleUpdatesPerSecond,
+      longestPresentationGapMs: metrics.longestPresentationGapMs,
+      interactionLatencyP95Ms: metrics.interactionLatencyP95Ms,
+      interactionLatencyP99Ms: metrics.interactionLatencyP99Ms,
+      interactionLatencyMaximumMs: metrics.interactionLatencyMaximumMs,
+    },
     inputCount: inputs.length,
     observedRequestCount: requests.length,
     presentationCount: presentations.length,
@@ -220,15 +312,25 @@ function overlap(editor?: EditorResult, operation?: OperationResult) {
   if (!editor?.trial || !operation) return null
   const { trial } = editor,
     first = trial.epochMs + trial.inputs[0].at,
-    last = trial.epochMs + trial.inputs.at(-1)!.at,
+    last = trial.epochMs + trial.inputReleasedAt,
     end = operation.finishedAtEpochMs ?? operation.settledAtEpochMs,
+    overlapStart = Math.max(first, operation.startedAtEpochMs),
+    overlapEnd = Math.min(last, end),
+    durationMs = Math.max(0, overlapEnd - overlapStart),
     within = (at: number) =>
       at + trial.epochMs >= operation.startedAtEpochMs && at + trial.epochMs <= end,
     inputCount = trial.inputs.filter((input) => within(input.at)).length,
-    contended = trial.presentations.filter(
-      (frame) =>
-        frame.intent === 'interactive' && within(trial.inputs[frame.serial].at) && within(frame.at),
+    contended = changedEditorPresentations(trial).filter(
+      (frame) => frame.intent === 'interactive' && within(trial.inputs[frame.serial].at),
     ),
+    visibleDuringOverlap = contended.filter(
+      (frame) => frame.at + trial.epochMs >= overlapStart && frame.at + trial.epochMs <= overlapEnd,
+    ),
+    boundaries = [
+      overlapStart,
+      ...visibleDuringOverlap.map((frame) => frame.at + trial.epochMs),
+      overlapEnd,
+    ],
     contendedLatencies = contended.map((frame) => frame.latencyMs).sort((a, b) => a - b),
     quantile = (p: number) =>
       contendedLatencies.length
@@ -241,7 +343,18 @@ function overlap(editor?: EditorResult, operation?: OperationResult) {
     operationFinishedAtEpochMs: end,
     inputStartedAtEpochMs: first,
     inputFinishedAtEpochMs: last,
-    durationMs: Math.max(0, Math.min(last, end) - Math.max(first, operation.startedAtEpochMs)),
+    durationMs,
+    visibleUpdatesPerSecond: durationMs ? (visibleDuringOverlap.length * 1000) / durationMs : 0,
+    visibleUpdateShortfall: Math.max(
+      0,
+      55 - (durationMs ? (visibleDuringOverlap.length * 1000) / durationMs : 0),
+    ),
+    longestPresentationGapMs: durationMs
+      ? Math.max(0, ...boundaries.slice(1).map((at, i) => at - boundaries[i]))
+      : 0,
+    changedVisiblePresentationsDuringOverlap: visibleDuringOverlap.length,
+    latencyObservation:
+      'Contended-input responses retain their full latency even when presentation occurs after task completion; visible rate/gaps use only the actual overlap interval.',
     inputCount,
     inputFraction: inputCount / trial.inputs.length,
     contendedPresentationCount: contended.length,
@@ -260,6 +373,14 @@ function overlap(editor?: EditorResult, operation?: OperationResult) {
     progressSamplesDuringInput: operation.samples.filter(
       (sample) => sample.atEpochMs >= first && sample.atEpochMs <= last,
     ),
+    previewSamplesDuringInput: operation.samples.filter(
+      (sample) =>
+        sample.observation === 'merge-preview-diagnostics' &&
+        sample.atEpochMs >= first &&
+        sample.atEpochMs <= last,
+    ),
+    progressObservationLimit:
+      'Merge diagnostics expose pending/ready/failed review status, not per-stage hardware progress. Background task samples retain actual counters and scheduler waiting reasons.',
   }
 }
 
@@ -769,20 +890,35 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
           family: 'hdr',
           measurements: { ...environment, comparisons },
           gates: comparisons.flatMap((trial) =>
-            ['idleEditor', 'editing'].flatMap((mode) =>
-              [
-                ['interactionLatencyP95Ms', 33],
-                ['interactionLatencyP99Ms', 50],
-                ['interactionLatencyMaximumMs', 100],
-                ['longestPresentationGapMs', 100],
-                ['refinementMs', 200],
-                ['allocatedBytes', HDR_PRESENTATION_BUDGET],
-              ].map(([metric, limit]) => ({
-                metric: `${trial.repetition}.${mode}.${metric}`,
-                operator: '<=' as const,
-                limit: Number(limit),
-              })),
-            ),
+            ['idleEditor', 'editing']
+              .flatMap((mode) =>
+                [
+                  ['interactionLatencyP95Ms', 33],
+                  ['interactionLatencyP99Ms', 50],
+                  ['interactionLatencyMaximumMs', 100],
+                  ['longestPresentationGapMs', 100],
+                  ['visibleUpdateShortfall', 0],
+                  ['refinementMs', 200],
+                  ['allocatedBytes', HDR_PRESENTATION_BUDGET],
+                ].map(([metric, limit]) => ({
+                  metric: `${trial.repetition}.${mode}.${metric}`,
+                  operator: '<=' as const,
+                  limit: Number(limit),
+                })),
+              )
+              .concat(
+                [
+                  ['contendedLatencyP95Ms', 33],
+                  ['contendedLatencyP99Ms', 50],
+                  ['contendedLatencyMaximumMs', 100],
+                  ['longestPresentationGapMs', 100],
+                  ['visibleUpdateShortfall', 0],
+                ].map(([metric, limit]) => ({
+                  metric: `${trial.repetition}.overlap.${metric}`,
+                  operator: '<=' as const,
+                  limit: Number(limit),
+                })),
+              ),
           ),
           evidence: [evidencePath],
         })
@@ -807,7 +943,9 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
                 operation?.mergeDiagnostics?.measurements,
                 operation?.task?.mergeMeasurements,
               ]) {
-                expect.soft(measurements?.preparation).toHaveLength(3)
+                expect
+                  .soft(measurements?.preparation)
+                  .toHaveLength(workload === 'merge-hdr' ? 3 : 9)
                 expect.soft(measurements?.peak.gpuBytes).toBeLessThanOrEqual(1024 ** 3)
                 expect.soft(measurements?.peak.wasmBytes).toBeLessThanOrEqual(512 * 1024 ** 2)
                 if (environment.requestedMergeBackends?.reference === 'gpu') {
@@ -906,16 +1044,19 @@ for (const workload of ['import', 'export-individual', 'export-batch', 'merge'] 
           expect.soft(actualOverlap?.contendedLatencyP95Ms).toBeLessThanOrEqual(33)
           expect.soft(actualOverlap?.contendedLatencyP99Ms).toBeLessThanOrEqual(50)
           expect.soft(actualOverlap?.contendedLatencyMaximumMs).toBeLessThanOrEqual(100)
+          expect.soft(actualOverlap?.visibleUpdatesPerSecond).toBeGreaterThanOrEqual(55)
+          expect.soft(actualOverlap?.longestPresentationGapMs).toBeLessThanOrEqual(100)
           for (const editor of [trial.idleEditor, trial.editing]) {
             const input = editor?.trial
-            expect.soft(input?.interactionLatencyP95Ms).not.toBeNull()
-            expect.soft(input?.interactionLatencyP95Ms).toBeLessThanOrEqual(33)
-            expect.soft(input?.interactionLatencyP99Ms).not.toBeNull()
-            expect.soft(input?.interactionLatencyP99Ms).toBeLessThanOrEqual(50)
-            expect.soft(input?.interactionLatencyMaximumMs).not.toBeNull()
-            expect.soft(input?.interactionLatencyMaximumMs).toBeLessThanOrEqual(100)
-            expect.soft(input?.longestPresentationGapMs).toBeLessThanOrEqual(100)
-            expect.soft(input?.visibleUpdatesPerSecond).toBeGreaterThanOrEqual(55)
+            const changed = input ? changedEditorMetrics(input) : null
+            expect.soft(changed?.interactionLatencyP95Ms).not.toBeNull()
+            expect.soft(changed?.interactionLatencyP95Ms).toBeLessThanOrEqual(33)
+            expect.soft(changed?.interactionLatencyP99Ms).not.toBeNull()
+            expect.soft(changed?.interactionLatencyP99Ms).toBeLessThanOrEqual(50)
+            expect.soft(changed?.interactionLatencyMaximumMs).not.toBeNull()
+            expect.soft(changed?.interactionLatencyMaximumMs).toBeLessThanOrEqual(100)
+            expect.soft(changed?.longestPresentationGapMs).toBeLessThanOrEqual(100)
+            expect.soft(changed?.visibleUpdatesPerSecond).toBeGreaterThanOrEqual(55)
             expect.soft(input?.refinementMs).toBeLessThanOrEqual(200)
           }
         }

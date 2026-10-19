@@ -32,8 +32,21 @@ import {
   photographPreviewMetrics,
 } from './interactive-preview-quality.helpers'
 
-const sourcePath = 'tests/fixtures/sony-zv1.ARW'
-const sourceSha256 = '14c9d2912584a3ccc5cf10f554fbe495fc960c36758a14d7d858b36ac5ca88e2'
+const sources = [
+  {
+    name: 'street',
+    sourcePath: 'tests/fixtures/sony-zv1.ARW',
+    sourceSha256: '14c9d2912584a3ccc5cf10f554fbe495fc960c36758a14d7d858b36ac5ca88e2',
+    coverage: 'Tree foliage, branches, street/cars, shadows and sky gradients.',
+  },
+  {
+    name: 'deer',
+    sourcePath: 'tests/fixtures/research-sony/originals/DSC03243.ARW',
+    sourceSha256: '93880fc72a77553efd7a4f9b1f6d2462d0175cee94ae37f330903f70f78581ee',
+    coverage:
+      'Fine deer fur, grass, antlers, roof gradients, shaded building and background people.',
+  },
+] as const
 const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 let retainedGpu: GPU | undefined
 
@@ -497,271 +510,284 @@ async function photoProof(
   }
 }
 
-// eslint-disable-next-line no-empty-pattern -- Playwright requires a destructured fixture argument.
-test('real Sony Retina Fit and native-detail crops retain photographic precision during interactive preview', async ({}, info) => {
-  test.setTimeout(240000)
-  const directory = await mkdtemp(join(tmpdir(), 'luma-interactive-quality-'))
-  const engine = new PreviewEngine()
-  let device: GPUDevice | undefined, proof: Awaited<ReturnType<typeof photoProof>> | undefined
-  const results: unknown[] = []
-  const checks: Array<() => void> = []
-  const errors: string[] = []
-  let source: unknown, proofAdapter: unknown, proofDeviceLimits: unknown
-  try {
-    expect(digest(await readFile(sourcePath))).toBe(sourceSha256)
-    const metadata = await engine.inspect(sourcePath)
-    const prepared = await engine.renderFull(sourcePath, directory, undefined, {
-      metadata,
-      settings: { distortion: true, vignetting: true, chromaticAberration: true },
-      revision: 0,
-      processing: 'hdr-v1',
-      adjustments: neutralAdjustments,
-      workingOnly: true,
-    })
-    await engine.close()
-    const asset = prepared.linear?.hdr
-    if (!asset) throw new Error('Real RAW preparation omitted its validated HDR working asset.')
-    source = {
-      fixture: sourcePath,
-      originalSha256: sourceSha256,
-      width: asset.width,
-      height: asset.height,
-      workingSha256: asset.sha256,
-      corrections: prepared.appliedCorrections,
-      diagnostics: prepared.diagnostics,
-    }
-    const referenceDirectory = info.outputPath('reference')
-    await mkdir(referenceDirectory, { recursive: true })
-    const binary = buildAcesReference(referenceDirectory)
-    const { create, globals } = await import('webgpu')
-    Object.assign(globalThis, globals)
-    retainedGpu = create([])
-    const adapter = await retainedGpu.requestAdapter()
-    expect(adapter?.info.isFallbackAdapter, 'A hardware GPU is required.').toBe(false)
-    proofAdapter = {
-      vendor: adapter!.info.vendor,
-      architecture: adapter!.info.architecture,
-      device: adapter!.info.device,
-      description: adapter!.info.description,
-      isFallbackAdapter: adapter!.info.isFallbackAdapter,
-    }
-    device = await adapter!.requestDevice({
-      requiredLimits: {
-        maxTextureArrayLayers: 512,
-        maxBufferSize: Math.min(512 * 1024 ** 2, adapter!.limits.maxBufferSize),
-      },
-    })
-    proofDeviceLimits = {
-      maxBufferSize: device.limits.maxBufferSize,
-      maxTextureDimension2D: device.limits.maxTextureDimension2D,
-      maxTextureArrayLayers: device.limits.maxTextureArrayLayers,
-      maxStorageBufferBindingSize: device.limits.maxStorageBufferBindingSize,
-      maxComputeWorkgroupsPerDimension: device.limits.maxComputeWorkgroupsPerDimension,
-    }
-    device.addEventListener('uncapturederror', (event) => errors.push(event.error.message))
-    proof = await photoProof(device, asset, join(directory, 'linear.f32'), binary, errors)
-    const views: Array<{ name: string; view: View }> = [
-      { name: 'fit', view: { fit: true, scale: fitScale(asset, proof.viewport), x: 0, y: 0 } },
-      ...[
-        [0.25, 0.25],
-        [0.75, 0.25],
-        [0.25, 0.75],
-        [0.75, 0.75],
-      ].map(([x, y], i) => ({
-        name: `native-${i}`,
-        view: { fit: false, scale: 1, x: asset.width * (0.5 - x), y: asset.height * (0.5 - y) },
-      })),
-    ]
-    const edits: AdjustmentParameters[] = [
-      neutralAdjustments,
-      {
-        ...neutralAdjustments,
-        exposureEv: 3.5,
-        contrast: 70,
-        highlights: -80,
-        shadows: 75,
-        whites: 40,
-        blacks: -55,
-        whiteBalance: { mode: 'custom', kelvin: 3500, tint: -20 },
-      },
-      {
-        ...neutralAdjustments,
-        exposureEv: -3,
-        contrast: -60,
-        highlights: 85,
-        shadows: -70,
-        whites: -50,
-        blacks: 55,
-        whiteBalance: { mode: 'custom', kelvin: 9000, tint: 35 },
-      },
-    ]
-    const targets: DisplayTarget[] = [
-      { ...SDR_TARGET, mode: 'sdr', peak: 1, colorSpace: 'srgb', headroom: 1, generation: 0 },
-      { ...SDR_TARGET, mode: 'hdr', peak: 4, colorSpace: 'display-p3', headroom: 4, generation: 0 },
-    ]
-    for (const target of targets)
-      for (const { name, view } of views)
-        for (let edit = 0; edit < edits.length; edit++) {
-          const reference = await proof.render('reference', view, edits[edit], target)
-          const interactive = await proof.render('interactive', view, edits[edit], target)
-          const comparison = photographPreviewMetrics(
-            reference.encoded,
-            interactive.encoded,
-            reference.photographicAlpha,
-            proof.width,
-            proof.height,
-            target.peak,
-            target.colorSpace,
-          )
-          const prefix = `${target.mode}-${name}-edit-${edit}`
-          const save = async (suffix: string, data: Uint8Array) => {
-            const path = info.outputPath(`${prefix}-${suffix}`)
-            await writeFile(path, data)
-            return { file: `${prefix}-${suffix}`, bytes: data.byteLength, sha256: digest(data) }
-          }
-          const evidence = []
-          for (const [label, half] of [
-            ['reference', reference.encoded],
-            ['interactive', interactive.encoded],
-          ] as const) {
-            evidence.push(await save(`${label}.rgba16f`, new Uint8Array(half.buffer)))
-            const bytes = Buffer.alloc(half.length)
-            for (let i = 0; i < half.length; i++)
-              bytes[i] =
-                i % 4 === 3 ? 255 : Math.max(0, Math.min(255, Math.round(fromHalf(half[i]) * 255)))
-            await sharp(bytes, { raw: { width: proof.width, height: proof.height, channels: 4 } })
-              .withIccProfile(target.colorSpace === 'display-p3' ? 'p3' : 'srgb')
-              .png()
-              .toFile(info.outputPath(`${prefix}-${label}.png`))
-          }
-          evidence.push(
-            await save('difference.rgb32f', new Uint8Array(comparison.differences.buffer)),
-          )
-          evidence.push(await save('classification.u8', comparison.flags))
-          evidence.push(
-            await save('coverage.f32', new Uint8Array(reference.photographicAlpha.buffer)),
-          )
-          const differencePng = Buffer.alloc(comparison.flags.length * 4)
-          for (let i = 0; i < comparison.flags.length; i++) {
-            for (let c = 0; c < 3; c++)
-              differencePng[i * 4 + c] = Math.min(
-                255,
-                Math.round(Math.abs(comparison.differences[i * 3 + c]) * 128 * 255),
-              )
-            differencePng[i * 4 + 3] = 255
-          }
-          await sharp(differencePng, {
-            raw: { width: proof.width, height: proof.height, channels: 4 },
-          })
-            .png()
-            .toFile(info.outputPath(`${prefix}-difference-x128.png`))
-          const alphaEqual =
-            digest(new Uint8Array(reference.photographicAlpha.buffer)) ===
-            digest(new Uint8Array(interactive.photographicAlpha.buffer))
-          const inputsEqual =
-            reference.uniformSha256 === interactive.uniformSha256 &&
-            reference.tablesSha256 === interactive.tablesSha256 &&
-            reference.geometrySha256 === interactive.geometrySha256
-          const record = {
-            prefix,
-            target,
-            view,
-            parameters: edits[edit],
-            sourceMip: reference.plan.level,
-            tileCount: reference.plan.tiles.length,
-            dimensions: { width: proof.width, height: proof.height },
-            dpr: proof.dpr,
-            canonical: reference.holdout,
-            interactive: interactive.holdout,
-            uniformSha256: reference.uniformSha256,
-            tablesSha256: reference.tablesSha256,
-            geometrySha256: reference.geometrySha256,
-            inputsEqual,
-            alphaEqual,
-            metrics: comparison.report,
-            evidence,
-          }
-          results.push(record)
-          await writeFile(info.outputPath(`${prefix}.json`), JSON.stringify(record, null, 2))
-          const report = comparison.report,
-            canonicalAlphaMismatches = reference.holdout.alphaMismatches,
-            interactiveAlphaMismatches = interactive.holdout.alphaMismatches,
-            canonicalCtlRatio = reference.holdout.maximumCtlRatio
-          checks.push(() => {
-            expect(alphaEqual, prefix).toBe(true)
-            expect(inputsEqual, prefix).toBe(true)
-            expect(canonicalAlphaMismatches, prefix).toBe(0)
-            expect(interactiveAlphaMismatches, prefix).toBe(0)
-            expect(canonicalCtlRatio, prefix).toBeLessThanOrEqual(1)
-            expect(report.nonfinite, prefix).toBe(0)
-            expect(report.displayAlphaMismatches, prefix).toBe(0)
-            expect(report.maximumEncodedError, prefix).toBeLessThanOrEqual(
-              photographPreviewBudget.maximumEncodedError,
-            )
-            expect(report.p99EncodedErrorUpperBound, prefix).toBeLessThanOrEqual(
-              photographPreviewBudget.p99EncodedError,
-            )
-            expect(report.encodedRms, prefix).toBeLessThanOrEqual(
-              photographPreviewBudget.encodedRms,
-            )
-            expect(report.maximumGradientDifference, prefix).toBeLessThanOrEqual(
-              photographPreviewBudget.maximumGradientDifference,
-            )
-            expect(report.edgeEnergyRelativeDifference, prefix).toBeLessThanOrEqual(
-              photographPreviewBudget.maximumEdgeEnergyRelativeDifference,
-            )
-            expect(report.meanLuminanceSsim, prefix).toBeGreaterThanOrEqual(
-              photographPreviewBudget.minimumLuminanceSsim,
-            )
-            for (const classified of Object.values(report.classes))
-              if (classified.samples) {
-                expect(classified.p99EncodedErrorUpperBound, prefix).toBeLessThanOrEqual(
-                  photographPreviewBudget.p99EncodedError,
-                )
-                expect(classified.encodedRms, prefix).toBeLessThanOrEqual(
-                  photographPreviewBudget.encodedRms,
-                )
-              }
-          })
-        }
-    expect(errors).toEqual([])
-    for (const check of checks) check()
-  } finally {
-    await engine.close()
-    proof?.destroy()
-    device?.destroy()
-    retainedGpu = undefined
-    await rm(directory, { recursive: true, force: true })
-    const after = digest(await readFile(sourcePath))
-    await writeFile(
-      info.outputPath('interactive-photographic-quality.json'),
-      JSON.stringify(
-        {
-          policy: ACES_INTERACTIVE_PREVIEW_VERSION,
-          canonicalPolicy: DISPLAY_RENDERING_VERSION,
-          source,
-          backend: 'native Dawn via webgpu; actual production tile shader and final sampler',
-          adapter: proofAdapter,
-          deviceLimits: proofDeviceLimits,
-          originalHashAfter: after,
-          originalUnchanged: after === sourceSha256,
-          budget: photographPreviewBudget,
-          ownedGpuBytes: proof?.ownedGpuBytes,
-          nativeInitializationStagingEstimateBytes: proof?.nativeInitializationStagingEstimateBytes,
-          physicalVram: 'unmeasured; owned logical bytes exclude native driver/uploader pools',
-          results,
-          errors,
-          visualReview:
-            'unreviewed; numerical evidence does not prove invisibility to a human observer',
-          pngLimitation:
-            'PNG proofs clamp extended encoded values to SDR; original rgba16float surfaces and Float32 differences retain HDR values.',
-          fixtureCoverage:
-            'One real Sony photograph containing tree foliage, branches, street/cars, shadows and sky gradients, shown at full Fit and four native-detail regions. Hair remains uncovered; assistant image inspection is separate from human Retina/HDR acceptance.',
+for (const { name: scene, sourcePath, sourceSha256, coverage } of sources)
+  // eslint-disable-next-line no-empty-pattern -- Playwright requires a destructured fixture argument.
+  test(`real Sony ${scene} Retina Fit and native-detail crops retain photographic precision during interactive preview`, async ({}, info) => {
+    test.setTimeout(240000)
+    const directory = await mkdtemp(join(tmpdir(), 'luma-interactive-quality-'))
+    const engine = new PreviewEngine()
+    let device: GPUDevice | undefined, proof: Awaited<ReturnType<typeof photoProof>> | undefined
+    const results: unknown[] = []
+    const checks: Array<() => void> = []
+    const errors: string[] = []
+    let source: unknown, proofAdapter: unknown, proofDeviceLimits: unknown
+    try {
+      expect(digest(await readFile(sourcePath))).toBe(sourceSha256)
+      const metadata = await engine.inspect(sourcePath)
+      const prepared = await engine.renderFull(sourcePath, directory, undefined, {
+        metadata,
+        settings: { distortion: true, vignetting: true, chromaticAberration: true },
+        revision: 0,
+        processing: 'hdr-v1',
+        adjustments: neutralAdjustments,
+        workingOnly: true,
+      })
+      await engine.close()
+      const asset = prepared.linear?.hdr
+      if (!asset) throw new Error('Real RAW preparation omitted its validated HDR working asset.')
+      source = {
+        fixture: sourcePath,
+        originalSha256: sourceSha256,
+        width: asset.width,
+        height: asset.height,
+        workingSha256: asset.sha256,
+        corrections: prepared.appliedCorrections,
+        diagnostics: prepared.diagnostics,
+      }
+      const referenceDirectory = info.outputPath('reference')
+      await mkdir(referenceDirectory, { recursive: true })
+      const binary = buildAcesReference(referenceDirectory)
+      const { create, globals } = await import('webgpu')
+      Object.assign(globalThis, globals)
+      retainedGpu = create([])
+      const adapter = await retainedGpu.requestAdapter()
+      expect(adapter?.info.isFallbackAdapter, 'A hardware GPU is required.').toBe(false)
+      proofAdapter = {
+        vendor: adapter!.info.vendor,
+        architecture: adapter!.info.architecture,
+        device: adapter!.info.device,
+        description: adapter!.info.description,
+        isFallbackAdapter: adapter!.info.isFallbackAdapter,
+      }
+      device = await adapter!.requestDevice({
+        requiredLimits: {
+          maxTextureArrayLayers: 512,
+          maxBufferSize: Math.min(512 * 1024 ** 2, adapter!.limits.maxBufferSize),
         },
-        null,
-        2,
-      ),
-    )
-    expect(after).toBe(sourceSha256)
-  }
-})
+      })
+      proofDeviceLimits = {
+        maxBufferSize: device.limits.maxBufferSize,
+        maxTextureDimension2D: device.limits.maxTextureDimension2D,
+        maxTextureArrayLayers: device.limits.maxTextureArrayLayers,
+        maxStorageBufferBindingSize: device.limits.maxStorageBufferBindingSize,
+        maxComputeWorkgroupsPerDimension: device.limits.maxComputeWorkgroupsPerDimension,
+      }
+      device.addEventListener('uncapturederror', (event) => errors.push(event.error.message))
+      proof = await photoProof(device, asset, join(directory, 'linear.f32'), binary, errors)
+      const views: Array<{ name: string; view: View }> = [
+        { name: 'fit', view: { fit: true, scale: fitScale(asset, proof.viewport), x: 0, y: 0 } },
+        ...[
+          [0.25, 0.25],
+          [0.75, 0.25],
+          [0.25, 0.75],
+          [0.75, 0.75],
+        ].map(([x, y], i) => ({
+          name: `native-${i}`,
+          view: { fit: false, scale: 1, x: asset.width * (0.5 - x), y: asset.height * (0.5 - y) },
+        })),
+        ...(scene === 'deer'
+          ? [{ name: 'native-fur', view: { fit: false, scale: 1, x: 0, y: asset.height * 0.1 } }]
+          : []),
+      ]
+      const edits: AdjustmentParameters[] = [
+        neutralAdjustments,
+        {
+          ...neutralAdjustments,
+          exposureEv: 3.5,
+          contrast: 70,
+          highlights: -80,
+          shadows: 75,
+          whites: 40,
+          blacks: -55,
+          whiteBalance: { mode: 'custom', kelvin: 3500, tint: -20 },
+        },
+        {
+          ...neutralAdjustments,
+          exposureEv: -3,
+          contrast: -60,
+          highlights: 85,
+          shadows: -70,
+          whites: -50,
+          blacks: 55,
+          whiteBalance: { mode: 'custom', kelvin: 9000, tint: 35 },
+        },
+      ]
+      const targets: DisplayTarget[] = [
+        { ...SDR_TARGET, mode: 'sdr', peak: 1, colorSpace: 'srgb', headroom: 1, generation: 0 },
+        {
+          ...SDR_TARGET,
+          mode: 'hdr',
+          peak: 4,
+          colorSpace: 'display-p3',
+          headroom: 4,
+          generation: 0,
+        },
+      ]
+      for (const target of targets)
+        for (const { name, view } of views)
+          for (let edit = 0; edit < edits.length; edit++) {
+            const reference = await proof.render('reference', view, edits[edit], target)
+            const interactive = await proof.render('interactive', view, edits[edit], target)
+            const comparison = photographPreviewMetrics(
+              reference.encoded,
+              interactive.encoded,
+              reference.photographicAlpha,
+              proof.width,
+              proof.height,
+              target.peak,
+              target.colorSpace,
+            )
+            const prefix = `${target.mode}-${name}-edit-${edit}`
+            const save = async (suffix: string, data: Uint8Array) => {
+              const path = info.outputPath(`${prefix}-${suffix}`)
+              await writeFile(path, data)
+              return { file: `${prefix}-${suffix}`, bytes: data.byteLength, sha256: digest(data) }
+            }
+            const evidence = []
+            for (const [label, half] of [
+              ['reference', reference.encoded],
+              ['interactive', interactive.encoded],
+            ] as const) {
+              evidence.push(await save(`${label}.rgba16f`, new Uint8Array(half.buffer)))
+              const bytes = Buffer.alloc(half.length)
+              for (let i = 0; i < half.length; i++)
+                bytes[i] =
+                  i % 4 === 3
+                    ? 255
+                    : Math.max(0, Math.min(255, Math.round(fromHalf(half[i]) * 255)))
+              await sharp(bytes, { raw: { width: proof.width, height: proof.height, channels: 4 } })
+                .withIccProfile(target.colorSpace === 'display-p3' ? 'p3' : 'srgb')
+                .png()
+                .toFile(info.outputPath(`${prefix}-${label}.png`))
+            }
+            evidence.push(
+              await save('difference.rgb32f', new Uint8Array(comparison.differences.buffer)),
+            )
+            evidence.push(await save('classification.u8', comparison.flags))
+            evidence.push(
+              await save('coverage.f32', new Uint8Array(reference.photographicAlpha.buffer)),
+            )
+            const differencePng = Buffer.alloc(comparison.flags.length * 4)
+            for (let i = 0; i < comparison.flags.length; i++) {
+              for (let c = 0; c < 3; c++)
+                differencePng[i * 4 + c] = Math.min(
+                  255,
+                  Math.round(Math.abs(comparison.differences[i * 3 + c]) * 128 * 255),
+                )
+              differencePng[i * 4 + 3] = 255
+            }
+            await sharp(differencePng, {
+              raw: { width: proof.width, height: proof.height, channels: 4 },
+            })
+              .png()
+              .toFile(info.outputPath(`${prefix}-difference-x128.png`))
+            const alphaEqual =
+              digest(new Uint8Array(reference.photographicAlpha.buffer)) ===
+              digest(new Uint8Array(interactive.photographicAlpha.buffer))
+            const inputsEqual =
+              reference.uniformSha256 === interactive.uniformSha256 &&
+              reference.tablesSha256 === interactive.tablesSha256 &&
+              reference.geometrySha256 === interactive.geometrySha256
+            const record = {
+              prefix,
+              target,
+              view,
+              parameters: edits[edit],
+              sourceMip: reference.plan.level,
+              tileCount: reference.plan.tiles.length,
+              dimensions: { width: proof.width, height: proof.height },
+              dpr: proof.dpr,
+              canonical: reference.holdout,
+              interactive: interactive.holdout,
+              uniformSha256: reference.uniformSha256,
+              tablesSha256: reference.tablesSha256,
+              geometrySha256: reference.geometrySha256,
+              inputsEqual,
+              alphaEqual,
+              metrics: comparison.report,
+              evidence,
+            }
+            results.push(record)
+            await writeFile(info.outputPath(`${prefix}.json`), JSON.stringify(record, null, 2))
+            const report = comparison.report,
+              canonicalAlphaMismatches = reference.holdout.alphaMismatches,
+              interactiveAlphaMismatches = interactive.holdout.alphaMismatches,
+              canonicalCtlRatio = reference.holdout.maximumCtlRatio
+            checks.push(() => {
+              expect(alphaEqual, prefix).toBe(true)
+              expect(inputsEqual, prefix).toBe(true)
+              expect(canonicalAlphaMismatches, prefix).toBe(0)
+              expect(interactiveAlphaMismatches, prefix).toBe(0)
+              expect(canonicalCtlRatio, prefix).toBeLessThanOrEqual(1)
+              expect(report.nonfinite, prefix).toBe(0)
+              expect(report.displayAlphaMismatches, prefix).toBe(0)
+              expect(report.maximumEncodedError, prefix).toBeLessThanOrEqual(
+                photographPreviewBudget.maximumEncodedError,
+              )
+              expect(report.p99EncodedErrorUpperBound, prefix).toBeLessThanOrEqual(
+                photographPreviewBudget.p99EncodedError,
+              )
+              expect(report.encodedRms, prefix).toBeLessThanOrEqual(
+                photographPreviewBudget.encodedRms,
+              )
+              expect(report.maximumGradientDifference, prefix).toBeLessThanOrEqual(
+                photographPreviewBudget.maximumGradientDifference,
+              )
+              expect(report.edgeEnergyRelativeDifference, prefix).toBeLessThanOrEqual(
+                photographPreviewBudget.maximumEdgeEnergyRelativeDifference,
+              )
+              expect(report.meanLuminanceSsim, prefix).toBeGreaterThanOrEqual(
+                photographPreviewBudget.minimumLuminanceSsim,
+              )
+              for (const classified of Object.values(report.classes))
+                if (classified.samples) {
+                  expect(classified.p99EncodedErrorUpperBound, prefix).toBeLessThanOrEqual(
+                    photographPreviewBudget.p99EncodedError,
+                  )
+                  expect(classified.encodedRms, prefix).toBeLessThanOrEqual(
+                    photographPreviewBudget.encodedRms,
+                  )
+                }
+            })
+          }
+      expect(errors).toEqual([])
+      for (const check of checks) check()
+    } finally {
+      await engine.close()
+      proof?.destroy()
+      device?.destroy()
+      retainedGpu = undefined
+      await rm(directory, { recursive: true, force: true })
+      const after = digest(await readFile(sourcePath))
+      await writeFile(
+        info.outputPath('interactive-photographic-quality.json'),
+        JSON.stringify(
+          {
+            policy: ACES_INTERACTIVE_PREVIEW_VERSION,
+            canonicalPolicy: DISPLAY_RENDERING_VERSION,
+            source,
+            backend: 'native Dawn via webgpu; actual production tile shader and final sampler',
+            adapter: proofAdapter,
+            deviceLimits: proofDeviceLimits,
+            originalHashAfter: after,
+            originalUnchanged: after === sourceSha256,
+            budget: photographPreviewBudget,
+            ownedGpuBytes: proof?.ownedGpuBytes,
+            nativeInitializationStagingEstimateBytes:
+              proof?.nativeInitializationStagingEstimateBytes,
+            physicalVram: 'unmeasured; owned logical bytes exclude native driver/uploader pools',
+            results,
+            errors,
+            visualReview:
+              'unreviewed; numerical evidence does not prove invisibility to a human observer',
+            pngLimitation:
+              'PNG proofs clamp extended encoded values to SDR; original rgba16float surfaces and Float32 differences retain HDR values.',
+            fixtureCoverage: `${coverage} Full Fit and native-detail regions; assistant image inspection is separate from human Retina/HDR acceptance.`,
+          },
+          null,
+          2,
+        ),
+      )
+      expect(after).toBe(sourceSha256)
+    }
+  })

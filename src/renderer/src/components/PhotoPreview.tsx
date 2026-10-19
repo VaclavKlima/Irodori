@@ -3,7 +3,6 @@ import { useHdrAnalysis } from '../hooks/useHdrAnalysis'
 import { SDR_TARGET } from '../../../shared/hdr'
 import type { DisplayTarget } from '../../../shared/hdr'
 import { HdrPresenter, type HdrPresentationState } from '../preview/hdr-presenter'
-import { HDR_PRESENTATION_CACHE_BUDGET } from '../preview/hdr-presentation-cache'
 import { useForegroundActivity } from '../hooks/useForegroundActivity'
 import { HdrCpuPresenter } from '../preview/hdr-cpu-presenter'
 import { hdrPresentationMemory, HDR_PRESENTATION_BUDGET } from '../preview/hdr-memory'
@@ -166,7 +165,7 @@ export function PhotoPreview({
     selectedAt.current = performance.now()
     firstPresentedMs.current = undefined
     firstUsefulMs.current = undefined
-  }, [photo?.id])
+  }, [photo?.id, suspended])
   const cachedPresented = useCallback((presented: boolean) => {
     if (presented) firstUsefulMs.current ??= performance.now() - selectedAt.current
     setCachedDisplayReady(presented)
@@ -304,10 +303,14 @@ export function PhotoPreview({
     presenter.current?.setComparison(mode, split)
     if (presenter.current instanceof HdrPresenter || presenter.current instanceof HdrCpuPresenter)
       presenter.current.setHdrRanges(hdrRanges)
-    if (presenter.current instanceof HdrPresenter)
+    if (
+      PRESENTATION_CACHE &&
+      (presenter.current instanceof HdrPresenter || presenter.current instanceof HdrCpuPresenter)
+    )
       presenter.current.setPresentationState(presentationState)
     if (presenter.current instanceof HdrPresenter)
       presenter.current.setEditing(gesturing, editingEpoch)
+    if (PRESENTATION_CACHE && working?.hdr && !presentationState) return
     presenter.current?.draw(model.image, model.viewport, model.view, {
       whiteBalance: adjustments.whiteBalance,
       exposureEv: adjustments.exposureEv,
@@ -524,11 +527,19 @@ export function PhotoPreview({
   const { preview: renderedFrame, pixels, displayFailed } = full
   useEffect(() => {
     const canvas = image.current
-    if (!canvas || suspended) return
+    if (!canvas || suspended) {
+      if (PRESENTATION_CACHE && suspended) {
+        // Suspension ends this presentation cycle before a later fresh edit confirmation.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setHdrReady(false)
+        setCachedDisplayReady(false)
+        setRetained(false)
+      }
+      return
+    }
     try {
       if (working?.hdr) {
         // A replacement surface has no validated pixels yet.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setHdrReady(false)
         presenter.current = fallback
           ? new HdrCpuPresenter(canvas, () => setHdrReady(true), displayFailed, beginActivity)
@@ -620,7 +631,10 @@ export function PhotoPreview({
       return
     }
     try {
-      if (presenter.current instanceof HdrPresenter)
+      if (
+        PRESENTATION_CACHE &&
+        (presenter.current instanceof HdrPresenter || presenter.current instanceof HdrCpuPresenter)
+      )
         presenter.current.setPresentationState(presentationState)
       if (working) presenter.current?.setWorking(working)
       onEditingReady(
@@ -675,12 +689,10 @@ export function PhotoPreview({
         working.height,
         Math.round(model.viewport.width * dpr),
         Math.round(model.viewport.height * dpr),
-        undefined,
-        0,
-        PRESENTATION_CACHE ? HDR_PRESENTATION_CACHE_BUDGET : 0,
       ).total <= HDR_PRESENTATION_BUDGET
     ) {
       // A smaller viewport can recover without changing the photograph or display target.
+      // The GPU presenter drains retained surfaces if ordinary planning needs their headroom.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFallback(false)
     }

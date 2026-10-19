@@ -111,10 +111,12 @@ test('every spec has one unique target and group; fast checks exclude build, Ele
   expect(fast.mcp).toBe(false)
   expect(fast.benchmark).toBe(false)
   expect(files(['--full'])).toHaveLength(
-    specs.length - suites.filter((s) => s.group === 'benchmark').length,
+    specs.length - suites.filter((s) => s.group === 'benchmark' || s.candidateBuild).length,
   )
   expect(selectPlan(['--full']).mcp).toBe(true)
-  expect(files(['--all'])).toHaveLength(specs.length)
+  expect(files(['--all'])).toHaveLength(
+    specs.length - suites.filter((s) => s.candidateBuild).length,
+  )
   expect(selectPlan(['--all']).mcp).toBe(true)
 })
 
@@ -326,6 +328,49 @@ test('one shared build, sequential phases, benchmark-only flags and measurement 
       'passed',
     ])
   })
+})
+
+test('experimental renderer UI builds remain explicit and report their required selectors', () => {
+  for (const args of [['--full'], ['--all'], ['--functional'], ['preview']]) {
+    const plan = selectPlan(args)
+    expect(plan.targets).not.toContain('interactive-preview-ui')
+    expect(plan.targets).not.toContain('interactive-preview-lifecycle')
+    expect(plan.targets).not.toContain('hdr-presentation-cache-ui')
+    expect(plan.candidateBuilds).toEqual(
+      expect.arrayContaining([
+        {
+          target: 'interactive-preview-ui',
+          environment: { VITE_LUMA_HDR_INTERACTIVE_PRECISION: 'f32' },
+          selected: false,
+        },
+        {
+          target: 'interactive-preview-lifecycle',
+          environment: { VITE_LUMA_HDR_INTERACTIVE_PRECISION: 'f32' },
+          selected: false,
+        },
+        {
+          target: 'hdr-presentation-cache-ui',
+          environment: { VITE_LUMA_HDR_PRESENTATION_CACHE: '1' },
+          selected: false,
+        },
+      ]),
+    )
+  }
+  for (const target of [
+    'interactive-preview-ui',
+    'interactive-preview-lifecycle',
+    'hdr-presentation-cache-ui',
+  ]) {
+    const plan = selectPlan(['--target', target])
+    expect(plan.targets).toContain(target)
+    expect(plan.candidateBuilds?.find((candidate) => candidate.target === target)?.selected).toBe(
+      true,
+    )
+    expect(plan.groups.find((group) => group.targets.includes(target))?.workers).toBe(1)
+  }
+  expect(selectPlan(['--full']).targets).toEqual(
+    expect.arrayContaining(['interactive-preview-gpu', 'interactive-preview-quality']),
+  )
 })
 
 test('comprehensive failure collection preserves codes and a failed build blocks only dependent tests', async ({}, info) => {

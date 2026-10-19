@@ -3,6 +3,8 @@ import { neutralAdjustments } from '../src/shared/adjustments'
 import { SDR_TARGET } from '../src/shared/hdr'
 import {
   hdrPresentationMemory,
+  hdrRestoredUploadMemory,
+  HdrPresentationHeadroom,
   HDR_PRESENTATION_BUDGET,
 } from '../src/renderer/src/preview/hdr-memory'
 import {
@@ -325,4 +327,236 @@ test('retained exact surfaces reserve room inside the existing upload and presen
   expect(() => hdrPresentationMemory(1, 1, 1, 1, undefined, 0, -1)).toThrow(
     'Invalid retained HDR presentation reservation',
   )
+})
+
+test('two native fullscreen surfaces fit while active source tiles remain within the unchanged aggregate cap', () => {
+  const { frame, destroyed } = resources(),
+    cache = new HdrPresentationCache(),
+    device = {}
+  const identities = ['landscape', 'portrait'].map((sourceIdentity) =>
+    hdrPresentationIdentity({
+      ...input(),
+      sourceIdentity,
+      viewport: { width: 1226, height: 948 },
+    })!,
+  )
+  for (const [i, identity] of identities.entries())
+    expect(
+      cache.retain(device, identity, {
+        ...frame(String(i)),
+        width: identity.width,
+        height: identity.height,
+      }),
+    ).toBe(true)
+  expect(cache.bytes).toBe(2452 * 1896 * 8 * 2)
+  expect(cache.bytes).toBeLessThanOrEqual(HDR_PRESENTATION_CACHE_BUDGET)
+  expect(destroyed).toEqual([])
+  for (const [width, height] of [
+    [5422, 3622],
+    [3622, 5422],
+  ]) {
+    const ordinary = hdrPresentationMemory(width, height, 2452, 1896),
+      reserved = hdrPresentationMemory(width, height, 2452, 1896, undefined, 0, cache.budget)
+    expect(reserved.cacheSlots).toBeLessThan(ordinary.cacheSlots)
+    expect(reserved.total).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
+    expect(reserved.retainedPresentationBytes).toBe(HDR_PRESENTATION_CACHE_BUDGET)
+  }
+  cache.dispose()
+  expect(destroyed).toEqual(['0', '1'])
+})
+
+test('fitting source and viewport plans keep cache headroom without asynchronous admission', () => {
+  const cache = new HdrPresentationCache(),
+    headroom = new HdrPresentationHeadroom(cache),
+    memory = headroom.plan(5496, 3672, 1828, 1004)
+  expect(memory).not.toBeInstanceOf(Promise)
+  expect(memory).toEqual(hdrPresentationMemory(5496, 3672, 1828, 1004, undefined, 0, cache.budget))
+  expect(headroom.eligible).toBe(true)
+  expect(headroom.bypassed).toBe(false)
+  expect(headroom.reservationBytes).toBe(HDR_PRESENTATION_CACHE_BUDGET)
+  headroom.dispose()
+  headroom.dispose()
+  expect(headroom.eligible).toBe(false)
+  expect(() => headroom.plan(5496, 3672)).toThrow('HDR presentation headroom is closed')
+})
+
+test('viewport growth bypasses cache headroom permanently while preserving the ordinary GPU envelope', async () => {
+  const cache = new HdrPresentationCache(64 * 1024 ** 2),
+    headroom = new HdrPresentationHeadroom(cache),
+    initial = headroom.plan(6400, 4800)
+  expect(initial).not.toBeInstanceOf(Promise)
+  expect(headroom.eligible).toBe(true)
+  expect(
+    hdrPresentationMemory(6400, 4800, 1000, 1000, undefined, 0, cache.budget).total,
+  ).toBeGreaterThan(HDR_PRESENTATION_BUDGET)
+  const growing = headroom.plan(6400, 4800, 1000, 1000)
+  expect(growing).toBeInstanceOf(Promise)
+  expect(headroom.bypassed).toBe(true)
+  expect(headroom.eligible).toBe(false)
+  expect(headroom.reservationBytes).toBe(0)
+  const ordinary = await growing
+  expect(ordinary).toEqual(hdrPresentationMemory(6400, 4800, 1000, 1000))
+  expect(ordinary.total).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
+  expect(ordinary.cacheSlots).toBeGreaterThan(1)
+  expect(await headroom.plan(6400, 4800)).toEqual(hdrPresentationMemory(6400, 4800))
+  expect(headroom.bypassed).toBe(true)
+  expect(cache.canRetain(identity())).toBe(false)
+  headroom.dispose()
+  await Promise.resolve()
+  expect(cache.canRetain(identity())).toBe(true)
+})
+
+test('large accepted sources bypass cache reservation before upload without raising the renderer cap', async () => {
+  const cache = new HdrPresentationCache(),
+    headroom = new HdrPresentationHeadroom(cache)
+  expect(hdrPresentationMemory(7008, 4672, 0, 0, undefined, 0, cache.budget).total).toBeGreaterThan(
+    HDR_PRESENTATION_BUDGET,
+  )
+  const upload = await headroom.plan(7008, 4672)
+  expect(headroom.bypassed).toBe(true)
+  expect(upload).toEqual(hdrPresentationMemory(7008, 4672))
+  expect(upload.total).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
+  const viewport = await headroom.plan(7008, 4672, 1000, 1000)
+  expect(viewport).toEqual(hdrPresentationMemory(7008, 4672, 1000, 1000))
+  expect(viewport.total).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
+  const oversized = await headroom.plan(7008, 4672, 5800, 2000)
+  expect(oversized).toEqual(hdrPresentationMemory(7008, 4672, 5800, 2000))
+  expect(oversized.total).toBeGreaterThan(HDR_PRESENTATION_BUDGET)
+  expect(HDR_PRESENTATION_BUDGET).toBe(768 * 1024 ** 2)
+  headroom.dispose()
+})
+
+test('ordinary planning waits for all retired pins and coalesces concurrent viewport requests', async () => {
+  const { frame, destroyed } = resources(),
+    cache = new HdrPresentationCache(),
+    device = {},
+    a = identity('retired'),
+    b = identity('current'),
+    headroom = new HdrPresentationHeadroom(cache)
+  cache.retain(device, a, frame('retired'))
+  const firstLease = cache.acquire(device, a)!,
+    secondLease = cache.acquire(device, a)!
+  cache.invalidate(device)
+  cache.retain(device, b, frame('current'))
+  let firstReady = false,
+    secondReady = false
+  const first = Promise.resolve(headroom.plan(6400, 4800, 1000, 1000)).then((memory) => {
+      firstReady = true
+      return memory
+    }),
+    second = Promise.resolve(headroom.plan(7008, 4672, 1000, 1000)).then((memory) => {
+      secondReady = true
+      return memory
+    })
+  expect(headroom.reservationBytes).toBe(0)
+  expect(cache.size).toBe(0)
+  expect(cache.bytes).toBe(a.byteLength)
+  expect(destroyed).toEqual(['current'])
+  expect(cache.retain(device, identity('late'), frame('late'))).toBe(false)
+  await Promise.resolve()
+  expect([firstReady, secondReady]).toEqual([false, false])
+  firstLease.release()
+  firstLease.release()
+  await Promise.resolve()
+  expect([firstReady, secondReady]).toEqual([false, false])
+  expect(destroyed).toEqual(['current'])
+  secondLease.release()
+  const [firstMemory, secondMemory] = await Promise.all([first, second])
+  expect(firstMemory).toEqual(hdrPresentationMemory(6400, 4800, 1000, 1000))
+  expect(secondMemory).toEqual(hdrPresentationMemory(7008, 4672, 1000, 1000))
+  expect(cache.bytes).toBe(0)
+  expect(destroyed).toEqual(['current', 'retired'])
+  expect(cache.canRetain(a)).toBe(false)
+  headroom.dispose()
+  await Promise.resolve()
+  expect(cache.canRetain(a)).toBe(true)
+})
+
+test('disposal during a pending headroom drain prevents late admission until the last lease releases', async () => {
+  const { frame, destroyed } = resources(),
+    cache = new HdrPresentationCache(),
+    device = {},
+    key = identity(),
+    headroom = new HdrPresentationHeadroom(cache)
+  cache.retain(device, key, frame('pinned'))
+  const lease = cache.acquire(device, key)!,
+    plan = headroom.plan(7008, 4672),
+    additionalDrain = cache.clearAndDrain()
+  headroom.dispose()
+  headroom.dispose()
+  expect(cache.canRetain(key)).toBe(false)
+  expect(cache.retain(device, key, frame('too-early'))).toBe(false)
+  await Promise.resolve()
+  expect(cache.bytes).toBe(key.byteLength)
+  expect(destroyed).toEqual([])
+  lease.release()
+  await Promise.all([plan, additionalDrain])
+  expect(cache.bytes).toBe(0)
+  expect(destroyed).toEqual(['pinned'])
+  expect(cache.canRetain(key)).toBe(true)
+  cache.retain(device, key, frame('after-drain'))
+  cache.dispose()
+  expect(destroyed).toEqual(['pinned', 'after-drain'])
+})
+
+test('cache disposal drains pinned ownership and admission pauses release independently', async () => {
+  const { frame, destroyed } = resources(),
+    cache = new HdrPresentationCache(),
+    device = {},
+    key = identity()
+  const resumeFirst = cache.pauseRetaining(),
+    resumeSecond = cache.pauseRetaining()
+  resumeFirst()
+  resumeFirst()
+  expect(cache.canRetain(key)).toBe(false)
+  resumeSecond()
+  expect(cache.retain(device, key, frame('pinned'))).toBe(true)
+  const lease = cache.acquire(device, key)!
+  cache.dispose()
+  let drained = false
+  const drain = cache.clearAndDrain().then(() => (drained = true))
+  await Promise.resolve()
+  expect(drained).toBe(false)
+  expect(cache.bytes).toBe(key.byteLength)
+  lease.release()
+  await drain
+  expect(drained).toBe(true)
+  expect(destroyed).toEqual(['pinned'])
+  expect(cache.bytes).toBe(0)
+  expect(cache.canRetain(key)).toBe(false)
+})
+
+test('a restored native canvas is charged during upload without reducing a cache miss envelope', async () => {
+  const cache = new HdrPresentationCache(64 * 1024 ** 2),
+    headroom = new HdrPresentationHeadroom(cache),
+    restoredBytes = hdrRestoredUploadMemory(2000, 656),
+    missed = hdrPresentationMemory(16384, 1800, 2000, 656, undefined, 0, cache.budget),
+    restored = hdrPresentationMemory(
+      16384,
+      1800,
+      2000,
+      656,
+      undefined,
+      0,
+      cache.budget,
+      restoredBytes,
+    )
+  expect(restoredBytes).toBe(2000 * 656 * 32 + 4 * 1024 ** 2 + 64 * 1024)
+  expect(restored.uploadPeak - missed.uploadPeak).toBe(restoredBytes)
+  expect(restored.presentationPeak).toBe(missed.presentationPeak)
+  expect(missed.total).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
+  expect(restored.uploadPeak).toBeGreaterThan(HDR_PRESENTATION_BUDGET)
+  expect(headroom.plan(16384, 1800, 2000, 656)).toEqual(missed)
+  expect(headroom.eligible).toBe(true)
+  const bypass = headroom.plan(16384, 1800, 2000, 656, undefined, 0, restoredBytes)
+  expect(headroom.bypassed).toBe(true)
+  expect((await bypass).retainedPresentationBytes).toBe(0)
+  // No cached canvas is restored after bypass; ordinary upload retains its earlier envelope.
+  expect(await headroom.plan(16384, 1800, 2000, 656)).toEqual(
+    hdrPresentationMemory(16384, 1800, 2000, 656),
+  )
+  expect(() => hdrPresentationMemory(1, 1, 1, 1, undefined, 0, 0, -1)).toThrow(
+    'Invalid restored HDR upload reservation',
+  )
+  headroom.dispose()
 })

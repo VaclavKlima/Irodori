@@ -3,7 +3,11 @@ import { test, expect } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { foregroundTest, requiresForeground } from './foreground'
 import { recordBenchmark } from './benchmark.helpers'
-import { sustainedEditorInput, type WorkabilitySlider } from './mac-workability.helpers'
+import type { WorkabilitySlider } from './mac-workability.helpers'
+import {
+  policyEditorInput as sustainedEditorInput,
+  expectHdrTrialPolicy,
+} from './hdr-test-policy.helpers'
 import { provenance } from '../scripts/research/pipeline/provenance'
 
 const reason =
@@ -56,11 +60,13 @@ for (const [width, height, consoleOpen] of [
           ...(await provenance([
             'tests/fixtures/sony-zv1.ARW',
             'tests/mac-workability.helpers.ts',
+            'tests/hdr-test-policy.helpers.ts',
             'src/renderer/src/preview/hdr-presenter.ts',
             'src/renderer/src/preview/hdr-shader.ts',
             'src/renderer/src/preview/hdr-gpu-timings.ts',
             'src/renderer/src/preview/hdr-render-cache.ts',
             'src/shared/aces-wgsl.ts',
+            'src/shared/aces-preview-wgsl.ts',
             'src/shared/display-rendering-wgsl.ts',
             'src/shared/aces-precision-wgsl.ts',
             'src/shared/aces-data.ts',
@@ -124,13 +130,13 @@ for (const [width, height, consoleOpen] of [
           evidence: [path],
         })
         expect(viewport).toMatchObject({ width, height })
-        for (const trial of metrics) {
+        for (const [index, trial] of metrics.entries()) {
           const context = `${trial.zoom} ${trial.label} repetition ${trial.repetition}`
           expect.soft(trial.error, context).toBeUndefined()
           expect.soft(trial.backend, context).toBe('webgpu-hdr')
           expect.soft(trial.inputCount, context).toBe(240)
           expect.soft(trial.draft, context).toBe(0)
-          expect.soft(trial.sharp, context).toBe(trial.completed)
+          expectHdrTrialPolicy(trials[index], context)
           expect.soft(trial.regressed, context).toBe(false)
           expect.soft(trial.attributionFailures, context).toBe(0)
           expect.soft(trial.finalMatched, context).toBe(true)

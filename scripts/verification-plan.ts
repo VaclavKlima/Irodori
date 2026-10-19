@@ -14,6 +14,8 @@ interface Suite {
   scopes: Scope[]
   exclusive?: boolean
   family?: BenchmarkFamily
+  /** Experimental renderer builds are exercised only by their explicit targets. */
+  candidateBuild?: Record<string, string>
 }
 const definitions: Suite[] = [
   { file: 'research-pipeline', group: 'node', scopes: [] },
@@ -121,9 +123,28 @@ const definitions: Suite[] = [
   { file: 'hdr-content-gpu', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
   { file: 'interactive-preview-gpu', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
   { file: 'interactive-preview-quality', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
-  { file: 'interactive-preview-ui', group: 'raw-gpu', scopes: ['ui', 'preview', 'adjustments'] },
+  {
+    file: 'interactive-preview-ui',
+    group: 'raw-gpu',
+    scopes: ['ui', 'preview', 'adjustments'],
+    candidateBuild: { VITE_LUMA_HDR_INTERACTIVE_PRECISION: 'f32' },
+  },
+  {
+    file: 'interactive-preview-lifecycle',
+    group: 'raw-gpu',
+    scopes: ['ui', 'preview', 'adjustments'],
+    candidateBuild: { VITE_LUMA_HDR_INTERACTIVE_PRECISION: 'f32' },
+  },
   { file: 'hdr-presentation-cache', group: 'node', scopes: ['preview'] },
-  { file: 'hdr-presentation-cache-ui', group: 'raw-gpu', scopes: ['ui', 'preview'] },
+  { file: 'hdr-readback', group: 'node', scopes: ['preview'] },
+  { file: 'hdr-cpu-presenter', group: 'node', scopes: ['preview', 'adjustments'] },
+  { file: 'write-hdr-strip', group: 'node', scopes: ['preview'] },
+  {
+    file: 'hdr-presentation-cache-ui',
+    group: 'raw-gpu',
+    scopes: ['ui', 'preview'],
+    candidateBuild: { VITE_LUMA_HDR_PRESENTATION_CACHE: '1' },
+  },
   { file: 'editor-responsiveness-benchmark', group: 'benchmark', scopes: [], family: 'hdr' },
   { file: 'editor-responsiveness-interference', group: 'benchmark', scopes: [], family: 'hdr' },
   {
@@ -280,6 +301,7 @@ export interface VerificationPlan {
   uiMode: 'background' | 'foreground'
   targets: string[]
   requestedTargets: string[]
+  candidateBuilds?: { target: string; environment: Record<string, string>; selected: boolean }[]
   staticChecks: boolean
   build: boolean
   mcp: boolean
@@ -374,6 +396,7 @@ export function selectPlan(args: string[]): VerificationPlan {
     )
     mcp = requested.includes('mcp')
   }
+  if (mode !== '--target') selected = selected.filter((suite) => !suite.candidateBuild)
   const groups: ExecutionGroup[] = []
   const add = (
     name: Group,
@@ -435,6 +458,13 @@ export function selectPlan(args: string[]): VerificationPlan {
       ...(mcp ? [isolatedMcp.target] : []),
     ],
     requestedTargets,
+    candidateBuilds: suites
+      .filter((suite) => suite.candidateBuild)
+      .map((suite) => ({
+        target: suite.target,
+        environment: suite.candidateBuild!,
+        selected: selected.includes(suite),
+      })),
     staticChecks,
     // Library service tests also exercise the bundled preview worker.
     build: mcp || groups.some((group) => group.name !== 'node'),

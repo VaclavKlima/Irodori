@@ -1,4 +1,9 @@
-import { hdrPresentationMemory, HDR_PRESENTATION_BUDGET } from './hdr-memory'
+import {
+  hdrPresentationMemory,
+  hdrRestoredUploadMemory,
+  HdrPresentationHeadroom,
+  HDR_PRESENTATION_BUDGET,
+} from './hdr-memory'
 import { reservePresentationBitmaps } from './frame-cache'
 import {
   hdrAdjustmentMatrix,
@@ -27,7 +32,6 @@ import { hdrHistogramShader, HDR_HISTOGRAM_WORDS, readHdrHistogram } from './hdr
 import type { HdrStatistics } from '../../../shared/hdr-statistics'
 import { HdrGpuTimings, HDR_GPU_TIMING_BYTES, type HdrGpuTimingFrame } from './hdr-gpu-timings'
 import {
-  HDR_PRESENTATION_CACHE_BUDGET,
   HdrPresentationCache,
   hdrPresentationIdentity,
   type HdrPresentationIdentity,
@@ -40,7 +44,6 @@ const PRESENTATION_CACHE = import.meta.env.VITE_LUMA_HDR_PRESENTATION_CACHE === 
 const presentationCache = new HdrPresentationCache<GPUTexture>()
 const presentationDevices = new WeakSet<GPUDevice>()
 const blitPipelines = new WeakMap<GPUDevice, Promise<GPURenderPipeline>>()
-const presentationReservation = PRESENTATION_CACHE ? HDR_PRESENTATION_CACHE_BUDGET : 0
 
 export interface HdrPresentationState {
   revision: number
@@ -129,6 +132,18 @@ interface RenderedPresentation {
   quality: 'normal' | 'interactive'
   histogram: HistogramRequest
 }
+type HdrPresentationDepartureReason =
+  | 'retained'
+  | 'disabled'
+  | 'memory-bypass'
+  | 'closed'
+  | 'unconfirmed'
+  | 'running'
+  | 'pending'
+  | 'restoring'
+  | 'not-completed'
+  | 'identity-changed'
+  | 'not-admitted'
 
 export class HdrPresenter {
   private abort = new AbortController()
@@ -191,6 +206,9 @@ export class HdrPresenter {
   private view?: { image: Size; viewport: Size; view: View; parameters: AdjustmentParameters }
   private releaseActivity?: () => void
   private presentationState: HdrPresentationState | null = null
+  private presentationHeadroom = new HdrPresentationHeadroom(
+    PRESENTATION_CACHE ? presentationCache : null,
+  )
   private completedSurface?: {
     surface: GPUTexture
     identity: HdrPresentationIdentity
@@ -213,6 +231,11 @@ export class HdrPresenter {
     private statisticsPending: (pending: boolean) => void = () => undefined,
     private cachedPresentation: (presented: boolean) => void = () => undefined,
   ) {
+    this.resetNativePublication()
+    canvas.dataset.sourceUploads = '0'
+    canvas.dataset.cachedDisplayReady = 'false'
+    delete canvas.dataset.cachedFencedAt
+    delete canvas.dataset.cachedPostPaintAt
     canvas.dataset.backend = 'webgpu-hdr'
     canvas.dataset.tileBatch = String(HDR_TILE_BATCH)
     canvas.dataset.tileKernel = this.cacheKernel.kind
@@ -235,6 +258,29 @@ export class HdrPresenter {
         this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
     }
   }
+  private resetNativePublication() {
+    this.canvas.dataset.editing = 'loading'
+    for (const field of [
+      'quality',
+      'completedEditSerial',
+      'nativeEditingReadyAt',
+      'presentedSourceIdentity',
+      'presentedEpoch',
+      'presentedView',
+      'uploadMs',
+      'loadTimings',
+      'exposure',
+      'contrast',
+      'highlights',
+      'shadows',
+      'whites',
+      'blacks',
+      'whiteBalance',
+      'comparison',
+      'hdrRanges',
+    ])
+      delete this.canvas.dataset[field]
+  }
   private invalidate() {
     this.queue.invalidate()
     this.histogramQueue.invalidate()
@@ -251,16 +297,19 @@ export class HdrPresenter {
     )
       return
     this.presentationState = state ? structuredClone(state) : null
-    this.completedSurface = undefined
-    this.canvas.dataset.presentationCacheEligible = 'false'
-    this.presentationVersion++
+    if (!state) this.invalidate()
+    else {
+      this.completedSurface = undefined
+      this.canvas.dataset.presentationCacheEligible = 'false'
+      this.presentationVersion++
+    }
     this.checkCachedIdentity()
     void this.restoreCached()
   }
   private presentationIdentity(snapshot = this.view) {
     const state = this.presentationState,
       frame = this.frame
-    if (!PRESENTATION_CACHE || !snapshot || !frame?.hdr || !state) return null
+    if (!this.presentationHeadroom.eligible || !snapshot || !frame?.hdr || !state) return null
     if (!['before', 'after', 'split'].includes(this.mode)) return null
     return hdrPresentationIdentity({
       confirmed: !this.gesturing && sameAdjustments(state.settings, snapshot.parameters),
@@ -288,6 +337,7 @@ export class HdrPresenter {
     this.restoredIdentity = undefined
     if (!this.nativePresented) this.canvas.style.visibility = 'hidden'
     this.canvas.dataset.cachedDisplayReady = 'false'
+    delete this.canvas.dataset.cachedFencedAt
     this.cachedPresentation(false)
   }
   private afterPaint() {
@@ -305,6 +355,35 @@ export class HdrPresenter {
       })
     })
   }
+  private presentationMemory(
+    frame: Pick<WorkingFrame, 'width' | 'height'>,
+    width = 0,
+    height = 0,
+    maximumLayers = HDR_CACHE_MAX_TILES,
+    restoredUploadBytes = 0,
+  ) {
+    const bypassed = this.presentationHeadroom.bypassed
+    const memory = this.presentationHeadroom.plan(
+      frame.width,
+      frame.height,
+      width,
+      height,
+      maximumLayers,
+      this.gpuTimings ? HDR_GPU_TIMING_BYTES : 0,
+      restoredUploadBytes,
+    )
+    if (!bypassed && this.presentationHeadroom.bypassed) {
+      this.completedSurface = undefined
+      this.presentationVersion++
+      this.canvas.dataset.presentationCache = 'memory-bypass'
+      this.canvas.dataset.presentationCacheEligible = 'false'
+      this.hideCachedPresentation()
+    }
+    this.canvas.dataset.presentationReservationBytes = String(
+      this.presentationHeadroom.reservationBytes,
+    )
+    return memory
+  }
   private restoreCached(): Promise<void> {
     if (this.restoring) return this.restoring
     const identity = this.presentationIdentity()
@@ -321,6 +400,32 @@ export class HdrPresenter {
     )
       return Promise.resolve()
     this.attemptedRestore = attempt
+    const memory = this.presentationMemory(
+      this.frame!,
+      identity.width,
+      identity.height,
+      this.device.limits.maxTextureArrayLayers,
+    )
+    if (memory instanceof Promise) {
+      // Install the coalescing promise before yielding; bypass already made this identity ineligible.
+      const work = memory
+        .then(() => undefined)
+        .finally(() => {
+          if (this.restoring === work) this.restoring = undefined
+          this.canvas.dataset.retainedPresentationBytes = String(presentationCache.bytes)
+        })
+      this.restoring = work
+      return work
+    }
+    const lease = presentationCache.acquire(this.device, identity)
+    this.canvas.dataset.retainedPresentationBytes = String(presentationCache.bytes)
+    if (!lease) {
+      this.canvas.dataset.presentationCache = 'miss'
+      return Promise.resolve()
+    }
+    const restoredUploadBytes = this.ready
+      ? 0
+      : hdrRestoredUploadMemory(identity.width, identity.height)
     if (
       hdrPresentationMemory(
         this.frame!.width,
@@ -329,18 +434,29 @@ export class HdrPresenter {
         identity.height,
         this.device.limits.maxTextureArrayLayers,
         this.gpuTimings ? HDR_GPU_TIMING_BYTES : 0,
-        presentationReservation,
+        this.presentationHeadroom.reservationBytes,
+        restoredUploadBytes,
       ).total > HDR_PRESENTATION_BUDGET
     ) {
-      this.canvas.dataset.presentationCache = 'memory-bypass'
-      return Promise.resolve()
+      // Never wait for a drain while holding the candidate lease that the drain must release.
+      lease.release()
+      const plan = this.presentationMemory(
+          this.frame!,
+          identity.width,
+          identity.height,
+          this.device.limits.maxTextureArrayLayers,
+          restoredUploadBytes,
+        ),
+        work = Promise.resolve(plan)
+          .then(() => undefined)
+          .finally(() => {
+            if (this.restoring === work) this.restoring = undefined
+            this.canvas.dataset.retainedPresentationBytes = String(presentationCache.bytes)
+          })
+      this.restoring = work
+      return work
     }
-    const lease = presentationCache.acquire(this.device, identity)
-    this.canvas.dataset.retainedPresentationBytes = String(presentationCache.bytes)
-    if (!lease) {
-      this.canvas.dataset.presentationCache = 'miss'
-      return Promise.resolve()
-    }
+    this.canvas.dataset.restoredUploadBytes = String(restoredUploadBytes)
     const device = this.device,
       version = this.presentationVersion,
       epoch = this.epoch
@@ -385,6 +501,18 @@ export class HdrPresenter {
         fenced = true
         if (!current()) return
         this.restoredIdentity = identity.key
+        // Attribute the completed cache blit before it can become visible. Readiness
+        // and its clock still wait for the following actual paint observations.
+        Object.assign(this.canvas.dataset, {
+          cachedFencedAt: String(performance.now()),
+          cachedPresentationSerial: String(lease.serial),
+          cachedParameters: JSON.stringify(this.view!.parameters),
+          cachedSourceIdentity: this.frame!.identity ?? this.frame!.hdr!.sha256,
+          cachedSettingsRevision: String(this.presentationState!.revision),
+          cachedTargetGeneration: String(this.target.generation),
+          cachedEpoch: String(epoch),
+          presentedView: JSON.stringify(this.view!.view),
+        })
         this.canvas.style.visibility = 'visible'
         await this.afterPaint()
         if (!current()) {
@@ -394,14 +522,7 @@ export class HdrPresenter {
         Object.assign(this.canvas.dataset, {
           presentationCache: 'hit',
           cachedDisplayReady: 'true',
-          cachedPresentationSerial: String(lease.serial),
           cachedPostPaintAt: String(performance.now()),
-          cachedParameters: JSON.stringify(this.view!.parameters),
-          cachedSourceIdentity: this.frame!.identity ?? this.frame!.hdr!.sha256,
-          cachedSettingsRevision: String(this.presentationState!.revision),
-          cachedTargetGeneration: String(this.target.generation),
-          cachedEpoch: String(epoch),
-          presentedView: JSON.stringify(this.view!.view),
         })
         this.cachedPresentation(true)
       } catch (error) {
@@ -489,6 +610,7 @@ export class HdrPresenter {
     this.nativePresented = false
     this.attemptedRestore = ''
     this.ready = false
+    this.resetNativePublication()
     this.canvas.style.visibility = 'hidden'
     const release = this.activity?.()
     void this.load(frame)
@@ -552,17 +674,10 @@ export class HdrPresenter {
     this.context = this.canvas.getContext('webgpu') ?? undefined
     if (!this.context) throw new Error('HDR canvas unavailable.')
     this.levels = Math.floor(Math.log2(Math.max(frame.width, frame.height))) + 1
-    if (
-      hdrPresentationMemory(
-        frame.width,
-        frame.height,
-        0,
-        0,
-        HDR_CACHE_MAX_TILES,
-        this.gpuTimings ? HDR_GPU_TIMING_BYTES : 0,
-        presentationReservation,
-      ).total > HDR_PRESENTATION_BUDGET
-    )
+    const uploadPlan = this.presentationMemory(frame),
+      uploadMemory = uploadPlan instanceof Promise ? await uploadPlan : uploadPlan
+    if (this.abort.signal.aborted) return
+    if (uploadMemory.total > HDR_PRESENTATION_BUDGET)
       throw new Error('This HDR frame exceeds the renderer memory limit.')
     if (
       frame.width > device.limits.maxTextureDimension2D ||
@@ -584,15 +699,14 @@ export class HdrPresenter {
     )
     this.context.unconfigure()
     if (PRESENTATION_CACHE) {
-      const memory = hdrPresentationMemory(
-        frame.width,
-        frame.height,
-        Math.round((this.view?.viewport.width ?? 0) * (window.devicePixelRatio || 1)),
-        Math.round((this.view?.viewport.height ?? 0) * (window.devicePixelRatio || 1)),
-        device.limits.maxTextureArrayLayers,
-        this.gpuTimings ? HDR_GPU_TIMING_BYTES : 0,
-        presentationReservation,
-      )
+      const plan = this.presentationMemory(
+          frame,
+          Math.round((this.view?.viewport.width ?? 0) * (window.devicePixelRatio || 1)),
+          Math.round((this.view?.viewport.height ?? 0) * (window.devicePixelRatio || 1)),
+          device.limits.maxTextureArrayLayers,
+        ),
+        memory = plan instanceof Promise ? await plan : plan
+      if (this.abort.signal.aborted) return
       if (memory.total <= HDR_PRESENTATION_BUDGET) await this.restoreCached()
       if (this.abort.signal.aborted) return
     }
@@ -825,6 +939,7 @@ export class HdrPresenter {
     this.checkCachedIdentity()
     if (PRESENTATION_CACHE) void this.restoreCached()
     if (
+      (PRESENTATION_CACHE && !this.presentationState) ||
       !this.ready ||
       !this.device ||
       !this.context ||
@@ -939,15 +1054,14 @@ export class HdrPresenter {
       dpr = window.devicePixelRatio || 1
     const width = Math.max(1, Math.round(viewport.width * dpr)),
       height = Math.max(1, Math.round(viewport.height * dpr))
-    const memory = hdrPresentationMemory(
-      this.frame!.width,
-      this.frame!.height,
-      width,
-      height,
-      device.limits.maxTextureArrayLayers,
-      this.gpuTimings ? HDR_GPU_TIMING_BYTES : 0,
-      presentationReservation,
-    )
+    const memoryPlan = this.presentationMemory(
+        this.frame!,
+        width,
+        height,
+        device.limits.maxTextureArrayLayers,
+      ),
+      memory = memoryPlan instanceof Promise ? await memoryPlan : memoryPlan
+    if (this.abort.signal.aborted || this.queue.superseded(request)) return undefined
     this.canvas.dataset.allocatedBytes = String(memory.total)
     if (memory.total > HDR_PRESENTATION_BUDGET)
       throw new Error(
@@ -1195,6 +1309,11 @@ export class HdrPresenter {
     if (this.restoring) await this.restoring
     if (this.abort.signal.aborted || this.queue.superseded(request)) return false
     const { viewport, view, parameters, target, mode, ranges, inputSerial } = request.value
+    const confirmed = () =>
+      !PRESENTATION_CACHE ||
+      (!!this.presentationState &&
+        (this.nativePresented || sameAdjustments(this.presentationState.settings, parameters)))
+    if (!confirmed()) return false
     const { timings } = rendered
     const submitting = performance.now()
     const dpr = window.devicePixelRatio || 1
@@ -1230,7 +1349,7 @@ export class HdrPresenter {
     const fencing = performance.now()
     await this.device!.queue.onSubmittedWorkDone()
     timings.finalBlitFenceMs = performance.now() - fencing
-    if (this.abort.signal.aborted || this.queue.superseded(request)) return false
+    if (this.abort.signal.aborted || this.queue.superseded(request) || !confirmed()) return false
     // These elapsed CPU stages include scheduling/queue waits, not hardware timestamps.
     timings.totalMs = performance.now() - rendered.startedAt
     timings.unattributedMs = Math.max(
@@ -1258,7 +1377,7 @@ export class HdrPresenter {
           height,
           this.device!.limits.maxTextureArrayLayers,
           this.gpuTimings ? HDR_GPU_TIMING_BYTES : 0,
-          presentationReservation,
+          this.presentationHeadroom.reservationBytes,
         ).cacheBytes,
       ),
       presentationSerial: String(Number(this.canvas.dataset.presentationSerial ?? 0) + 1),
@@ -1408,6 +1527,40 @@ export class HdrPresenter {
     surface.dataset.presentationSerial = this.canvas.dataset.presentationSerial
   }
   dispose() {
+    if (this.abort.signal.aborted) return
+    const completed = this.completedSurface,
+      currentIdentity = this.presentationIdentity(),
+      confirmed =
+        !!this.presentationState &&
+        !!this.view &&
+        !this.gesturing &&
+        sameAdjustments(this.presentationState.settings, this.view.parameters),
+      running = this.running,
+      pending = this.queue.hasPending,
+      restoring = !!this.restoring,
+      identityMatches = !!completed && currentIdentity?.key === completed.identity.key,
+      cacheEligible = this.presentationHeadroom.eligible,
+      reservationBytes = this.presentationHeadroom.reservationBytes,
+      bytesBefore = presentationCache.bytes
+    let departureReason: HdrPresentationDepartureReason = !PRESENTATION_CACHE
+      ? 'disabled'
+      : this.presentationHeadroom.bypassed
+        ? 'memory-bypass'
+        : !cacheEligible
+          ? 'closed'
+          : !confirmed
+            ? 'unconfirmed'
+            : running
+              ? 'running'
+              : pending
+                ? 'pending'
+                : restoring
+                  ? 'restoring'
+                  : !completed
+                    ? 'not-completed'
+                    : !identityMatches || completed.surface !== this.surface
+                      ? 'identity-changed'
+                      : 'not-admitted'
     this.releaseActivity?.()
     this.releaseActivity = undefined
     this.releaseHistogramActivity?.()
@@ -1429,16 +1582,15 @@ export class HdrPresenter {
     this.histogramUniform?.destroy()
     this.histogramBuffer?.destroy()
     this.histogramReadback?.destroy()
-    const completed = this.completedSurface
     if (
-      PRESENTATION_CACHE &&
+      cacheEligible &&
       this.device &&
       completed &&
-      !this.running &&
-      !this.queue.hasPending &&
-      !this.restoring &&
+      !running &&
+      !pending &&
+      !restoring &&
       completed.surface === this.surface &&
-      this.presentationIdentity()?.key === completed.identity.key &&
+      identityMatches &&
       presentationCache.retain(this.device, completed.identity, {
         surface: completed.surface,
         width: completed.identity.width,
@@ -1448,10 +1600,26 @@ export class HdrPresenter {
         transient: false,
         serial: completed.serial,
       })
-    )
+    ) {
       this.surface = undefined
+      departureReason = 'retained'
+    }
     this.surface?.destroy()
     this.canvas.dataset.retainedPresentationBytes = String(presentationCache.bytes)
+    this.canvas.dataset.presentationDeparture = JSON.stringify({
+      reason: departureReason,
+      completed: !!completed,
+      confirmed,
+      running,
+      pending,
+      restoring,
+      identityMatches,
+      cacheEligible,
+      reservationBytes,
+      bytesBefore,
+      bytesAfter: presentationCache.bytes,
+    })
+    this.presentationHeadroom.dispose()
     this.invalidate()
     this.renderingWorker.terminate()
     this.context?.unconfigure()

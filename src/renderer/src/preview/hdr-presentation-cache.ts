@@ -2,7 +2,7 @@ import type { AdjustmentParameters } from '../../../shared/adjustments'
 import type { DisplayTarget } from '../../../shared/hdr'
 import type { Size, View } from './geometry'
 
-export const HDR_PRESENTATION_CACHE_BUDGET = 64 * 1024 ** 2
+export const HDR_PRESENTATION_CACHE_BUDGET = 96 * 1024 ** 2
 const identityVersion = 'hdr-exact-presentation-v1'
 
 export interface HdrPresentationIdentityInput {
@@ -167,6 +167,8 @@ export class HdrPresentationCache<Surface extends DisposableSurface> {
   private owned = new Set<Surface>()
   private allocated = 0
   private closed = false
+  private admissionPauses = 0
+  private drainWaiters = new Set<() => void>()
   constructor(readonly budget = HDR_PRESENTATION_CACHE_BUDGET) {
     if (!Number.isSafeInteger(budget) || budget < 0)
       throw new Error('Invalid HDR presentation cache budget.')
@@ -180,7 +182,13 @@ export class HdrPresentationCache<Surface extends DisposableSurface> {
   }
   /** Non-mutating preflight; an oversized or pinned-out candidate remains caller-owned. */
   canRetain(identity: HdrPresentationIdentity) {
-    if (this.closed || !this.valid(identity) || identity.byteLength > this.budget) return false
+    if (
+      this.closed ||
+      this.admissionPauses > 0 ||
+      !this.valid(identity) ||
+      identity.byteLength > this.budget
+    )
+      return false
     let unavailable = this.allocated
     for (const entry of this.entries.values())
       if (!entry.pins) unavailable -= entry.identity.byteLength
@@ -256,6 +264,22 @@ export class HdrPresentationCache<Surface extends DisposableSurface> {
   clear() {
     for (const entry of this.entries.values()) this.retire(entry)
   }
+  /** A presenter using the ordinary memory budget must prevent later cache admission. */
+  pauseRetaining() {
+    this.admissionPauses++
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.admissionPauses--
+    }
+  }
+  /** Retired leases remain charged until their final submitted GPU read has completed. */
+  clearAndDrain(): Promise<void> {
+    this.clear()
+    if (!this.allocated) return Promise.resolve()
+    return new Promise((resolve) => this.drainWaiters.add(resolve))
+  }
   dispose() {
     this.closed = true
     this.clear()
@@ -279,6 +303,13 @@ export class HdrPresentationCache<Surface extends DisposableSurface> {
   private destroy(entry: Entry<Surface>) {
     if (!this.owned.delete(entry.surface)) return
     this.allocated -= entry.identity.byteLength
-    entry.surface.destroy()
+    try {
+      entry.surface.destroy()
+    } finally {
+      if (!this.allocated) {
+        for (const resolve of this.drainWaiters) resolve()
+        this.drainWaiters.clear()
+      }
+    }
   }
 }

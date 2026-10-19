@@ -3,7 +3,12 @@ import { test, expect } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { foregroundTest, requiresForeground } from './foreground'
 import { recordBenchmark } from './benchmark.helpers'
-import { sustainedEditorInput } from './mac-workability.helpers'
+import {
+  policyEditorInput as sustainedEditorInput,
+  expectHdrTrialPolicy,
+  expectReferenceHdrPreview,
+  hdrTestPolicy,
+} from './hdr-test-policy.helpers'
 import { HDR_PRESENTATION_BUDGET } from '../src/renderer/src/preview/hdr-memory'
 import { provenance } from '../scripts/research/pipeline/provenance'
 
@@ -42,10 +47,12 @@ for (const [width, height, consoleOpen] of [
         ...(await provenance([
           'tests/fixtures/sony-zv1.ARW',
           'tests/mac-workability.helpers.ts',
+          'tests/hdr-test-policy.helpers.ts',
           'src/renderer/src/preview/hdr-presenter.ts',
           'src/renderer/src/preview/hdr-shader.ts',
           'src/renderer/src/preview/hdr-gpu-timings.ts',
           'src/shared/aces-wgsl.ts',
+          'src/shared/aces-preview-wgsl.ts',
           'src/shared/display-rendering-wgsl.ts',
           'src/shared/aces-precision-wgsl.ts',
           'src/shared/aces-data.ts',
@@ -124,7 +131,7 @@ for (const [width, height, consoleOpen] of [
         expect.soft(trial.error, context).toBeUndefined()
         expect.soft(trial.inputs.length, context).toBe(240)
         expect.soft(trial.draft, context).toBe(0)
-        expect.soft(trial.sharp, context).toBe(trial.completed)
+        expectHdrTrialPolicy(trial, context)
         expect.soft(trial.regressed, context).toBe(false)
         expect.soft(trial.attributionFailures, context).toBe(0)
         expect.soft(trial.finalMatched, context).toBe(true)
@@ -284,7 +291,10 @@ test(
       await expect
         .poll(() =>
           canvas.evaluate(
-            (element) => element.dataset.completedEditSerial === element.dataset.requestedSerial,
+            (element) =>
+              element.dataset.presentedPolicy === 'reference' &&
+              element.dataset.gesturing === 'false' &&
+              element.dataset.completedEditSerial === element.dataset.requestedSerial,
           ),
         )
         .toBe(true)
@@ -305,10 +315,20 @@ test(
           generation: canvas.dataset.targetGeneration,
           exposure: canvas.dataset.exposure,
           backend: canvas.dataset.backend,
+          quality: canvas.dataset.quality,
+          presentedPolicy: canvas.dataset.presentedPolicy,
+          previewPolicy: canvas.dataset.interactivePolicy,
         }
       })
       const latencyMs = Date.now() - started
-      measurements.push({ candidate, invalidation, latencyMs, changedExposure, ...result })
+      measurements.push({
+        candidate,
+        policy: hdrTestPolicy,
+        invalidation,
+        latencyMs,
+        changedExposure,
+        ...result,
+      })
       await writeFile(
         info.outputPath('batch-cancellation.json'),
         JSON.stringify(measurements, null, 2),
@@ -325,6 +345,7 @@ test(
         evidence: [info.outputPath('batch-cancellation.json')],
       })
       expect(result.backend).toBe('webgpu-hdr')
+      await expectReferenceHdrPreview(page)
       expect(result.allocatedBytes).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
       if (invalidation === 'history')
         expect(result.observed.every((frame) => frame.exposure !== String(changedExposure))).toBe(

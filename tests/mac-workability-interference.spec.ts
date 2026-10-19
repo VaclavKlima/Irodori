@@ -8,7 +8,10 @@ import { importPhotos } from './import.helpers'
 import { isolateTrash } from './photo-actions.helpers'
 import { foregroundTest, requiresForeground } from './foreground'
 import { recordBenchmark } from './benchmark.helpers'
-import { sustainedEditorInput } from './mac-workability.helpers'
+import {
+  policyEditorInput as sustainedEditorInput,
+  expectHdrTrialPolicy,
+} from './hdr-test-policy.helpers'
 import { provenance } from '../scripts/research/pipeline/provenance'
 import type { BackgroundTask, TaskErrorPage } from '../src/shared/contracts'
 import type { ExportPreparation, ExportResult } from '../src/shared/export'
@@ -220,6 +223,9 @@ function overlap(editor?: EditorResult, operation?: OperationResult) {
     sharpPresentations: trial.presentations.filter(
       (frame) => within(frame.at) && frame.quality === 'normal',
     ).length,
+    interactivePresentations: trial.presentations.filter(
+      (frame) => within(frame.at) && frame.quality === 'interactive',
+    ).length,
     draftPresentations: trial.presentations.filter(
       (frame) => within(frame.at) && frame.quality === 'draft',
     ).length,
@@ -334,11 +340,13 @@ for (const workload of [
             'tests/fixtures/sony-zv1.ARW',
             'tests/fixtures/research-sony/manifest.json',
             'tests/mac-workability.helpers.ts',
+            'tests/hdr-test-policy.helpers.ts',
             'src/renderer/src/preview/hdr-presenter.ts',
             'src/renderer/src/preview/hdr-shader.ts',
             'src/renderer/src/preview/hdr-gpu-timings.ts',
             'src/shared/display-rendering.ts',
             'src/shared/aces-wgsl.ts',
+            'src/shared/aces-preview-wgsl.ts',
             'src/shared/display-rendering-wgsl.ts',
             'src/shared/aces-precision-wgsl.ts',
             'src/shared/aces-data.ts',
@@ -745,7 +753,7 @@ for (const workload of [
           expect.soft(input?.backend, context).toBe('webgpu-hdr')
           expect.soft(input?.inputs.length, context).toBe(240)
           expect.soft(input?.draft, context).toBe(0)
-          expect.soft(input?.sharp, context).toBe(input?.completed)
+          expectHdrTrialPolicy(input, context)
           expect.soft(input?.regressed, context).toBe(false)
           expect.soft(input?.attributionFailures, context).toBe(0)
           expect.soft(input?.finalMatched, context).toBe(true)

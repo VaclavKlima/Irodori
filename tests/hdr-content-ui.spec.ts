@@ -1,6 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
+import { expectActiveHdrPreview, expectReferenceHdrPreview } from './hdr-test-policy.helpers'
 import { HDR_CACHE_MAX_TILES } from '../src/renderer/src/preview/hdr-render-cache'
 
 test.use({ hdrDisplay: true })
@@ -240,7 +241,7 @@ test('sharp edits advance while one histogram readback is held and converge to t
       slider.dispatchEvent(new Event('input', { bubbles: true }))
     }, value)
     await expect(canvas).toHaveAttribute('data-exposure', String(value))
-    await expect(canvas).toHaveAttribute('data-quality', 'normal')
+    await expectActiveHdrPreview(page)
   }
   try {
     await input(0.5)
@@ -295,6 +296,7 @@ test('sharp edits advance while one histogram readback is held and converge to t
       .getElementById(label.htmlFor)!
       .dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
   })
+  await expectReferenceHdrPreview(page)
   await expect(histogram).toHaveAttribute('data-samples', '65536')
   await expect(histogram).toHaveAttribute('data-pending', 'false')
 })
