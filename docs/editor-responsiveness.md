@@ -514,13 +514,36 @@ refinement, revision, history, resources and compositor pixels.
 [Focused verification](../artifacts/verification/2026-10-19T05-35-21.247Z-check-peeAgo/summary.md),
 [candidate build](../artifacts/verification/2026-10-19T05-35-57.765Z-gesture-candidate-build/summary.md).
 
-That native case is **unrun** while Mac availability remains unconfirmed. The
+Native acceptance of that case remains **unproven**. The
 historical 107.8–109.1 ms misses are still unmet; model tests and a successful
-build do not establish a latency improvement or a native lifecycle pass. The two
-interrupted setup cases must be rerun first, followed by this case, affected
-lifecycle checks and matched first-visible performance runs. Wider layout,
+build do not establish a latency improvement or a native lifecycle pass. The
+resume/transfer ledger below records the subsequent exact reruns and setup
+correction. Affected lifecycle checks and matched first-visible performance runs
+remain required. Wider layout,
 120 Hz, navigation and contention acceptance remains pending. Both experimental
 selectors remain disabled by default and no production merge is implied.
+
+## Paused Mac goal and Bazzite transfer
+
+On October 19 the user resumed the goal, then paused it to move work to Bazzite.
+The exact stale-null navigation and actual device-loss cases passed **2/2 in
+48.27 seconds** (6.57 and 41.34 seconds). The earlier interrupted invocations
+remain failed evidence; this successful run supplies no interaction-latency
+acceptance.
+[Resumed native cases](../artifacts/verification/playwright-1792389656466-1b2bd8be-d0e3-4c65-9417-10538d3a0bf7/playwright/summary.json).
+
+The held-reply case stopped in setup because Electron correctly rejected
+replacing the protected renderer bridge. Test-only correction `3c9111b` holds
+the existing main-process IPC handler's real reply after persistence/broadcast,
+preserving the bridge and real operation. Type checking, file lint and formatting
+pass; the corrected native case is **unrun** because the user paused the goal.
+[Preserved setup failure](../artifacts/verification/playwright-1792389722485-4dab5a5a-6f39-4f94-96e3-0c714c65f9e9/playwright/summary.json).
+
+Use [the self-contained Bazzite handoff](bazzite-editor-handoff.md) for the
+checkpoint, complete continuation objective, local installation/display caveats,
+known harness gaps and next commands. Generated Mac evidence is ignored and
+does not travel with Git; an optional separate archive preserves selected
+reports/raw measurements. Neither the editor default nor production was changed.
 
 ## Primary-source research
 

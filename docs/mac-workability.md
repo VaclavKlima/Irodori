@@ -1616,8 +1616,11 @@ unavailable. A Linux comprehensive checkpoint requires its own agreed checkpoint
 
 ### Everyday editor continuation
 
-This is the later editor experiment's Linux checklist, deferred at the user's
-request under [TODO #29](features/README.md#workspace-feedback-backlog). Keep it
+This is the later editor experiment's Linux checklist under
+[TODO #29](features/README.md#workspace-feedback-backlog). The user paused the Mac
+goal on October 19 to continue on Bazzite. Use the
+[transfer handoff](bazzite-editor-handoff.md), including source/test checkpoint
+`3c9111b05dd24f4e7d52dd45b63f4d90856b97ff` and its unrun corrected native case. Keep it
 separate from reproducing merge revision `0a70599669c884fc70d2e2afe5f9a6527df44dbb`.
 The coordinator must first freeze and record the final tested editor revision;
 that handoff revision is currently pending. Use its exact source/build hashes,
