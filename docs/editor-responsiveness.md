@@ -478,6 +478,50 @@ rerun before the passing selection. These measurement corrections do not supply
 new native acceptance evidence or enable either experimental rendering selector.
 [Focused verification](../artifacts/verification/2026-10-19T05-21-34.836Z-check-Pmr8xL/summary.md).
 
+## Final-input feedback candidate
+
+The first-visible audit exposed a release transition: the last input and release
+can precede the next preview draw. Accepting the committed edit advances the
+epoch and clears its draft, so the final value may first appear through expensive
+canonical work. The library also broadcasts `editsChanged` before returning the
+caller's write reply; a refresh can therefore win the acceptance race.
+
+The opt-in Float32 candidate now carries bounded private metadata for one local
+write. Pending metadata is issued before its real write starts; only that write's
+successful reply can mark it accepted. Matching refreshes preserve the pending
+record, while cancellation, conflicts, new gestures, history and scope changes
+retire it. Queued changes waiting on an earlier write also recheck their intent
+generation before creating another draft.
+
+An actually observed native gesture may submit one final Float32 image, followed
+by canonical refinement after its exact accepted revision/settings receive fresh
+confirmation. Pending metadata prevents early canonical admission during the
+refresh-before-reply race. Duplicate draws coalesce; per-stage request serials
+prevent obsolete cleanup from retiring a replacement or publishing feedback
+twice. Source, view, target, comparison, ranges, cancellation and device loss
+invalidate the handoff. Original request epochs remain in publication metadata.
+No GPU surfaces, queue lanes or arbitrary gesture delays were added, and exact
+retained presentation still excludes transient output.
+
+The coordinator integrated the hook and GPU work and registered separate
+`edit-gesture-commit` and `hdr-gesture-handoff` Node targets. Focused verification
+passed **405 checks in 20.02 seconds**, including their **43 new lifecycle cases**,
+type checking, lint and formatting. The explicit Float32/cache Electron build
+passed in **1.98 seconds**. A new native lifecycle case holds only the caller's
+real reply after persistence and broadcast, requires final Float32 feedback with
+no premature canonical tile dispatch, then releases the reply and checks exact
+refinement, revision, history, resources and compositor pixels.
+[Focused verification](../artifacts/verification/2026-10-19T05-35-21.247Z-check-peeAgo/summary.md),
+[candidate build](../artifacts/verification/2026-10-19T05-35-57.765Z-gesture-candidate-build/summary.md).
+
+That native case is **unrun** while Mac availability remains unconfirmed. The
+historical 107.8–109.1 ms misses are still unmet; model tests and a successful
+build do not establish a latency improvement or a native lifecycle pass. The two
+interrupted setup cases must be rerun first, followed by this case, affected
+lifecycle checks and matched first-visible performance runs. Wider layout,
+120 Hz, navigation and contention acceptance remains pending. Both experimental
+selectors remain disabled by default and no production merge is implied.
+
 ## Primary-source research
 
 The following source snapshots were inspected on October 18, 2026. Vendor

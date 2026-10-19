@@ -988,6 +988,7 @@ export function App() {
             tools={previewTools}
             gesturing={edits.gesturing}
             editingEpoch={edits.epoch}
+            gestureCommit={edits.gestureCommit?.photoId === photo?.id ? edits.gestureCommit : null}
             onEditingReady={setInteractivePhoto}
             total={total}
             position={position}

@@ -27,6 +27,7 @@ interface FaultObservation {
   rejectedPipelines: number
   rejection?: { name: string; reason?: string; message: string }
   interactiveDispatches: number
+  canonicalDispatches: number
   held: number
   waiting: number
   liveBytes: number
@@ -56,6 +57,7 @@ async function installFaults(page: Page, rejectInteractive = false) {
     const observation: FaultObservation = {
       rejectedPipelines: 0,
       interactiveDispatches: 0,
+      canonicalDispatches: 0,
       held: 0,
       waiting: 0,
       liveBytes: 0,
@@ -69,7 +71,9 @@ async function installFaults(page: Page, rejectInteractive = false) {
     }
     const modules = new WeakMap<GPUShaderModule, string>(),
       interactive = new WeakSet<GPUComputePipeline>(),
+      canonical = new WeakSet<GPUComputePipeline>(),
       passes = new WeakSet<GPUComputePassEncoder>(),
+      canonicalPasses = new WeakSet<GPUComputePassEncoder>(),
       resources = new WeakMap<object, number>()
     const original = {
       shader: GPUDevice.prototype.createShaderModule,
@@ -127,6 +131,8 @@ async function installFaults(page: Page, rejectInteractive = false) {
       }
       const result = await original.pipeline.call(this, descriptor)
       if (isInteractive) interactive.add(result)
+      else if (descriptor.compute.entryPoint === 'renderTile' && code?.includes('fn dsPow('))
+        canonical.add(result)
       return result
     }
     GPUDevice.prototype.createBuffer = function (descriptor) {
@@ -163,10 +169,13 @@ async function installFaults(page: Page, rejectInteractive = false) {
     GPUComputePassEncoder.prototype.setPipeline = function (pipeline) {
       if (interactive.has(pipeline)) passes.add(this)
       else passes.delete(this)
+      if (canonical.has(pipeline)) canonicalPasses.add(this)
+      else canonicalPasses.delete(this)
       original.setPipeline.call(this, pipeline)
     }
     GPUComputePassEncoder.prototype.dispatchWorkgroups = function (...counts) {
       if (passes.has(this)) observation.interactiveDispatches++
+      if (canonicalPasses.has(this)) observation.canonicalDispatches++
       original.dispatch.apply(this, counts)
     }
     let armedAt: number | undefined
@@ -351,6 +360,48 @@ async function inputExposure(slider: ReturnType<Page['locator']>, value: number)
   }, value)
 }
 
+async function holdLocalCommitReply(page: Page) {
+  return page.evaluateHandle(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(window, 'luma')!,
+      original = window.luma
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const state = {
+      calls: 0,
+      persisted: null as Awaited<ReturnType<typeof original.updateEdits>> | null,
+      released: false,
+    }
+    Object.defineProperty(window, 'luma', {
+      configurable: true,
+      value: {
+        ...original,
+        updateEdits: async (...args: Parameters<typeof original.updateEdits>) => {
+          state.calls++
+          // Persist and broadcast normally; hold only this caller's real reply.
+          const next = await original.updateEdits(...args)
+          state.persisted = next
+          await pending
+          return next
+        },
+      },
+    })
+    return {
+      state,
+      release: () => {
+        state.released = true
+        release()
+      },
+      close: () => {
+        state.released = true
+        release()
+        Object.defineProperty(window, 'luma', descriptor)
+      },
+    }
+  })
+}
+
 async function capture(app: ElectronApplication, page: Page, path: string) {
   const bounds = await page.getByTestId('main-preview').boundingBox()
   if (!bounds) throw new Error('No native canvas bounds.')
@@ -494,6 +545,115 @@ test(
       })
       await expect.poll(async () => (await observation(page)).liveBytes).toBe(0)
     } finally {
+      await evidence(page, info, userDataDir, id, detail)
+    }
+  },
+)
+
+test(
+  'the last local input receives Float32 feedback before its own reply and canonical refinement after confirmation',
+  foreground,
+  async ({ luma }, info) => {
+    test.setTimeout(180000)
+    const { app, page, userDataDir } = luma
+    let id: string | undefined, reply: Awaited<ReturnType<typeof holdLocalCommitReply>> | undefined
+    const detail: unknown[] = []
+    try {
+      await installFaults(page)
+      const prepared = await setup(app, page)
+      id = prepared.raw.id
+      const slider = await beginGesture(page),
+        canvas = page.getByTestId('main-preview')
+      await expect
+        .poll(() =>
+          canvas.evaluate(
+            (element) => element.dataset.completedEditSerial === element.dataset.requestedSerial,
+          ),
+        )
+        .toBe(true)
+      const before = await observation(page)
+      reply = await holdLocalCommitReply(page)
+      // The last input has no intervening animation frame in which to render.
+      await slider.evaluate((element) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+          element,
+          '1.75',
+        )
+        element.dispatchEvent(new Event('input', { bubbles: true }))
+        element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+      })
+      await expect.poll(() => reply!.evaluate((value) => value.state.persisted !== null)).toBe(true)
+      const committed = await reply.evaluate((value) => value.state.persisted!)
+      expect(committed.photoId).toBe(id)
+      expect(committed.revision).toBeGreaterThan(prepared.history.revision)
+      expect(committed.settings.exposureEv).toBe(1.75)
+      // Main-process persistence and its broadcast have completed while the own reply is held.
+      expect(await page.evaluate((id) => window.luma.getEdits(id), id)).toEqual(committed)
+      await expect(canvas).toHaveAttribute('data-exposure', '1.75')
+      await expect(canvas).toHaveAttribute('data-quality', 'interactive')
+      await expect(canvas).toHaveAttribute(
+        'data-presented-policy',
+        ACES_INTERACTIVE_PREVIEW_VERSION,
+      )
+      await expect(canvas).toHaveAttribute('data-gesturing', 'false')
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      )
+      const pending = await observation(page),
+        feedback = await canvas.evaluate((element) => ({
+          source: element.dataset.presentedSourceIdentity,
+          epoch: element.dataset.presentedEpoch,
+          serial: element.dataset.completedEditSerial,
+          quality: element.dataset.quality,
+          policy: element.dataset.presentedPolicy,
+          exposure: element.dataset.exposure,
+        })),
+        fastPixels = await capture(app, page, info.outputPath('final-input-feedback.png'))
+      expect(feedback.source).toContain(`luma-photo://library/${id}/`)
+      expect(feedback.epoch).toBeDefined()
+      expect(feedback.serial).toBeDefined()
+      expect(feedback).toMatchObject({
+        quality: 'interactive',
+        policy: ACES_INTERACTIVE_PREVIEW_VERSION,
+        exposure: '1.75',
+      })
+      expect(pending.interactiveDispatches).toBeGreaterThan(before.interactiveDispatches)
+      expect(pending.canonicalDispatches).toBe(before.canonicalDispatches)
+      expect(await reply.evaluate((value) => value.state)).toMatchObject({
+        calls: 1,
+        released: false,
+      })
+      await reply.evaluate((value) => value.release())
+      await page.mouse.up()
+      await exact(page, 1.75)
+      await expect(canvas).toHaveAttribute(
+        'data-presented-settings-revision',
+        String(committed.revision),
+      )
+      const final = await observation(page),
+        history = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+      expect(final.canonicalDispatches).toBeGreaterThan(pending.canonicalDispatches)
+      expect(history.snapshots).toHaveLength(prepared.history.snapshots.length + 1)
+      expect(history.snapshots.slice(0, -1)).toEqual(prepared.history.snapshots)
+      expect(history.settings).toEqual({ ...prepared.history.settings, exposureEv: 1.75 })
+      expect(await reply.evaluate((value) => value.state.calls)).toBe(1)
+      expect(
+        difference(
+          fastPixels,
+          await capture(app, page, info.outputPath('final-input-canonical.png')),
+        ),
+      ).toBeLessThanOrEqual(1)
+      expect(final.peakBytes).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
+      detail.push({ before, pending, final, feedback, committed, history })
+    } finally {
+      if (reply) {
+        await reply.evaluate((value) => value.close()).catch(() => undefined)
+        await reply.dispose()
+      }
+      await page.mouse.up().catch(() => undefined)
       await evidence(page, info, userDataDir, id, detail)
     }
   },

@@ -23,6 +23,7 @@
     "src/shared/**/*.ts",
     "src/renderer/src/env.d.ts",
     "src/renderer/src/preview/**/*.ts",
+    "src/renderer/src/hooks/edit-gesture-commit.ts",
     "src/renderer/src/browse/**/*.ts",
     "src/renderer/src/collections/**/*.ts",
     "tests/**/*.ts",

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { validatePatch, type EditState } from '../../../shared/edits'
 import { useForegroundActivity } from './useForegroundActivity'
+import {
+  EditGestureCommits,
+  type EditGestureCommitSnapshot,
+  type EditGestureScope,
+} from './edit-gesture-commit'
 
 import {
   neutralAdjustments,
@@ -16,66 +21,120 @@ export function useEdits(photoId: string | undefined, enabled = true) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [epoch, setEpoch] = useState(0)
+  const epochRef = useRef(0)
   // Returning to the same photo requires a fresh authoritative read for this enabled cycle.
   const confirmationScope = useMemo(() => ({ photoId, enabled }), [photoId, enabled])
   const [confirmedScope, setConfirmedScope] = useState<typeof confirmationScope | null>(null)
+  const commits = useRef(new EditGestureCommits())
+  const [gestureCommit, setGestureCommit] = useState<EditGestureCommitSnapshot | null>(null)
   const current = useRef<EditState | null>(null)
-  const gesture = useRef<{ state: EditState; patch: AdjustmentPatch } | null>(null)
+  const gesture = useRef<{
+    state: EditState
+    patch: AdjustmentPatch
+    fromEpoch: number
+    scope: EditGestureScope
+  } | null>(null)
   const busy = useRef(false)
   const pending = useRef<Promise<void>>(Promise.resolve())
   useEffect(() => {
     if (draft || saving) return begin()
   }, [draft, saving, begin])
-  const accept = useCallback((next: EditState) => {
-    if (current.current?.photoId === next.photoId && current.current.revision >= next.revision)
-      return
-    current.current = next
-    gesture.current = null
-    setState(next)
-    setDraft(null)
-    setEpoch((value) => value + 1)
+  const syncGestureCommit = useCallback(() => {
+    setGestureCommit(commits.current.snapshot)
   }, [])
-  const flush = useCallback(async () => {
-    const edit = gesture.current
-    gesture.current = null
-    if (!edit || sameAdjustments(edit.state.settings, { ...edit.state.settings, ...edit.patch })) {
+  const advanceEpoch = useCallback(() => {
+    epochRef.current++
+    setEpoch(epochRef.current)
+  }, [])
+  const accept = useCallback(
+    (next: EditState) => {
+      if (current.current?.photoId === next.photoId && current.current.revision > next.revision)
+        return
+      commits.current.observe(next)
+      syncGestureCommit()
+      if (current.current?.photoId === next.photoId && current.current.revision === next.revision)
+        return
+      current.current = next
+      gesture.current = null
+      setState(next)
       setDraft(null)
-      return pending.current
-    }
-    busy.current = true
-    setSaving(true)
-    const work = (async () => {
-      try {
-        const next = await window.luma.updateEdits(
-          edit.state.photoId,
-          edit.patch,
-          edit.state.revision,
-        )
-        if (current.current?.photoId === next.photoId) accept(next)
-        setError('')
-      } catch (error) {
-        if (current.current?.photoId === edit.state.photoId) {
-          setError(String(error))
-          setDraft(null)
-          const recovered = await window.luma.getEdits(edit.state.photoId)
-          if (
-            current.current?.photoId === edit.state.photoId &&
-            recovered.photoId === edit.state.photoId
-          )
-            accept(recovered)
-        }
-        throw error
-      } finally {
-        busy.current = false
-        setSaving(false)
+      advanceEpoch()
+    },
+    [advanceEpoch, syncGestureCommit],
+  )
+  const flushGesture = useCallback(
+    async (trackCommit: boolean) => {
+      const edit = gesture.current
+      gesture.current = null
+      if (
+        !edit ||
+        sameAdjustments(edit.state.settings, { ...edit.state.settings, ...edit.patch })
+      ) {
+        setDraft(null)
+        return pending.current
       }
-    })()
-    pending.current = work.catch(() => undefined)
-    return work
-  }, [accept])
+      const commit = trackCommit
+        ? commits.current.begin(edit.scope, edit.state, edit.fromEpoch, {
+            ...edit.state.settings,
+            ...edit.patch,
+          })
+        : null
+      syncGestureCommit()
+      busy.current = true
+      setSaving(true)
+      const work = (async () => {
+        try {
+          const next = await window.luma.updateEdits(
+            edit.state.photoId,
+            edit.patch,
+            edit.state.revision,
+          )
+          if (current.current?.photoId === next.photoId) accept(next)
+          if (commit) {
+            commits.current.succeeded(edit.scope, commit.id, next)
+            syncGestureCommit()
+          }
+          if (
+            commits.current.isActive(edit.scope) &&
+            current.current?.photoId === edit.state.photoId
+          )
+            setError('')
+        } catch (error) {
+          if (commit) {
+            commits.current.failed(edit.scope, commit.id)
+            syncGestureCommit()
+          }
+          if (
+            commits.current.isActive(edit.scope) &&
+            current.current?.photoId === edit.state.photoId
+          ) {
+            setError(String(error))
+            setDraft(null)
+            const recovered = await window.luma.getEdits(edit.state.photoId)
+            if (
+              current.current?.photoId === edit.state.photoId &&
+              commits.current.isActive(edit.scope) &&
+              recovered.photoId === edit.state.photoId
+            )
+              accept(recovered)
+          }
+          throw error
+        } finally {
+          busy.current = false
+          setSaving(false)
+        }
+      })()
+      pending.current = work.catch(() => undefined)
+      return work
+    },
+    [accept, syncGestureCommit],
+  )
+  const flush = useCallback(() => flushGesture(true), [flushGesture])
   useEffect(() => {
+    const tracker = commits.current
     let active = true,
       requested = 0
+    tracker.enter(confirmationScope)
     if (current.current?.photoId !== photoId) current.current = null
     const refresh = () => {
       if (!photoId || !enabled) return
@@ -94,6 +153,8 @@ export function useEdits(photoId: string | undefined, enabled = true) {
         })
         .catch((error) => {
           if (active && request === requested) {
+            tracker.invalidate()
+            syncGestureCommit()
             setConfirmedScope(null)
             setError(String(error))
           }
@@ -101,7 +162,10 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     }
     refresh()
     const unsubscribe = window.luma.onLibraryEvent((event) => {
-      if (enabled && event.editsChanged?.photoId === photoId) {
+      const changed = event.editsChanged
+      if (enabled && changed && changed.photoId === photoId) {
+        tracker.observeRevision(changed.photoId, changed.revision)
+        syncGestureCommit()
         setConfirmedScope(null)
         refresh()
       }
@@ -109,14 +173,17 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     return () => {
       active = false
       unsubscribe()
-      void flush().catch(() => undefined)
+      tracker.leave(confirmationScope)
+      void flushGesture(false).catch(() => undefined)
     }
-  }, [photoId, enabled, accept, flush, confirmationScope])
+  }, [photoId, enabled, accept, flushGesture, confirmationScope, syncGestureCommit])
   useEffect(() => window.luma.onFlushEdits(flush), [flush])
   const cancel = () => {
+    commits.current.invalidate()
+    syncGestureCommit()
     gesture.current = null
     setDraft(null)
-    setEpoch((value) => value + 1)
+    advanceEpoch()
   }
   const change = async (patch: AdjustmentPatch) => {
     pulse()
@@ -125,22 +192,40 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     try {
       validatePatch(patch)
       const active = gesture.current
-      if (active && Object.keys(patch).some((key) => !(key in active.patch))) await flush()
+      const changingControl = active && Object.keys(patch).some((key) => !(key in active.patch))
+      if (!active || changingControl) {
+        commits.current.invalidate()
+        syncGestureCommit()
+      }
+      const intent = commits.current.intentGeneration
+      if (changingControl) await flushGesture(false)
       if (busy.current) await pending.current
-      if (current.current?.photoId !== photo) return
-      gesture.current ??= { state: current.current, patch }
+      if (
+        current.current?.photoId !== photo ||
+        !commits.current.isActive(confirmationScope, intent)
+      )
+        return
+      gesture.current ??= {
+        state: current.current,
+        patch,
+        fromEpoch: epochRef.current,
+        scope: confirmationScope,
+      }
       gesture.current.patch = { ...gesture.current.patch, ...patch }
       setDraft(gesture.current.patch)
     } catch (error) {
-      setError(String(error))
+      if (commits.current.isActive(confirmationScope) && current.current?.photoId === photo)
+        setError(String(error))
     }
   }
   const history = useCallback(
     async (direction: 'undo' | 'redo') => {
+      commits.current.invalidate()
+      syncGestureCommit()
       const photoId = current.current?.photoId
       if (!photoId) return
       try {
-        await flush()
+        await flushGesture(false)
         const confirmed = current.current
         if (
           confirmed?.photoId !== photoId ||
@@ -158,7 +243,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
         if (current.current?.photoId === photoId) setError(String(error))
       }
     },
-    [flush, accept],
+    [flushGesture, accept, syncGestureCommit],
   )
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -186,6 +271,12 @@ export function useEdits(photoId: string | undefined, enabled = true) {
   return {
     state: visible,
     confirmed: enabled && !!visible && confirmedScope === confirmationScope,
+    gestureCommit:
+      enabled &&
+      gestureCommit?.scope === confirmationScope &&
+      gestureCommit.commit.photoId === photoId
+        ? gestureCommit.commit
+        : null,
     adjustments: {
       whiteBalance:
         draft?.whiteBalance ?? visible?.settings.whiteBalance ?? neutralAdjustments.whiteBalance,

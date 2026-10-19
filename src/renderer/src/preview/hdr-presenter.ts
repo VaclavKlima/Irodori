@@ -28,6 +28,8 @@ import { ACES_DATA_BYTES } from '../../../shared/aces-data'
 import { ACES_INTERACTIVE_PREVIEW_VERSION } from '../../../shared/aces-preview-wgsl'
 import { hdrCachePlan, HdrRenderCache, HDR_CACHE_MAX_TILES } from './hdr-render-cache'
 import { HdrEditQueue, type HdrEditRequest } from './hdr-edit-queue'
+import type { EditGestureCommit } from './edit-gesture'
+import { HdrGestureHandoff, type HdrGestureStage } from './hdr-gesture-handoff'
 import { hdrHistogramShader, HDR_HISTOGRAM_WORDS, readHdrHistogram } from './hdr-histogram'
 import type { HdrStatistics } from '../../../shared/hdr-statistics'
 import { HdrGpuTimings, HDR_GPU_TIMING_BYTES, type HdrGpuTimingFrame } from './hdr-gpu-timings'
@@ -122,6 +124,8 @@ interface PresentationRequest {
   settingsRevision: number | null
   epoch: number
   interactivePrecision: boolean
+  context: string
+  handoff?: { id: number; stage: HdrGestureStage }
 }
 interface HistogramRequest {
   key: string
@@ -187,6 +191,9 @@ export class HdrPresenter {
   private requestedStatisticsKey = ''
   private releaseHistogramActivity?: () => void
   private gesturing = false
+  private gestureHandoff = new HdrGestureHandoff()
+  private handoffSnapshot?: PresentationRequest
+  private editingConfirmation: HdrPresentationState | null = null
   private refinementPending = false
   private epoch = -1
   private inputSerial = 0
@@ -248,6 +255,7 @@ export class HdrPresenter {
     this.renderingWorker.onmessage = ({ data }) => {
       if (this.abort.signal.aborted) return
       if (data.error) {
+        if (INTERACTIVE_PRECISION) this.invalidate()
         this.lost(data.error)
         return
       }
@@ -284,8 +292,13 @@ export class HdrPresenter {
     ])
       delete this.canvas.dataset[field]
   }
-  private invalidate() {
+  private invalidate(preserveGesture = false) {
     this.queue.invalidate()
+    if (preserveGesture) this.gestureHandoff.invalidateQueued()
+    else {
+      this.gestureHandoff.invalidate()
+      this.handoffSnapshot = undefined
+    }
     this.histogramQueue.invalidate()
     this.requestedStatisticsKey = ''
     this.completedSurface = undefined
@@ -300,7 +313,8 @@ export class HdrPresenter {
     )
       return
     this.presentationState = state ? structuredClone(state) : null
-    if (!state) this.invalidate()
+    // The own event may unconfirm before setEditing receives its already-issued pending token.
+    if (!state) this.invalidate(INTERACTIVE_PRECISION)
     else {
       this.completedSurface = undefined
       this.canvas.dataset.presentationCacheEligible = 'false'
@@ -636,6 +650,7 @@ export class HdrPresenter {
     this.deviceObserver = {
       lost: () => {
         if (!this.abort.signal.aborted) {
+          if (INTERACTIVE_PRECISION) this.invalidate()
           this.completedSurface = undefined
           this.hideCachedPresentation()
           this.canvas.style.visibility = 'hidden'
@@ -692,6 +707,7 @@ export class HdrPresenter {
       (event) => {
         console.warn('HDR GPU validation:', event.error.message)
         if (!this.abort.signal.aborted) {
+          if (INTERACTIVE_PRECISION) this.invalidate()
           if (PRESENTATION_CACHE) presentationCache.invalidate(device)
           this.completedSurface = undefined
           this.hideCachedPresentation()
@@ -926,16 +942,47 @@ export class HdrPresenter {
     if (this.view)
       this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
   }
-  setEditing(gesturing: boolean, epoch: number) {
+  setEditing(
+    gesturing: boolean,
+    epoch: number,
+    commit: EditGestureCommit | null = null,
+    confirmed: HdrPresentationState | null = null,
+  ) {
     const released = this.gesturing && !gesturing
-    if (epoch !== this.epoch || (gesturing && !this.gesturing)) {
-      this.invalidate()
+    if (INTERACTIVE_PRECISION) this.editingConfirmation = confirmed
+    const continuing =
+      INTERACTIVE_PRECISION &&
+      this.gestureHandoff.update({
+        gesturing,
+        epoch,
+        commit,
+        confirmed,
+        context: this.mode === 'after' ? this.gestureContext() : null,
+        nativePresented: this.nativePresented,
+      })
+    if ((epoch !== this.epoch && !continuing) || (gesturing && !this.gesturing)) {
+      this.invalidate(INTERACTIVE_PRECISION)
       this.refinementPending = false
     }
     this.refinementPending ||= released
     this.epoch = epoch
     this.gesturing = gesturing
+    if (INTERACTIVE_PRECISION) this.canvas.dataset.gestureHandoff = this.gestureHandoff.phase
     this.checkCachedIdentity()
+  }
+  private gestureContext(snapshot = this.view) {
+    if (!snapshot || !this.frame?.hdr) return null
+    return JSON.stringify([
+      this.frame.identity ?? this.frame.hdr.sha256,
+      snapshot.image,
+      snapshot.viewport,
+      snapshot.view,
+      this.target,
+      this.mode,
+      this.split,
+      this.hdrRanges,
+      window.devicePixelRatio || 1,
+    ])
   }
   draw(image: Size, viewport: Size, view: View, parameters: AdjustmentParameters) {
     this.view = { image, viewport, view, parameters }
@@ -954,44 +1001,76 @@ export class HdrPresenter {
       return
     const editsKey = JSON.stringify(parameters)
     const changed = this.editsKey !== editsKey
-    if (changed && !this.gesturing) this.invalidate()
+    const context = INTERACTIVE_PRECISION ? this.gestureContext()! : '',
+      handoff = INTERACTIVE_PRECISION ? this.gestureHandoff.plan(context, parameters) : 'ordinary'
+    if (INTERACTIVE_PRECISION) this.canvas.dataset.gestureHandoff = this.gestureHandoff.phase
+    if (handoff === 'hold') return
+    if (changed && !this.gesturing && handoff === 'ordinary') this.invalidate()
     this.editsKey = editsKey
     this.releaseActivity ??= this.activity?.()
-    const intent = this.gesturing
-      ? 'interactive'
-      : this.refinementPending
-        ? 'refinement'
-        : changed
-          ? 'interactive'
-          : 'navigation'
+    const intent =
+      handoff === 'feedback'
+        ? 'interactive'
+        : handoff === 'refinement'
+          ? 'refinement'
+          : this.gesturing
+            ? 'interactive'
+            : this.refinementPending
+              ? 'refinement'
+              : changed
+                ? 'interactive'
+                : 'navigation'
     this.refinementPending = false
     const requestedAt = performance.now()
     const sourceIdentity = this.frame.identity ?? this.frame.hdr!.sha256
-    this.queue.request(
-      {
-        image: { ...image },
-        viewport: { ...viewport },
-        view: { ...view },
-        parameters: structuredClone(parameters),
-        target: structuredClone(this.target),
-        mode: this.mode,
-        split: this.split,
-        ranges: this.hdrRanges,
-        inputSerial: ++this.inputSerial,
-        analysisSamples: this.gesturing ? 8192 : 65536,
+    let snapshot: PresentationRequest = {
+      image: { ...image },
+      viewport: { ...viewport },
+      view: { ...view },
+      parameters: structuredClone(parameters),
+      target: structuredClone(this.target),
+      mode: this.mode,
+      split: this.split,
+      ranges: this.hdrRanges,
+      inputSerial: ++this.inputSerial,
+      analysisSamples: this.gesturing || handoff === 'feedback' ? 8192 : 65536,
+      requestedAt,
+      sourceIdentity,
+      settingsRevision:
+        !this.gesturing &&
+        (this.editingConfirmation ?? this.presentationState) &&
+        sameAdjustments((this.editingConfirmation ?? this.presentationState)!.settings, parameters)
+          ? (this.editingConfirmation ?? this.presentationState)!.revision
+          : null,
+      epoch: this.epoch,
+      interactivePrecision:
+        INTERACTIVE_PRECISION &&
+        (this.gesturing || handoff === 'feedback') &&
+        handoff !== 'refinement' &&
+        this.mode === 'after',
+      context,
+    }
+    if (handoff === 'feedback' || handoff === 'refinement') {
+      const id = this.gestureHandoff.id!
+      if (!this.handoffSnapshot || this.handoffSnapshot.handoff?.id !== id)
+        this.handoffSnapshot = structuredClone(snapshot)
+      snapshot = {
+        ...structuredClone(this.handoffSnapshot),
+        inputSerial: snapshot.inputSerial,
         requestedAt,
-        sourceIdentity,
-        settingsRevision:
-          !this.gesturing &&
-          this.presentationState &&
-          sameAdjustments(this.presentationState.settings, parameters)
-            ? this.presentationState.revision
-            : null,
         epoch: this.epoch,
-        interactivePrecision: INTERACTIVE_PRECISION && this.gesturing && this.mode === 'after',
-      },
-      intent,
-    )
+        settingsRevision:
+          handoff === 'refinement'
+            ? this.gestureHandoff.authorize(id, handoff, context, parameters)!.revision
+            : null,
+        analysisSamples: handoff === 'feedback' ? 8192 : 65536,
+        interactivePrecision: handoff === 'feedback',
+        handoff: { id, stage: handoff },
+      }
+      this.handoffSnapshot = structuredClone(snapshot)
+      this.gestureHandoff.queued(handoff, snapshot.inputSerial)
+    }
+    this.queue.request(snapshot, intent)
     this.canvas.dataset.requestedParameters = editsKey
     this.canvas.dataset.requestedView = JSON.stringify(view)
     this.canvas.dataset.requestedAt = String(requestedAt)
@@ -1020,9 +1099,17 @@ export class HdrPresenter {
       }
     } catch (error) {
       this.queue.finish(request)
+      if (INTERACTIVE_PRECISION) this.invalidate()
       if (!this.abort.signal.aborted) this.lost(`GPU presentation failed: ${String(error)}`)
     } finally {
       this.gpuTimings?.finish(gpuFrame, imagePresented)
+    }
+    if (INTERACTIVE_PRECISION && request.value.handoff) {
+      if (!imagePresented)
+        this.gestureHandoff.invalidateQueued(request.value.handoff.id, request.value.inputSerial)
+      // The next phase is admitted only after the final feedback image was published.
+      if (imagePresented && this.view && !this.abort.signal.aborted)
+        this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
     }
     this.running = false
     if (!this.queue.hasPending) {
@@ -1030,6 +1117,21 @@ export class HdrPresenter {
       this.releaseActivity = undefined
     }
     if (!this.abort.signal.aborted) void this.run()
+  }
+  private requestSuperseded(request: HdrEditRequest<PresentationRequest>) {
+    if (this.queue.superseded(request)) return true
+    if (!INTERACTIVE_PRECISION) return false
+    const { handoff, context, parameters, epoch } = request.value
+    // Only the exact owned final snapshot may cross its own accepted epoch transition.
+    return handoff
+      ? !this.gestureHandoff.authorize(
+          handoff.id,
+          handoff.stage,
+          context,
+          parameters,
+          request.value.inputSerial,
+        )
+      : epoch !== this.epoch
   }
   private async render(request: HdrEditRequest<PresentationRequest>, gpuFrame?: HdrGpuTimingFrame) {
     // This mutable offscreen surface is ineligible as soon as another render can write it.
@@ -1070,7 +1172,7 @@ export class HdrPresenter {
         device.limits.maxTextureArrayLayers,
       ),
       memory = memoryPlan instanceof Promise ? await memoryPlan : memoryPlan
-    if (this.abort.signal.aborted || this.queue.superseded(request)) return undefined
+    if (this.abort.signal.aborted || this.requestSuperseded(request)) return undefined
     this.canvas.dataset.allocatedBytes = String(memory.total)
     if (memory.total > HDR_PRESENTATION_BUDGET)
       throw new Error(
@@ -1242,7 +1344,7 @@ export class HdrPresenter {
             await device.queue.onSubmittedWorkDone()
             timings.tileFenceMs += performance.now() - fencing
             timings.tileFenceCount++
-            if (this.abort.signal.aborted || this.queue.superseded(request)) {
+            if (this.abort.signal.aborted || this.requestSuperseded(request)) {
               const unfinished = new Set<number>()
               for (let i = start + jobs.length + 2; i < batch.jobs.length; i += 4)
                 unfinished.add(batch.jobs[i])
@@ -1273,7 +1375,7 @@ export class HdrPresenter {
         first = false
         // Queue order protects lookup buffers and reused cache slots. The final
         // image fence is independent of histogram readback.
-        if (this.abort.signal.aborted || this.queue.superseded(request)) return false
+        if (this.abort.signal.aborted || this.requestSuperseded(request)) return false
       }
       return true
     }
@@ -1316,7 +1418,7 @@ export class HdrPresenter {
     gpuFrame?: HdrGpuTimingFrame,
   ) {
     if (this.restoring) await this.restoring
-    if (this.abort.signal.aborted || this.queue.superseded(request)) return false
+    if (this.abort.signal.aborted || this.requestSuperseded(request)) return false
     const { viewport, view, parameters, target, mode, ranges, inputSerial } = request.value
     const confirmed = () =>
       !PRESENTATION_CACHE ||
@@ -1358,7 +1460,7 @@ export class HdrPresenter {
     const fencing = performance.now()
     await this.device!.queue.onSubmittedWorkDone()
     timings.finalBlitFenceMs = performance.now() - fencing
-    if (this.abort.signal.aborted || this.queue.superseded(request) || !confirmed()) return false
+    if (this.abort.signal.aborted || this.requestSuperseded(request) || !confirmed()) return false
     // These elapsed CPU stages include scheduling/queue waits, not hardware timestamps.
     timings.totalMs = performance.now() - rendered.startedAt
     timings.unattributedMs = Math.max(
@@ -1416,6 +1518,18 @@ export class HdrPresenter {
       delete this.canvas.dataset.presentedSettingsRevision
     else this.canvas.dataset.presentedSettingsRevision = String(request.value.settingsRevision)
     this.nativePresented = true
+    if (INTERACTIVE_PRECISION) {
+      this.gestureHandoff.published(
+        request.value.context,
+        request.value.epoch,
+        parameters,
+        rendered.quality === 'interactive',
+        request.value.handoff
+          ? { ...request.value.handoff, serial: request.value.inputSerial }
+          : undefined,
+      )
+      this.canvas.dataset.gestureHandoff = this.gestureHandoff.phase
+    }
     this.hideCachedPresentation()
     const completedIdentity = this.presentationIdentity(request.value)
     if (rendered.quality === 'normal' && completedIdentity) {

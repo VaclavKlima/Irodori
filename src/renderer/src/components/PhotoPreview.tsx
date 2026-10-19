@@ -3,6 +3,7 @@ import { useHdrAnalysis } from '../hooks/useHdrAnalysis'
 import { SDR_TARGET } from '../../../shared/hdr'
 import type { DisplayTarget } from '../../../shared/hdr'
 import { HdrPresenter, type HdrPresentationState } from '../preview/hdr-presenter'
+import type { EditGestureCommit } from '../preview/edit-gesture'
 import { useForegroundActivity } from '../hooks/useForegroundActivity'
 import { HdrCpuPresenter } from '../preview/hdr-cpu-presenter'
 import { hdrPresentationMemory, HDR_PRESENTATION_BUDGET } from '../preview/hdr-memory'
@@ -46,6 +47,7 @@ import { ProgressSpinner } from './ProgressSpinner'
 import { PreviewMetadata } from './PreviewMetadata'
 
 const PRESENTATION_CACHE = import.meta.env.VITE_LUMA_HDR_PRESENTATION_CACHE === '1'
+const INTERACTIVE_PRECISION = import.meta.env.VITE_LUMA_HDR_INTERACTIVE_PRECISION === 'f32'
 
 interface Model {
   loaded: boolean
@@ -64,6 +66,7 @@ interface Props {
   editingEpoch?: number
   adjustments: AdjustmentParameters
   confirmedEdits?: HdrPresentationState | null
+  gestureCommit?: EditGestureCommit | null
   onEditingReady: (photoId: string | null) => void
   photo: Photo | null
   total: number
@@ -83,6 +86,7 @@ export function PhotoPreview({
   photo,
   adjustments,
   confirmedEdits = null,
+  gestureCommit: localGestureCommit = null,
   tools,
   gesturing,
   editingEpoch = 0,
@@ -94,6 +98,8 @@ export function PhotoPreview({
   onContextMenu,
 }: Props) {
   const presentationState = PRESENTATION_CACHE ? confirmedEdits : null
+  const gestureCommit = INTERACTIVE_PRECISION ? localGestureCommit : null
+  const gestureConfirmation = INTERACTIVE_PRECISION ? confirmedEdits : null
   const recoveryView = useRef(initialView)
   const initialTarget = useRef(displayTarget)
   const overlay = useRef<HTMLCanvasElement>(null)
@@ -309,7 +315,7 @@ export function PhotoPreview({
     )
       presenter.current.setPresentationState(presentationState)
     if (presenter.current instanceof HdrPresenter)
-      presenter.current.setEditing(gesturing, editingEpoch)
+      presenter.current.setEditing(gesturing, editingEpoch, gestureCommit, gestureConfirmation)
     if (PRESENTATION_CACHE && working?.hdr && !presentationState) return
     presenter.current?.draw(model.image, model.viewport, model.view, {
       whiteBalance: adjustments.whiteBalance,
@@ -725,6 +731,8 @@ export function PhotoPreview({
     gesturing,
     editingEpoch,
     presentationState,
+    gestureCommit,
+    gestureConfirmation,
     mask,
     shadows,
     highlights,

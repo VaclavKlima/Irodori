@@ -39,6 +39,9 @@ remain opt-in through `VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` and
 1440 × 900, DPR 2, 60 Hz candidate cohort passed its original 48-trial assertions.
 The later first-visible audit retains three maximum-latency misses of
 107.8–109.1 ms after including the final gesture input's first response. The
+opt-in final-input handoff now has 43 passing model lifecycle cases and a
+successful candidate build; its held-reply native regression and latency rerun
+remain unrun, so those historical misses are unchanged. The
 reference comparison retains a captured display-headroom mismatch, so the descriptive
 speedup is not a controlled identical-target claim. The 96 MiB cache reservation
 fits within the unchanged 768 MiB aggregate cap and improves measured fullscreen
