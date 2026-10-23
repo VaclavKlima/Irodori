@@ -2,12 +2,14 @@ import { copyFile, mkdir } from 'node:fs/promises'
 import type { ElectronApplication, Page, TestInfo } from '@playwright/test'
 import { expect } from '@playwright/test'
 import { choose } from './import.helpers'
+import { activateButton, type ButtonActivation } from './button.helpers'
 
 export async function foregroundImport(
   app: ElectronApplication,
   page: Page,
   info: TestInfo,
   raw = false,
+  activation: ButtonActivation = 'pointer',
 ) {
   const source = info.outputPath('card-import')
   await mkdir(source, { recursive: true })
@@ -20,8 +22,8 @@ export async function foregroundImport(
     )
     paths.push(path)
   }
-  await page.getByRole('button', { name: 'Import photos', exact: true }).click()
-  await choose(app, page, paths)
+  await activateButton(page.getByRole('button', { name: 'Import photos', exact: true }), activation)
+  await choose(app, page, paths, 'photos', activation)
   await expect(page.getByTestId('import-status')).toContainText('Ready to import')
   await app.evaluate(() => {
     const fs = process.getBuiltinModule('fs') as typeof import('node:fs')
@@ -49,7 +51,10 @@ export async function foregroundImport(
     }
     process.getBuiltinModule('module').syncBuiltinESMExports()
   })
-  await page.getByRole('button', { name: 'Import 6 photos', exact: true }).click()
+  await activateButton(
+    page.getByRole('button', { name: 'Import 6 photos', exact: true }),
+    activation,
+  )
   await expect(page.getByRole('dialog')).toHaveCount(0)
   const id = await page.evaluate(
     async () =>

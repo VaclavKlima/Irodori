@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react'
+import { useEffect, useEffectEvent, type RefObject } from 'react'
 import { wheelView, type Size, type View } from '../preview/geometry'
 
 interface Model {
@@ -13,21 +13,8 @@ export function usePreviewWheel<T extends Model>(
   change: (action: (model: T) => T, immediate: boolean) => void,
   stopDrag: () => void,
 ) {
-  useEffect(() => {
-    const element = viewport.current
-    if (!element) return
-    const document = element.ownerDocument
-    const window = document.defaultView
-    // Chromium encodes touchpad pinch as Ctrl-wheel. Only independent keyboard
-    // or pointer events can establish whether Control is physically held.
-    let physicalControl: boolean | undefined
-    const modifiers = (event: KeyboardEvent | PointerEvent) => {
-      physicalControl = event.ctrlKey
-    }
-    const clearModifiers = () => {
-      physicalControl = undefined
-    }
-    const wheel = (event: WheelEvent) => {
+  const handleWheel = useEffectEvent(
+    (event: WheelEvent, element: HTMLElement, physicalControl: boolean) => {
       if (!ready || event.defaultPrevented) return
       event.preventDefault()
       if (event.ctrlKey ? !event.deltaY : !event.deltaX && !event.deltaY) return
@@ -43,10 +30,29 @@ export function usePreviewWheel<T extends Model>(
           },
           model.image,
           model.viewport,
-          physicalControl === true,
+          physicalControl,
         )
         return view === model.view ? model : { ...model, view }
       }, false)
+    },
+  )
+  useEffect(() => {
+    const element = viewport.current
+    if (!element) return
+    const document = element.ownerDocument
+    const window = document.defaultView
+    // Chromium encodes touchpad pinch as Ctrl-wheel. Only independent keyboard
+    // or pointer events can establish whether Control is physically held.
+    // Keep that evidence through loading and same-photo updates while Control stays down.
+    let physicalControl: boolean | undefined
+    const modifiers = (event: KeyboardEvent | PointerEvent) => {
+      physicalControl = event.ctrlKey
+    }
+    const clearModifiers = () => {
+      physicalControl = undefined
+    }
+    const wheel = (event: WheelEvent) => {
+      handleWheel(event, element, physicalControl === true)
     }
     element.addEventListener('wheel', wheel, { passive: false })
     document.addEventListener('keydown', modifiers, true)
@@ -66,5 +72,5 @@ export function usePreviewWheel<T extends Model>(
       document.removeEventListener('visibilitychange', clearModifiers)
       window?.removeEventListener('blur', clearModifiers)
     }
-  }, [viewport, ready, change, stopDrag])
+  }, [viewport])
 }

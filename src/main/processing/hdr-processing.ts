@@ -3,20 +3,43 @@ import { copyFile, open, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import sharp from 'sharp'
 import { analyzeHdr, hdrStatistics } from '../../shared/hdr-statistics'
-import type { HdrStatisticsJob, HdrPixelJob } from '../preview-types'
+import type {
+  HdrStatisticsJob,
+  HdrPixelJob,
+  HdrFirstSurfaceArtifact,
+  HdrFirstSurfaceProgress,
+} from '../preview-types'
 import type { HdrPixel } from '../../shared/hdr-pixel'
 import { rawDecoder } from './decoders'
 import { cameraProfile } from './cameras'
 import { correctionPlan, cubic, radial } from './lens-correction'
 import { sensorBlendParameters, sensorBlendRgb } from '../gpu/sensor-blend'
 import { writeHdrStrip } from './write-hdr-strip'
-import type { RawGpuRenderer } from '../gpu/raw-renderer'
+import {
+  isFirstSurfaceInterruption,
+  GpuResourceBudgetError,
+  type RawGpuRenderer,
+  type FirstSurfaceConsumer,
+} from '../gpu/raw-renderer'
+import { renderFirstSurface } from '../gpu/hdr-first-surface'
+import { HDR_SOURCE_MIP_POLICY } from '../../renderer/src/preview/hdr-source-cache'
+import { hdrCacheTileSize } from '../../renderer/src/preview/hdr-render-cache'
+import {
+  hdrFirstSurfaceImage,
+  hdrFirstSurfaceMipLevel,
+  hdrFirstSurfaceOrientation,
+} from '../../shared/hdr-first-surface'
 import { gpuOutput } from '../merge/gpu-output'
-import type { LinearFrame } from './contracts'
+import type { LinearFrame, RawSession } from './contracts'
+import type { RawSource } from '../gpu/raw-source'
+import type { HdrRawSourceFactory } from '../native-raw-source'
+import { nativeRawPipeLimits } from '../native-raw-pipe'
+import type { HdrRawPreparation } from '../preview-types'
 import type { ProcessingOptions } from '../../shared/lens'
 import type { FullPreviewResult, HdrPreparationTimings } from '../preview-types'
 import { frameByteLength } from '../../shared/preview-frame'
 import { neutralAdjustments, sameAdjustments, srgbTransform } from '../../shared/adjustments'
+import { validateMergeVersion } from '../../shared/merge'
 import {
   validateHdrSource,
   HDR_SOURCE_VERSION,
@@ -160,30 +183,59 @@ async function prepare(
   gpu: Pick<RawGpuRenderer, 'render' | 'releaseFrame'> &
     Partial<Pick<RawGpuRenderer, 'mergeDevice'>>,
   backend: string,
+  onFirstSurface?: (progress: HdrFirstSurfaceProgress) => Promise<void>,
+  rawSource?: HdrRawSourceFactory,
+  rawPreparation?: HdrRawPreparation,
 ) {
   const started = performance.now()
   const timings: HdrPreparationTimings = {}
   const decoder = rawDecoder(path)
   if (!decoder) throw new Error('HDR processing requires a verified Sony RAW.')
-  const opening = performance.now()
-  const session = await decoder.open(path)
-  timings.workerDecoderOpenMs = performance.now() - opening
+  let session: RawSession | undefined
+  let sourceBackend: 'wasm-libraw' | 'native-rust-rows' = 'wasm-libraw'
+  const wasmSession = async () => {
+    if (!session) {
+      const opening = performance.now()
+      session = await decoder.open(path)
+      timings.workerDecoderOpenMs = performance.now() - opening
+      if (!session.metadata.hdrEligible)
+        throw new Error('HDR processing is unavailable for this RAW mode.')
+      sourceBackend = 'wasm-libraw'
+    }
+    return session
+  }
   let frame: LinearFrame
   let gpuPrepared = false
   let gpuPlan: ReturnType<typeof correctionPlan> | undefined
   let actualBackend: 'cpu' | 'gpu' = 'cpu'
   let fallback: string | undefined
   let gpuStarted: number | undefined
-  const profile = cameraProfile(session.metadata.make, session.metadata.model)
+  let firstSurface: HdrFirstSurfaceArtifact | undefined
+  let firstSurfaceDecline: string | undefined
+  let profile: ReturnType<typeof cameraProfile>
   try {
-    if (!session.metadata.hdrEligible)
-      throw new Error('HDR processing is unavailable for this RAW mode.')
-    const unpacking = performance.now()
-    session.unpack()
-    timings.workerUnpackMs = performance.now() - unpacking
-    const extracting = performance.now()
-    const source = backend !== 'cpu' ? session.gpuSource(true) : null
-    timings.workerSensorSourceMs = performance.now() - extracting
+    const native = backend !== 'cpu' && rawSource ? await rawSource() : null
+    let source: RawSource | null
+    if (native) {
+      source = native.source
+      profile = cameraProfile(native.make, native.model)
+      sourceBackend = 'native-rust-rows'
+      timings.workerNativeRawSourceMs = native.timings.sourceMs
+      timings.workerNativeRawValidateMs = native.timings.validateMs
+      timings.workerNativeRawReceiveMs = native.timings.receiveMs
+      timings.workerDecoderOpenMs = native.timings.openMs
+      timings.workerUnpackMs = native.timings.unpackMs
+      timings.workerSensorSourceMs = native.timings.validateMs
+    } else {
+      const active = await wasmSession()
+      profile = cameraProfile(active.metadata.make, active.metadata.model)
+      const unpacking = performance.now()
+      active.unpack()
+      timings.workerUnpackMs = performance.now() - unpacking
+      const extracting = performance.now()
+      source = backend !== 'cpu' ? active.gpuSource(true) : null
+      timings.workerSensorSourceMs = performance.now() - extracting
+    }
     if (source?.normalization) {
       try {
         const planning = performance.now()
@@ -194,8 +246,114 @@ async function prepare(
           options.settings,
         )
         timings.workerCorrectionPlanMs = performance.now() - planning
+        const baseEstimatedRamBytes =
+          source.pixels.byteLength * 3 +
+          gpuPlan.width * gpuPlan.height * 16 +
+          Math.ceil((gpuPlan.width * 16) / 256) * 256 * 64
+        let firstConsumer: FirstSurfaceConsumer | undefined
+        if (options.firstSurface && onFirstSurface) {
+          const preparation = options.firstSurface
+          const signal = new AbortController().signal
+          firstConsumer = {
+            signal,
+            // Copied sensor source, decoder source/upload allowance, full F32 destination and readback strip.
+            baseEstimatedRamBytes,
+            capture: async (borrow) => {
+              const image = hdrFirstSurfaceImage(borrow, borrow.flip)
+              const level = hdrFirstSurfaceMipLevel(image, preparation.viewport)
+              const result = await renderFirstSurface(
+                borrow,
+                {
+                  ...preparation,
+                  image,
+                  view: preparation.view.fit
+                    ? {
+                        fit: true,
+                        x: preparation.view.x,
+                        y: preparation.view.y,
+                        scale: Math.min(
+                          1,
+                          preparation.viewport.width / image.width,
+                          preparation.viewport.height / image.height,
+                        ),
+                      }
+                    : preparation.view,
+                  whiteBalance: hdrWhiteBalance(options.metadata.whiteBalance),
+                  sourceIdentity: {
+                    processing: 'hdr-v1',
+                    adjustmentVersion: HDR_ADJUSTMENT_VERSION,
+                    outputVersion: HDR_OUTPUT_VERSION,
+                    mipPolicy: HDR_SOURCE_MIP_POLICY,
+                    arithmetic: 'reference',
+                    tileSize: hdrCacheTileSize(image.width, image.height),
+                    ...(borrow.flip !== 0 && level === 0
+                      ? {}
+                      : {
+                          orientation: hdrFirstSurfaceOrientation(borrow, borrow.flip, level),
+                        }),
+                    sourceVersion: HDR_RAW_SOURCE_VERSION,
+                    highlightBlend: SENSOR_BLEND_VERSION,
+                    normalization: structuredClone(source.normalization!),
+                    lensProfile: structuredClone(options.metadata.lensProfile),
+                    settings: structuredClone(options.settings),
+                    decoder: `${decoder.id}-${decoder.version}`,
+                    camera: structuredClone(profile),
+                    correction: {
+                      width: gpuPlan!.width,
+                      height: gpuPlan!.height,
+                      left: gpuPlan!.left,
+                      top: gpuPlan!.top,
+                      applied: gpuPlan!.applied,
+                      lutSha256: createHash('sha256')
+                        .update(
+                          Buffer.from(
+                            gpuPlan!.lut.buffer,
+                            gpuPlan!.lut.byteOffset,
+                            gpuPlan!.lut.byteLength,
+                          ),
+                        )
+                        .digest('hex'),
+                    },
+                  },
+                },
+                signal,
+              )
+              if (result.status === 'declined') {
+                firstSurfaceDecline = result.reason
+                await onFirstSurface({ status: 'declined', reason: result.reason })
+                return
+              }
+              const firstFile = await open(join(output, 'first.rgba16'), 'wx')
+              try {
+                await writeHdrStrip(firstFile, result.bytes, 0)
+              } finally {
+                await firstFile.close()
+              }
+              firstSurface = {
+                identity: result.identity,
+                width: result.width,
+                height: result.height,
+                byteLength: result.byteLength,
+                sha256: result.sha256,
+                programHashes: result.programHashes,
+                timings: result.timings,
+              }
+              await onFirstSurface({ status: 'ready', artifact: firstSurface })
+            },
+          }
+        } else if (options.firstSurface) firstSurfaceDecline = 'first-surface-callback-unavailable'
         gpuStarted = performance.now()
-        const rendered = await gpu.render(source, gpuPlan, neutralAdjustments, true)
+        const rendered = await gpu.render(
+          source,
+          gpuPlan,
+          neutralAdjustments,
+          true,
+          false,
+          undefined,
+          undefined,
+          firstConsumer,
+          rawPreparation ? { ...rawPreparation, baseEstimatedRamBytes } : undefined,
+        )
         timings.workerGpuTotalMs = performance.now() - gpuStarted
         for (const [sourceKey, outputKey] of gpuPreparationTimingFields) {
           const value = rendered.timings?.[sourceKey]
@@ -214,26 +372,55 @@ async function prepare(
         gpuPrepared = true
         actualBackend = 'gpu'
       } catch (error) {
+        if (isFirstSurfaceInterruption(error) || error instanceof GpuResourceBudgetError)
+          throw error
+        if (firstSurface) {
+          firstSurfaceDecline = 'native-gpu-preparation-recovered-on-cpu'
+          await onFirstSurface?.({ status: 'declined', reason: firstSurfaceDecline })
+        }
         if (gpuStarted !== undefined && timings.workerGpuTotalMs === undefined)
           timings.workerGpuTotalMs = performance.now() - gpuStarted
         fallback = String(error)
+        if (native && rawPreparation) {
+          // Native sensor bytes may still be reachable while the exceptional WASM
+          // decoder opens. Admit that real overlap before allocating its replacement.
+          const firstBytes = firstSurface?.byteLength ?? 0,
+            cpuRamBytes =
+              rawPreparation.rendererReservation.ramBytes +
+              native.inputBytes * 3 +
+              nativeRawPipeLimits.rawAllocationBytes +
+              native.source.pixels.byteLength +
+              native.source.width * native.source.height * 22 +
+              firstBytes * 8 +
+              8 * 1024 ** 2,
+            cpuGpuBytes = rawPreparation.rendererReservation.vramBytes + firstBytes * 5
+          if (
+            !Number.isSafeInteger(cpuRamBytes) ||
+            !Number.isSafeInteger(cpuGpuBytes) ||
+            cpuRamBytes > rawPreparation.policy.ram.effectiveBytes ||
+            cpuGpuBytes > rawPreparation.policy.vram.effectiveBytes
+          )
+            throw new GpuResourceBudgetError()
+        }
         const recovering = performance.now()
-        frame = session.linear(true)
+        frame = (await wasmSession()).linear(true)
         timings.workerCpuFallbackMs = performance.now() - recovering
       }
     } else {
       const recovering = performance.now()
-      frame = session.linear(true)
+      frame = (await wasmSession()).linear(true)
       timings.workerCpuFallbackMs = performance.now() - recovering
     }
   } finally {
     const closing = performance.now()
-    session.close()
+    session?.close()
     timings.workerDecoderCloseMs = performance.now() - closing
     const releasing = performance.now()
     gpu.releaseFrame()
     timings.workerGpuReleaseMs = performance.now() - releasing
   }
+  if (options.firstSurface && !firstSurface && !firstSurfaceDecline)
+    firstSurfaceDecline = 'native-first-surface-unavailable'
   if (!frame.normalization || !profile) throw new Error('Missing HDR normalization.')
   const normal = frame.normalization
   // Capture scale is fixed at 1; image contents never determine exposure.
@@ -371,7 +558,16 @@ async function prepare(
     timings.workerNativeCloseMs = performance.now() - closingNative
   }
   timings.workerPreparationMs = performance.now() - started
-  return { asset, backend: actualBackend, fallback, applied: plan.applied, timings }
+  return {
+    asset,
+    backend: actualBackend,
+    fallback,
+    applied: plan.applied,
+    timings,
+    sourceBackend,
+    firstSurface,
+    firstSurfaceDecline,
+  }
 }
 
 export async function renderHdr(
@@ -381,11 +577,19 @@ export async function renderHdr(
   gpu: Pick<RawGpuRenderer, 'render' | 'releaseFrame'> &
     Partial<Pick<RawGpuRenderer, 'mergeDevice'>>,
   backend: string,
+  onFirstSurface?: (progress: HdrFirstSurfaceProgress) => Promise<void>,
+  rawSource?: HdrRawSourceFactory,
+  rawPreparation?: HdrRawPreparation,
 ): Promise<FullPreviewResult> {
   const start = performance.now()
+  if (options.metadata.mergeMaster)
+    validateMergeVersion(options.metadata.mergeMaster.recipe?.version)
   const cached = options.workingAsset?.hdr
-  const prepared = cached ? undefined : await prepare(path, output, options, gpu, backend)
+  const prepared = cached
+    ? undefined
+    : await prepare(path, output, options, gpu, backend, onFirstSurface, rawSource, rawPreparation)
   const asset = prepared?.asset ?? cached!
+  validateHdrSource(asset.source)
   const sourceVersion = asset.source.highlightBlend ? HDR_RAW_SOURCE_VERSION : HDR_SOURCE_VERSION
   const sourcePath = prepared ? join(output, 'linear.f32') : options.workingAsset!.path
   const permanentCopy = !!(
@@ -397,6 +601,8 @@ export async function renderHdr(
   const adjustments = options.adjustments ?? neutralAdjustments
   if (options.workingOnly)
     return {
+      firstSurface: prepared?.firstSurface,
+      firstSurfaceDecline: prepared?.firstSurfaceDecline,
       width: asset.width,
       height: asset.height,
       format: 'hdr-working',
@@ -416,6 +622,7 @@ export async function renderHdr(
       diagnostics: {
         clock: 'worker-performance',
         backend: prepared?.backend ?? 'cpu',
+        sourceBackend: prepared?.sourceBackend,
         fallback: prepared?.fallback,
         timings: { ...prepared?.timings, totalMs: performance.now() - start },
       },

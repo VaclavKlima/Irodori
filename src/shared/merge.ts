@@ -4,8 +4,20 @@ import type { ProcessingMetadata } from './lens'
 import { verifyCaptureSequence, type CaptureMetadata } from './capture-sequence'
 
 export const MERGE_VERSION = 'sony-merge-v4'
-export type MergeVersion =
-  'sony-merge-v1' | 'sony-merge-v2' | 'sony-merge-v3' | typeof MERGE_VERSION
+export type MergeVersion = typeof MERGE_VERSION
+
+/** Unsupported recipes are provenance, never an alternate rendering algorithm. */
+export class UnsupportedMergeVersionError extends Error {
+  constructor(readonly mergeVersion: string) {
+    super(`Unsupported merge version. Expected ${MERGE_VERSION}.`)
+    this.name = 'UnsupportedMergeVersionError'
+  }
+}
+export function validateMergeVersion(version: unknown): asserts version is MergeVersion {
+  if (typeof version !== 'string' || !version.trim() || version.length > 128)
+    throw new Error('Invalid merge version.')
+  if (version !== MERGE_VERSION) throw new UnsupportedMergeVersionError(version)
+}
 export const MERGE_PIPELINE = Object.freeze({
   preparation: 'source-lens-common-crop-channel-proof-v4',
   alignment: 'masked-tile-ecc-native-v4',
@@ -419,6 +431,15 @@ export function mergeFailure(error: unknown): MergeFailure {
     diagnostics: [],
   }
 }
+/** Latest admitted worker event within one revision; completion is scoped to its phase. */
+export interface MergeReviewProgress {
+  /** Actual worker emission: performance.timeOrigin + performance.now, in epoch milliseconds. */
+  readonly producedAtEpochMs: number
+  readonly sequence: number
+  readonly phase: string
+  readonly completed: number
+  readonly total: number
+}
 export interface MergeDiagnostics {
   reviewId: string
   revision: number
@@ -426,6 +447,7 @@ export interface MergeDiagnostics {
   sources: { id: string; filename: string; diagnostics?: AlignmentDiagnostics }[]
   error?: MergeFailure
   measurements?: MergeMeasurements
+  workerProgress?: MergeReviewProgress
 }
 /** Inverse warp from reference coordinates to source, rotating about the image center. */
 export interface MergeTransform {
@@ -504,6 +526,11 @@ export interface MergeManifest {
   recipe: MergeRecipe
   photo: Photo
   metadata: ProcessingMetadata
+}
+/** Read-only common bundle/provenance view; it grants no rendering support. */
+export type MergeBundleManifest = Omit<MergeManifest, 'version' | 'recipe'> & {
+  version: string
+  recipe: Omit<MergeRecipe, 'version'> & { version: string }
 }
 export function mergeUnavailable(count: number): string | undefined {
   return count < 2

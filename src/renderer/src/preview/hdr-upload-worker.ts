@@ -17,6 +17,8 @@ function load(asset: HdrWorkingAsset) {
   const abort = new AbortController()
   const source = readHdrUploadBytes(asset, abort.signal)
   const ready = new Map<number, Awaited<ReturnType<typeof validateHdrStrip>>>()
+  const verifiedStripHashes: string[] = []
+  let verifiedBytes = 0
   let credits = 3,
     reading = 0,
     sending = 0,
@@ -33,6 +35,9 @@ function load(asset: HdrWorkingAsset) {
         })
         .then((strip) => {
           if (failed) return
+          // validateHdrStrip has compared the actual SHA-256 digest and checked every float.
+          verifiedStripHashes[index] = asset.strips[index].sha256
+          verifiedBytes += strip.data.byteLength
           ready.set(index, strip)
           while (ready.has(sending)) {
             const strip = ready.get(sending)!
@@ -41,14 +46,29 @@ function load(asset: HdrWorkingAsset) {
             self.postMessage(strip, { transfer: [strip.data.buffer] })
           }
           if (sending === asset.strips.length)
-            return source
-              .next()
-              .then(() =>
-                self.postMessage(
-                  { sample: sample.sample, draftSample: sample.draft, done: true },
-                  { transfer: [sample.sample.buffer, sample.draft.buffer] },
-                ),
+            return source.next().then((end) => {
+              if (
+                !end.done ||
+                verifiedBytes !== asset.byteLength ||
+                verifiedStripHashes.length !== asset.strips.length
               )
+                throw new Error('Incomplete HDR source verification.')
+              self.postMessage(
+                {
+                  sample: sample.sample,
+                  draftSample: sample.draft,
+                  sourceSha256: asset.sha256,
+                  verification: {
+                    sourceSha256: asset.sha256,
+                    verifiedBytes,
+                    verifiedStripHashes,
+                    eof: true,
+                  },
+                  done: true,
+                },
+                { transfer: [sample.sample.buffer, sample.draft.buffer] },
+              )
+            })
         })
         .catch((error) => {
           failed = true

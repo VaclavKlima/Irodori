@@ -65,6 +65,18 @@ export interface ExportStart {
   action: ExportAction
   options?: ExportOptions
 }
+
+export function validateExportPhotoIds(value: unknown): string[] {
+  if (
+    !Array.isArray(value) ||
+    !value.length ||
+    value.length > 100000 ||
+    value.some((id) => typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id))
+  )
+    throw new Error('Choose photographs to export.')
+  return [...new Set(value)]
+}
+
 export interface ExportResult {
   index: number
   photoId: string
@@ -168,4 +180,30 @@ export function exportCounts(preparation: ExportPreparation, output: ExportOptio
     : output === 'hdr'
       ? { hdr: preparation.targets.length, sdr: 0 }
       : { hdr: preparation.hdr, sdr: preparation.sdr }
+}
+
+export type ExportWorkerPhase =
+  'rendition-rendered' | 'sdr-jpeg-obtained' | 'hdr-encoded' | 'output-validated-written'
+
+/** Actual completed worker stages; epochs are stamped by the producer after work. */
+export interface ExportWorkerProgress {
+  version: 'export-worker-progress-v1'
+  exportId: string
+  fileIndex: number
+  photoId: string
+  settingsRevision: number
+  attemptId: string
+  sequence: number
+  phase: ExportWorkerPhase
+  completed: number
+  total: number
+  producedAtEpochMs: number
+}
+
+/** Volatile observation only; never persisted into export history or manifests. */
+export interface ExportWorkerProgressSnapshot {
+  counter: number
+  dropped: number
+  active?: { fileIndex: number; attemptId: string }
+  events: ExportWorkerProgress[]
 }

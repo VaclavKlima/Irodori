@@ -4,9 +4,17 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import sharp from 'sharp'
 import { expect, test } from './electron.fixture'
 import { foregroundTest } from './foreground'
+import { requireEditorPreviewFeature } from './hdr-test-policy.helpers'
 import { importPhotos } from './import.helpers'
 import { ACES_DATA_BYTES, packAces } from '../src/shared/aces-data'
-import { ACES_INTERACTIVE_PREVIEW_VERSION } from '../src/shared/aces-preview-wgsl'
+import { acesPreviewWgsl, acesSdrPreviewWgsl } from '../src/shared/aces-preview-wgsl'
+import {
+  ACES_INTERACTIVE_PREVIEW_VERSION,
+  ACES_HDR_INTERACTIVE_PREVIEW_VERSION,
+  ACES_SDR_INTERACTIVE_PREVIEW_VERSION,
+  selectInteractivePreviewPolicy,
+  type AcesPreviewPolicy,
+} from '../src/shared/interactive-preview-policy'
 import { HDR_CONTENT_TARGET, prepareDisplayRendering } from '../src/shared/display-rendering'
 
 const fixture = 'tests/fixtures/sony-zv1.ARW'
@@ -15,6 +23,7 @@ const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('he
 interface Dispatch {
   phase: string
   precision: 'reference' | 'interactive'
+  arithmeticPolicy: AcesPreviewPolicy
   table: number
 }
 interface Observation {
@@ -27,17 +36,22 @@ interface Capture {
   width: number
   height: number
   target: Awaited<ReturnType<Window['luma']['getDisplayState']>>
+  policy: {
+    family: string | null
+    arithmetic: string | null
+    rangeArithmetic: string | null
+  }
 }
 
 test.use({ hdrDisplay: true })
 
 async function installObserver(page: Page, srgbOnly: boolean) {
   await page.addInitScript(
-    ({ tableBytes, srgbOnly }) => {
+    ({ tableBytes, srgbOnly, sdrShader, hdrShader, sdrPolicy, hdrPolicy }) => {
       const modules = new WeakMap<GPUShaderModule, string>()
-      const pipelines = new WeakMap<GPUComputePipeline, 'reference' | 'interactive'>()
+      const pipelines = new WeakMap<GPUComputePipeline, AcesPreviewPolicy>()
       const groups = new WeakMap<GPUBindGroup, GPUBuffer>()
-      const passPolicies = new WeakMap<GPUComputePassEncoder, 'reference' | 'interactive'>()
+      const passPolicies = new WeakMap<GPUComputePassEncoder, AcesPreviewPolicy>()
       const uploaded = new WeakMap<GPUBuffer, number>()
       const observation: Observation = { phase: 'initialization', dispatches: [], tables: [] }
       Object.assign(window, { interactivePreviewObservation: observation })
@@ -51,8 +65,17 @@ async function installObserver(page: Page, srgbOnly: boolean) {
       GPUDevice.prototype.createComputePipelineAsync = async function (descriptor) {
         const result = await pipeline.call(this, descriptor)
         const code = modules.get(descriptor.compute.module)
-        if (descriptor.compute.entryPoint === 'renderTile' && code)
-          pipelines.set(result, code.includes('fn dsPow(') ? 'reference' : 'interactive')
+        if (descriptor.compute.entryPoint === 'renderTile' && code) {
+          const policy = code.includes(sdrShader)
+            ? sdrPolicy
+            : code.includes(hdrShader)
+              ? hdrPolicy
+              : code.includes('fn dsPow(')
+                ? 'reference'
+                : null
+          if (!policy) throw new Error('The observed tile shader has no known arithmetic policy.')
+          pipelines.set(result, policy)
+        }
         return result
       }
       const group = GPUDevice.prototype.createBindGroup
@@ -81,8 +104,8 @@ async function installObserver(page: Page, srgbOnly: boolean) {
       }
       const setPipeline = GPUComputePassEncoder.prototype.setPipeline
       GPUComputePassEncoder.prototype.setPipeline = function (pipeline) {
-        const precision = pipelines.get(pipeline)
-        if (precision) passPolicies.set(this, precision)
+        const policy = pipelines.get(pipeline)
+        if (policy) passPolicies.set(this, policy)
         else passPolicies.delete(this)
         setPipeline.call(this, pipeline)
       }
@@ -93,14 +116,15 @@ async function installObserver(page: Page, srgbOnly: boolean) {
         group: GPUBindGroup | null,
         ...offsets: unknown[]
       ) {
-        const precision = passPolicies.get(this)
+        const arithmeticPolicy = passPolicies.get(this)
         const table = group ? groups.get(group) : undefined
-        if (index === 0 && precision && table) {
+        if (index === 0 && arithmeticPolicy && table) {
           if (observation.dispatches.length >= 4096)
             throw new Error('Interactive preview test exceeded its bounded observation limit.')
           observation.dispatches.push({
             phase: observation.phase,
-            precision,
+            precision: arithmeticPolicy === 'reference' ? 'reference' : 'interactive',
+            arithmeticPolicy,
             table: uploaded.get(table) ?? -1,
           })
         }
@@ -115,7 +139,14 @@ async function installObserver(page: Page, srgbOnly: boolean) {
         }
       }
     },
-    { tableBytes: ACES_DATA_BYTES, srgbOnly },
+    {
+      tableBytes: ACES_DATA_BYTES,
+      srgbOnly,
+      sdrShader: acesSdrPreviewWgsl,
+      hdrShader: acesPreviewWgsl,
+      sdrPolicy: ACES_SDR_INTERACTIVE_PREVIEW_VERSION,
+      hdrPolicy: ACES_HDR_INTERACTIVE_PREVIEW_VERSION,
+    },
   )
   await page.reload()
 }
@@ -139,6 +170,22 @@ async function settled(page: Page, quality = 'normal', policy = 'reference') {
       ),
     )
     .toBe(true)
+  const target = await page.evaluate(() => window.luma.getDisplayState())
+  const interactive = quality === 'interactive'
+  await expect(canvas).toHaveAttribute('data-target-generation', String(target.generation))
+  await expect(canvas).toHaveAttribute(
+    'data-presented-arithmetic-policy',
+    interactive ? selectInteractivePreviewPolicy('f32', target.mode) : 'reference',
+  )
+  const ranges = (await canvas.getAttribute('data-hdr-ranges')) === 'true'
+  await expect(canvas).toHaveAttribute(
+    'data-range-arithmetic-policy',
+    target.mode === 'sdr' && ranges
+      ? interactive
+        ? ACES_HDR_INTERACTIVE_PREVIEW_VERSION
+        : 'reference'
+      : '',
+  )
   await page.evaluate(async () => {
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
     await canvas.getContext('webgpu')!.getConfiguration()!.device.queue.onSubmittedWorkDone()
@@ -242,6 +289,11 @@ async function capture(app: ElectronApplication, page: Page, path: string): Prom
     width: decoded.info.width,
     height: decoded.info.height,
     target: await page.evaluate(() => window.luma.getDisplayState()),
+    policy: await page.getByTestId('main-preview').evaluate((canvas) => ({
+      family: canvas.getAttribute('data-presented-policy'),
+      arithmetic: canvas.getAttribute('data-presented-arithmetic-policy'),
+      rangeArithmetic: canvas.getAttribute('data-range-arithmetic-policy'),
+    })),
   }
 }
 
@@ -266,6 +318,10 @@ function imageDifference(reference: Capture, candidate: Capture) {
   }
 }
 
+test.beforeEach(async ({ luma }) => {
+  await requireEditorPreviewFeature(luma.page, 'interactive')
+})
+
 for (const srgbOnly of [false, true])
   test(
     `interactive precision retains target tables, exact refinement and comparisons with ${srgbOnly ? 'sRGB-only' : 'native'} canvas gamut`,
@@ -280,6 +336,7 @@ for (const srgbOnly of [false, true])
         phase: string
         precision: 'reference' | 'interactive'
         hashes: string[]
+        bindings: { hash: string; arithmeticPolicy: AcesPreviewPolicy }[]
       }> = []
       try {
         expect(sha(await readFile(fixture))).toBe(originalSha256)
@@ -406,7 +463,31 @@ for (const srgbOnly of [false, true])
           await expect(canvas).toHaveAttribute('data-gesturing', 'true')
           const active = await capture(app, page, info.outputPath(`active-${name}.png`))
           const renderedBeforeRelease = Number(await canvas.getAttribute('data-rendered-tiles'))
-          expectedPhases.push({ phase: `gesture-${name}`, precision, hashes })
+          expectedPhases.push({
+            phase: `gesture-${name}`,
+            precision,
+            hashes,
+            bindings: [
+              {
+                hash: targetHash,
+                arithmeticPolicy:
+                  precision === 'interactive'
+                    ? selectInteractivePreviewPolicy('f32', mode)
+                    : 'reference',
+              },
+              ...(showRanges && mode === 'sdr'
+                ? [
+                    {
+                      hash: hdrHash,
+                      arithmeticPolicy:
+                        precision === 'interactive'
+                          ? ACES_HDR_INTERACTIVE_PREVIEW_VERSION
+                          : ('reference' as const),
+                    },
+                  ]
+                : []),
+            ],
+          })
           await phase(page, `release-${name}`)
           await page.mouse.up()
           await settled(page)
@@ -432,7 +513,12 @@ for (const srgbOnly of [false, true])
             expect(Number(await canvas.getAttribute('data-rendered-tiles'))).toBeGreaterThan(
               renderedBeforeRelease,
             )
-            expectedPhases.push({ phase: `release-${name}`, precision: 'reference', hashes })
+            expectedPhases.push({
+              phase: `release-${name}`,
+              precision: 'reference',
+              hashes,
+              bindings: hashes.map((hash) => ({ hash, arithmeticPolicy: 'reference' })),
+            })
           }
           // This native capture is an SDR compositor proof, separate from the
           // independent rgba16float/CTL quality evidence and physical HDR output.
@@ -446,6 +532,8 @@ for (const srgbOnly of [false, true])
             referenceTarget,
             activeDifference,
             finalDifference,
+            activePolicy: active.policy,
+            finalPolicy: final.policy,
             renderedBeforeRelease,
             renderedAfterRelease: Number(await canvas.getAttribute('data-rendered-tiles')),
           })
@@ -486,6 +574,22 @@ for (const srgbOnly of [false, true])
             [...new Set(actual.map((dispatch) => actualTableHashes[dispatch.table]))].sort(),
             expected.phase,
           ).toEqual([...new Set(expected.hashes)].sort())
+          expect(
+            [
+              ...new Set(
+                actual.map(
+                  (dispatch) => `${actualTableHashes[dispatch.table]}:${dispatch.arithmeticPolicy}`,
+                ),
+              ),
+            ].sort(),
+            `${expected.phase} must bind the correct arithmetic policy for each target table`,
+          ).toEqual(
+            [
+              ...new Set(
+                expected.bindings.map((binding) => `${binding.hash}:${binding.arithmeticPolicy}`),
+              ),
+            ].sort(),
+          )
         }
       } finally {
         await page.mouse.up().catch(() => undefined)

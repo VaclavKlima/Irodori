@@ -1,10 +1,11 @@
+import { seedFixtureEdits } from './catalog-fixture.helpers'
 import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, rm, writeFile, rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import sharp from 'sharp'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { processingMetadata } from '../src/main/processing/metadata'
 import { automaticLensSettings } from '../src/shared/lens'
 import { neutralAdjustments, srgbTransform } from '../src/shared/adjustments'
@@ -112,6 +113,7 @@ export async function exportFixture(
         revision: 0,
       }),
     )
+    seedFixtureEdits(db)
   }
   await mkdir(join(root, 'destination'))
   return {

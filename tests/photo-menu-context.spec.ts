@@ -10,7 +10,11 @@ test('context reads stay bulk and metadata-only for empty, single, and large unl
   const t = await stackFixture(130)
   try {
     const ids = t.photos.map((p) => p.id)
-    const stack = t.library.groupPhotos(ids.slice(0, 125), ids[0], t.library.listStacks().revision)
+    const stack = await t.library.groupPhotos(
+      ids.slice(0, 125),
+      ids[0],
+      t.library.listStacks().revision,
+    )
     // Catalog menu reads succeed even when no managed originals can be opened.
     await rename(join(t.root, 'library/originals'), join(t.root, 'unavailable-originals'))
     let reads = 0
@@ -67,7 +71,7 @@ test('selection and group share early merge eligibility while ordered originals 
     expect(
       t.library.getPhotoActionsContext(null, ids.slice(0, 33)).availability['selection-hdr'].kind,
     ).toBe('inapplicable')
-    const stack = t.library.groupPhotos(ids.slice(0, 3), ids[1], c.galleryRevision)
+    const stack = await t.library.groupPhotos(ids.slice(0, 3), ids[1], c.galleryRevision)
     const ordered = t.library.getStackSnapshot(stack.id, stack.revision).photos.map((p) => p.id)
     c = t.library.getPhotoActionsContext(ids[0], ordered)
     expect(c.equivalent).toMatchObject({ groupSelection: true, mergeInputs: true })
@@ -105,7 +109,7 @@ test('task and lease availability mirrors admission and imports leave foreground
   const tasks = (
     t.library as unknown as { tasks: Map<string, { snapshot: { kind: string; status: string } }> }
   ).tasks
-  const stack = t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
+  const stack = await t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
   let release!: () => void
   const hold = new Promise<void>((resolve) => {
     release = resolve
@@ -124,7 +128,9 @@ test('task and lease availability mirrors admission and imports leave foreground
       reason: expect.stringContaining('library operation'),
     })
     expect(c.availability['selection-trash'].kind).toBe('applicable')
-    expect(() => t.library.ungroupStack(stack.id, stack.revision)).toThrow('library operation')
+    await expect(t.library.ungroupStack(stack.id, stack.revision)).rejects.toThrow(
+      'library operation',
+    )
     tasks.clear()
     const creation = merges.create(ids.slice(0, 2), 'hdr').catch((error: Error) => error.message)
     c = t.library.getPhotoActionsContext(ids[0], [ids[0]])
@@ -163,11 +169,11 @@ test('only relevant target changes alter identity and missing or invalid targets
   try {
     const ids = t.photos.map((p) => p.id)
     const before = t.library.getPhotoActionsContext(ids[0], [ids[0]])
-    t.library.groupPhotos(ids.slice(2), ids[2], before.galleryRevision)
+    await t.library.groupPhotos(ids.slice(2), ids[2], before.galleryRevision)
     const unrelated = t.library.getPhotoActionsContext(ids[0], [ids[0]])
     expect(unrelated.galleryRevision).toBeGreaterThan(before.galleryRevision)
     expect(unrelated.targetIdentity).toBe(before.targetIdentity)
-    t.library.groupPhotos(ids.slice(0, 2), ids[0], unrelated.galleryRevision)
+    await t.library.groupPhotos(ids.slice(0, 2), ids[0], unrelated.galleryRevision)
     expect(t.library.getPhotoActionsContext(ids[0], [ids[0]]).targetIdentity).not.toBe(
       before.targetIdentity,
     )
@@ -190,7 +196,7 @@ test('incomplete persisted group targets never present partial counts or command
   const t = await stackFixture(3)
   try {
     const ids = t.photos.map((p) => p.id)
-    t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
+    await t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
     t.db.prepare('DELETE FROM photos WHERE id = ?').run(ids[1])
     expect(() => t.library.getPhotoActionsContext(ids[0], [ids[0]])).toThrow(
       'unavailable photographs',

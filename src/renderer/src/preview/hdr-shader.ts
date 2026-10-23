@@ -3,7 +3,12 @@ import { hdrAdjustmentsWgsl } from '../../../shared/hdr-adjustments-wgsl'
 import { displayRenderingWgsl, displayEncodingWgsl } from '../../../shared/display-rendering-wgsl'
 import { REC2020_TO_P3, REC2020_TO_SRGB } from '../../../shared/hdr'
 import { acesWgsl } from '../../../shared/aces-wgsl'
-import { acesPreviewWgsl } from '../../../shared/aces-preview-wgsl'
+import {
+  acesPreviewWgsl,
+  acesSdrPreviewWgsl,
+  ACES_SDR_INTERACTIVE_PREVIEW_VERSION,
+  type AcesPreviewPolicy,
+} from '../../../shared/aces-preview-wgsl'
 const primaryMatrix = (m: number[]) =>
   [0, 1, 2].map((c) => `vec3f(${m[c]},${m[c + 3]},${m[c + 6]})`).join(',')
 export const hdrPresentationWgsl = `
@@ -30,44 +35,40 @@ fn outputRgb(rgb: vec3f) -> vec3f {
 fn encoded(v:vec3f)->vec3f {return encodeDisplayRgb(v);}
 `
 
-export type HdrCacheKernelKind = 'grid8' | 'linear64'
+export type HdrCacheKernelKind = 'linear64'
 
-/** Keep the shader's invocation mapping and its host dispatch dimensions together. */
-export function hdrCacheKernel(
-  kind: HdrCacheKernelKind = 'grid8',
-  precision: 'reference' | 'interactive' = 'reference',
-) {
-  const linear = kind === 'linear64'
-  const texel = linear ? 'at' : 'vec2i(p.xy)'
+/** The accepted invocation mapping and its matching host dispatch stay together. */
+export function hdrCacheKernel(precision: AcesPreviewPolicy = 'reference') {
+  const math =
+    precision === 'reference'
+      ? acesWgsl
+      : precision === ACES_SDR_INTERACTIVE_PREVIEW_VERSION
+        ? acesSdrPreviewWgsl
+        : acesPreviewWgsl
   const shader = `
-${precision === 'interactive' ? hdrRenderingWgsl.replace(acesWgsl, acesPreviewWgsl) : hdrRenderingWgsl}
+${hdrRenderingWgsl.replace(acesWgsl, math)}
 @group(0) @binding(3) var cached: texture_storage_2d_array<rgba32float,write>;
 @group(0) @binding(5) var<storage,read> jobs:array<vec4u>;
-@compute @workgroup_size(${linear ? '64' : '8,8'}) fn renderTile(@builtin(global_invocation_id) p:vec3u) {
+@compute @workgroup_size(64) fn renderTile(@builtin(global_invocation_id) p:vec3u) {
   let size=vec2i(textureDimensions(cached));
-  ${
-    linear
-      ? 'if(p.x>=u32(size.x*size.y)) { return; }\n  let at=vec2i(i32(p.x)%size.x,i32(p.x)/size.x);'
-      : 'if(any(vec2i(p.xy)>=size)) { return; }'
-  }
+  if(p.x>=u32(size.x*size.y)) { return; }
+  let at=vec2i(i32(p.x)%size.x,i32(p.x)/size.x);
   let job=jobs[p.z];
-  let point=vec2i(job.xy)*(size-2)+${texel}-1;
+  let point=vec2i(job.xy)*(size-2)+at-1;
   let pixel=textureLoad(pixels,clamp(point,vec2i(0),vec2i(textureDimensions(pixels))-1),0);
   var rgb=pixel.rgb;
   if(job.w==0u) { rgb=adjusted(rgb); }
-  textureStore(cached,${texel},i32(job.z),vec4f(outputRgb(rgb),pixel.a));
+  textureStore(cached,at,i32(job.z),vec4f(outputRgb(rgb),pixel.a));
 }`
   return {
-    kind,
+    kind: 'linear64' as const,
+    policy: precision,
     shader,
     dispatch(extent: number, jobs: number): [number, number, number] {
-      return linear
-        ? [Math.ceil((extent * extent) / 64), 1, jobs]
-        : [Math.ceil(extent / 8), Math.ceil(extent / 8), jobs]
+      return [Math.ceil((extent * extent) / 64), 1, jobs]
     },
   }
 }
-export const hdrCacheShader = hdrCacheKernel().shader
 
 // Pan/zoom presentation deliberately contains no ACES evaluation.
 export const hdrShader = `
@@ -128,15 +129,37 @@ fn sampleCached(point:vec2f,before:bool)->vec4f {
   return vec4f(result,1.);
 }`
 
-export const hdrMipShader = `
+function mipShader(declarations: string, dimensions: string, sample: string): string {
+  return `
 @group(0) @binding(0) var source: texture_2d<f32>;
 @group(0) @binding(1) var destination: texture_storage_2d<rgba32float,write>;
-@compute @workgroup_size(8,8) fn down(@builtin(global_invocation_id) p:vec3u) {
+${declarations}@compute @workgroup_size(8,8) fn down(@builtin(global_invocation_id) p:vec3u) {
   if(any(p.xy>=textureDimensions(destination))) { return; }
-  let size=vec2i(textureDimensions(source)); var sum=vec4f(0.);
+  ${dimensions}; var sum=vec4f(0.);
   for(var y=0;y<2;y++) { for(var x=0;x<2;x++) {
-    let v=textureLoad(source,min(vec2i(p.xy)*2+vec2i(x,y),size-1),0);
+    ${sample};
     sum+=vec4f(v.rgb*v.a,v.a);
   }}
   textureStore(destination,p.xy,vec4f(select(vec3f(0.),sum.rgb/max(sum.a,1e-20),sum.a>0.),sum.a*.25));
 }`
+}
+
+// Keep the ordinary program byte-for-byte stable; both programs share its ordered reduction.
+export const hdrMipShader = mipShader(
+  '',
+  'let size=vec2i(textureDimensions(source))',
+  'let v=textureLoad(source,min(vec2i(p.xy)*2+vec2i(x,y),size-1),0)',
+)
+
+/** Orient each full-resolution fetch before the first ordinary mip reduction. */
+export const hdrOrientedMipShader = mipShader(
+  '@group(0) @binding(2) var<uniform> orientation:vec4u;\n',
+  `let sourceSize=vec2i(textureDimensions(source));
+  let flip=orientation.x;
+  let size=select(sourceSize,sourceSize.yx,(flip&4u)!=0u)`,
+  `var q=min(vec2i(p.xy)*2+vec2i(x,y),size-1);
+    if((flip&4u)!=0u) { q=q.yx; }
+    if((flip&1u)!=0u) { q.x=sourceSize.x-1-q.x; }
+    if((flip&2u)!=0u) { q.y=sourceSize.y-1-q.y; }
+    let v=textureLoad(source,q,0)`,
+)

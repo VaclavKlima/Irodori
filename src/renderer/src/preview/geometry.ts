@@ -76,8 +76,14 @@ export function wheelScale(
   viewportHeight: number,
   physicalControl = false,
 ): number {
+  const pixels = wheelPixels(delta, mode, viewportHeight)
+  // Bound coarse or accelerated mouse deltas while retaining fractional wheel precision.
+  // Touchpad pinch keeps Chromium's logarithmic scale conversion.
   return (
-    scale * Math.exp(-wheelPixels(delta, mode, viewportHeight) * (physicalControl ? 0.002 : 0.01))
+    scale *
+    (physicalControl
+      ? 1.1 ** (-Math.max(-100, Math.min(100, pixels)) / 100)
+      : Math.exp(-pixels * 0.01))
   )
 }
 export function wheelPixels(delta: number, mode: number, viewportExtent: number): number {

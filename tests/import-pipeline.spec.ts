@@ -1,3 +1,4 @@
+import { seedFixtureEdits } from './catalog-fixture.helpers'
 import type { PreviewProcess } from '../src/main/preview-process'
 import { expect, test } from '@playwright/test'
 import {
@@ -13,7 +14,7 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { copyOriginal } from '../src/main/copy-original'
 import type { PreviewProcessor, PreviewResult } from '../src/main/preview-types'
 import type { ImportPipelineOptions } from '../src/main/import-pipeline'
@@ -53,7 +54,6 @@ async function setup(
     undefined,
     undefined,
     undefined,
-    undefined,
     capture,
     undefined,
     undefined,
@@ -82,6 +82,33 @@ async function finished(library: PhotoLibrary, id: string) {
     .not.toMatch(/^(running|cancelling)$/)
   return library.listTasks().find((t) => t.id === id)!
 }
+test('accepted import copies and prepares during local GPU activity while publication waits', async () => {
+  const t = await setup({ process: async () => result, close: async () => {} })
+  try {
+    const id = await scan(t.library, t.paths)
+    t.library.scheduler.activity('local GPU slider', true)
+    await t.library.importSelected(id)
+    await expect
+      .poll(() => t.library.listTasks().find((task) => task.id === id)?.transfer?.prepared)
+      .toBeGreaterThan(0)
+    await expect
+      .poll(() => t.library.listTasks().find((task) => task.id === id)?.transfer?.copied)
+      .toBeGreaterThan(1)
+    expect(t.library.list().total).toBe(0)
+    expect(t.library.listTasks().find((task) => task.id === id)?.status).toBe('running')
+    t.library.scheduler.activity('local GPU slider', false)
+    expect(await finished(t.library, id)).toMatchObject({
+      status: 'completed',
+      errorCount: 0,
+      outcomes: { imported: t.paths.length },
+      transfer: { copied: t.paths.length, prepared: t.paths.length },
+    })
+    expect(t.library.list().total).toBe(t.paths.length)
+  } finally {
+    t.library.scheduler.activity('local GPU slider', false)
+    await t.close()
+  }
+})
 test('copying overlaps two preparation workers and respects candidate and reserved-byte limits', async () => {
   const hold = gate()
   let preparing = 0,
@@ -207,9 +234,11 @@ test('a waiting duplicate is promoted after its owner crashes; published content
 })
 test('disposing accepted review preserves import lifetime; paused copy cancellation unblocks without publication', async () => {
   const t = await setup({ process: async () => result, close: async () => {} })
+  const hold = gate()
+  let foreground: Promise<void> | undefined
   try {
-    t.library.scheduler.activity('editing', true)
     const id = await scan(t.library, t.paths)
+    foreground = t.library.scheduler.run('interactive', () => hold.promise)
     t.library.importSelected(id)
     await t.library.dispose(id)
     expect(t.library.listTasks()[0]).toMatchObject({
@@ -224,7 +253,8 @@ test('disposing accepted review preserves import lifetime; paused copy cancellat
     })
     expect(await readdir(join(t.root, 'library', 'staging'))).toEqual([])
   } finally {
-    t.library.scheduler.activity('editing', false)
+    hold.release()
+    await foreground
     await t.close()
   }
 })
@@ -519,6 +549,7 @@ test('merge inspection, computation and publication run during accepted import; 
           revision: 0,
         }),
       )
+      seedFixtureEdits(db)
     }
     db.close()
     const id = await scan(t.library, t.paths.slice(0, 2))

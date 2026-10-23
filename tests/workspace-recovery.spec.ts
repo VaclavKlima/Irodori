@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { DEFAULT_WORKSPACE } from '../src/shared/workspace'
 import { stackFixture, finishTask } from './stack.helpers'
 
-test('migration 16 is transactional, idempotent, and workspace commits do not advance catalog or stack browsing revisions', async () => {
+test('current workspace checkpoints persist idempotently without advancing catalog or stack browsing revisions', async () => {
   const t = await stackFixture(3)
   try {
     expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
@@ -12,7 +12,7 @@ test('migration 16 is transactional, idempotent, and workspace commits do not ad
       state: null,
       selected: [],
     })
-    t.library.saveWorkspaceState({
+    await t.library.saveWorkspaceState({
       state: { ...DEFAULT_WORKSPACE, activeId: t.photos[0].id, consoleOpen: true },
       selection: { added: [t.photos[0].id], removed: [] },
     })
@@ -29,18 +29,6 @@ test('migration 16 is transactional, idempotent, and workspace commits do not ad
     await t.restart()
     expect(t.library.getWorkspaceState()).toEqual(saved)
     expect(t.library.getGallerySummary()).toEqual(revision)
-    await t.library.close()
-    t.db.exec(
-      'DROP TRIGGER remove_workspace_selection; DROP TABLE workspace_selection; DROP TABLE workspace_state; DROP TABLE collection_catalog_state; CREATE TABLE collection_catalog_state(singleton TEXT); PRAGMA user_version = 15;',
-    )
-    await expect(t.restart()).rejects.toThrow()
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 15 })
-    expect(
-      t.db.prepare("SELECT name FROM sqlite_master WHERE name='workspace_state'").get(),
-    ).toBeUndefined()
-    t.db.exec('DROP TABLE collection_catalog_state')
-    await t.restart()
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
   } finally {
     await t.close()
   }
@@ -49,30 +37,30 @@ test('large selection deltas preserve normalized rows during scalar-only scrolli
   const t = await stackFixture(2400)
   try {
     const ids = t.photos.map((p) => p.id)
-    t.library.saveWorkspaceState({
+    await t.library.saveWorkspaceState({
       selection: { added: ids, removed: [] },
       state: DEFAULT_WORKSPACE,
     })
     const rows = t.db.prepare('SELECT rowid, photo_id FROM workspace_selection').all()
-    t.library.saveWorkspaceState({
+    await t.library.saveWorkspaceState({
       state: { editorAnchor: { id: ids[1000], index: 1000, inset: 17 } },
     })
     expect(t.db.prepare('SELECT rowid, photo_id FROM workspace_selection').all()).toEqual(rows)
-    t.library.saveWorkspaceState({ selection: { removed: [ids[2]], added: [] } })
+    await t.library.saveWorkspaceState({ selection: { removed: [ids[2]], added: [] } })
     expect(t.library.getWorkspaceState().selected).toHaveLength(2399)
     const before = t.library.getWorkspaceState()
-    expect(() =>
+    await expect(
       t.library.saveWorkspaceState({
         state: { consoleOpen: 'invalid' as unknown as boolean },
         selection: { removed: ids, added: [] },
       }),
-    ).toThrow('Invalid workspace state')
+    ).rejects.toThrow('Invalid workspace state')
     expect(t.library.getWorkspaceState()).toEqual(before)
-    expect(() =>
+    await expect(
       t.library.saveWorkspaceState({ selection: { removed: [], added: ['/tmp/photo'] } }),
-    ).toThrow('Invalid workspace selection')
+    ).rejects.toThrow('Invalid workspace selection')
     // An explicitly empty selection is a completed checkpoint, not a startup default.
-    t.library.saveWorkspaceState({ selection: { removed: ids, added: [] } })
+    await t.library.saveWorkspaceState({ selection: { removed: ids, added: [] } })
     await t.restart()
     expect(t.library.getWorkspaceState().selected).toEqual([])
     expect(t.library.getWorkspaceState().state).not.toBeNull()
@@ -84,7 +72,7 @@ test('deleted references are pruned and removed list anchors recover through a c
   const t = await stackFixture(6)
   try {
     const ids = t.photos.map((p) => p.id)
-    t.library.saveWorkspaceState({
+    await t.library.saveWorkspaceState({
       state: {
         ...DEFAULT_WORKSPACE,
         mode: 'library',

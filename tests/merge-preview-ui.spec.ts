@@ -65,7 +65,7 @@ test('native pixel scale, pointer anchoring, bounded drag and scoped zoom shortc
   await page.keyboard.up('Control')
   await expect.poll(async () => (await view()).scale).toBeGreaterThan(1)
   const after = await view()
-  expect(after.scale).toBeCloseTo(Math.exp(0.28), 5)
+  expect(after.scale).toBeCloseTo(1.1, 5)
   const anchor = await viewport.evaluate((el) => ({
     x: Number(el.dataset.anchorX),
     y: Number(el.dataset.anchorY),
@@ -135,6 +135,7 @@ test('comparison, overlay and native revisions retain zoom and normalized framin
   await page.getByRole('button', { name: 'Show merged result' }).click()
   expect(await view()).toEqual(before)
   await control.evaluate((c) => c.hold(1))
+  await page.keyboard.down('Control')
   await page.getByRole('checkbox', { name: 'Auto Crop', exact: true }).uncheck()
   await expect(viewport).toHaveAttribute('data-ready', 'false')
   await expect(image).toBeHidden()
@@ -155,6 +156,13 @@ test('comparison, overlay and native revisions retain zoom and normalized framin
   expect(after.x).toBe((before.x * 800) / 1600)
   expect(after.y).toBe((before.y * 600) / 1000)
   await expect(image).toHaveAttribute('data-image-width', '800')
+  try {
+    await viewport.dispatchEvent('wheel', { cancelable: true, ctrlKey: true, deltaY: -120 })
+    await expect.poll(async () => (await view()).scale).toBeCloseTo(after.scale * 1.1, 5)
+  } finally {
+    await page.keyboard.up('Control')
+  }
+  const zoomed = await view()
   await page
     .getByRole('complementary', { name: 'Merge sources' })
     .getByRole('button')
@@ -162,11 +170,11 @@ test('comparison, overlay and native revisions retain zoom and normalized framin
     .click()
   await expect.poll(async () => (await control.evaluate((c) => c.state())).revision).toBe(2)
   await expect(viewport).toHaveAttribute('data-ready', 'true')
-  expect(await view()).toEqual(after)
+  expect(await view()).toEqual(zoomed)
   await page.getByRole('combobox', { name: 'Mode', exact: true }).selectOption('noise')
   await expect.poll(async () => (await control.evaluate((c) => c.state())).revision).toBe(3)
   await expect(viewport).toHaveAttribute('data-ready', 'true')
-  expect(await view()).toEqual(after)
+  expect(await view()).toEqual(zoomed)
   await page.getByRole('button', { name: 'Fit merge preview' }).click()
   await page.getByRole('checkbox', { name: 'Auto Align', exact: true }).uncheck()
   await expect.poll(async () => (await control.evaluate((c) => c.state())).revision).toBe(4)

@@ -5,10 +5,11 @@ import { DatabaseSync } from 'node:sqlite'
 import { resolve } from 'node:path'
 import { ExportProcess } from '../src/main/export/process'
 import { ExportJobs, type ExportBoundary } from '../src/main/export/jobs'
-import { ExportStore } from '../src/main/export/store'
+import { ExportReadStore } from '../src/main/export/store'
 import { identity } from '../src/main/export/files'
-import { defaultExportOptions } from '../src/shared/export'
+import { defaultExportOptions, type ExportWorkerProgress } from '../src/shared/export'
 import type { ExportRenderJob } from '../src/main/export/types'
+import type { EditFlushScope } from '../src/shared/edits'
 import { neutralAdjustments } from '../src/shared/adjustments'
 import { exportFixture, sha, syntheticExportSource } from './export.helpers'
 import { finishTask } from './stack.helpers'
@@ -17,7 +18,11 @@ import { workingSourceIdentity, type WorkingAssetLease } from '../src/main/worki
 
 async function controlled(
   t: Awaited<ReturnType<typeof exportFixture>>,
-  render: (job: ExportRenderJob, signal: AbortSignal) => Promise<{ path: string; sha256: string }>,
+  render: (
+    job: ExportRenderJob,
+    signal: AbortSignal,
+    onProgress?: (progress: ExportWorkerProgress) => void,
+  ) => Promise<{ path: string; sha256: string }>,
   boundary?: (b: ExportBoundary) => Promise<void>,
   working?: {
     hdr: boolean
@@ -25,7 +30,7 @@ async function controlled(
   },
 ) {
   t.library.exports = new ExportJobs(
-    new ExportStore(t.db),
+    t.library.exports.store,
     join(t.root, 'library'),
     t.library.scheduler,
     async (id) => {
@@ -71,6 +76,108 @@ const wait = async (t: Awaited<ReturnType<typeof exportFixture>>, id: string) =>
     .toBeTruthy()
   return t.library.listTasks().find((j) => j.id === id)!
 }
+
+test('export preparation and acceptance flush only copied target IDs through the shared application API', async () => {
+  const t = await exportFixture()
+  try {
+    await controlled(t, fakeRender)
+    const target = t.photos[0].id
+    const other = t.photos[1].id
+    const scopes: EditFlushScope[] = []
+    let release!: () => void
+    const gate = new Promise<void>((accept) => {
+      release = accept
+    })
+    t.library.flushEditorEdits = async (scope) => {
+      scopes.push(structuredClone(scope))
+      await gate
+      await t.library.updateEdits(target, { exposureEv: 1.25 }, 0)
+    }
+    const ids = [target, target]
+    const preparing = t.library.prepareExport(ids)
+    ids[0] = other
+    expect(scopes).toEqual([{ kind: 'photos', photoIds: [target] }])
+    release()
+    const prepared = await preparing
+    expect(prepared.targets).toEqual([expect.objectContaining({ photoId: target, revision: 1 })])
+    t.library.flushEditorEdits = async (scope) => {
+      scopes.push(structuredClone(scope))
+    }
+    const grant = await t.library.exports.store.authorize(t.destination)
+    const request = { preparationId: prepared.id, destinationId: grant.id, action: 'high' as const }
+    const copiedTargets = t.library.exports.preparedPhotoIds(request)
+    copiedTargets[0] = other
+    const id = await t.library.startExport(request)
+    expect(scopes).toEqual([
+      { kind: 'photos', photoIds: [target] },
+      { kind: 'photos', photoIds: [target] },
+    ])
+    expect((await wait(t, id)).export).toMatchObject({ exported: 1, failed: 0 })
+    expect(await readFile(join(t.destination, 'Photo-0.jpg'), 'utf8')).toBe('jpeg-1.25')
+    expect((await t.library.getEditHistory(other)).snapshots).toHaveLength(1)
+  } finally {
+    await t.close()
+  }
+})
+
+test('a matching pending write is awaited before a stale export preparation can be rejected', async () => {
+  const t = await exportFixture()
+  try {
+    await controlled(t, fakeRender)
+    const target = t.photos[0].id
+    const prepared = await t.library.prepareExport([target])
+    const grant = await t.library.exports.store.authorize(t.destination)
+    let release!: () => void
+    const gate = new Promise<void>((accept) => {
+      release = accept
+    })
+    const scopes: EditFlushScope[] = []
+    t.library.flushEditorEdits = async (scope) => {
+      scopes.push(structuredClone(scope))
+      await gate
+      await t.library.updateEdits(target, { exposureEv: 2 }, 0)
+    }
+    const request = {
+      preparationId: prepared.id,
+      destinationId: grant.id,
+      action: 'high' as const,
+    }
+    const starting = t.library.startExport(request)
+    request.preparationId = 'changed-after-submission'
+    const rejected = expect(starting).rejects.toThrow('edits changed')
+    expect(t.library.listTasks()).toHaveLength(0)
+    expect(scopes).toEqual([{ kind: 'photos', photoIds: [target] }])
+    release()
+    await rejected
+    expect((await t.library.getEdits(target)).settings.exposureEv).toBe(2)
+    expect(t.library.listTasks()).toHaveLength(0)
+    expect(await readdir(t.destination)).toEqual([])
+  } finally {
+    await t.close()
+  }
+})
+
+test('invalid export targets do not ask the renderer to finish any gesture', async () => {
+  const t = await exportFixture()
+  try {
+    let calls = 0
+    t.library.flushEditorEdits = async () => {
+      calls++
+    }
+    await expect(t.library.prepareExport([])).rejects.toThrow('Choose photographs')
+    await expect(t.library.prepareExport(['not-a-photo'])).rejects.toThrow('Choose photographs')
+    await expect(
+      t.library.startExport({
+        preparationId: 'missing',
+        destinationId: 'missing',
+        action: 'high',
+      }),
+    ).rejects.toThrow('preparation expired')
+    expect(calls).toBe(0)
+  } finally {
+    await t.close()
+  }
+})
 
 test('acceptance freezes committed edits, saves Custom atomically and preserves history and browsing revisions', async () => {
   const t = await exportFixture()
@@ -118,7 +225,7 @@ test('acceptance freezes committed edits, saves Custom atomically and preserves 
       ],
     ).toMatchObject({ kind: 'blocked' })
     // Organization and editing remain available while the source is leased.
-    t.library.groupPhotos(
+    await t.library.groupPhotos(
       t.photos.map((p) => p.id),
       t.photos[0].id,
       t.library.listStacks().revision,
@@ -321,16 +428,16 @@ test('restart reconciles a linked publication by inode and hash, cleans only own
     await link(join(t.destination, 'Photo-0.jpg'), join(t.destination, partial))
     files[0].partial = partial
     files[0].status = 'publishing'
-    t.library.exports.store.file(id, files[0])
+    await t.library.exports.store.file(id, files[0])
     const foreign = files[1].partial!
     await writeFile(join(t.destination, foreign), 'untouched')
     files[1].partial = foreign
     files[1].status = 'writing'
-    t.library.exports.store.file(id, files[1])
+    await t.library.exports.store.file(id, files[1])
     const task = t.library.listTasks().find((j) => j.id === id)!
     task.status = 'running'
     task.finishedAt = undefined
-    t.library.exports.store.task(task)
+    await t.library.exports.store.task(task)
     const scratch = join(t.root, 'library', 'export-work', id, '0-preparation')
     await mkdir(scratch, { recursive: true })
     await writeFile(join(scratch, 'source.json'), '{"version":1}')
@@ -352,24 +459,24 @@ test('restart reconciles a linked publication by inode and hash, cleans only own
   }
 })
 
-test('catalog 17 export migration is transactional, rejects unknown preference versions and is idempotent', async () => {
+test('current export schema initialization is transactional, rejects unknown preference versions and is idempotent', async () => {
   const db = new DatabaseSync(':memory:')
   try {
-    const store = new ExportStore(db)
-    db.exec('BEGIN; PRAGMA user_version = 16')
-    store.migrate()
+    const store = new ExportReadStore(db)
+    db.exec('BEGIN')
+    store.initialize()
     db.exec('ROLLBACK')
     expect(db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'export_%'").all()).toEqual(
       [],
     )
     db.exec('BEGIN')
-    store.migrate()
+    store.initialize()
     db.exec('PRAGMA user_version = 17; COMMIT')
     const before = store.preferences()
-    store.migrate()
+    store.initialize()
     expect(store.preferences()).toEqual(before)
     db.prepare('UPDATE export_preferences SET data = ?').run('{"version":2}')
-    expect(() => store.migrate()).toThrow('newer Luma')
+    expect(() => store.initialize()).toThrow('newer Luma')
   } finally {
     db.close()
   }
@@ -382,7 +489,26 @@ test('real isolated worker writes a baseline sRGB JPEG and releases its source l
       resolve('out/main/export-worker.js'),
       resolve('out/main/preview-worker.js'),
     )
-    await controlled(t, renderer.render.bind(renderer))
+    const progress: ExportWorkerProgress[] = []
+    let overTerminalInjected = false
+    await controlled(t, (job, signal, onProgress) =>
+      renderer.render(job, signal, (value) => {
+        progress.push(value)
+        onProgress?.(value)
+        if (value.phase === 'output-validated-written') {
+          // The actual worker has completed all three SDR stages, while this
+          // render call still owns the attempt. Undefined is an own JS key.
+          overTerminalInjected = !!onProgress
+          onProgress?.({
+            ...value,
+            sequence: value.sequence + 1,
+            completed: value.completed + 1,
+            phase: undefined as unknown as ExportWorkerProgress['phase'],
+            producedAtEpochMs: performance.timeOrigin + performance.now(),
+          })
+        }
+      }),
+    )
     const grant = await t.library.exports.store.authorize(t.destination)
     const p = await t.library.prepareExport([t.photos[0].id])
     const id = await t.library.startExport({
@@ -390,7 +516,39 @@ test('real isolated worker writes a baseline sRGB JPEG and releases its source l
       destinationId: grant.id,
       action: 'high',
     })
-    expect((await wait(t, id)).export).toMatchObject({ exported: 1, failed: 0 })
+    const completed = await wait(t, id)
+    expect(completed.export).toMatchObject({ exported: 1, failed: 0 })
+    expect(overTerminalInjected).toBe(true)
+    expect(progress.map((value) => value.phase)).toEqual([
+      'rendition-rendered',
+      'sdr-jpeg-obtained',
+      'output-validated-written',
+    ])
+    expect(progress.map((value) => value.sequence)).toEqual([1, 2, 3])
+    expect(progress.map((value) => value.completed)).toEqual([1, 2, 3])
+    expect(
+      progress.every(
+        (value, i) =>
+          value.exportId === id &&
+          value.fileIndex === 0 &&
+          value.photoId === t.photos[0].id &&
+          value.settingsRevision === 0 &&
+          value.total === 3 &&
+          value.attemptId === progress[0].attemptId &&
+          Number.isFinite(value.producedAtEpochMs) &&
+          (i === 0 || value.producedAtEpochMs >= progress[i - 1].producedAtEpochMs),
+      ),
+    ).toBe(true)
+    expect(completed.exportWorkerProgress).toMatchObject({
+      counter: 3,
+      dropped: 0,
+      events: progress,
+    })
+    expect(completed.exportWorkerProgress?.active).toBeUndefined()
+    const stored = t.db.prepare('SELECT task FROM export_jobs WHERE id = ?').get(id) as {
+      task: string
+    }
+    expect(JSON.parse(stored.task).exportWorkerProgress).toBeUndefined()
     expect((await readFile(join(t.destination, 'Photo-0.jpg'))).subarray(0, 2)).toEqual(
       Buffer.from([255, 216]),
     )
@@ -585,15 +743,46 @@ for (const outcome of ['success', 'failure', 'cancellation', 'shutdown'] as cons
       releases = 0,
       attempts = 0,
       exited = false
-    let entered!: () => void
+    let entered!: () => void, releaseSecond!: () => void
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve
+    })
+    const controls: { send: (value: ExportWorkerProgress) => void; event: ExportWorkerProgress }[] =
+      []
     const started = new Promise<void>((resolve) => {
       entered = resolve
     })
     try {
       await controlled(
         t,
-        async (job, signal) => {
+        async (job, signal, onProgress) => {
           attempts++
+          const event: ExportWorkerProgress = {
+            version: 'export-worker-progress-v1',
+            ...job.workerProgressIdentity!,
+            photoId: job.source.photo.id,
+            settingsRevision: job.source.processing.revision,
+            phase: 'rendition-rendered',
+            sequence: 1,
+            completed: 1,
+            total: job.hdr ? 4 : 3,
+            producedAtEpochMs: performance.timeOrigin + performance.now(),
+          }
+          controls.push({ send: onProgress!, event })
+          // Control-only renderer receipts exercise owner filtering, not image/performance proof.
+          onProgress?.(event)
+          onProgress?.(event)
+          const next: ExportWorkerProgress = {
+            ...event,
+            sequence: 2,
+            completed: 2,
+            phase: 'sdr-jpeg-obtained',
+            producedAtEpochMs: performance.timeOrigin + performance.now(),
+          }
+          onProgress?.({ ...next, settingsRevision: event.settingsRevision + 1 })
+          onProgress?.({ ...next, fileIndex: 9 })
+          onProgress?.({ ...next, completed: 1 })
+          onProgress?.({ ...next, phase: 'hdr-encoded' })
           expect(releases).toBe(0)
           expect(job.workingAsset?.asset.path).toBe(synthetic.path)
           try {
@@ -603,6 +792,7 @@ for (const outcome of ['success', 'failure', 'cancellation', 'shutdown'] as cons
                 signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
               )
             }
+            await secondGate
             if (outcome === 'failure') throw new Error('Encoder failed after preparation.')
             return fakeRender(job)
           } finally {
@@ -635,10 +825,48 @@ for (const outcome of ['success', 'failure', 'cancellation', 'shutdown'] as cons
       })
       await started
       expect(t.library.exports.leased([t.photos[0].id])).toBe(true)
+      expect(
+        t.library.listTasks().find((task) => task.id === id)?.exportWorkerProgress?.counter,
+      ).toBe(1)
       if (outcome === 'cancellation') await t.library.cancelTask(id)
       else if (outcome === 'shutdown') await t.library.exports.close()
-      else await t.library.scheduler.run('interactive', async () => {})
+      else {
+        await t.library.scheduler.run('interactive', async () => {})
+        await expect.poll(() => attempts).toBe(2)
+        controls[0].send({
+          ...controls[0].event,
+          sequence: 2,
+          completed: 2,
+          phase: 'sdr-jpeg-obtained',
+          producedAtEpochMs: performance.timeOrigin + performance.now(),
+        })
+        expect(
+          t.library.listTasks().find((task) => task.id === id)?.exportWorkerProgress?.counter,
+        ).toBe(2)
+        releaseSecond()
+      }
       const task = await wait(t, id)
+      const accepted = outcome === 'success' || outcome === 'failure' ? 2 : 1
+      expect(task.exportWorkerProgress?.counter).toBe(accepted)
+      expect(task.exportWorkerProgress?.events).toHaveLength(accepted)
+      expect(new Set(task.exportWorkerProgress?.events.map((value) => value.attemptId)).size).toBe(
+        accepted,
+      )
+      controls[0].send({
+        ...controls[0].event,
+        sequence: 2,
+        completed: 2,
+        phase: 'sdr-jpeg-obtained',
+        producedAtEpochMs: performance.timeOrigin + performance.now(),
+      })
+      expect(
+        t.library.listTasks().find((entry) => entry.id === id)?.exportWorkerProgress?.counter,
+      ).toBe(accepted)
+      const persisted = t.db
+        .prepare('SELECT manifest, task FROM export_jobs WHERE id = ?')
+        .get(id) as { manifest: string; task: string }
+      expect(JSON.parse(persisted.manifest).sources[0].processing.revision).toBe(0)
+      expect(JSON.parse(persisted.task).exportWorkerProgress).toBeUndefined()
       expect(task.status).toBe(
         outcome === 'success' ? 'completed' : outcome === 'failure' ? 'failed' : 'cancelled',
       )
@@ -648,6 +876,7 @@ for (const outcome of ['success', 'failure', 'cancellation', 'shutdown'] as cons
       expect(t.library.exports.leased([t.photos[0].id])).toBe(false)
       expect(await readdir(join(t.root, 'library', 'export-work', id))).toEqual([])
     } finally {
+      releaseSecond()
       await t.close()
     }
   })
@@ -679,59 +908,168 @@ test('a destination write failure cleans its owned partial and retains independe
   }
 })
 
-test('cancelling an isolated encoder waits for its worker and auxiliary process tree to exit', async () => {
-  const t = await exportFixture(1)
-  try {
-    const worker = join(t.root, 'encoder.mjs')
-    await writeFile(
-      worker,
-      `import {spawn} from 'node:child_process';
+for (const persistAvailable of [true, false])
+  test(`cancelling an isolated encoder drains its worker and auxiliary process tree with ${persistAvailable ? 'healthy' : 'unavailable'} task persistence`, async () => {
+    const t = await exportFixture(1)
+    let restoreTask: (() => void) | undefined
+    let cancellation: Promise<{ ok: true } | { ok: false; error: unknown }> | undefined
+    try {
+      const worker = join(t.root, 'encoder.mjs')
+      await writeFile(
+        worker,
+        `import {spawn} from 'node:child_process';
 import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 process.on('message', async job => {
  const auxiliary=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
  await writeFile(join(job.directory,'workers.json'),JSON.stringify([process.pid,auxiliary.pid]));
+ const event={version:'export-worker-progress-v1',...job.workerProgressIdentity,
+   photoId:job.source.photo.id,settingsRevision:job.source.processing.revision,
+   sequence:1,phase:'rendition-rendered',completed:1,total:3,
+   producedAtEpochMs:performance.timeOrigin+performance.now()};
+ for(const invalid of [{...event,exportId:'foreign'},{...event,photoId:'foreign'},
+   {...event,attemptId:'foreign'},{...event,settingsRevision:event.settingsRevision+1},
+   {...event,total:4},{...event,sequence:2,completed:2,phase:'sdr-jpeg-obtained'}])
+   process.send({progress:invalid});
+ process.send({progress:event});
+ process.send({progress:event});
+ process.send({progress:{...event,sequence:2,completed:2,phase:'sdr-jpeg-obtained',producedAtEpochMs:event.producedAtEpochMs-100}});
  setInterval(()=>{},1000);
 });
 `,
-    )
-    const renderer = new ExportProcess(worker, resolve('out/main/preview-worker.js'))
-    await controlled(t, renderer.render.bind(renderer))
-    const grant = await t.library.exports.store.authorize(t.destination)
-    const p = await t.library.prepareExport([t.photos[0].id])
-    const id = await t.library.startExport({
-      preparationId: p.id,
-      destinationId: grant.id,
-      action: 'high',
-    })
-    const witness = join(t.root, 'library', 'export-work', id, '0', 'workers.json')
-    await expect
-      .poll(() =>
-        readFile(witness, 'utf8').then(
-          () => true,
-          () => false,
-        ),
       )
-      .toBe(true)
-    const pids: number[] = JSON.parse(await readFile(witness, 'utf8'))
-    await t.library.cancelTask(id)
-    for (const pid of pids)
+      const renderer = new ExportProcess(worker, resolve('out/main/preview-worker.js'))
+      await controlled(t, renderer.render.bind(renderer))
+      const grant = await t.library.exports.store.authorize(t.destination)
+      const p = await t.library.prepareExport([t.photos[0].id])
+      const id = await t.library.startExport({
+        preparationId: p.id,
+        destinationId: grant.id,
+        action: 'high',
+      })
+      const witness = join(t.root, 'library', 'export-work', id, '0', 'workers.json')
       await expect
-        .poll(() => {
-          try {
-            process.kill(pid, 0)
-            return false
-          } catch {
-            return true
-          }
-        })
+        .poll(() =>
+          readFile(witness, 'utf8').then(
+            () => true,
+            () => false,
+          ),
+        )
         .toBe(true)
-    expect(t.library.exports.leased([t.photos[0].id])).toBe(false)
-    expect(await readdir(t.destination)).toEqual([])
-  } finally {
-    await t.close()
-  }
-})
+      const pids: number[] = JSON.parse(await readFile(witness, 'utf8'))
+      await expect
+        .poll(
+          () => t.library.listTasks().find((task) => task.id === id)?.exportWorkerProgress?.counter,
+        )
+        .toBe(1)
+      const before = structuredClone(
+        t.library.listTasks().find((task) => task.id === id)!.exportWorkerProgress,
+      )
+      const alive = (pid: number) => {
+        try {
+          process.kill(pid, 0)
+          return true
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+          throw error
+        }
+      }
+      expect(pids).toHaveLength(2)
+      expect(pids.map(alive)).toEqual([true, true])
+      expect(t.library.exports.leased([t.photos[0].id])).toBe(true)
+      const persistFailures: Error[] = []
+      if (!persistAvailable) {
+        const store = t.library.exports.store,
+          descriptor = Object.getOwnPropertyDescriptor(store, 'task')
+        Object.defineProperty(store, 'task', {
+          configurable: true,
+          writable: true,
+          value: async () => {
+            const error = new Error(`Task persistence unavailable ${persistFailures.length + 1}.`)
+            persistFailures.push(error)
+            throw error
+          },
+        })
+        restoreTask = () => {
+          if (descriptor) Object.defineProperty(store, 'task', descriptor)
+          else if (!Reflect.deleteProperty(store, 'task'))
+            throw new Error('Could not restore export persistence.')
+        }
+      }
+      let atSettlement:
+        { alive: boolean[]; leased: boolean; finished: boolean; active: unknown } | undefined
+      const observeSettlement = () => {
+        const task = t.library.listTasks().find((task) => task.id === id)!
+        atSettlement = {
+          alive: pids.map(alive),
+          leased: t.library.exports.leased([t.photos[0].id]),
+          finished: !!task.finishedAt,
+          active: task.exportWorkerProgress?.active,
+        }
+      }
+      // Observe ownership at the actual cancellation settlement, before any poll
+      // can hide an early rejection while real processes or source pins survive.
+      cancellation = t.library.cancelTask(id).then(
+        () => {
+          observeSettlement()
+          return { ok: true as const }
+        },
+        (error: unknown) => {
+          observeSettlement()
+          return { ok: false as const, error }
+        },
+      )
+      const result = await cancellation
+      expect(atSettlement).toEqual({
+        alive: [false, false],
+        leased: false,
+        finished: true,
+        active: undefined,
+      })
+      if (persistAvailable) {
+        expect(result).toEqual({ ok: true })
+        expect(persistFailures).toEqual([])
+      } else {
+        expect(result.ok).toBe(false)
+        expect(persistFailures.length).toBeGreaterThanOrEqual(2)
+        if (!result.ok) {
+          expect(result.error).toBeInstanceOf(AggregateError)
+          expect((result.error as AggregateError).errors).toEqual([
+            persistFailures[0],
+            persistFailures.at(-1),
+          ])
+        }
+      }
+      const cancelled = t.library.listTasks().find((task) => task.id === id)!
+      expect(cancelled.exportWorkerProgress?.events).toEqual(before?.events)
+      expect(cancelled.exportWorkerProgress).toMatchObject({ counter: 1, dropped: 0 })
+      expect(cancelled.exportWorkerProgress?.events).toHaveLength(1)
+      expect(cancelled.exportWorkerProgress?.active).toBeUndefined()
+      for (const pid of pids)
+        await expect
+          .poll(() => {
+            try {
+              process.kill(pid, 0)
+              return false
+            } catch {
+              return true
+            }
+          })
+          .toBe(true)
+      expect(t.library.exports.leased([t.photos[0].id])).toBe(false)
+      expect(await readdir(t.destination)).toEqual([])
+    } finally {
+      try {
+        restoreTask?.()
+      } finally {
+        try {
+          await cancellation
+        } finally {
+          await t.close()
+        }
+      }
+    }
+  })
 
 test('a queued job accepts frozen settings promptly and cancels without waiting for the active job', async () => {
   const t = await exportFixture(1)

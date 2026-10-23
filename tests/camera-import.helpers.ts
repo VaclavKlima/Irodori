@@ -2,7 +2,7 @@ import { expect } from '@playwright/test'
 import { mkdir, mkdtemp, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { copyOriginal } from '../src/main/copy-original'
 import { stableVolumeIdentity, type DeviceSource } from '../src/main/import-devices'
 import { hashImportSource, inspectImportSource } from '../src/main/import-source-records'
@@ -77,7 +77,6 @@ export async function cameraSetup(
         (async (path) => {
           await rename(path, join(root, 'trash', basename(path)))
         }),
-      undefined,
       undefined,
       undefined,
       undefined,

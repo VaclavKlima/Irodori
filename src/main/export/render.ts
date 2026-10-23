@@ -7,6 +7,7 @@ import { exportRenditions } from './renditions'
 import { encodeExportHdr } from './encoder'
 import { validatePrimary } from './jpeg'
 import type { ExportDiagnostics, ExportRenderJob, ExportRenderResult } from './types'
+import type { ExportWorkerPhase } from '../../shared/export'
 
 export { rasterLinear } from './raster'
 
@@ -58,7 +59,10 @@ async function metadata(
   }
 }
 
-export async function renderExport(job: ExportRenderJob): Promise<ExportRenderResult> {
+export async function renderExport(
+  job: ExportRenderJob,
+  onProgress?: (phase: ExportWorkerPhase) => void,
+): Promise<ExportRenderResult> {
   const start = performance.now()
   sharp.concurrency(1)
   sharp.cache(false)
@@ -92,7 +96,10 @@ export async function renderExport(job: ExportRenderJob): Promise<ExportRenderRe
   const [rendered, tags] = await Promise.allSettled([
     exportRenditions(job, undefined, (rgb, geometry) =>
       pendingTags.then((exif) => encodeSdr(rgb, geometry, exif)),
-    ),
+    ).then((rendition) => {
+      onProgress?.('rendition-rendered')
+      return rendition
+    }),
     pendingTags,
   ])
   if (rendered.status === 'rejected') throw rendered.reason
@@ -115,6 +122,7 @@ export async function renderExport(job: ExportRenderJob): Promise<ExportRenderRe
     },
   }
   const sdr = await (rendition.earlyPrimary ?? encodeSdr(rgb, geometry, tags.value))
+  onProgress?.('sdr-jpeg-obtained')
   diagnostics.stages.sdrEncodeMs = sdrEncodeMs
   let stage: number
   let output = sdr
@@ -131,6 +139,7 @@ export async function renderExport(job: ExportRenderJob): Promise<ExportRenderRe
       contentHeadroom,
       job.directory,
     )
+    onProgress?.('hdr-encoded')
     output = encoded.output
     renderedPath = encoded.path
     primaryWritten = encoded.primaryWritten
@@ -159,5 +168,6 @@ export async function renderExport(job: ExportRenderJob): Promise<ExportRenderRe
   const sha256 = createHash('sha256').update(output).digest('hex')
   diagnostics.stages.validationAndWriteMs = performance.now() - stage
   diagnostics.stages.workerMs = performance.now() - start
+  onProgress?.('output-validated-written')
   return { path, sha256, diagnostics }
 }

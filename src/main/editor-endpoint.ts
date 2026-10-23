@@ -13,7 +13,6 @@ export async function startEditorEndpoint(
   profile: string,
   library: PhotoLibrary,
   display?: DisplayState,
-  flushEdits: () => Promise<void> = async () => {},
 ) {
   const token = randomBytes(32).toString('hex')
   let closing = false
@@ -119,7 +118,6 @@ export async function startEditorEndpoint(
           result = await library.getExportPreferences()
           break
         case 'luma_prepare_export':
-          await flushEdits()
           result = await library.prepareExport(ids)
           break
         case 'luma_dispose_export_preparation':
@@ -127,7 +125,6 @@ export async function startEditorEndpoint(
           result = { disposed: true }
           break
         case 'luma_start_export':
-          await flushEdits()
           result = { taskId: await library.startExport(exportRequest) }
           break
         case 'luma_get_export_results':
@@ -164,20 +161,20 @@ export async function startEditorEndpoint(
           result = library.getStackSnapshot(stackId, expectedRevision)
           break
         case 'luma_group_photos':
-          result = library.groupPhotos(ids, coverId, expectedRevision)
+          result = await library.groupPhotos(ids, coverId, expectedRevision)
           break
         case 'luma_ungroup_stack':
-          library.ungroupStack(stackId, expectedRevision)
+          await library.ungroupStack(stackId, expectedRevision)
           result = { ungrouped: true }
           break
         case 'luma_remove_from_stack':
-          result = { stack: library.removeFromStack(photoId, expectedRevision) }
+          result = { stack: await library.removeFromStack(photoId, expectedRevision) }
           break
         case 'luma_set_stack_cover':
-          result = library.setStackCover(stackId, photoId, expectedRevision)
+          result = await library.setStackCover(stackId, photoId, expectedRevision)
           break
         case 'luma_set_stack_expanded':
-          result = library.setStackExpanded(stackId, expanded, expectedRevision)
+          result = await library.setStackExpanded(stackId, expanded, expectedRevision)
           break
         case 'luma_get_gallery_summary':
           result = library.getGallerySummary(selectedIds)
@@ -233,7 +230,7 @@ export async function startEditorEndpoint(
           result = { task: library.listTasks().find((task) => task.id === taskId) }
           break
         case 'luma_dismiss_task':
-          library.dismissTask(taskId)
+          await library.dismissTask(taskId)
           result = { dismissed: true }
           break
         case 'luma_get_preview_diagnostics':

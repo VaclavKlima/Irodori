@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test'
 import { copyFile, mkdtemp, readFile, rename, rm, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
-import { BrowseStore } from '../src/main/browse'
-import { PhotoLibrary } from '../src/main/library'
+import { BrowseMutations as BrowseStore } from '../src/main/catalog/browse-mutations'
+import { PhotoLibrary } from './photo-library.helpers'
 import { processingMetadata } from '../src/main/processing/metadata'
 import type { Photo } from '../src/shared/contracts'
 import type { BrowseQuery } from '../src/shared/browse'
@@ -43,7 +43,7 @@ test('all managed photos remain individual across collapsed stacks and calendar 
     ]
     for (let i = 0; i < dates.length; i++) indexPhoto(t, i, { capturedAt: dates[i] })
     const ids = t.photos.map((p) => p.id)
-    t.library.groupPhotos(ids.slice(0, 3), ids[0], t.library.listStacks().revision)
+    await t.library.groupPhotos(ids.slice(0, 3), ids[0], t.library.listStacks().revision)
     expect(t.library.listGallery().total).toBe(4)
     expect(t.library.getBrowseSummary(query).sections).toEqual([
       { key: '2026-10-01', label: '1 October 2026', offset: 0, count: 2, selected: 0 },

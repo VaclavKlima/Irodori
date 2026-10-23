@@ -1,3 +1,4 @@
+import { seedFixtureEdits } from './catalog-fixture.helpers'
 import { test, expect } from '@playwright/test'
 import { basename, join } from 'node:path'
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
@@ -12,7 +13,7 @@ test('revision-checked snapshots resolve more than two transport chunks in persi
   const t = await stackFixture(130)
   try {
     const ids = t.photos.slice(5).map((p) => p.id)
-    const stack = t.library.groupPhotos(ids, ids[90], t.library.listStacks().revision)
+    const stack = await t.library.groupPhotos(ids, ids[90], t.library.listStacks().revision)
     const snapshot = t.library.getStackSnapshot(stack.id, stack.revision)
     const chunks = [0, 60, 120].flatMap(
       (offset) => t.library.getStackMembers(stack.id, offset).photos,
@@ -21,7 +22,7 @@ test('revision-checked snapshots resolve more than two transport chunks in persi
     expect(snapshot.photos).toHaveLength(125)
     expect(snapshot.photos[0].id).toBe(stack.coverId)
     expect(t.library.listGallery().total).toBe(6)
-    const expanded = t.library.setStackExpanded(stack.id, true, stack.revision)
+    const expanded = await t.library.setStackExpanded(stack.id, true, stack.revision)
     expect(t.library.listGallery(60).entries[0].stack?.id).toBe(stack.id)
     expect(t.library.getStackSnapshot(stack.id, expanded.revision).photos).toEqual(chunks)
     expect(() => t.library.getStackSnapshot(stack.id, stack.revision)).toThrow('Stale')
@@ -33,10 +34,10 @@ test('revision-checked snapshots resolve more than two transport chunks in persi
       stack: expanded,
       photos: chunks,
     })
-    const removed = t.library.removeFromStack(ids[0], expanded.revision)!
+    const removed = (await t.library.removeFromStack(ids[0], expanded.revision))!
     expect(() => t.library.getStackSnapshot(stack.id, expanded.revision)).toThrow('Stale')
     expect(t.library.getStackSnapshot(stack.id, removed.revision).photos).toHaveLength(124)
-    t.library.ungroupStack(stack.id, removed.revision)
+    await t.library.ungroupStack(stack.id, removed.revision)
     expect(() => t.library.getStackSnapshot(stack.id, removed.revision)).toThrow('unavailable')
   } finally {
     await t.close()
@@ -72,6 +73,7 @@ test('capture and merge snapshots include unused originals and older results ind
           revision: 0,
         }),
       )
+      seedFixtureEdits(t.db)
     }
     for (let i = 0; i < 3; i++) t.capture(i, sequenceMetadata(i + 1))
     expect(t.store.reconcileCaptures()).toBe(1)
@@ -79,7 +81,7 @@ test('capture and merge snapshots include unused originals and older results ind
     expect(t.library.getStackSnapshot(capture.id, capture.revision)).toMatchObject({
       stack: { origin: 'capture', count: 3 },
     })
-    t.library.groupPhotos(ids.slice(3, 6), ids[5], t.library.listStacks().revision)
+    await t.library.groupPhotos(ids.slice(3, 6), ids[5], t.library.listStacks().revision)
     for (const index of [6, 7]) {
       const manifest = {
         photo: { ...t.photos[index], assetKind: 'derived' },
@@ -178,11 +180,15 @@ test('frozen group deletion includes results and excludes later members, with ex
       t.db
         .prepare('UPDATE photos SET photo = ? WHERE id = ?')
         .run(JSON.stringify({ ...t.photos[index], assetKind: 'derived' }), ids[index])
-    const stack = t.library.groupPhotos(ids.slice(0, 5), ids[0], t.library.listStacks().revision)
+    const stack = await t.library.groupPhotos(
+      ids.slice(0, 5),
+      ids[0],
+      t.library.listStacks().revision,
+    )
     const frozen = t.library.getStackSnapshot(stack.id, stack.revision).photos.map((p) => p.id)
     expect(frozen).toHaveLength(5)
-    t.library.ungroupStack(stack.id, stack.revision)
-    t.library.groupPhotos(ids.slice(0, 7), ids[0], t.library.listStacks().revision)
+    await t.library.ungroupStack(stack.id, stack.revision)
+    await t.library.groupPhotos(ids.slice(0, 7), ids[0], t.library.listStacks().revision)
     expect(await finishTask(t.library, t.library.deletePhotos(frozen)!)).toMatchObject({
       status: 'completed',
       items: { completed: 5, total: 5 },
@@ -213,7 +219,7 @@ test('group deletion cancellation waits for Trash, repairs survivors and recover
   })
   try {
     const ids = t.photos.map((p) => p.id)
-    const stack = t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
+    const stack = await t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
     const frozen = t.library.getStackSnapshot(stack.id, stack.revision).photos.map((p) => p.id)
     let attempts = 0
     await t.restart(async (path) => {

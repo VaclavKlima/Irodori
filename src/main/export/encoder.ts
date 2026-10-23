@@ -1,17 +1,31 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { constants, existsSync } from 'node:fs'
+import { access, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { loadUltraHdr, verifyUltraHdrBundle } from './codec'
 
 const execute = promisify(execFile)
 
+function validateEncoderMode(mode: string) {
+  if (!['auto', 'native', 'wasm'].includes(mode)) throw new Error('Invalid export encoder backend.')
+}
+
+const nativeRequired = (mode: string) =>
+  mode === 'native' || (mode === 'auto' && process.platform === 'linux' && process.arch === 'x64')
+
 export async function nativeEncoderPath(directory?: string): Promise<string | undefined> {
-  if (process.platform !== 'darwin' || process.arch !== 'arm64') return undefined
+  const target =
+    process.platform === 'darwin' && process.arch === 'arm64'
+      ? 'darwin-arm64'
+      : process.platform === 'linux' && process.arch === 'x64'
+        ? 'linux-x64'
+        : undefined
+  if (!target) return undefined
   directory ??= await verifyUltraHdrBundle()
-  const root = join(directory, 'native', 'darwin-arm64'),
+  directory = directory.replace('app.asar/', 'app.asar.unpacked/')
+  const root = join(directory, 'native', target),
     path = join(root, 'luma-ultrahdr')
   if (!existsSync(root)) return undefined
   const manifest = (await readFile(join(root, 'SHA256SUMS'), 'utf8')).trim()
@@ -23,7 +37,26 @@ export async function nativeEncoderPath(directory?: string): Promise<string | un
       .digest('hex') !== match[1]
   )
     throw new Error('Bundled native Ultra HDR checksum mismatch.')
-  return path.replace('app.asar/', 'app.asar.unpacked/')
+  await access(path, constants.X_OK)
+  return path
+}
+
+/** Main-process availability and acceptance use the same selected-backend contract. */
+export async function verifyExportEncoder(
+  directory?: string,
+  mode = process.env.LUMA_EXPORT_ENCODER ?? 'auto',
+): Promise<void> {
+  validateEncoderMode(mode)
+  const bundle = await verifyUltraHdrBundle(directory?.replace('app.asar/', 'app.asar.unpacked/'))
+  if (mode === 'wasm') return
+  try {
+    if (await nativeEncoderPath(bundle)) return
+    if (nativeRequired(mode))
+      throw new Error('No bundled native HDR encoder is available on this platform.')
+  } catch (error) {
+    if (nativeRequired(mode)) throw error
+    // Other platforms retain their existing validated WASM recovery policy.
+  }
 }
 
 export async function encodeExportHdr(
@@ -38,7 +71,8 @@ export async function encodeExportHdr(
   bundle?: string,
 ) {
   if (process.versions.electron) throw new Error('HDR export requires the isolated Node worker.')
-  if (!['auto', 'native', 'wasm'].includes(mode)) throw new Error('Invalid export encoder backend.')
+  validateEncoderMode(mode)
+  bundle = bundle?.replace('app.asar/', 'app.asar.unpacked/')
   let fallback: string | undefined
   let primaryWritten = false
   if (mode !== 'wasm') {
@@ -88,13 +122,19 @@ export async function encodeExportHdr(
         ],
         { timeout: 120000, maxBuffer: 1024 * 1024, windowsHide: true },
       )
-      const info = JSON.parse(stdout) as { width: number; height: number; peakBytes: number }
+      const info = JSON.parse(stdout) as {
+        width: number
+        height: number
+        peakBytes: number
+        implementation?: string
+      }
       if (
         info.width !== width ||
         info.height !== height ||
         !Number.isSafeInteger(info.peakBytes) ||
         info.peakBytes < 1 ||
-        info.peakBytes > 2 * 1024 ** 3
+        info.peakBytes > 2 * 1024 ** 3 ||
+        (process.platform === 'linux' && info.implementation !== 'rust-ultrahdr-v1')
       )
         throw new Error('Invalid native HDR JPEG rendition geometry.')
       return {
@@ -105,7 +145,7 @@ export async function encodeExportHdr(
         memory: { kind: 'process-rss' as const, peakBytes: info.peakBytes },
       }
     } catch (error) {
-      if (mode === 'native') throw error
+      if (nativeRequired(mode)) throw error
       fallback = error instanceof Error ? error.message : String(error)
     }
   }

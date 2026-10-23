@@ -8,6 +8,8 @@ import { join, resolve } from 'node:path'
 import sharp from 'sharp'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { testUiMode } from '../scripts/test-ui-mode.mjs'
+import { foregroundTest } from './foreground'
 
 const sources = [
   'alpine-lake',
@@ -402,83 +404,197 @@ test('a delayed catalog response cannot reselect deleted IDs; removing the ancho
   }
 })
 
-test('keyboard and context deletion disclose every filename at minimum console size and Trash exactly the frozen group', async ({
-  luma,
-}, info) => {
-  test.setTimeout(90000)
-  const { app, page } = luma
-  const paths = await numberedSources(luma.userDataDir, 69)
-  const originalBytes = await Promise.all(paths.map((path) => readFile(path)))
-  await importPhotos(app, page, paths)
-  const trash = await isolateTrash(app)
-  const photos = await allPhotos(page)
-  const ids = photos.slice(0, 65).map((p) => p.id)
-  const stack = await group(page, ids)
-  const expected = await page.evaluate(({ from, to }) => window.luma.getGalleryRange(from, to), {
-    from: stack.coverId,
-    to: stack.coverId,
-  })
-  const cover = page.getByTestId(`photo-card-${stack.coverId}`)
-  await cover.click()
-  await cover.click({ modifiers: ['Shift'] })
-  await expect(page.getByTestId('selection-count')).toHaveText('65 selected')
-  await page.getByTestId('console-toggle').click()
-  const native = await app.browserWindow(page)
-  await native.evaluate((w) => {
-    w.unmaximize()
-    w.setContentSize(1100, 700)
-  })
-  await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
-  await cover.focus()
-  await page.keyboard.press('Delete')
-  await expect(page.getByRole('dialog')).toContainText('Move 65 photos to Trash?')
-  await expect.poll(() => targetNames(page)).toEqual(expected.map((p) => p.filename))
-  await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
-  await expect(targetList(page)).toBeFocused()
-  await page.keyboard.press('End')
-  await expect.poll(() => targetList(page).evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
-  const bounds = await page.getByRole('dialog').boundingBox()
-  expect(bounds!.x).toBeGreaterThanOrEqual(0)
-  expect(bounds!.y).toBeGreaterThanOrEqual(0)
-  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1100)
-  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(700)
-  expect(await targetList(page).evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
-  await expect(page.getByRole('button', { name: 'Move to Trash', exact: true })).toBeInViewport()
-  await page.screenshot({ path: info.outputPath('complete-deletion-targets-minimum-console.png') })
-  await page.keyboard.press('Escape')
-  await expect(cover).toBeFocused()
-  await cover.click({ button: 'right' })
-  await page.getByRole('menuitem', { name: 'Move 65 selected photos to Trash…' }).click()
-  await expect.poll(() => targetNames(page)).toEqual(expected.map((p) => p.filename))
-  await page.evaluate(
-    async ({ stack, ids, extra }) => {
-      await window.luma.ungroupStack(stack.id, stack.revision)
-      await window.luma.groupPhotos(
-        [...ids, extra],
-        stack.coverId,
-        (await window.luma.listStacks()).revision,
+test(
+  'keyboard and context deletion disclose every filename at minimum console size and Trash exactly the frozen group',
+  foregroundTest(
+    'Wayland native scrolling after resize needs a presented window: trusted End reaches the focused overflowing list while hidden, but does not scroll; hidden-safe capture also stalls.',
+  ),
+  async ({ luma }, info) => {
+    test.setTimeout(90000)
+    const { app, page } = luma
+    const paths = await numberedSources(luma.userDataDir, 69)
+    const originalBytes = await Promise.all(paths.map((path) => readFile(path)))
+    await importPhotos(app, page, paths)
+    const trash = await isolateTrash(app)
+    const photos = await allPhotos(page)
+    const ids = photos.slice(0, 65).map((p) => p.id)
+    const stack = await group(page, ids)
+    const expected = await page.evaluate(({ from, to }) => window.luma.getGalleryRange(from, to), {
+      from: stack.coverId,
+      to: stack.coverId,
+    })
+    const cover = page.getByTestId(`photo-card-${stack.coverId}`)
+    await cover.click()
+    await cover.click({ modifiers: ['Shift'] })
+    await expect(page.getByTestId('selection-count')).toHaveText('65 selected')
+    await page.getByTestId('console-toggle').click()
+    const native = await app.browserWindow(page)
+    await native.evaluate((w) => {
+      w.unmaximize()
+      w.setContentSize(1100, 700)
+    })
+    await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
+    await cover.focus()
+    await page.keyboard.press('Delete')
+    await expect(page.getByRole('dialog')).toContainText('Move 65 photos to Trash?')
+    await expect.poll(() => targetNames(page)).toEqual(expected.map((p) => p.filename))
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
+    await expect(targetList(page)).toBeFocused()
+    const keyboard = await targetList(page).evaluateHandle((element) => {
+      const events: KeyboardEvent[] = []
+      let omitted = 0
+      const geometry = () => {
+        const bounds = element.getBoundingClientRect(),
+          dialog = element.closest('dialog')!.getBoundingClientRect(),
+          style = getComputedStyle(element),
+          active = document.activeElement
+        return {
+          scrollTop: element.scrollTop,
+          scrollHeight: element.scrollHeight,
+          clientHeight: element.clientHeight,
+          overflowY: style.overflowY,
+          scrollBehavior: style.scrollBehavior,
+          list: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+          dialog: { x: dialog.x, y: dialog.y, width: dialog.width, height: dialog.height },
+          viewport: { width: innerWidth, height: innerHeight },
+          focused: active === element,
+          active: active ? { tag: active.tagName, role: active.getAttribute('role') } : null,
+          documentFocused: document.hasFocus(),
+          hidden: document.hidden,
+          visibility: document.visibilityState,
+        }
+      }
+      const before = geometry()
+      const observe = (event: KeyboardEvent) => {
+        if (event.key !== 'End') return
+        if (events.length >= 8) omitted++
+        else events.push(event)
+      }
+      window.addEventListener('keydown', observe, true)
+      window.addEventListener('keyup', observe, true)
+      return {
+        close: () => {
+          window.removeEventListener('keydown', observe, true)
+          window.removeEventListener('keyup', observe, true)
+          return {
+            before,
+            after: geometry(),
+            // Read final prevention after the real key press and every handler.
+            // Never change the default action or the list's scroll position.
+            events: events.map((event) => ({
+              type: event.type,
+              key: event.key,
+              code: event.code,
+              trusted: event.isTrusted,
+              defaultPrevented: event.defaultPrevented,
+              repeat: event.repeat,
+              targetIsList: event.target === element,
+            })),
+            omitted,
+          }
+        },
+      }
+    })
+    let keyboardPassed = false
+    try {
+      const bounds = await page.getByRole('dialog').boundingBox()
+      expect(bounds!.x).toBeGreaterThanOrEqual(0)
+      expect(bounds!.y).toBeGreaterThanOrEqual(0)
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1100)
+      expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(700)
+      expect(await targetList(page).evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+      await targetList(page).press('End')
+      await expect.poll(() => targetList(page).evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+      keyboardPassed = true
+    } finally {
+      try {
+        const renderer = await keyboard.evaluate((control) => control.close())
+        if (!keyboardPassed) {
+          const window = await native.evaluate((window) => ({
+            visible: window.isVisible(),
+            focused: window.isFocused(),
+            contentBounds: window.getContentBounds(),
+          }))
+          await writeFile(
+            info.outputPath('deletion-targets-keyboard-diagnostic.json'),
+            JSON.stringify({ window, renderer }, null, 2),
+          )
+        }
+      } finally {
+        await keyboard.dispose()
+      }
+    }
+    await expect(page.getByRole('button', { name: 'Move to Trash', exact: true })).toBeInViewport()
+    if (testUiMode() === 'foreground') {
+      const png = await native.evaluate(async (window) =>
+        (await window.capturePage()).toPNG().toString('base64'),
       )
-    },
-    { stack, ids, extra: photos[65].id },
-  )
-  await expect(page.getByRole('dialog')).toContainText('Move 65 photos to Trash?')
-  await expect.poll(() => targetNames(page)).toEqual(expected.map((p) => p.filename))
-  await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
-  await expect.poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total).toBe(4)
-  expect((await readdir(trash)).map((name) => name.slice(0, 64)).sort()).toEqual([...ids].sort())
-  expect((await allPhotos(page)).map((p) => p.id).sort()).toEqual(
-    photos
-      .slice(65)
-      .map((p) => p.id)
-      .sort(),
-  )
-  for (const [index, path] of paths.entries())
-    expect(await readFile(path)).toEqual(originalBytes[index])
-  expect((await page.evaluate(() => window.luma.listStacks())).stacks).toEqual([])
-  const restarted = await luma.restart()
-  expect((await restarted.page.evaluate(() => window.luma.listPhotos())).total).toBe(4)
-})
+      await writeFile(
+        info.outputPath('complete-deletion-targets-minimum-console.png'),
+        Buffer.from(png, 'base64'),
+      )
+    }
+    await page.keyboard.press('Escape')
+    await expect(cover).toBeFocused()
+    await cover.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Move 65 selected photos to Trash…' }).click()
+    await expect.poll(() => targetNames(page)).toEqual(expected.map((p) => p.filename))
+    await page.evaluate(
+      async ({ stack, ids, extra }) => {
+        await window.luma.ungroupStack(stack.id, stack.revision)
+        await window.luma.groupPhotos(
+          [...ids, extra],
+          stack.coverId,
+          (await window.luma.listStacks()).revision,
+        )
+      },
+      { stack, ids, extra: photos[65].id },
+    )
+    await expect(page.getByRole('dialog')).toContainText('Move 65 photos to Trash?')
+    await expect.poll(() => targetNames(page)).toEqual(expected.map((p) => p.filename))
+    await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
+    const deletion = await page.evaluate(async () =>
+      (await window.luma.listTasks()).find((task) => task.kind === 'delete')!,
+    )
+    expect(deletion).toBeDefined()
+    expect(deletion.progress!.total).toBe(65)
+    // Acceptance acknowledges a background task; each durable Trash mutation must finish.
+    await expect
+      .poll(
+        async () => {
+          const status = (await page.evaluate(() => window.luma.listTasks())).find(
+            (task) => task.id === deletion.id,
+          )?.status
+          return ['completed', 'failed', 'cancelled'].includes(status ?? '')
+        },
+        { timeout: 45_000 },
+      )
+      .toBe(true)
+    const completedDeletion = await page.evaluate(
+      async (id) => (await window.luma.listTasks()).find((task) => task.id === id)!,
+      deletion.id,
+    )
+    expect(completedDeletion.status).toBe('completed')
+    expect(completedDeletion.errorCount).toBe(0)
+    expect(completedDeletion.progress).toEqual({ completed: 65, total: 65, unit: 'items' })
+    await expect
+      .poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total)
+      .toBe(4)
+    expect((await readdir(trash)).map((name) => name.slice(0, 64)).sort()).toEqual([...ids].sort())
+    expect((await allPhotos(page)).map((p) => p.id).sort()).toEqual(
+      photos
+        .slice(65)
+        .map((p) => p.id)
+        .sort(),
+    )
+    for (const [index, path] of paths.entries())
+      expect(await readFile(path)).toEqual(originalBytes[index])
+    expect((await page.evaluate(() => window.luma.listStacks())).stacks).toEqual([])
+    const restarted = await luma.restart()
+    expect((await restarted.page.evaluate(() => window.luma.listPhotos())).total).toBe(4)
+  },
+)
 
 test('editing MCP and UI resolve the same complete and member-only ranges while flat enumeration stays separate', async ({
   luma,

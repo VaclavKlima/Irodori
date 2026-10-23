@@ -6,7 +6,7 @@ import { readdir } from 'node:fs/promises'
 import { expect, test } from './electron.fixture'
 import { foregroundTest } from './foreground'
 import { importPhotos } from './import.helpers'
-import { HDR_PRESENTATION_BUDGET } from '../src/renderer/src/preview/hdr-memory'
+import { assertHdrMemory, readHdrMemory } from './hdr-memory-policy.helpers'
 import { encodeHdr, outputHdr, SDR_TARGET, type RGB } from '../src/shared/hdr'
 import { renderHdrContent } from '../src/shared/display-rendering'
 import { hdrRangeColor } from '../src/renderer/src/preview/hdr-ranges'
@@ -448,15 +448,12 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'webgpu-hdr')
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
   await expect
-    .poll(() =>
-      page.evaluate(() =>
-        Number(
-          document.querySelector<HTMLElement>('[data-testid="main-preview"]')?.dataset
-            .allocatedBytes ?? 0,
-        ),
-      ),
-    )
-    .toBeGreaterThan(0)
+    .poll(() => page.getByTestId('main-preview').evaluate(readHdrMemory))
+    .toMatchObject({
+      allocatedRamBytes: expect.any(Number),
+      allocatedGpuBytes: expect.any(Number),
+    })
+  assertHdrMemory(await page.getByTestId('main-preview').evaluate(readHdrMemory))
   await page.screenshot({ path: info.outputPath('hdr-ultrawide.png') })
   // Force an eligible Retina surface independently of compositor window-size limits.
   await luma.app.evaluate(({ BrowserWindow }) =>
@@ -956,9 +953,7 @@ test(
             )
           })
           .toBe(true)
-        const allocated = Number(await canvas.getAttribute('data-allocated-bytes'))
-        expect(allocated).toBeGreaterThan(0)
-        expect(allocated).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
+        assertHdrMemory(await canvas.evaluate(readHdrMemory))
       }
       await page.getByRole('button', { name: 'Show HDR ranges' }).click()
       await expect(canvas).toHaveAttribute('data-hdr-ranges', 'true')

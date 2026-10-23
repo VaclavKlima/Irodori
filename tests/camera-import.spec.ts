@@ -143,17 +143,12 @@ test('changed metadata bypasses sample rescue and reused filenames enter normal 
   }
 })
 
-test('legacy file imports bootstrap within bounded bytes and sample proof survives restart', async () => {
+test('current unbound file imports bootstrap camera recognition within bounded bytes and sample proof survives restart', async () => {
   const t = await cameraSetup()
   try {
     const path = join(t.card, 'image.jpg')
     await writeFile(path, Buffer.alloc(2 * 1024 * 1024, 5))
     await cameraCommit(t.library, await cameraReview(t.library, [path]))
-    const db = new DatabaseSync(join(t.root, 'library', 'catalog.sqlite'))
-    db.exec(
-      'DROP TRIGGER remove_camera_imports; DROP TABLE camera_imports; DROP TABLE camera_samples; DROP INDEX camera_original_candidates; PRAGMA user_version = 13',
-    )
-    db.close()
     await t.restart()
     const source = await cameraSource(t.card)
     const id = await cameraReview(t.library, [path], source)

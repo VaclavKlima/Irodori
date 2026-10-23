@@ -24,6 +24,7 @@ interface Job<T> {
   seed?: PreviewResult
   fallback: boolean
   state: 'copying' | 'waiting' | 'ready' | 'working'
+  finishing?: Promise<void>
 }
 interface PipelineHooks<T> {
   copy(candidate: T): Promise<StagedOriginal>
@@ -37,7 +38,7 @@ interface PipelineHooks<T> {
   ): Promise<PreviewResult>
   publish(candidate: T, staged: StagedOriginal, prepared: PreviewResult): Promise<ImportOutcome>
   clean(candidate: T, staged?: StagedOriginal): Promise<void>
-  resolved(candidate: T, outcome?: ImportOutcome, error?: unknown): void
+  resolved(candidate: T, outcome?: ImportOutcome, error?: unknown): void | Promise<void>
   sourceStopped(error: unknown): boolean
   progress(value: {
     inFlight: number
@@ -103,28 +104,58 @@ export async function runImportPipeline<T extends { bytes: number }>(
     ready.push(job)
     pulse()
   }
-  const finish = async (job: Job<T>, outcome?: ImportOutcome, error?: unknown) => {
-    const hash = job.staged?.hash
-    const owners = hash ? reservations.get(hash) : undefined
-    if (owners?.[0] === job) {
-      owners.shift()
-      if (outcome) {
-        if (outcome === 'imported') published.add(hash!)
-        reservations.delete(hash!)
-        // Only a successful publication qualifies as a duplicate within this batch.
-        for (const duplicate of owners)
-          await finish(duplicate, hooks.known(hash!) === 'deleted' ? 'deleted' : 'duplicate')
-      } else if (owners.length) enqueue(owners[0])
-      else reservations.delete(hash!)
-    }
-    try {
-      await hooks.clean(job.candidate, job.staged)
-    } finally {
-      jobs.delete(job)
-      bytes -= job.candidate.bytes
-      hooks.resolved(job.candidate, outcome, error)
-      pulse()
-    }
+  const finish = (job: Job<T>, outcome?: ImportOutcome, error?: unknown): Promise<void> => {
+    if (job.finishing) return job.finishing
+    // Assign ownership before any cleanup/notification can suspend or reject.
+    job.finishing = Promise.resolve().then(async () => {
+      const failures: unknown[] = []
+      const failed = (reason: unknown) => {
+        failures.push(reason)
+        if (!abort.signal.aborted) abort.abort(reason)
+      }
+      const duplicates: Promise<void>[] = []
+      try {
+        const hash = job.staged?.hash
+        const owners = hash ? reservations.get(hash) : undefined
+        if (owners?.[0] === job) {
+          owners.shift()
+          if (outcome) {
+            if (outcome === 'imported') published.add(hash!)
+            reservations.delete(hash!)
+            for (const duplicate of owners)
+              duplicates.push(
+                finish(duplicate, hooks.known(hash!) === 'deleted' ? 'deleted' : 'duplicate').catch(
+                  failed,
+                ),
+              )
+          } else if (owners.length) enqueue(owners[0])
+          else reservations.delete(hash!)
+        }
+      } catch (reason) {
+        failed(reason)
+      }
+      try {
+        await hooks.clean(job.candidate, job.staged)
+      } catch (reason) {
+        failed(reason)
+      } finally {
+        if (jobs.delete(job)) bytes -= job.candidate.bytes
+        try {
+          // Publication has already completed. Its outcome is never replaced by
+          // a notification error or delivered a second time through a lane catch.
+          await hooks.resolved(job.candidate, outcome, error)
+        } catch (reason) {
+          failed(reason)
+        } finally {
+          pulse()
+        }
+      }
+      await Promise.all(duplicates)
+      if (failures.length === 1) throw failures[0]
+      if (failures.length)
+        throw new AggregateError(failures, 'Import completion could not be confirmed.')
+    })
+    return job.finishing
   }
   const producer = (async () => {
     try {
@@ -136,7 +167,7 @@ export async function runImportPipeline<T extends { bytes: number }>(
         pulse()
         await wait(room)
         capacity = false
-        await scheduler.checkpoint(signal)
+        await scheduler.preparationCheckpoint(signal)
         signal.throwIfAborted()
         const job: Job<T> = { candidate, fallback: false, state: 'copying' }
         jobs.add(job)
@@ -220,8 +251,20 @@ export async function runImportPipeline<T extends { bytes: number }>(
   )
   // All lanes settle before staging cleanup, including forced native worker termination.
   const results = await Promise.allSettled(work)
-  for (const job of jobs) await hooks.clean(job.candidate, job.staged)
+  const cleanup = await Promise.allSettled(
+    [...jobs].map(async (job) => {
+      try {
+        await hooks.clean(job.candidate, job.staged)
+      } finally {
+        if (jobs.delete(job)) bytes -= job.candidate.bytes
+        pulse()
+      }
+    }),
+  )
   const failure = results.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined
   if (failure) throw failure.reason
+  const cleanupFailure = cleanup.find((result) => result.status === 'rejected') as
+    PromiseRejectedResult | undefined
+  if (cleanupFailure) throw cleanupFailure.reason
   return unprocessed
 }

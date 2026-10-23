@@ -1,10 +1,11 @@
+import { seedFixtureEdits } from './catalog-fixture.helpers'
 import { expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join, resolve, sep } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { PreviewProcess } from '../src/main/preview-process'
 import { verifyMaster } from '../src/main/merge/store'
 import type { BackgroundTask } from '../src/shared/contracts'
@@ -324,7 +325,6 @@ for (const mode of ['noise', 'hdr'] as const)
           undefined,
           undefined,
           new PreviewProcess(resolve('out/main/preview-worker.js')),
-          undefined,
           resolve('out/main/merge-worker.js'),
           undefined,
           new PreviewProcess(resolve('out/main/preview-worker.js')),
@@ -374,6 +374,7 @@ for (const mode of ['noise', 'hdr'] as const)
                   revision: 0,
                 }),
               )
+              seedFixtureEdits(db)
             }
           } finally {
             db.close()

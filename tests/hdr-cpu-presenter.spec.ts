@@ -127,6 +127,8 @@ function fixture(
           }
         }
       },
+      Promise.resolve(),
+      () => 'javascript',
     )
     work({
       presenter,

@@ -21,6 +21,9 @@ async function mergeResult<T>(response: Promise<{ result: T; error?: MergeFailur
   return value.result
 }
 const api: LumaApi = {
+  getResourceSettings: () => ipcRenderer.invoke('resources:get-settings'),
+  setResourceSettings: (value) => ipcRenderer.invoke('resources:set-settings', value),
+  getResourcePolicy: (adapter) => ipcRenderer.invoke('resources:get-policy', adapter),
   getExportCapabilities: () => ipcRenderer.invoke('export:capabilities'),
   getExportPreferences: () => ipcRenderer.invoke('export:preferences'),
   chooseExportDestination: () => ipcRenderer.invoke('export:choose-destination'),
@@ -111,8 +114,12 @@ const api: LumaApi = {
     }
   },
   onFlushEdits: (listener) => {
-    const handler = (_event: Electron.IpcRendererEvent, token: string) => {
-      void listener().then(
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      token: string,
+      scope: import('../shared/edits').EditFlushScope,
+    ) => {
+      void listener(scope).then(
         () => ipcRenderer.send('edits:flushed', token),
         (error) => ipcRenderer.send('edits:flushed', token, String(error)),
       )
@@ -145,8 +152,23 @@ const api: LumaApi = {
   updateLensSettings: (id, kind, enabled) => ipcRenderer.invoke('lens:update', id, kind, enabled),
   getAppInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:get-info'),
   listPhotos: (offset = 0) => ipcRenderer.invoke('library:list', offset),
-  requestHdrPreview: async (id, token, regenerate = false, mode = 'hdr') => {
-    const result = await ipcRenderer.invoke('preview:hdr', id, token, regenerate, mode)
+  requestHdrPreview: async (
+    id,
+    token,
+    regenerate = false,
+    mode = 'hdr',
+    firstSurface,
+    rendererReservation,
+  ) => {
+    const result = await ipcRenderer.invoke(
+      'preview:hdr',
+      id,
+      token,
+      regenerate,
+      mode,
+      firstSurface,
+      rendererReservation,
+    )
     if (result.error) throw new Error(result.error)
     return result.preview
   },
@@ -161,6 +183,29 @@ const api: LumaApi = {
     return result.preview
   },
   releaseFullPreview: (token) => ipcRenderer.invoke('preview:release', token),
+  onHdrFirstSurface: (listener) => {
+    const receive = (
+      _event: Electron.IpcRendererEvent,
+      offer: import('../shared/hdr-first-surface').HdrFirstSurfaceOffer,
+    ) => listener(offer)
+    ipcRenderer.on('preview:first-surface', receive)
+    return () => ipcRenderer.removeListener('preview:first-surface', receive)
+  },
+  releaseHdrFirstSurface: (requestId, surfaceId) =>
+    ipcRenderer.invoke('preview:first-surface-release', requestId, surfaceId),
+  renderHdrMask: (request) => ipcRenderer.invoke('preview:hdr-mask-render', request),
+  cancelHdrMask: (sessionId, requestId) =>
+    ipcRenderer.invoke('preview:hdr-mask-cancel', sessionId, requestId),
+  releaseHdrMask: (sessionId, maskId) =>
+    ipcRenderer.invoke('preview:hdr-mask-release', sessionId, maskId),
+  getCpuPreviewBackend: () => ipcRenderer.invoke('preview:cpu-backend'),
+  renderCpuPreview: (request) => ipcRenderer.invoke('preview:cpu-render', request),
+  cancelCpuPreview: (sessionId, requestId) =>
+    ipcRenderer.invoke('preview:cpu-cancel', sessionId, requestId),
+  acknowledgeCpuPreview: (sessionId, pairId, previous) =>
+    ipcRenderer.invoke('preview:cpu-ack', sessionId, pairId, previous),
+  releaseCpuPreview: (sessionId, pairId) =>
+    ipcRenderer.invoke('preview:cpu-release', sessionId, pairId),
   requestCachedFullPreview: async (id, token) => {
     const result = await ipcRenderer.invoke('preview:cached', id, token)
     if (result.error) throw new Error(result.error)

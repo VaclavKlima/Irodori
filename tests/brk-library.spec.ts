@@ -1,3 +1,4 @@
+import { seedFixtureEdits } from './catalog-fixture.helpers'
 import { test, expect } from '@playwright/test'
 import { rename } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -21,7 +22,7 @@ test('partial brackets extend across shuffled metadata batches and survive resta
     t.capture(0, frames[0].metadata)
     expect(t.store.reconcileCaptures()).toBe(1)
     const partial = t.library.listStacks().stacks[0]
-    t.library.setStackExpanded(partial.id, true, partial.revision)
+    await t.library.setStackExpanded(partial.id, true, partial.revision)
     t.capture(2, frames[2].metadata)
     expect(t.store.reconcileCaptures()).toBe(1)
     expect(t.library.listStacks().stacks[0]).toMatchObject({
@@ -54,7 +55,7 @@ test('refresh repairs untouched automatic groups, retaining the earliest grouped
     expect(t.store.reconcileCaptures()).toBe(2)
     const first = t.library.getPhotoStack(t.photos[0].id)!,
       second = t.library.getPhotoStack(t.photos[2].id)!
-    t.library.setStackExpanded(first.id, true, first.revision)
+    await t.library.setStackExpanded(first.id, true, first.revision)
     for (let i = 0; i < 4; i++) t.capture(i, sequenceMetadata(i + 1))
     expect(t.store.reconcileCaptures()).toBe(1)
     expect(t.library.listStacks().stacks).toMatchObject([
@@ -81,7 +82,7 @@ for (const protection of [
     try {
       for (let i = 0; i < 3; i++) t.capture(i, frames[i].metadata)
       if (protection === 'manual')
-        t.library.groupPhotos(
+        await t.library.groupPhotos(
           t.photos.slice(0, 2).map((p) => p.id),
           t.photos[0].id,
           t.library.listStacks().revision,
@@ -92,9 +93,9 @@ for (const protection of [
         if (protection === 'merge')
           t.db.prepare("UPDATE stacks SET origin = 'merge' WHERE id = ?").run(stack.id)
         if (protection === 'cover')
-          t.library.setStackCover(stack.id, t.photos[1].id, stack.revision)
-        if (protection === 'remove') t.library.removeFromStack(t.photos[2].id, stack.revision)
-        if (protection === 'ungroup') t.library.ungroupStack(stack.id, stack.revision)
+          await t.library.setStackCover(stack.id, t.photos[1].id, stack.revision)
+        if (protection === 'remove') await t.library.removeFromStack(t.photos[2].id, stack.revision)
+        if (protection === 'ungroup') await t.library.ungroupStack(stack.id, stack.revision)
         if (protection === 'foreign-member')
           t.db.prepare('INSERT INTO stack_members VALUES (?, ?, 3)').run(t.photos[3].id, stack.id)
       }
@@ -218,6 +219,7 @@ async function captureConcurrencyFixture() {
     t.db
       .prepare('INSERT INTO processing VALUES (?, ?)')
       .run(photo.id, JSON.stringify({ metadata, settings: automaticLensSettings, revision: 0 }))
+    seedFixtureEdits(t.db)
     t.capture(index, { ...frames[index].metadata, version: 1 })
   }
   return {

@@ -1,19 +1,55 @@
 import { readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { ElectronApplication, Page } from '@playwright/test'
 import { test, expect } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { foregroundTest, requiresForeground } from './foreground'
 import { focusPreviewWindow } from './preview-pan.helpers'
 import { recordBenchmark } from './benchmark.helpers'
 import { editorInputPacingSummary } from './editor-input-pacing.helpers'
+import { sampleEditorMemory } from './editor-memory.helpers'
 import {
   warmSpatialPath,
   sustainedSpatialInput,
+  startSpatialDiagnostics,
+  type SpatialDiagnostics,
   type SpatialGesture,
 } from './editor-spatial-responsiveness.helpers'
-import { HDR_PRESENTATION_BUDGET } from '../src/renderer/src/preview/hdr-memory'
-import { ACES_INTERACTIVE_PREVIEW_VERSION } from '../src/shared/aces-preview-wgsl'
+import { assertHdrMemory } from './hdr-memory-policy.helpers'
+import { hdrTestPolicy } from './hdr-test-policy.helpers'
 import { provenance } from '../scripts/research/pipeline/provenance'
+import { maximizeEditorOnMonitor } from './editor-native-window.helpers'
+import {
+  editorDisplayPreference,
+  editorDisplayProfile,
+  editorExpectedDpr,
+  confirmEditorDisplay,
+  editorPhysicalDisplay,
+} from './editor-responsiveness-profile.helpers'
+
+async function confirmSpatialDisplay(app: ElectronApplication, page: Page) {
+  let physical: Awaited<ReturnType<typeof editorPhysicalDisplay>> | undefined
+  try {
+    await expect
+      .poll(
+        async () => {
+          physical = await editorPhysicalDisplay(app, page)
+          return physical.confirmedRendererMonitor.reliable
+        },
+        { timeout: 60000, message: 'Spatial warmup requires the confirmed current screen.' },
+      )
+      .toBe(true)
+  } catch (error) {
+    throw new Error(`Spatial display confirmation failed: ${JSON.stringify(physical)}`, {
+      cause: error,
+    })
+  }
+  const completed = await confirmEditorDisplay(page)
+  expect(completed.target.generation, 'Display confirmation must retain the current target.').toBe(
+    physical!.confirmedRendererMonitor.generation,
+  )
+  return { completed, physical: physical! }
+}
 
 const reason =
   'Spatial editor acceptance requires native focus, pointer capture and Retina presentation cadence.'
@@ -34,9 +70,9 @@ const gestures = (selected ?? allGestures) as SpatialGesture[]
 const matrixPartial = gestures.length !== allGestures.length
 
 for (const layout of [
-  { name: '1100x700-console', width: 1100, height: 700, consoleOpen: true, fullscreen: false },
-  { name: '1440x900', width: 1440, height: 900, consoleOpen: false, fullscreen: false },
-  { name: 'native-fullscreen', width: 1440, height: 900, consoleOpen: false, fullscreen: true },
+  { name: '1100x700-console', width: 1100, height: 700, consoleOpen: true, maximized: false },
+  { name: '1440x900', width: 1440, height: 900, consoleOpen: false, maximized: false },
+  { name: 'native-maximized', width: 1440, height: 900, consoleOpen: false, maximized: true },
 ] as const)
   for (const frequency of [60, 120] as const)
     test(
@@ -51,6 +87,8 @@ for (const layout of [
         const trials: (Awaited<ReturnType<typeof sustainedSpatialInput>> & {
           repetition: number
           warmup: Awaited<ReturnType<typeof warmSpatialPath>>
+          displayBeforeWarmup: Awaited<ReturnType<typeof confirmSpatialDisplay>>
+          diagnostics?: SpatialDiagnostics
           visibleUpdateShortfall: number
         })[] = []
         const path = info.outputPath('editor-spatial-responsiveness.json')
@@ -62,9 +100,13 @@ for (const layout of [
           ...(await provenance([
             'tests/editor-spatial-responsiveness-benchmark.spec.ts',
             'tests/editor-spatial-responsiveness.helpers.ts',
+            'tests/editor-memory.helpers.ts',
             'tests/editor-input-pacing.helpers.ts',
             'tests/editor-input-pacing.spec.ts',
             'tests/preview-pan.helpers.ts',
+            'tests/editor-responsiveness-profile.helpers.ts',
+            'src/main/wayland-display.ts',
+            'src/renderer/src/hooks/useDisplayState.ts',
             'tests/fixtures/sony-zv1.ARW',
             'src/renderer/src/preview/hdr-presenter.ts',
             'src/renderer/src/preview/hdr-shader.ts',
@@ -76,7 +118,18 @@ for (const layout of [
           build:
             'Compiled production Electron application; real native-focused input handlers and completed normal-quality GPU presentation.',
         }
-        let environment: Record<string, unknown> = {}
+        const memoryTelemetry: {
+          beforeTrials: Awaited<ReturnType<typeof sampleEditorMemory>> | null
+          afterTrials: Awaited<ReturnType<typeof sampleEditorMemory>> | null
+          expectedTrials: number
+          completedTrials: number
+        } = {
+          beforeTrials: null,
+          afterTrials: null,
+          expectedTrials: gestures.length * 3,
+          completedTrials: 0,
+        }
+        let environment: Record<string, unknown> = { memoryTelemetry }
         try {
           await native.evaluate((window, { width, height }) => {
             window.unmaximize()
@@ -88,18 +141,24 @@ for (const layout of [
           const toggle = page.getByTestId('console-toggle')
           if (((await toggle.getAttribute('aria-expanded')) === 'true') !== layout.consoleOpen)
             await toggle.click()
-          if (layout.fullscreen)
-            await native.evaluate(
-              (window) =>
-                new Promise<void>((resolve) => {
-                  window.once('enter-full-screen', () => resolve())
-                  window.setFullScreen(true)
-                }),
-            )
+          const maximizedConfiguration = layout.maximized
+            ? await maximizeEditorOnMonitor(app, page, {
+                monitorLabel: process.env.LUMA_RESPONSIVENESS_MONITOR,
+              })
+            : null
+          if (editorDisplayPreference === 'sdr')
+            await page.evaluate(() => window.luma.setPreviewPreference('sdr'))
           await focusPreviewWindow(app, page)
+          const displayConfirmation = await confirmSpatialDisplay(app, page)
           environment = {
+            memoryTelemetry,
+            displayConfirmation,
+            maximizedConfiguration,
+            displayProfile: editorDisplayProfile,
+            expectedDpr: editorExpectedDpr,
             window: await native.evaluate((window) => ({
               fullscreen: window.isFullScreen(),
+              maximized: window.isMaximized(),
               contentBounds: window.getContentBounds(),
               bounds: window.getBounds(),
             })),
@@ -117,9 +176,24 @@ for (const layout of [
             profileIsolation: 'electron.fixture temporary profile',
             startingView:
               'Pan/drag at 100%; zoom 100–122%; zoom-fit-native repeatedly crosses Fit→100% around an off-center pointer anchor.',
-            requestedInteractivePrecision:
-              process.env.VITE_LUMA_HDR_INTERACTIVE_PRECISION ?? 'reference',
+            requestedInteractivePrecision: hdrTestPolicy.precision,
           }
+          await expect
+            .poll(
+              () =>
+                canvas.evaluate(
+                  (element) =>
+                    element.dataset.quality === 'normal' &&
+                    element.dataset.completedEditSerial === element.dataset.requestedSerial &&
+                    element.dataset.analysisPending === 'false' &&
+                    !!element.dataset.analysisKey &&
+                    element.dataset.analysisKey === element.dataset.displayedAnalysisKey,
+                ),
+              { timeout: 60000 },
+            )
+            .toBe(true)
+          // Explicit snapshots never run during the calibrated input clock.
+          memoryTelemetry.beforeTrials = await sampleEditorMemory(app, 'before-trials')
           for (const gesture of gestures)
             for (let repetition = 0; repetition < 3; repetition++) {
               await page
@@ -129,6 +203,8 @@ for (const layout of [
                 await page
                   .getByRole('combobox', { name: 'Preview zoom', exact: true })
                   .selectOption('1')
+              await focusPreviewWindow(app, page)
+              const displayBeforeWarmup = await confirmSpatialDisplay(app, page)
               await expect
                 .poll(() =>
                   canvas.evaluate(
@@ -141,55 +217,76 @@ for (const layout of [
                   ),
                 )
                 .toBe(true)
-              const warmup = await warmSpatialPath(page, gesture)
+              const warmup = await warmSpatialPath(
+                page,
+                gesture,
+                displayBeforeWarmup.completed.target.generation,
+              )
               const box = (await viewport.boundingBox())!
               const cursor = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
-              await page.mouse.move(cursor.x, cursor.y)
-              if (gesture === 'drag') {
-                await page.mouse.down()
-                await expect
-                  .poll(() =>
-                    viewport.evaluate(
-                      (element) =>
-                        document.pointerLockElement === element || element.hasPointerCapture(1),
-                    ),
-                  )
-                  .toBe(true)
-              }
+              const diagnostics = await startSpatialDiagnostics(app, page)
+              let completedTrial: (typeof trials)[number] | undefined
               try {
+                if (gesture === 'drag') await focusPreviewWindow(app, page)
+                await page.mouse.move(cursor.x, cursor.y)
+                if (gesture === 'drag') {
+                  await page.mouse.down()
+                  await expect
+                    .poll(() =>
+                      viewport.evaluate((element) => document.pointerLockElement === element),
+                    )
+                    .toBe(true)
+                  await expect(viewport).toHaveCSS('cursor', 'none')
+                }
                 const trial = await sustainedSpatialInput(page, {
                   gesture,
                   frequency,
                   cursor,
+                  targetGeneration: Number(warmup.targetGeneration),
                   pacing: frequency === 120 ? 'timer-deadline-v1' : 'native-raf',
                 })
-                trials.push({
+                completedTrial = {
                   ...trial,
                   repetition,
                   warmup,
+                  displayBeforeWarmup,
                   visibleUpdateShortfall: Math.max(0, 55 - trial.visibleUpdatesPerSecond),
-                })
+                }
+                trials.push(completedTrial)
               } finally {
-                if (gesture === 'drag') await page.mouse.up()
-                await expect
-                  .poll(() => page.evaluate(() => document.pointerLockElement === null))
-                  .toBe(true)
-                await writeFile(
-                  path,
-                  JSON.stringify(
-                    {
-                      provenance: source,
-                      layout,
-                      frequency,
-                      gestures,
-                      matrixPartial,
-                      ...environment,
-                      trials,
-                    },
-                    null,
-                    2,
-                  ),
-                )
+                try {
+                  if (gesture === 'drag') await page.mouse.up()
+                  await expect
+                    .poll(() => page.evaluate(() => document.pointerLockElement === null))
+                    .toBe(true)
+                } finally {
+                  const trace = await diagnostics.finish()
+                  if (completedTrial) completedTrial.diagnostics = trace
+                  else
+                    environment.failedSpatialSetup = {
+                      gesture,
+                      repetition,
+                      displayBeforeWarmup,
+                      warmup,
+                      diagnostics: trace,
+                    }
+                  await writeFile(
+                    path,
+                    JSON.stringify(
+                      {
+                        provenance: source,
+                        layout,
+                        frequency,
+                        gestures,
+                        matrixPartial,
+                        ...environment,
+                        trials,
+                      },
+                      null,
+                      2,
+                    ),
+                  )
+                }
               }
             }
         } catch (error) {
@@ -197,6 +294,13 @@ for (const layout of [
           throw error
         } finally {
           try {
+            memoryTelemetry.completedTrials = trials.length
+            memoryTelemetry.afterTrials = await sampleEditorMemory(
+              app,
+              trials.length === memoryTelemetry.expectedTrials
+                ? 'after-all-trials'
+                : 'after-partial-trials',
+            )
             await writeFile(
               path,
               JSON.stringify(
@@ -235,6 +339,8 @@ for (const layout of [
                     duplicatePresentations,
                     analysisObservations,
                     displayTargets,
+                    displayBeforeWarmup,
+                    diagnostics,
                     warmup,
                     pacing,
                     ...trial
@@ -249,6 +355,9 @@ for (const layout of [
                     observedDuplicateVisibleRecords: duplicatePresentations.length,
                     analysisObservationCount: analysisObservations.length,
                     displayTargetUpdateCount: displayTargets.length,
+                    displayGenerationBeforeWarmup: displayBeforeWarmup.completed.target.generation,
+                    nativeTransitionCount: diagnostics?.native.events.length,
+                    rendererTransitionCount: diagnostics?.renderer.events.length,
                     warmupInputs: warmup.inputs.length,
                   }),
                 ),
@@ -261,7 +370,8 @@ for (const layout of [
                   ['longestPresentationGapMs', 100],
                   ['visibleUpdateShortfall', 0],
                   ['refinementMs', 200],
-                  ['allocatedBytes', HDR_PRESENTATION_BUDGET],
+                  ['allocatedRamBytes', trial.ramBudgetBytes],
+                  ['allocatedGpuBytes', trial.vramBudgetBytes],
                 ].map(([metric, limit]) => ({
                   metric: `${trial.gesture}.${trial.repetition}.${metric}`,
                   operator: '<=' as const,
@@ -272,14 +382,7 @@ for (const layout of [
             })
           } finally {
             await page.mouse.up()
-            if (await native.evaluate((window) => window.isFullScreen()))
-              await native.evaluate(
-                (window) =>
-                  new Promise<void>((resolve) => {
-                    window.once('leave-full-screen', () => resolve())
-                    window.setFullScreen(false)
-                  }),
-              )
+            await native.evaluate((window) => window.unmaximize())
           }
         }
         expect(trials).toHaveLength(gestures.length * 3)
@@ -302,19 +405,21 @@ for (const layout of [
               context,
             )
             .toBe(true)
-          expect
-            .soft(trial.policy, context)
-            .toBe(
-              process.env.VITE_LUMA_HDR_INTERACTIVE_PRECISION === 'f32'
-                ? ACES_INTERACTIVE_PREVIEW_VERSION
-                : 'reference',
-            )
+          expect.soft(trial.policy, context).toBe(hdrTestPolicy.interactivePolicy)
           expect.soft(trial.histogramUpdates, context).toBe(0)
           expect.soft(trial.histogramUnchanged, context).toBe(true)
           expect.soft(trial.histogramCurveUnchanged, context).toBe(true)
           expect.soft(trial.finalAnalysisSettled, context).toBe(true)
           expect.soft(trial.omittedAnalysisObservations, context).toBe(0)
           expect.soft(trial.omittedDisplayTargets, context).toBe(0)
+          expect(trial.targetChangedDuringInput, context).toBe(false)
+          expect(trial.initialTargetGeneration, context).toBe(trial.expectedTargetGeneration)
+          expect
+            .soft(trial.expectedTargetGeneration, context)
+            .toBe(trial.displayBeforeWarmup.completed.target.generation)
+          expect.soft(trial.diagnostics?.native.omitted, context).toBe(0)
+          expect.soft(trial.diagnostics?.renderer.omitted, context).toBe(0)
+          if (trial.gesture === 'drag') expect(trial.nativePointerLock, context).toBe(true)
           expect.soft(trial.historyUnchanged, context).toBe(true)
           expect.soft(trial.editsUnchanged, context).toBe(true)
           expect.soft(trial.uploadsBefore, context).toBe(1)
@@ -326,16 +431,18 @@ for (const layout of [
           expect.soft(trial.captureReleased, context).toBe(true)
           expect.soft(trial.loaders, context).toBe(0)
           expect.soft(trial.hidden, context).toBe(0)
-          expect.soft(trial.allocatedBytes, context).toBeGreaterThan(0)
-          expect.soft(trial.allocatedBytes, context).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
-          if (!layout.fullscreen)
+          assertHdrMemory(trial, context, true)
+          if (!layout.maximized)
             expect
               .soft(trial.viewport, context)
               .toMatchObject({ width: layout.width, height: layout.height })
         }
         test.skip(
-          trials.some((trial) => trial.viewport.dpr !== 2 || trial.achievedHz < frequency * 0.99),
-          'DPR 2 or 99% requested input cadence was not achieved; pacing mode, native rAF samples and dispatch lateness are retained separately. Configuration acceptance is incomplete.',
+          trials.some(
+            (trial) =>
+              trial.viewport.dpr !== editorExpectedDpr || trial.achievedHz < frequency * 0.99,
+          ),
+          `DPR ${editorExpectedDpr} or 99% requested input cadence was not achieved; pacing mode, native rAF samples and dispatch lateness are retained separately. Configuration acceptance is incomplete.`,
         )
         for (const trial of trials) {
           const context = `${layout.name} ${frequency}Hz ${trial.gesture} #${trial.repetition}`

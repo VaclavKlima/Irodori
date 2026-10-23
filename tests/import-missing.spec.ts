@@ -17,7 +17,7 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { copyOriginal } from '../src/main/copy-original'
 import { DeviceUnavailableError, type DeviceSource } from '../src/main/import-devices'
 import { hashImportSource, inspectImportSource } from '../src/main/import-source-records'
@@ -96,7 +96,6 @@ async function setup(
         (async (path) => {
           await rename(path, join(root, 'trash', basename(path)))
         }),
-      undefined,
       undefined,
       undefined,
       undefined,
@@ -575,9 +574,14 @@ test('a completed removal between review and acceptance re-admits the missing li
     // preserving this displayed review, unlike the UI's intentional disposal.
     const db = new DatabaseSync(join(t.root, 'library', 'catalog.sqlite'))
     try {
-      const removal = new RemovalStore(join(t.root, 'library'), db, async (path) => {
-        await rename(path, join(t.root, 'trash', basename(path)))
-      })
+      const removal = new RemovalStore(
+        join(t.root, 'library'),
+        db,
+        async (path) => {
+          await rename(path, join(t.root, 'trash', basename(path)))
+        },
+        t.service.catalogCommands,
+      )
       await removal.remove(photo.id)
     } finally {
       db.close()

@@ -1,12 +1,13 @@
 import { PreviewEngine } from '../src/main/preview-engine'
-import { HDR_SOURCE_VERSION } from '../src/shared/hdr'
+import { HDR_SOURCE_VERSION, HDR_OUTPUT_VERSION } from '../src/shared/hdr'
 import { test, expect } from '@playwright/test'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readHdrStrips, renderHdr, scanHdr } from '../src/main/processing/hdr-processing'
 import { HDR_CONTENT } from '../src/shared/display-rendering'
+import { MERGE_VERSION, UnsupportedMergeVersionError } from '../src/shared/merge'
 import sharp from 'sharp'
 import { DisplayState } from '../src/main/display-state'
 import {
@@ -25,6 +26,7 @@ import {
   type RGB,
 } from '../src/shared/hdr'
 import { FullPreviews } from '../src/main/full-previews'
+import { validateWorkingAsset } from '../src/main/working-assets'
 import { unavailableProfile } from '../src/main/processing/metadata'
 import { noLensSettings, type ProcessingOptions } from '../src/shared/lens'
 import { srgbTransform, neutralAdjustments } from '../src/shared/adjustments'
@@ -268,7 +270,10 @@ test('sensor blend invalidates only HDR RAW caches and preserves existing compos
   const ids = ['a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64)]
   const masterOptions = {
     ...options,
-    metadata: { ...options.metadata, mergeMaster: { asset: composite, recipe: {} } },
+    metadata: {
+      ...options.metadata,
+      mergeMaster: { asset: composite, recipe: { version: MERGE_VERSION } },
+    },
   } as ProcessingOptions
   let renders = 0
   const create = () =>
@@ -495,7 +500,7 @@ test('ACES regenerates retired proofs and placeholders while reusing unchanged l
     await cache.open()
     const regenerated = await cache.request(id, randomUUID())
     expect(regenerated.url).not.toBe(first.url)
-    expect(regenerated.renderId).toContain('aces2-069b0bc3-v2')
+    expect(regenerated.renderId).toContain(HDR_OUTPUT_VERSION)
     expect(regenerated.sha256).toBe(first.sha256)
     expect(regenerated.linear!.url).toBe(working.linear.url)
     expect((await cache.requestHdr(id, randomUUID()))!.linear.sha256).toBe(asset.sha256)
@@ -533,12 +538,11 @@ test('color-managed display-referred rasters bypass scene rendering at neutral s
     await rm(root, { recursive: true, force: true })
   }
 })
-test('retired composite masters keep their exact bytes while proofs adopt ACES', async () => {
+test('current composite masters keep their exact bytes while proofs adopt ACES', async () => {
   const root = await mkdtemp(join(tmpdir(), 'luma-master-cutover-'))
   try {
     const bytes = Buffer.from(new Float32Array([-0.02, 2, 4, 1, 0.18, 0.18, 0.18, 1]).buffer),
       asset = workingAsset(bytes, 2, 1)
-    asset.source.version = 'hdr-source-v1'
     asset.source.composite = { kind: 'hdr', sourceCount: 3 }
     const path = join(root, 'master.f32')
     await writeFile(path, bytes)
@@ -546,7 +550,11 @@ test('retired composite masters keep their exact bytes while proofs adopt ACES',
     const output = join(root, 'output')
     await mkdir(output)
     const options = {
-      metadata: { version: 3, lensProfile: unavailableProfile, mergeMaster: { asset, recipe: {} } },
+      metadata: {
+        version: 3,
+        lensProfile: unavailableProfile,
+        mergeMaster: { asset, recipe: { version: MERGE_VERSION } },
+      },
       settings: noLensSettings,
       revision: 8,
       processing: 'hdr-v1',
@@ -572,7 +580,7 @@ test('retired composite masters keep their exact bytes while proofs adopt ACES',
       },
       'cpu',
     )
-    expect(result.renderId).toContain('aces2-069b0bc3-v2')
+    expect(result.renderId).toContain(HDR_OUTPUT_VERSION)
     expect(result.settingsRevision).toBe(8)
     expect(await readFile(path)).toEqual(bytes)
     expect(await readFile(join(output, 'linear.f32'))).toEqual(bytes)
@@ -581,3 +589,144 @@ test('retired composite masters keep their exact bytes while proofs adopt ACES',
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('retired capture descriptors reject before master copies or proof writes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'luma-retired-master-'))
+  try {
+    const bytes = Buffer.from(new Float32Array([-0.02, 2, 4, 1, 0.18, 0.18, 0.18, 1]).buffer),
+      asset = workingAsset(bytes, 2, 1),
+      path = join(root, 'master.f32')
+    // Simulate an on-disk descriptor outside the supported compile-time type.
+    Object.assign(asset.source, {
+      version: 'hdr-source-v1',
+      composite: { kind: 'hdr', sourceCount: 3 },
+    })
+    const frozen = structuredClone(asset),
+      descriptor = Buffer.from(JSON.stringify(asset)),
+      descriptorPath = join(root, 'source.json'),
+      reason = 'Unsupported HDR capture source version.'
+    await writeFile(path, bytes)
+    await writeFile(descriptorPath, descriptor)
+    const working = {
+      path,
+      width: asset.width,
+      height: asset.height,
+      byteLength: asset.byteLength,
+      sha256: asset.sha256,
+      transform: srgbTransform,
+      hdr: asset,
+    }
+    expect(() => validateHdrSource(asset.source)).toThrow(reason)
+    expect(() => validateHdrAsset(asset)).toThrow(reason)
+    await expect(validateWorkingAsset(working, new AbortController().signal)).rejects.toThrow(
+      reason,
+    )
+    await expect(readHdrStrips(path, asset).next()).rejects.toThrow(reason)
+    let decodes = 0
+    for (const workingOnly of [false, true]) {
+      const output = join(root, workingOnly ? 'working-only' : 'proof')
+      await mkdir(output)
+      const options = {
+        metadata: {
+          version: 3,
+          lensProfile: unavailableProfile,
+          mergeMaster: { asset, recipe: { version: MERGE_VERSION } },
+        },
+        settings: noLensSettings,
+        revision: 8,
+        processing: 'hdr-v1',
+        prepareLinear: true,
+        workingOnly,
+        workingAsset: working,
+        adjustments: neutralAdjustments,
+      } as ProcessingOptions
+      await expect(
+        renderHdr(
+          path,
+          output,
+          options,
+          {
+            render: async () => {
+              decodes++
+              throw new Error('A retired master must not be decoded again.')
+            },
+            releaseFrame() {},
+          },
+          'cpu',
+        ),
+      ).rejects.toThrow(reason)
+      expect(await readdir(output)).toEqual([])
+    }
+    expect(decodes).toBe(0)
+    expect(asset).toEqual(frozen)
+    expect(await readFile(path)).toEqual(bytes)
+    expect(await readFile(descriptorPath)).toEqual(descriptor)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+for (const retiredVersion of ['sony-merge-v1', 'sony-merge-v2', 'sony-merge-v3'])
+  test(`${retiredVersion} recipe rejects before cached master copies, proof writes or decoding`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'luma-retired-merge-recipe-'))
+    try {
+      const bytes = Buffer.from(new Float32Array([0.18, 0.2, 0.22, 1, 2, 3, 4, 0.5]).buffer),
+        asset = workingAsset(bytes, 2, 1),
+        path = join(root, 'master.f32')
+      asset.source.composite = { kind: 'hdr', sourceCount: 3 }
+      await writeFile(path, bytes)
+      let decodes = 0
+      for (const workingOnly of [false, true])
+        for (const cached of [false, true]) {
+          const output = join(
+            root,
+            `${workingOnly ? 'working-only' : 'proof'}-${cached ? 'cached' : 'uncached'}`,
+          )
+          await mkdir(output)
+          const options = {
+            metadata: {
+              version: 3,
+              lensProfile: unavailableProfile,
+              mergeMaster: { asset, recipe: { version: retiredVersion } },
+            },
+            settings: noLensSettings,
+            revision: 8,
+            processing: 'hdr-v1',
+            prepareLinear: true,
+            workingOnly,
+            workingAsset: cached
+              ? {
+                  path,
+                  width: asset.width,
+                  height: asset.height,
+                  byteLength: asset.byteLength,
+                  sha256: asset.sha256,
+                  transform: srgbTransform,
+                  hdr: asset,
+                }
+              : undefined,
+            adjustments: neutralAdjustments,
+          } as unknown as ProcessingOptions
+          await expect(
+            renderHdr(
+              path,
+              output,
+              options,
+              {
+                render: async () => {
+                  decodes++
+                  throw new Error('A retired recipe must not decode.')
+                },
+                releaseFrame() {},
+              },
+              'cpu',
+            ),
+          ).rejects.toBeInstanceOf(UnsupportedMergeVersionError)
+          expect(await readdir(output)).toEqual([])
+        }
+      expect(decodes).toBe(0)
+      expect(await readFile(path)).toEqual(bytes)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })

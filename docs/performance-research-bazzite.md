@@ -1,5 +1,12 @@
 # Continue image-pipeline research on Bazzite
 
+This is the historical October 16 research brief. Its production-preservation
+instruction, commands, findings and migration status belong to that experiment.
+The later authorized [Bazzite native-engine implementation goal](bazzite-native-engine.md)
+records current adopted paths, selected feature decisions and unfinished
+acceptance. It supersedes this brief as instructions for current implementation;
+no old failed comparison or incomplete result is relabeled as passed.
+
 This is the continuation brief for the Ryzen 9 7900X3D / Radeon RX 7900 XTX machine. The October 16 Linux continuation is recorded in [the report](performance-research.md#bazzite-component-observations--october-16-2026). Continue the existing research branch and draft PR; keep production behavior unchanged. Mac and Linux observations remain separate.
 
 Read [AGENTS.md](../AGENTS.md), [the research report](performance-research.md), [background testing](background-testing.md), [testing](testing.md), [RAW contracts](raw-processing.md), and [HDR processing](hdr-processing.md) before making changes. The report records both machines' findings, exact tolerances, limitations, source archive hashes, and candidate ranking. Generated evidence is intentionally absent from Git.

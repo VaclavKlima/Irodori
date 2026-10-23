@@ -1,15 +1,57 @@
-import { expect, type Page } from '@playwright/test'
-import { ACES_INTERACTIVE_PREVIEW_VERSION } from '../src/shared/aces-preview-wgsl'
+import { expect, test, type Page } from '@playwright/test'
+import { selectEditorPreviewPolicy } from '../src/shared/editor-preview-policy'
+import {
+  ACES_INTERACTIVE_PREVIEW_VERSION,
+  selectInteractivePreviewPolicy,
+} from '../src/shared/interactive-preview-policy'
 import { sustainedEditorInput } from './mac-workability.helpers'
 
-// Keep the reference control explicit until production adopts a different default.
-const precision = process.env.VITE_LUMA_HDR_INTERACTIVE_PRECISION ?? 'reference'
-if (precision !== 'reference' && precision !== 'f32')
-  throw new Error('VITE_LUMA_HDR_INTERACTIVE_PRECISION must be reference or f32.')
+export const editorTestPreviewPolicy = selectEditorPreviewPolicy(process.platform)
+const precision = editorTestPreviewPolicy.interactivePrecision
 export const hdrTestPolicy = {
   precision,
   interactivePolicy: precision === 'f32' ? ACES_INTERACTIVE_PREVIEW_VERSION : 'reference',
+  arithmeticPolicies: {
+    sdr: selectInteractivePreviewPolicy(precision, 'sdr'),
+    hdr: selectInteractivePreviewPolicy(precision, 'hdr'),
+  },
 } as const
+
+/** Feature-only UI suites use the actual app platform; no build selector can enable them. */
+export async function requireEditorPreviewFeature(
+  page: Page,
+  feature: 'interactive' | 'presentation-cache',
+) {
+  const info = await page.evaluate(() => window.luma.getAppInfo())
+  expect(info.platform, 'The app and test process must use the same platform policy.').toBe(
+    process.platform,
+  )
+  const policy = selectEditorPreviewPolicy(info.platform)
+  test.skip(
+    feature === 'interactive' ? policy.interactivePrecision !== 'f32' : !policy.presentationCache,
+    `The ordinary ${info.platform} policy does not yet enable ${feature}; separate platform verification is incomplete.`,
+  )
+  return policy
+}
+
+async function expectArithmeticPolicy(page: Page, interactive: boolean) {
+  const canvas = page.getByTestId('main-preview')
+  const target = await page.evaluate(() => window.luma.getDisplayState())
+  await expect(canvas).toHaveAttribute('data-target-generation', String(target.generation))
+  await expect(canvas).toHaveAttribute(
+    'data-presented-arithmetic-policy',
+    interactive ? selectInteractivePreviewPolicy(precision, target.mode) : 'reference',
+  )
+  const ranges = (await canvas.getAttribute('data-hdr-ranges')) === 'true'
+  await expect(canvas).toHaveAttribute(
+    'data-range-arithmetic-policy',
+    target.mode === 'sdr' && ranges
+      ? interactive
+        ? selectInteractivePreviewPolicy(precision, 'hdr')
+        : 'reference'
+      : '',
+  )
+}
 
 export async function expectReferenceHdrPreview(page: Page) {
   const canvas = page.getByTestId('main-preview')
@@ -26,6 +68,7 @@ export async function expectReferenceHdrPreview(page: Page) {
       ),
     )
     .toBe(true)
+  await expectArithmeticPolicy(page, false)
 }
 
 export async function expectActiveHdrPreview(page: Page) {
@@ -38,6 +81,7 @@ export async function expectActiveHdrPreview(page: Page) {
     precision === 'f32' ? 'interactive' : 'normal',
   )
   await expect(canvas).toHaveAttribute('data-presented-policy', hdrTestPolicy.interactivePolicy)
+  await expectArithmeticPolicy(page, precision === 'f32')
 }
 
 /** Preserve the original driver and its timing boundaries; inspect policy after the trial ends. */
@@ -46,9 +90,14 @@ export async function policyEditorInput(
   options: Parameters<typeof sustainedEditorInput>[1],
 ) {
   const trial = await sustainedEditorInput(page, options)
-  const final = await page.getByTestId('main-preview').evaluate((element) => ({
+  const final = await page.getByTestId('main-preview').evaluate(async (element) => ({
+    target: await window.luma.getDisplayState(),
     quality: element.dataset.quality,
     presentedPolicy: element.dataset.presentedPolicy,
+    presentedArithmeticPolicy: element.dataset.presentedArithmeticPolicy,
+    rangeArithmeticPolicy: element.dataset.rangeArithmeticPolicy,
+    hdrRanges: element.dataset.hdrRanges === 'true',
+    targetGeneration: Number(element.dataset.targetGeneration),
     previewPolicy: element.dataset.interactivePolicy,
     gesturing: element.dataset.gesturing,
     requestedSerial: element.dataset.requestedSerial,
@@ -87,9 +136,18 @@ export function expectHdrTrialPolicy(
   expect.soft(trial.policy.final, context).toMatchObject({
     quality: 'normal',
     presentedPolicy: 'reference',
+    presentedArithmeticPolicy: 'reference',
     previewPolicy: hdrTestPolicy.interactivePolicy,
     gesturing: 'false',
   })
+  expect
+    .soft(trial.policy.final.targetGeneration, context)
+    .toBe(trial.policy.final.target.generation)
+  expect
+    .soft(trial.policy.final.rangeArithmeticPolicy, context)
+    .toBe(
+      trial.policy.final.target.mode === 'sdr' && trial.policy.final.hdrRanges ? 'reference' : '',
+    )
   expect.soft(trial.policy.final.requestedSerial, context).toBeTruthy()
   expect.soft(trial.policy.final.completedSerial, context).toBe(trial.policy.final.requestedSerial)
 }

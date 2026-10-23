@@ -70,6 +70,9 @@ export async function seedLargeBrowser(
       const db = new DatabaseSync(path.join(root, 'library', 'catalog.sqlite'))
       const processing = db.prepare('SELECT data FROM processing WHERE id = ?').get(first.id) as
         { data: string } | undefined
+      const history = db.prepare('SELECT data FROM edits WHERE id = ?').get(first.id) as
+        { data: string } | undefined
+      if (processing && !history) throw new Error('The source fixture has no confirmed history.')
       db.exec('BEGIN IMMEDIATE')
       try {
         for (const input of inputs) {
@@ -89,11 +92,16 @@ export async function seedLargeBrowser(
           db.prepare(
             'INSERT INTO photos (id, imported_at, photo, processing_identity) VALUES (?, ?, ?, ?)',
           ).run(photo.id, photo.importedAt, JSON.stringify(photo), 'display-referred-v1')
-          if (processing)
+          if (processing) {
             db.prepare('INSERT INTO processing (id, data) VALUES (?, ?)').run(
               photo.id,
               processing.data,
             )
+            db.prepare('INSERT INTO edits (id, data) VALUES (?, ?)').run(
+              photo.id,
+              JSON.stringify({ ...JSON.parse(history!.data), photoId: photo.id }),
+            )
+          }
         }
         db.exec('COMMIT')
       } catch (error) {

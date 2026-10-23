@@ -5,6 +5,7 @@ import {
   EditGestureCommits,
   type EditGestureScope,
 } from '../src/renderer/src/hooks/edit-gesture-commit'
+import { EditFlushes } from '../src/renderer/src/hooks/edit-flush'
 
 function state(photoId = 'photo-a', revision = 4): EditState {
   return {
@@ -247,3 +248,90 @@ for (const invalidReply of ['photo', 'revision', 'parameters'])
     commits.succeeded(scope, commit.id, reply)
     expect(commits.snapshot).toBeNull()
   })
+
+function pendingWrite() {
+  let resolve!: () => void
+  let reject!: (error: Error) => void
+  const work = new Promise<void>((accept, fail) => {
+    resolve = accept
+    reject = fail
+  })
+  return { work, resolve, reject }
+}
+
+test('an export for other photos neither flushes the active gesture nor waits for unrelated writes', async () => {
+  const flushes = new EditFlushes()
+  const pending = pendingWrite()
+  flushes.track('active', pending.work)
+  let flushed = false
+  await flushes.flush({ kind: 'photos', photoIds: ['exported'] }, 'active', async () => {
+    flushed = true
+  })
+  expect(flushed).toBe(false)
+  pending.resolve()
+  await pending.work
+})
+
+test('a target flush awaits that photo pending write after the active photo changes', async () => {
+  const flushes = new EditFlushes()
+  const target = pendingWrite()
+  const unrelated = pendingWrite()
+  flushes.track('exported', target.work)
+  flushes.track('active', unrelated.work)
+  let completed = false
+  const flushing = flushes
+    .flush({ kind: 'photos', photoIds: ['exported'] }, 'active', async () => {
+      throw new Error('An unrelated active gesture must not be flushed.')
+    })
+    .then(() => {
+      completed = true
+    })
+  await Promise.resolve()
+  expect(completed).toBe(false)
+  target.resolve()
+  await flushing
+  expect(completed).toBe(true)
+  unrelated.resolve()
+  await unrelated.work
+})
+
+test('global shutdown flushing commits the active draft and drains every photo pending write', async () => {
+  const flushes = new EditFlushes()
+  const previous = pendingWrite()
+  const active = pendingWrite()
+  flushes.track('previous', previous.work)
+  let commits = 0
+  let completed = false
+  const flushing = flushes
+    .flush({ kind: 'all' }, 'active', () => {
+      commits++
+      return active.work
+    })
+    .then(() => {
+      completed = true
+    })
+  expect(commits).toBe(1)
+  active.resolve()
+  await Promise.resolve()
+  expect(completed).toBe(false)
+  previous.resolve()
+  await flushing
+  expect(completed).toBe(true)
+})
+
+test('a rejected target write fails its flush and is retired before the next barrier', async () => {
+  const flushes = new EditFlushes()
+  const pending = pendingWrite()
+  flushes.track('exported', pending.work)
+  const flushing = flushes.flush(
+    { kind: 'photos', photoIds: ['exported'] },
+    'other',
+    async () => {},
+  )
+  const rejected = expect(flushing).rejects.toThrow('Write failed.')
+  pending.reject(new Error('Write failed.'))
+  await rejected
+  await flushes.flush({ kind: 'photos', photoIds: ['exported'] }, 'other', async () => {
+    throw new Error('An unrelated draft must remain untouched.')
+  })
+})

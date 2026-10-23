@@ -86,8 +86,13 @@ function cameraEvidenceProof(prepared: PreparedSource[]) {
   })
 }
 const reviewPngCompressionLevel = { result: 0, reference: 0, overlay: 1 } as const
-const send = (value: unknown) => {
-  if (process.connected) process.send?.(value)
+const send = (value: { phase: string; completed: number; total: number }) => {
+  if (process.connected)
+    process.send?.({
+      ...value,
+      // Timestamp actual progress emission, never a later diagnostics poll.
+      producedAtEpochMs: performance.timeOrigin + performance.now(),
+    })
 }
 let paused = false
 let activeAlignment: AlignmentPool | undefined
@@ -219,10 +224,11 @@ async function runMergeInternal(
     ...sources.map((_, i) => i).filter((i) => i !== referenceIndex),
   ]
   timeline.preflight = { startedMs: preflightStart, completedMs: relative() }
+  let preparedCount = 0
   for (const i of preparationOrder) {
     const sourceStart = relative()
     await checkpoint()
-    send({ phase: 'Decoding originals', completed: i, total: sources.length })
+    if (!preparedCount) send({ phase: 'Preparing originals', completed: 0, total: sources.length })
     const metadataPath = join(directory, `source-${i}.json`),
       sourceCameraPreparation = job.recipe
         ? job.recipe.sources[i].cameraPreparation
@@ -347,6 +353,7 @@ async function runMergeInternal(
       sourceId: sources[i].photo.id,
       span: { startedMs: sourceStart, completedMs: relative() },
     })
+    send({ phase: 'Preparing originals', completed: ++preparedCount, total: sources.length })
   }
   const ref = prepared[referenceIndex]
   // Fallback supplies output pixels only. Submit both independent alignment lanes
@@ -805,6 +812,7 @@ async function runMergeInternal(
   const mergedPath = join(output, 'accumulation.f32'),
     referencePath = join(output, 'reference.f32')
   const accumulationStart = performance.now()
+  send({ phase: 'Combining linear samples', completed: 0, total: height })
   let usedGpu = false
   if (process.env.LUMA_MERGE_BACKEND !== 'cpu') {
     try {
@@ -857,7 +865,6 @@ async function runMergeInternal(
     try {
       for (let top = 0; top < height; top += 64) {
         await checkpoint()
-        send({ phase: 'Combining linear samples', completed: top, total: height })
         const rows = Math.min(64, height - top),
           count = width * rows,
           refPixels = new Float32Array(count * 4),
@@ -929,12 +936,15 @@ async function runMergeInternal(
         }
         await temporary.writeFile(Buffer.from(data.buffer))
         await referenceFile.writeFile(Buffer.from(refPixels.buffer))
+        if (top + rows < height)
+          send({ phase: 'Combining linear samples', completed: top + rows, total: height })
       }
     } finally {
       await temporary.close()
       await referenceFile.close()
     }
   }
+  send({ phase: 'Combining linear samples', completed: height, total: height })
   measurements.stages.accumulation = performance.now() - accumulationStart
   timeline.accumulation = { startedMs: accumulationStart - start, completedMs: relative() }
   const outputStart = performance.now(),

@@ -25,7 +25,7 @@ test('manual grouping, cover, order and expansion persist independently of flat 
     t.capture(0, sequenceMetadata(1, '2026-10-04T14:42:32.240'))
     t.capture(1, sequenceMetadata(2, '2026-10-04T14:42:32.080'))
     const initialFlat = t.library.list()
-    const stack = t.library.groupPhotos(ids, ids[2], t.library.listStacks().revision)
+    const stack = await t.library.groupPhotos(ids, ids[2], t.library.listStacks().revision)
     expect(stack).toMatchObject({ coverId: ids[2], count: 3, expanded: false, origin: 'manual' })
     expect(t.library.getStackMembers(stack.id).photos.map((p) => p.id)).toEqual([
       ids[2],
@@ -34,26 +34,26 @@ test('manual grouping, cover, order and expansion persist independently of flat 
     ])
     expect(t.library.listGallery()).toMatchObject({ total: 3, storedTotal: 5 })
     expect(t.library.list()).toEqual(initialFlat)
-    expect(() => t.library.groupPhotos(ids, ids[0], 0)).toThrow('Stale')
-    expect(() =>
+    await expect(t.library.groupPhotos(ids, ids[0], 0)).rejects.toThrow('Stale')
+    await expect(
       t.library.groupPhotos([ids[0], t.photos[3].id], ids[0], t.library.listStacks().revision),
-    ).toThrow('ungrouped')
-    expect(() =>
+    ).rejects.toThrow('ungrouped')
+    await expect(
       t.library.setStackExpanded(stack.id, true, undefined as unknown as number),
-    ).toThrow('revision')
-    const expanded = t.library.setStackExpanded(stack.id, true, stack.revision)
-    expect(() => t.library.setStackCover(stack.id, ids[0], stack.revision)).toThrow('Stale')
-    const changed = t.library.setStackCover(stack.id, ids[0], expanded.revision)
+    ).rejects.toThrow('revision')
+    const expanded = await t.library.setStackExpanded(stack.id, true, stack.revision)
+    await expect(t.library.setStackCover(stack.id, ids[0], stack.revision)).rejects.toThrow('Stale')
+    const changed = await t.library.setStackCover(stack.id, ids[0], expanded.revision)
     await t.restart()
     expect(t.library.getPhotoStack(ids[1])).toEqual(changed)
     expect(t.library.listGallery().total).toBe(5)
     expect(
       await readFile(join(t.root, 'library', 'originals', ids[0], 'original.jpg'), 'utf8'),
     ).toBe('original-0')
-    const removed = t.library.removeFromStack(ids[1], changed.revision)!
+    const removed = (await t.library.removeFromStack(ids[1], changed.revision))!
     expect(removed.count).toBe(2)
     expect(t.library.getPhotoStack(ids[1])).toBeNull()
-    t.library.removeFromStack(ids[2], removed.revision)
+    await t.library.removeFromStack(ids[2], removed.revision)
     expect(t.library.listStacks().stacks).toEqual([])
   } finally {
     await t.close()
@@ -68,7 +68,7 @@ test('mixed capture and import timestamps form a deterministic order when covers
       .prepare('UPDATE photos SET photo = ? WHERE id = ?')
       .run(JSON.stringify({ ...t.photos[0], capturedAt: '2026-10-04T12:00:02Z' }), ids[0])
     t.capture(2, sequenceMetadata(1, '2026-10-04T12:00:00.0060'))
-    const stack = t.library.groupPhotos(
+    const stack = await t.library.groupPhotos(
       [ids[3], ids[0], ids[1], ids[2], ids[4]],
       ids[4],
       t.library.listStacks().revision,
@@ -80,8 +80,8 @@ test('mixed capture and import timestamps form a deterministic order when covers
       ids[0],
       ids[3],
     ])
-    const changed = t.library.setStackCover(stack.id, ids[0], stack.revision)
-    const restored = t.library.setStackCover(stack.id, ids[4], changed.revision)
+    const changed = await t.library.setStackCover(stack.id, ids[0], stack.revision)
+    const restored = await t.library.setStackCover(stack.id, ids[4], changed.revision)
     await t.restart()
     expect(t.library.getPhotoStack(ids[0])).toEqual(restored)
     expect(t.library.getStackMembers(stack.id).photos.map((p) => p.id)).toEqual([
@@ -96,12 +96,12 @@ test('mixed capture and import timestamps form a deterministic order when covers
   }
 })
 
-test('merge relationships union complete stacks and backfill once, with newest cover and actual recipe counts', async () => {
+test('current merge relationships union complete stacks and persist, with newest cover and actual recipe counts', async () => {
   const t = await stackFixture(8)
   try {
     const ids = t.photos.map((p) => p.id)
-    t.library.groupPhotos(ids.slice(0, 3), ids[0], t.library.listStacks().revision)
-    t.library.groupPhotos(ids.slice(3, 6), ids[3], t.library.listStacks().revision)
+    await t.library.groupPhotos(ids.slice(0, 3), ids[0], t.library.listStacks().revision)
+    await t.library.groupPhotos(ids.slice(3, 6), ids[3], t.library.listStacks().revision)
     const first = relation(ids[6], [ids[0], ids[3]], t.photos[6])
     const second = relation(ids[7], [ids[1], ids[4]], t.photos[7])
     for (const manifest of [first, second]) {
@@ -111,8 +111,8 @@ test('merge relationships union complete stacks and backfill once, with newest c
       t.db
         .prepare('INSERT INTO derived_assets VALUES (?, ?)')
         .run(manifest.photo.id, JSON.stringify(manifest))
+      t.store.attachMerge(manifest)
     }
-    t.db.exec('PRAGMA user_version = 10')
     await t.restart()
     const stack = t.library.listStacks().stacks[0]
     expect(t.library.listStacks().stacks).toHaveLength(1)
@@ -121,8 +121,8 @@ test('merge relationships union complete stacks and backfill once, with newest c
       photo: { id: ids[7] },
       mergeSourceCount: 2,
     })
-    const changed = t.library.setStackCover(stack.id, ids[0], stack.revision)
-    t.library.ungroupStack(stack.id, changed.revision)
+    const changed = await t.library.setStackCover(stack.id, ids[0], stack.revision)
+    await t.library.ungroupStack(stack.id, changed.revision)
     await t.restart()
     expect(t.library.listStacks().stacks).toEqual([])
     expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
@@ -139,7 +139,7 @@ test('deleting a cover promotes the newest surviving result, then an ordered ori
       t.db
         .prepare('UPDATE photos SET photo = ? WHERE id = ?')
         .run(JSON.stringify({ ...t.photos[index], assetKind: 'derived' }), ids[index])
-    const stack = t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
+    const stack = await t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
     expect((await finishTask(t.library, t.library.deletePhotos([ids[0]])!)).status).toBe(
       'completed',
     )
@@ -165,7 +165,7 @@ test('failed Trash leaves membership unchanged; cancelling waits for the current
   })
   try {
     const ids = t.photos.map((p) => p.id)
-    const stack = t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
+    const stack = await t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
     await t.restart(async () => {
       throw new Error('Trash unavailable')
     })
@@ -195,7 +195,7 @@ test('removal recovery repairs membership atomically and preserves OS-restored b
   const t = await stackFixture(3)
   try {
     const ids = t.photos.map((p) => p.id)
-    t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
+    await t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
     await t.library.close()
     const bundle = `${ids[0]}-${randomUUID()}`
     t.db.prepare('INSERT INTO removals VALUES (?, ?)').run(ids[0], bundle)
@@ -217,7 +217,11 @@ test('gallery chunk windows, hidden boundaries and individual selection remain d
   try {
     await t.restart()
     const ids = t.photos.map((p) => p.id)
-    const stack = t.library.groupPhotos(ids.slice(0, 3), ids[2], t.library.listStacks().revision)
+    const stack = await t.library.groupPhotos(
+      ids.slice(0, 3),
+      ids[2],
+      t.library.listStacks().revision,
+    )
     const gallery = t.library.listGallery(0, [ids[0], ids[4]])
     expect(gallery.hiddenSelectedIds).toEqual([ids[0]])
     expect(t.library.locateGalleryPhoto(ids[0])?.photo.id).toBe(ids[0])
@@ -230,7 +234,7 @@ test('gallery chunk windows, hidden boundaries and individual selection remain d
       ids[0],
       ids[1],
     ])
-    t.library.setStackExpanded(stack.id, true, stack.revision)
+    await t.library.setStackExpanded(stack.id, true, stack.revision)
     expect(t.library.getGalleryRange(ids[0], ids[4]).map((p) => p.id)).toEqual([
       ids[4],
       ids[3],

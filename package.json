@@ -1,6 +1,6 @@
 {
   "name": "luma",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "A local photo library and editor with an AI console.",
   "type": "module",
@@ -36,6 +36,8 @@
     "benchmark:merge": "node scripts/verify.mjs --merge-benchmark",
     "benchmark:export": "node scripts/verify.mjs --export-benchmark",
     "build:export-native": "bash scripts/ultrahdr/build-native.sh",
+    "build:cpu-native": "node scripts/native-cpu-render/build-linux.mjs",
+    "build:raw-native": "node scripts/native-raw/build-linux.mjs",
     "build:merge-kernels": "node scripts/merge-kernels/build.mjs",
     "benchmark:all": "node scripts/verify.mjs --benchmark-all",
     "research:pipeline": "node scripts/verify.mjs --target research-pipeline --target research-native",

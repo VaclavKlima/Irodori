@@ -14,7 +14,7 @@ import {
   type ODTParams,
 } from './aces-core'
 
-export const DISPLAY_RENDERING_VERSION = 'aces2-069b0bc3-v2'
+export const DISPLAY_RENDERING_VERSION = 'aces2-069b0bc3-v3'
 export const RENDERING_REFERENCE = 100
 export const MAX_RENDERING_HEADROOM = 100
 export type RenderingRGB = [number, number, number]

@@ -1,0 +1,11 @@
+[package]
+name = "luma-cpu-render"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Isolated Float64 CPU preview renderer research host"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"

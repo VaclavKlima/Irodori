@@ -1,8 +1,10 @@
-import { copyFile, readdir, rm, mkdir } from 'node:fs/promises'
+import { copyFile, readdir, rm, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { expect, test } from './electron.fixture'
 import { choose, importPhotos } from './import.helpers'
+import { testUiMode } from '../scripts/test-ui-mode.mjs'
+import { activateButton } from './button.helpers'
 
 // Slow only the real original-file stream after review. No production test switch or bridge.
 async function slowCopies(app: ElectronApplication) {
@@ -116,7 +118,16 @@ test('copies in the background with usable browsing, compact progress, reload re
       .first()
       .evaluate((el) => getComputedStyle(el).animationName),
   ).toBe('none')
-  await page.screenshot({ path: testInfo.outputPath('background-import-1100x700.png') })
+  // Visual capture is an artifact only, requested through an explicit foreground invocation.
+  if (testUiMode() === 'foreground') {
+    const png = await nativeWindow.evaluate(async (window) =>
+      (await window.capturePage()).toPNG().toString('base64'),
+    )
+    await writeFile(
+      testInfo.outputPath('background-import-1100x700.png'),
+      Buffer.from(png, 'base64'),
+    )
+  }
   await page.reload()
   await expect(page.getByRole('progressbar')).toBeVisible()
   const after = await page.evaluate(async () =>
@@ -125,18 +136,17 @@ test('copies in the background with usable browsing, compact progress, reload re
   expect(after.id).toBe(before.id)
   expect(after.progress!.total).toBe(before.progress!.total)
   expect(after.transfer!.bytes).toBeGreaterThanOrEqual(before.transfer!.bytes)
-  await page.getByTestId('task-progress').click()
-  await page.getByRole('button', { name: 'Cancel task', exact: true }).click()
+  await activateButton(page.getByTestId('task-progress'))
+  await activateButton(page.getByRole('button', { name: 'Cancel task', exact: true }))
   await expect(page.getByTestId(`task-${before.id}`)).toHaveAttribute('data-status', 'cancelled')
   expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(2)
   expect(await readdir(join(luma.userDataDir, 'library', 'staging'))).toEqual([])
   await page.reload()
   await expect(page.getByTestId('task-progress')).toContainText('Import cancelled')
-  await page.getByTestId('task-progress').click()
-  await page
-    .getByTestId(`task-${before.id}`)
-    .getByRole('button', { name: 'Dismiss', exact: true })
-    .click()
+  await activateButton(page.getByTestId('task-progress'))
+  await activateButton(
+    page.getByTestId(`task-${before.id}`).getByRole('button', { name: 'Dismiss', exact: true }),
+  )
   await expect(page.getByTestId('task-progress')).toHaveCount(0)
 })
 

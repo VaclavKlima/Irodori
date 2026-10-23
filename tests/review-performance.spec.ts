@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { PreviewProcess } from '../src/main/preview-process'
 import { ReviewThumbnails } from '../src/main/review-thumbnails'
 import type { ThumbnailProcessor } from '../src/main/preview-types'
@@ -143,7 +143,6 @@ async function progressiveScan(paths: string[], root: string): Promise<Progressi
       close: () => processor.close(),
     },
     () => {},
-    undefined,
     undefined,
     undefined,
     undefined,

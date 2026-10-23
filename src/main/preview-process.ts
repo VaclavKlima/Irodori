@@ -1,9 +1,21 @@
 import type { ImageStatistics } from '../shared/statistics'
 import type { HdrStatistics } from '../shared/hdr-statistics'
-import type { HdrStatisticsJob, HdrPixelJob, PreviewWorkerRequest } from './preview-types'
+import type {
+  HdrStatisticsJob,
+  HdrPixelJob,
+  PreviewWorkerRequest,
+  HdrFirstSurfaceProgress,
+  PreviewWarmResult,
+  HdrRawPreparation,
+  NativeRawMainMessage,
+} from './preview-types'
+import type { HdrCacheKernelKind } from '../renderer/src/preview/hdr-shader'
 import type { HdrPixel } from '../shared/hdr-pixel'
 import type { ProcessingMetadata, ProcessingOptions } from '../shared/lens'
 import { fork, type ChildProcess } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
+import { NativeRawOwner, type NativeRawExecutableResolver } from './native-raw-owner'
+import { prepareNativeRawExecutable } from './native-raw-executable'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { constants, setPriority } from 'node:os'
@@ -16,8 +28,38 @@ import type {
   ThumbnailResult,
 } from './preview-types'
 
+function validWarmResult(
+  value: unknown,
+  kernel: HdrCacheKernelKind | undefined,
+): value is PreviewWarmResult {
+  const result = value as Partial<PreviewWarmResult> | null
+  const finiteDuration = (duration: unknown): duration is number =>
+    typeof duration === 'number' && Number.isFinite(duration) && duration >= 0
+  if (
+    !result ||
+    !['ready', 'unavailable', 'skipped'].includes(result.status ?? '') ||
+    result.kernel !== kernel ||
+    !finiteDuration(result.elapsedMs) ||
+    !result.timings ||
+    result.timings.totalMs !== result.elapsedMs ||
+    (result.reason !== undefined && typeof result.reason !== 'string')
+  )
+    return false
+  return (['wasmMs', 'tableMs', 'gpuMs'] as const).every((stage) =>
+    result.timings![stage] === undefined
+      ? result.status !== 'ready'
+      : finiteDuration(result.timings![stage]),
+  )
+}
+
 export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, ThumbnailProcessor {
   private child?: ChildProcess
+  private retiring = new WeakMap<ChildProcess, Promise<void>>()
+  private retirements = new Set<Promise<void>>()
+  private nativeOwners = new WeakMap<ChildProcess, NativeRawOwner>()
+  private workerCloses = new WeakMap<ChildProcess, Promise<void>>()
+  private warming?: Promise<PreviewWarmResult>
+  private lifecycle = 0
   private busy = false
   private captureSession = false
   private idle?: ReturnType<typeof setTimeout>
@@ -25,7 +67,69 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
   constructor(
     private workerPath = join(import.meta.dirname, 'preview-worker.js'),
     private timeoutMs = 90_000,
+    private idleMs = 30_000,
+    private nativeExecutable: NativeRawExecutableResolver = prepareNativeRawExecutable,
   ) {}
+
+  prewarmHdr(kernel: HdrCacheKernelKind): Promise<PreviewWarmResult> {
+    if (kernel !== 'linear64') return Promise.reject(new Error('Invalid HDR warm-up kernel.'))
+    if (this.warming) return this.warming
+    const warming = this.run<PreviewWarmResult>(
+      'warmup',
+      '',
+      '',
+      new AbortController().signal,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      kernel,
+    ).finally(() => {
+      if (this.warming === warming) {
+        this.warming = undefined
+      }
+      this.scheduleIdle()
+    })
+    this.warming = warming
+    return warming
+  }
+
+  private async waitForWarmup(signal: AbortSignal): Promise<number> {
+    signal.throwIfAborted()
+    const lifecycle = this.lifecycle
+    // Warm-up failure is optional; the normal request still owns its fallback decision.
+    const warming = this.warming
+    if (warming) {
+      let aborted: (() => void) | undefined
+      try {
+        await new Promise<void>((resolve, reject) => {
+          aborted = () => reject(new Error('Preview generation cancelled.'))
+          signal.addEventListener('abort', aborted, { once: true })
+          void warming.then(
+            () => resolve(),
+            () => resolve(),
+          )
+        })
+      } finally {
+        if (aborted) signal.removeEventListener('abort', aborted)
+      }
+    }
+    signal.throwIfAborted()
+    if (lifecycle !== this.lifecycle) throw new Error('Preview generation cancelled.')
+    return lifecycle
+  }
+
+  private scheduleIdle(): void {
+    clearTimeout(this.idle)
+    const child = this.child
+    if (!child || this.busy) return
+    this.idle = setTimeout(() => {
+      if (this.child === child && !this.busy) void this.retireChild(child, false)
+    }, this.idleMs)
+    this.idle.unref()
+  }
 
   private launch(): ChildProcess {
     const require = createRequire(import.meta.url)
@@ -47,6 +151,10 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
       env,
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     })
+    this.workerCloses.set(
+      child,
+      new Promise<void>((resolve) => child.once('close', () => resolve())),
+    )
     child.stdout?.resume()
     child.once('exit', () => {
       if (this.child === child) this.child = undefined
@@ -59,7 +167,7 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
   }
 
   createWorker(): PreviewProcess {
-    return new PreviewProcess(this.workerPath, this.timeoutMs)
+    return new PreviewProcess(this.workerPath, this.timeoutMs, this.idleMs, this.nativeExecutable)
   }
   async prepare(
     path: string,
@@ -164,20 +272,27 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     output: string,
     signal: AbortSignal,
     options?: ProcessingOptions,
+    onFirstSurface?: (progress: HdrFirstSurfaceProgress) => Promise<void>,
+    preparation?: HdrRawPreparation,
   ): Promise<FullPreviewResult> {
-    this.assertIdle()
-    const result = await this.run<FullPreviewResult>('full', path, output, signal, options).catch(
-      async (error) => {
-        await this.close(true)
-        throw error
-      },
+    this.assertIdle(await this.waitForWarmup(signal))
+    const result = await this.run<FullPreviewResult>(
+      'full',
+      path,
+      output,
+      signal,
+      options,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onFirstSurface,
+      undefined,
+      preparation,
     )
     // Preserve GPU shader compilation across nearby requests. CPU RAW processing has a
     // much larger WASM high-water mark; reclaim that process after its completed render.
-    this.idle = setTimeout(() => {
-      void this.close()
-    }, 30_000)
-    this.idle.unref()
+    this.scheduleIdle()
     if (process.env.LUMA_PREVIEW_DIAGNOSTICS) console.info('Full preview', result.diagnostics)
     return result
   }
@@ -187,13 +302,10 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     frame: { width: number; height: number; sha256: string },
     signal: AbortSignal,
   ): Promise<ImageStatistics> {
-    this.assertIdle()
+    this.assertIdle(await this.waitForWarmup(signal))
     return this.run<ImageStatistics>('statistics', path, '', signal, undefined, frame).finally(
       () => {
-        this.idle = setTimeout(() => {
-          void this.close()
-        }, 30_000)
-        this.idle.unref()
+        this.scheduleIdle()
       },
     )
   }
@@ -203,27 +315,21 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     job: HdrStatisticsJob,
     signal: AbortSignal,
   ): Promise<HdrStatistics> {
-    this.assertIdle()
+    this.assertIdle(await this.waitForWarmup(signal))
     return this.run<HdrStatistics>('statistics', path, '', signal, undefined, {
       width: job.asset.width,
       height: job.asset.height,
       sha256: job.asset.sha256,
       hdr: job,
     }).finally(() => {
-      this.idle = setTimeout(() => {
-        void this.close()
-      }, 30_000)
-      this.idle.unref()
+      this.scheduleIdle()
     })
   }
 
   async hdrPixel(path: string, job: HdrPixelJob, signal: AbortSignal): Promise<HdrPixel> {
-    this.assertIdle()
+    this.assertIdle(await this.waitForWarmup(signal))
     return this.run<HdrPixel>('pixel', path, '', signal, undefined, undefined, job).finally(() => {
-      this.idle = setTimeout(() => {
-        void this.close()
-      }, 30_000)
-      this.idle.unref()
+      this.scheduleIdle()
     })
   }
 
@@ -231,12 +337,13 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     if (!this.busy && this.child?.connected) this.child.send({ type: 'release' }, () => {})
   }
 
-  private assertIdle() {
+  private assertIdle(lifecycle = this.lifecycle) {
+    if (lifecycle !== this.lifecycle) throw new Error('Preview generation cancelled.')
     if (this.busy || this.captureSession) throw new Error('The preview worker is busy.')
   }
 
   private async run<T>(
-    mode: Exclude<PreviewWorkerRequest['type'], 'close' | 'release'>,
+    mode: Exclude<PreviewWorkerRequest['type'], 'close' | 'release' | NativeRawMainMessage['type']>,
     path: string,
     output: string,
     signal: AbortSignal,
@@ -245,18 +352,25 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     pixel?: HdrPixelJob,
     importMode?: 'embedded' | 'fallback',
     importSeed?: PreviewResult,
+    onFirstSurface?: (progress: HdrFirstSurfaceProgress) => Promise<void>,
+    kernel?: HdrCacheKernelKind,
+    preparation?: HdrRawPreparation,
   ): Promise<T> {
     signal.throwIfAborted()
     clearTimeout(this.idle)
     if (this.busy || (this.captureSession && mode !== 'capture-metadata-session'))
       throw new Error('The preview worker is busy.')
     this.busy = true
+    const lifecycle = this.lifecycle
     let child: ChildProcess | undefined
     let diagnostics = ''
     const diagnostic = (chunk: Buffer) => {
       diagnostics = (diagnostics + chunk.toString()).slice(-4000)
     }
     try {
+      await Promise.all([...this.retirements])
+      signal.throwIfAborted()
+      if (lifecycle !== this.lifecycle) throw new Error('Preview generation cancelled.')
       child = this.child ??= this.launch()
       if (mode === 'process' && child.pid) {
         try {
@@ -275,46 +389,159 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
           worker.off('error', failed)
           signal.removeEventListener('abort', aborted)
         }
-        const failed = (error: Error) => {
+        let publication = Promise.resolve()
+        let terminal = false
+        let completed = false
+        let finishing: Promise<void> | undefined
+        let nativeOwner: NativeRawOwner | undefined
+        const fail = (error: Error, force = true) => {
+          if (completed || finishing) return
+          terminal = true
           cleanup()
-          reject(error)
+          // The specific child and any in-progress file offer keep ownership until both drain.
+          // Never clear busy/reuse a still-preparing worker after a publication failure.
+          finishing = Promise.all([
+            this.retireChild(worker, force),
+            publication.catch(() => undefined),
+          ]).then(
+            () => {
+              completed = true
+              reject(error)
+            },
+            () => {
+              completed = true
+              reject(error)
+            },
+          )
         }
-        const message = (value: { type?: string; stage?: string; result?: T; error?: string }) => {
+        const failed = (error: Error) => fail(error)
+        const message = (value: {
+          type?: string
+          stage?: string
+          result?: T
+          error?: string
+          progress?: HdrFirstSurfaceProgress
+          nonce?: unknown
+        }) => {
+          if (terminal) return
+          if (value.type === 'raw-source-request' || value.type === 'raw-source-reader-ready') {
+            try {
+              if (mode !== 'full' || !nativeOwner) throw new Error('Unexpected native RAW request.')
+              if (value.type === 'raw-source-request') nativeOwner.request(value.nonce)
+              else nativeOwner.readerReady(value.nonce)
+            } catch (error) {
+              failed(error instanceof Error ? error : new Error(String(error)))
+            }
+            return
+          }
           if (value.type === 'stage') {
             if (process.env.LUMA_PREVIEW_DIAGNOSTICS) console.info('Preview stage', value.stage)
             return
           }
-          cleanup()
-          if (value.result) resolve(value.result)
-          else reject(new Error(value.error ?? 'Preview generation failed.'))
+          if (value.type === 'first-surface') {
+            if (!value.progress || !onFirstSurface) {
+              failed(new Error('Unexpected first HDR surface progress.'))
+              return
+            }
+            const progress = value.progress
+            publication = publication.then(() => onFirstSurface(progress))
+            void publication.catch(failed)
+            return
+          }
+          if (value.type !== 'result' && value.type !== 'error') {
+            failed(new Error('Unexpected preview worker response.'))
+            return
+          }
+          terminal = true
+          void publication
+            .then(async () => {
+              if (finishing || completed) return
+              signal.throwIfAborted()
+              if (!value.result && (mode === 'full' || mode === 'warmup')) {
+                fail(new Error(value.error ?? 'Preview generation failed.'), mode !== 'warmup')
+                return
+              }
+              await nativeOwner?.finish()
+              if (finishing || completed) return
+              signal.throwIfAborted()
+              if (mode === 'warmup') {
+                if (!validWarmResult(value.result, kernel)) {
+                  fail(new Error('Invalid preview warm-up result.'))
+                  return
+                }
+                if (value.result.status === 'unavailable') {
+                  const result = value.result
+                  cleanup()
+                  // A failed LibRaw module promise is process-sticky. Drain this exact child
+                  // before waking demand, without changing its existing lifecycle generation.
+                  finishing = this.retireChild(worker, false).then(
+                    () => {
+                      completed = true
+                      resolve(result)
+                    },
+                    (error: unknown) => {
+                      completed = true
+                      reject(error)
+                    },
+                  )
+                  return
+                }
+              }
+              cleanup()
+              completed = true
+              if (value.result) resolve(value.result)
+              else reject(new Error(value.error ?? 'Preview generation failed.'))
+            })
+            .catch(failed)
         }
         const exited = (code: number | null) => {
-          cleanup()
           if (diagnostics) console.warn('Preview worker exited:', code, diagnostics)
-          reject(new Error('The preview worker stopped. Try again.'))
+          fail(new Error('The preview worker stopped. Try again.'))
         }
-        const aborted = () => {
-          cleanup()
-          void this.close(
-            mode === 'full' || mode === 'thumbnail-fallback' || importMode === 'fallback',
-          ).finally(() => {
-            reject(new Error('Preview generation cancelled.'))
-          })
-        }
+        const forceCancellation =
+          mode === 'full' || mode === 'thumbnail-fallback' || importMode === 'fallback'
+        const aborted = () => fail(new Error('Preview generation cancelled.'), forceCancellation)
         const timer = setTimeout(() => {
-          cleanup()
-          void this.close(
-            mode === 'full' || mode === 'thumbnail-fallback' || importMode === 'fallback',
-          ).finally(() => {
-            reject(new Error('Preview generation timed out.'))
-          })
+          fail(new Error('Preview generation timed out.'), forceCancellation)
         }, this.timeoutMs)
         worker.on('message', message)
         worker.once('exit', exited)
         worker.once('error', failed)
         signal.addEventListener('abort', aborted, { once: true })
+        if (preparation) {
+          try {
+            if (mode !== 'full') throw new Error('Native RAW admission requires a full request.')
+            const context = { ...preparation, nonce: randomBytes(16).toString('hex') }
+            nativeOwner = new NativeRawOwner({
+              worker,
+              path,
+              context,
+              signal,
+              executable: this.nativeExecutable,
+              current: () =>
+                this.lifecycle === lifecycle && this.child === worker && !finishing && !completed,
+              failed,
+            })
+            // Registration precedes every native setup await and the initial full dispatch.
+            this.nativeOwners.set(worker, nativeOwner)
+          } catch (error) {
+            failed(error instanceof Error ? error : new Error(String(error)))
+            return
+          }
+        }
         worker.send(
-          { type: mode, path, output, options, frame, pixel, importMode, importSeed },
+          {
+            type: mode,
+            path,
+            output,
+            options,
+            frame,
+            pixel,
+            importMode,
+            importSeed,
+            kernel,
+            nativeRaw: nativeOwner?.context,
+          },
           (error) => {
             if (error) failed(error)
           },
@@ -326,21 +553,45 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     }
   }
 
+  private retireChild(child: ChildProcess, force: boolean): Promise<void> {
+    if (this.child === child) this.child = undefined
+    const retiring = this.retiring.get(child)
+    if (retiring) {
+      if (force && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      return retiring
+    }
+    const workerClosed =
+      child.exitCode !== null || child.signalCode !== null
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            const timer = setTimeout(() => child.kill('SIGKILL'), 2000)
+            child.once('exit', () => {
+              clearTimeout(timer)
+              resolve()
+            })
+            if (force) child.kill('SIGKILL')
+            else if (child.connected) child.send({ type: 'close' }, () => {})
+            else child.kill()
+          })
+    const drained = Promise.all([
+      workerClosed,
+      this.workerCloses.get(child),
+      this.nativeOwners.get(child)?.retire(),
+    ]).then(() => undefined)
+    this.retiring.set(child, drained)
+    this.retirements.add(drained)
+    void drained.then(
+      () => this.retirements.delete(drained),
+      () => this.retirements.delete(drained),
+    )
+    return drained
+  }
+
   async close(force = false): Promise<void> {
+    this.lifecycle++
     clearTimeout(this.idle)
     const child = this.child
-    if (!child) return
-    this.child = undefined
-    if (child.exitCode !== null || child.signalCode !== null) return
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => child.kill('SIGKILL'), 2000)
-      child.once('exit', () => {
-        clearTimeout(timer)
-        resolve()
-      })
-      if (force) child.kill('SIGKILL')
-      else if (child.connected) child.send({ type: 'close' }, () => {})
-      else child.kill()
-    })
+    if (child) await this.retireChild(child, force)
+    await Promise.all([...this.retirements])
   }
 }

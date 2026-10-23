@@ -167,7 +167,7 @@ const witnessFields: (keyof ImportSourceWitness)[] = [
 ]
 const hashPattern = /^[a-f0-9]{64}$/
 
-function validWitness(value: unknown): value is ImportSourceWitness {
+export function validWitness(value: unknown): value is ImportSourceWitness {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const fields = value as Record<string, unknown>
   return witnessFields.every(
@@ -184,9 +184,9 @@ export function sameImportSourceWitness(
 
 /** Records are learned only from a completed, validated full hash and a live original. */
 export class ImportSourceRecords {
-  constructor(private db: DatabaseSync) {}
+  constructor(protected db: DatabaseSync) {}
 
-  /** The library invokes this inside its existing migration transaction. */
+  /** Fresh library setup calls this inside its bootstrap transaction. */
   initialize(): void {
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS source_imports (source_key TEXT PRIMARY KEY, photo_id TEXT NOT NULL, witness TEXT NOT NULL); CREATE INDEX IF NOT EXISTS source_imports_photo_id ON source_imports(photo_id); CREATE TRIGGER IF NOT EXISTS remove_source_imports AFTER DELETE ON photos BEGIN DELETE FROM source_imports WHERE photo_id = old.id; END;',
@@ -210,15 +210,5 @@ export class ImportSourceRecords {
     } catch {
       return undefined
     }
-  }
-
-  record(key: string, witness: ImportSourceWitness, photoId: string): boolean {
-    if (!hashPattern.test(key) || !hashPattern.test(photoId) || !validWitness(witness)) return false
-    const result = this.db
-      .prepare(
-        "INSERT INTO source_imports (source_key, photo_id, witness) SELECT ?, id, ? FROM photos WHERE id = ? AND COALESCE(json_extract(photo, '$.assetKind'), 'original') = 'original' AND NOT EXISTS (SELECT 1 FROM removals WHERE removals.id = photos.id) ON CONFLICT(source_key) DO UPDATE SET photo_id = excluded.photo_id, witness = excluded.witness",
-      )
-      .run(key, JSON.stringify(witness), photoId)
-    return Number(result.changes) > 0
   }
 }

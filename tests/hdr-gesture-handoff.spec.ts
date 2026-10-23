@@ -6,6 +6,11 @@ import {
   type HdrGestureEditing,
 } from '../src/renderer/src/preview/hdr-gesture-handoff'
 import { HdrEditQueue } from '../src/renderer/src/preview/hdr-edit-queue'
+import {
+  ACES_HDR_INTERACTIVE_PREVIEW_VERSION,
+  ACES_SDR_INTERACTIVE_PREVIEW_VERSION,
+  selectInteractivePreviewPolicy,
+} from '../src/shared/interactive-preview-policy'
 
 const context = 'source-a:hdr-p3:after:fit:1828x1004:ranges-off'
 const parameters: AdjustmentParameters = { ...neutralAdjustments, exposureEv: 1.75 }
@@ -274,4 +279,26 @@ test('local final parameters are copied and exact identities cannot change under
   expect(handoff.authorize(1, 'feedback', context, mutable.parameters)).toBeNull()
   expect(update({ commit: { ...accepted, photoId: 'photo-b' } })).toBe(false)
   expect(handoff.plan(context, parameters)).toBe('ordinary')
+})
+
+test('preview arithmetic requires the exact precision policy and follows confirmed SDR/HDR mode', () => {
+  for (const mode of ['sdr', 'hdr'] as const) {
+    for (const selector of [undefined, null, false, true, 1, '', 'reference', 'F32', 'f32 '])
+      expect(selectInteractivePreviewPolicy(selector, mode)).toBe('reference')
+  }
+  expect(selectInteractivePreviewPolicy('f32', 'sdr')).toBe(ACES_SDR_INTERACTIVE_PREVIEW_VERSION)
+  expect(selectInteractivePreviewPolicy('f32', 'hdr')).toBe(ACES_HDR_INTERACTIVE_PREVIEW_VERSION)
+})
+
+test('a confirmed output-mode change retires pending feedback and selects its own arithmetic', () => {
+  const { handoff, update } = fixture()
+  update({ commit: pending })
+  handoff.queued('feedback', 1)
+  const hdrPolicy = selectInteractivePreviewPolicy('f32', 'hdr')
+  const sdrPolicy = selectInteractivePreviewPolicy('f32', 'sdr')
+  expect(hdrPolicy).not.toBe(sdrPolicy)
+  const nextContext = `source-a:sdr-p3:${sdrPolicy}:after:fit:1828x1004:ranges-off`
+  update({ context: nextContext, nativePresented: false })
+  expect(handoff.authorize(1, 'feedback', context, parameters)).toBeNull()
+  expect(handoff.plan(nextContext, parameters)).toBe('ordinary')
 })

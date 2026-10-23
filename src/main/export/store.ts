@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { BackgroundTask } from '../../shared/contracts'
 import {
@@ -9,9 +8,10 @@ import {
   type ExportDestination,
 } from '../../shared/export'
 import { directoryIdentity, validateDirectory } from './files'
+import type { CatalogCommands } from '../catalog/contracts'
 import type { ExportFile, ExportManifest, FileIdentity } from './types'
 
-interface Grant {
+export interface Grant {
   id: string
   path: string
   identity: FileIdentity
@@ -21,9 +21,9 @@ interface Preferences {
   destinationId: string | null
   lastCustom: ExportOptions | null
 }
-export class ExportStore {
-  constructor(readonly db: DatabaseSync) {}
-  migrate() {
+export class ExportReadStore {
+  constructor(protected db: DatabaseSync) {}
+  initialize() {
     this.db
       .exec(`CREATE TABLE IF NOT EXISTS export_preferences (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS export_destinations (id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -64,56 +64,7 @@ export class ExportStore {
     }
     return { version: 1, destination, lastCustom: prefs.lastCustom }
   }
-  async authorize(path: string): Promise<ExportDestination> {
-    const data = { id: randomUUID(), ...(await directoryIdentity(path)) }
-    const prefs = this.preferences()
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      this.db
-        .prepare('INSERT INTO export_destinations VALUES (?, ?)')
-        .run(data.id, JSON.stringify(data))
-      this.db
-        .prepare('UPDATE export_preferences SET data = ? WHERE singleton = 1')
-        .run(JSON.stringify({ ...prefs, destinationId: data.id }))
-      this.db.exec('COMMIT')
-    } catch (error) {
-      this.db.exec('ROLLBACK')
-      throw error
-    }
-    return { id: data.id, label: data.path, available: true }
-  }
-  accept(manifest: ExportManifest, task: BackgroundTask, custom: boolean) {
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      this.db
-        .prepare('INSERT INTO export_jobs VALUES (?, ?, ?)')
-        .run(manifest.id, JSON.stringify(manifest), JSON.stringify(task))
-      for (const [index, source] of manifest.sources.entries())
-        this.file(manifest.id, {
-          index,
-          photoId: source.photo.id,
-          filename: source.photo.filename,
-          status: 'pending',
-        })
-      const prefs = this.preferences()
-      this.db.prepare('UPDATE export_preferences SET data = ? WHERE singleton = 1').run(
-        JSON.stringify({
-          ...prefs,
-          destinationId: manifest.destinationId,
-          lastCustom: custom ? manifest.options : prefs.lastCustom,
-        }),
-      )
-      this.db.exec('COMMIT')
-    } catch (error) {
-      this.db.exec('ROLLBACK')
-      throw error
-    }
-  }
-  file(jobId: string, file: ExportFile) {
-    this.db
-      .prepare('INSERT OR REPLACE INTO export_files VALUES (?, ?, ?)')
-      .run(jobId, file.index, JSON.stringify(file))
-  }
+
   files(jobId: string): ExportFile[] {
     return (
       this.db
@@ -133,11 +84,7 @@ export class ExportStore {
     ).count
     return { files: rows.map((row) => JSON.parse(row.data) as ExportFile), total }
   }
-  task(task: BackgroundTask) {
-    this.db
-      .prepare('UPDATE export_jobs SET task = ? WHERE id = ?')
-      .run(JSON.stringify(task), task.id)
-  }
+
   jobs(): { manifest: ExportManifest; task: BackgroundTask }[] {
     return (
       this.db.prepare('SELECT manifest, task FROM export_jobs ORDER BY rowid').all() as {
@@ -146,15 +93,29 @@ export class ExportStore {
       }[]
     ).map((row) => ({ manifest: JSON.parse(row.manifest), task: JSON.parse(row.task) }))
   }
+}
+
+export class ExportStore extends ExportReadStore {
+  constructor(
+    db: DatabaseSync,
+    private writer: CatalogCommands,
+  ) {
+    super(db)
+  }
+  async authorize(path: string): Promise<ExportDestination> {
+    const directory = await directoryIdentity(path)
+    return this.writer.command({ operation: 'export.authorize', payload: directory })
+  }
+  accept(manifest: ExportManifest, task: BackgroundTask, custom: boolean) {
+    return this.writer.command({ operation: 'export.accept', payload: { manifest, task, custom } })
+  }
+  file(jobId: string, file: ExportFile) {
+    return this.writer.command({ operation: 'export.file', payload: { jobId, file } })
+  }
+  task(task: BackgroundTask) {
+    return this.writer.command({ operation: 'export.task', payload: { task } })
+  }
   dismiss(id: string) {
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      this.db.prepare('DELETE FROM export_files WHERE job_id = ?').run(id)
-      this.db.prepare('DELETE FROM export_jobs WHERE id = ?').run(id)
-      this.db.exec('COMMIT')
-    } catch (error) {
-      this.db.exec('ROLLBACK')
-      throw error
-    }
+    return this.writer.command({ operation: 'export.dismiss', payload: { id } })
   }
 }

@@ -105,7 +105,7 @@ test(
     await page.keyboard.up('Control')
     await expect.poll(async () => (await geometry(page)).scale).toBeGreaterThan(1)
     const after = await geometry(page)
-    expect(after.scale).toBeCloseTo(Math.exp(0.2), 5)
+    expect(after.scale).toBeCloseTo(1.1, 5)
     expect((65 - after.x) / after.scale).toBeCloseTo((65 - before.x) / before.scale, 3)
     expect((35 - after.y) / after.scale).toBeCloseTo((35 - before.y) / before.scale, 3)
     await page.mouse.down()
@@ -216,9 +216,20 @@ test('resizes Fit and manual views, preserves same-photo zoom across imports, an
   await expect.poll(async () => (await geometry(page)).height).toBe(fit.height)
   expect((await geometry(page)).scale).toBe(1)
   expect((await geometry(page)).x).toBe(manual.x)
-  await importPhotos(app, page, ['tests/fixtures/photos/forest-light.jpg'])
-  await expect(zoom).toHaveValue('1')
-  expect((await geometry(page)).x).toBe(manual.x)
+  await page.keyboard.down('Control')
+  try {
+    await importPhotos(app, page, ['tests/fixtures/photos/forest-light.jpg'])
+    await expect(zoom).toHaveValue('1')
+    expect((await geometry(page)).x).toBe(manual.x)
+    await page.getByTestId('preview-viewport').dispatchEvent('wheel', {
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: -120,
+    })
+    await expect.poll(async () => (await geometry(page)).scale).toBeCloseTo(1.1, 5)
+  } finally {
+    await page.keyboard.up('Control')
+  }
   await page.getByRole('button', { name: 'Select forest-light.jpg', exact: true }).click()
   await expect(zoom).toHaveValue('fit')
   await expect(page.getByTestId('main-preview')).toBeVisible()
@@ -323,9 +334,21 @@ test('keeps controls disabled after invalid frame metadata and recovers through 
         return wheel.defaultPrevented
       }),
     ).toBe(false)
-    await page.getByRole('button', { name: 'Retry', exact: true }).click()
-    await expect(page.getByTestId('main-preview')).toBeVisible()
-    await expect(page.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue('fit')
+    await page.keyboard.down('Control')
+    try {
+      await page.getByRole('button', { name: 'Retry', exact: true }).click()
+      await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
+      await expect(page.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue('fit')
+      const before = await geometry(page)
+      await page.getByTestId('preview-viewport').dispatchEvent('wheel', {
+        cancelable: true,
+        ctrlKey: true,
+        deltaY: -120,
+      })
+      await expect.poll(async () => (await geometry(page)).scale).toBeCloseTo(before.scale * 1.1, 5)
+    } finally {
+      await page.keyboard.up('Control')
+    }
   } finally {
     await gate.evaluate((control) => control.release())
     await gate.dispose()

@@ -1,20 +1,15 @@
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
-import type { Photo, PhotoReference } from '../shared/contracts'
-import type { ProcessingMetadata } from '../shared/lens'
-import type { MergeManifest } from '../shared/merge'
-import type { CaptureMetadata } from '../shared/capture-sequence'
+import type { PhotoReference } from '../shared/contracts'
 import {
   BROWSE_CHUNK_SIZE,
   BrowseCatalogChangedError,
   browseTerms,
   browseSectionLabel,
-  validatedCaptureDate,
   type BrowseQuery,
   type BrowseSummary,
   type BrowseChunk,
   type BrowseLocation,
   type BrowsePhoto,
-  type CaptureDateOrigin,
 } from '../shared/browse'
 
 interface Row {
@@ -29,7 +24,7 @@ const hash = /^[a-f0-9]{64}$/
 
 /** Only summaries and references span the catalog. Full photo records stay in 60-item chunks. */
 export class BrowseStore {
-  constructor(private db: DatabaseSync) {}
+  constructor(protected db: DatabaseSync) {}
 
   initialize() {
     this.db.exec(`
@@ -42,102 +37,6 @@ export class BrowseStore {
       CREATE TRIGGER IF NOT EXISTS browse_update AFTER UPDATE ON photo_browse BEGIN UPDATE browse_state SET revision = revision + 1; END;
       CREATE TRIGGER IF NOT EXISTS browse_delete AFTER DELETE ON photo_browse BEGIN UPDATE browse_state SET revision = revision + 1; END;
     `)
-  }
-
-  backfill() {
-    const rows = this.db
-      .prepare(
-        `SELECT p.id, p.photo, processing.data, derived_assets.manifest, capture_metadata.data AS capture FROM photos p
-      LEFT JOIN processing ON processing.id = p.id LEFT JOIN derived_assets ON derived_assets.id = p.id LEFT JOIN capture_metadata ON capture_metadata.photo_id = p.id
-      LEFT JOIN photo_browse b ON b.id = p.id WHERE b.id IS NULL`,
-      )
-      .all() as {
-      photo: string
-      data: string | null
-      manifest: string | null
-      capture: string | null
-    }[]
-    // Originals first, so legacy merge references resolve even when the source predates the index.
-    for (const row of rows.filter((r) => (JSON.parse(r.photo) as Photo).assetKind !== 'derived'))
-      this.put(
-        JSON.parse(row.photo),
-        row.data ? JSON.parse(row.data).metadata : undefined,
-        undefined,
-        row.capture ? JSON.parse(row.capture) : undefined,
-      )
-    for (const row of rows.filter((r) => (JSON.parse(r.photo) as Photo).assetKind === 'derived'))
-      this.put(
-        JSON.parse(row.photo),
-        row.data ? JSON.parse(row.data).metadata : undefined,
-        row.manifest ? JSON.parse(row.manifest) : undefined,
-      )
-  }
-
-  put(
-    photo: Photo,
-    metadata?: ProcessingMetadata,
-    manifest?: MergeManifest,
-    capture?: CaptureMetadata,
-  ) {
-    let capturedAt =
-      [capture?.preciseTime, capture?.dateTimeOriginal, metadata?.capturedAt, photo.capturedAt]
-        .map(validatedCaptureDate)
-        .find((date) => date !== null) ?? null
-    let origin: CaptureDateOrigin = capturedAt ? { kind: 'camera' } : { kind: 'unknown' }
-    if (photo.assetKind === 'derived') {
-      const recipe = manifest?.recipe ?? metadata?.mergeMaster?.recipe
-      const referenceId =
-        photo.captureDateOrigin?.kind === 'merge-reference'
-          ? photo.captureDateOrigin.photoId
-          : recipe?.settings?.referenceId
-      const source = recipe?.sources?.find((s) => s.id === referenceId)
-      if (referenceId) {
-        origin = photo.captureDateOrigin ?? {
-          kind: 'merge-reference',
-          photoId: referenceId,
-          filename: source?.filename ?? 'Unknown reference',
-        }
-        // Once recovered, keep the date independently of source deletion and immutable manifests.
-        const existing = this.db
-          .prepare('SELECT captured_at FROM photo_browse WHERE id = ?')
-          .get(photo.id) as { captured_at: string | null } | undefined
-        const reference = this.db
-          .prepare('SELECT captured_at FROM photo_browse WHERE id = ?')
-          .get(referenceId) as { captured_at: string | null } | undefined
-        capturedAt =
-          photo.captureDateOrigin?.kind === 'merge-reference'
-            ? validatedCaptureDate(photo.capturedAt ?? metadata?.capturedAt)
-            : (existing?.captured_at ?? reference?.captured_at ?? null)
-      } else capturedAt = null
-    }
-    const search = [
-      photo.filename,
-      photo.camera,
-      metadata?.make,
-      metadata?.model,
-      photo.lens,
-      metadata?.lens,
-      photo.format,
-      photo.capturedAt,
-      capturedAt?.replace(/\.0+$/, ''),
-    ]
-      .filter(Boolean)
-      .join('\n')
-      .toLowerCase()
-    const importedAt =
-      typeof photo.importedAt === 'string'
-        ? photo.importedAt
-        : ((
-            this.db.prepare('SELECT imported_at FROM photos WHERE id = ?').get(photo.id) as
-              { imported_at: string | null } | undefined
-          )?.imported_at ?? '')
-    this.db
-      .prepare(
-        `INSERT INTO photo_browse VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET filename=excluded.filename, imported_at=excluded.imported_at, captured_at=excluded.captured_at, origin=excluded.origin, search_text=excluded.search_text
-      WHERE filename != excluded.filename OR imported_at != excluded.imported_at OR captured_at IS NOT excluded.captured_at OR origin != excluded.origin OR search_text != excluded.search_text`,
-      )
-      .run(photo.id, photo.filename, importedAt, capturedAt, JSON.stringify(origin), search)
   }
 
   private revision(expected?: number) {

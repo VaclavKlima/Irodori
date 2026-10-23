@@ -14,8 +14,6 @@ interface Suite {
   scopes: Scope[]
   exclusive?: boolean
   family?: BenchmarkFamily
-  /** Experimental renderer builds are exercised only by their explicit targets. */
-  candidateBuild?: Record<string, string>
 }
 const definitions: Suite[] = [
   { file: 'research-pipeline', group: 'node', scopes: [] },
@@ -39,6 +37,7 @@ const definitions: Suite[] = [
   { file: 'export-jpeg', group: 'node', scopes: ['library'] },
   { file: 'export-gpu', group: 'raw-gpu', scopes: ['preview', 'library'] },
   { file: 'export-native', group: 'raw-gpu', scopes: ['library'] },
+  { file: 'export-native-fullsize', group: 'raw-gpu', scopes: [] },
   { file: 'export-context', group: 'service', scopes: ['library', 'mcp'] },
   { file: 'export-rendering', group: 'raw-gpu', scopes: ['preview', 'library'] },
   { file: 'export-ui', group: 'electron', scopes: ['ui', 'library', 'mcp'] },
@@ -50,6 +49,22 @@ const definitions: Suite[] = [
   { file: 'continuous-scroll-ui', group: 'electron', scopes: ['library', 'ui'] },
   { file: 'workspace-recovery-ui', group: 'electron', scopes: ['library', 'ui'] },
   { file: 'work-scheduler', group: 'node', scopes: ['library', 'preview'] },
+  { file: 'catalog-import-completion', group: 'node', scopes: ['library'] },
+  { file: 'catalog-writer', group: 'service', scopes: ['library', 'preview'] },
+  { file: 'resource-policy', group: 'node', scopes: ['ui', 'preview', 'library'] },
+  { file: 'resource-settings', group: 'node', scopes: ['ui', 'preview', 'library'] },
+  { file: 'resource-service', group: 'node', scopes: ['ui', 'preview', 'library'] },
+  { file: 'native-raw-executable', group: 'node', scopes: ['preview'] },
+  { file: 'native-raw-pipe', group: 'node', scopes: ['preview'] },
+  { file: 'native-raw-source', group: 'service', scopes: ['preview'] },
+  { file: 'native-raw-preparation', group: 'service', scopes: ['preview'] },
+  { file: 'native-raw-owner-lifecycle', group: 'service', scopes: ['preview'], exclusive: true },
+  {
+    file: 'resource-settings-ui',
+    group: 'electron',
+    scopes: ['ui', 'preview', 'library'],
+    exclusive: true,
+  },
   { file: 'import-pipeline', group: 'service', scopes: ['library'] },
   { file: 'import-preparation-raw', group: 'raw-gpu', scopes: ['library'] },
   {
@@ -121,21 +136,41 @@ const definitions: Suite[] = [
   { file: 'hdr', group: 'node', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-content', group: 'node', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-content-gpu', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
+  { file: 'canonical-math-diagnostic-gpu', group: 'raw-gpu', scopes: [] },
   { file: 'interactive-preview-gpu', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
   { file: 'interactive-preview-quality', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
   {
     file: 'interactive-preview-ui',
     group: 'raw-gpu',
     scopes: ['ui', 'preview', 'adjustments'],
-    candidateBuild: { VITE_LUMA_HDR_INTERACTIVE_PRECISION: 'f32' },
   },
   {
     file: 'interactive-preview-lifecycle',
     group: 'raw-gpu',
     scopes: ['ui', 'preview', 'adjustments'],
-    candidateBuild: { VITE_LUMA_HDR_INTERACTIVE_PRECISION: 'f32' },
   },
   { file: 'hdr-presentation-cache', group: 'node', scopes: ['preview'] },
+  { file: 'hdr-source-cache', group: 'node', scopes: ['preview'] },
+  { file: 'hdr-first-surface', group: 'node', scopes: ['preview'] },
+  { file: 'rgba16-validation', group: 'node', scopes: ['preview'] },
+  {
+    file: 'hdr-first-surface-orientation-gpu',
+    group: 'raw-gpu',
+    scopes: ['preview'],
+    exclusive: true,
+  },
+  { file: 'hdr-first-surface-service', group: 'service', scopes: ['preview'] },
+  { file: 'preview-process-lifecycle', group: 'service', scopes: ['preview'] },
+  { file: 'hdr-first-surface-ui', group: 'raw-gpu', scopes: ['preview', 'ui'], exclusive: true },
+  { file: 'native-cpu-pure', group: 'node', scopes: ['preview', 'library'] },
+  { file: 'native-hdr-mask-pure', group: 'node', scopes: ['preview'] },
+  { file: 'native-hdr-mask-controller', group: 'service', scopes: [], exclusive: true },
+  { file: 'native-hdr-mask-ui', group: 'raw-gpu', scopes: [], exclusive: true },
+  { file: 'native-cpu-executable', group: 'node', scopes: ['preview'] },
+  { file: 'native-hdr-mask-capability', group: 'service', scopes: [], exclusive: true },
+  { file: 'native-cpu-controller', group: 'service', scopes: [], exclusive: true },
+  { file: 'native-cpu-preview-ui', group: 'raw-gpu', scopes: [], exclusive: true },
+  { file: 'native-hdr-mask-parity', group: 'raw-gpu', scopes: [], exclusive: true },
   { file: 'hdr-readback', group: 'node', scopes: ['preview'] },
   { file: 'hdr-cpu-presenter', group: 'node', scopes: ['preview', 'adjustments'] },
   { file: 'write-hdr-strip', group: 'node', scopes: ['preview'] },
@@ -146,8 +181,8 @@ const definitions: Suite[] = [
     file: 'hdr-presentation-cache-ui',
     group: 'raw-gpu',
     scopes: ['ui', 'preview'],
-    candidateBuild: { VITE_LUMA_HDR_PRESENTATION_CACHE: '1' },
   },
+  { file: 'hdr-source-cache-ui', group: 'raw-gpu', scopes: ['ui', 'preview'], exclusive: true },
   { file: 'editor-responsiveness-benchmark', group: 'benchmark', scopes: [], family: 'hdr' },
   { file: 'editor-responsiveness-interference', group: 'benchmark', scopes: [], family: 'hdr' },
   {
@@ -171,10 +206,10 @@ const definitions: Suite[] = [
   { file: 'hdr-render-cache-gpu', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-interaction-ui', group: 'raw-gpu', scopes: ['ui', 'preview'] },
   { file: 'display-rendering', group: 'node', scopes: ['preview', 'adjustments'] },
+  { file: 'aces-reference-fixture', group: 'node', scopes: ['preview', 'adjustments'] },
   { file: 'display-rendering-reference', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-assets', group: 'service', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-pixel', group: 'service', scopes: ['preview', 'mcp'] },
-  { file: 'hdr-migration', group: 'service', scopes: ['library', 'adjustments'] },
   { file: 'hdr-math-gpu', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-raw', group: 'raw-gpu', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-jpeg', group: 'raw-gpu', scopes: ['preview', 'library', 'adjustments'] },
@@ -185,6 +220,8 @@ const definitions: Suite[] = [
   { file: 'wayland-display', group: 'node', scopes: ['ui', 'preview'] },
   { file: 'pan-drag', group: 'node', scopes: ['ui', 'preview'] },
   { file: 'hdr-diagnostic-ui', group: 'electron', scopes: ['ui', 'preview'] },
+  { file: 'recovery-color-gpu', group: 'raw-gpu', scopes: [], exclusive: true },
+  { file: 'raw-half-recovery-ui', group: 'electron', scopes: [], exclusive: true },
   ...['white-balance', 'statistics', 'contrast', 'highlights', 'tonal-adjustments', 'edits'].map(
     (file) => ({
       file,
@@ -198,17 +235,7 @@ const definitions: Suite[] = [
     scopes: ['preview'] as Scope[],
   })),
   { file: 'verification', group: 'node', scopes: ['mcp'] },
-  ...[
-    'white-balance-migration',
-    'contrast-migration',
-    'highlights-migration',
-    'tonal-migration',
-    'edit-history',
-  ].map((file) => ({
-    file,
-    group: 'service' as const,
-    scopes: ['adjustments', 'library'] as Scope[],
-  })),
+  { file: 'edit-history', group: 'service', scopes: ['adjustments', 'library'] },
   { file: 'adjustment-engine', group: 'service', scopes: ['adjustments', 'preview'] },
   { file: 'full-previews', group: 'service', scopes: ['preview', 'adjustments'] },
   ...['library', 'deletion'].map((file) => ({
@@ -304,7 +331,6 @@ export interface VerificationPlan {
   uiMode: 'background' | 'foreground'
   targets: string[]
   requestedTargets: string[]
-  candidateBuilds?: { target: string; environment: Record<string, string>; selected: boolean }[]
   staticChecks: boolean
   build: boolean
   mcp: boolean
@@ -399,7 +425,6 @@ export function selectPlan(args: string[]): VerificationPlan {
     )
     mcp = requested.includes('mcp')
   }
-  if (mode !== '--target') selected = selected.filter((suite) => !suite.candidateBuild)
   const groups: ExecutionGroup[] = []
   const add = (
     name: Group,
@@ -461,13 +486,6 @@ export function selectPlan(args: string[]): VerificationPlan {
       ...(mcp ? [isolatedMcp.target] : []),
     ],
     requestedTargets,
-    candidateBuilds: suites
-      .filter((suite) => suite.candidateBuild)
-      .map((suite) => ({
-        target: suite.target,
-        environment: suite.candidateBuild!,
-        selected: selected.includes(suite),
-      })),
     staticChecks,
     // Library service tests also exercise the bundled preview worker.
     build: mcp || groups.some((group) => group.name !== 'node'),

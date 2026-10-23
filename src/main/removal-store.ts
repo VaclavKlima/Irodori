@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { lstat, mkdir, rename } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
+import type { CatalogCommands } from './catalog/contracts'
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -19,7 +20,7 @@ export class RemovalStore {
     private root: string,
     private db: DatabaseSync,
     private trash: (path: string) => Promise<void>,
-    private repairMemberships: (id: string) => void = () => {},
+    private writer: CatalogCommands,
   ) {}
 
   private paths(id: string, staged: string) {
@@ -31,17 +32,8 @@ export class RemovalStore {
     }
   }
 
-  private finish(id: string) {
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      this.db.prepare('DELETE FROM photos WHERE id = ?').run(id)
-      this.repairMemberships(id)
-      this.db.prepare('DELETE FROM removals WHERE id = ?').run(id)
-      this.db.exec('COMMIT')
-    } catch (error) {
-      this.db.exec('ROLLBACK')
-      throw error
-    }
+  private finish(id: string): Promise<void> {
+    return this.writer.command({ operation: 'removal.finish', payload: { id } })
   }
 
   async recover(): Promise<void> {
@@ -58,10 +50,10 @@ export class RemovalStore {
             'Both original and removal staging exist. Recovery requires checking the library files.',
           )
         await rename(paths.removed, paths.original)
-        this.db.prepare('DELETE FROM removals WHERE id = ?').run(id)
+        await this.writer.command({ operation: 'removal.clear', payload: { id } })
       } else if (await exists(paths.original)) {
-        this.db.prepare('DELETE FROM removals WHERE id = ?').run(id)
-      } else this.finish(id)
+        await this.writer.command({ operation: 'removal.clear', payload: { id } })
+      } else await this.finish(id)
     }
     // Unjournaled directories may have been restored from OS Trash. Never erase them.
   }
@@ -69,7 +61,7 @@ export class RemovalStore {
   async remove(id: string): Promise<void> {
     const staged = `${id}-${randomUUID()}`
     const paths = this.paths(id, staged)
-    this.db.prepare('INSERT INTO removals (id, staged) VALUES (?, ?)').run(id, staged)
+    await this.writer.command({ operation: 'removal.journal', payload: { id, staged } })
     try {
       await rename(paths.original, paths.removed)
       await this.trash(paths.removed)
@@ -77,7 +69,7 @@ export class RemovalStore {
       try {
         if (await exists(paths.removed)) await rename(paths.removed, paths.original)
         if (await exists(paths.original))
-          this.db.prepare('DELETE FROM removals WHERE id = ?').run(id)
+          await this.writer.command({ operation: 'removal.clear', payload: { id } })
       } catch (restoreError) {
         throw new Error(
           `Trash failed and the photo needs recovery on restart: ${String(error)}; ${String(restoreError)}`,
@@ -86,7 +78,7 @@ export class RemovalStore {
       }
       throw error
     }
-    this.finish(id)
+    await this.finish(id)
   }
 
   stagedPath(id: string): string | undefined {

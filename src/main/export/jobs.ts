@@ -8,6 +8,7 @@ import {
   exportFilename,
   exportPresets,
   validateExportOptions,
+  validateExportPhotoIds,
   EXPORT_CODEC_VERSION,
   EXPORT_RENDERING_VERSION,
   type ExportPreparation,
@@ -27,12 +28,14 @@ import {
 } from './files'
 import type { ExportFile, ExportManifest, ExportSource, ExportRenderResult } from './types'
 import { ExportProcess } from './process'
-import { verifyUltraHdrBundle } from './codec'
+import { verifyExportEncoder } from './encoder'
 import { COLLECTION_CHUNK_SIZE } from '../../shared/collections'
 import { DISPLAY_RENDERING_VERSION, HDR_CONTENT_VERSION } from '../../shared/display-rendering'
 import { ADJUSTMENT_VERSION } from '../../shared/adjustments'
 import { LENS_RENDER_VERSION } from '../processing/lens-correction'
 import type { WorkingAssetLease } from '../working-assets'
+import type { ExportWorkerProgress, ExportWorkerProgressSnapshot } from '../../shared/export'
+import { acceptExportWorkerProgress, exportProgressOwner } from './progress'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const active = (task: BackgroundTask) => task.status === 'running' || task.status === 'cancelling'
@@ -44,6 +47,7 @@ interface Job {
   work: Promise<void>
   started: boolean
   early?: Promise<void>
+  workerProgress?: ExportWorkerProgressSnapshot
 }
 export class ExportJobs {
   private preparations = new Map<string, { sources: ExportSource[]; created: number }>()
@@ -80,19 +84,15 @@ export class ExportJobs {
     return this.jobs.has(id)
   }
   list() {
-    return [...this.jobs.values()].map((j) => structuredClone(j.task))
+    return [...this.jobs.values()].map((j) => ({
+      ...structuredClone(j.task),
+      ...(j.workerProgress ? { exportWorkerProgress: structuredClone(j.workerProgress) } : {}),
+    }))
   }
   async prepare(ids: string[]): Promise<ExportPreparation> {
-    if (
-      this.closed ||
-      !Array.isArray(ids) ||
-      !ids.length ||
-      ids.length > 100000 ||
-      ids.some((id) => typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id))
-    )
-      throw new Error('Choose photographs to export.')
+    if (this.closed) throw new Error('Choose photographs to export.')
     const sources: ExportSource[] = []
-    for (const id of new Set(ids)) sources.push(await this.readSource(id))
+    for (const id of validateExportPhotoIds(ids)) sources.push(await this.readSource(id))
     if (this.closed || sources.some((source) => !this.current(source)))
       throw new Error('Export targets changed. Open the export chooser again.')
     const id = randomUUID()
@@ -118,7 +118,7 @@ export class ExportJobs {
   dispose(id: string) {
     this.preparations.delete(id)
   }
-  async start(request: ExportStart): Promise<string> {
+  private preparationForStart(request: ExportStart) {
     if (
       this.closed ||
       !request ||
@@ -131,6 +131,13 @@ export class ExportJobs {
     const prepared = this.preparations.get(request.preparationId)
     if (!prepared || Date.now() - prepared.created > 15 * 60_000)
       throw new Error('Export preparation expired. Open the export chooser again.')
+    return prepared
+  }
+  preparedPhotoIds(request: ExportStart): string[] {
+    return this.preparationForStart(request).sources.map((source) => source.photo.id)
+  }
+  async start(request: ExportStart): Promise<string> {
+    const prepared = this.preparationForStart(request)
     const preset = exportPresets.find((p) => p.id === request.action)
     if (!preset && !['custom', 'last-custom'].includes(request.action))
       throw new Error('Invalid export action.')
@@ -151,7 +158,7 @@ export class ExportJobs {
     }
     const grant = this.store.grant(request.destinationId)
     if (options.output !== 'sdr' && prepared.sources.some((source) => source.hdr))
-      await verifyUltraHdrBundle()
+      await verifyExportEncoder()
     await validateDirectory(grant)
     for (const source of prepared.sources) {
       const current = await lstat(source.path)
@@ -200,7 +207,7 @@ export class ExportJobs {
             destinationLabel: grant.path,
           },
         }
-        this.store.accept(manifest, task, request.action === 'custom')
+        await this.store.accept(manifest, task, request.action === 'custom')
         this.preparations.delete(request.preparationId)
         const job: Job = {
           manifest,
@@ -224,8 +231,8 @@ export class ExportJobs {
       }),
     )
   }
-  private persist(job: Job) {
-    this.store.task(job.task)
+  private async persist(job: Job) {
+    await this.store.task(job.task)
     this.changed()
   }
   private async cleanup(job: Job, file: ExportFile) {
@@ -238,6 +245,7 @@ export class ExportJobs {
   }
   private async run(job: Job) {
     const { manifest, task, abort } = job
+    let activeAttempt: object | undefined
     const held = new Set(manifest.sources.map((s) => s.photo.id))
     try {
       for (const [index, source] of manifest.sources.entries()) {
@@ -256,7 +264,7 @@ export class ExportJobs {
           abort.signal.throwIfAborted()
           task.detail = source.photo.filename
           task.phase = 'Rendering from frozen edits'
-          this.persist(job)
+          await this.persist(job)
           const directory = join(this.root, 'export-work', manifest.id, String(index))
           const preparationDirectory = join(
             this.root,
@@ -283,32 +291,81 @@ export class ExportJobs {
                 if (source.hdr && !source.processing.metadata.mergeMaster && !workingAsset)
                   workingAsset = await this.acquireWorkingAsset?.(source, signal)
                 sourceValidationMs += performance.now() - validationStarted
-                return this.renderer.render(
-                  {
-                    source,
-                    options: manifest.options,
-                    directory,
-                    preparationDirectory,
-                    workingAsset: workingAsset
-                      ? {
-                          identity: workingAsset.identity,
-                          asset: workingAsset.asset,
-                          backend: workingAsset.backend,
-                          fallback: workingAsset.fallback,
-                        }
-                      : undefined,
-                    hdr:
-                      manifest.options.output === 'hdr' ||
-                      (manifest.options.output === 'auto' && source.hdr),
-                  },
-                  signal,
-                )
+                const attempt = {}
+                activeAttempt = attempt
+                const workerProgressIdentity = {
+                  exportId: manifest.id,
+                  fileIndex: index,
+                  attemptId: randomUUID(),
+                }
+                const diagnostic = (job.workerProgress ??= { counter: 0, dropped: 0, events: [] })
+                diagnostic.active = {
+                  fileIndex: index,
+                  attemptId: workerProgressIdentity.attemptId,
+                }
+                const renderJob: Parameters<ExportProcess['render']>[0] = {
+                  source,
+                  options: manifest.options,
+                  directory,
+                  preparationDirectory,
+                  workingAsset: workingAsset
+                    ? {
+                        identity: workingAsset.identity,
+                        asset: workingAsset.asset,
+                        backend: workingAsset.backend,
+                        fallback: workingAsset.fallback,
+                      }
+                    : undefined,
+                  hdr:
+                    manifest.options.output === 'hdr' ||
+                    (manifest.options.output === 'auto' && source.hdr),
+                  workerProgressIdentity,
+                }
+                const owner = exportProgressOwner(
+                  renderJob,
+                  performance.timeOrigin + performance.now(),
+                )!
+                let previous: ExportWorkerProgress | undefined
+                try {
+                  return await this.renderer.render(renderJob, signal, (value) => {
+                    if (
+                      this.closed ||
+                      signal.aborted ||
+                      abort.signal.aborted ||
+                      task.status !== 'running' ||
+                      this.jobs.get(manifest.id) !== job ||
+                      activeAttempt !== attempt
+                    )
+                      return
+                    const accepted = acceptExportWorkerProgress(
+                      value,
+                      owner,
+                      previous,
+                      performance.timeOrigin + performance.now(),
+                    )
+                    if (!accepted) return
+                    previous = accepted
+                    diagnostic.counter++
+                    if (diagnostic.events.length === 64) {
+                      diagnostic.events.shift()
+                      diagnostic.dropped++
+                    }
+                    diagnostic.events.push(accepted)
+                    this.changed()
+                  })
+                } finally {
+                  if (activeAttempt === attempt) {
+                    activeAttempt = undefined
+                    delete diagnostic.active
+                    this.changed()
+                  }
+                }
               }, abort.signal)
             } catch (error) {
               if (!(error instanceof ForegroundYield)) throw error
               retries++
               task.phase = 'Waiting for foreground work'
-              this.persist(job)
+              await this.persist(job)
             }
           } while (!rendered)
           abort.signal.throwIfAborted()
@@ -321,7 +378,7 @@ export class ExportJobs {
             file.diagnostics.stages.sourceValidationMs = sourceValidationMs
             file.diagnostics.stages.publicationMs = performance.now() - publishStarted
             file.diagnostics.stages.fileMs = performance.now() - started
-            this.store.file(manifest.id, file)
+            await this.store.file(manifest.id, file)
             if (process.env.LUMA_EXPORT_DIAGNOSTICS)
               console.info('Export diagnostics', { photoId: source.photo.id, ...file.diagnostics })
           }
@@ -349,7 +406,7 @@ export class ExportJobs {
           } catch (error) {
             file.message += ` Partial cleanup: ${message(error)}`
           }
-          this.store.file(manifest.id, file)
+          await this.store.file(manifest.id, file)
         } finally {
           // render() settles only after the worker and its process tree have exited.
           workingAsset?.release()
@@ -367,7 +424,7 @@ export class ExportJobs {
         task.export![file.status as 'exported' | 'skipped' | 'failed' | 'cancelled']++
         task.progress!.completed++
         task.errorCount = task.export!.failed
-        this.persist(job)
+        await this.persist(job)
       }
       task.status = abort.signal.aborted
         ? 'cancelled'
@@ -387,7 +444,7 @@ export class ExportJobs {
             : 'Export complete'
       task.phase = undefined
       task.finishedAt = Date.now()
-      this.persist(job)
+      await this.persist(job)
     }
   }
   private async publish(job: Job, file: ExportFile, rendered: { path: string; sha256: string }) {
@@ -399,7 +456,7 @@ export class ExportJobs {
     try {
       file.identity = identity(await handle.stat())
       file.status = 'writing'
-      this.store.file(job.manifest.id, file)
+      await this.store.file(job.manifest.id, file)
       await this.boundary('partial')
       for await (const chunk of createReadStream(rendered.path)) {
         job.abort.signal.throwIfAborted()
@@ -410,7 +467,7 @@ export class ExportJobs {
       file.sha256 = await hashFile(partial)
       if (file.sha256 !== rendered.sha256)
         throw new Error('Export validation failed before publication.')
-      this.store.file(job.manifest.id, file)
+      await this.store.file(job.manifest.id, file)
       await this.boundary('ready')
     } finally {
       await handle.close()
@@ -422,7 +479,7 @@ export class ExportJobs {
       for (let collision = 0; collision < 100000; collision++) {
         file.outputName = collision ? name.replace(/\.jpg$/, ` (${collision + 1}).jpg`) : name
         file.status = 'publishing'
-        this.store.file(job.manifest.id, file)
+        await this.store.file(job.manifest.id, file)
         await this.boundary('publishing')
         const owned = await lstat(partial)
         if (
@@ -453,12 +510,12 @@ export class ExportJobs {
           throw new Error('The published JPEG could not be verified.')
         await syncDirectory(grant.path)
         file.status = 'exported'
-        this.store.file(job.manifest.id, file)
+        await this.store.file(job.manifest.id, file)
         await this.boundary('recorded')
         break
       }
       if (file.status === 'publishing') throw new Error('Too many filename collisions.')
-      this.store.file(job.manifest.id, file)
+      await this.store.file(job.manifest.id, file)
       await this.cleanup(job, file)
     }, job.abort.signal)
   }
@@ -514,7 +571,7 @@ export class ExportJobs {
           }
         }
         counts[file.status as keyof typeof counts]++
-        this.store.file(task.id, file)
+        await this.store.file(task.id, file)
       }
       task.export = { ...task.export!, ...counts }
       task.errorCount = counts.failed
@@ -527,7 +584,7 @@ export class ExportJobs {
       task.title = 'Export interrupted'
       task.phase = undefined
       task.finishedAt = Date.now()
-      this.store.task(task)
+      await this.store.task(task)
     }
     await rm(join(this.root, 'export-work'), { recursive: true, force: true })
   }
@@ -560,17 +617,25 @@ export class ExportJobs {
     job.task.status = 'cancelling'
     job.task.title = 'Cancelling export…'
     job.abort.abort()
-    this.persist(job)
+    // Capture the cancelling state before an early run can advance it. Persistence
+    // and cleanup are both owned, so either rejection must still join the other.
+    const persistence = this.persist(job)
     if (!job.started) {
       job.started = true
       job.early = this.scheduler.detached(() => this.run(job))
     }
-    await (job.early ?? job.work)
+    const settled = await Promise.allSettled([persistence, job.early ?? job.work])
+    const failures = settled.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : [],
+    )
+    if (failures.length === 1) throw failures[0]
+    if (failures.length)
+      throw new AggregateError(failures, 'Export cancellation could not save its final state.')
   }
-  dismiss(id: string) {
+  async dismiss(id: string) {
     const job = this.jobs.get(id)
     if (job && active(job.task)) throw new Error('Cancel the export before dismissing it.')
-    this.store.dismiss(id)
+    await this.store.dismiss(id)
     this.jobs.delete(id)
     this.changed()
   }

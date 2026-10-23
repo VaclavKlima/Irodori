@@ -1,5 +1,11 @@
 # Image-processing core research
 
+This report preserves the original October 16 research phase and its decisions.
+Its deferred-migration and unchanged-production statements describe that source
+and experiment. The later authorized [Bazzite native-engine goal](bazzite-native-engine.md)
+records current selected implementations and acceptance; it does not erase
+the independent failures or platform limits retained here.
+
 Status: **research only; migration decision deferred**. The branch starts at `1fc4adaa014ba067e59b5e012c909cc721e3ecda` on clean `main`. Production editing, rendering versions, numerical thresholds, the typed bridge, history, and disabled controls are unchanged. There is no node editor, runtime plugin loader, or new application feature.
 
 The experiment asks whether a region-aware internal graph can retain photographic detail and accommodate spatial/local operations while improving interaction and background completion. A faster blurred frame is not evidence of a better editor. Higher CPU/GPU utilization is not an acceptance criterion by itself.

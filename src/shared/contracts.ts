@@ -5,7 +5,7 @@ import type { AdjustmentParameters } from './adjustments'
 import type { DisplayTransform } from './adjustments'
 import type { HdrWorkingAsset, DisplayTarget, DisplayCapabilities } from './hdr'
 import type { PreviewPreference } from './hdr-display'
-import type { EditState, EditPatch, EditHistory } from './edits'
+import type { EditState, EditPatch, EditHistory, EditFlushScope } from './edits'
 import type { CorrectionKind, LensSettings, LensState } from './lens'
 export interface AppInfo {
   version: string
@@ -20,7 +20,14 @@ export interface ForegroundActivity {
   reviewId?: string
 }
 
-export interface LumaApi {
+export interface LumaApi extends NativeCpuPreviewBridge, NativeHdrMaskBridge {
+  getResourceSettings(): Promise<import('./resource-policy').ResourceSettingsView>
+  setResourceSettings(
+    value: import('./resource-policy').ResourceSettings,
+  ): Promise<import('./resource-policy').ResourceSettingsView>
+  getResourcePolicy(
+    adapter: import('./resource-policy').ResourceAdapterIdentity | null,
+  ): Promise<import('./resource-policy').ResourcePolicySnapshot>
   getExportCapabilities(): Promise<import('./export').ExportCapabilities>
   getExportPreferences(): Promise<import('./export').ExportPreferences>
   chooseExportDestination(): Promise<import('./export').ExportDestination | null>
@@ -108,7 +115,7 @@ export interface LumaApi {
   disposeMergeReview(id: string): Promise<void>
   getMergeProvenance(
     photoId: string,
-  ): Promise<{ manifest: import('./merge').MergeManifest; reproducible: boolean }>
+  ): Promise<{ manifest: import('./merge').MergeBundleManifest; reproducible: boolean }>
 
   getPreviewDiagnostics(): Promise<import('./preview-diagnostics').PreviewDiagnostics>
   reportPreviewPresentation(
@@ -119,7 +126,7 @@ export interface LumaApi {
   reportDisplayCapabilities(capabilities: DisplayCapabilities): Promise<DisplayTarget>
   onDisplayState(listener: (state: DisplayTarget) => void): () => void
   onDisplayRefresh(listener: () => void): () => void
-  onFlushEdits(listener: () => Promise<void>): () => void
+  onFlushEdits(listener: (scope: EditFlushScope) => Promise<void>): () => void
   getPhotoStatistics(photoId: string, expectedRevision: number): Promise<PhotoStatistics>
   getPhotoStatistics(
     photoId: string,
@@ -167,7 +174,13 @@ export interface LumaApi {
     requestId: string,
     regenerate?: boolean,
     mode?: 'sdr' | 'hdr',
+    firstSurface?: import('./hdr-first-surface').HdrFirstSurfaceRequest,
+    rendererReservation?: import('./resource-policy').ManagedImageBytes,
   ): Promise<HdrPreview | null>
+  onHdrFirstSurface(
+    listener: (offer: import('./hdr-first-surface').HdrFirstSurfaceOffer) => void,
+  ): () => void
+  releaseHdrFirstSurface(requestId: string, surfaceId: string): Promise<void>
   requestEditingPreview(photoId: string, requestId: string): Promise<FullPreview>
   requestFullPreview(photoId: string, requestId: string, regenerate?: boolean): Promise<FullPreview>
   requestCachedFullPreview(photoId: string, requestId: string): Promise<FullPreview | null>
@@ -232,12 +245,16 @@ export interface LinearAsset {
   transform: DisplayTransform
 }
 export interface HdrPreview extends Omit<FullPreview, 'format'> {
+  firstSurfacePolicy?: import('./resource-policy').ResourcePolicySnapshot
+  firstSurfaceLineage?: { parentWorkingKey: string; workingSha256: string }
+  firstSurfaceDecline?: string
   format: 'hdr-working'
   linear: LinearAsset & { hdr: HdrWorkingAsset; url: string }
 }
 export type DisplayPreview = FullPreview | HdrPreview
 
 export interface FullPreview {
+  cpuSource?: import('./native-cpu-preview').CpuPreviewSourceRef
   adjustments?: AdjustmentParameters
   linear?: LinearAsset
   settingsRevision?: number
@@ -262,6 +279,7 @@ export interface PhotoPage {
 }
 
 export interface BackgroundTask {
+  exportWorkerProgress?: import('./export').ExportWorkerProgressSnapshot
   mergeMeasurements?: import('./merge').MergeMeasurements
   kind: 'import' | 'delete' | 'merge' | 'capture-grouping' | 'export'
   export?: {
@@ -386,3 +404,6 @@ export interface LibraryEvent {
 }
 
 export { COLLECTION_CHUNK_SIZE } from './collections'
+import type { NativeCpuPreviewBridge } from './native-cpu-preview'
+
+import type { NativeHdrMaskBridge } from './native-hdr-mask'

@@ -1,206 +1,314 @@
 import { expect, test } from '@playwright/test'
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { DatabaseSync } from 'node:sqlite'
+import { PhotoLibrary } from './photo-library.helpers'
 import { processingMetadata } from '../src/main/processing/metadata'
-import type { BrowseQuery } from '../src/shared/browse'
-import { initialSettings } from '../src/shared/edits'
+import { initialSettings, type EditHistory } from '../src/shared/edits'
 import { noLensSettings } from '../src/shared/lens'
-import { MERGE_VERSION, type MergeManifest } from '../src/shared/merge'
-import { sequenceMetadata } from './capture.helpers'
-import { syntheticMerge } from './merge.helpers'
-import { stackFixture, finishTask } from './stack.helpers'
+import type { Photo } from '../src/shared/contracts'
 
-const query: BrowseQuery = { search: '', grouping: 'date' }
-
-function removeBrowseIndex(fixture: Awaited<ReturnType<typeof stackFixture>>) {
-  fixture.db.exec(
-    'DROP TRIGGER remove_browse; DROP TABLE photo_browse; DROP TABLE browse_state; PRAGMA user_version = 14;',
-  )
+const timestamp = '2026-10-22T12:00:00.000Z'
+const processor = {
+  process: async () => {
+    throw new Error('Catalog checks must not decode originals.')
+  },
+  close: async () => {},
 }
 
-test('version 14 backfills stored capture and processing metadata transactionally without decoding and preserves edits on restart', async () => {
-  const t = await stackFixture(3)
-  try {
-    const ids = t.photos.map((p) => p.id)
-    const metadata = processingMetadata(
-      {
-        'IFD0:Make': 'SONY',
-        'IFD0:Model': 'ZV-1',
-        'ExifIFD:LensModel': 'Legacy ZEISS lens',
-        'ExifIFD:DateTimeOriginal': '2026:09:30 23:59:00-1200',
-      },
-      [],
+function catalogSnapshot(db: DatabaseSync) {
+  const schema = db
+    .prepare('SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name')
+    .all()
+  const tables = db
+    .prepare(
+      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT GLOB 'sqlite_*' ORDER BY name",
     )
-    t.db
-      .prepare('INSERT INTO processing VALUES (?, ?)')
-      .run(ids[1], JSON.stringify({ metadata, settings: noLensSettings, revision: 0 }))
-    const snapshots = [-1.25, 0.5, 2.25].map((exposureEv, i) => ({
-      settings: {
-        ...initialSettings(noLensSettings),
-        processing: 'display-referred-v1',
-        exposureEv,
-      },
-      createdAt: `2026-09-0${i + 1}T12:00:00.000Z`,
-    }))
-    const history = {
-      photoId: ids[1],
-      revision: 17,
-      settings: snapshots[1].settings,
-      snapshots,
-      cursor: 1,
-      canUndo: true,
-      canRedo: true,
+    .all() as { name: string }[]
+  return {
+    schema,
+    version: db.prepare('PRAGMA user_version').get(),
+    journalMode: db.prepare('PRAGMA journal_mode').get(),
+    rows: tables.map(({ name }) => ({
+      name,
+      rows: db.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all(),
+    })),
+  }
+}
+
+async function fixture() {
+  const root = await mkdtemp(join(tmpdir(), 'luma-current-catalog-'))
+  let library = new PhotoLibrary(root, processor, () => {})
+  await library.open()
+  const originals = new Map<string, Buffer>()
+  const photos: Photo[] = []
+  for (let index = 0; index < 2; index++) {
+    const id = (index ? 'b' : 'a').repeat(64)
+    const photo: Photo = {
+      id,
+      filename: index ? 'Authored.png' : 'Capture.ARW',
+      format: index ? 'PNG' : 'ARW',
+      width: 3,
+      height: 2,
+      bytes: 12,
+      importedAt: timestamp,
+      previewSource: 'image',
+      thumbnailUrl: '',
+      previewUrl: '',
     }
-    t.db.prepare('INSERT INTO edits VALUES (?, ?)').run(ids[1], JSON.stringify(history))
-    t.capture(0, sequenceMetadata(1, '2026-10-01T00:01:00+14:00'))
-    t.capture(2, {
-      ...sequenceMetadata(2, 'malformed precise time'),
-      dateTimeOriginal: '2024:02:29 23:59:59-1200',
-    })
-    t.db
-      .prepare('UPDATE photos SET photo = ? WHERE id = ?')
-      .run(JSON.stringify({ ...t.photos[0], capturedAt: '1999-01-01' }), ids[0])
-    t.db
-      .prepare('UPDATE photos SET photo = ? WHERE id = ?')
-      .run(JSON.stringify({ ...t.photos[2], capturedAt: '2026-02-29' }), ids[2])
-    await t.library.close()
-    removeBrowseIndex(t)
-    const originalRows = t.db.prepare('SELECT id, photo FROM photos ORDER BY id').all()
-    // The fixture processor throws if invoked; migration must use only catalog metadata.
-    await t.restart()
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
-    expect(t.db.prepare('SELECT id, photo FROM photos ORDER BY id').all()).toEqual(originalRows)
-    expect(t.library.getBrowseSummary(query).sections.map((s) => [s.key, s.count])).toEqual([
-      ['2026-10-01', 1],
-      ['2026-09-30', 1],
-      ['2024-02-29', 1],
-    ])
-    expect(t.library.getBrowseSummary({ ...query, search: 'sony zeiss 2026-09' }).total).toBe(1)
-    expect(await t.library.getEditHistory(ids[1])).toMatchObject(history)
-    const indexed = t.library.getBrowseChunk(query)
-    expect(indexed.photos.map((p) => p.dateOrigin)).toEqual([
-      { kind: 'camera' },
-      { kind: 'camera' },
-      { kind: 'camera' },
-    ])
-    await t.restart()
-    expect(t.library.getBrowseChunk(query)).toEqual(indexed)
-    expect(await t.library.getEditHistory(ids[1])).toMatchObject(history)
-    expect((await t.library.redoEdit(ids[1], 17)).settings.exposureEv).toBe(2.25)
-    for (const [i, id] of ids.entries())
-      expect(await readFile(join(t.root, 'library', 'originals', id, 'original.jpg'), 'utf8')).toBe(
-        `original-${i}`,
-      )
-  } finally {
-    await t.close()
-  }
-})
-
-test('failed browse backfill rolls back its partial rows and schema version before a clean retry', async () => {
-  const t = await stackFixture(2)
-  try {
-    t.capture(0, sequenceMetadata(1))
-    t.capture(1, sequenceMetadata(2))
-    await t.library.close()
-    removeBrowseIndex(t)
-    t.db
-      .prepare('UPDATE capture_metadata SET data = ? WHERE photo_id = ?')
-      .run('{invalid json', t.photos[1].id)
-    const originals = t.db.prepare('SELECT * FROM photos ORDER BY id').all()
-    await expect(t.restart()).rejects.toThrow()
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 14 })
-    expect(
-      t.db
-        .prepare(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('photo_browse', 'browse_state')",
-        )
-        .all(),
-    ).toEqual([])
-    expect(t.db.prepare('SELECT * FROM photos ORDER BY id').all()).toEqual(originals)
-    await t.library.close()
-    t.capture(1, sequenceMetadata(2))
-    await t.restart()
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
-    expect(t.library.getBrowseSummary(query).total).toBe(2)
-    const before = t.library.getBrowseChunk(query)
-    await t.restart()
-    expect(t.library.getBrowseChunk(query)).toEqual(before)
-  } finally {
-    await t.close()
-  }
-})
-
-test('legacy merge dates inherit surviving references, persist after their deletion and keep immutable manifests', async () => {
-  const t = await stackFixture(4)
-  const f = await syntheticMerge([1, 1])
-  try {
-    const ids = t.photos.map((p) => p.id)
-    t.capture(1, sequenceMetadata(1, '2024-02-29T00:05:00+14:00'))
-    const manifests: string[] = []
-    for (const index of [2, 3]) {
-      const photo = {
-        ...t.photos[index],
-        assetKind: 'derived' as const,
-        filename: `Legacy-${index}.luma`,
-        format: 'LUMA HDR',
-      }
-      const recipe = structuredClone(f.result.recipe)
-      if (index === 3) {
-        recipe.settings.referenceId = 'e'.repeat(64)
-        recipe.sources[1].id = recipe.settings.referenceId
-      }
-      const manifest: MergeManifest = {
-        version: MERGE_VERSION,
-        asset: f.result.asset,
-        recipe,
+    const path = join(root, 'originals', id, index ? 'original.png' : 'original.arw')
+    const bytes = Buffer.from(`untouched-original-${index}`)
+    await mkdir(join(root, 'originals', id))
+    await writeFile(path, bytes)
+    originals.set(path, bytes)
+    photos.push(photo)
+    await library.catalogCommands.command({
+      operation: 'original.publish',
+      payload: {
         photo,
-        metadata: { ...f.sources[1].metadata, capturedAt: undefined },
-      }
-      const json = JSON.stringify(manifest)
-      manifests.push(json)
-      t.db
-        .prepare('UPDATE photos SET photo = ? WHERE id = ?')
-        .run(JSON.stringify(photo), ids[index])
-      t.db.prepare('INSERT INTO derived_assets VALUES (?, ?)').run(ids[index], json)
-      await writeFile(join(t.root, 'library', 'originals', ids[index], 'manifest.json'), json)
-    }
-    await t.library.close()
-    removeBrowseIndex(t)
-    await t.restart()
-    const inherited = t.library.locateBrowsePhoto(query, ids[2])!.photo
-    expect(inherited.captureDate).toBe('2024-02-29T00:05:00.000000000000000000')
-    expect(inherited.dateOrigin).toEqual({
-      kind: 'merge-reference',
-      photoId: ids[1],
-      filename: f.sources[1].photo.filename,
+        processingIdentity: index ? 'display-referred-v1' : 'hdr-v1',
+        metadata: { ...processingMetadata({}, []), hdrEligible: !index },
+        createdAt: timestamp,
+      },
     })
-    const unknown = t.library.locateBrowsePhoto(query, ids[3])!.photo
-    expect(unknown.captureDate).toBeNull()
-    expect(unknown.dateOrigin).toMatchObject({ kind: 'merge-reference', photoId: 'e'.repeat(64) })
-    expect(t.library.getBrowseSection(query, '2024-02-29').map((p) => p.id)).toEqual([
-      ids[2],
-      ids[1],
-    ])
-    expect((await finishTask(t.library, t.library.deletePhotos([ids[0], ids[1]])!)).status).toBe(
-      'completed',
-    )
-    expect(t.library.locateBrowsePhoto(query, ids[2])!.photo).toEqual(inherited)
-    await t.restart()
-    expect(t.library.locateBrowsePhoto(query, ids[2])!.photo).toEqual(inherited)
-    expect(t.library.getBrowseSummary(query).sections.map((s) => [s.key, s.count])).toEqual([
-      ['2024-02-29', 1],
-      ['unknown', 1],
-    ])
-    for (const [i, index] of [2, 3].entries()) {
-      expect(
-        await readFile(join(t.root, 'library', 'originals', ids[index], 'manifest.json'), 'utf8'),
-      ).toBe(manifests[i])
-      expect(
-        t.db.prepare('SELECT manifest FROM derived_assets WHERE id = ?').get(ids[index]),
-      ).toMatchObject({ manifest: manifests[i] })
+  }
+  await library.close()
+  const db = new DatabaseSync(join(root, 'catalog.sqlite'))
+  db.exec('PRAGMA journal_mode=DELETE')
+  const preserved = new Map(originals)
+  for (const relative of [
+    'staging/unfinished',
+    'merge-publications/unpublished/evidence',
+    'removed/os-restored/original.png',
+  ]) {
+    const path = join(root, relative)
+    await mkdir(join(path, '..'), { recursive: true })
+    const bytes = Buffer.from(`retained-${relative}`)
+    await writeFile(path, bytes)
+    preserved.set(path, bytes)
+  }
+  return {
+    root,
+    db,
+    photos,
+    originals,
+    preserved,
+    make: () => (library = new PhotoLibrary(root, processor, () => {})),
+    closeLibrary: () => library.close(),
+    assertFiles: async (files = preserved) => {
+      for (const [path, bytes] of files) expect(await readFile(path)).toEqual(bytes)
+    },
+    close: async () => {
+      try {
+        await library.close()
+      } finally {
+        db.close()
+        await rm(root, { recursive: true, force: true })
+      }
+    },
+  }
+}
+
+async function rejectedBeforeWrites(f: Awaited<ReturnType<typeof fixture>>, expected: string) {
+  let writerStarted = false
+  const args: ConstructorParameters<typeof PhotoLibrary> = [f.root, processor, () => {}]
+  args[17] = () => {
+    writerStarted = true
+    throw new Error('Unsupported catalogs must not start the writer.')
+  }
+  const library = new PhotoLibrary(...args)
+  const before = catalogSnapshot(f.db)
+  try {
+    await expect(library.open()).rejects.toThrow(expected)
+  } finally {
+    await library.close()
+  }
+  expect(writerStarted).toBe(false)
+  expect(catalogSnapshot(f.db)).toEqual(before)
+  await f.assertFiles()
+}
+
+test('an empty unversioned catalog initializes the current schema and reopens with a read-only main connection', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'luma-empty-catalog-'))
+  const empty = new DatabaseSync(join(root, 'catalog.sqlite'))
+  empty.close()
+  let library = new PhotoLibrary(root, processor, () => {})
+  try {
+    await library.open()
+    expect(library.list().total).toBe(0)
+    const db = Reflect.get(library, 'db') as DatabaseSync
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
+    expect(() => db.prepare('DELETE FROM photos').run()).toThrow(/readonly|read-only/i)
+    await library.close()
+    library = new PhotoLibrary(root, processor, () => {})
+    await library.open()
+    expect(library.list().total).toBe(0)
+    expect(library.listTasks()).toEqual([])
+  } finally {
+    await library.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('an empty unversioned catalog beside managed originals rejects before orphan cleanup or schema writes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'luma-unversioned-originals-'))
+  const db = new DatabaseSync(join(root, 'catalog.sqlite'))
+  const original = join(root, 'originals', 'a'.repeat(64), 'original.arw')
+  const bytes = Buffer.from('irreplaceable managed original without a catalog')
+  await mkdir(join(root, 'originals', 'a'.repeat(64)), { recursive: true })
+  await writeFile(original, bytes)
+  let writerStarted = false
+  const args: ConstructorParameters<typeof PhotoLibrary> = [root, processor, () => {}]
+  args[17] = () => {
+    writerStarted = true
+    throw new Error('Must not start a writer for an orphaned library.')
+  }
+  const library = new PhotoLibrary(...args)
+  const before = catalogSnapshot(db)
+  try {
+    await expect(library.open()).rejects.toThrow('unversioned library contains managed originals')
+    await library.close()
+    expect(writerStarted).toBe(false)
+    expect(catalogSnapshot(db)).toEqual(before)
+    expect(await readFile(original)).toEqual(bytes)
+  } finally {
+    try {
+      await library.close()
+    } finally {
+      db.close()
+      await rm(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('older, nonempty unversioned and future catalogs reject before catalog writes or recovery cleanup', async () => {
+  const f = await fixture()
+  try {
+    f.db.prepare('INSERT INTO merge_publications VALUES (?, ?)').run('c'.repeat(64), 'd'.repeat(64))
+    f.db.prepare('INSERT INTO removals VALUES (?, ?)').run(f.photos[0].id, 'retained-removal')
+    for (const version of [-1, 0, ...Array.from({ length: 16 }, (_, i) => i + 1), 18]) {
+      f.db.exec(`PRAGMA user_version=${version}`)
+      await rejectedBeforeWrites(
+        f,
+        version > 17 ? 'requires a newer version' : 'catalog format is unsupported',
+      )
     }
   } finally {
     await f.close()
-    await t.close()
+  }
+})
+
+test('current catalogs reject older and unknown settings without rewriting any snapshot, source or journal', async () => {
+  const f = await fixture()
+  try {
+    f.db.prepare('INSERT INTO merge_publications VALUES (?, ?)').run('c'.repeat(64), 'd'.repeat(64))
+    const id = f.photos[0].id
+    const original = JSON.parse(
+      (f.db.prepare('SELECT data FROM edits WHERE id = ?').get(id) as { data: string }).data,
+    ) as EditHistory
+    for (const version of [1, 2, 3, 4, 5, 6, 8]) {
+      for (const snapshotOnly of [false, true]) {
+        const history = structuredClone(original)
+        Object.assign(snapshotOnly ? history.snapshots[0].settings : history.settings, { version })
+        f.db.prepare('UPDATE edits SET data = ? WHERE id = ?').run(JSON.stringify(history), id)
+        await rejectedBeforeWrites(f, 'edit history format is unsupported')
+      }
+    }
+    const history = structuredClone(original)
+    Object.assign(history.settings, { processing: 'legacy-sdr-v1' })
+    f.db.prepare('UPDATE edits SET data = ? WHERE id = ?').run(JSON.stringify(history), id)
+    await rejectedBeforeWrites(f, 'edit history format is unsupported')
+    f.db.prepare('UPDATE edits SET data = ? WHERE id = ?').run(JSON.stringify(original), id)
+    f.db.prepare('UPDATE photos SET processing_identity = ? WHERE id = ?').run('legacy-sdr-v1', id)
+    await rejectedBeforeWrites(f, 'unsupported processing identity')
+  } finally {
+    await f.close()
+  }
+})
+
+test('current schema and settings preserve original bytes, every history snapshot, cursor, revision and redo on reopen', async () => {
+  const f = await fixture()
+  try {
+    const histories = f.photos.map((photo, index): EditHistory => {
+      const snapshots = [-1.25, 0.37, 2.12].map((exposureEv, ordinal) => ({
+        createdAt: `2026-10-0${ordinal + 1}T12:00:00.000Z`,
+        settings: {
+          ...initialSettings(noLensSettings),
+          processing: index ? ('display-referred-v1' as const) : ('hdr-v1' as const),
+          exposureEv,
+          contrast: ordinal * 13,
+          highlights: -(ordinal * 17) || 0,
+        },
+      }))
+      return {
+        photoId: photo.id,
+        revision: 17,
+        cursor: 1,
+        settings: snapshots[1].settings,
+        snapshots,
+        canUndo: true,
+        canRedo: true,
+      }
+    })
+    for (const history of histories)
+      f.db
+        .prepare('UPDATE edits SET data = ? WHERE id = ?')
+        .run(JSON.stringify(history), history.photoId)
+    // These owned disposable leftovers may be recovered for supported catalogs.
+    const beforeRows = f.db.prepare('SELECT * FROM photos ORDER BY id').all()
+    let library = f.make()
+    await library.open()
+    for (const history of histories)
+      expect(await library.getEditHistory(history.photoId)).toEqual(history)
+    expect(f.db.prepare('SELECT * FROM photos ORDER BY id').all()).toEqual(beforeRows)
+    await f.assertFiles(f.originals)
+    await library.close()
+    library = f.make()
+    await library.open()
+    for (const history of histories) {
+      expect(await library.getEditHistory(history.photoId)).toEqual(history)
+      expect((await library.redoEdit(history.photoId, 17)).settings.exposureEv).toBe(2.12)
+    }
+    expect(f.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
+    await f.assertFiles(f.originals)
+  } finally {
+    await f.close()
+  }
+})
+
+test('current metadata can initialize missing current history without upgrading stale metadata or replacing existing history', async () => {
+  const f = await fixture()
+  try {
+    const id = f.photos[0].id
+    f.db.prepare('DELETE FROM edits WHERE id = ?').run(id)
+    const row = f.db.prepare('SELECT data FROM processing WHERE id = ?').get(id) as { data: string }
+    const processing = JSON.parse(row.data)
+    processing.revision = 7
+    processing.metadata.version = 3
+    const stale = JSON.stringify(processing)
+    f.db.prepare('UPDATE processing SET data = ? WHERE id = ?').run(stale, id)
+    const retained = f.db.prepare('SELECT data FROM edits WHERE id = ?').get(f.photos[1].id)
+    const library = f.make()
+    await library.open()
+    expect(f.db.prepare('SELECT data FROM processing WHERE id = ?').get(id)).toEqual({
+      data: stale,
+    })
+    const seeded = JSON.parse(
+      (f.db.prepare('SELECT data FROM edits WHERE id = ?').get(id) as { data: string }).data,
+    )
+    expect(seeded).toMatchObject({
+      revision: 7,
+      cursor: 0,
+      settings: { version: 7, processing: 'hdr-v1' },
+      canUndo: false,
+      canRedo: false,
+    })
+    expect(f.db.prepare('SELECT data FROM edits WHERE id = ?').get(f.photos[1].id)).toEqual(
+      retained,
+    )
+    await f.assertFiles(f.originals)
+  } finally {
+    await f.close()
   }
 })

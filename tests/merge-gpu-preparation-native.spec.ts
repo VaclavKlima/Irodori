@@ -1,3 +1,4 @@
+import { seedFixtureEdits } from './catalog-fixture.helpers'
 import { expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
@@ -16,7 +17,7 @@ import {
 import type { FileHandle } from 'node:fs/promises'
 import { join, resolve, sep } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { PreviewProcess } from '../src/main/preview-process'
 import { verifyMaster } from '../src/main/merge/store'
 import type { PreparedSource } from '../src/main/merge/prepare'
@@ -662,6 +663,7 @@ async function seedLibrary(root: string, originals: Original[], sample: Sample) 
           revision: 0,
         }),
       )
+      seedFixtureEdits(db)
     }
   } finally {
     db.close()
@@ -815,7 +817,6 @@ test('three fresh Sony HDR pairs retain exact working evidence and complete GPU 
           undefined,
           undefined,
           new PreviewProcess(resolve('out/main/preview-worker.js')),
-          undefined,
           resolve('out/main/merge-worker.js'),
           undefined,
           new PreviewProcess(resolve('out/main/preview-worker.js')),
@@ -1566,7 +1567,6 @@ async function openNativeLifecycleLibrary(
       undefined,
       undefined,
       new PreviewProcess(resolve('out/main/preview-worker.js')),
-      undefined,
       resolve('out/main/merge-worker.js'),
       undefined,
       new PreviewProcess(resolve('out/main/preview-worker.js')),

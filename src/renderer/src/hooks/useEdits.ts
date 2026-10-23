@@ -6,6 +6,7 @@ import {
   type EditGestureCommitSnapshot,
   type EditGestureScope,
 } from './edit-gesture-commit'
+import { EditFlushes } from './edit-flush'
 
 import {
   neutralAdjustments,
@@ -36,6 +37,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
   } | null>(null)
   const busy = useRef(false)
   const pending = useRef<Promise<void>>(Promise.resolve())
+  const flushes = useRef(new EditFlushes())
   useEffect(() => {
     if (draft || saving) return begin()
   }, [draft, saving, begin])
@@ -66,10 +68,13 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     async (trackCommit: boolean) => {
       const edit = gesture.current
       gesture.current = null
-      if (
-        !edit ||
-        sameAdjustments(edit.state.settings, { ...edit.state.settings, ...edit.patch })
-      ) {
+      if (!edit) {
+        // Pointer release, capture loss and blur may flush the same pending write.
+        // Keep its final draft until acceptance instead of briefly showing the base edit.
+        if (!busy.current) setDraft(null)
+        return pending.current
+      }
+      if (sameAdjustments(edit.state.settings, { ...edit.state.settings, ...edit.patch })) {
         setDraft(null)
         return pending.current
       }
@@ -125,6 +130,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
         }
       })()
       pending.current = work.catch(() => undefined)
+      flushes.current.track(edit.state.photoId, work)
       return work
     },
     [accept, syncGestureCommit],
@@ -177,7 +183,17 @@ export function useEdits(photoId: string | undefined, enabled = true) {
       void flushGesture(false).catch(() => undefined)
     }
   }, [photoId, enabled, accept, flushGesture, confirmationScope, syncGestureCommit])
-  useEffect(() => window.luma.onFlushEdits(flush), [flush])
+  useEffect(
+    () =>
+      window.luma.onFlushEdits((scope) =>
+        flushes.current.flush(
+          scope,
+          gesture.current?.state.photoId ?? current.current?.photoId,
+          flush,
+        ),
+      ),
+    [flush],
+  )
   const cancel = () => {
     commits.current.invalidate()
     syncGestureCommit()

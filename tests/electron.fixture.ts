@@ -186,7 +186,7 @@ export const test = base.extend<{ luma: DesktopSession; hdrDisplay: boolean }>({
         const page = active.app.windows()[0]
         if (page && !page.isClosed()) {
           await page
-            .screenshot({ path: testInfo.outputPath('failure.png') })
+            .screenshot({ path: testInfo.outputPath('failure.png'), timeout: 5_000 })
             .then(() =>
               testInfo.attach('Failure screenshot', {
                 path: testInfo.outputPath('failure.png'),

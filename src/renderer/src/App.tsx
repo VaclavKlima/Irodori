@@ -3,6 +3,8 @@ import { useWorkspaceCheckpoint } from './hooks/useWorkspaceCheckpoint'
 import type { WorkspaceState } from '../../shared/workspace'
 import { MergeDialog } from './components/MergeDialog'
 import { ExportDialog } from './components/ExportDialog'
+import { ResourceSettingsDialog } from './components/ResourceSettingsDialog'
+import type { ResourceSettings } from '../../shared/resource-policy'
 import { groupMergeUnavailable, type MergeMode } from '../../shared/merge'
 import type { PhotoActionId, PhotoActionsContext } from '../../shared/photo-actions'
 import { DisplayDetails } from './components/DisplayDetails'
@@ -20,6 +22,7 @@ import {
   FileImage,
   Images,
   Redo2,
+  Settings,
   SlidersHorizontal,
   TerminalSquare,
   Undo2,
@@ -41,6 +44,7 @@ import { useLibrary } from './hooks/useLibrary'
 import { DeleteDialog } from './components/DeleteDialog'
 import { PhotoContextMenu, type MenuInitialFocus } from './components/PhotoContextMenu'
 import { PhotoPreview } from './components/PhotoPreview'
+import { selectEditorPreviewPolicy } from '../../shared/editor-preview-policy'
 import styles from './App.module.css'
 
 interface MenuState {
@@ -57,6 +61,10 @@ interface MergeHandoff {
   automatic: boolean
   opening: boolean
 }
+
+const loadResourceSettings = () => window.luma.getResourceSettings()
+const saveResourceSettings = (settings: ResourceSettings) =>
+  window.luma.setResourceSettings(settings)
 
 export function App() {
   const recovery = useWorkspaceCheckpoint()
@@ -98,11 +106,13 @@ export function App() {
   const [tasks, setTasks] = useState<BackgroundTask[]>([])
   const [tasksOpen, setTasksOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [error, setError] = useState('')
   const [consoleOpen, setConsoleOpen] = useState(false)
   const consoleToggleRef = useRef<HTMLButtonElement>(null)
   const importButtonRef = useRef<HTMLButtonElement>(null)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+  const editorPreviewPolicy = selectEditorPreviewPolicy(appInfo?.platform ?? null)
   const library = useLibrary(setError, clearRecoveredPreview)
   const {
     total,
@@ -781,6 +791,18 @@ export function App() {
         </nav>
         <div className={styles.headerActions}>
           <button
+            className={styles.headerButton}
+            aria-label="Settings"
+            aria-haspopup="dialog"
+            aria-expanded={settingsOpen}
+            onClick={() => {
+              closeContextMenu()
+              setSettingsOpen(true)
+            }}
+          >
+            <Settings size={14} />
+          </button>
+          <button
             ref={actionsButtonRef}
             aria-haspopup="menu"
             aria-expanded={!!contextMenu?.toolbar}
@@ -970,6 +992,7 @@ export function App() {
             </p>
           )}
           <PhotoPreview
+            previewPolicy={editorPreviewPolicy}
             hdrJpeg={edits.state?.hdrJpeg?.state === 'supported'}
             suspended={
               !!mergeTargets ||
@@ -1101,6 +1124,13 @@ export function App() {
           pending={actionPending}
           onAction={dispatchPhotoAction}
           onClose={closeContextMenu}
+        />
+      )}
+      {settingsOpen && (
+        <ResourceSettingsDialog
+          load={loadResourceSettings}
+          save={saveResourceSettings}
+          onClose={() => setSettingsOpen(false)}
         />
       )}
       {mergeTargets && (

@@ -1,9 +1,17 @@
 import type { HdrWorkingAsset } from '../../../shared/hdr'
-import { publishHdrSample } from './hdr-sample'
+import type { HdrSourceSamples, HdrSourceUploadVerification } from './hdr-source-cache'
+export interface HdrUploadedSource {
+  samples: HdrSourceSamples
+  verification: HdrSourceUploadVerification
+}
 let idleWorker: Worker | undefined
 let idleTimer: ReturnType<typeof setTimeout> | undefined
 /** Credit-based transfer bounds validated strips, including in-flight GPU submissions. */
-export async function* uploadHdr(asset: HdrWorkingAsset, signal: AbortSignal) {
+export async function* uploadHdr(
+  asset: HdrWorkingAsset,
+  signal: AbortSignal,
+  verified: (source: HdrUploadedSource) => void,
+) {
   const worker =
     idleWorker ?? new Worker(new URL('./hdr-upload-worker.ts', import.meta.url), { type: 'module' })
   idleWorker = undefined
@@ -14,8 +22,9 @@ export async function* uploadHdr(asset: HdrWorkingAsset, signal: AbortSignal) {
   let wake: (() => void) | undefined,
     done = false,
     failure: Error | undefined
-  let sample: Float32Array | undefined
-  let draftSample: Float32Array | undefined
+  let completed: HdrUploadedSource | undefined
+  let yieldedStrips = 0,
+    yieldedBytes = 0
   const abort = () => {
     worker.terminate()
     wake?.()
@@ -25,8 +34,10 @@ export async function* uploadHdr(asset: HdrWorkingAsset, signal: AbortSignal) {
     if (data.error) failure = new Error(data.error)
     else if (data.done) {
       done = true
-      sample = data.sample
-      draftSample = data.draftSample
+      completed = {
+        samples: { sourceSha256: data.sourceSha256, sample: data.sample, draft: data.draftSample },
+        verification: data.verification,
+      }
     } else queue.push(data)
     wake?.()
   }
@@ -41,6 +52,15 @@ export async function* uploadHdr(asset: HdrWorkingAsset, signal: AbortSignal) {
       if (failure) throw failure
       const strip = queue.shift()
       if (strip) {
+        const expected = asset.strips[yieldedStrips]
+        if (
+          !expected ||
+          strip.row !== yieldedStrips * 64 ||
+          strip.data.byteLength !== expected.byteLength
+        )
+          throw new Error('Incomplete or reordered HDR upload.')
+        yieldedStrips++
+        yieldedBytes += strip.data.byteLength
         yield strip
         worker.postMessage({ ack: true })
         continue
@@ -50,7 +70,24 @@ export async function* uploadHdr(asset: HdrWorkingAsset, signal: AbortSignal) {
         wake = resolve
       })
     }
-    if (sample && draftSample) publishHdrSample(asset.sha256, sample, draftSample)
+    signal.throwIfAborted()
+    const proof = completed?.verification
+    if (
+      !completed ||
+      !proof ||
+      proof.eof !== true ||
+      proof.sourceSha256 !== asset.sha256 ||
+      completed.samples.sourceSha256 !== asset.sha256 ||
+      proof.verifiedBytes !== yieldedBytes ||
+      yieldedBytes !== asset.byteLength ||
+      yieldedStrips !== asset.strips.length ||
+      !Array.isArray(proof.verifiedStripHashes) ||
+      proof.verifiedStripHashes.length !== asset.strips.length ||
+      proof.verifiedStripHashes.some((hash, index) => hash !== asset.strips[index].sha256)
+    )
+      throw new Error('The HDR upload did not complete source verification.')
+    // Publication belongs to the current presenter after its mip fence, never to a detached uploader.
+    verified(completed)
     complete = true
   } finally {
     if (complete && !signal.aborted && !idleWorker) {

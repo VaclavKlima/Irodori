@@ -1,0 +1,159 @@
+{
+  "version": "actual-electron-mask-atan2-primitives-v1",
+  "runtime": {
+    "node": "24.20.0",
+    "acorn": "8.18.0",
+    "ada": "4.0.0",
+    "amaro": "1.1.11",
+    "ares": "1.34.8",
+    "brotli": "1.2.0",
+    "cldr": "48.0",
+    "icu": "78.2",
+    "llhttp": "9.4.3",
+    "merve": "1.2.2",
+    "modules": "149",
+    "napi": "10",
+    "nbytes": "0.1.4",
+    "ncrypto": "0.0.1",
+    "nghttp2": "1.70.0",
+    "nghttp3": "",
+    "ngtcp2": "",
+    "openssl": "0.0.0",
+    "simdjson": "4.6.6",
+    "simdutf": "7.7.0",
+    "sqlite": "3.53.4",
+    "tz": "2025c",
+    "undici": "7.29.0",
+    "unicode": "17.0",
+    "uv": "1.52.1",
+    "uvwasi": "0.0.23",
+    "v8": "15.2.124.19-electron.0",
+    "zlib": "1.3.2.1-motley",
+    "zstd": "1.6.0",
+    "electron": "44.3.0",
+    "chrome": "152.0.7977.78"
+  },
+  "primitive": [
+    {
+      "y": "-11.507243131689393",
+      "x": "-6.353538344650907",
+      "yNegativeZero": false,
+      "xNegativeZero": false,
+      "bits": "c0009a2a798c6723"
+    },
+    {
+      "y": "0",
+      "x": "0",
+      "yNegativeZero": false,
+      "xNegativeZero": false,
+      "bits": "0000000000000000"
+    },
+    {
+      "y": "0",
+      "x": "0",
+      "yNegativeZero": true,
+      "xNegativeZero": false,
+      "bits": "8000000000000000"
+    },
+    {
+      "y": "0",
+      "x": "0",
+      "yNegativeZero": false,
+      "xNegativeZero": true,
+      "bits": "400921fb54442d18"
+    },
+    {
+      "y": "0",
+      "x": "0",
+      "yNegativeZero": true,
+      "xNegativeZero": true,
+      "bits": "c00921fb54442d18"
+    },
+    {
+      "y": "1",
+      "x": "1",
+      "yNegativeZero": false,
+      "xNegativeZero": false,
+      "bits": "3fe921fb54442d18"
+    },
+    {
+      "y": "-1",
+      "x": "1",
+      "yNegativeZero": false,
+      "xNegativeZero": false,
+      "bits": "bfe921fb54442d18"
+    },
+    {
+      "y": "1",
+      "x": "-1",
+      "yNegativeZero": false,
+      "xNegativeZero": false,
+      "bits": "4002d97c7f3321d2"
+    },
+    {
+      "y": "-1",
+      "x": "-1",
+      "yNegativeZero": false,
+      "xNegativeZero": false,
+      "bits": "c002d97c7f3321d2"
+    },
+    {
+      "y": "1",
+      "x": "0",
+      "yNegativeZero": false,
+      "xNegativeZero": false,
+      "bits": "3ff921fb54442d18"
+    },
+    {
+      "y": "-1",
+      "x": "0",
+      "yNegativeZero": false,
+      "xNegativeZero": false,
+      "bits": "bff921fb54442d18"
+    },
+    {
+      "y": "0",
+      "x": "1",
+      "yNegativeZero": false,
+      "xNegativeZero": false,
+      "bits": "0000000000000000"
+    },
+    {
+      "y": "0",
+      "x": "1",
+      "yNegativeZero": true,
+      "xNegativeZero": false,
+      "bits": "8000000000000000"
+    },
+    {
+      "y": "5e-324",
+      "x": "1",
+      "yNegativeZero": false,
+      "xNegativeZero": false,
+      "bits": "0000000000000001"
+    },
+    {
+      "y": "1",
+      "x": "5e-324",
+      "yNegativeZero": false,
+      "xNegativeZero": false,
+      "bits": "3ff921fb54442d18"
+    },
+    {
+      "y": "1e-300",
+      "x": "-1",
+      "yNegativeZero": false,
+      "xNegativeZero": false,
+      "bits": "400921fb54442d18"
+    },
+    {
+      "y": "-1",
+      "x": "1e-300",
+      "yNegativeZero": false,
+      "xNegativeZero": false,
+      "bits": "bff921fb54442d18"
+    }
+  ],
+  "observedReceiptSha256": "e6b36684f229534a0a62a5e7f72a9f0ee200294c6921b74e4d7f6ed831a6acf5",
+  "scope": "Actual Electron outputs; not Node/D equivalence or complete-pixel proof."
+}

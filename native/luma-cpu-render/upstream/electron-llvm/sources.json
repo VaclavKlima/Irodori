@@ -1,0 +1,1052 @@
+{
+  "version": "electron-mask-llvm-sources-v1",
+  "reference": {
+    "electron": "44.3.0",
+    "v8": "15.2.124.19-electron.0",
+    "chromium": "152.0.7977.78",
+    "llvmLibcRevision": "3ea89f4304312567e31a8eb45e0737577e65b676"
+  },
+  "scope": "Offline exact Chromium-pinned LLVM header closure for mask-only atan2. Ordinary CPU math remains separate.",
+  "files": [
+    {
+      "path": "llvm-libc/LICENSE.TXT",
+      "byteLength": 15140,
+      "sha256": "ebcd9bbf783a73d05c53ba4d586b8d5813dcdf3bbec50265860ccc885e606f47",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/LICENSE.TXT?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/hdr/errno_macros.h",
+      "byteLength": 820,
+      "sha256": "a689d673918f58096a11f635a9f99135d0ef759ddfbc88c383ecf7b1e3c6c501",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/hdr/errno_macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/hdr/fenv_macros.h",
+      "byteLength": 1367,
+      "sha256": "bfa06cc002376a534cb1231783d3b3a538df32f48fe698c1b14b976229cfd00b",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/hdr/fenv_macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/hdr/float_macros.h",
+      "byteLength": 630,
+      "sha256": "b4e0240a2da93480d71708ccea15b36ccb504414b08797949a55af4a879c53cd",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/hdr/float_macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/hdr/limits_macros.h",
+      "byteLength": 635,
+      "sha256": "0875819584022bd9ffe7bf8ff2181177517fcfed220ef819e5488f77149f0d21",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/hdr/limits_macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/hdr/math_macros.h",
+      "byteLength": 1339,
+      "sha256": "92d1cd900983cbe73ea112d2ac61d822f6b2a81c271e4192f61b84acc9fd83e8",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/hdr/math_macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/hdr/stdint_proxy.h",
+      "byteLength": 691,
+      "sha256": "661348f7d45c035e904ec99c4eb8dea9e09c860a31218c40e39c841cd5b7bcf5",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/hdr/stdint_proxy.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/hdr/types/fenv_t.h",
+      "byteLength": 622,
+      "sha256": "3dd9454fa0d77682912a3ec453997336fc3056c751a06d2b12b6b02a749fd606",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/hdr/types/fenv_t.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/hdr/types/size_t.h",
+      "byteLength": 650,
+      "sha256": "a47c73b8a31d6b31bc9ddfc8681ea8d68221f0dc466bce66e7dc17b28309b3a9",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/hdr/types/size_t.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/hdr/types/ssize_t.h",
+      "byteLength": 614,
+      "sha256": "52058de4803f6b5eb316062d53c5ab67cb448ba12c95abd279250c6a25bbd8dc",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/hdr/types/ssize_t.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-macros/cfloat128-macros.h",
+      "byteLength": 1660,
+      "sha256": "3bcca098e3650a2048d8159f8349f62eb398fdc06be18aca18493ecf00e095f0",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-macros/cfloat128-macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-macros/cfloat16-macros.h",
+      "byteLength": 887,
+      "sha256": "4110a4b63fa76caf25ddd491c3ef08495af410f5c92afa6d43907ccf59782ba3",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-macros/cfloat16-macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-macros/error-number-macros.h",
+      "byteLength": 208,
+      "sha256": "a50ab3905dd1e79e57a47e32db2856901b7de9bc88d293b53357ff64c1751d98",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-macros/error-number-macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-macros/fenv-macros.h",
+      "byteLength": 948,
+      "sha256": "bc5e2cf1cbf1fff334f45eb58b331bf4ef604446d5a5b291c8cf2b7bf8883bf7",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-macros/fenv-macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-macros/float-macros.h",
+      "byteLength": 4085,
+      "sha256": "2960f7db2c9dccd5295c1ed715cd4e91af481e57aed79e463ac69c7766082051",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-macros/float-macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-macros/float16-macros.h",
+      "byteLength": 1147,
+      "sha256": "15a4196a26ad3c38bdfd4b0f646d69f21b6d58076e534fe7debc252e2c403de3",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-macros/float16-macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-macros/generic-error-number-macros.h",
+      "byteLength": 1148,
+      "sha256": "fba56c7f8c617cf2977faea9fd05d69730b17e8c30b24d4b957c2d98a945af28",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-macros/generic-error-number-macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-macros/limits-macros.h",
+      "byteLength": 5721,
+      "sha256": "ed12624cb2647457dc4c8e37830521902baf40a880d8c450ca179d25c95e8a4f",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-macros/limits-macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-macros/linux/error-number-macros.h",
+      "byteLength": 582,
+      "sha256": "1b54c1f795cf538ba6b4091df27dd7d28ea10ce139f724e0502043821917276d",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-macros/linux/error-number-macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-macros/math-macros.h",
+      "byteLength": 7705,
+      "sha256": "4fa1f601abc5449710a2fe4a10272d100b82d99d1a1f1677ea5cc106790957ee",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-macros/math-macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-macros/stdfix-macros.h",
+      "byteLength": 9674,
+      "sha256": "5d4f6476cb0b1e6ddf76a1e0fa1db8324d76a372cdd1f0f978d9c65d4e291159",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-macros/stdfix-macros.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-types/cfloat128.h",
+      "byteLength": 1034,
+      "sha256": "10d15329e8149cfefb6385f19cf14e4a86aca6cbf83cdcf36801fb5113af9aed",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-types/cfloat128.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-types/cfloat16.h",
+      "byteLength": 630,
+      "sha256": "bb0fb2145874d45a9c89505ead6f3a5bcf98c1c89e057b067e3f6b0ac0ccd11e",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-types/cfloat16.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-types/fenv_t.h",
+      "byteLength": 1026,
+      "sha256": "d78412597d53d9043d917bee1b8fc96e935e170bc3324f1965a358770a47d24d",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-types/fenv_t.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-types/float128.h",
+      "byteLength": 1497,
+      "sha256": "940638bee993f2c4e5e96c66ea97478d1067131797a379db416b9d09240f4d82",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-types/float128.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-types/size_t.h",
+      "byteLength": 503,
+      "sha256": "5a7a6ed640a5f29f7e63d936980d77e087c1ba60eba572f61dc59d83a71b293f",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-types/size_t.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/include/llvm-libc-types/ssize_t.h",
+      "byteLength": 510,
+      "sha256": "54e1fdb3adb5bcc9c6f19d8d1442dc9c5f7fa5443d252cbae3527b15f34e11eb",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/include/llvm-libc-types/ssize_t.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/shared/libc_common.h",
+      "byteLength": 1146,
+      "sha256": "6082d8c55f1b61bef145407c5b5d7c4e5c6768cc14a980720aa34a026de1cd32",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/shared/libc_common.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/shared/math/atan2.h",
+      "byteLength": 688,
+      "sha256": "5532d8b1f1be7b93b639391335b610b6e9616629e10e51f4ebc60e074491f1c9",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/shared/math/atan2.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/algorithm.h",
+      "byteLength": 2279,
+      "sha256": "00a24608254dae857ee299bd4512cda0c47f0d48ce9e80751bce9430ce84369e",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/algorithm.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/array.h",
+      "byteLength": 2810,
+      "sha256": "dfda1b4f82e9b261acf54dd720a73c6cc9713109a95a4f8a9d3cd15a1ed155cb",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/array.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/bit.h",
+      "byteLength": 12834,
+      "sha256": "df0f1162716be2904d6e2b614c7c5696e1e43506f15cb07666f831fb6e13f040",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/bit.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/expected.h",
+      "byteLength": 2148,
+      "sha256": "cc99ae2c62240e96846634d119e029018e51a3fc223101d8f9bcbba57d00769d",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/expected.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/iterator.h",
+      "byteLength": 4105,
+      "sha256": "84323639ea83641ee2476d6163ade0071e4e0ae2b9e0d9a66fa4ae343d5924da",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/iterator.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/limits.h",
+      "byteLength": 1567,
+      "sha256": "8130915bcd6e97f4058d8b48942186c4cf0187522977d0ce87dab4a83bb850ec",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/limits.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/optional.h",
+      "byteLength": 4156,
+      "sha256": "94ebea1e0ba9a2eed6d0a0b58575cbb85fce3806b92c706dab13ff9c6baa1994",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/optional.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/span.h",
+      "byteLength": 4494,
+      "sha256": "01dea95d71c3e4c648d08df5ef998c6a0b1f4815140b7567162b36d44d421abb",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/span.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/string_view.h",
+      "byteLength": 8509,
+      "sha256": "d6eeffa19eab5859d4290c721f781812df8849fe051ac92301ceff28aa457f4b",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/string_view.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits.h",
+      "byteLength": 3804,
+      "sha256": "75bb93fa75f54abfcfbb05253cdd407ac476b0ce2fb4e8bb3892af32d4016b80",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/add_lvalue_reference.h",
+      "byteLength": 1286,
+      "sha256": "922ccbd50ba6aa312dba09f34f5a273024dd60f5fcc164b143f3ee36df4b09a8",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/add_lvalue_reference.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/add_pointer.h",
+      "byteLength": 1202,
+      "sha256": "41129ca66f61c275f4f141dc1b51262dc7a177e951b2904803609864dd659a72",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/add_pointer.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/add_rvalue_reference.h",
+      "byteLength": 1210,
+      "sha256": "22d9d1d1c7ddb951a850d5609856f702b650f020388d7c49940b0f0f06ad0178",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/add_rvalue_reference.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/aligned_storage.h",
+      "byteLength": 984,
+      "sha256": "c30bad387a0e992db668532acb6e6d1a311f2004ffbdb17b29c1ffc33fe6a795",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/aligned_storage.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/always_false.h",
+      "byteLength": 1214,
+      "sha256": "ab9f97d0b3e128fc22f67086d7854b35dbeec1b8fdd7de66792e24f9f5132597",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/always_false.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/bool_constant.h",
+      "byteLength": 862,
+      "sha256": "a4d91d87d201d6953c68fdbbfbcd6e009bfc1e4d3468f2779fcf468a39873032",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/bool_constant.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/conditional.h",
+      "byteLength": 1051,
+      "sha256": "9a4a2074bdc737b7e1ab586b5062617178da7def7b29b0d62b1f9c31c59c5656",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/conditional.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/decay.h",
+      "byteLength": 1494,
+      "sha256": "1680751c40cc6f1ee9d30a8e672391bad151109d230b122594b0d546a7e2e21c",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/decay.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/enable_if.h",
+      "byteLength": 984,
+      "sha256": "d5c360cbfc74283eb2ac17089607f740d0ee874cea6dba1bd598404364f924d6",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/enable_if.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/false_type.h",
+      "byteLength": 819,
+      "sha256": "a4b8de2e728c787d64f23ddc363de6c79d3873ba11446ea437b19da00d13972d",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/false_type.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/has_unique_object_representations.h",
+      "byteLength": 1237,
+      "sha256": "47c255fce1da848fdfacc0869b8f350066fe998439c821bf337a05c8faca37f3",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/has_unique_object_representations.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/integral_constant.h",
+      "byteLength": 937,
+      "sha256": "43bf74239a5d69812c4aff16603aa80d2b39498a4628d7bbd4dd2be135473c70",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/integral_constant.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/invoke.h",
+      "byteLength": 2555,
+      "sha256": "1bcc5872ffb795c0385d3f1384d2fe3ecdac88346af0067d1aaf74ec1c89f394",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/invoke.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/invoke_result.h",
+      "byteLength": 1141,
+      "sha256": "bd95e0166f8e424f77c94aaa70660155fcd2d77af270b4021e5d5645bd4a176c",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/invoke_result.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_arithmetic.h",
+      "byteLength": 1209,
+      "sha256": "7c81ee9037216e29afbf75401d15773a53ec23fe49a4e5e5de6765ab1b7269a3",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_arithmetic.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_array.h",
+      "byteLength": 1153,
+      "sha256": "dc7c5f40390770e5c3864098411ab9bd712f3b01eb75720f05a4d0a671494767",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_array.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_assignable.h",
+      "byteLength": 1983,
+      "sha256": "18bf84123c904955bd4d1fce02e24c7296061d5c8d18c27cde50d01597e02804",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_assignable.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_base_of.h",
+      "byteLength": 1811,
+      "sha256": "beffe971074adaa39b08824e58e23d4052b1972d805c6d6ed75c6c4f33fea60a",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_base_of.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_class.h",
+      "byteLength": 1238,
+      "sha256": "42210e9500a70f4a8ee77fe2d8362d00e81e5fc50f6cb18705eca75456595499",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_class.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_complex.h",
+      "byteLength": 2089,
+      "sha256": "7b2f538ccfab6f46392712214378a0128d14fb1af9e103f8a8ec087da641411e",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_complex.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_const.h",
+      "byteLength": 1065,
+      "sha256": "529905320a2def61fbb656bcf65fa9f68984b74ff22d73fbb1d22fa530a7b1a9",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_const.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_constant_evaluated.h",
+      "byteLength": 951,
+      "sha256": "556a639386833419c17dc458af8fa48f16957a1d585c8c6239033ccfe31a5daf",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_constant_evaluated.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_constructible.h",
+      "byteLength": 2074,
+      "sha256": "a0901da8edae1e2f17acf059660c729d4a06b9a96d5fa8035f0678c84fc7d644",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_constructible.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_convertible.h",
+      "byteLength": 1762,
+      "sha256": "731b42f6fb289be2efac5d6accb637bfdbadd5f41b13bb7a7285c9cb6af79f25",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_convertible.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_copy_assignable.h",
+      "byteLength": 1160,
+      "sha256": "0f740053830090d55ac26bee2a82f0de8545ef35982a8c96c822806ab4097059",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_copy_assignable.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_copy_constructible.h",
+      "byteLength": 1126,
+      "sha256": "7c935922ac79d4d9af286d54d7d0432332ba154a9c6e14f8a8cf85f4930ec1f4",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_copy_constructible.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_destructible.h",
+      "byteLength": 3022,
+      "sha256": "aa63de7204de21908593af635fbd0fae2b50a6d113137aa493cd6614158fd61d",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_destructible.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_enum.h",
+      "byteLength": 961,
+      "sha256": "e9cbccc3b8995b663fa71e0f607b6e75a5eae792592409b342cd80e5c90898a2",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_enum.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_fixed_point.h",
+      "byteLength": 1940,
+      "sha256": "06c89f063a4f867729a9fe2d77d0f1e0f26b1e46c8b10e81b27ffcef196ed87b",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_fixed_point.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_floating_point.h",
+      "byteLength": 2073,
+      "sha256": "999fe53f8445d167db47cc8663d6e562716bb275ad57ceb98b8407a65fad2150",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_floating_point.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_function.h",
+      "byteLength": 1271,
+      "sha256": "d89f1c400b0825bba2fc6f7efe5225a3e41f1135fafbebbebbbc1f0650b1bbcd",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_function.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_integral.h",
+      "byteLength": 1799,
+      "sha256": "d0b19c6cb14e59e137752abf7b80b0fa00d95fc97bb8ec1cf0573e28e53a7f43",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_integral.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_lvalue_reference.h",
+      "byteLength": 1369,
+      "sha256": "cf4a9b93b5d0e5ea11bab046d57581fec1848a1081663a8a2903582984ccb2c9",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_lvalue_reference.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_member_pointer.h",
+      "byteLength": 1312,
+      "sha256": "3bc303a9f8791e316cc3fe74cc51789db05b96220e118d00184bf0555a929dd2",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_member_pointer.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_move_assignable.h",
+      "byteLength": 1218,
+      "sha256": "678cdbf591ce3d822ff8ee75ab6a5a3353f2c649acaca36fad5bcc4e4f41f775",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_move_assignable.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_move_constructible.h",
+      "byteLength": 1120,
+      "sha256": "0624a2f8c27dfcf5a59275460c2788fe4085313f602f40eaa683552d8aef9329",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_move_constructible.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_null_pointer.h",
+      "byteLength": 1117,
+      "sha256": "c9cb3e4d760b4668ebfe562c5ca8f0e3d2acfb9452e77d3dd3db3076f7cf0fb4",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_null_pointer.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_object.h",
+      "byteLength": 1285,
+      "sha256": "e6699d0bb2c281953850510233ba96ffb9f6652c653041746ef9a5b755b28943",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_object.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_pointer.h",
+      "byteLength": 1311,
+      "sha256": "c8e3190c920ef43b005aff035be389466a5e4541add7390e7b786e7ba809ef43",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_pointer.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_reference.h",
+      "byteLength": 1359,
+      "sha256": "0038d53f09e175cd3b4ebfb1cd64905e8e4163da73af93362af36bef185676cb",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_reference.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_rvalue_reference.h",
+      "byteLength": 1370,
+      "sha256": "ed403b81ecbf4c43c0e2b27aeae0ba94dec98f8f4f2dd548a274d0e85c4353f7",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_rvalue_reference.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_same.h",
+      "byteLength": 1090,
+      "sha256": "74daede907df025779b94241e9fa10d53260ed24c52f38cb56c93fd9076e22d8",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_same.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_scalar.h",
+      "byteLength": 1426,
+      "sha256": "7bd3331a0355f28480aada6b9721607ce71e1266a629413d3d16dd0bad789d08",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_scalar.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_signed.h",
+      "byteLength": 2196,
+      "sha256": "94fbbd7b03f8a0379d13a59077befba31d6679a3af13ecae5185ffe574321da8",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_signed.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_trivially_constructible.h",
+      "byteLength": 985,
+      "sha256": "2653f581cdf445832dc72705c17369c327764b6cb6796ade2a0edadf35950c83",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_trivially_constructible.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_trivially_copyable.h",
+      "byteLength": 1052,
+      "sha256": "50060eeec4366f16e648bcacf9abff8ea0d0ec089699c6d6e217851f5dc66a4f",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_trivially_copyable.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_trivially_destructible.h",
+      "byteLength": 1439,
+      "sha256": "1df8de725bb5dbd8cc6e11e639271a8f7e913073f51c0e134b53b7b9142ba899",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_trivially_destructible.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_union.h",
+      "byteLength": 966,
+      "sha256": "fb6acc5fb26edf7f5d22bd91463cad0db6c09402d1f3a7089f5758b1350fc276",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_union.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_unsigned.h",
+      "byteLength": 2544,
+      "sha256": "014c7db6d3786fbec3483731cc16cc10e9ec57d66fdb2172b37553113cd1e2dd",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_unsigned.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/is_void.h",
+      "byteLength": 1010,
+      "sha256": "bc64bdc46ec4d650429c8f7a3d782e5809385e8c76c7e2c1f1e6fc3c325d27a5",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/is_void.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/make_signed.h",
+      "byteLength": 1922,
+      "sha256": "e709c3a504402d84894365aeac63f2697f41388117aaf24e03183efaeb16d8c2",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/make_signed.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/make_unsigned.h",
+      "byteLength": 2064,
+      "sha256": "29f471097b205e69b11320c40f58e7411b1160de4815cb9b499fc68bc68b33ea",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/make_unsigned.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/remove_all_extents.h",
+      "byteLength": 1460,
+      "sha256": "4daf6b639b3036f35d2bd8fccf3466901aad767508302831d3f15838371b6789",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/remove_all_extents.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/remove_cv.h",
+      "byteLength": 1132,
+      "sha256": "d2ff553aa2b7107a7ba7c6688bf89177004e6773fbb8e69a58ff2891d5e6675b",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/remove_cv.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/remove_cvref.h",
+      "byteLength": 1012,
+      "sha256": "dbd0593b8c1b29496690fa9408f049843b62906fcf32831b463c79556e4b9460",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/remove_cvref.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/remove_extent.h",
+      "byteLength": 1116,
+      "sha256": "7ae0793eb6e0daf115424f47b7256e79b810801c1e878018df08fc9067e2265d",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/remove_extent.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/remove_reference.h",
+      "byteLength": 1103,
+      "sha256": "995e117692af3b126160c3ea7520e206f6694c35ae5d43d79cc995dbce855cee",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/remove_reference.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/true_type.h",
+      "byteLength": 813,
+      "sha256": "a2fa1d166c63b4bb4e8952c8374d0eddbf61f3cff4702ae09fde1b2a2b171b49",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/true_type.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/type_identity.h",
+      "byteLength": 794,
+      "sha256": "b2d8ceca585983753db2acb1e96b5fe4e72d5de57f336cfa7e80fe20511ea1c1",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/type_identity.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/type_traits/void_t.h",
+      "byteLength": 956,
+      "sha256": "f89033a8d0598d1e957fa995289d8303259f27c1445bcaaa0c305ffcca61a066",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/type_traits/void_t.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/utility.h",
+      "byteLength": 754,
+      "sha256": "0c9c654c0ca83b8bbb186c1436a5893a919cb3e63d9cf73637401058316c3ea2",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/utility.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/utility/declval.h",
+      "byteLength": 981,
+      "sha256": "f3869c2bda6765a7df97abe0ec63ec02616dbbe56df5101675375536279a8f65",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/utility/declval.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/utility/forward.h",
+      "byteLength": 1213,
+      "sha256": "4289b79740595823b703136e09330a1e86f1a77a1a694a37507fc3a89c67d5f4",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/utility/forward.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/utility/in_place.h",
+      "byteLength": 1297,
+      "sha256": "04b65476915279603fe749c43503e9cbbb03bd0da39a5007e0264529b80d5095",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/utility/in_place.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/utility/integer_sequence.h",
+      "byteLength": 1604,
+      "sha256": "bc84c0ea26a8c7df035900a9454c26d9cbe4d3565fb518864070897020fcfbdf",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/utility/integer_sequence.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/CPP/utility/move.h",
+      "byteLength": 951,
+      "sha256": "aedb30715e31fe559bb0f2f06c70f1bad2ac012b1fb3ae52737d97eccf4ac01a",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/CPP/utility/move.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/FEnvImpl.h",
+      "byteLength": 5739,
+      "sha256": "6fb740bf21a62c8b9666d589952c1e58623ac71a52de38fc4da69c0c6bbf3346",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/FEnvImpl.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/FPBits.h",
+      "byteLength": 33798,
+      "sha256": "58cafdd9b34e5085711f86d766ca027fdda6e33409e6af17ed6f75b15c2cbf65",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/FPBits.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/PolyEval.h",
+      "byteLength": 2769,
+      "sha256": "3f519a8bda51cc0409274521567f58d1b000839ff4c24f9d5e64a19196f8be48",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/PolyEval.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/double_double.h",
+      "byteLength": 8115,
+      "sha256": "0a3e37f0c0092b8f9137f62922d415d21f3489f3bd1da019c5eeb6e16634e4d1",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/double_double.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/dyadic_float.h",
+      "byteLength": 27138,
+      "sha256": "aeaaad4ce8d126208932c4b0d52feca8eb4a169b7fa9c6e567d2754803c7b103",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/dyadic_float.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/multiply_add.h",
+      "byteLength": 2676,
+      "sha256": "afc795ce9bdf4d5a8eab94157194aaa779f62e6fd67d81e622e0d6ea0fc85a86",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/multiply_add.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/nearest_integer.h",
+      "byteLength": 2785,
+      "sha256": "3d046804951f8b93425508d099faae61ac95f8fac470ff14c618ece6b907c27e",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/nearest_integer.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/rounding_mode.h",
+      "byteLength": 4774,
+      "sha256": "67118e70b91a5b6edf87e6ed3004001373590dba2fd460acdda615a5e8697206",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/rounding_mode.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/x86_64/FEnvImpl.h",
+      "byteLength": 9663,
+      "sha256": "4065ef6beeceb7eed1918370a0f38e99dc2fbe53f58c37be0f822255350ae4b5",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/x86_64/FEnvImpl.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/x86_64/fenv_mxcsr_utils.h",
+      "byteLength": 5832,
+      "sha256": "34bf54ce8a05457a610d5f09063477ce14a290d7748841aa7f553046908a9361",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/x86_64/fenv_mxcsr_utils.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/x86_64/fenv_x86_common.h",
+      "byteLength": 10017,
+      "sha256": "53054c2abfa9b9eb22eebc9e1da0f640b0e79f2705c1c140e95e5006cf4beaca",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/x86_64/fenv_x86_common.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/x86_64/fenv_x87_only.h",
+      "byteLength": 5221,
+      "sha256": "73ad7a7a58daf21717d462cc6a4bf5f98fd276df3a2c704566c6a749494a2783",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/x86_64/fenv_x87_only.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/x86_64/fenv_x87_utils.h",
+      "byteLength": 5973,
+      "sha256": "9cb2181c5d2bdb2c38eac80e1440939ed68da733141bc4f6c43bcaf23559f2fa",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/x86_64/fenv_x87_utils.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/FPUtil/x86_64/nearest_integer.h",
+      "byteLength": 1392,
+      "sha256": "5a1f1eadb02e358b7560f90ce46500cd13b4b2199f27e60516d1938afacea560",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/FPUtil/x86_64/nearest_integer.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/baremetal/io.h",
+      "byteLength": 2323,
+      "sha256": "ce942fb86b075a6447c1ba9c5bd82b655e388c983ccfaa50573f34ff63bad8a8",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/baremetal/io.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/darwin/io.h",
+      "byteLength": 989,
+      "sha256": "93db9f8d505c5a42f69789d784e271bcc99daa99cae42de590bb6ffc55da6b1b",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/darwin/io.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/darwin/syscall.h",
+      "byteLength": 1132,
+      "sha256": "c050368ca03d0f64974263ec456a493343eee977c6de97ccb34952e5d8b32257",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/darwin/syscall.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/exit.h",
+      "byteLength": 704,
+      "sha256": "844d0ecd906f766390c887bf5811e41883748d9a41e5c3a4e58d783e4f818584",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/exit.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/freebsd/io.h",
+      "byteLength": 1013,
+      "sha256": "361d0aae318b622fcdf132eb42b2a79769ca4de6380ca26b32291030b88f0c1d",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/freebsd/io.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/freebsd/syscall.h",
+      "byteLength": 1554,
+      "sha256": "4b179063ee14302cd2ee9c65904eaf038bace4f7847b46c9175ece8c3b158326",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/freebsd/syscall.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/freebsd/syscall_wrappers/write.h",
+      "byteLength": 1364,
+      "sha256": "cc4607392e7417c60d4ab99f1e5750eec0b9b465fdd63bfb18c2a7b8736fe3a7",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/freebsd/syscall_wrappers/write.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/freebsd/x86_64/syscall.h",
+      "byteLength": 4064,
+      "sha256": "acd9c7f50001ef5a9da35e74776165678bb881acedce00bdb8825f7f7e2250b3",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/freebsd/x86_64/syscall.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/fuchsia/io.h",
+      "byteLength": 1192,
+      "sha256": "ffb1735e5e3ecdc5aa3d5f7e9e3624fa3ebaaa960bb0a1310f485278961f8dfd",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/fuchsia/io.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/gpu/io.h",
+      "byteLength": 776,
+      "sha256": "3ef5b1e209b3c121bf3ebef0e12b0cfee4281c32d11f73fd094fe97be5fbe996",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/gpu/io.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/io.h",
+      "byteLength": 1158,
+      "sha256": "3a23dee1d3e0962ed34c246f78e98452e964bbf830739d12974843d1516d9b9d",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/io.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/linux/i386/syscall.h",
+      "byteLength": 2954,
+      "sha256": "a165d85eb81c3ae282ee6c48f00432f8c11c3a2d6545db6ddaaa88c147b6004b",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/linux/i386/syscall.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/linux/io.h",
+      "byteLength": 968,
+      "sha256": "11f02d3d744409176691a4d58f3da299c87e42251ab4e97f589682379b4c845d",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/linux/io.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/linux/syscall.h",
+      "byteLength": 2298,
+      "sha256": "a83871271d054420ff8f9ff41229242ebaad631c2eb445233f4c1f967359cf38",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/linux/syscall.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/linux/x86_64/syscall.h",
+      "byteLength": 4247,
+      "sha256": "214ced0c72f81e677a79eddd7eb5c243819879b5e7c5d271700338721d3c9565",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/linux/x86_64/syscall.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/OSUtil/uefi/io.h",
+      "byteLength": 891,
+      "sha256": "240b00bbd1687293c83e75c35473abe01f3ac1d3d631867d3f16d2a8f406cf1b",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/OSUtil/uefi/io.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/big_int.h",
+      "byteLength": 49893,
+      "sha256": "245ccb9bfd90ce799e5b5841abe7b8197c87254fbc4d51c74e3f07154150d213",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/big_int.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/common.h",
+      "byteLength": 4902,
+      "sha256": "2e76716a2f9aff1392a85ae70429ea6f9754c58daee0beee6d1b4874be2bbc40",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/common.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/ctype_utils.h",
+      "byteLength": 9926,
+      "sha256": "e574528e343e468ab3f2d9c345ee275966e54644fb1b81e2e8552704ce9e4446",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/ctype_utils.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/error_or.h",
+      "byteLength": 1190,
+      "sha256": "fd0256a70a6bb8008198bbf28142edf80bda9183d7302238bc1ebb56129c0f94",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/error_or.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/integer_literals.h",
+      "byteLength": 6653,
+      "sha256": "2d1a0d20e95e3b70b57fa0ce4992c279316ef49c71771a928f9136d5a3e718dc",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/integer_literals.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/integer_to_string.h",
+      "byteLength": 20219,
+      "sha256": "906278f0931c794419037732a606b2ff50696e57e79201a06f751a896944d96c",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/integer_to_string.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/libc_assert.h",
+      "byteLength": 3401,
+      "sha256": "c83329aaf090185479145db6036d3f3d1e3931ac86b1cb5de62daee7a405ca26",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/libc_assert.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/libc_errno.h",
+      "byteLength": 3556,
+      "sha256": "90ff2e90471cb76067ca2a6181a7f126a9ac6fc30d4172683e990dbebad19e6f",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/libc_errno.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/macros/attributes.h",
+      "byteLength": 6070,
+      "sha256": "935cb1c26360a657182bbf3c4f1f4f8eb59ae69af945560e00a0c5d9ce29aaf4",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/macros/attributes.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/macros/config.h",
+      "byteLength": 3230,
+      "sha256": "df561513523f048e6279c0577c591ee59fc55269c1bc66160f36b1f747a39965",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/macros/config.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/macros/macro-utils.h",
+      "byteLength": 696,
+      "sha256": "62b1e27d3f3dc09fe8eb98f6f3910325be9ed445e96a51a16545f0e7d0322cfc",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/macros/macro-utils.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/macros/optimization.h",
+      "byteLength": 3127,
+      "sha256": "083f82cd1b6b1f67bf7a1f9a392136c8084ac7586c8b150639b35a7a27c584fb",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/macros/optimization.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/macros/properties/architectures.h",
+      "byteLength": 2114,
+      "sha256": "0398c61ada360db0e908f926cea9d447391ddb700cdab9385f703a5d3e2b3853",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/macros/properties/architectures.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/macros/properties/compiler.h",
+      "byteLength": 1644,
+      "sha256": "83fe28dbec8b4e778a1ca5b0db9f134251ddd388e9e9ad4d330145e92e288539",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/macros/properties/compiler.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/macros/properties/complex_types.h",
+      "byteLength": 1276,
+      "sha256": "65e63f890b0a49aa3484af23ea021f48a4252679b6de199144ff6fea3ebea416",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/macros/properties/complex_types.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/macros/properties/cpu_features.h",
+      "byteLength": 3984,
+      "sha256": "25463c1671926636a760a345549e60eb8049c5876c08d3122f895140aac7fc21",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/macros/properties/cpu_features.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/macros/properties/os.h",
+      "byteLength": 1008,
+      "sha256": "da82ac476c0ba817f603852e18515d06487fe93af59e067739b35b47dce321f2",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/macros/properties/os.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/macros/properties/types.h",
+      "byteLength": 3124,
+      "sha256": "749c66732aa139f9ce7b7461561f50645ac145af46c0c88bfa3f00f708405623",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/macros/properties/types.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/macros/sanitizer.h",
+      "byteLength": 2028,
+      "sha256": "2a39a08493cde458897660d3ba4a11d1005450f9ae8896ccb5c4de83166de27b",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/macros/sanitizer.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/math/atan2.h",
+      "byteLength": 8713,
+      "sha256": "57635c2220c03e67814ff7db245f24abcf6d6444b1eb755fe2ba6fde7cae0dec",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/math/atan2.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/math/atan_utils.h",
+      "byteLength": 18838,
+      "sha256": "799714e7dbdd7a87133f73e180b35706c7ec5a33340f026c09b40a672348bcc1",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/math/atan_utils.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/math_extras.h",
+      "byteLength": 6872,
+      "sha256": "917df24b2495b01904b06530d559511be5c6e565b8f8cb0eab14bc4c222be80a",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/math_extras.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/number_pair.h",
+      "byteLength": 748,
+      "sha256": "e7988e564035464612641dd06020da156aac4b921a094cd0cdd3627e1901cb69",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/number_pair.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/sign.h",
+      "byteLength": 1410,
+      "sha256": "1c598b95ff680a4132fd11f920d0aa51fe8d5bc1d70f546b7b1e72a1a5aeee53",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/sign.h?format=TEXT"
+    },
+    {
+      "path": "llvm-libc/src/__support/uint128.h",
+      "byteLength": 805,
+      "sha256": "c7f7c81017ce5d295a0aa4f2b334be9003d3200eb49040f30e02a87c4bef4d83",
+      "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc.git/+/3ea89f4304312567e31a8eb45e0737577e65b676/src/__support/uint128.h?format=TEXT"
+    },
+    {
+      "path": "provenance/chromium-DEPS",
+      "byteLength": 194497,
+      "sha256": "2557b5a638eb7f6d4efc81afee0e94e8ac811e70dfbca32d4214715c1fb3c4c9",
+      "url": "https://chromium.googlesource.com/chromium/src/+/152.0.7977.78/DEPS"
+    },
+    {
+      "path": "provenance/chromium-LICENSE",
+      "byteLength": 1536,
+      "sha256": "368cca1106be99d39ecd32a38d8305585d802a475effb66380b91ffc9bcf709b",
+      "url": "https://chromium.googlesource.com/chromium/src/+/152.0.7977.78/LICENSE?format=TEXT"
+    },
+    {
+      "path": "provenance/chromium-llvm-BUILD.gn",
+      "byteLength": 525,
+      "sha256": "6ecfdc0af325abc66d4e713a5415c8dd493659a797ee263eb81ad434ced6dc77",
+      "url": "https://chromium.googlesource.com/chromium/src/+/152.0.7977.78/third_party/llvm-libc/BUILD.gn"
+    },
+    {
+      "path": "provenance/chromium-llvm-README.chromium",
+      "byteLength": 338,
+      "sha256": "6bd3f04269be302977d23f4e17b18e1b7156899ea580a0697ddd561fa7a48c59",
+      "url": "https://chromium.googlesource.com/chromium/src/+/152.0.7977.78/third_party/llvm-libc/README.chromium"
+    },
+    {
+      "path": "provenance/electron-DEPS",
+      "byteLength": 8471,
+      "sha256": "4e085aab8814858a185f375dcff128be228e6d0a88e05a15ad79a75942a084d6",
+      "url": "https://github.com/electron/electron/blob/v44.3.0/DEPS"
+    },
+    {
+      "path": "provenance/electron-LICENSE",
+      "byteLength": 1096,
+      "sha256": "5154e165bd6c2cc0cfbcd8916498c7abab0497923bafcd5cb07673fe8480087d",
+      "url": "https://raw.githubusercontent.com/electron/electron/v44.3.0/LICENSE"
+    },
+    {
+      "path": "provenance/electron-primitives.json",
+      "byteLength": 3403,
+      "sha256": "c0d167f9cac5105ffb6da196ea461059db0bbec13a2e2b13f69e6647e836575f",
+      "url": "local:actual-electron-44.3.0-observation-sha256:e6b36684f229534a0a62a5e7f72a9f0ee200294c6921b74e4d7f6ed831a6acf5"
+    },
+    {
+      "path": "provenance/v8-DEPS",
+      "byteLength": 37147,
+      "sha256": "b588f2d248a7d4c6361c1d22a18dffc3320d832dbb8aef9ddc8e763723b6b712",
+      "url": "https://github.com/v8/v8/blob/15.2.124.19/DEPS"
+    },
+    {
+      "path": "provenance/v8-LICENSE",
+      "byteLength": 3093,
+      "sha256": "6ab33af8774a0f396ee3aeeb761e3229057682d6f9fa7f572e390c2cb3a6e509",
+      "url": "https://raw.githubusercontent.com/v8/v8/15.2.124.19/LICENSE"
+    },
+    {
+      "path": "provenance/v8-ieee754.cc",
+      "byteLength": 11615,
+      "sha256": "fdfa937d3e442fed6554322b3e423bb9e08bef570f25e60e8efc3a6646ce4820",
+      "url": "https://github.com/v8/v8/blob/15.2.124.19/src/base/ieee754.cc"
+    }
+  ],
+  "omittedOtherArchitectureIncludes": [
+    "src/__support/FPUtil/aarch64/FEnvImpl.h",
+    "src/__support/FPUtil/aarch64/fenv_darwin_impl.h",
+    "src/__support/FPUtil/aarch64/nearest_integer.h",
+    "src/__support/FPUtil/arm/FEnvImpl.h",
+    "src/__support/FPUtil/riscv/FEnvImpl.h",
+    "src/__support/OSUtil/darwin/aarch64/syscall.h",
+    "src/__support/OSUtil/freebsd/aarch64/syscall.h",
+    "src/__support/OSUtil/freebsd/arm/syscall.h",
+    "src/__support/OSUtil/freebsd/riscv/syscall.h",
+    "src/__support/OSUtil/linux/aarch64/syscall.h",
+    "src/__support/OSUtil/linux/arm/syscall.h",
+    "src/__support/OSUtil/linux/riscv/syscall.h",
+    "src/__support/OSUtil/windows/io.h"
+  ],
+  "sourceClosureNotes": [
+    "Quoted stddef.h uses the system compiler header after local lookup.",
+    "FreeBSD/i386 syscall include is unselected on Linux x86_64.",
+    "Exact header selection was verified by the separate successful E17 baseline probe; application full-byte/lifecycle verification remains required."
+  ]
+}

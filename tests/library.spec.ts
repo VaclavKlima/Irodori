@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import sharp from 'sharp'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { PreviewEngine } from '../src/main/preview-engine'
 import type { PreviewProcessor } from '../src/main/preview-types'
 
@@ -277,7 +277,7 @@ test('keeps fixed task totals and chunked errors after staging and review are di
       progress: { completed: 0, total: 61 },
       transfer: { bytes: 0, totalBytes },
     })
-    expect(() => service.dismissTask(id)).toThrow('Cancel the task')
+    await expect(service.dismissTask(id)).rejects.toThrow('Cancel the task')
     await expect.poll(() => service.listTasks()[0].status).toBe('failed')
     expect(service.listTasks()[0]).toMatchObject({
       errorCount: 61,
@@ -296,7 +296,7 @@ test('keeps fixed task totals and chunked errors after staging and review are di
     snapshot[0].items!.total = 0
     expect(service.listTasks()[0].items!.total).toBe(61)
     expect(() => service.taskErrors(id, -1)).toThrow('Invalid collection offset')
-    service.dismissTask(id)
+    await service.dismissTask(id)
     expect(service.listTasks()).toEqual([])
     expect(() => service.taskErrors(id)).toThrow('dismissed')
   } finally {

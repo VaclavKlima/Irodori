@@ -1,9 +1,10 @@
+import { seedFixtureEdits } from './catalog-fixture.helpers'
 import { test, expect } from '@playwright/test'
 import { cp, mkdir, mkdtemp, rm, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { PreviewEngine } from '../src/main/preview-engine'
 import { PreviewProcess } from '../src/main/preview-process'
 import { syntheticMerge } from './merge.helpers'
@@ -89,7 +90,6 @@ for (const count of [2, 3, 5, 9])
           undefined,
           undefined,
           new PreviewProcess(resolve('out/main/preview-worker.js')),
-          undefined,
           resolve('out/main/merge-worker.js'),
           undefined,
           new PreviewProcess(resolve('out/main/preview-worker.js')),
@@ -130,6 +130,7 @@ for (const count of [2, 3, 5, 9])
                 revision: 0,
               }),
             )
+            seedFixtureEdits(db)
           }
         } finally {
           db.close()
@@ -247,7 +248,6 @@ for (const count of [2, 3, 5, 9])
           undefined,
           undefined,
           new PreviewProcess(resolve('out/main/preview-worker.js')),
-          undefined,
           resolve('out/main/merge-worker.js'),
           undefined,
           new PreviewProcess(resolve('out/main/preview-worker.js')),
@@ -284,6 +284,7 @@ for (const count of [2, 3, 5, 9])
                 revision: 0,
               }),
             )
+            seedFixtureEdits(db)
           }
         } finally {
           db.close()

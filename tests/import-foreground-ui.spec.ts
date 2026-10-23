@@ -1,10 +1,12 @@
 import { test, expect } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { foregroundImport } from './import-foreground.helpers'
+import { activateButton } from './button.helpers'
+import { observeAnalysisActivity } from './hdr-analysis-cancel.helpers'
 import { join } from 'node:path'
 import { mkdir, readdir } from 'node:fs/promises'
 
-test('visible editing pauses transfer, heartbeats persist during a gesture, and idle/reload/cancellation release it', async ({
+test('local editing retains activity heartbeats while copying advances, publication waits and idle/reload/cancellation release it', async ({
   luma,
 }, info) => {
   const { app, page } = luma
@@ -14,35 +16,50 @@ test('visible editing pauses transfer, heartbeats persist during a gesture, and 
     window.setContentSize(1100, 700)
   })
   await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
-  await importPhotos(app, page)
+  await importPhotos(app, page, undefined, true, 'keyboard')
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
-  await page.getByRole('button', { name: 'Console', exact: true }).click()
-  const id = await foregroundImport(app, page, info)
-  await page.getByTestId('task-progress').click()
+  await activateButton(page.getByRole('button', { name: 'Console', exact: true }))
+  const id = await foregroundImport(app, page, info, false, 'keyboard')
+  await activateButton(page.getByTestId('task-progress'))
   await expect(page.getByTestId(`task-${id}`)).toContainText('0 / 6 photos imported')
   const slider = page.getByRole('slider', { name: 'Exposure', exact: true })
+  const activity = await observeAnalysisActivity(app)
   await slider.focus()
   await page.keyboard.down('ArrowRight')
   await expect
-    .poll(() =>
-      page.evaluate(
-        async (id) => (await window.luma.listTasks()).find((t) => t.id === id)?.waitingReason,
-        id,
-      ),
+    .poll(async () =>
+      (await activity.evaluate((control) => control.state())).events.some((event) => event.active),
     )
-    .toBe('foreground')
+    .toBe(true)
   const held = await page.evaluate(async (id) => {
-    const demand = (await window.luma.listTasks()).find((t) => t.id === id)!
-    // An admitted chunk finishes before copying hands off foreground priority.
+    // Local edits leave copying/preparation admitted while publication waits.
     await new Promise((resolve) => setTimeout(resolve, 150))
     const before = (await window.luma.listTasks()).find((t) => t.id === id)!
     await new Promise((resolve) => setTimeout(resolve, 1200))
-    return { demand, before, after: (await window.luma.listTasks()).find((t) => t.id === id)! }
+    return { before, after: (await window.luma.listTasks()).find((t) => t.id === id)! }
   }, id)
-  expect(held.before.transfer!.bytes - held.demand.transfer!.bytes).toBeLessThanOrEqual(4096)
-  expect(held.after.transfer!.bytes).toBe(held.before.transfer!.bytes)
+  expect(held.after.transfer!.bytes).toBeGreaterThan(held.before.transfer!.bytes)
   expect(held.after.progress!.total).toBe(held.before.progress!.total)
+  expect(held.after.progress!.completed).toBe(0)
+  const reports = await activity.evaluate((control) => control.state()),
+    owner = reports.events.find((event) => event.active)!
+  expect(reports.omitted).toBe(0)
+  expect(
+    reports.events.filter((event) => event.activityId === owner.activityId && event.active).length,
+  ).toBeGreaterThanOrEqual(3)
+  expect(
+    reports.events.filter((event) => event.activityId === owner.activityId && !event.active),
+  ).toEqual([])
   await page.keyboard.up('ArrowRight')
+  await expect
+    .poll(async () =>
+      (await activity.evaluate((control) => control.state())).events.some(
+        (event) => event.activityId === owner.activityId && !event.active,
+      ),
+    )
+    .toBe(true)
+  await activity.evaluate((control) => control.close())
+  await activity.dispose()
   await expect
     .poll(() =>
       page.evaluate(

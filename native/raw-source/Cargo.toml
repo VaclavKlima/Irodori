@@ -1,0 +1,15 @@
+[package]
+name = "luma-raw-source"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Main-owned pinned Sony ARW2 sensor source with bounded Rust row workers"
+
+[[bin]]
+name = "luma-raw"
+path = "src/main.rs"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "unwind"

@@ -1,5 +1,10 @@
 # Mac workability
 
+This document preserves the Mac milestone and its dated handoffs. The later
+[Bazzite native-engine goal](bazzite-native-engine.md) records current Linux
+implementation choices, ordinary preview policy and remaining acceptance.
+No later Bazzite result certifies a Mac display, performance or release gate.
+
 This milestone improves the current production pipeline on the M4 Pro. Sharp
 detail takes priority over presenting every intermediate input. Processing-graph,
 native-service and decoder research remain separate. Disabled controls and the
@@ -33,8 +38,9 @@ The final tested editor revision remains pending; the earlier merge freeze
 `0a70599669c884fc70d2e2afe5f9a6527df44dbb` continues to identify only the separate
 GPU merge handoff below.
 
-The versioned Float32 gesture preview and exact retained presentation cache
-remain opt-in through `VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` and
+At this October 18 Mac checkpoint, the versioned Float32 gesture preview and
+exact retained presentation cache were opt-in through
+`VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` and
 `VITE_LUMA_HDR_PRESENTATION_CACHE=1`. The recorded eight-slider, Fit/100%,
 1440 × 900, DPR 2, 60 Hz candidate cohort passed its original 48-trial assertions.
 The later first-visible audit retains three maximum-latency misses of
@@ -1616,7 +1622,14 @@ unavailable. A Linux comprehensive checkpoint requires its own agreed checkpoint
 
 ### Everyday editor continuation
 
-This is the later editor experiment's Linux checklist under
+This is the historical October 18–19 transfer checklist. Its source freezes,
+pending states and selector commands are retained for reproducing that checkpoint.
+For the current Bazzite goal, use the selected ordinary-build policy and remaining
+gates in the [native-engine ledger](bazzite-native-engine.md); retired selectors
+below do not select a current implementation. Final ordinary-build foreground
+acceptance remains open, and current Mac testing is a separate goal.
+
+This was the later editor experiment's Linux checklist under
 [TODO #29](features/README.md#workspace-feedback-backlog). The user paused the Mac
 goal on October 19 to continue on Bazzite. Use the
 [transfer handoff](bazzite-editor-handoff.md), including source/test checkpoint

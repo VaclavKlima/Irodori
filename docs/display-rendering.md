@@ -1,5 +1,7 @@
 # Default scene-to-display rendering
 
+The ordinary Linux editor uses the shared [preview policy](editor-responsiveness.md#ordinary-editor-preview-policy): existing versioned Float32 After-gesture feedback, exact presentation reuse, 512-tile dispatch chunks and the final presentation fence. Other and unconfirmed platforms retain reference/32-tile/separate/cache-disabled behavior pending separate verification. Canonical settled/comparison/navigation/export arithmetic and the independent numerical references are unchanged. Dated opt-in and 32-tile comparisons below retain their historical scope; the five former policy/kernel build selectors no longer choose the ordinary behavior. Production cache kernels use linear64; exact grid8 remains an independent research/test reference.
+
 Supported Sony RAWs and merge masters use **linear preparation → white balance and Light edits → ACES 2 → canvas encoding**. Neutral settings preserve capture exposure and As Shot white balance. There is one automatic rendering model, with the existing SDR comparison. JPEG, PNG and other raster inputs are already display-referred: their color-managed pixels bypass the scene-rendering transform.
 
 ## Capture units
@@ -20,11 +22,44 @@ Reported headroom and gamut are separate capabilities. `headroom = peak luminanc
 
 Fixed HDR and SDR tables prepare once in a dedicated renderer worker. Monitor updates change only lightweight presentation mapping and diagnostics. The latest completed photograph remains visible during same-photo edits and target updates. Before uses neutral Light edits and As Shot white balance. `working-hdr` statistics remain adjusted scene-linear Rec.2020, `content-hdr` describes the fixed Rec.2020 rendition, and `output` describes the actual displayed HDR proof or direct SDR rendition. Pixel inspection uses these same domain mappings. Overlays and the pixel grid never alter measurements.
 
+## Portable independent reference fixtures
+
+The canonical CPU/GPU numerical requirement remains
+`2e-6 + 2e-5 * abs(reference)`, evaluated against fresh independent Float64 CTL.
+The pinned CTL, independent C++ adapter, saved fixture bytes, all nine targets
+and Float32 fixture inputs remain unchanged.
+
+The historical check also required bit-identical Float64 output from a newly
+compiled reference and an older saved fixture. Its original compiler, libm and
+CPU provenance are absent. On this Bazzite host, ten retained compiler/flag
+configurations failed that identity check while all saved components still
+rounded to the exact same Float32 bits. The original failed runs remain evidence;
+they are not retroactively passes.
+
+A separately named portable-fixture contract now requires verified fixture/CTL
+hashes, valid shape and finite clipped range, exact Float32 bits for every fixed
+component, exact zero/tiny-underflow behavior, and absolute Float64 agreement
+within `1e-12` in relative-white units over this fixture's `[0, 10]` domain.
+The Float64 guard is an explicit portability requirement supported by retained
+measurements; it is not a universal bound promised by the language or library.
+Historical exact mismatches and numerical maxima remain separately reported.
+This changes the fixture reproducibility criterion and leaves the actual fresh
+CPU/GPU quality limits intact.
+
+The [C++ evaluation rules](https://eel.is/c++draft/expr.pre#6) permit excess
+precision, [Clang's floating-point documentation](https://clang.llvm.org/docs/UsersManual.html#controlling-floating-point-behavior)
+describes contraction and reproducibility choices, and
+[glibc's math accuracy contract](https://sourceware.org/glibc/manual/latest/html_node/Errors-in-Math-Functions.html)
+does not promise correctly rounded results for most transcendental functions.
+Identical CTL source alone therefore cannot establish cross-environment Float64
+identity. No saved photographic result is used to fit GPU coefficients or widen
+the independent image-quality tolerance.
+
 ## Interactive presentation
 
 The GPU evaluates white balance, Light edits and ACES over needed source texels. A bounded LRU retains **Float32 canonical HDR content tiles** and direct SDR variants. Pan and zoom sample the cache, map presentation, encode once and draw overlays; the presentation fragment shader does not evaluate ACES. HDR headroom and gamut changes reuse content tiles. Edits retire After tiles across variants; neutral Before survives and shares neutral After tiles.
 
-Production tiles have 64 × 64 interiors and a one-pixel halo. Smaller sources use smaller tiles. At most 2048 layers share the existing **768 MiB** total budget, capped by adapter limits and reduced for source, analysis and Retina surfaces. HDR/SDR and Before/After variants use this same cache. Memory accounting includes the offscreen completed-frame surface, a bounded 1024-pixel retained surface for device replacement, and the active photo's two histogram sample resolutions. Each completed frame updates the retained copy before its WebGPU drawing buffer expires; device-loss recovery never tries to read an already lost buffer. The copy is temporary SDR transport, carries the completed presentation serial, and never enters statistics. CPU fallback reuses matching content bins while recalculating current display warnings, avoiding backend rounding changes at bin boundaries. Upload buffers are released before allocating the cache. Disposal releases textures, buffers and workers.
+The selected Bazzite implementation uses 128 × 128 tile interiors and a one-pixel halo. Smaller sources use smaller tiles. At most 2048 layers are admitted against independent RAM and GPU resource budgets, capped by adapter limits and reduced for source, analysis and display surfaces. Settings provides Automatic and persisted custom RAM/VRAM budgets for RAW/HDR GPU previews. Each presenter freezes its policy before allocating its source; changes apply to the next photo. Automatic uses known machine capacity and available memory; unverified processing-adapter capacity uses an explicitly labeled 2 GiB GPU planning fallback. See the [memory amendment and measured results](bazzite-native-engine.md#memory-policy-amendment). These managed ownership estimates exclude CPU fallback, raster previews, other processing and application/driver overhead; they are not process or physical VRAM caps. HDR/SDR and Before/After variants use the same cache. A completed CPU-owned RGBA16F snapshot is retained before publication and never reads a lost WebGPU buffer. Real-photo device-loss recovery passed with at most one 8-bit RGB code difference and exact alpha; strict-zero SDR comparison remains failed. Normal rendering and export tolerances are unchanged. Recovery pixels carry the completed presentation identity and do not enter statistics. CPU fallback reuses matching content bins while recalculating current display warnings. Upload buffers are released before allocating the cache. Disposal releases textures, buffers and workers.
 
 One immutable GPU request runs at a time, with one replaceable pending request. Completed sharp navigation and interactive adjustment frames advance monotonically while newer input is pending. Request intent (`interactive`, `navigation`, or `refinement`) controls supersession separately from sampling quality. Idle refinement yields to new input, checking after each batch of at most 32 tiles and retiring unfinished slots. Photo, edit/history, comparison and display changes reject obsolete navigation output. The offscreen surface replaces the canvas only after all its work completes. Commits retain validated source identity and do not upload the source again.
 
@@ -34,15 +69,15 @@ Photo-wide analysis is independent of framing and image presentation. A separate
 
 The RGB content histogram always has 256 encoded SDR bins plus 256 log2 bins through **+4 stops**. Monitor updates move only its capability marker and warnings. Controls, readouts and detail rows stay mounted while results arrive. Curves retarget an 80 ms animation starting on the next animation frame and respect reduced motion. Updates retain the pending paint rather than cancelling it; continuous edits can advance curves while newer bins arrive. A painted curve carries its own analysis serial, separate from navigation presentation serials.
 
-Paired actual-editor runs retain 32-tile dispatch/completion chunks as the production default. The internal `VITE_LUMA_HDR_TILE_BATCH=8` build candidate keeps the previous eight-tile comparison available through `mac-workability-batching`. Both use the same bounded job/cache allocations and normal-detail sampling. The target retains three 240-input Exposure trials at Fit and 100% in both workspace layouts, plus held-fence history, comparison, display and source invalidation. It records achieved cadence, sharpness, missing inputs, frame/histogram latency, memory and cancellation latency. The local Mac comparison repeated an approximately 18–22% gain with retained correctness and memory bounds; cancellation remained within its 500 ms gate. The larger chunk retains visible latency/progress failures and is not a claim that those gates passed.
+At the historical Mac batching checkpoint, paired actual-editor runs retained 32-tile dispatch/completion chunks as that build’s production default. The internal `VITE_LUMA_HDR_TILE_BATCH=8` build candidate keeps the previous eight-tile comparison available through `mac-workability-batching`. Both use the same bounded job/cache allocations and normal-detail sampling. The target retains three 240-input Exposure trials at Fit and 100% in both workspace layouts, plus held-fence history, comparison, display and source invalidation. It records achieved cadence, sharpness, missing inputs, frame/histogram latency, memory and cancellation latency. The local Mac comparison repeated an approximately 18–22% gain with retained correctness and memory bounds; cancellation remained within its 500 ms gate. The larger chunk retains visible latency/progress failures and is not a claim that those gates passed.
 
 Per-frame diagnostics attribute planning, tile submission and completion waits, offscreen completion, final blit, retained-frame copy and total time. They include queue age, dispatch/fence counts, evaluated texels, source mip and surface size, and the batching helper retains serial-matched mean/p95/maximum summaries. These are observed CPU elapsed stages including scheduling and queue waits, not hardware GPU timestamps. They guide further work without changing the image, sampling or cancellation policy.
 
-## Automatic cutover
+## Supported catalog and edit format
 
-Settings v7 and catalog schema 12 rewrite processing metadata in every history snapshot transactionally. RAWs and merge masters adopt `hdr-v1`; raster photos adopt `display-referred-v1`. Cursor, revisions, timestamps, redo branches and numeric edits remain intact. There is no per-photo upgrade operation or previous-look renderer.
+Settings v7 and catalog schema 17 are the supported persisted format. RAWs and merge masters use `hdr-v1`; raster photos use `display-referred-v1`. Current cursor, revisions, timestamps, redo branches and numeric edits reopen unchanged. Older catalogs and older or unknown history settings are rejected before schema/history writes or recovery cleanup, with original files retained. There is no upgrade chain, per-photo upgrade operation or previous-look renderer.
 
-`hdr-source-v2-capture-scale-1` (with the existing `sensor-blend-v1` suffix for RAWs), `hdr-output-v6-content-proof-aces2-069b0bc3-v2` and `hdr-analysis-v4-content-aces2-069b0bc3-v2` retire derived output and analysis. Preview cache v9 and the existing source identities retain prepared working assets. Originals, merge masters and numeric edit history remain unchanged. Originals are byte-preserved. Existing composite masters, including descriptors carrying `hdr-source-v1`, remain readable without rewriting their bytes; only their derived rendition changes. Retired Natural code, reference photographs and prior measurements are preserved locally under ignored `artifacts/natural-reference/` as research evidence, with no Lightroom mismatch gate.
+`hdr-source-v2-capture-scale-1` (with the existing `sensor-blend-v1` suffix for RAWs), `hdr-output-v6-content-proof-aces2-069b0bc3-v2` and `hdr-analysis-v4-content-aces2-069b0bc3-v2` retire derived output and analysis. Preview cache v9 and the existing source identities retain prepared working assets. Originals, merge masters and numeric edit history remain unchanged. Originals are byte-preserved. Current composite masters remain readable without rewriting their bytes; only their derived rendition changes. Retired `hdr-source-v1` descriptors are rejected, while their original bundle bytes remain untouched. A pending publication with a valid unsupported source descriptor retains its journal and bundle after full byte verification and reports an unsupported merge without blocking current photos. Corrupt or inconsistent journals still stop recovery. Retired Natural code, reference photographs and prior measurements are preserved locally under ignored `artifacts/natural-reference/` as research evidence, with no Lightroom mismatch gate.
 
 ## Verification and limits
 

@@ -1,11 +1,29 @@
 # Everyday editor responsiveness
 
+## Ordinary editor preview policy
+
+The unset Linux build selects one frozen policy from main's `AppInfo.platform`: Float32 gesture feedback, exact completed-presentation reuse, 512-tile dispatch chunks, and the final presentation fence. Unconfirmed platforms and macOS/Windows retain canonical gesture rendering, cache disabled, 32-tile chunks and separate completion until their own verification is complete. App passes that policy to each preview owner; browser platform guesses and build environment variables do not choose it.
+
+The former precision, presentation-cache, tile-batch, interactive-fence and kernel `VITE_LUMA_HDR_*` selectors are retired. Production uses the linear64 kernel; the exact grid8 program remains a research/test reference. The dated commands and comparisons below preserve their original builds and results; they no longer configure an ordinary build. `VITE_LUMA_HDR_GPU_TIMINGS` remains optional diagnostics.
+
+Only eligible After gestures use the existing versioned feedback arithmetic. Final refinement, navigation, Before/Split, source preparation, exports, independent numerical references and all identity/admission/recovery guards retain their contracts. Default adoption alone establishes neither a new performance result nor whole-goal acceptance; package version remains 0.1.0.
+
+The newer [native-engine ledger](bazzite-native-engine.md#memory-policy-amendment)
+records the user's revised memory policy: practical machine-based budgets and
+optional RAM/VRAM Settings overrides replace the earlier fixed 768 MiB target.
+Its 2 GiB/128-pixel candidate passes the maximized slider and spatial timing
+matrix. Verification of the ordinary build after policy adoption and broader goal
+acceptance remain open; dated 768 MiB results below keep their original scope.
+
 The active goal is to make sliders, photograph selection, zooming and panning
-feel immediate on the M4 Pro without perceptible preview-quality degradation.
-This is an implementation and application-verification goal. Research, isolated
-kernel throughput and a few fast surviving frames cannot establish completion.
-The initial production baseline is `bef6a61`. Bazzite verification is deferred in
-TODO #29; Mac measurements establish no Linux result.
+feel immediate on the available Bazzite machine without perceptible preview-quality
+degradation. This is an implementation and application-verification goal. Research,
+isolated kernel throughput and a few fast surviving frames cannot establish
+completion. The initial production baseline is `bef6a61`; earlier M4 Pro results
+remain separate historical evidence. Start with the
+[native-engine ledger](bazzite-native-engine.md) for current implementation choices
+and acceptance status. The [October 19 Bazzite results](#bazzite-current-results-october-19-2026)
+retain their own passes, failures, incomplete gates and scope limits.
 
 The coordinator owns integration, decisions, builds and every application/GPU
 measurement. Research and test work may proceed in disjoint files, while all
@@ -85,9 +103,10 @@ pending requests and independent histogram work. Source-detail policy is
 currently selected from CSS view scale, independently of Retina density. Any
 replacement must examine the actual physical sampling footprint rather than
 assuming CSS-sized rendering is sufficient at DPR 2. The production
-[presentation contract](display-rendering.md#interactive-presentation) retains a
-768 MiB aggregate budget, adapter bounds, allocation accounting, revision-aware
-recovery and cleanup. Existing disk-cache and worker limits also remain in force.
+[presentation contract](display-rendering.md#interactive-presentation) now uses
+practical Auto/custom RAM and GPU budgets, adapter bounds, allocation accounting,
+revision-aware recovery and cleanup. The earlier 768 MiB cap below is historical.
+Existing disk-cache and worker limits also remain in force.
 
 The fresh October 18 baseline selected `mac-workability-batching` at production
 revision `bef6a61`, before the new renderer candidates were built. It recorded
@@ -111,16 +130,21 @@ interaction latency, and includes the start/end boundaries in presentation-gap
 measurement. Coalescing counts describe observed requests; a MutationObserver
 can miss intermediate serials, so unobserved serial counts remain explicit.
 
-## Initial candidate evidence
+## Historical initial candidate evidence (October 18, 2026)
 
-Both candidates are currently opt-in experiments on `perf/editor-responsiveness`.
+This section records the original opt-in checkpoint on
+`perf/editor-responsiveness`. The ordinary Linux policy above and the current
+native-engine ledger supersede its selector/default and fixed-memory status.
+Mac measurements remain separate and do not certify current Bazzite acceptance.
+
+At this checkpoint, both candidates were opt-in experiments.
 `VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` selects the separately versioned
 `aces2-f32-interactive-v1` math during after-view editing gestures. It retains
 the same source, mip, sample positions, alpha and adjustment equations. Before,
 split, navigation, settled rendering and exports keep canonical compensated
 math. `VITE_LUMA_HDR_PRESENTATION_CACHE=1` independently enables exact completed
 surface reuse. Its 64 MiB reservation reduces active tile capacity within the
-existing 768 MiB presentation limit. No default has been changed.
+existing 768 MiB presentation limit. No default had changed at this checkpoint.
 
 The first bounded application comparison used Exposure at 1440 × 900, Console
 closed, DPR 2 and measured 60 Hz, with presentation caching disabled. Three Fit
@@ -661,3 +685,479 @@ measured cold/warm conditions, 60/120 Hz cadence, native display/DPR, quality,
 history, resources, cancellation/recovery and background-work results. Mac
 measurements provide no Linux result, and deferred Linux work does not block
 continued Mac feature development.
+
+## Bazzite checkpoint: October 19, 2026
+
+The Bazzite continuation now has local evidence from an isolated clone based on
+`3673c07`, with uncommitted source and harness corrections. This section adds
+Linux results; the earlier Mac results and interrupted invocations retain their
+historical status. Neither experiment is enabled by default. This is a failed
+acceptance checkpoint, not approval to adopt the candidates.
+
+The local correction to `useEdits` preserves the final draft when pointer release,
+capture loss or blur flushes the same pending write again. The corrected native
+held-reply case reaches final Float32 feedback before its own reply, then freshly
+confirmed canonical refinement, with one persistence call and one added history
+snapshot. It still fails the unchanged screenshot comparison: maximum channel
+difference **2 codes**, against the **1-code** limit, on both the initial fixed run
+and its exact rerun. Those are pixel failures, not duplicate-write or history
+failures; the complete native case remains failed.
+[Held-reply rerun](../artifacts/verification/2026-10-19T06-33-09-held-reply-fixed-rerun/playwright/summary.json).
+
+Quality and recovery evidence remain separate:
+
+- The Sony street and deer photographic suites pass **66 comparisons** (30 and
+  36), retaining their original hashes and recorded preview budgets. Their
+  combined native suite has **2 passed, 1 failed in 79.97 s**, because the
+  synthetic numerical case fails. Human physical-display review is still
+  pending; these DPR 2 photographic comparisons do not establish Linux DPR 1
+  interaction or physical HDR acceptance.
+  [Quality suite](../artifacts/verification/2026-10-19T06-34-03-interactive-quality-linux/playwright/summary.json).
+- The exact synthetic rerun fails again. Its canonical HDR/reference ratio is
+  **1.7484** for Display P3 at peak 4 and **2.5558** for Rec.2020 at peak 10,
+  against the unchanged limit **1**. The first failing assertion is the canonical
+  reference requirement; photographic preview-budget passes do not satisfy it.
+  [Synthetic rerun](../artifacts/verification/2026-10-19T06-35-56-synthetic-quality-exact-rerun/playwright/summary.json).
+- Replaying the held-reply source, edits and 628 × 518 DPR 1 Fit geometry through
+  the native production tile shader passes **1 case covering both SDR gamuts in
+  3.54 s**. The complete surfaces remain within the photographic budgets, with
+  maximum encoded difference **0.00048828125** and unchanged alpha. At the five
+  captured failure sites, sRGB Float16 outputs are identical between policies;
+  Display P3 differs by one Float16 step, with a one-code difference after direct
+  8-bit rounding. The separate Chromium capture still differs by two codes and
+  fails its one-code limit. This distinguishes raw numerical evidence from the
+  remaining compositor/capture discrepancy; it does not waive either limit.
+  [Held-state numerical replay](../artifacts/verification/2026-10-19T06-53-51-held-state-numerical-replay/playwright/summary.json).
+- Native pipeline rejection with complete CPU pixel recovery, actual device loss
+  with one committed edit recovered on CPU, and cancellation/photo switching with
+  held completed GPU work pass **3/3 in 122.71 s**. This verifies those selected
+  recovery cases, not the remaining pixel or latency gates.
+  [Recovery suite](../artifacts/verification/2026-10-19T06-41-34-lifecycle-recovery-linux/playwright/summary.json).
+
+### Bounded Exposure comparison
+
+The hardware run uses the explicit `linux-native-dpr1` profile at 1440 × 900,
+Console closed, Fit and 100%, with three repetitions per view. The desktop records
+a native 144 Hz display mode; the dispatched input is paced at approximately
+60 Hz (**59.96–60.22 Hz** across the retained trials). Input rate, native display
+rate and completed changed presentations are separate measurements. Electron
+reports display frequency 0, and physical scanout remains unmeasured.
+[Machine record](../artifacts/bazzite-editor/machine-before.json).
+
+All runs complete on the requested SDR Display P3 target, peak 1, target generation
+4, with matching completed target generation and expected policy. Physical output
+verification remains false. F32/cache1, canonical reference/cache1 and the second
+F32/cache1 run keep cache selection fixed. The first candidate run and its exact
+rerun are both retained; the faster first run must not replace the rerun in the
+comparison.
+
+The retained Wayland `physicalDisplay` metadata uses Electron window bounds and
+selects a secondary display, conflicting with the renderer's Microstep capability
+monitor. It does not establish which physical monitor presented these frames.
+The actual completed SDR target/generation checks remain valid; physical monitor
+attribution remains bounded by the evidence below. The corrected helper retains
+the Electron estimate with an explicit Wayland reliability warning and separately
+records renderer `currentScreen`, confirmed monitor and completed generation.
+Preserve the original reports rather than rewriting their metadata.
+
+| Run                     | View | First-visible p95 (ms) | First-visible p99 (ms) | Changed visible updates/s |
+| ----------------------- | ---- | ---------------------- | ---------------------- | ------------------------- |
+| Candidate A             | Fit  | 56.5–62.9              | 62.6–63.2              | 25.13–26.63               |
+| Candidate A             | 100% | 48.5–49.2              | 49.3–49.5              | 40.22–41.71               |
+| Candidate A exact rerun | Fit  | 62.6–63.0              | 63.0–70.4              | 23.62–24.12               |
+| Candidate A exact rerun | 100% | 49.3                   | 50.5–56.0              | 34.91–34.99               |
+| Canonical reference B   | Fit  | 62.8–63.5              | 70.2–70.5              | 23.09–23.12               |
+| Canonical reference B   | 100% | 49.4–49.6              | 49.7–55.6              | 33.25–33.42               |
+| Candidate A2            | Fit  | 62.6–62.9              | 70.2–70.7              | 23.62–23.87               |
+| Candidate A2            | 100% | 49.1–49.3              | 49.6–55.6              | 34.86–35.18               |
+
+Each invocation executes one selected benchmark case containing six trials and
+fails: **0 passed, 1 failed, 0 skipped**, in **30.51 / 30.41 / 30.19 / 30.39 s**
+for A / A rerun / B / A2. All p95 results miss 33 ms; Fit p99 misses 50 ms, and
+100% p99 has mixed results. Completed visible cadence misses the suite's 55/s
+floor toward the 60/s objective. First-visible maxima remain below 100 ms in
+these trials, and canonical refinement remains below 200 ms (candidate
+**67.4–103.7 ms**, reference **38.9–61.8 ms**). Passing those individual limits
+does not make the interaction pass. No repeatable acceptance-level improvement
+is established.
+[Candidate A](../artifacts/verification/2026-10-19T06-45-04-exposure-candidate-a/playwright/summary.json),
+[A exact rerun](../artifacts/verification/2026-10-19T06-47-00-exposure-candidate-a-exact-rerun/playwright/summary.json),
+[reference B](../artifacts/verification/2026-10-19T06-48-59-exposure-reference-b/playwright/summary.json),
+[candidate A2](../artifacts/verification/2026-10-19T06-52-43-exposure-candidate-a2/playwright/summary.json).
+
+The A-rerun/B diagnostics put mean tile-fence wall spans around **26–27 ms**
+across ten fences at Fit and **13–14 ms** across five fences at 100%, plus roughly
+**10 ms** retaining each presentation. GPU timestamp collection is disabled:
+these are measured application wall spans, not isolated hardware computation.
+They justify investigating synchronization and retained-presentation work before
+assuming another arithmetic approximation will solve the latency miss.
+
+Final focused verification requests `edit-gesture-commit`, `hdr-gesture-handoff`,
+`hdr-presentation-cache`, `hdr-readback`, `write-hdr-strip` and
+`editor-input-pacing`, including the runner's cheap checks. Type checking, lint,
+formatting and **405 Node checks pass, with 0 failures/skips, in 22.70 s**.
+This validates those selected checks and does not clear the failed native pixel,
+synthetic quality or responsiveness gates.
+[Focused verification](../artifacts/verification/2026-10-19T06-56-38.854Z-check-g0zsuM/summary.md).
+
+The metadata follow-up confirms renderer `currentScreen` and the completed
+monitor both identify Microstep at scale 1, while the Electron estimate still
+selects LG. Its six-trial invocation fails **0 passed, 1 failed in 30.45 s**:
+the first 100% trial changes SDR target from P3 generation 4 to sRGB generation 5
+and back to P3 generation 6. The unchanged target-stability checks reject it.
+Its exact rerun records LG/sRGB throughout, but achieves only **52.82–59.96 Hz**
+input and reports **1 skipped, 0 passed in 32.30 s**, meaning configuration
+acceptance is incomplete. These two runs remain separate from the earlier stable
+A/B/A comparison; neither supplies an additional matched acceptance result.
+Physical placement and the cause of the target transition remain unverified.
+[Attribution follow-up](../artifacts/verification/2026-10-19T06-57-47-exposure-attribution-check/playwright/summary.json),
+[exact rerun](../artifacts/verification/2026-10-19T06-58-49-exposure-attribution-exact-rerun/playwright/summary.json).
+
+### Next bounded implementation scope
+
+Resolve the canonical Linux HDR numerical mismatch and isolate/fix the remaining
+held-reply compositor/capture pixel difference without relaxing their limits.
+Then evaluate one bounded change to
+tile submission/fence scheduling or presentation retention, preserving exact
+settled pixels, source/revision ownership, history, cancellation, CPU recovery and
+the 768 MiB aggregate cap. Reproduce the same Exposure Fit/100% comparison with
+matched source/build identities, target, cache policy and input pacing. Require
+repeatable gains and the existing **p95 ≤33 ms, p99 ≤50 ms, no >100 ms stalls,
+refinement ≤200 ms** and completed-visible cadence criteria before expanding.
+
+All-eight-slider coverage, 120 Hz load, other layouts, navigation, spatial
+gestures, physical quality review and background-work contention remain pending.
+No broad checkpoint, production-default change or migration follows from these
+bounded failed measurements. The full continuation objective above remains open.
+
+## Composite-policy checkpoint: October 19, 2026
+
+A later scope audit keeps the bounded goal on the original canonical reference.
+The earlier instruction to repair global canonical math before continuing is
+superseded by this checkpoint: preserve that reference, report its existing
+Linux failures separately, and validate the opt-in interactive path against it.
+The global correction is outside this bounded implementation. It remains
+preserved research and has not been adopted into settled, native or export math.
+
+The current opt-in family is
+`aces2-f32-interactive-v2-sdr3-hdr1`. It records a composite contract while choosing
+actual arithmetic from the confirmed semantic display target:
+
+| Rendering path                    | Actual arithmetic policy   | Source                                                          |
+| --------------------------------- | -------------------------- | --------------------------------------------------------------- |
+| Interactive SDR feedback          | `aces2-f32-interactive-v3` | `acesSdrPreviewWgsl`, retaining the SDR matrix correction       |
+| Interactive HDR feedback          | `aces2-f32-interactive-v1` | `acesPreviewWgsl`, byte-identical to the original HDR candidate |
+| Settled/native preview and export | `aces2-069b0bc3-v2`        | Original canonical compensated math, byte-identical source      |
+
+The family selector and presentation cache both remain disabled by default.
+Candidate builds and launches must explicitly set
+`VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` and
+`VITE_LUMA_HDR_PRESENTATION_CACHE=1`. An unset precision selector uses the
+canonical reference. `VITE_LUMA_HDR_TILE_BATCH=128` is a separate opt-in scheduling
+candidate; the default remains 32, with the historical 8-tile comparison retained.
+Keep batch size and cache selection fixed for each arithmetic comparison.
+
+[Composite source proof](../artifacts/bazzite-editor/composite-policy-source-proof.json)
+records the restored canonical source hashes, original HDR v1 shader identity
+and SDR v3 shader identity. All 11 audited canonical files are byte-identical.
+The proof compares actual runtime WGSL bytes, with HDR SHA-256
+`204d0f209c709fc573ffe78a9e730621187b1823a2498e9ef15df38b5982eedc`
+and SDR SHA-256
+`8dbd48fbbc405fd74a10d8c35fd447b3a957da1aa66651933c59cec82b5dc804`.
+These are source-identity proofs, not new export or physical-display measurements.
+The quality harness records the composite family,
+actual target-specific policy, arithmetic shader hash and complete tile/kernel
+hash for each comparison. Full photographic coverage remains 66 pairs; the
+existing held-reply DPR 1 replay remains two SDR-gamut pairs. A separate targeted
+DPR 2 profile retains the three observed HDR gradient offenders without changing
+the full matrix or its limits.
+
+### Preserved numerical failures and rejected global correction
+
+The global hue/precision experiment and the eight restored tracked files are
+preserved in
+[the restoration ledger](../artifacts/bazzite-editor/canonical-angle-unaccepted/restoration.json).
+Its expanded diagnostic evaluated **9,446 sources × nine targets × eight
+general arithmetic variants**. Every variant failed at least one unchanged
+canonical numerical requirement; this does not mean every individual target
+failed. The retained 5,964-source prefix reproduced the experiment's original
+baseline bytes. Extra cohorts include nearby Float32 inputs, complete tile
+palettes and all pinned golden inputs. No variant established a general
+correction suitable for adoption.
+[Expanded diagnostic](../artifacts/bazzite-editor/math-diagnostic-current/2026-10-19T07-49-42.366Z-77792/summary.json).
+
+The independent Float64 adapter also fails exact equality with the pinned JSON
+fixture on Linux. Ten compiler/FMA configurations checked all **1,350 inputs ×
+nine targets**; none reproduced every fixture bit. The original compilation
+differs in 21,802 components, with maximum absolute error approximately
+`4.97e-14`. Native/FMA-on configurations reduce that to 834 components and
+`2.66e-14`, but still fail exact equality. No compiler setting, golden update or
+tolerance change was adopted. This reference-reproducibility failure remains
+distinct from GPU numerical failures and preview quality.
+[CPU diagnostic](../artifacts/bazzite-editor/reference-reproducibility/2026-10-19T07-48-54.366Z-77276/summary.md).
+
+### Historical verification plan at 08:02 UTC
+
+At the 08:02 UTC documentation checkpoint, the full photographic composite run
+passed **2 tests, 66 pairs, 0 failures or skips in 74.94 s**, with original DPR 2
+geometry and all quality limits unchanged: street 30 pairs and deer 36 pairs.
+Native capture and responsiveness were still pending at that time.
+[Composite photographic summary](../artifacts/verification/2026-10-19T08-02-00-composite-photographic/playwright/summary.json).
+
+Earlier 66-pair passes and global-v3 gradient failures retain their original
+source identities and status. The earlier focused fast run passed **405 Node
+checks in 22.70 s**; it preceded the composite selection and two new policy tests.
+Those tests were unrun at 08:02 UTC. The subsequent focused invocation first
+stopped at documentation formatting before build or native tests. These pending
+statements and the commands below are historical; the later
+[current results](#bazzite-current-results-october-19-2026) supersede their status.
+
+The sequential plan at that time was to run focused policy checks, the exact
+held-state replay and the native held-reply case with a matching candidate
+build. The retained commands used the earlier 32-tile candidate; they are not
+the current 512/final configuration:
+
+```sh
+npm run verify -- --target hdr-gesture-handoff --target edit-gesture-commit --target hdr-presentation-cache --target hdr-render-cache
+VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 VITE_LUMA_HDR_TILE_BATCH=32 npm run build
+VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 LUMA_INTERACTIVE_QUALITY_PROFILE=linux-held-reply-dpr1 npx playwright test --project=raw-gpu tests/interactive-preview-quality.spec.ts --workers=1
+VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 VITE_LUMA_HDR_TILE_BATCH=32 LUMA_TEST_UI_MODE=foreground npx playwright test --project=raw-gpu tests/interactive-preview-lifecycle.spec.ts --grep 'the last local input receives Float32 feedback' --workers=1
+VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 VITE_LUMA_HDR_TILE_BATCH=32 LUMA_TEST_UI_MODE=foreground LUMA_PREVIEW_BENCHMARK=1 LUMA_RESPONSIVENESS_PROFILE=linux-native-dpr1 LUMA_RESPONSIVENESS_LAYOUTS=1440x900 LUMA_RESPONSIVENESS_FREQUENCIES=60 LUMA_RESPONSIVENESS_DISPLAY=sdr LUMA_RESPONSIVENESS_SLIDERS=Exposure npx playwright test --project=benchmark tests/editor-responsiveness-benchmark.spec.ts --workers=1
+```
+
+Use the short absolute `TMPDIR` described in the handoff. The numerical replay
+does not establish Chromium capture equality or physical output. Keep the native
+pixel limit, source/history/cancellation/CPU-recovery checks, original detail,
+768 MiB presentation cap and every latency/cadence gate unchanged. Rebuild before
+changing batch size or arithmetic selectors. The checkpoint required a matched
+candidate/cache1 → reference/cache1 → candidate/cache1 Exposure comparison before
+expanding to all eight sliders or background workloads. Later results below
+record that comparison and the selected expansion. The older failed cohort does
+not verify the new composite candidate. Canonical numerical and fixture failures
+remain reported failures throughout.
+
+## Bazzite current results: October 19, 2026
+
+This section supersedes earlier pending statements for current status.
+Historical failures, skipped invocations and their original shader/build
+identities remain preserved. The candidate passes the bounded foreground SDR
+selections below, while the background selection **fails** and native-gamut HDR
+acquisition remains unresolved. Exact retry outcomes and the passing mandatory
+RAW regression comparison are recorded separately below. This mixed result does not establish a
+broader editor migration or change production defaults.
+
+### Candidate and correctness boundaries
+
+The passing candidate explicitly selects:
+
+```sh
+VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32
+VITE_LUMA_HDR_PRESENTATION_CACHE=1
+VITE_LUMA_HDR_TILE_BATCH=512
+VITE_LUMA_HDR_INTERACTIVE_FENCE=final
+LUMA_RESPONSIVENESS_PROFILE=linux-native-dpr1
+```
+
+The arithmetic family is `aces2-f32-interactive-v2-sdr3-hdr1`: confirmed SDR
+feedback uses actual `aces2-f32-interactive-v3`, confirmed HDR feedback retains
+the original `aces2-f32-interactive-v1`, and settled/native/export math remains
+canonical `aces2-069b0bc3-v2`. Native timing/lifecycle evidence retains actual
+per-frame arithmetic policy, target generation and fence selection; normal refinement
+records `reference`. The source proof confirms all **11 audited canonical files
+are byte-identical**. The rejected global canonical correction remains preserved
+research outside this bounded implementation. Existing canonical Linux HDR
+numerical failures and exact Float64-fixture reproducibility failures remain
+unresolved; no reference, fixture or tolerance was changed.
+[Source proof](../artifacts/bazzite-editor/composite-policy-source-proof.json),
+[242-file application and build proof](../artifacts/bazzite-editor/final-build-and-source-proof.json),
+[unaccepted-research restoration ledger](../artifacts/bazzite-editor/canonical-angle-unaccepted/restoration.json).
+
+Both interactive precision and presentation caching remain disabled by default.
+The tile-batch default remains 32, with 8/128/512 available only through explicit
+selectors; the interactive-fence default remains `separate`. The final-fence
+candidate preserves the completed CPU copy on every presentation, the awaited
+final blit completion, and ownership/draining of discarded or cancelled GPU work.
+Original-resolution detail, source/revision identity, single-entry gesture
+history, CPU recovery and the 768 MiB aggregate presentation cap remain required.
+Application fence/copy wall spans do not isolate GPU computation or measure
+physical scanout.
+
+### Completed verification
+
+| Selection                                                           | Result                                                                                                                      |                                     Duration | Evidence                                                                                                                                                                                                                |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Registered `interactive-preview-lifecycle`, including cheap checks  | **411 passed, 0 failed, 0 skipped**; includes four native lifecycle cases with the 512/final candidate                      |                                 **155.82 s** | [Summary](../artifacts/verification/2026-10-19T08-19-54.268Z-check-ucxJWe/summary.md)                                                                                                                                   |
+| Full composite photographic quality                                 | **2 passed, 66 pairs, 0 failed, 0 skipped**; street 30 pairs and deer 36 pairs, original DPR 2 geometry and limits          |                                  **74.94 s** | [Summary](../artifacts/verification/2026-10-19T08-02-00-composite-photographic/playwright/summary.json)                                                                                                                 |
+| Exact native-mode policy replay                                     | **1 passed, 1 failed, 0 skipped**; sRGB-only canvas comparison passes, native-gamut HDR acquisition fails before comparison |                                  **40.61 s** | [Summary](../artifacts/verification/2026-10-19T08-05-47.450Z-composite-mode-policy-exact-rerun/playwright/summary.json)                                                                                                 |
+| Registered all-eight-slider responsiveness, including cheap checks  | **408 passed, 0 failed, 0 skipped**; one native benchmark case containing 48 gestures                                       |                                 **246.45 s** | [Summary](../artifacts/verification/2026-10-19T08-35-27.411Z-benchmark-U3Tn0G/summary.md), [compact metrics](../artifacts/bazzite-editor/all-eight-compact.json)                                                        |
+| Registered Exposure background interference, including cheap checks | **407 passed, 3 failed, 1 skipped**; the native workload group has **0 passed, 3 failed, 1 skipped**                        | **677.02 s** registered; **652.49 s** native | [Registered summary](../artifacts/verification/2026-10-19T08-40-06.544Z-benchmark-i8JG2w/summary.md), [native summary](../artifacts/verification/2026-10-19T08-40-06.544Z-benchmark-i8JG2w/benchmarks/hdr/summary.json) |
+
+The lifecycle result includes the real final-input held-reply path and native
+failure/loss recovery; its pass does not relax the native pixel limit or replace
+capture with metadata. Photographic shader comparisons and native Chromium
+capture remain distinct evidence.
+
+#### Native-mode replay and its limitation
+
+The sRGB-only canvas case passes **six comparison phases and 11 bound shader phases**,
+including reported HDR `headroomStops` approximately **4.57347**. This is
+software rendering/capture evidence for that case. It does not certify physical
+HDR luminance, native-gamut output or scanout.
+
+The native-gamut case remains failed: the harness requests HDR but the observed
+target remains SDR, so the HDR acquisition assertion fails **before its pixel
+comparison**. The preceding invocation recorded **0 passed, 2 failed in 23.61 s**
+with HDR acquisition failures; its exact replay improves the sRGB-only case but
+does not clear native-gamut acquisition.
+[Original mode-policy invocation](../artifacts/verification/2026-10-19T08-04-45.849Z-composite-mode-policy/playwright/summary.json).
+
+#### Matched Exposure candidate–reference–candidate
+
+Each invocation retains six trials: three at Fit and three at 100%, on the same
+1440 × 900, real DPR 1, confirmed SDR target, with 60 Hz dispatched input and
+presentation caching enabled. The requested 512/final scheduling configuration
+is held fixed. The reference keeps canonical arithmetic and its original
+offscreen synchronization behavior; its recorded deferred-fence count remains
+zero. Candidate and reference source/arithmetic identities remain explicit.
+
+| Cohort                                    | Status                            |    Duration | First-visible p95 range |
+| ----------------------------------------- | --------------------------------- | ----------: | ----------------------: |
+| Candidate A, after desktop activity ended | **1 passed, 0 failed, 0 skipped** | **30.67 s** |        **25.6–27.5 ms** |
+| Canonical reference B                     | **0 passed, 1 failed, 0 skipped** | **30.84 s** |        **36.7–44.4 ms** |
+| Candidate A2                              | **1 passed, 0 failed, 0 skipped** | **30.48 s** |        **21.3–24.6 ms** |
+
+[Candidate A](../artifacts/verification/2026-10-19T08-30-23.990Z-matched-composite-a-attention/playwright/summary.json),
+[reference B](../artifacts/verification/2026-10-19T08-32-45.618Z-matched-reference-b/playwright/summary.json),
+[candidate A2](../artifacts/verification/2026-10-19T08-34-16.249Z-matched-composite-a2/playwright/summary.json).
+
+Two preceding candidate invocations remain **incomplete: each recorded one
+skipped case and zero passed cases**, because achieved input fell below the
+unchanged 59.4 Hz configuration threshold. Their six-trial achieved-input ranges
+were **57.76–60.16 Hz** and **57.79–60.26 Hz**. The user reported a meeting and
+moving desktop windows during those separate runs. That observation motivated
+fresh sequential runs after desktop activity ended; it does not convert the
+skipped invocations into passes or prove that activity was their sole cause.
+[First underdriven run](../artifacts/verification/2026-10-19T08-22-57.649Z-matched-composite-a/playwright/summary.json),
+[exact underdriven rerun](../artifacts/verification/2026-10-19T08-25-06.582Z-matched-composite-a-exact-rerun/playwright/summary.json).
+
+#### All eight sliders at the bounded layout and input rate
+
+Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Temperature and Tint
+each complete three Fit and three 100% trials: **48 gestures total**. This is
+one selected layout/rate case, **48 of the full matrix's 288 trials**, rather
+than completion of all layouts and rates. The target is confirmed SDR P3,
+generation 4, peak 1, with actual viewport DPR 1. The compositor's configured
+mode is 144 Hz; observed native rAF cadence across these gestures is
+130.20–143.75 Hz. Dispatched input is approximately 60 Hz. Physical scanout
+remains unmeasured.
+
+| Metric across all 48 gestures             |           Observed |                                      Unchanged gate |
+| ----------------------------------------- | -----------------: | --------------------------------------------------: |
+| Worst first-visible p95                   |        **32.4 ms** |                                              ≤33 ms |
+| Worst first-visible p99                   |        **38.0 ms** |                                              ≤50 ms |
+| Maximum first-visible latency             |        **59.9 ms** |                                             ≤100 ms |
+| Minimum changed visible-update cadence    |       **59.72 Hz** |                                              ≥55 Hz |
+| Maximum exact refinement                  |        **75.6 ms** |                                             ≤200 ms |
+| Achieved dispatched input                 | **59.98–60.11 Hz** | ≥99% of requested 60 Hz, plus existing pacing gates |
+| Maximum aggregate presentation allocation |     **691.53 MiB** |                                            ≤768 MiB |
+
+The registered result includes its static/build/fast checks. It is a selected
+responsiveness checkpoint and does not certify every GPU numerical suite or
+every application regression.
+
+### Background interference: failed bounded result
+
+The Exposure selection is 1440 × 900 Fit at 60 Hz across four workloads. Its
+complete selected contract is **four cases, 12 matched trials, 24 editor gestures
+and 24 task executions**, rather than all-eight-slider background coverage.
+The registered invocation reports **407 passed, 3 failed, 1 skipped in 677.02 s**;
+the native group itself reports **0 passed, 3 failed, 1 skipped in 652.49 s**.
+The 407 fast checks do not turn the failed native group into a pass.
+
+| Workload                   | Case status              | Retained finding                                                                                                                                                                                                                              |
+| -------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Import, nine originals     | **Skipped / incomplete** | One gesture achieves approximately **57.93 Hz**, below the unchanged 59.4 Hz input requirement. Retained overlap/output evidence does not clear this configuration gate.                                                                      |
+| Individual HDR export      | **Failed**               | Every editing repetition records **two history entries instead of one**. Export publication/overlap observations remain separate from this correctness failure.                                                                               |
+| Nine-file HDR batch export | **Failed**               | Every editing repetition also records **two history entries instead of one**. Input achieves the required 60 Hz and timing checks pass, but the case still fails correctness.                                                                 |
+| Nine-source noise merge    | **Failed**               | The first idle gesture changes target from **LG/sRGB generation 3 to Microstep/P3 generation 4**. All three editing gestures have **zero actual background-task progress observations** during their approximately four-second input windows. |
+
+Both export failures are consistent with the unconditional editor flush in
+`src/main/index.ts:329`: `export:start` calls the global `flushEditorEdits()` even
+when the frozen export targets exclude the photograph whose gesture is active.
+That flush splits one local gesture into a committed segment followed by another
+segment, producing two Undo entries. The source-unchanged individual-export exact
+rerun below reproduces the same correctness failure; the original failed result
+remains preserved.
+
+Merge review/preview preparation precedes `startMerge`, so an operation interval
+can overlap a gesture while the actual background task has not started. Its
+elapsed overlap includes preparation and scheduler waits; it is not evidence of
+simultaneous task progress or hardware computation. The target transition and
+missing actual task-progress evidence remain separate failed requirements.
+
+All original contention requirements remain: achieved input and visible cadence,
+idle/editing/contended latency, ≥500 ms overlap, ≥25 contended presentations,
+observed task progress, task duration, encoder capability, actual policy/fence,
+source ownership, one gesture/Undo entry and aggregate memory. A quick output or
+passing batch timing result cannot substitute for the failed correctness gate.
+
+### Exact retries and RAW regression gate
+
+1. **Exact individual-export retry — failed: 0 passed, 1 failed, 0 skipped in
+   74.75839 s.** All six gestures achieve **60.044–60.070 Hz** input and timing
+   checks pass, with worst p95 **32.8 ms**. All three editing repetitions still
+   record **two history entries instead of one**. This source-unchanged exact
+   rerun reproduces the correctness failure; the original failure remains above.
+   [Exact retry](../artifacts/verification/2026-10-19T08-53-00-export-individual-exact-rerun/playwright/summary.json).
+2. **Import/merge exact retry — 1 passed, 1 failed, 0 skipped in 186.620164 s.**
+   Import **passes in 52.768 s**; the original underdriven import invocation
+   remains skipped/incomplete. Merge **fails in 133.446 s** with exactly three
+   assertions: `progressSamplesDuringInput.length` is zero instead of greater
+   than zero in each editing repetition. The earlier target transition does not
+   recur, so target stability and absent actual task-progress evidence remain
+   distinct observations. The original merge failure remains preserved.
+   [Import/merge exact retry](../artifacts/verification/2026-10-19T08-54-00-import-merge-exact-rerun/playwright/summary.json).
+3. **Required ≤15% uncorrected RAW-preview regression gate — passed.** Registered
+   `preview-benchmark` passes **408 checks, 0 failures, 0 skips in 548.75 s**,
+   including one benchmark case in **523.415 s**. It retains **180 observations**:
+   four cold and 32 cached observations for each of five backend families.
+   The real Sony fixture and baseline source identities are verified; all 11
+   canonical files and all 242 application files remain unchanged from their
+   respective saved proofs. Cheap checks repeat across registered invocations;
+   their counts must not be added as distinct coverage.
+   [Registered summary](../artifacts/verification/2026-10-19T08-59-12.216Z-benchmark-Wt1S4p/summary.md).
+
+   The compatible [saved baseline](../artifacts/bazzite-editor/pre-angle-preview-baseline.json)
+   has SHA-256
+   `ba37ebb61eee940dd28cfd12f39f316ade4650051e3e02b9ca56c6fe38031e32`.
+   Uncorrected CPU median is **61,197.04 ms**, a **0.022% improvement**;
+   uncorrected GPU median is **2,215.08 ms**, a **1.345% regression**. Both
+   remain below the unchanged 15% limits of **70,392.12 ms** and **2,513.54 ms**.
+   All other existing benchmark assertions pass. This performance result does
+   not clear the separately retained canonical HDR numerical failures or certify
+   physical output.
+
+### Next bounded implementation goal
+
+Make export flushing aware of the frozen export targets. Starting or preparing
+an export for other photographs must preserve the active photograph's unrelated
+gesture and its **single Undo entry**. Exporting the actively edited photograph
+must still flush its matching local draft and await pending writes before
+freezing/using its persisted revision. Preserve the export preparation's target
+identity checks, pending-write barriers and global shutdown/quit flush-and-drain
+barriers; removing the global export-start flush without replacement is not the
+required behavior.
+
+Validate the concrete export/history failure first with focused tests for
+unrelated and matching targets, in-flight persistence and shutdown barriers,
+then rerun the exact failed native export case with unchanged correctness,
+timing, overlap and memory limits. The current failed background result already
+supports a **negative bounded validation conclusion**. It does not require broad
+expansion or an indefinite search for a pass; retries and the mandatory RAW gate
+must retain their own final statuses.
+
+The foreground passes do not cover 120 Hz load, other layouts, all-eight-slider
+background contention, HDR merge or physical HDR luminance/scanout. Preserve
+historical and unresolved canonical numerical/fixture failures alongside the
+final retry and RAW outcomes. No production-default or migration-readiness claim
+follows from this mixed checkpoint.

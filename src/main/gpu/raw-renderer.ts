@@ -15,6 +15,24 @@ import { mergePrepareShader } from './merge-prepare-shader'
 import { mergePreparationParameters } from './merge-parameters'
 import { sensorBlendParameters } from './sensor-blend'
 import { copyHdrReadbackStrip } from './hdr-readback'
+import { HDR_CACHE_MAX_TILES } from '../../renderer/src/preview/hdr-render-cache'
+import {
+  validateManagedImageBytes,
+  type ResourcePolicySnapshot,
+  type ManagedImageBytes,
+} from '../../shared/resource-policy'
+
+export interface GpuResourceAdmission {
+  readonly policy: ResourcePolicySnapshot
+  readonly rendererReservation: ManagedImageBytes
+  readonly baseEstimatedRamBytes: number
+}
+export class GpuResourceBudgetError extends Error {
+  constructor() {
+    super('RAW preparation exceeds the frozen managed image budgets.')
+    this.name = 'GpuResourceBudgetError'
+  }
+}
 
 export const GPU_RENDER_ID = 'bayer-ahd-srgb-gpu-2'
 export interface GpuFrame {
@@ -50,15 +68,59 @@ export interface GpuCameraConsumer {
   consume: (linear: GPUTexture, device: GPUDevice) => Promise<void>
 }
 
+/** The corrected texture is borrowed until capture settles; never destroy it. */
+export interface FirstSurfaceBorrow {
+  readonly device: GPUDevice
+  readonly texture: GPUTexture
+  readonly width: number
+  readonly height: number
+  readonly flip: number
+  readonly baseEstimatedGpuBytes: number
+  readonly adapterTextureArrayLayers: number
+  readonly baseEstimatedRamBytes: number
+  readonly adapter: string
+  readonly correctedFenceSinceRenderStartMs: number
+  readonly correctedCheckedSinceRenderStartMs: number
+}
+export interface FirstSurfaceConsumer {
+  readonly signal: AbortSignal
+  readonly baseEstimatedRamBytes: number
+  readonly capture: (borrow: FirstSurfaceBorrow) => Promise<void>
+}
+function firstSurfaceErrorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && 'message' in error) return String(error.message)
+  return String(error)
+}
+/** An optional surface consumer failed or was cancelled; the GPU is still usable. */
+export class FirstSurfaceConsumerError extends Error {
+  constructor(cause: unknown) {
+    super(firstSurfaceErrorMessage(cause), { cause })
+    this.name = 'FirstSurfaceConsumerError'
+  }
+}
+/** A real validation, device, allocation or produced-pixel failure in GPU work. */
+export class FirstSurfaceGpuError extends Error {
+  constructor(cause: unknown) {
+    super(firstSurfaceErrorMessage(cause), { cause })
+    this.name = 'FirstSurfaceGpuError'
+  }
+}
+export function isFirstSurfaceInterruption(error: unknown): error is FirstSurfaceConsumerError {
+  return error instanceof FirstSurfaceConsumerError
+}
+
 /** Native Dawn only lives in the bundled Node worker, never Electron's address space. */
 export class RawGpuRenderer {
   private gpu?: GPU
   private device?: GPUDevice
+  private initializing?: Promise<GPUDevice>
+  private deviceGeneration = 0
   private unavailable?: string
   private pipelines = new Map<string, GPUComputePipeline>()
   private linear?: GPUTexture
   private cameraSource?: RawSource
   private adapter = ''
+  private adapterTextureArrayLayers = 0
   private histogram?: Uint32Array
   private correctedMode = false
 
@@ -66,13 +128,33 @@ export class RawGpuRenderer {
     return this.unavailable
   }
 
-  private async initialize(): Promise<GPUDevice> {
+  private initialize(): Promise<GPUDevice> {
+    if (this.initializing) return this.initializing
+    const pending = this.initializeDevice()
+      .catch((error) => {
+        this.close()
+        throw error
+      })
+      .finally(() => {
+        if (this.initializing === pending) this.initializing = undefined
+      })
+    this.initializing = pending
+    return pending
+  }
+
+  private async initializeDevice(): Promise<GPUDevice> {
     if (this.unavailable !== undefined) throw new Error(this.unavailable)
     if (this.device) return this.device
+    const generation = this.deviceGeneration
+    const current = () => {
+      if (generation !== this.deviceGeneration) throw new Error('GPU initialization cancelled.')
+    }
     const { create, globals } = await import('webgpu')
+    current()
     Object.assign(globalThis, globals)
     this.gpu = create([])
     const adapter = await this.gpu.requestAdapter({ powerPreference: 'high-performance' })
+    current()
     if (
       !adapter ||
       adapter.info.isFallbackAdapter ||
@@ -86,6 +168,7 @@ export class RawGpuRenderer {
           ? ['timestamp-query']
           : [],
       requiredLimits: {
+        maxTextureArrayLayers: Math.min(HDR_CACHE_MAX_TILES, adapter.limits.maxTextureArrayLayers),
         maxBufferSize: Math.min(1024 ** 3, adapter.limits.maxBufferSize),
         maxStorageBufferBindingSize: Math.min(
           1024 ** 3,
@@ -93,7 +176,12 @@ export class RawGpuRenderer {
         ),
       },
     })
+    if (generation !== this.deviceGeneration) {
+      device.destroy()
+      throw new Error('GPU initialization cancelled.')
+    }
     this.device = device
+    this.adapterTextureArrayLayers = adapter.limits.maxTextureArrayLayers
     void device.lost.then((info) => {
       if (this.device !== device) return
       this.unavailable ||= `GPU device lost: ${info.message}`
@@ -128,6 +216,7 @@ export class RawGpuRenderer {
         compute: { module: lensModule, entryPoint: 'correct' },
       }),
     )
+    current()
     return device
   }
 
@@ -142,9 +231,11 @@ export class RawGpuRenderer {
     this.cameraSource = undefined
   }
   close(): void {
+    this.deviceGeneration++
     this.releaseFrame()
     const device = this.device
     this.device = undefined
+    this.adapterTextureArrayLayers = 0
     this.pipelines.clear()
     device?.destroy()
     this.gpu = undefined
@@ -158,7 +249,22 @@ export class RawGpuRenderer {
     cameraOnly = false,
     merge?: GpuMergePreparation,
     consumer?: GpuCameraConsumer,
+    firstSurface?: FirstSurfaceConsumer,
+    admission?: GpuResourceAdmission,
   ): Promise<GpuFrame> {
+    const checkFirstSurface = () => {
+      if (firstSurface?.signal.aborted)
+        throw new FirstSurfaceConsumerError(firstSurface.signal.reason)
+    }
+    checkFirstSurface()
+    if (
+      firstSurface &&
+      (!Number.isSafeInteger(firstSurface.baseEstimatedRamBytes) ||
+        firstSurface.baseEstimatedRamBytes < 0)
+    )
+      throw new FirstSurfaceConsumerError(
+        new Error('Invalid first surface native RAM reservation.'),
+      )
     const start = performance.now()
     const device = await this.initialize().catch((error) => {
       this.unavailable ||=
@@ -167,6 +273,7 @@ export class RawGpuRenderer {
       this.close()
       throw error
     })
+    checkFirstSurface()
     const timings: GpuFrame['timings'] = { initializeMs: performance.now() - start }
     const { width, height } = source
     const bytes = frameByteLength(width, height)
@@ -214,18 +321,74 @@ export class RawGpuRenderer {
     )
       throw new Error('This photo exceeds the GPU processing memory limit.')
     merge?.observeGpuBytes?.(estimatedBytes)
+    if (admission) {
+      validateManagedImageBytes(admission.rendererReservation)
+      const ramBytes = admission.rendererReservation.ramBytes + admission.baseEstimatedRamBytes,
+        vramBytes = admission.rendererReservation.vramBytes + estimatedBytes
+      if (
+        !Number.isSafeInteger(ramBytes) ||
+        ramBytes < 0 ||
+        !Number.isSafeInteger(vramBytes) ||
+        vramBytes < 0 ||
+        ramBytes > admission.policy.ram.effectiveBytes ||
+        vramBytes > admission.policy.vram.effectiveBytes
+      )
+        throw new GpuResourceBudgetError()
+    }
     const reuse =
       this.cameraSource === source && !!this.linear && this.correctedMode === !!correction
     if (!reuse) this.releaseFrame()
     const resources: GPUBuffer[] = []
+    let corrected: GPUTexture | undefined
+    let openScopes = 0
+    const pushScopes = () => {
+      device.pushErrorScope('validation')
+      device.pushErrorScope('out-of-memory')
+      openScopes += 2
+    }
+    const popScopes = async () => {
+      let failure: unknown
+      while (openScopes) {
+        openScopes--
+        try {
+          const error = await device.popErrorScope()
+          if (error) failure ??= error
+        } catch (error) {
+          failure ??= error
+        }
+      }
+      if (failure) throw new FirstSurfaceGpuError(failure)
+    }
+    const drain = async () => {
+      // Includes queued writes and copies, not only explicit command submissions.
+      try {
+        await device.queue.onSubmittedWorkDone()
+      } catch (error) {
+        throw new FirstSurfaceGpuError(error)
+      } finally {
+        for (const resource of resources) if (resource.mapState === 'mapped') resource.unmap()
+      }
+    }
+    const cleanup = async () => {
+      // Cancellation/failure still owns every submitted write/read until its fence.
+      try {
+        await drain()
+      } catch (error) {
+        this.unavailable ||= firstSurfaceErrorMessage(error).trim() || 'GPU processing failed.'
+        this.close()
+        throw error
+      } finally {
+        corrected?.destroy()
+        for (const resource of resources) resource.destroy()
+      }
+    }
     const makeBuffer = (size: number, usage: number, data?: ArrayBufferView<ArrayBuffer>) => {
       const buffer = device.createBuffer({ size: Math.ceil(size / 4) * 4, usage })
       resources.push(buffer)
       if (data) device.queue.writeBuffer(buffer, 0, data)
       return buffer
     }
-    device.pushErrorScope('validation')
-    device.pushErrorScope('out-of-memory')
+    pushScopes()
     try {
       const upload = performance.now()
       const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
@@ -236,8 +399,12 @@ export class RawGpuRenderer {
       const lab = makeBuffer(stripePixels * 32, storage)
       const homo = makeBuffer(stripePixels * 8, storage)
       const histogram = makeBuffer(3 * 8192 * 4, storage | GPUBufferUsage.COPY_SRC)
-      const output = makeBuffer(consumer ? 4 : bytes, storage | GPUBufferUsage.COPY_SRC)
-      const curve = makeBuffer(65536 * 4, storage)
+      // Normalized sources skip SDR display; keep one u32 for its unused runtime-array bindings.
+      const output = makeBuffer(
+        consumer || source.normalization ? 4 : bytes,
+        storage | GPUBufferUsage.COPY_SRC,
+      )
+      const curve = makeBuffer(source.normalization ? 4 : 65536 * 4, storage)
       const cbrt = new Float32Array(65536)
       for (let i = 0; i < cbrt.length; i++) {
         const r = Math.fround(i / 65535)
@@ -337,6 +504,7 @@ export class RawGpuRenderer {
       const processing = performance.now()
       device.queue.writeBuffer(uniform, 0, params)
       for (let top = 0; !reuse && top < height; top += rows) {
+        checkFirstSurface()
         if (consumer) await consumer.checkpoint()
         const count = Math.min(rows, height - top)
         ints[6] = top
@@ -368,9 +536,7 @@ export class RawGpuRenderer {
         await consumer.checkpoint()
         await consumer.consume(linear, device)
         await device.queue.onSubmittedWorkDone()
-        const oom = await device.popErrorScope(),
-          validation = await device.popErrorScope()
-        if (oom || validation) throw new Error((oom ?? validation)!.message)
+        await popScopes()
         timings.processingMs = performance.now() - processing
         this.releaseFrame()
         return {
@@ -491,9 +657,7 @@ export class RawGpuRenderer {
             await merge.strip(top, bytes.subarray(0, nativeWidth * count * 16))
             staging.unmap()
           }
-          const oom = await device.popErrorScope(),
-            validation = await device.popErrorScope()
-          if (oom || validation) throw new Error((oom ?? validation)!.message)
+          await popScopes()
           timings.processingMs = performance.now() - processing
           return {
             data: Buffer.alloc(0),
@@ -549,9 +713,7 @@ export class RawGpuRenderer {
           staging.destroy()
         }
         this.releaseFrame()
-        const oom = await device.popErrorScope(),
-          validation = await device.popErrorScope()
-        if (oom || validation) throw new Error((oom ?? validation)!.message)
+        await popScopes()
         return {
           data: Buffer.alloc(0),
           width,
@@ -566,7 +728,6 @@ export class RawGpuRenderer {
           },
         }
       }
-      let corrected: GPUTexture | undefined
       if (source.normalization) source.normalization.referenceWhite = 1
       if (correction) {
         const correctionStart = performance.now()
@@ -649,6 +810,42 @@ export class RawGpuRenderer {
         )
         await device.queue.onSubmittedWorkDone()
         timings.correctionMs = performance.now() - correctionStart
+        if (
+          firstSurface &&
+          source.normalization &&
+          exportLinear &&
+          !cameraOnly &&
+          !merge &&
+          !consumer
+        ) {
+          const correctedFenceSinceRenderStartMs = performance.now() - start
+          // Do not expose corrected pixels until the original work's error scopes pass.
+          await popScopes()
+          checkFirstSurface()
+          const capturing = performance.now()
+          try {
+            await firstSurface.capture({
+              device,
+              texture: corrected,
+              width: correction.width,
+              height: correction.height,
+              flip: source.flip,
+              baseEstimatedGpuBytes: estimatedBytes,
+              adapterTextureArrayLayers: this.adapterTextureArrayLayers,
+              baseEstimatedRamBytes: firstSurface.baseEstimatedRamBytes,
+              adapter: this.adapter,
+              correctedFenceSinceRenderStartMs,
+              correctedCheckedSinceRenderStartMs: performance.now() - start,
+            })
+          } catch (error) {
+            if (error instanceof FirstSurfaceGpuError || error instanceof FirstSurfaceConsumerError)
+              throw error
+            throw new FirstSurfaceConsumerError(error)
+          }
+          timings.firstSurfaceCaptureMs = performance.now() - capturing
+          checkFirstSurface()
+          pushScopes()
+        }
       }
       const outWidth = correction?.width ?? width,
         outHeight = correction?.height ?? height
@@ -681,6 +878,7 @@ export class RawGpuRenderer {
           timings.hdrReadbackMapMs = 0
           timings.hdrOrientationCopyMs = 0
           for (let top = 0; top < outHeight; top += 64) {
+            checkFirstSurface()
             const count = Math.min(64, outHeight - top)
             const staging = makeBuffer(
               rowBytes * count,
@@ -695,6 +893,7 @@ export class RawGpuRenderer {
             device.queue.submit([copy.finish()])
             const mapping = performance.now()
             await staging.mapAsync(GPUMapMode.READ)
+            checkFirstSurface()
             timings.hdrReadbackMapMs += performance.now() - mapping
             const values = new Float32Array(staging.getMappedRange())
             const orienting = performance.now()
@@ -756,11 +955,8 @@ export class RawGpuRenderer {
           }
         }
       }
-      corrected?.destroy()
       timings.displayReadbackMs = performance.now() - display
-      const oom = await device.popErrorScope(),
-        validation = await device.popErrorScope()
-      if (oom || validation) throw new Error((oom ?? validation)!.message)
+      await popScopes()
       return {
         hdrPrepared: !!source.normalization && !!correction,
         working,
@@ -771,14 +967,37 @@ export class RawGpuRenderer {
         timings,
       }
     } catch (error) {
+      let drainFailure: unknown
+      try {
+        await drain()
+      } catch (failure) {
+        drainFailure = failure
+      }
+      let scopedFailure: unknown
+      try {
+        await popScopes()
+      } catch (failure) {
+        scopedFailure = failure
+      }
+      const failure = scopedFailure ?? drainFailure ?? error
+      const gpuFault =
+        scopedFailure !== undefined ||
+        drainFailure !== undefined ||
+        failure instanceof FirstSurfaceGpuError ||
+        this.unavailable !== undefined
+      if (!gpuFault && (isFirstSurfaceInterruption(failure) || firstSurface?.signal.aborted)) {
+        this.releaseFrame()
+        throw isFirstSurfaceInterruption(failure)
+          ? failure
+          : new FirstSurfaceConsumerError(firstSurface?.signal.reason ?? failure)
+      }
       this.releaseFrame()
-      // A device error disables this worker's GPU path; the caller regenerates on CPU.
-      this.unavailable ||=
-        (error instanceof Error ? error.message : String(error)).trim() || 'GPU processing failed.'
+      // Actual GPU faults retain the existing CPU-recovery behavior.
+      this.unavailable ||= firstSurfaceErrorMessage(failure).trim() || 'GPU processing failed.'
       this.close()
-      throw error
+      throw failure
     } finally {
-      for (const resource of resources) resource.destroy()
+      await cleanup()
     }
   }
 }

@@ -2,7 +2,29 @@ import type { WhiteBalanceProfile } from '../../shared/white-balance'
 import type { DisplayTransform } from '../../shared/adjustments'
 // LibRaw 0.22.1 processing policy adapted under CDDL-1.0. See third_party/libraw.
 import { cameraProfile } from '../processing/cameras'
-import type { LibRaw } from '@colorhythm/libraw-wasm'
+
+/** Sensor getters shared by live LibRaw and validated native snapshots. */
+export interface RawSensorReader {
+  getIParams(): { normalized_make: string; normalized_model: string }
+  getColors(): number
+  getIsFoveon(): boolean
+  getPixelAspect(): number
+  getCblack(index: number): number
+  getRawImage(): Uint16Array<ArrayBuffer> | null
+  color(row: number, column: number): number
+  getBlackLevel(index: number): number
+  getCamMul(index: number): number
+  getRgbCam(row: number, column: number): number
+  getActiveWidth(): number
+  getActiveHeight(): number
+  getRawWidth(): number
+  getLeftMargin(): number
+  getTopMargin(): number
+  getColorMaximum(): number
+  getBlack(): number
+  getLinearMax(index: number): number
+  getFlip(): number
+}
 
 export interface RawSource {
   normalization?: import('../../shared/hdr').HdrNormalization
@@ -21,7 +43,7 @@ export interface RawSource {
 }
 
 /** Only enable camera models whose Bayer output has been compared against LibRaw. */
-export function readGpuSource(decoder: LibRaw, hdr = false): RawSource | null {
+export function readGpuSource(decoder: RawSensorReader, hdr = false): RawSource | null {
   const camera = decoder.getIParams()
   const profile = cameraProfile(camera.normalized_make, camera.normalized_model)
   if (

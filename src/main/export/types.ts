@@ -60,6 +60,7 @@ export interface ExportRenderResult {
   diagnostics?: ExportDiagnostics
 }
 export interface ExportRenderJob {
+  workerProgressIdentity?: { exportId: string; fileIndex: number; attemptId: string }
   source: ExportSource
   options: ExportOptions
   directory: string

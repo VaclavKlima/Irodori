@@ -2,6 +2,8 @@ import { imageStatistics } from '../shared/statistics'
 import { captureMetadata, type CaptureMetadata } from '../shared/capture-sequence'
 import { extname } from 'node:path'
 import { renderHdr } from './processing/hdr-processing'
+import type { HdrRawSourceFactory } from './native-raw-source'
+import type { HdrRawPreparation } from './preview-types'
 import { resolveWhiteBalance } from './processing/white-balance'
 import {
   renderAdjustments,
@@ -13,6 +15,11 @@ import {
 import { createHash } from 'node:crypto'
 import { frameByteLength } from '../shared/preview-frame'
 import { RawGpuRenderer } from './gpu/raw-renderer'
+import { prepareFirstSurfaceOrientationPipeline } from './gpu/hdr-first-surface'
+import { prepareHdrPipelines } from '../renderer/src/preview/hdr-pipelines'
+import { prepareHdrRenderingTableData } from '../shared/hdr-rendering-tables'
+import { LibRaw } from '@colorhythm/libraw-wasm'
+import type { HdrCacheKernelKind } from '../renderer/src/preview/hdr-shader'
 import { rawDecoder } from './processing/decoders'
 import { processingMetadata } from './processing/metadata'
 import { inspectHdrJpeg, renderHdrJpeg } from './processing/hdr-jpeg'
@@ -29,6 +36,7 @@ import type {
   PreviewResult,
   PreviewStage,
   ThumbnailResult,
+  PreviewWarmResult,
 } from './preview-types'
 
 type ExtractEmbedded = (tool: ExifTool, path: string, output: string) => Promise<void>
@@ -50,6 +58,46 @@ export class PreviewEngine {
   private tool = new ExifTool({ maxProcs: 1, taskTimeoutMillis: 20_000 })
 
   private working?: { key: string; frame: WorkingFrame }
+
+  async prewarmHdr(kernel: HdrCacheKernelKind): Promise<PreviewWarmResult> {
+    const started = performance.now()
+    const timings: Partial<Record<'wasmMs' | 'tableMs' | 'gpuMs', number>> = {}
+    const outcome = (status: PreviewWarmResult['status'], reason?: string): PreviewWarmResult => {
+      const elapsedMs = performance.now() - started
+      return { status, kernel, elapsedMs, timings: { ...timings, totalMs: elapsedMs }, reason }
+    }
+    if (kernel !== 'linear64') throw new Error('Invalid HDR warm-up kernel.')
+    if (this.backend === 'cpu' || !this.gpu.mergeDevice) return outcome('skipped')
+    try {
+      const wasmStarted = performance.now()
+      try {
+        // Module initialization opens no photograph and creates no LibRaw decoder session.
+        await LibRaw.initialize()
+      } finally {
+        timings.wasmMs = performance.now() - wasmStarted
+      }
+      const tableStarted = performance.now()
+      try {
+        // Populate the existing bounded target cache; retain no additional packed table copy.
+        prepareHdrRenderingTableData()
+      } finally {
+        timings.tableMs = performance.now() - tableStarted
+      }
+      const gpuStarted = performance.now()
+      try {
+        const { device } = await this.gpu.mergeDevice()
+        await Promise.all([
+          prepareHdrPipelines(device, { interactive: false }).pipelines,
+          prepareFirstSurfaceOrientationPipeline(device),
+        ])
+      } finally {
+        timings.gpuMs = performance.now() - gpuStarted
+      }
+      return outcome('ready')
+    } catch (error) {
+      return outcome('unavailable', error instanceof Error ? error.message : String(error))
+    }
+  }
 
   async inspectCapture(path: string, retainSession = false): Promise<CaptureMetadata> {
     if (this.tool.ended) this.tool = new ExifTool({ maxProcs: 1, taskTimeoutMillis: 20_000 })
@@ -301,6 +349,9 @@ export class PreviewEngine {
     output: string,
     onStage?: (stage: PreviewStage) => void,
     options?: ProcessingOptions,
+    onFirstSurface?: (progress: import('./preview-types').HdrFirstSurfaceProgress) => Promise<void>,
+    rawSource?: HdrRawSourceFactory,
+    rawPreparation?: HdrRawPreparation,
   ): Promise<FullPreviewResult> {
     if (options?.metadata.hdrJpeg?.state === 'supported' && options.workingOnly)
       return renderHdrJpeg(path, output, options)
@@ -312,7 +363,16 @@ export class PreviewEngine {
       }
       onStage?.('unpack')
       this.releaseFrame()
-      return renderHdr(path, output, options, this.gpu, this.backend)
+      return renderHdr(
+        path,
+        output,
+        options,
+        this.gpu,
+        this.backend,
+        onFirstSurface,
+        rawSource,
+        rawPreparation,
+      )
     }
     const started = performance.now()
     const timings: Record<string, number> = {}

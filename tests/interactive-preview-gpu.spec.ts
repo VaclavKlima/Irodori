@@ -2,7 +2,12 @@ import { expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { acesWgsl } from '../src/shared/aces-wgsl'
-import { ACES_INTERACTIVE_PREVIEW_VERSION, acesPreviewWgsl } from '../src/shared/aces-preview-wgsl'
+import {
+  ACES_INTERACTIVE_PREVIEW_VERSION,
+  acesPreviewWgsl,
+  acesSdrPreviewWgsl,
+} from '../src/shared/aces-preview-wgsl'
+import { selectInteractivePreviewPolicy } from '../src/shared/interactive-preview-policy'
 import { ACES_DATA_BYTES, packAces } from '../src/shared/aces-data'
 import {
   DISPLAY_RENDERING_VERSION,
@@ -146,11 +151,8 @@ test('interactive Float32 ACES retains source detail within an explicit preview-
     format: 'rgba16float',
     usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC,
   })
-  device.queue.writeBuffer(
-    source,
-    0,
-    new Float32Array(input.flatMap((rgb, i) => [...rgb, alpha[i]])),
-  )
+  const inputRgba = new Float32Array(input.flatMap((rgb, i) => [...rgb, alpha[i]]))
+  device.queue.writeBuffer(source, 0, inputRgba)
   const matrix =
     'mat3x3f(' + REC2020_TO_ACES.map((row) => `vec3f(${row.join(',')})`).join(',') + ')'
   const kernel = (math: string) => `${math}
@@ -194,10 +196,39 @@ fn encode(v:vec3f)->vec3f {
   })
   const measurements: unknown[] = []
   const checks: Array<() => void> = []
+  const retainedData: {
+    path: string
+    encoding: string
+    byteLength: number
+    sha256: string
+  }[] = []
+  const retain = async (name: string, values: Float32Array | Float64Array, encoding: string) => {
+    const path = info.outputPath(name)
+    const bytes = Buffer.from(values.buffer, values.byteOffset, values.byteLength)
+    await writeFile(path, bytes)
+    const artifact = {
+      path,
+      encoding,
+      byteLength: bytes.byteLength,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    }
+    retainedData.push(artifact)
+    return artifact
+  }
   try {
-    const pipelines = []
-    for (const math of [acesWgsl, acesPreviewWgsl])
-      pipelines.push(
+    const retainedInput = await retain(
+      'input-rgba-f32.bin',
+      inputRgba,
+      'Little-endian Float32 RGBA, source scene-linear Rec.2020 and unchanged alpha.',
+    )
+    const pipelines = new Map<string, GPUComputePipeline>()
+    for (const [policy, math] of [
+      ['reference', acesWgsl],
+      [selectInteractivePreviewPolicy('f32', 'sdr'), acesSdrPreviewWgsl],
+      [selectInteractivePreviewPolicy('f32', 'hdr'), acesPreviewWgsl],
+    ])
+      pipelines.set(
+        policy,
         await device.createComputePipelineAsync({
           layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
           compute: {
@@ -249,8 +280,29 @@ fn encode(v:vec3f)->vec3f {
       new Float32Array(scope)[1] = target.peak
       device.queue.writeBuffer(uniform, 0, scope)
       const independent = referenceAces(binary, input, target.peak, target.colorSpace)
-      const exact = await run(pipelines[0]),
-        candidate = await run(pipelines[1])
+      const arithmeticPolicy = selectInteractivePreviewPolicy('f32', target.mode)
+      const candidateMath = target.mode === 'sdr' ? acesSdrPreviewWgsl : acesPreviewWgsl
+      const exact = await run(pipelines.get('reference')!),
+        candidate = await run(pipelines.get(arithmeticPolicy)!)
+      const prefix = `${target.mode}-${target.peak}-${target.colorSpace}`
+      const retainedOutputs = {
+        input: retainedInput,
+        independent: await retain(
+          `${prefix}-independent-rgb-f64.bin`,
+          new Float64Array(independent.flat()),
+          'Little-endian Float64 RGB, independent clipped CTL output in display-linear units.',
+        ),
+        exact: await retain(
+          `${prefix}-canonical-rgba-f32.bin`,
+          exact.linear,
+          'Little-endian Float32 RGBA, canonical GPU output in display-linear units.',
+        ),
+        candidate: await retain(
+          `${prefix}-candidate-rgba-f32.bin`,
+          candidate.linear,
+          'Little-endian Float32 RGBA, candidate GPU output in display-linear units.',
+        ),
+      }
       let maximumExactRatio = 0,
         maximumCandidateRatio = 0,
         maximumDeltaEOK = 0,
@@ -261,7 +313,7 @@ fn encode(v:vec3f)->vec3f {
       let nonfiniteValues = 0,
         alphaMismatches = 0,
         unclippedValues = 0
-      let worst: unknown
+      let worst: unknown, exactWorst: unknown, candidateWorst: unknown
       const encodedErrors: number[] = []
       for (let i = 0; i < input.length; i++) {
         const baselineRgb: number[] = [],
@@ -279,14 +331,26 @@ fn encode(v:vec3f)->vec3f {
           )
           const reference = independent[i][c]
           const tolerance = 2e-6 + 2e-5 * Math.abs(reference)
-          maximumExactRatio = Math.max(
-            maximumExactRatio,
-            Math.abs(exact.linear[i * 4 + c] - reference) / tolerance,
-          )
-          maximumCandidateRatio = Math.max(
-            maximumCandidateRatio,
-            Math.abs(candidate.linear[i * 4 + c] - reference) / tolerance,
-          )
+          const exactError = Math.abs(exact.linear[i * 4 + c] - reference)
+          const candidateError = Math.abs(candidate.linear[i * 4 + c] - reference)
+          const exactRatio = exactError / tolerance
+          const candidateRatio = candidateError / tolerance
+          const sample = {
+            i,
+            c,
+            source: input[i],
+            alpha: alpha[i],
+            reference,
+            exact: exact.linear[i * 4 + c],
+            candidate: candidate.linear[i * 4 + c],
+            tolerance,
+          }
+          if (exactRatio > maximumExactRatio)
+            exactWorst = { ...sample, absoluteError: exactError, ratio: exactRatio }
+          if (candidateRatio > maximumCandidateRatio)
+            candidateWorst = { ...sample, absoluteError: candidateError, ratio: candidateRatio }
+          maximumExactRatio = Math.max(maximumExactRatio, exactRatio)
+          maximumCandidateRatio = Math.max(maximumCandidateRatio, candidateRatio)
           const difference = Math.abs(candidate.encoded[i * 4 + c] - exact.encoded[i * 4 + c])
           encodedErrors.push(difference)
           if (difference > largestEncodedError) {
@@ -331,6 +395,13 @@ fn encode(v:vec3f)->vec3f {
       )
       const edgeEnergyRelativeDifference = Math.abs(candidateEdges / baselineEdges - 1)
       measurements.push({
+        policy: ACES_INTERACTIVE_PREVIEW_VERSION,
+        arithmeticPolicy,
+        canonicalPolicy: DISPLAY_RENDERING_VERSION,
+        canonicalShaderSha256: createHash('sha256').update(acesWgsl).digest('hex'),
+        arithmeticShaderSha256: createHash('sha256').update(candidateMath).digest('hex'),
+        canonicalKernelSha256: createHash('sha256').update(kernel(acesWgsl)).digest('hex'),
+        interactiveKernelSha256: createHash('sha256').update(kernel(candidateMath)).digest('hex'),
         target,
         samples: input.length,
         maximumExactRatio,
@@ -345,13 +416,16 @@ fn encode(v:vec3f)->vec3f {
         alphaMismatches,
         unclippedValues,
         worst,
+        exactWorst,
+        candidateWorst,
+        retainedOutputs,
       })
       checks.push(() => {
         // Exact correctness remains independent from the explicitly approximate path.
         expect(nonfiniteValues).toBe(0)
         expect(alphaMismatches).toBe(0)
         expect(unclippedValues).toBe(0)
-        expect(maximumExactRatio, JSON.stringify({ target, worst })).toBeLessThanOrEqual(1)
+        expect(maximumExactRatio, JSON.stringify({ target, exactWorst })).toBeLessThanOrEqual(1)
         expect(maximumEncodedError, JSON.stringify(worst)).toBeLessThanOrEqual(
           previewBudget.maximumEncodedError,
         )
@@ -377,11 +451,21 @@ fn encode(v:vec3f)->vec3f {
           policy: ACES_INTERACTIVE_PREVIEW_VERSION,
           canonicalPolicy: DISPLAY_RENDERING_VERSION,
           canonicalShaderSha256: createHash('sha256').update(acesWgsl).digest('hex'),
-          previewShaderSha256: createHash('sha256').update(acesPreviewWgsl).digest('hex'),
+          previewShaders: {
+            sdr: {
+              arithmeticPolicy: selectInteractivePreviewPolicy('f32', 'sdr'),
+              sha256: createHash('sha256').update(acesSdrPreviewWgsl).digest('hex'),
+            },
+            hdr: {
+              arithmeticPolicy: selectInteractivePreviewPolicy('f32', 'hdr'),
+              sha256: createHash('sha256').update(acesPreviewWgsl).digest('hex'),
+            },
+          },
           adapter: adapter!.info,
           budget: previewBudget,
           visualReview: 'unreviewed; synthetic numerical evidence does not prove imperceptibility',
           hdrDeltaEOK: 'peak-normalized diagnostic only; not an HDR JND model',
+          retainedData,
           measurements,
           errors,
         },

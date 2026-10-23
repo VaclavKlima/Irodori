@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import { sampleHdrPixel } from '../src/main/processing/hdr-processing'
 import { PreviewProcess } from '../src/main/preview-process'
 import { FullPreviews } from '../src/main/full-previews'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import type { FullPreviewProcessor, HdrPixelJob } from '../src/main/preview-types'
 import { neutralAdjustments, srgbTransform } from '../src/shared/adjustments'
 import {

@@ -123,12 +123,12 @@ export async function sampleCameraOriginal(
   }
 }
 
-/** Version 14 recognition is main-only. Legacy mount observations remain intact. */
+/** Current camera recognition reads; bootstrap owns schema initialization. */
 export class CameraRecognition {
   private lookup!: StatementSync
   private liveLookup!: StatementSync
   private poolLookup!: StatementSync
-  constructor(private db: DatabaseSync) {}
+  constructor(protected db: DatabaseSync) {}
 
   initialize(): void {
     this.db.exec(`
@@ -138,6 +138,11 @@ export class CameraRecognition {
       CREATE INDEX IF NOT EXISTS camera_original_candidates ON photos(lower(json_extract(photo, '$.filename')), json_extract(photo, '$.bytes'));
       CREATE TRIGGER IF NOT EXISTS remove_camera_imports AFTER DELETE ON photos BEGIN DELETE FROM camera_imports WHERE photo_id = old.id; DELETE FROM camera_samples WHERE photo_id = old.id; END;
     `)
+    this.prepare()
+  }
+
+  /** Prepare current-schema reads without schema or persistent writes. */
+  prepare(): void {
     this.lookup = this.db.prepare(
       'SELECT photo_id AS photoId, size, mtime_ns AS mtimeNs, birthtime_ns AS birthtimeNs, proof FROM camera_imports WHERE volume_id = ? AND relative_path = ?',
     )
@@ -166,19 +171,7 @@ export class CameraRecognition {
       filename: (JSON.parse(row.photo) as { filename: string }).filename,
     }))
   }
-  record(
-    key: CameraSourceKey,
-    witness: ImportSourceWitness,
-    photoId: string,
-    proof: CameraBinding['proof'],
-  ): void {
-    if (!this.live(photoId)) return
-    this.db
-      .prepare(
-        'INSERT INTO camera_imports VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(volume_id, relative_path) DO UPDATE SET photo_id = excluded.photo_id, size = excluded.size, mtime_ns = excluded.mtime_ns, birthtime_ns = excluded.birthtime_ns, proof = excluded.proof',
-      )
-      .run(key.volume, key.path, photoId, witness.size, witness.mtimeNs, witness.birthtimeNs, proof)
-  }
+
   sample(id: string): string | undefined {
     return (
       this.db
@@ -186,14 +179,7 @@ export class CameraRecognition {
         .get(id, CAMERA_SAMPLE_VERSION) as { digest: string } | undefined
     )?.digest
   }
-  cacheSample(id: string, digest: string): void {
-    if (this.live(id))
-      this.db
-        .prepare(
-          'INSERT INTO camera_samples VALUES (?, ?, ?) ON CONFLICT(photo_id) DO UPDATE SET version = excluded.version, digest = excluded.digest',
-        )
-        .run(id, CAMERA_SAMPLE_VERSION, digest)
-  }
+
   revision(): string {
     return JSON.stringify([
       this.db.prepare('PRAGMA data_version').get(),

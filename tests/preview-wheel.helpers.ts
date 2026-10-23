@@ -162,7 +162,37 @@ export async function verifyPreviewWheel(page: Page, viewport: Locator, zoom: Lo
   await page.keyboard.down('Control')
   await page.mouse.wheel(0, -100)
   await page.keyboard.up('Control')
-  await expect.poll(async () => (await view()).scale).toBeCloseTo(Math.exp(0.2), 5)
+  await expect.poll(async () => (await view()).scale).toBeCloseTo(1.1, 5)
+
+  await zoom.selectOption('1')
+  const mouseSteps = await viewport.evaluate(async (el) => {
+    const box = el.getBoundingClientRect()
+    const scales: number[] = []
+    document.dispatchEvent(new KeyboardEvent('keydown', { ctrlKey: true, key: 'Control' }))
+    try {
+      for (const deltaY of [-100, -120, -240, 100, 120, 240]) {
+        el.dispatchEvent(
+          new WheelEvent('wheel', {
+            cancelable: true,
+            ctrlKey: true,
+            deltaY,
+            clientX: box.left + box.width / 2 + 50,
+            clientY: box.top + box.height / 2 + 25,
+          }),
+        )
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+        scales.push(Number(el.dataset.scale))
+      }
+    } finally {
+      document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Control' }))
+    }
+    return scales
+  })
+  for (const [i, steps] of [1, 2, 3, 2, 1, 0].entries())
+    expect(mouseSteps[i]).toBeCloseTo(1.1 ** steps, 5)
+
+  await zoom.selectOption('1')
 
   const modifierScales = await viewport.evaluate(async (el) => {
     const scales: number[] = []
@@ -192,6 +222,9 @@ export async function verifyPreviewWheel(page: Page, viewport: Locator, zoom: Lo
     await pinch()
     return scales
   })
-  for (const [i, exponent] of [0.4, 0.44, 0.64, 0.84].entries())
-    expect(modifierScales[i]).toBeCloseTo(Math.exp(exponent), 5)
+  let expected = 1
+  for (const [i, physicalControl] of [false, true, false, false].entries()) {
+    expected *= physicalControl ? 1.1 ** 0.2 : Math.exp(0.2)
+    expect(modifierScales[i]).toBeCloseTo(expected, 5)
+  }
 }

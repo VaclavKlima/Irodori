@@ -1,13 +1,10 @@
+import { grid8ReferenceKernel } from './grid8-reference'
 import {
   HdrRenderCache,
   hdrCachePlan,
   type HdrCachePlan,
 } from '../../../src/renderer/src/preview/hdr-render-cache'
-import {
-  hdrCacheShader,
-  hdrMipShader,
-  hdrShader,
-} from '../../../src/renderer/src/preview/hdr-shader'
+import { hdrMipShader, hdrShader } from '../../../src/renderer/src/preview/hdr-shader'
 import {
   hdrHistogramShader,
   HDR_HISTOGRAM_WORDS,
@@ -155,7 +152,7 @@ export async function createTileStudy(
     const rendering = await device.createComputePipelineAsync({
       layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
       compute: {
-        module: device.createShaderModule({ code: hdrCacheShader }),
+        module: device.createShaderModule({ code: grid8ReferenceKernel.shader }),
         entryPoint: 'renderTile',
       },
     })

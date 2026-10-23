@@ -20,7 +20,7 @@ export const acesWgsl = `
 fn acesRound(v:f32)->f32 {let p=frexp(v);return ldexp(p.fract,p.exp);}
 fn acesSum(a:f32,b:f32)->vec2f {let s=acesRound(a+b);let z=acesRound(s-a);return vec2f(s,acesRound(a-acesRound(s-z))+acesRound(b-z));}
 fn acesDot(a:vec3f,b:vec3f)->f32 {
-  let p=a*b; let e=fma(a,b,-p);
+  let p=a*b; let e=vec3f(acesProductError(a.x,b.x,p.x),acesProductError(a.y,b.y,p.y),acesProductError(a.z,b.z,p.z));
   let s=acesSum(p.x,p.y);let t=acesSum(s.x,p.z);
   return t.x+(s.y+t.y+e.x+e.y+e.z);
 }
@@ -126,7 +126,8 @@ fn wrap_to_360(hue:f32)->f32 {
     {
         y=y + 360.;
     }
-    return y;
+    // Normalize the rounded endpoint and both zero signs before table lookup.
+    return select(y, 0., y == 0. || y >= 360.);
 
 }
 fn hue_position_in_uniform_table(hue:f32,table_size:i32)->i32 {
@@ -621,6 +622,44 @@ fn acesMath(index:u32)->vec2f {
   let pair=acesData.values[1573+i32(index>>1u)];
   return select(pair.xy,pair.zw,(index&1u)!=0u);
 }
+// Recover a binary32 product residual without requiring WGSL fma to be fused.
+// Integer significands multiply modulo 2^32; the high bits cancel against the
+// actual rounded product, leaving an exact signed residual smaller than 2^24.
+fn acesProductError(a:f32,b:f32,product:f32)->f32 {
+  let ab=bitcast<u32>(a);let bb=bitcast<u32>(b);let pb=bitcast<u32>(product);
+  let ax=(ab>>23u)&255u;let bx=(bb>>23u)&255u;let px=(pb>>23u)&255u;
+  // A nonzero rounding residual of a subnormal product is generally too small
+  // for an error-free binary32 representation.
+  // WGSL can flush subnormal inputs/results independently of this calculation.
+  if(ax==255u || bx==255u || px==0u || px==255u) {return 0.;}
+  let am=(ab&0x7fffffu)|select(0x800000u,0u,ax==0u);
+  let bm=(bb&0x7fffffu)|select(0x800000u,0u,bx==0u);
+  if(am==0u || bm==0u) {return 0.;}
+  let exponent=select(i32(ax)-150,-149,ax==0u)+select(i32(bx)-150,-149,bx==0u);
+  let shift=i32(px)-150-exponent;
+  if(shift<0 || shift>24) {return 0.;}
+  let pm=(pb&0x7fffffu)|0x800000u;
+  let residual=bitcast<i32>(am*bm-(pm<<u32(shift)));
+  if(residual==0) {return 0.;}
+  let magnitude=select(u32(residual),u32(-residual),residual<0);
+  let leading=firstLeadingBit(magnitude);
+  let power=exponent+i32(leading);
+  let sign=((ab^bb)&0x80000000u)^select(0u,0x80000000u,residual<0);
+  if(power>=-126) {
+    let mantissa=(magnitude<<(23u-leading))&0x7fffffu;
+    return bitcast<f32>(sign|(u32(power+127)<<23u)|mantissa);
+  }
+  // Pack subnormal residuals with round-to-nearest-even rather than relying on
+  // ldexp with a tiny scaling exponent, which WGSL may flush prematurely.
+  let right=-149-exponent;
+  if(right<=0) {return bitcast<f32>(sign|(magnitude<<u32(-right)));}
+  if(right>24) {return bitcast<f32>(sign);}
+  let whole=magnitude>>u32(right);
+  let remainder=magnitude&((1u<<u32(right))-1u);
+  let halfway=1u<<u32(right-1);
+  let increment=u32(remainder>halfway || (remainder==halfway && (whole&1u)!=0u));
+  return bitcast<f32>(sign|(whole+increment));
+}
 // Two-component arithmetic retains the CTL equations at cone-response cancellations.
 // This changes evaluation precision, not the reference transform or its parameters.
 fn ds(a:f32)->vec2f {return vec2f(a,0.);}
@@ -630,7 +669,7 @@ fn dsAdd(a:vec2f,b:vec2f)->vec2f {
 fn dsNeg(a:vec2f)->vec2f {return -a;}
 fn dsSub(a:vec2f,b:vec2f)->vec2f {return dsAdd(a,-b);}
 fn dsMul(a:vec2f,b:vec2f)->vec2f {
-  let p=acesRound(a.x*b.x);return acesSum(p,fma(a.x,b.x,-p)+a.x*b.y+a.y*b.x+a.y*b.y);
+  let p=acesRound(a.x*b.x);return acesSum(p,acesProductError(a.x,b.x,p)+a.x*b.y+a.y*b.x+a.y*b.y);
 }
 fn dsDiv(a:vec2f,b:vec2f)->vec2f {
   let q=a.x/b.x;let r=dsSub(a,dsMul(ds(q),b));return acesSum(q,(r.x+r.y)/b.x);
@@ -693,10 +732,81 @@ fn solve_J_intersect(J:f32,M:f32,focusJ:f32,maxJ:f32,slope_gain:f32)->f32 {
   let denominator=select(dsSub(b,root),dsAdd(b,root),J<focusJ);
   return dsValue(dsDiv(dsMul(ds(-2.),c),denominator));
 }
+// NIST DLMF 4.24.3 and 4.24.15: alternating atan series and pi/4 reduction.
+// https://dlmf.nist.gov/4.24.E3 and https://dlmf.nist.gov/4.24.E15
+// Coefficients are the binary32 high/low split of (-1)^i/(2*i+1), i=0..15;
+// pi constants and 180/pi use the same split, with no fitted coefficients.
+// |t| <= 0.415 bounds the omitted real series by 0.415^33/33 < 1e-14
+// radians. This tail bound excludes GPU arithmetic and final binary32 rounding.
+fn acesAtanUnit(z:vec2f)->vec2f {
+  // atan(z)-z is bounded by z^3/3 here; avoid squaring tiny normal ratios.
+  if(z.x<.0000152587890625) {return z;}
+  var t=z;
+  var offset=ds(0.);
+  if(dsValue(z)>.4142135623730951) {
+    t=dsDiv(dsSub(z,ds(1.)),dsAdd(z,ds(1.)));
+    offset=vec2f(.7853981852531433,-2.1855695031547384e-8);
+  }
+  let square=dsMul(t,t);
+  var series=vec2f(-.032258063554763794,-9.613652374174109e-10);
+  series=dsAdd(vec2f(.03448275849223137,1.284582856753147e-10),dsMul(square,series));
+  series=dsAdd(vec2f(-.03703703731298447,2.759474315716659e-10),dsMul(square,series));
+  series=dsAdd(vec2f(.03999999910593033,8.940696724635266e-10),dsMul(square,series));
+  series=dsAdd(vec2f(-.043478261679410934,8.09845718263702e-10),dsMul(square,series));
+  series=dsAdd(vec2f(.0476190485060215,-8.869738832295582e-10),dsMul(square,series));
+  series=dsAdd(vec2f(-.05263157933950424,3.9213582381236733e-10),dsMul(square,series));
+  series=dsAdd(vec2f(.05882352963089943,-2.1913472425527658e-10),dsMul(square,series));
+  series=dsAdd(vec2f(-.06666667014360428,3.4769376128229723e-9),dsMul(square,series));
+  series=dsAdd(vec2f(.07692307978868484,-2.8656079176236915e-9),dsMul(square,series));
+  series=dsAdd(vec2f(-.09090909361839294,2.7093020327217943e-9),dsMul(square,series));
+  series=dsAdd(vec2f(.1111111119389534,-8.278422947149977e-10),dsMul(square,series));
+  series=dsAdd(vec2f(-.1428571492433548,6.3862119481505886e-9),dsMul(square,series));
+  series=dsAdd(vec2f(.20000000298023224,-2.980232227667301e-9),dsMul(square,series));
+  series=dsAdd(vec2f(-.3333333432674408,9.934107481068821e-9),dsMul(square,series));
+  series=dsAdd(ds(1.),dsMul(square,series));
+  return dsAdd(offset,dsMul(t,series));
+}
+struct AcesAngleParts {mantissa:f32,exponent:i32}
+fn acesAngleParts(bits:u32)->AcesAngleParts {
+  let exponent=(bits>>23u)&255u;
+  if(exponent!=0u) {
+    return AcesAngleParts(bitcast<f32>((bits&0x7fffffu)|0x3f800000u),i32(exponent)-127);
+  }
+  // The caller excludes zero. Normalize retained subnormal bits in integers;
+  // WGSL may still flush subnormal float inputs before their bits are observed.
+  let leading=firstLeadingBit(bits);
+  return AcesAngleParts(bitcast<f32>(((bits<<(23u-leading))&0x7fffffu)|0x3f800000u),i32(leading)-149);
+}
+fn acesAtanRatio(smaller:u32,larger:u32)->vec2f {
+  let a=acesAngleParts(smaller);let b=acesAngleParts(larger);
+  let exponent=a.exponent-b.exponent;
+  // The omitted angular correction is below 2^-126 radians. Avoid relying on
+  // subnormal division or an out-of-range scaling exponent for extreme ratios.
+  if(exponent< -126) {return ds(0.);}
+  let ratio=dsDiv(ds(a.mantissa),ds(b.mantissa));
+  return vec2f(ldexp(ratio.x,exponent),ldexp(ratio.y,exponent));
+}
+fn acesAtan2(y:f32,x:f32)->vec2f {
+  let xb=bitcast<u32>(x);let yb=bitcast<u32>(y);
+  let ax=xb&0x7fffffffu;let ay=yb&0x7fffffffu;
+  var angle:vec2f;
+  if(ay==0u) {angle=ds(0.);}
+  else if(ax==0u) {angle=vec2f(1.5707963705062866,-4.371139006309477e-8);}
+  else if(ay>ax) {
+    angle=dsSub(vec2f(1.5707963705062866,-4.371139006309477e-8),acesAtanUnit(acesAtanRatio(ax,ay)));
+  } else {angle=acesAtanUnit(acesAtanRatio(ay,ax));}
+  // Preserve signed-zero quadrants when the implementation retains their bits.
+  if((xb&0x80000000u)!=0u) {angle=dsSub(vec2f(3.1415927410125732,-8.742278012618954e-8),angle);}
+  if((yb&0x80000000u)!=0u) {angle=dsNeg(angle);}
+  return angle;
+}
+fn acesAtan2Degrees(y:f32,x:f32)->f32 {
+  return dsValue(dsMul(acesAtan2(y,x),vec2f(57.295780181884766,-6.688024427603523e-7)));
+}
 fn Aab_to_JMh(Aab:vec3f,p:JMhParams)->vec3f {
   if(Aab.x<=0.) {return vec3f(0.);}
   let J=dsValue(dsMul(ds(100.),dsPow(ds(Aab.x),vec2f(p.cz,p.cz_lo))));
-  return vec3f(J,length(Aab.yz),wrap_to_360(radians_to_degrees(atan2(Aab.z,Aab.y))));
+  return vec3f(J,length(Aab.yz),wrap_to_360(acesAtan2Degrees(Aab.z,Aab.y)));
 }
 fn JMh_to_Aab(JMh:vec3f,p:JMhParams)->vec3f {
   let a=dsValue(dsPow(dsDiv(ds(JMh.x),ds(100.)),vec2f(p.inv_cz,p.inv_cz_lo)));

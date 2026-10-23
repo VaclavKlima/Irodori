@@ -11,7 +11,7 @@ export class MergeProcess {
   async run(
     job: MergeJob,
     signal: AbortSignal,
-    progress: (phase: string, completed: number, total: number) => void,
+    progress: (phase: string, completed: number, total: number, producedAtEpochMs: number) => void,
   ): Promise<MergeResult> {
     signal.throwIfAborted()
     if (this.child) throw new Error('The merge worker is busy.')
@@ -61,9 +61,10 @@ export class MergeProcess {
             phase?: string
             completed: number
             total: number
+            producedAtEpochMs: number
           }) => {
             if (message.phase) {
-              progress(message.phase, message.completed, message.total)
+              progress(message.phase, message.completed, message.total, message.producedAtEpochMs)
               return
             }
             if (message.result) result = message.result

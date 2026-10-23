@@ -272,7 +272,7 @@ wg = '''// Compensated scalar products reduce cancellation near the gamut bounda
 fn acesRound(v:f32)->f32 {let p=frexp(v);return ldexp(p.fract,p.exp);}
 fn acesSum(a:f32,b:f32)->vec2f {let s=acesRound(a+b);let z=acesRound(s-a);return vec2f(s,acesRound(a-acesRound(s-z))+acesRound(b-z));}
 fn acesDot(a:vec3f,b:vec3f)->f32 {
-  let p=a*b; let e=fma(a,b,-p);
+  let p=a*b; let e=vec3f(acesProductError(a.x,b.x,p.x),acesProductError(a.y,b.y,p.y),acesProductError(a.z,b.z,p.z));
   let s=acesSum(p.x,p.y);let t=acesSum(s.x,p.z);
   return t.x+(s.y+t.y+e.x+e.y+e.z);
 }
@@ -385,6 +385,25 @@ fn acesLog10(v:f32)->f32 {return log(v)/log(10.);}
 fn acesPow(a:f32,b:f32)->f32 {return pow(a,b);}
 '''
 preview_wg = preview_helpers + wg[wg.index('struct AcesData'):]
+# Retain the original HDR preview source exactly. The separately selected SDR
+# candidate compensates matrix products, preserving all remaining preview math.
+sdr_preview_helpers = '''// Preview-only binary32 evaluation with compensated matrix dots.
+// Settled previews and exports use acesWgsl.
+''' + wg[wg.index('fn acesRound'):wg.index('fn clamp_f3')] + preview_helpers[preview_helpers.index('fn clamp_f3'):]
+precision_source = (ROOT / 'scripts/aces-precision.wgsl').read_text()
+sdr_preview_helpers += (
+    precision_source[:precision_source.index('fn ds(')] +
+    precision_source[precision_source.index('fn ds('):precision_source.index('fn dsNeg(')] +
+    precision_source[precision_source.index('fn dsMul('):precision_source.index('fn dsDiv(')] +
+    precision_source[precision_source.index('fn dsValue('):precision_source.index('fn dsSqrt(')] +
+    precision_source[precision_source.index('fn dsMatrix('):precision_source.index('fn RGB_to_Aab(')]
+)
+sdr_preview_helpers += '''fn previewMatrix(v:vec3f,hi:mat3x3f,lo:mat3x3f)->vec3f {
+  let result=dsMatrix(array<vec2f,3>(ds(v.x),ds(v.y),ds(v.z)),hi,lo);
+  return vec3f(dsValue(result[0]),dsValue(result[1]),dsValue(result[2]));
+}
+'''
+sdr_preview_wg = sdr_preview_helpers + wg[wg.index('struct AcesData'):]
 compensated_functions = ['RGB_to_Aab', 'Aab_to_RGB', 'Y_to_J', 'J_to_Y', 'Aab_to_JMh', 'JMh_to_Aab', 'solve_J_intersect']
 
 
@@ -483,22 +502,56 @@ for name, (kind, dims, args, body) in functions.items():
     body = body.replace('midpoint(i_lo, i_hi)', '(i_lo+i_hi)/2')
     generated = f'fn {name}({",".join(parameters)})->{wg_type(kind, dimensions(dims))} {{\n{wg_expr(body)}\n}}\n'
     preview_wg += generated
+    if name in ['RGB_to_Aab', 'Aab_to_RGB']:
+        sdr_generated, replacements = re.subn(
+            r'mult_f3_f33\((\w+), p\.(MATRIX_\w+)\)',
+            r'previewMatrix(\1, p.\2, p.\2_lo)', generated)
+        assert replacements == 2, f'Missing SDR preview coefficient residuals in {name}'
+        sdr_preview_wg += sdr_generated
+    else:
+        sdr_preview_wg += generated
     if name not in compensated_functions:
-        wg += generated
+        canonical_generated = generated
+        if name == 'wrap_to_360':
+            # A tiny negative binary32 hue can round to 360 after addition.
+            # Table indices and interpolation must use the same [0, 360) hue.
+            anchor = '    return y;'
+            assert canonical_generated.count(anchor) == 1, 'Missing canonical hue normalization anchor'
+            canonical_generated = canonical_generated.replace(
+                anchor,
+                '    // Normalize the rounded endpoint and both zero signs before table lookup.\n'
+                '    return select(y, 0., y == 0. || y >= 360.);',
+            )
+        wg += canonical_generated
 
 wg += 'fn acesMath(index:u32)->vec2f {\n  let pair=acesData.values[' + str(precision_offset) + '+i32(index>>1u)];\n  return select(pair.xy,pair.zw,(index&1u)!=0u);\n}\n'
-wg += (ROOT / 'scripts/aces-precision.wgsl').read_text()
+# The compensated canonical path owns accurate atan2. Interactive binary32
+# policies retain their separately generated native atan2 and existing versions.
+canonical_precision = (ROOT / 'scripts/aces-precision.wgsl').read_text()
+assert canonical_precision.count('fn acesAtan2Degrees(') == 1
+assert canonical_precision.count('wrap_to_360(acesAtan2Degrees(Aab.z,Aab.y))') == 1
+wg += canonical_precision
 
 # Matrices are filled by the generated CPU port, not independently tuned.
 wg_header = header + "import { acesPrecisionWgsl } from './aces-precision-wgsl'\nimport { AP0_TO_AP1, AP1_TO_AP0 } from './aces-core'\nconst matrix=(m:number[][])=>'mat3x3f('+m.map(r=>'vec3f('+r.map(v=>String(v).includes('.')?String(v):v+'.0').join(',')+')').join(',')+')'\nconst acesMatrices='const AP0_TO_AP1='+matrix(AP0_TO_AP1)+';\\nconst AP1_TO_AP0='+matrix(AP1_TO_AP0)+';'\n"
 (ROOT / 'src/shared/aces-wgsl.ts').write_text(wg_header + 'export const acesWgsl = `\n' + wg + '`\n')
 
 preview_header = header + "import { AP0_TO_AP1, AP1_TO_AP0 } from './aces-core'\nconst matrix=(m:number[][])=>'mat3x3f('+m.map(r=>'vec3f('+r.map(v=>String(v).includes('.')?String(v):v+'.0').join(',')+')').join(',')+')'\nconst acesMatrices='const AP0_TO_AP1='+matrix(AP0_TO_AP1)+';\\nconst AP1_TO_AP0='+matrix(AP1_TO_AP0)+';'\n"
+# Preserve the shader's exact runtime bytes while keeping the added template free
+# of literal trailing whitespace. JavaScript decodes these escapes back to CTL text.
+sdr_preview_template = re.sub(
+    r'[ \t]+$',
+    lambda match: ''.join('\\x20' if c == ' ' else '\\t' for c in match[0]),
+    sdr_preview_wg,
+    flags=re.MULTILINE,
+)
 (ROOT / 'src/shared/aces-preview-wgsl.ts').write_text(
     preview_header +
     "// This policy is an interactive preview approximation, never an export rendition.\n" +
-    "export const ACES_INTERACTIVE_PREVIEW_VERSION = 'aces2-f32-interactive-v1' as const\n" +
-    'export const acesPreviewWgsl = `\n' + preview_wg + '`\n')
+    "export { ACES_INTERACTIVE_PREVIEW_VERSION, ACES_SDR_INTERACTIVE_PREVIEW_VERSION, ACES_HDR_INTERACTIVE_PREVIEW_VERSION, selectInteractivePreviewPolicy } from './interactive-preview-policy'\n" +
+    "export type { AcesInteractivePreviewPolicy, AcesPreviewPolicy } from './interactive-preview-policy'\n" +
+    'export const acesPreviewWgsl = `\n' + preview_wg + '`\n' +
+    'export const acesSdrPreviewWgsl = `\n' + sdr_preview_template + '`\n')
 
 # Storage packing is generated from the same field layout as shader accessors.
 packer = header + "import { acesPrecisionData } from './aces-precision-wgsl'\nimport type { ODTParams } from './aces-core'\nexport const ACES_DATA_BYTES=" + str(cursor * 16) + "\nexport function packAces(p:ODTParams):Float32Array<ArrayBuffer> {\n const result=new Float32Array(" + str(cursor * 4) + ");\n"

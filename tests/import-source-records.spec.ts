@@ -1,3 +1,4 @@
+import { ImportSourceMutations as ImportSourceRecords } from '../src/main/catalog/import-source-mutations'
 import { expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import {
@@ -19,7 +20,6 @@ import type { DeviceSource } from '../src/main/import-devices'
 import {
   importSourceKey,
   hashImportSource,
-  ImportSourceRecords,
   inspectImportSource,
   reliableImportChangeToken,
   sameImportSourceWitness,

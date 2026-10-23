@@ -45,8 +45,8 @@ process.on('message',async ({path,output,type})=>{
   const pixels=d.dcrawMakeMemImage();d.dispose();
   await sharp(pixels.data,{raw:{width:pixels.width,height:pixels.height,channels:3}})
    .withIccProfile('srgb').toColourspace('srgb').png({compressionLevel:3,palette:false}).toFile(join(output,'legacy.png'));
-  process.send({result:{width:pixels.width,height:pixels.height}});
- } catch(e) {process.send({error:String(e)});}
+  process.send({type:'result',result:{width:pixels.width,height:pixels.height}});
+ } catch(e) {process.send({type:'error',error:String(e)});}
 });
 `,
     )

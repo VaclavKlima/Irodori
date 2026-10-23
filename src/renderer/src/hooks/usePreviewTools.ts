@@ -15,6 +15,7 @@ export interface PreviewToolsState {
   analysis?: ImageStatistics | HdrStatistics
   analysisPending?: boolean
   analysisError?: string
+  clippingError?: string
 }
 const initial: PreviewToolsState = {
   hdr: false,

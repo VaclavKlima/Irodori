@@ -9,14 +9,15 @@ import {
   expectReferenceHdrPreview,
   hdrTestPolicy,
 } from './hdr-test-policy.helpers'
-import { HDR_PRESENTATION_BUDGET } from '../src/renderer/src/preview/hdr-memory'
+import { assertHdrMemory, hdrMemoryGates } from './hdr-memory-policy.helpers'
 import { provenance } from '../scripts/research/pipeline/provenance'
+import { editorRequestedTileBatch } from './editor-responsiveness-profile.helpers'
 
 const reason =
   'Application tile batching compares completed sharp editor frames and cancellation on the native desktop.'
 requiresForeground(test, reason)
 test.use({ hdrDisplay: true })
-const candidate = process.env.VITE_LUMA_HDR_TILE_BATCH === '8' ? 8 : 32
+const candidate = editorRequestedTileBatch
 
 for (const [width, height, consoleOpen] of [
   [1100, 700, true],
@@ -35,6 +36,7 @@ for (const [width, height, consoleOpen] of [
       const canvas = page.getByTestId('main-preview')
       await expect(canvas).toHaveAttribute('data-quality', 'normal', { timeout: 60000 })
       await expect(canvas).toHaveAttribute('data-tile-batch', String(candidate))
+      const tileBatch = Number(await canvas.getAttribute('data-tile-batch'))
       if (consoleOpen) await page.getByTestId('console-toggle').click()
       const viewport = await page.evaluate(() => ({
         width: innerWidth,
@@ -47,6 +49,8 @@ for (const [width, height, consoleOpen] of [
         ...(await provenance([
           'tests/fixtures/sony-zv1.ARW',
           'tests/mac-workability.helpers.ts',
+          'tests/mac-workability-batching.spec.ts',
+          'tests/editor-responsiveness-profile.helpers.ts',
           'tests/hdr-test-policy.helpers.ts',
           'src/renderer/src/preview/hdr-presenter.ts',
           'src/renderer/src/preview/hdr-shader.ts',
@@ -63,10 +67,8 @@ for (const [width, height, consoleOpen] of [
       for (const zoom of ['fit', '100%'] as const)
         for (let repetition = 0; repetition < 3; repetition++) {
           const trial = await sustainedEditorInput(page, { label: 'Exposure', zoom, frequency: 60 })
-          const allocatedBytes = Number(await canvas.getAttribute('data-allocated-bytes'))
           trials.push({
             repetition,
-            allocatedBytes,
             ...trial,
             progressShortfall: Math.max(0, 160 - trial.completedDuringInput),
             histogramShortfall: Math.max(0, 160 - trial.histogramsDuringInput),
@@ -74,7 +76,7 @@ for (const [width, height, consoleOpen] of [
           await writeFile(
             path,
             JSON.stringify(
-              { provenance: source, candidate, viewport, consoleOpen, trials },
+              { provenance: source, candidate, tileBatch, viewport, consoleOpen, trials },
               null,
               2,
             ),
@@ -84,6 +86,7 @@ for (const [width, height, consoleOpen] of [
         family: 'hdr',
         measurements: {
           candidate,
+          tileBatch,
           viewport,
           consoleOpen,
           trials: trials.map(
@@ -98,6 +101,7 @@ for (const [width, height, consoleOpen] of [
           ),
         },
         gates: trials.flatMap((trial) => [
+          ...hdrMemoryGates(trial, `${trial.zoom}.${trial.repetition}.`),
           {
             metric: `${trial.zoom}.${trial.repetition}.latencyP95Ms`,
             operator: '<=' as const,
@@ -129,6 +133,7 @@ for (const [width, height, consoleOpen] of [
       for (const trial of trials) {
         const context = `${candidate} tiles ${trial.zoom} repetition ${trial.repetition}`
         expect.soft(trial.error, context).toBeUndefined()
+        expect.soft(trial.tileBatch, context).toBe(candidate)
         expect.soft(trial.inputs.length, context).toBe(240)
         expect.soft(trial.draft, context).toBe(0)
         expectHdrTrialPolicy(trial, context)
@@ -137,7 +142,7 @@ for (const [width, height, consoleOpen] of [
         expect.soft(trial.finalMatched, context).toBe(true)
         expect.soft(trial.histogramMatched, context).toBe(true)
         expect.soft(trial.sourceUploads, context).toBe(1)
-        expect.soft(trial.allocatedBytes, context).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
+        assertHdrMemory(trial, context, true)
         expect.soft(trial.sidebarMovement, context).toBeLessThan(0.1)
         expect.soft(trial.historyEntriesAdded, context).toBe(1)
       }
@@ -312,12 +317,18 @@ test(
         return {
           ...state.state,
           allocatedBytes: Number(canvas.dataset.allocatedBytes),
+          allocatedRamBytes: Number(canvas.dataset.allocatedRamBytes),
+          allocatedGpuBytes: Number(canvas.dataset.allocatedGpuBytes),
+          ramBudgetBytes: Number(canvas.dataset.ramBudgetBytes),
+          vramBudgetBytes: Number(canvas.dataset.vramBudgetBytes),
+          resourcePolicyRevision: Number(canvas.dataset.resourcePolicyRevision),
           generation: canvas.dataset.targetGeneration,
           exposure: canvas.dataset.exposure,
           backend: canvas.dataset.backend,
           quality: canvas.dataset.quality,
           presentedPolicy: canvas.dataset.presentedPolicy,
           previewPolicy: canvas.dataset.interactivePolicy,
+          tileBatch: Number(canvas.dataset.tileBatch),
         }
       })
       const latencyMs = Date.now() - started
@@ -337,7 +348,7 @@ test(
         family: 'hdr',
         measurements: { candidate, invalidation, latencyMs, changedExposure, ...result },
         gates: [
-          { metric: 'allocatedBytes', operator: '<=' as const, limit: HDR_PRESENTATION_BUDGET },
+          ...hdrMemoryGates(result),
           ...(invalidation === 'source'
             ? []
             : [{ metric: 'latencyMs', operator: '<=' as const, limit: 500 }]),
@@ -345,8 +356,9 @@ test(
         evidence: [info.outputPath('batch-cancellation.json')],
       })
       expect(result.backend).toBe('webgpu-hdr')
+      expect(result.tileBatch).toBe(candidate)
       await expectReferenceHdrPreview(page)
-      expect(result.allocatedBytes).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
+      assertHdrMemory(result)
       if (invalidation === 'history')
         expect(result.observed.every((frame) => frame.exposure !== String(changedExposure))).toBe(
           true,

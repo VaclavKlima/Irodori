@@ -8,11 +8,31 @@ import { focusPreviewWindow } from './preview-pan.helpers'
 import { recordBenchmark } from './benchmark.helpers'
 import {
   observePhotoActivation,
+  NAVIGATION_MEASUREMENT_VERSION,
   type NavigationTarget,
 } from './editor-navigation-responsiveness.helpers'
-import { HDR_PRESENTATION_BUDGET } from '../src/renderer/src/preview/hdr-memory'
+import {
+  assertHdrMemory,
+  hdrMemoryGates,
+  type HdrMemoryObservation,
+} from './hdr-memory-policy.helpers'
 import { HDR_PRESENTATION_CACHE_BUDGET } from '../src/renderer/src/preview/hdr-presentation-cache'
+import { PREVIEW_ASSET_VERSION } from '../src/shared/preview-frame'
+import type { HdrFirstSurfaceOffer } from '../src/shared/hdr-first-surface'
+import type { FullPreviewResult } from '../src/main/preview-types'
 import { provenance } from '../scripts/research/pipeline/provenance'
+import { maximizeEditorOnMonitor } from './editor-native-window.helpers'
+import { sampleEditorMemory } from './editor-memory.helpers'
+import {
+  editorTestPreviewPolicy,
+  hdrTestPolicy,
+  requireEditorPreviewFeature,
+} from './hdr-test-policy.helpers'
+import {
+  editorDisplayPreference,
+  editorDisplayProfile,
+  editorExpectedDpr,
+} from './editor-responsiveness-profile.helpers'
 
 const reason =
   'Photo activation timing requires native foreground Retina presentation and post-paint observation.'
@@ -34,10 +54,44 @@ const quantile = (values: (number | null)[], p: number) => {
   return sorted.length ? sorted[Math.ceil(sorted.length * p) - 1] : null
 }
 
+/** Metadata only, after the timed phases; no F32/half reads or production diagnostics. */
+async function cachedStageMetadata(userDataDir: string, photoIds: string[]) {
+  const directory = join(userDataDir, 'library/cache/previews', PREVIEW_ASSET_VERSION)
+  const entries: Record<string, unknown>[] = []
+  const errors: string[] = []
+  try {
+    for (const folder of await readdir(directory, { withFileTypes: true })) {
+      if (!folder.isDirectory() || !photoIds.includes(folder.name.slice(0, 64))) continue
+      try {
+        const metadata = JSON.parse(
+          await readFile(join(directory, folder.name, 'entry.json'), 'utf8'),
+        ) as FullPreviewResult & { sourceKey?: string }
+        entries.push({
+          cacheEntry: folder.name,
+          sourceKey: metadata.sourceKey,
+          format: metadata.format,
+          width: metadata.width,
+          height: metadata.height,
+          sha256: metadata.sha256,
+          diagnostics: metadata.diagnostics,
+          firstSurface: metadata.firstSurface,
+          firstSurfaceDecline: metadata.firstSurfaceDecline,
+          hdrSource: metadata.linear?.hdr?.source,
+        })
+      } catch (error) {
+        errors.push(`${folder.name}: ${String(error)}`)
+      }
+    }
+  } catch (error) {
+    errors.push(String(error))
+  }
+  return { capturedAfterTimedPhases: true, entries, errors }
+}
+
 for (const layout of [
-  { name: '1100x700-console', width: 1100, height: 700, consoleOpen: true, fullscreen: false },
-  { name: '1440x900', width: 1440, height: 900, consoleOpen: false, fullscreen: false },
-  { name: 'native-fullscreen', width: 1440, height: 900, consoleOpen: false, fullscreen: true },
+  { name: '1100x700-console', width: 1100, height: 700, consoleOpen: true, maximized: false },
+  { name: '1440x900', width: 1440, height: 900, consoleOpen: false, maximized: false },
+  { name: 'native-maximized', width: 1440, height: 900, consoleOpen: false, maximized: true },
 ] as const)
   test(
     `photo activation ${layout.name}: cold diagnostics, five warm pairs and rapid reversal`,
@@ -45,6 +99,7 @@ for (const layout of [
     async ({ luma }, info) => {
       test.setTimeout(180000)
       const { app, page } = luma
+      await requireEditorPreviewFeature(page, 'presentation-cache')
       const native = await app.browserWindow(page)
       const path = info.outputPath('editor-navigation-responsiveness.json')
       const before = await hashes()
@@ -73,6 +128,16 @@ for (const layout of [
           'src/renderer/src/preview/hdr-presentation-cache.ts',
           'src/renderer/src/components/PhotoPreview.tsx',
           'src/renderer/src/hooks/useFullPreview.ts',
+          'src/shared/hdr-first-surface.ts',
+          'src/shared/resource-policy.ts',
+          'src/shared/preview-frame.ts',
+          'src/main/full-previews.ts',
+          'src/main/preview-process.ts',
+          'src/main/preview-worker.ts',
+          'src/main/processing/hdr-processing.ts',
+          'src/main/gpu/hdr-first-surface.ts',
+          'src/main/gpu/raw-renderer.ts',
+          'src/renderer/src/preview/hdr-first-surface-client.ts',
           ...compiled,
         ])),
         build:
@@ -87,6 +152,9 @@ for (const layout of [
       const history = new Map<string, unknown>()
       let measurementStartedAt = 0,
         measurementDurationMs = 0
+      let cachedStages: Awaited<ReturnType<typeof cachedStageMetadata>> | undefined
+      let memoryAfterTimedPhases: Awaited<ReturnType<typeof sampleEditorMemory>> | undefined
+      let finalRendererStages: Record<string, unknown> | undefined
       try {
         await native.evaluate((window, { width, height }) => {
           window.unmaximize()
@@ -121,18 +189,28 @@ for (const layout of [
         const toggle = page.getByTestId('console-toggle')
         if (((await toggle.getAttribute('aria-expanded')) === 'true') !== layout.consoleOpen)
           await toggle.click()
-        if (layout.fullscreen)
-          await native.evaluate(
-            (window) =>
-              new Promise<void>((resolve) => {
-                window.once('enter-full-screen', () => resolve())
-                window.setFullScreen(true)
-              }),
-          )
+        const maximizedConfiguration = layout.maximized
+          ? await maximizeEditorOnMonitor(app, page, {
+              monitorLabel: process.env.LUMA_RESPONSIVENESS_MONITOR,
+            })
+          : null
+        if (editorDisplayPreference === 'sdr')
+          await page.evaluate(() => window.luma.setPreviewPreference('sdr'))
         await focusPreviewWindow(app, page)
         environment = {
+          measurementVersion: NAVIGATION_MEASUREMENT_VERSION,
+          measurementInstrumentation:
+            'v4 retains v3 lightweight polling and cached-first usefulness priority. Independent strict native readiness now recognizes an exact cached plane coexisting with a completed normal source/recovery; its request/source/revision/epoch/serial/target/pose/backing receipt remains unchanged through two real RAFs. Cold and first-useful boundaries and thresholds are unchanged. The failed v3 coexistence run remains preserved; earlier v2 latencies include repeated full-history cloning and are not directly comparable.',
+          rendererClockDiagnostics:
+            'passive-renderer-clocks-v1: all absolute stamps use renderer performance.now(). Owner-wait finish observes the real barrier continuation; admission finish follows the display reply; request start precedes its existing state update and bridge invocation in the same turn. Cached fence follows the actual cached queue fence. Normal write start precedes canvas ownership changes and normal submitted follows the real queue.submit, bound to input serial/epoch. No GPU elapsed time is inferred. Final full stages are copied after timed phases.',
+          firstUsefulDefinition:
+            'A matching normal native frame, exact cached frame, or exact typed first surface with a completed real queue fence and paint receipt, rechecked through two real requestAnimationFrame callbacks. An early surface retains the same request/surface/SHA/parent/policy receipt across both observations. Full native readiness is separately proven by current normal metadata and a stable native receipt through two real RAFs, including when the exact cached canvas remains displayed.',
+          maximizedConfiguration,
+          displayProfile: editorDisplayProfile,
+          expectedDpr: editorExpectedDpr,
           window: await native.evaluate((window) => ({
             fullscreen: window.isFullScreen(),
+            maximized: window.isMaximized(),
             bounds: window.getBounds(),
             contentBounds: window.getContentBounds(),
           })),
@@ -147,7 +225,7 @@ for (const layout of [
             })),
           ),
           target: await page.evaluate(() => window.luma.getDisplayState()),
-          compiledCacheRequested: process.env.VITE_LUMA_HDR_PRESENTATION_CACHE === '1',
+          expectedPreviewPolicy: editorTestPreviewPolicy,
           preparationCondition:
             'Fresh isolated library; RAWs imported and edited with Editor suspended. OS/driver caches uncontrolled. First cold activation enters Editor; second uses the native photo button.',
           sampleLimitations:
@@ -172,16 +250,41 @@ for (const layout of [
               .getByRole('button', { name: `Select ${target.filename}`, exact: true })
               .click()
           await expect
-            .poll(() => observer!.evaluate((value) => value.read().current?.nativeReadyAt), {
+            .poll(() => observer!.evaluate((value) => value.status().current?.nativeReadyAt), {
               timeout: 30000,
             })
             .toBeGreaterThan(0)
-          const current = await observer!.evaluate((value) => value.read().current!)
-          if (current.target.id !== target.id)
+          const current = await observer!.evaluate((value) => value.status().current!)
+          if (current.photoId !== target.id)
             throw new Error('Native activation was not captured for the intended photo.')
-          target.sourceIdentity ??= current.nativeReady!.nativeSource
+          if (!current.nativeReadyAt || !current.nativeSource)
+            throw new Error('The actual native witness is missing its source identity.')
+          target.sourceIdentity ??= current.nativeSource
           const diagnostic = await page.evaluate(() => window.luma.getPreviewDiagnostics())
-          diagnostics.push({ phase, filename: target.filename, diagnostic })
+          const rendererStages = await page.getByTestId('main-preview').evaluate((canvas) => ({
+            load: canvas.dataset.loadTimings ? JSON.parse(canvas.dataset.loadTimings) : null,
+            frame: canvas.dataset.frameTimings ? JSON.parse(canvas.dataset.frameTimings) : null,
+            uploadMs: Number(canvas.dataset.uploadMs),
+            retentionMethod: canvas.dataset.retentionMethod,
+            previewPolicy: {
+              interactivePolicy: canvas.dataset.interactivePolicy,
+              presentationCache: canvas.dataset.presentationCache,
+              tileBatch: Number(canvas.dataset.tileBatch),
+              interactiveFence: canvas.dataset.interactiveFence,
+            },
+          }))
+          expect(rendererStages.previewPolicy.interactivePolicy).toBe(
+            hdrTestPolicy.interactivePolicy,
+          )
+          expect(rendererStages.previewPolicy.tileBatch).toBe(editorTestPreviewPolicy.tileBatch)
+          expect(rendererStages.previewPolicy.interactiveFence).toBe(
+            editorTestPreviewPolicy.interactiveFence,
+          )
+          expect(rendererStages.previewPolicy.presentationCache).toBeDefined()
+          expect(rendererStages.previewPolicy.presentationCache).not.toBe('disabled')
+          environment.compiledCacheRequested =
+            rendererStages.previewPolicy.presentationCache !== 'disabled'
+          diagnostics.push({ phase, filename: target.filename, diagnostic, rendererStages })
           expect
             .soft(diagnostic.presentation)
             .toMatchObject({ photoId: target.id, revision: target.revision, stage: 'presented' })
@@ -205,11 +308,32 @@ for (const layout of [
             .click({ noWaitAfter: true })
         }
         await expect
-          .poll(() => observer!.evaluate((value) => value.read().current?.nativeReadyAt), {
+          .poll(() => observer!.evaluate((value) => value.status().current?.nativeReadyAt), {
             timeout: 30000,
           })
           .toBeGreaterThan(0)
         measurementDurationMs = Date.now() - measurementStartedAt
+        finalRendererStages = await page.getByTestId('main-preview').evaluate((canvas) => ({
+          capturedAfterTimedPhases: true,
+          capturedAt: performance.now(),
+          filename: canvas.getAttribute('aria-label'),
+          requestId: canvas.dataset.previewRequestId,
+          sourceOwnerWaitStartedAt: Number(canvas.dataset.sourceOwnerWaitStartedAt),
+          sourceOwnerWaitFinishedAt: Number(canvas.dataset.sourceOwnerWaitFinishedAt),
+          sourceAdmissionFinishedAt: Number(canvas.dataset.sourceAdmissionFinishedAt),
+          sourceRequestStartedAt: Number(canvas.dataset.sourceRequestStartedAt),
+          cachedFencedAt: Number(canvas.dataset.cachedFencedAt),
+          cachedPostPaintAt: Number(canvas.dataset.cachedPostPaintAt),
+          normalCanvasWriteStartedAt: Number(canvas.dataset.normalCanvasWriteStartedAt),
+          normalCanvasSubmittedAt: Number(canvas.dataset.normalCanvasSubmittedAt),
+          normalCanvasSubmittedSerial: Number(canvas.dataset.normalCanvasSubmittedSerial),
+          normalCanvasSubmittedEpoch: Number(canvas.dataset.normalCanvasSubmittedEpoch),
+          nativeEditingReadyAt: Number(canvas.dataset.nativeEditingReadyAt),
+          load: canvas.dataset.loadTimings ? JSON.parse(canvas.dataset.loadTimings) : null,
+          frame: canvas.dataset.frameTimings ? JSON.parse(canvas.dataset.frameTimings) : null,
+          uploadMs: Number(canvas.dataset.uploadMs),
+          retentionMethod: canvas.dataset.retentionMethod,
+        }))
         observed = await observer.evaluate((value) => value.read())
         for (const target of targets)
           expect
@@ -228,6 +352,12 @@ for (const layout of [
           after = await hashes()
           if (measurementStartedAt && !measurementDurationMs)
             measurementDurationMs = Date.now() - measurementStartedAt
+          cachedStages = await cachedStageMetadata(
+            luma.userDataDir,
+            targets.map((target) => target.id),
+          )
+          if (process.platform === 'linux')
+            memoryAfterTimedPhases = await sampleEditorMemory(app, 'after-navigation-timed-phases')
           await writeFile(
             path,
             JSON.stringify(
@@ -240,6 +370,9 @@ for (const layout of [
                 originalHashesBefore: before,
                 originalHashesAfter: after,
                 diagnostics,
+                finalRendererStages,
+                cachedStages,
+                memoryAfterTimedPhases,
                 observed,
               },
               null,
@@ -247,18 +380,13 @@ for (const layout of [
             ),
           )
         } finally {
-          if (await native.evaluate((window) => window.isFullScreen()))
-            await native.evaluate(
-              (window) =>
-                new Promise<void>((resolve) => {
-                  window.once('leave-full-screen', () => resolve())
-                  window.setFullScreen(false)
-                }),
-            )
+          await native.evaluate((window) => window.unmaximize())
         }
       }
       const result = observed as {
         observedAt: number
+        firstSurfaceOffers: HdrFirstSurfaceOffer[]
+        omittedFirstOffers: number
         activations: {
           phase: string
           startedAt: number
@@ -268,8 +396,17 @@ for (const layout of [
           nativeReadyAt: number | null
           nativeReadyMs: number | null
           firstUsefulKind: string | null
-          firstUseful?: unknown
-          nativeReady?: {
+          firstUseful?: HdrMemoryObservation & {
+            firstSurfaceId?: string
+            firstSurfaceFencedAt: number
+            firstSurfacePostPaintAt: number
+            firstSurfaceMemory: {
+              ramBytes: number
+              vramBytes: number
+              limits: { ramBytes: number; vramBytes: number; revision: number }
+            } | null
+          }
+          nativeReady?: HdrMemoryObservation & {
             allocatedBytes: number
             retainedBytes: number
             viewport: { width: number; height: number; dpr: number }
@@ -279,6 +416,7 @@ for (const layout of [
           correctVisibleButNotUsefulFrames: number
           loaderBlockedVisibleFrames: number
           pendingRequestVisibleFrames: number
+          pendingFirstSurfacePaintFrames: number
           target: NavigationTarget
         }[]
       }
@@ -330,7 +468,14 @@ for (const layout of [
         measurements: {
           layout,
           ...environment,
+          cachedStages,
+          finalRendererStages,
           measurementDurationMs,
+          resourceMemory: result.activations.map((sample) => ({
+            phase: sample.phase,
+            photoId: sample.target.id,
+            nativeReady: sample.nativeReady ?? null,
+          })),
           coldSamples: cold.length,
           warmSamples: warm.length,
           coldFirstUsefulP95Ms: coldP95Ms,
@@ -344,6 +489,23 @@ for (const layout of [
             0.95,
           ),
           cacheHits: warm.filter((sample) => sample.firstUsefulKind === 'cached-exact').length,
+          firstSurfaceUseful: result.activations.filter(
+            (sample) => sample.firstUsefulKind === 'first-surface-exact',
+          ).length,
+          coldFirstSurfaceUseful: cold.filter(
+            (sample) => sample.firstUsefulKind === 'first-surface-exact',
+          ).length,
+          warmFirstSurfaceUseful: warm.filter(
+            (sample) => sample.firstUsefulKind === 'first-surface-exact',
+          ).length,
+          nativeFirstUseful: result.activations.filter(
+            (sample) => sample.firstUsefulKind === 'native-normal',
+          ).length,
+          cachedFirstUseful: result.activations.filter(
+            (sample) => sample.firstUsefulKind === 'cached-exact',
+          ).length,
+          firstSurfaceOffers: result.firstSurfaceOffers.length,
+          omittedFirstSurfaceOffers: result.omittedFirstOffers,
           exposedWarmNativeMisses: warm.filter(
             (sample) => sample.firstUsefulKind === 'native-normal',
           ).length,
@@ -385,15 +547,32 @@ for (const layout of [
             (sum, sample) => sum + sample.pendingRequestVisibleFrames,
             0,
           ),
+          pendingFirstSurfacePaintFrames: result.activations.reduce(
+            (sum, sample) => sum + sample.pendingFirstSurfacePaintFrames,
+            0,
+          ),
         },
         gates: [
           { metric: 'coldFirstUsefulP95Ms', operator: '<=', limit: 500 },
           { metric: 'warmFirstUsefulP95Ms', operator: '<=', limit: 100 },
           { metric: 'rapidLastFirstUsefulMs', operator: '<=', limit: 100 },
+          ...result.activations.flatMap((sample, index) =>
+            sample.nativeReady
+              ? [
+                  ...hdrMemoryGates(sample.nativeReady, `resourceMemory.${index}.nativeReady.`),
+                  {
+                    metric: `resourceMemory.${index}.nativeReady.retainedBytes`,
+                    operator: '<=' as const,
+                    limit: HDR_PRESENTATION_CACHE_BUDGET,
+                  },
+                ]
+              : [],
+          ),
         ],
         evidence: [path],
       })
       expect(after).toEqual(before)
+      expect(result.omittedFirstOffers, 'all bounded passive offer evidence retained').toBe(0)
       expect(environment.compiledCacheRequested).toBe(true)
       expect(rapid.at(-1)!.target.id).toBe(
         cold.find((sample) => sample.phase === 'cold-photo-selection')!.target.id,
@@ -413,17 +592,44 @@ for (const layout of [
         }
         if (sample.firstUsefulAt !== null && sample.nativeReadyAt !== null)
           expect.soft(sample.firstUsefulAt).toBeLessThanOrEqual(sample.nativeReadyAt)
+        if (sample.firstUsefulKind === 'first-surface-exact') {
+          const useful = sample.firstUseful!,
+            memory = useful.firstSurfaceMemory!
+          expect(useful.firstSurfaceId).toBeDefined()
+          expect(
+            result.firstSurfaceOffers.some((offer) => offer.surfaceId === useful.firstSurfaceId),
+          ).toBe(true)
+          expect(useful.firstSurfacePostPaintAt).toBeGreaterThanOrEqual(useful.firstSurfaceFencedAt)
+          expect(useful.firstSurfacePostPaintAt).toBeLessThanOrEqual(sample.firstUsefulAt!)
+          assertHdrMemory(
+            {
+              allocatedRamBytes: memory.ramBytes,
+              allocatedGpuBytes: memory.vramBytes,
+              ramBudgetBytes: memory.limits.ramBytes,
+              vramBudgetBytes: memory.limits.vramBytes,
+              resourcePolicyRevision: memory.limits.revision,
+            },
+            `${sample.phase} first useful surface`,
+            true,
+          )
+        }
         if (!sample.nativeReady) continue
-        expect.soft(sample.nativeReady.allocatedBytes).toBeGreaterThan(0)
-        expect.soft(sample.nativeReady.allocatedBytes).toBeLessThanOrEqual(HDR_PRESENTATION_BUDGET)
+        assertHdrMemory(sample.nativeReady, `${sample.phase} native readiness`, true)
+        expect
+          .soft(
+            Number.isSafeInteger(sample.nativeReady.retainedBytes),
+            `${sample.phase} retained cache witness is required`,
+          )
+          .toBe(true)
+        expect.soft(sample.nativeReady.retainedBytes).toBeGreaterThanOrEqual(0)
         expect
           .soft(sample.nativeReady.retainedBytes)
           .toBeLessThanOrEqual(HDR_PRESENTATION_CACHE_BUDGET)
-        if (!layout.fullscreen)
+        if (!layout.maximized)
           expect
             .soft(sample.nativeReady.viewport)
             .toMatchObject({ width: layout.width, height: layout.height })
-        expect.soft(sample.nativeReady.viewport.dpr).toBe(2)
+        expect.soft(sample.nativeReady.viewport.dpr).toBe(editorExpectedDpr)
       }
       expect(measurementDurationMs).toBeLessThan(120000)
     },

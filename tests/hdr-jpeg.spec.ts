@@ -1,3 +1,4 @@
+import { seedFixtureEdits } from './catalog-fixture.helpers'
 import { test, expect } from '@playwright/test'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
@@ -181,6 +182,7 @@ test('existing JPEG records are recognized from bytes and preserve history', asy
       revision: 0,
     }),
   )
+  seedFixtureEdits(fixture.db)
   try {
     const history = await fixture.library.getEditHistory(id)
     expect(history.settings.processing).toBe('hdr-v1')

@@ -1,9 +1,9 @@
 import type { Size, View } from './geometry'
 
 export const HDR_CACHE_MAX_TILES = 2048
-export const HDR_CACHE_TILE_SIZE = 256
+export const HDR_CACHE_TILE_SIZE = 128
 export function hdrCacheTileSize(width: number, height: number) {
-  return Math.min(64, 2 ** Math.ceil(Math.log2(Math.max(16, width, height))))
+  return Math.min(HDR_CACHE_TILE_SIZE, 2 ** Math.ceil(Math.log2(Math.max(16, width, height))))
 }
 export interface HdrCacheTile {
   level: number

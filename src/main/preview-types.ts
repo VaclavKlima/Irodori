@@ -16,10 +16,69 @@ import type { AdjustmentParameters } from '../shared/adjustments'
 import type { LensSettings, ProcessingMetadata, ProcessingOptions } from '../shared/lens'
 import type { PhotoMetadata, Photo, LinearAsset } from '../shared/contracts'
 
+/** Main-owned admission snapshot for an actual HDR RAW source miss. */
+export interface HdrRawPreparation {
+  readonly originalSha256: string
+  readonly parentWorkingKey: string
+  readonly policy: import('../shared/resource-policy').ResourcePolicySnapshot
+  readonly rendererReservation: { readonly ramBytes: number; readonly vramBytes: number }
+}
+export interface NativeRawWorkerContext extends HdrRawPreparation {
+  /** Main-generated capability for one source request in the current full worker job. */
+  readonly nonce: string
+}
+export interface NativeRawDiagnostics {
+  readonly validationMs: number
+  readonly sourceBytes: number
+  readonly peakRamBytes: number
+  readonly peakGpuBytes: number
+  readonly childMs: number
+  readonly armedMs: number
+}
+export type NativeRawWorkerRequest =
+  | { readonly type: 'raw-source-request'; readonly nonce: string }
+  | { readonly type: 'raw-source-reader-ready'; readonly nonce: string }
+export type NativeRawMainMessage =
+  | { readonly type: 'raw-source-stream'; readonly nonce: string }
+  | {
+      readonly type: 'raw-source-exit'
+      readonly nonce: string
+      readonly code: number | null
+      readonly signal: string | null
+      readonly diagnostics: NativeRawDiagnostics
+    }
+  | {
+      readonly type: 'raw-source-declined'
+      readonly nonce: string
+      readonly reason: 'unavailable' | 'memory-limit'
+      readonly message: string
+    }
+
+export interface HdrFirstSurfaceArtifact {
+  readonly identity: import('../shared/hdr-first-surface').HdrFirstSurfaceIdentity
+  readonly width: number
+  readonly height: number
+  readonly byteLength: number
+  readonly sha256: string
+  readonly programHashes: Readonly<Record<string, string>>
+  readonly timings: Record<string, number>
+}
+export type HdrFirstSurfaceProgress =
+  | { readonly status: 'ready'; readonly artifact: HdrFirstSurfaceArtifact }
+  | { readonly status: 'declined'; readonly reason: string }
+
 export type PreviewStage = 'unpack' | 'gpu' | 'cpu' | 'cache'
+export interface PreviewWarmResult {
+  readonly status: 'ready' | 'unavailable' | 'skipped'
+  readonly kernel: import('../renderer/src/preview/hdr-shader').HdrCacheKernelKind
+  readonly elapsedMs: number
+  readonly timings: import('../shared/preview-diagnostics').PreviewWarmTimings
+  readonly reason?: string
+}
 export type PreviewWorkerRequest =
   | { type: 'close' }
   | { type: 'release' }
+  | NativeRawMainMessage
   | {
       type:
         | 'process'
@@ -31,6 +90,7 @@ export type PreviewWorkerRequest =
         | 'capture-metadata-session'
         | 'statistics'
         | 'pixel'
+        | 'warmup'
       path: string
       output: string
       options?: ProcessingOptions
@@ -38,9 +98,13 @@ export type PreviewWorkerRequest =
       pixel?: HdrPixelJob
       importMode?: 'embedded' | 'fallback'
       importSeed?: PreviewResult
+      kernel?: import('../renderer/src/preview/hdr-shader').HdrCacheKernelKind
+      nativeRaw?: NativeRawWorkerContext
     }
 export type PreviewWorkerResponse =
+  | NativeRawWorkerRequest
   | { type: 'stage'; stage: PreviewStage }
+  | { type: 'first-surface'; progress: HdrFirstSurfaceProgress }
   | {
       type: 'result'
       result:
@@ -51,6 +115,7 @@ export type PreviewWorkerResponse =
         | ImageStatistics
         | HdrStatistics
         | HdrPixel
+        | PreviewWarmResult
         | import('../shared/capture-sequence').CaptureMetadata
     }
   | { type: 'error'; error: string }
@@ -109,6 +174,9 @@ export interface ThumbnailProcessor {
  * map and orientation-copy children. Parent and child durations must not be added together.
  */
 export interface HdrPreparationTimings {
+  workerNativeRawSourceMs?: number
+  workerNativeRawValidateMs?: number
+  workerNativeRawReceiveMs?: number
   workerPreparationMs?: number
   workerDecoderOpenMs?: number
   workerUnpackMs?: number
@@ -135,6 +203,8 @@ export interface HdrPreparationTimings {
 }
 
 export interface FullPreviewResult {
+  firstSurface?: HdrFirstSurfaceArtifact
+  firstSurfaceDecline?: string
   statistics?: ImageStatistics
   adjustments?: AdjustmentParameters
   linear?: LinearAsset
@@ -148,6 +218,7 @@ export interface FullPreviewResult {
   renderId: string
   placeholderBytes: number
   diagnostics?: {
+    sourceBackend?: 'wasm-libraw' | 'native-rust-rows'
     clock?: 'worker-performance'
     backend: 'cpu' | 'gpu'
     adapter?: string
@@ -157,6 +228,9 @@ export interface FullPreviewResult {
 }
 
 export interface FullPreviewProcessor {
+  prewarmHdr?(
+    kernel: import('../renderer/src/preview/hdr-shader').HdrCacheKernelKind,
+  ): Promise<PreviewWarmResult>
   hdrPixel?(path: string, job: HdrPixelJob, signal: AbortSignal): Promise<HdrPixel>
   hdrStatistics?(path: string, job: HdrStatisticsJob, signal: AbortSignal): Promise<HdrStatistics>
   statistics?(
@@ -169,6 +243,8 @@ export interface FullPreviewProcessor {
     output: string,
     signal: AbortSignal,
     options?: ProcessingOptions,
+    onFirstSurface?: (progress: HdrFirstSurfaceProgress) => Promise<void>,
+    preparation?: HdrRawPreparation,
   ): Promise<FullPreviewResult>
   close(): Promise<void>
   releaseFrame?(): void

@@ -32,11 +32,25 @@ export class WorkScheduler {
   get interactivePending() {
     return this.interactive > 0 || this.activities.size > 0
   }
+  /** Explicit processing demand, excluding local renderer input activity. */
+  get interactiveRequestPending() {
+    return this.interactive > 0
+  }
   get mutating() {
     return this.critical
   }
   get waitingReason(): 'foreground' | 'library-operation' | 'export' | undefined {
     return this.interactivePending
+      ? 'foreground'
+      : this.operations.length || this.operation
+        ? 'library-operation'
+        : this.exportPending
+          ? 'export'
+          : undefined
+  }
+  /** CPU preparation can coexist with local GPU input; explicit processing still wins. */
+  get preparationWaitingReason(): 'foreground' | 'library-operation' | 'export' | undefined {
+    return this.interactiveRequestPending
       ? 'foreground'
       : this.operations.length || this.operation
         ? 'library-operation'
@@ -51,9 +65,10 @@ export class WorkScheduler {
     }
   }
   private changed() {
-    if (this.interactivePending || this.operations.length || this.operation)
+    if (this.interactiveRequestPending || this.operations.length || this.operation)
       this.exporting?.abort(new ForegroundYield())
-    if (this.waitingReason) for (const job of this.backgroundJobs) job?.abort(new ForegroundYield())
+    if (this.preparationWaitingReason)
+      for (const job of this.backgroundJobs) job?.abort(new ForegroundYield())
     for (const listener of [...this.listeners]) listener()
   }
   activity(id: string, active: boolean) {
@@ -141,8 +156,8 @@ export class WorkScheduler {
   ): Promise<T> {
     let paused = false
     do {
-      paused = (await this.checkpoint(signal)) || paused
-    } while (this.waitingReason)
+      paused = (await this.preparationCheckpoint(signal)) || paused
+    } while (this.preparationWaitingReason)
     const controller = interruptible ? new AbortController() : undefined
     const jobSignal = controller ? AbortSignal.any([signal, controller.signal]) : signal
     if (controller) this.backgroundJobs.add(controller)
@@ -157,6 +172,12 @@ export class WorkScheduler {
       this.backgroundCount--
       this.changed()
     }
+  }
+  async preparationCheckpoint(signal?: AbortSignal): Promise<boolean> {
+    const ready = () => !this.preparationWaitingReason
+    const paused = !ready()
+    await this.wait(ready, signal)
+    return paused
   }
   /** Export owns the expensive background allowance; imports drain before admission.
    * Foreground requests abort its isolated worker and retry the unfinished file. */

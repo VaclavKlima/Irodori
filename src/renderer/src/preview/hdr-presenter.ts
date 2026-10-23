@@ -2,9 +2,33 @@ import {
   hdrPresentationMemory,
   hdrRestoredUploadMemory,
   HdrPresentationHeadroom,
-  HDR_PRESENTATION_BUDGET,
+  HDR_BITMAP_RESERVATION,
+  type HdrMemoryLimits,
+  type HdrManagedBytes,
+  type HdrMemoryRequest,
+  type HdrRetentionMethod,
 } from './hdr-memory'
 import { reservePresentationBitmaps } from './frame-cache'
+import {
+  NativeMaskReservationOwner,
+  sameMaskFrame,
+  maskPixelTarget,
+  type NativeMaskReservation,
+} from './native-mask-reservation'
+import type { ResourcePolicySnapshot } from '../../../shared/resource-policy'
+import type { HdrFirstSurfaceOffer } from '../../../shared/hdr-first-surface'
+import {
+  checkedFirstSurfaceOffer,
+  freezeFirstSurfacePolicy,
+  readFirstSurface,
+} from './hdr-first-surface-client'
+import {
+  HdrRecovery,
+  HDR_RECOVERY_VERSION,
+  supportsHdrRecovery,
+  type HdrRecoveryCapture,
+  type HdrRecoverySnapshot,
+} from './hdr-recovery'
 import {
   hdrAdjustmentMatrix,
   validateTarget,
@@ -19,70 +43,65 @@ import {
   type AdjustmentParameters,
   type WorkingFrame,
 } from '../../../shared/adjustments'
-import { retainHdrContent } from './hdr-sample'
+import { retainHdrContent, publishHdrSample } from './hdr-sample'
 import type { Size, View } from './geometry'
 import { hdrDevice } from './hdr-device'
-import { uploadHdr } from './hdr-upload'
-import { hdrShader, hdrMipShader, hdrCacheKernel } from './hdr-shader'
+import { uploadHdr, type HdrUploadedSource } from './hdr-upload'
+import { hdrSourceIdentity, type HdrSourceLease } from './hdr-source-cache'
+import type { EditorPreviewPolicy } from '../../../shared/editor-preview-policy'
+import { prepareHdrRenderingTables } from './hdr-rendering-tables'
+import { hdrCacheKernel } from './hdr-shader'
+import { prepareHdrPipelines, presentationBlit } from './hdr-pipelines'
 import { ACES_DATA_BYTES } from '../../../shared/aces-data'
-import { ACES_INTERACTIVE_PREVIEW_VERSION } from '../../../shared/aces-preview-wgsl'
+import {
+  ACES_INTERACTIVE_PREVIEW_VERSION,
+  ACES_SDR_INTERACTIVE_PREVIEW_VERSION,
+  ACES_HDR_INTERACTIVE_PREVIEW_VERSION,
+  selectInteractivePreviewPolicy,
+  type AcesInteractivePreviewPolicy,
+  type AcesPreviewPolicy,
+} from '../../../shared/aces-preview-wgsl'
 import { hdrCachePlan, HdrRenderCache, HDR_CACHE_MAX_TILES } from './hdr-render-cache'
 import { HdrEditQueue, type HdrEditRequest } from './hdr-edit-queue'
 import type { EditGestureCommit } from './edit-gesture'
 import { HdrGestureHandoff, type HdrGestureStage } from './hdr-gesture-handoff'
-import { hdrHistogramShader, HDR_HISTOGRAM_WORDS, readHdrHistogram } from './hdr-histogram'
+import { HDR_HISTOGRAM_WORDS, readHdrHistogram } from './hdr-histogram'
 import type { HdrStatistics } from '../../../shared/hdr-statistics'
 import { HdrGpuTimings, HDR_GPU_TIMING_BYTES, type HdrGpuTimingFrame } from './hdr-gpu-timings'
+import { hdrPresentationIdentity, type HdrPresentationIdentity } from './hdr-presentation-cache'
 import {
-  HdrPresentationCache,
-  hdrPresentationIdentity,
-  type HdrPresentationIdentity,
-} from './hdr-presentation-cache'
+  sourceCache,
+  presentationCache,
+  retiredPreviewOwners,
+  captureHdrPreviewRetirement,
+  hdrFirstSurfaceExistingOwners,
+} from './hdr-preview-resources'
 
-// Paired application trials retain the bounded 32-tile default; eight remains an internal comparison.
-const HDR_TILE_BATCH = import.meta.env.VITE_LUMA_HDR_TILE_BATCH === '8' ? 8 : 32
-const INTERACTIVE_PRECISION = import.meta.env.VITE_LUMA_HDR_INTERACTIVE_PRECISION === 'f32'
-const PRESENTATION_CACHE = import.meta.env.VITE_LUMA_HDR_PRESENTATION_CACHE === '1'
-const presentationCache = new HdrPresentationCache<GPUTexture>()
 const presentationDevices = new WeakSet<GPUDevice>()
-const blitPipelines = new WeakMap<GPUDevice, Promise<GPURenderPipeline>>()
+const sourceDevices = new WeakSet<GPUDevice>()
 
 export interface HdrPresentationState {
   revision: number
   settings: AdjustmentParameters
 }
 
+export interface HdrFirstSurfaceLineage {
+  parentWorkingKey: string
+  workingSha256: string
+}
+export type HdrFirstSurfacePhase = 'fenced' | 'painted' | 'invalidated'
+interface FirstSurfaceReceiver {
+  offer: HdrFirstSurfaceOffer
+  isCurrent: () => boolean
+  abort: AbortController
+  valid: boolean
+  fenced: boolean
+  attached: boolean
+}
+
 function observePresenterLoss(device: GPUDevice, observer: { lost?: () => void }) {
   // Closed presenters release their callback; a long-lived device retains only this small holder.
   void device.lost.then(() => observer.lost?.())
-}
-
-function presentationBlit(device: GPUDevice) {
-  let pending = PRESENTATION_CACHE ? blitPipelines.get(device) : undefined
-  if (!pending) {
-    const module = device.createShaderModule({
-      code: `
-        @group(0) @binding(0) var image:texture_2d<f32>;
-        @vertex fn vs(@builtin(vertex_index) i:u32)->@builtin(position) vec4f {
-          let p=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.)); return vec4f(p[i],0.,1.);
-        }
-        @fragment fn fs(@builtin(position) p:vec4f)->@location(0) vec4f { return textureLoad(image,vec2i(p.xy),0); }
-      `,
-    })
-    pending = device.createRenderPipelineAsync({
-      layout: 'auto',
-      vertex: { module, entryPoint: 'vs' },
-      fragment: { module, entryPoint: 'fs', targets: [{ format: 'rgba16float' }] },
-    })
-    if (PRESENTATION_CACHE) {
-      blitPipelines.set(device, pending)
-      const compiled = pending
-      void pending.catch(() => {
-        if (blitPipelines.get(device) === compiled) blitPipelines.delete(device)
-      })
-    }
-  }
-  return pending
 }
 
 export interface HdrFrameTimings {
@@ -97,9 +116,18 @@ export interface HdrFrameTimings {
   computedTexels: number
   renderSubmissionMs: number
   offscreenFenceMs: number
+  offscreenFenceDeferred: number
   blitSubmissionMs: number
   retainedCopyMs: number
+  retainedRawHalfUsed: number
+  retainedCpuStagingUsed: number
+  retainedMapMs: number
+  retainedCpuCopyMs: number
+  retainedDrawMs: number
+  retainedReadMs: number
+  /** Recovery-copy submission fence when cachedCanvasReused is set; otherwise the normal blit fence. */
   finalBlitFenceMs: number
+  cachedCanvasReused?: number
   totalMs: number
   unattributedMs: number
   sourceMip: number
@@ -136,7 +164,25 @@ interface RenderedPresentation {
   startedAt: number
   timings: HdrFrameTimings
   quality: 'normal' | 'interactive'
+  arithmeticPolicy: AcesPreviewPolicy
+  rangeArithmeticPolicy: AcesPreviewPolicy | null
+  offscreenCompletionDeferred: boolean
+  completionFenced: boolean
+  retentionMethod: HdrRetentionMethod
+  cacheBytes: number
   histogram: HistogramRequest
+}
+interface RetainedFrameCopy {
+  method: HdrRetentionMethod
+  surface: HTMLCanvasElement
+  context: CanvasRenderingContext2D
+  width: number
+  height: number
+  drawMs: number
+  drawFailure?: { error: unknown }
+  readbackComplete: boolean
+  finished: Promise<void>
+  release: () => void
 }
 type HdrPresentationDepartureReason =
   | 'retained'
@@ -154,19 +200,31 @@ type HdrPresentationDepartureReason =
 export class HdrPresenter {
   private abort = new AbortController()
   private device?: GPUDevice
+  private deviceLost = false
+  private retainedStaging?: HTMLCanvasElement
+  private retainedCopy?: RetainedFrameCopy
+  private recovery = new HdrRecovery()
   private gpuTimings?: HdrGpuTimings
   private context?: GPUCanvasContext
   private texture?: GPUTexture
+  private sourceLease?: HdrSourceLease<GPUTexture>
+  private loadWork?: Promise<void>
+  private retirement?: Promise<void>
+  private readonly maskReservation = new NativeMaskReservationOwner()
+  private maskKey?: string
+  /** Retry hint from actual normal publication; never authorizes source/edits. */
+  get maskPublicationKey(): string | undefined {
+    return this.maskKey
+  }
+  private sourceFailed = false
   private uniform?: GPUBuffer
   private pipeline?: GPURenderPipeline
   private group?: GPUBindGroup
   private layout?: GPUBindGroupLayout
   private cacheLayout?: GPUBindGroupLayout
   private cachePipeline?: GPUComputePipeline
-  private interactivePipeline?: GPUComputePipeline
-  private cacheKernel = hdrCacheKernel(
-    import.meta.env.VITE_LUMA_HDR_KERNEL === 'grid8' ? 'grid8' : 'linear64',
-  )
+  private interactivePipelines = new Map<AcesInteractivePreviewPolicy, GPUComputePipeline>()
+  private cacheKernel = hdrCacheKernel()
   private cacheTexture?: GPUTexture
   private cache?: HdrRenderCache
   private cacheGroups = new Map<number, GPUBindGroup>()
@@ -189,6 +247,7 @@ export class HdrPresenter {
   private queue = new HdrEditQueue<PresentationRequest>()
   private histogramQueue = new HdrEditQueue<HistogramRequest>()
   private requestedStatisticsKey = ''
+  private latestHistogram?: HistogramRequest
   private releaseHistogramActivity?: () => void
   private gesturing = false
   private gestureHandoff = new HdrGestureHandoff()
@@ -201,9 +260,6 @@ export class HdrPresenter {
   private statisticsCache?: { key: string; result: HdrStatistics }
   private publishedStatisticsKey = ''
   private publishedStatisticsSerial = 0
-  private renderingWorker = new Worker(new URL('./display-rendering-worker.ts', import.meta.url), {
-    type: 'module',
-  })
   private frame?: WorkingFrame
   private mode = 'after'
   private split = 0.5
@@ -215,15 +271,25 @@ export class HdrPresenter {
   private view?: { image: Size; viewport: Size; view: View; parameters: AdjustmentParameters }
   private releaseActivity?: () => void
   private presentationState: HdrPresentationState | null = null
-  private presentationHeadroom = new HdrPresentationHeadroom(
-    PRESENTATION_CACHE ? presentationCache : null,
-  )
+  private presentationHeadroom?: HdrPresentationHeadroom
+  private resourcePolicyRequest?: Promise<ResourcePolicySnapshot>
+  private resourcePolicy?: ResourcePolicySnapshot
+  private gpuInitialization?: Promise<GPUDevice>
+  private firstSurface?: FirstSurfaceReceiver
+  private firstSurfaceWork?: Promise<void>
   private completedSurface?: {
     surface: GPUTexture
     identity: HdrPresentationIdentity
     serial: number
   }
   private restoredIdentity?: string
+  private cachedPaintReceipt?: Readonly<{
+    identity: HdrPresentationIdentity
+    serial: number
+    device: GPUDevice
+    context: GPUCanvasContext
+    epoch: number
+  }>
   private attemptedRestore = ''
   private restoring?: Promise<void>
   private nativePresented = false
@@ -232,6 +298,7 @@ export class HdrPresenter {
   constructor(
     private canvas: HTMLCanvasElement,
     private target: DisplayTarget,
+    private readonly previewPolicy: EditorPreviewPolicy,
     private lost: (reason: string) => void,
     private loaded: () => void,
     private statistics: (result: HdrStatistics) => void = () => undefined,
@@ -239,41 +306,342 @@ export class HdrPresenter {
     private activity?: () => () => void,
     private statisticsPending: (pending: boolean) => void = () => undefined,
     private cachedPresentation: (presented: boolean) => void = () => undefined,
+    private firstSurfacePhase: (
+      offer: HdrFirstSurfaceOffer,
+      phase: HdrFirstSurfacePhase,
+    ) => void = () => undefined,
   ) {
     this.resetNativePublication()
     canvas.dataset.sourceUploads = '0'
+    canvas.dataset.sourceCache = 'pending'
     canvas.dataset.cachedDisplayReady = 'false'
     delete canvas.dataset.cachedFencedAt
     delete canvas.dataset.cachedPostPaintAt
+    canvas.dataset.firstSurface = 'pending'
+    for (const field of [
+      'firstSurfaceId',
+      'firstSurfaceParentWorkingKey',
+      'firstSurfaceSha256',
+      'firstSurfaceFencedAt',
+      'firstSurfacePostPaintAt',
+      'firstSurfaceMemory',
+      'firstSurfaceBypass',
+      'firstSurfaceTimings',
+    ])
+      delete canvas.dataset[field]
     canvas.dataset.backend = 'webgpu-hdr'
-    canvas.dataset.tileBatch = String(HDR_TILE_BATCH)
+    canvas.dataset.tileBatch = String(this.previewPolicy.tileBatch)
     canvas.dataset.tileKernel = this.cacheKernel.kind
-    canvas.dataset.interactivePolicy = INTERACTIVE_PRECISION
+    canvas.dataset.interactiveFence = this.finalInteractiveFence ? 'final' : 'separate'
+    canvas.dataset.interactivePolicy = this.interactivePrecision
       ? ACES_INTERACTIVE_PREVIEW_VERSION
       : 'reference'
-    canvas.dataset.presentationCache = PRESENTATION_CACHE ? 'pending' : 'disabled'
-    this.renderingWorker.onmessage = ({ data }) => {
-      if (this.abort.signal.aborted) return
-      if (data.error) {
-        if (INTERACTIVE_PRECISION) this.invalidate()
-        this.lost(data.error)
-        return
-      }
-      if (!this.device || !this.rendering) return
-      this.device.queue.writeBuffer(this.rendering, 0, data.packed)
-      for (const space of ['srgb', 'display-p3'])
-        this.device.queue.writeBuffer(this.sdrRendering.get(space)!, 0, data.sdr[space])
-      this.renderingGeneration = 0
-      if (this.view)
-        this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
+    canvas.dataset.presentationCache = this.previewPolicy.presentationCache ? 'pending' : 'disabled'
+  }
+  private get interactivePrecision(): boolean {
+    return this.previewPolicy.interactivePrecision === 'f32'
+  }
+  private get finalInteractiveFence(): boolean {
+    return this.previewPolicy.interactiveFence === 'final'
+  }
+  get memoryLimits(): Readonly<HdrMemoryLimits> | undefined {
+    return this.presentationHeadroom?.limits
+  }
+  get whenDisposed(): Promise<void> {
+    return this.retirement ?? Promise.resolve()
+  }
+  reserveMask(
+    frame: WorkingFrame,
+    cancel: () => void,
+    drained: Promise<void>,
+  ): NativeMaskReservation | undefined {
+    const headroom = this.presentationHeadroom,
+      policy = this.resourcePolicy
+    if (
+      this.abort.signal.aborted ||
+      !this.ready ||
+      this.deviceLost ||
+      !headroom ||
+      !policy ||
+      !this.sourceLease ||
+      !this.cache ||
+      !sameMaskFrame(this.frame, frame) ||
+      this.maskReservation.active
+    )
+      return undefined
+    // Account for the actual current backing and tile capacity, including other
+    // pinned sources, recovery replacement and exact-presentation reservation.
+    const plan = hdrPresentationMemory(
+      {
+        ...this.memoryRequest(frame, this.canvas.width, this.canvas.height, this.cache.capacity),
+        retainedPresentationBytes: headroom.reservationBytes,
+      },
+      headroom.limits,
+    )
+    if (!plan.accepted || plan.cacheSlots !== this.cache.capacity) return undefined
+    return this.maskReservation.reserve(
+      frame.width,
+      frame.height,
+      plan.peak,
+      policy,
+      cancel,
+      drained,
+    )
+  }
+  setFirstSurfacePolicy(policy: ResourcePolicySnapshot) {
+    const frozen = freezeFirstSurfacePolicy(policy)
+    if (this.resourcePolicy) {
+      if (JSON.stringify(this.resourcePolicy) !== JSON.stringify(frozen))
+        throw new Error('HDR presentation resource policy is already frozen.')
+      return
     }
+    if (this.resourcePolicyRequest)
+      throw new Error('HDR presentation resource policy is already resolving.')
+    this.resourcePolicy = frozen
+  }
+  private firstSurfaceCurrent(receiver: FirstSurfaceReceiver): boolean {
+    if (
+      this.firstSurface !== receiver ||
+      !receiver.valid ||
+      this.abort.signal.aborted ||
+      this.deviceLost ||
+      this.sourceFailed ||
+      this.nativePresented ||
+      !receiver.isCurrent()
+    )
+      return false
+    const { identity } = receiver.offer,
+      target = identity.target,
+      snapshot = this.view
+    if (
+      !snapshot ||
+      target.generation !== this.target.generation ||
+      target.outputVersion !== this.target.outputVersion ||
+      target.mode !== this.target.mode ||
+      target.colorSpace !== this.target.colorSpace ||
+      target.peak !== this.target.peak ||
+      target.headroom !== this.target.headroom ||
+      identity.dpr !== (window.devicePixelRatio || 1) ||
+      identity.viewport.width !== snapshot.viewport.width ||
+      identity.viewport.height !== snapshot.viewport.height ||
+      identity.view.fit !== snapshot.view.fit ||
+      identity.view.x !== snapshot.view.x ||
+      identity.view.y !== snapshot.view.y ||
+      (!identity.view.fit &&
+        (identity.view.scale !== snapshot.view.scale ||
+          identity.image.width !== snapshot.image.width ||
+          identity.image.height !== snapshot.image.height)) ||
+      !sameAdjustments(identity.parameters, snapshot.parameters) ||
+      identity.comparison !== this.mode ||
+      identity.split !== this.split ||
+      identity.hdrRanges !== this.hdrRanges ||
+      identity.kernel !== this.cacheKernel.kind ||
+      this.gesturing ||
+      (!!this.editingConfirmation &&
+        (this.editingConfirmation.revision !== identity.settingsRevision ||
+          !sameAdjustments(this.editingConfirmation.settings, identity.parameters)))
+    )
+      return false
+    if (
+      this.frame &&
+      (!receiver.attached ||
+        this.frame.width !== identity.image.width ||
+        this.frame.height !== identity.image.height)
+    )
+      return false
+    return true
+  }
+  invalidateFirstSurface() {
+    const receiver = this.firstSurface
+    if (!receiver?.valid) return
+    receiver.valid = false
+    receiver.abort.abort()
+    if (!this.nativePresented) this.canvas.style.visibility = 'hidden'
+    this.canvas.dataset.firstSurface = 'invalidated'
+    this.firstSurfacePhase(receiver.offer, 'invalidated')
+  }
+  private checkFirstSurfaceIdentity() {
+    if (this.firstSurface?.valid && !this.firstSurfaceCurrent(this.firstSurface))
+      this.invalidateFirstSurface()
+  }
+  private checkFirstSurfaceMemory(offer: HdrFirstSurfaceOffer) {
+    const existing = hdrFirstSurfaceExistingOwners(),
+      diagnosticRam = this.gpuTimings ? HDR_GPU_TIMING_BYTES / 3 : 0,
+      diagnosticGpu = this.gpuTimings ? HDR_GPU_TIMING_BYTES : 0,
+      canvasBytes = offer.width * offer.height * 32,
+      ramBytes = existing.ramBytes + diagnosticRam + offer.byteLength * 4 + canvasBytes,
+      vramBytes = existing.vramBytes + diagnosticGpu + offer.byteLength + canvasBytes,
+      limits = this.presentationHeadroom!.limits
+    if (
+      !Number.isSafeInteger(ramBytes) ||
+      !Number.isSafeInteger(vramBytes) ||
+      ramBytes > limits.ramBytes ||
+      vramBytes > limits.vramBytes
+    )
+      throw new Error('First HDR surface exceeds the managed image resource budgets.')
+    this.canvas.dataset.firstSurfaceMemory = JSON.stringify({ ramBytes, vramBytes, limits })
+  }
+  setFirstSurface(offer: HdrFirstSurfaceOffer, isCurrent: () => boolean): Promise<void> {
+    if (this.firstSurface?.offer.surfaceId === offer.surfaceId) {
+      if (this.firstSurface.offer.requestId !== offer.requestId)
+        return Promise.reject(new Error('First HDR surface request identity changed.'))
+      this.firstSurface.isCurrent = isCurrent
+      this.checkFirstSurfaceIdentity()
+      // The capability was released after its first fence. A React effect rerun
+      // keeps that completed surface; it must never try fetching the URL again.
+      return this.firstSurfaceWork ?? Promise.resolve()
+    }
+    // Capture earlier owners before this receiver can register its own retirement.
+    const previousOwners = captureHdrPreviewRetirement(),
+      previousReceiver = this.firstSurfaceWork?.catch(() => undefined),
+      offeredBeforeWorking = !this.frame,
+      requestId = offer.requestId,
+      surfaceId = offer.surfaceId
+    this.invalidateFirstSurface()
+    const receiver: FirstSurfaceReceiver = {
+      offer,
+      isCurrent,
+      abort: new AbortController(),
+      valid: true,
+      fenced: false,
+      attached: false,
+    }
+    this.firstSurface = receiver
+    const abort = () => receiver.abort.abort()
+    this.abort.signal.addEventListener('abort', abort, { once: true })
+    const work = (async () => {
+      let texture: GPUTexture | undefined,
+        bytes: ArrayBuffer | undefined,
+        device: GPUDevice | undefined,
+        written = false,
+        fenced = false
+      try {
+        receiver.offer = checkedFirstSurfaceOffer(offer)
+        const descriptor = receiver.offer
+        this.setFirstSurfacePolicy(receiver.offer.policy)
+        await Promise.all([previousOwners, previousReceiver])
+        if (!offeredBeforeWorking || !this.firstSurfaceCurrent(receiver)) return
+        device = await this.initializeGpu()
+        if (!this.firstSurfaceCurrent(receiver)) return
+        if (
+          descriptor.width > device.limits.maxTextureDimension2D ||
+          descriptor.height > device.limits.maxTextureDimension2D
+        )
+          throw new Error('First HDR surface exceeds the adapter texture dimension limit.')
+        this.checkFirstSurfaceMemory(receiver.offer)
+        bytes = await readFirstSurface(receiver.offer, receiver.abort.signal, (timings) => {
+          if (this.firstSurface === receiver)
+            this.canvas.dataset.firstSurfaceTimings = JSON.stringify({
+              requestId: descriptor.requestId,
+              surfaceId: descriptor.surfaceId,
+              ...timings,
+            })
+        })
+        if (!this.firstSurfaceCurrent(receiver)) return
+        this.blit ??= await presentationBlit(device)
+        if (!this.firstSurfaceCurrent(receiver)) return
+        this.checkFirstSurfaceMemory(receiver.offer)
+        texture = device.createTexture({
+          size: [descriptor.width, descriptor.height],
+          format: 'rgba16float',
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        })
+        // writeTexture's staging remains owned until the same real fence as the blit.
+        written = true
+        device.queue.writeTexture({ texture }, bytes, { bytesPerRow: descriptor.width * 8 }, [
+          descriptor.width,
+          descriptor.height,
+        ])
+        this.cachedPaintReceipt = undefined
+        this.canvas.width = descriptor.width
+        this.canvas.height = descriptor.height
+        this.configure(this.target)
+        this.configured = `${this.target.mode}:${this.target.colorSpace}`
+        const group = device.createBindGroup({
+          layout: this.blit.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: texture.createView() }],
+        })
+        const encoder = device.createCommandEncoder(),
+          pass = encoder.beginRenderPass({
+            colorAttachments: [
+              {
+                view: this.context!.getCurrentTexture().createView(),
+                loadOp: 'clear',
+                storeOp: 'store',
+              },
+            ],
+          })
+        pass.setPipeline(this.blit)
+        pass.setBindGroup(0, group)
+        pass.draw(3)
+        pass.end()
+        device.queue.submit([encoder.finish()])
+        await device.queue.onSubmittedWorkDone()
+        fenced = true
+        if (!this.firstSurfaceCurrent(receiver)) return
+        receiver.fenced = true
+        Object.assign(this.canvas.dataset, {
+          firstSurface: 'fenced',
+          firstSurfaceId: descriptor.surfaceId,
+          firstSurfaceParentWorkingKey: descriptor.identity.parentWorkingKey,
+          firstSurfaceSha256: descriptor.sha256,
+          firstSurfaceFencedAt: String(performance.now()),
+        })
+        this.canvas.style.visibility = 'visible'
+        this.firstSurfacePhase(receiver.offer, 'fenced')
+        // A hidden desktop may never paint. Source loading and receiver retirement
+        // depend only on the actual queue fence, never these paint observations.
+        void this.afterPaint(receiver.abort.signal).then(() => {
+          if (!this.firstSurfaceCurrent(receiver)) return
+          this.canvas.dataset.firstSurface = 'painted'
+          this.canvas.dataset.firstSurfacePostPaintAt = String(performance.now())
+          this.firstSurfacePhase(receiver.offer, 'painted')
+        })
+      } catch (error) {
+        if (this.firstSurface === receiver) this.invalidateFirstSurface()
+        if (
+          !this.abort.signal.aborted &&
+          !(error instanceof DOMException && error.name === 'AbortError')
+        )
+          throw error
+      } finally {
+        try {
+          if (written && !fenced) await device?.queue.onSubmittedWorkDone().catch(() => undefined)
+        } finally {
+          texture?.destroy()
+          // eslint-disable-next-line no-useless-assignment -- Drop host storage before capability retirement can wait for other streams.
+          bytes = undefined
+          this.abort.signal.removeEventListener('abort', abort)
+          try {
+            if (
+              this.firstSurface === receiver &&
+              receiver.valid &&
+              (!receiver.fenced || !this.firstSurfaceCurrent(receiver))
+            )
+              this.invalidateFirstSurface()
+          } finally {
+            await window.luma.releaseHdrFirstSurface(requestId, surfaceId)
+          }
+        }
+      }
+    })()
+    this.firstSurfaceWork = work
+    return work
   }
   private resetNativePublication() {
+    this.maskKey = undefined
     this.canvas.dataset.editing = 'loading'
     for (const field of [
       'quality',
+      'presentedPolicy',
+      'presentedArithmeticPolicy',
+      'rangeArithmeticPolicy',
       'completedEditSerial',
       'nativeEditingReadyAt',
+      'normalCanvasWriteStartedAt',
+      'normalCanvasSubmittedAt',
+      'normalCanvasSubmittedSerial',
+      'normalCanvasSubmittedEpoch',
       'presentedSourceIdentity',
       'presentedSettingsRevision',
       'presentedEpoch',
@@ -289,6 +657,11 @@ export class HdrPresenter {
       'whiteBalance',
       'comparison',
       'hdrRanges',
+      'retentionMethod',
+      'plannedRetentionMethod',
+      'retentionWillReadFrequently',
+      'recoveryPolicy',
+      'recoverySnapshot',
     ])
       delete this.canvas.dataset[field]
   }
@@ -301,12 +674,13 @@ export class HdrPresenter {
     }
     this.histogramQueue.invalidate()
     this.requestedStatisticsKey = ''
+    this.latestHistogram = undefined
     this.completedSurface = undefined
     this.canvas.dataset.presentationCacheEligible = 'false'
     this.presentationVersion++
   }
   setPresentationState(state: HdrPresentationState | null) {
-    if (!PRESENTATION_CACHE) return
+    if (!this.previewPolicy.presentationCache) return
     if (
       state?.revision === this.presentationState?.revision &&
       (!state || sameAdjustments(this.presentationState?.settings, state.settings))
@@ -314,7 +688,7 @@ export class HdrPresenter {
       return
     this.presentationState = state ? structuredClone(state) : null
     // The own event may unconfirm before setEditing receives its already-issued pending token.
-    if (!state) this.invalidate(INTERACTIVE_PRECISION)
+    if (!state) this.invalidate(this.interactivePrecision)
     else {
       this.completedSurface = undefined
       this.canvas.dataset.presentationCacheEligible = 'false'
@@ -323,11 +697,20 @@ export class HdrPresenter {
     this.checkCachedIdentity()
     void this.restoreCached()
   }
-  private presentationIdentity(snapshot = this.view) {
+  private presentationIdentity(snapshot = this.view, rendered?: PresentationRequest) {
     const state = this.presentationState,
-      frame = this.frame
-    if (!this.presentationHeadroom.eligible || !snapshot || !frame?.hdr || !state) return null
-    if (!['before', 'after', 'split'].includes(this.mode)) return null
+      frame = this.frame,
+      target = rendered?.target ?? this.target,
+      mode = rendered?.mode ?? this.mode
+    if (!this.presentationHeadroom?.eligible || !snapshot || !frame?.hdr || !state) return null
+    if (!['before', 'after', 'split'].includes(mode)) return null
+    if (
+      rendered &&
+      (rendered.settingsRevision !== state.revision ||
+        rendered.epoch !== this.epoch ||
+        rendered.sourceIdentity !== (frame.identity ?? frame.hdr.sha256))
+    )
+      return null
     return hdrPresentationIdentity({
       confirmed: !this.gesturing && sameAdjustments(state.settings, snapshot.parameters),
       sourceIdentity: frame.identity ?? frame.hdr.sha256,
@@ -335,21 +718,46 @@ export class HdrPresenter {
       renderingPolicy: `${HDR_OUTPUT_VERSION}:${HDR_ADJUSTMENT_VERSION}:normal-detail-v1`,
       settingsRevision: state.revision,
       adjustments: snapshot.parameters,
-      target: this.target,
-      comparison: this.mode as 'before' | 'after' | 'split',
-      split: this.split,
-      hdrRanges: this.hdrRanges,
+      target,
+      comparison: mode as 'before' | 'after' | 'split',
+      split: rendered?.split ?? this.split,
+      hdrRanges: rendered?.ranges ?? this.hdrRanges,
       image: snapshot.image,
       viewport: snapshot.viewport,
       view: snapshot.view,
       dpr: window.devicePixelRatio || 1,
     })
   }
+  /** A readiness update does not replace pixels; every actual canvas write retires this receipt. */
+  private cachedCanvasCurrent() {
+    const receipt = this.cachedPaintReceipt
+    if (!receipt) return false
+    const configuration = receipt.context.getConfiguration()
+    return (
+      !this.abort.signal.aborted &&
+      !this.deviceLost &&
+      !this.sourceFailed &&
+      this.device === receipt.device &&
+      this.context === receipt.context &&
+      receipt.context.canvas === this.canvas &&
+      configuration?.device === receipt.device &&
+      configuration.format === 'rgba16float' &&
+      configuration.colorSpace === this.target.colorSpace &&
+      configuration.toneMapping?.mode === (this.target.mode === 'hdr' ? 'extended' : 'standard') &&
+      this.canvas.width === receipt.identity.width &&
+      this.canvas.height === receipt.identity.height &&
+      this.epoch === receipt.epoch &&
+      this.restoredIdentity === receipt.identity.key &&
+      this.presentationIdentity()?.key === receipt.identity.key &&
+      this.canvas.dataset.cachedPresentationSerial === String(receipt.serial)
+    )
+  }
   private checkCachedIdentity() {
     if (this.restoredIdentity && this.presentationIdentity()?.key !== this.restoredIdentity)
       this.hideCachedPresentation()
   }
   private hideCachedPresentation() {
+    this.cachedPaintReceipt = undefined
     if (!this.restoredIdentity) return
     this.restoredIdentity = undefined
     if (!this.nativePresented) this.canvas.style.visibility = 'hidden'
@@ -357,49 +765,198 @@ export class HdrPresenter {
     delete this.canvas.dataset.cachedFencedAt
     this.cachedPresentation(false)
   }
-  private afterPaint() {
+  private afterPaint(signal = this.abort.signal) {
     return new Promise<void>((resolve) => {
       let animation = 0
       const finish = () => {
         cancelAnimationFrame(animation)
-        this.abort.signal.removeEventListener('abort', finish)
+        signal.removeEventListener('abort', finish)
         resolve()
       }
-      if (this.abort.signal.aborted) return finish()
-      this.abort.signal.addEventListener('abort', finish, { once: true })
+      if (signal.aborted) return finish()
+      signal.addEventListener('abort', finish, { once: true })
       animation = requestAnimationFrame(() => {
         animation = requestAnimationFrame(finish)
       })
     })
+  }
+  private memoryRequest(
+    frame: Pick<WorkingFrame, 'width' | 'height'>,
+    width = 0,
+    height = 0,
+    maximumLayers = HDR_CACHE_MAX_TILES,
+    restoredUpload?: HdrManagedBytes,
+  ): HdrMemoryRequest {
+    const readbackBytes = width && height ? Math.ceil((width * 8) / 256) * 256 * height : 0
+    return {
+      width: frame.width,
+      height: frame.height,
+      canvasWidth: width,
+      canvasHeight: height,
+      maximumLayers,
+      bitmapReservation: HDR_BITMAP_RESERVATION,
+      rawHalfSupported:
+        !!this.retainedCanvas &&
+        supportsHdrRecovery() &&
+        !!this.device &&
+        readbackBytes <= this.device.limits.maxBufferSize,
+      diagnostic: this.gpuTimings
+        ? { ramBytes: HDR_GPU_TIMING_BYTES / 3, vramBytes: HDR_GPU_TIMING_BYTES }
+        : { ramBytes: 0, vramBytes: 0 },
+      restoredUpload,
+      recovery: this.recovery.reservation(width, height),
+      otherReservations: this.sourceAndMaskReservation(),
+    }
+  }
+  private sourceAndMaskReservation(): HdrManagedBytes {
+    const source = this.sourceReservation(),
+      mask = this.maskReservation.bytes
+    return {
+      ramBytes: source.ramBytes + mask.ramBytes,
+      vramBytes: source.vramBytes + mask.vramBytes,
+    }
+  }
+  private sourceReservation(): HdrManagedBytes {
+    const reserved = sourceCache.memory(this.sourceLease)
+    const total = sourceCache.memory()
+    Object.assign(this.canvas.dataset, {
+      sourceCacheEntries: String(total.entries),
+      sourceCacheRamBytes: String(total.ramBytes),
+      sourceCacheGpuBytes: String(total.vramBytes),
+      sourceReservationRamBytes: String(reserved.ramBytes),
+      sourceReservationGpuBytes: String(reserved.vramBytes),
+    })
+    return { ramBytes: reserved.ramBytes, vramBytes: reserved.vramBytes }
+  }
+  private pruneInactiveSources(request: HdrMemoryRequest): void | Promise<void> {
+    if (this.abort.signal.aborted) this.abort.signal.throwIfAborted()
+    const headroom = this.presentationHeadroom!
+    const reservation = this.sourceReservation()
+    if (!reservation.ramBytes && !reservation.vramBytes) return
+    const ordinary = hdrPresentationMemory(
+      {
+        ...request,
+        otherReservations: this.maskReservation.bytes,
+        retainedPresentationBytes: headroom.reservationBytes,
+      },
+      headroom.limits,
+    )
+    // A failing ordinary frame is handled after its own lease is released, before CPU fallback.
+    if (!ordinary.accepted) return
+    const retained = hdrPresentationMemory(
+      {
+        ...request,
+        otherReservations: {
+          ramBytes: reservation.ramBytes + this.maskReservation.bytes.ramBytes,
+          vramBytes: reservation.vramBytes + this.maskReservation.bytes.vramBytes,
+        },
+        retainedPresentationBytes: headroom.reservationBytes,
+      },
+      headroom.limits,
+    )
+    const worsens =
+      !retained.accepted ||
+      retained.cacheSlots < ordinary.cacheSlots ||
+      (retained.retentionMethod === 'cpu-staging' && ordinary.retentionMethod === 'raw-half-cpu')
+    if (!worsens) return
+    if (sourceCache.evictOldestUnpinned()) return this.pruneInactiveSources(request)
+    const retiring = [...retiredPreviewOwners].filter((owner) => owner !== this.retirement)
+    if (retiring.length) return Promise.all(retiring).then(() => this.pruneInactiveSources(request))
+    // Do not clearAndDrain while holding this presenter's pin. Its error cleanup releases it first.
+    throw new Error('Retained GPU sources exceed the managed image resource budgets.')
   }
   private presentationMemory(
     frame: Pick<WorkingFrame, 'width' | 'height'>,
     width = 0,
     height = 0,
     maximumLayers = HDR_CACHE_MAX_TILES,
-    restoredUploadBytes = 0,
-  ) {
-    const bypassed = this.presentationHeadroom.bypassed
-    const memory = this.presentationHeadroom.plan(
-      frame.width,
-      frame.height,
-      width,
-      height,
-      maximumLayers,
-      this.gpuTimings ? HDR_GPU_TIMING_BYTES : 0,
-      restoredUploadBytes,
-    )
-    if (!bypassed && this.presentationHeadroom.bypassed) {
-      this.completedSurface = undefined
-      this.presentationVersion++
-      this.canvas.dataset.presentationCache = 'memory-bypass'
-      this.canvas.dataset.presentationCacheEligible = 'false'
-      this.hideCachedPresentation()
+    restoredUpload?: HdrManagedBytes,
+  ): ReturnType<typeof hdrPresentationMemory> | Promise<ReturnType<typeof hdrPresentationMemory>> {
+    const headroom = this.presentationHeadroom
+    if (!headroom) throw new Error('HDR resource policy has not resolved.')
+    if (this.maskReservation.active) {
+      const request = this.memoryRequest(frame, width, height, maximumLayers, restoredUpload),
+        mask = this.maskReservation.bytes,
+        withMask = hdrPresentationMemory(
+          { ...request, retainedPresentationBytes: headroom.reservationBytes },
+          headroom.limits,
+        ),
+        withoutMask = hdrPresentationMemory(
+          {
+            ...request,
+            otherReservations: {
+              ramBytes: request.otherReservations!.ramBytes - mask.ramBytes,
+              vramBytes: request.otherReservations!.vramBytes - mask.vramBytes,
+            },
+            retainedPresentationBytes: headroom.reservationBytes,
+          },
+          headroom.limits,
+        )
+      if (
+        !withMask.accepted ||
+        withMask.cacheSlots < withoutMask.cacheSlots ||
+        (withMask.retentionMethod === 'cpu-staging' &&
+          withoutMask.retentionMethod === 'raw-half-cpu')
+      )
+        // Optional analysis cannot force cache retirement or healthy GPU fallback.
+        return this.maskReservation
+          .cancelAndDrain()
+          .then(() => this.presentationMemory(frame, width, height, maximumLayers, restoredUpload))
     }
-    this.canvas.dataset.presentationReservationBytes = String(
-      this.presentationHeadroom.reservationBytes,
+    const finish = () => {
+      this.abort.signal.throwIfAborted()
+      const bypassed = headroom.bypassed
+      const memory = headroom.plan(
+        this.memoryRequest(frame, width, height, maximumLayers, restoredUpload),
+      )
+      if (!bypassed && headroom.bypassed) {
+        this.completedSurface = undefined
+        this.presentationVersion++
+        this.canvas.dataset.presentationCache = 'memory-bypass'
+        this.canvas.dataset.presentationCacheEligible = 'false'
+        this.hideCachedPresentation()
+      }
+      this.canvas.dataset.presentationReservationBytes = String(headroom.reservationBytes)
+      if (memory instanceof Promise && !bypassed && headroom.bypassed) {
+        // Dropping the exact-frame reservation can change ordinary tile/recovery headroom.
+        // Reconsider inactive sources after that drain, using the now-current reservation.
+        return memory.then(() => {
+          const request = this.memoryRequest(frame, width, height, maximumLayers, restoredUpload)
+          const pruning = this.pruneInactiveSources(request)
+          const replan = () => {
+            this.abort.signal.throwIfAborted()
+            return headroom.plan(
+              this.memoryRequest(frame, width, height, maximumLayers, restoredUpload),
+            )
+          }
+          return pruning instanceof Promise ? pruning.then(replan) : replan()
+        })
+      }
+      return memory
+    }
+    const pruning = this.pruneInactiveSources(
+      this.memoryRequest(frame, width, height, maximumLayers, restoredUpload),
     )
-    return memory
+    return pruning instanceof Promise ? pruning.then(finish) : finish()
+  }
+  private publishMemory(memory: ReturnType<typeof hdrPresentationMemory>) {
+    Object.assign(this.canvas.dataset, {
+      allocatedBytes: String(memory.total),
+      allocatedRamBytes: String(memory.peak.ramBytes),
+      allocatedGpuBytes: String(memory.peak.vramBytes),
+      ramBudgetBytes: String(memory.limits.ramBytes),
+      vramBudgetBytes: String(memory.limits.vramBytes),
+      resourcePolicyRevision: String(memory.limits.revision),
+    })
+  }
+  private publishRejectedMemory(memory: ReturnType<typeof hdrPresentationMemory>) {
+    Object.assign(this.canvas.dataset, {
+      admissionRejectedRamBytes: String(memory.peak.ramBytes),
+      admissionRejectedGpuBytes: String(memory.peak.vramBytes),
+      admissionRamBudgetBytes: String(memory.limits.ramBytes),
+      admissionVramBudgetBytes: String(memory.limits.vramBytes),
+      admissionPolicyRevision: String(memory.limits.revision),
+    })
   }
   private restoreCached(): Promise<void> {
     if (this.restoring) return this.restoring
@@ -411,7 +968,9 @@ export class HdrPresenter {
       !identity ||
       !this.device ||
       !this.context ||
+      !this.presentationHeadroom ||
       this.nativePresented ||
+      this.firstSurface?.valid ||
       this.abort.signal.aborted ||
       this.attemptedRestore === attempt
     )
@@ -440,20 +999,23 @@ export class HdrPresenter {
       this.canvas.dataset.presentationCache = 'miss'
       return Promise.resolve()
     }
-    const restoredUploadBytes = this.ready
-      ? 0
+    const restoredUpload = this.ready
+      ? { ramBytes: 0, vramBytes: 0 }
       : hdrRestoredUploadMemory(identity.width, identity.height)
     if (
-      hdrPresentationMemory(
-        this.frame!.width,
-        this.frame!.height,
-        identity.width,
-        identity.height,
-        this.device.limits.maxTextureArrayLayers,
-        this.gpuTimings ? HDR_GPU_TIMING_BYTES : 0,
-        this.presentationHeadroom.reservationBytes,
-        restoredUploadBytes,
-      ).total > HDR_PRESENTATION_BUDGET
+      !hdrPresentationMemory(
+        {
+          ...this.memoryRequest(
+            this.frame!,
+            identity.width,
+            identity.height,
+            this.device.limits.maxTextureArrayLayers,
+            restoredUpload,
+          ),
+          retainedPresentationBytes: this.presentationHeadroom.reservationBytes,
+        },
+        this.presentationHeadroom.limits,
+      ).accepted
     ) {
       // Never wait for a drain while holding the candidate lease that the drain must release.
       lease.release()
@@ -462,7 +1024,7 @@ export class HdrPresenter {
           identity.width,
           identity.height,
           this.device.limits.maxTextureArrayLayers,
-          restoredUploadBytes,
+          restoredUpload,
         ),
         work = Promise.resolve(plan)
           .then(() => undefined)
@@ -473,7 +1035,9 @@ export class HdrPresenter {
       this.restoring = work
       return work
     }
-    this.canvas.dataset.restoredUploadBytes = String(restoredUploadBytes)
+    this.canvas.dataset.restoredUploadBytes = String(
+      restoredUpload.ramBytes + restoredUpload.vramBytes,
+    )
     const device = this.device,
       version = this.presentationVersion,
       epoch = this.epoch
@@ -490,6 +1054,7 @@ export class HdrPresenter {
       try {
         this.blit ??= await presentationBlit(device)
         if (!current()) return
+        this.cachedPaintReceipt = undefined
         this.canvas.width = identity.width
         this.canvas.height = identity.height
         this.configure(this.target)
@@ -518,6 +1083,16 @@ export class HdrPresenter {
         fenced = true
         if (!current()) return
         this.restoredIdentity = identity.key
+        // Logical draw invalidation does not replace these already fenced canvas bytes.
+        const receipt = Object.freeze({
+          identity,
+          serial: lease.serial,
+          device,
+          context: this.context!,
+          epoch,
+        })
+        this.cachedPaintReceipt = receipt
+        const paintCurrent = () => this.cachedPaintReceipt === receipt && this.cachedCanvasCurrent()
         // Attribute the completed cache blit before it can become visible. Readiness
         // and its clock still wait for the following actual paint observations.
         Object.assign(this.canvas.dataset, {
@@ -531,17 +1106,26 @@ export class HdrPresenter {
           presentedView: JSON.stringify(this.view!.view),
         })
         this.canvas.style.visibility = 'visible'
-        await this.afterPaint()
-        if (!current()) {
-          this.hideCachedPresentation()
-          return
-        }
-        Object.assign(this.canvas.dataset, {
-          presentationCache: 'hit',
-          cachedDisplayReady: 'true',
-          cachedPostPaintAt: String(performance.now()),
-        })
-        this.cachedPresentation(true)
+        // Painting may stop while a window is hidden or minimized. It must not
+        // block source preparation, normal presentation, or the fenced lease drain.
+        // Record a cache hit only after real paints while this exact blit still owns
+        // the canvas; a late observer must never hide a newer normal presentation.
+        void this.afterPaint()
+          .then(() => {
+            if (!paintCurrent()) return
+            Object.assign(this.canvas.dataset, {
+              presentationCache: 'hit',
+              cachedDisplayReady: 'true',
+              cachedPostPaintAt: String(performance.now()),
+            })
+            this.cachedPresentation(true)
+          })
+          .catch((error: unknown) => {
+            if (!paintCurrent()) return
+            this.hideCachedPresentation()
+            this.canvas.dataset.presentationCache = 'failed'
+            this.canvas.dataset.presentationCacheError = String(error).slice(0, 512)
+          })
       } catch (error) {
         this.hideCachedPresentation()
         if (!this.abort.signal.aborted) {
@@ -565,13 +1149,19 @@ export class HdrPresenter {
     void bitmap /* The SDR proof stays on the previous surface until replacement. */
   }
   setComparison(mode: string, split: number) {
-    if (mode !== this.mode || split !== this.split) this.invalidate()
+    if (mode !== this.mode || split !== this.split) {
+      this.invalidate()
+      this.invalidateFirstSurface()
+    }
     this.mode = mode
     this.split = split
     this.checkCachedIdentity()
   }
   setHdrRanges(enabled: boolean) {
-    if (enabled !== this.hdrRanges) this.invalidate()
+    if (enabled !== this.hdrRanges) {
+      this.invalidate()
+      this.invalidateFirstSurface()
+    }
     this.hdrRanges = enabled
     this.checkCachedIdentity()
   }
@@ -581,6 +1171,7 @@ export class HdrPresenter {
       if (target.generation === this.target.generation) return
       this.target = target
       this.invalidate()
+      this.invalidateFirstSurface()
       this.checkCachedIdentity()
     } catch (error) {
       this.ready = false
@@ -591,11 +1182,8 @@ export class HdrPresenter {
     if (this.view)
       this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
   }
-  private prepareRendering() {
-    this.renderingGeneration = -1
-    this.renderingWorker.postMessage({ content: true })
-  }
   private configure(target: DisplayTarget) {
+    this.cachedPaintReceipt = undefined
     const previous = this.context!.getConfiguration()
     if (previous?.colorSpace !== target.colorSpace) {
       // Chromium can retain the previous drawing-buffer primaries across configure().
@@ -619,8 +1207,119 @@ export class HdrPresenter {
     )
       throw new Error('HDR canvas configuration unavailable.')
   }
-  setWorking(frame: WorkingFrame) {
-    if (!frame.hdr || this.frame?.identity === frame.identity) return
+  private async releaseSource() {
+    const texture = this.texture,
+      lease = this.sourceLease,
+      device = this.device
+    this.texture = undefined
+    this.sourceLease = undefined
+    const fence = Promise.resolve().then(() => device?.queue.onSubmittedWorkDone())
+    if (lease) await lease.releaseAfter(fence)
+    else {
+      await fence.catch(() => undefined)
+      texture?.destroy()
+    }
+  }
+  private initializeGpu(): Promise<GPUDevice> {
+    return (this.gpuInitialization ??= (async () => {
+      const device = await hdrDevice()
+      this.abort.signal.throwIfAborted()
+      const policy =
+        this.resourcePolicy ??
+        (await (this.resourcePolicyRequest ??= window.luma.getResourcePolicy({
+          vendor: device.adapterInfo.vendor,
+          architecture: device.adapterInfo.architecture,
+          device: device.adapterInfo.device,
+          description: device.adapterInfo.description,
+        })))
+      this.abort.signal.throwIfAborted()
+      this.resourcePolicy ??= freezeFirstSurfacePolicy(policy)
+      this.presentationHeadroom ??= new HdrPresentationHeadroom(
+        {
+          ramBytes: this.resourcePolicy.ram.effectiveBytes,
+          vramBytes: this.resourcePolicy.vram.effectiveBytes,
+          revision: this.resourcePolicy.revision,
+        },
+        this.previewPolicy.presentationCache ? presentationCache : null,
+      )
+      this.canvas.dataset.resourcePolicy = JSON.stringify(this.resourcePolicy)
+      this.releaseBitmaps ??= reservePresentationBitmaps(HDR_BITMAP_RESERVATION.ramBytes)
+      this.device = device
+      this.deviceLost = false
+      this.sourceFailed = false
+      if (!sourceDevices.has(device)) {
+        sourceDevices.add(device)
+        void device.lost
+          .then(() => sourceCache.invalidate(device))
+          .catch((error) => console.warn('HDR source retirement:', error))
+      }
+      if (this.previewPolicy.presentationCache && !presentationDevices.has(device)) {
+        presentationDevices.add(device)
+        void device.lost.then(() => presentationCache.invalidate(device))
+      }
+      this.deviceObserver = {
+        lost: () => {
+          if (!this.abort.signal.aborted) {
+            this.deviceLost = true
+            this.sourceFailed = true
+            if (this.interactivePrecision) this.invalidate()
+            this.invalidateFirstSurface()
+            this.completedSurface = undefined
+            this.hideCachedPresentation()
+            // The CPU-owned completed plane remains valid after device destruction.
+            this.recoverCompletedFrame()
+            this.canvas.style.visibility = 'hidden'
+            this.lost('Presentation device lost.')
+          }
+        },
+      }
+      observePresenterLoss(device, this.deviceObserver)
+      device.addEventListener(
+        'uncapturederror',
+        (event) => {
+          console.warn('HDR GPU validation:', event.error.message)
+          if (!this.abort.signal.aborted) {
+            this.sourceFailed = true
+            void sourceCache
+              .invalidate(device)
+              .catch((error) => console.warn('HDR source retirement:', error))
+            if (this.interactivePrecision) this.invalidate()
+            if (this.previewPolicy.presentationCache) presentationCache.invalidate(device)
+            this.invalidateFirstSurface()
+            this.completedSurface = undefined
+            this.hideCachedPresentation()
+            this.lost(`${event.error.constructor.name}: ${event.error.message}`)
+          }
+        },
+        { signal: this.abort.signal },
+      )
+      this.context = this.canvas.getContext('webgpu') ?? undefined
+      if (!this.context) throw new Error('HDR canvas unavailable.')
+      return device
+    })())
+  }
+  setWorking(frame: WorkingFrame, lineage?: HdrFirstSurfaceLineage) {
+    if (!frame.hdr) return
+    const identity = frame.identity ?? frame.hdr.sha256
+    if (this.frame) {
+      if ((this.frame.identity ?? this.frame.hdr!.sha256) === identity) return
+      // PhotoPreview recreates this owner whenever working.hdr or the photo generation changes.
+      throw new Error('Create a new HDR presenter when its working source changes.')
+    }
+    const first = this.firstSurface,
+      preserveFirst =
+        !!first &&
+        this.firstSurfaceCurrent(first) &&
+        !!lineage &&
+        lineage.parentWorkingKey === first.offer.identity.parentWorkingKey &&
+        lineage.workingSha256 === frame.hdr.sha256 &&
+        frame.width === first.offer.identity.image.width &&
+        frame.height === first.offer.identity.image.height &&
+        frame.hdr.width === frame.width &&
+        frame.hdr.height === frame.height &&
+        frame.hdr.byteLength === frame.width * frame.height * 16
+    if (preserveFirst) first!.attached = true
+    else this.invalidateFirstSurface()
     this.invalidate()
     this.hideCachedPresentation()
     this.frame = frame
@@ -628,37 +1327,107 @@ export class HdrPresenter {
     this.attemptedRestore = ''
     this.ready = false
     this.resetNativePublication()
-    this.canvas.style.visibility = 'hidden'
+    if (!preserveFirst) this.canvas.style.visibility = 'hidden'
     const release = this.activity?.()
-    void this.load(frame)
-      .catch((error) => {
+    const work = this.load(frame)
+    this.loadWork = work
+    void work
+      .catch(async (error) => {
         console.warn('HDR presentation initialization:', error)
+        if (this.abort.signal.aborted) return
+        await this.releaseSource()
+        if (this.abort.signal.aborted) return
+        if (String(error).includes('resource budget')) {
+          // The current pin is already released. Never ban a healthy device for budget pressure.
+          await sourceCache.clearAndDrain()
+        }
         if (!this.abort.signal.aborted) this.lost(String(error))
       })
       .finally(() => release?.())
   }
   private async load(frame: WorkingFrame) {
     const started = performance.now()
-    const device = await hdrDevice()
-    if (this.abort.signal.aborted) return
-    this.releaseBitmaps = reservePresentationBitmaps(256 * 1024 ** 2)
-    this.device = device
-    if (PRESENTATION_CACHE && !presentationDevices.has(device)) {
-      presentationDevices.add(device)
-      void device.lost.then(() => presentationCache.invalidate(device))
-    }
-    this.deviceObserver = {
-      lost: () => {
-        if (!this.abort.signal.aborted) {
-          if (INTERACTIVE_PRECISION) this.invalidate()
-          this.completedSurface = undefined
-          this.hideCachedPresentation()
-          this.canvas.style.visibility = 'hidden'
-          this.lost('Presentation device lost.')
+    const sourcePhotoId =
+      frame.cpuSource &&
+      frame.cpuSource.workingSha256 === frame.hdr?.sha256 &&
+      /^[a-f0-9]{64}$/.test(frame.cpuSource.photoId)
+        ? frame.cpuSource.photoId
+        : undefined
+    // CPU receivers register in this same barrier before a new photo can allocate.
+    // Capture only earlier owners. A warm pin taken before their retirement could
+    // otherwise keep an older clearAndDrain alive while this load waits for it.
+    const previousOwners = captureHdrPreviewRetirement()
+    await previousOwners
+    if (this.abort.signal.aborted || this.frame !== frame) return
+    const receiver = this.firstSurface
+    if (receiver?.valid && !receiver.fenced) {
+      // Only reuse initialization already started by this receiver. Do not start
+      // another device, policy reservation or image allocation to probe a warm hit.
+      const initializing = this.gpuInitialization,
+        device = this.device ?? (initializing ? await initializing : undefined)
+      if (
+        device &&
+        !this.abort.signal.aborted &&
+        !this.deviceLost &&
+        !this.sourceFailed &&
+        this.frame === frame &&
+        this.firstSurface === receiver &&
+        receiver.valid &&
+        !receiver.fenced
+      ) {
+        // Admission to this cache already verified every source strip and the
+        // real mip fence. The final descriptor must match that exact device/key.
+        const resident = sourceCache.acquire(device, hdrSourceIdentity(frame.hdr!), sourcePhotoId)
+        if (resident) {
+          this.sourceLease = resident
+          this.invalidateFirstSurface()
+          this.canvas.dataset.firstSurfaceBypass = 'resident-source'
         }
-      },
+      }
     }
-    observePresenterLoss(device, this.deviceObserver)
+    // An aborted digest or submitted blit is noninterruptible. Its receiver and
+    // capability still drain before the resident source can make new image owners.
+    await this.firstSurfaceWork?.catch(() => undefined)
+    if (this.abort.signal.aborted || this.frame !== frame) return
+    this.checkFirstSurfaceIdentity()
+    this.renderingGeneration = -1
+    const preparation = prepareHdrRenderingTables(this.abort.signal)
+    // Observe failures immediately while source/device preparation is still in flight.
+    const preparedTables = preparation.tables.then(
+      (tables) => ({ ok: true as const, tables }),
+      (error: unknown) => ({ ok: false as const, error }),
+    )
+    // A previous source's copy keeps its owner until the image fence settles.
+    // Staging never overlaps source upload and is charged only during presentation.
+    await this.releaseRetainedStaging()
+    await this.recovery.releaseTransient()
+    this.recovery.clear()
+    if (this.abort.signal.aborted || this.frame !== frame) return
+    const timings: Record<string, number> = {
+      readMs: 0,
+      hashMs: 0,
+      validateMs: 0,
+      writeTextureMs: 0,
+    }
+    const device = await this.initializeGpu()
+    if (this.abort.signal.aborted || this.deviceLost || this.sourceFailed || this.frame !== frame)
+      return
+    const pipelineStarted = performance.now(),
+      pipelinePreparation = prepareHdrPipelines(device, {
+        interactive: this.interactivePrecision,
+      })
+    // Observe failure while upload is in flight. A cancelled photo never owns
+    // or cancels these device-only programs shared by subsequent photographs.
+    const preparedPipelines = pipelinePreparation.pipelines.then(
+      (pipelines) => {
+        timings.pipelinePreparationMs = performance.now() - pipelineStarted
+        return { ok: true as const, pipelines }
+      },
+      (error: unknown) => {
+        timings.pipelinePreparationMs = performance.now() - pipelineStarted
+        return { ok: false as const, error }
+      },
+    )
     const gpuTimingRequested = import.meta.env.VITE_LUMA_HDR_GPU_TIMINGS === '1'
     this.canvas.dataset.gpuTimings = gpuTimingRequested ? 'unavailable' : 'disabled'
     if (gpuTimingRequested && device.features.has('timestamp-query')) {
@@ -689,35 +1458,35 @@ export class HdrPresenter {
         failed(String(error))
       }
     }
-    this.context = this.canvas.getContext('webgpu') ?? undefined
-    if (!this.context) throw new Error('HDR canvas unavailable.')
-    this.levels = Math.floor(Math.log2(Math.max(frame.width, frame.height))) + 1
-    const uploadPlan = this.presentationMemory(frame),
+    const sourceIdentity = hdrSourceIdentity(frame.hdr!)
+    this.levels = sourceIdentity.mipLevels
+    this.sourceLease ??= sourceCache.acquire(device, sourceIdentity, sourcePhotoId) ?? undefined
+    this.texture = this.sourceLease?.resource
+    this.canvas.dataset.sourceCache = this.sourceLease ? 'hit' : 'miss'
+    timings.sourceCacheHit = Number(!!this.sourceLease)
+    const first = this.firstSurface,
+      firstUpload =
+        first?.fenced && this.firstSurfaceCurrent(first)
+          ? hdrRestoredUploadMemory(first.offer.width, first.offer.height)
+          : undefined,
+      uploadPlan = this.presentationMemory(frame, 0, 0, HDR_CACHE_MAX_TILES, firstUpload),
       uploadMemory = uploadPlan instanceof Promise ? await uploadPlan : uploadPlan
     if (this.abort.signal.aborted) return
-    if (uploadMemory.total > HDR_PRESENTATION_BUDGET)
-      throw new Error('This HDR frame exceeds the renderer memory limit.')
+    if (!uploadMemory.accepted) {
+      this.publishRejectedMemory(uploadMemory)
+      throw new Error('This HDR frame exceeds the managed image resource budgets.')
+    }
+    this.publishMemory(uploadMemory)
     if (
       frame.width > device.limits.maxTextureDimension2D ||
       frame.height > device.limits.maxTextureDimension2D
     )
       throw new Error('This HDR frame exceeds the adapter texture dimension limit.')
-    device.addEventListener(
-      'uncapturederror',
-      (event) => {
-        console.warn('HDR GPU validation:', event.error.message)
-        if (!this.abort.signal.aborted) {
-          if (INTERACTIVE_PRECISION) this.invalidate()
-          if (PRESENTATION_CACHE) presentationCache.invalidate(device)
-          this.completedSurface = undefined
-          this.hideCachedPresentation()
-          this.lost(`${event.error.constructor.name}: ${event.error.message}`)
-        }
-      },
-      { signal: this.abort.signal },
-    )
-    this.context.unconfigure()
-    if (PRESENTATION_CACHE) {
+    if (!firstUpload) {
+      this.cachedPaintReceipt = undefined
+      this.context!.unconfigure()
+    }
+    if (this.previewPolicy.presentationCache) {
       const plan = this.presentationMemory(
           frame,
           Math.round((this.view?.viewport.width ?? 0) * (window.devicePixelRatio || 1)),
@@ -726,109 +1495,141 @@ export class HdrPresenter {
         ),
         memory = plan instanceof Promise ? await plan : plan
       if (this.abort.signal.aborted) return
-      if (memory.total <= HDR_PRESENTATION_BUDGET) await this.restoreCached()
+      if (memory.accepted) await this.restoreCached()
       if (this.abort.signal.aborted) return
     }
     {
-      // The full surface is allocated after upload strips; exact retained surfaces share its budget.
-      this.texture = device.createTexture({
-        size: [frame.width, frame.height],
-        format: 'rgba32float',
-        mipLevelCount: this.levels,
-        usage:
-          GPUTextureUsage.TEXTURE_BINDING |
-          GPUTextureUsage.COPY_DST |
-          GPUTextureUsage.STORAGE_BINDING,
-      })
-      const loading = performance.now()
-      const timings: Record<string, number> = {
-        readMs: 0,
-        hashMs: 0,
-        validateMs: 0,
-        writeTextureMs: 0,
-      }
-      let submitted = 0
-      for await (const strip of uploadHdr(frame.hdr!, this.abort.signal)) {
-        for (const [key, value] of Object.entries(strip.timings)) timings[key] += value
-        const writing = performance.now()
-        device.queue.writeTexture(
-          { texture: this.texture, origin: [0, strip.row] },
-          strip.data,
-          { bytesPerRow: frame.width * 16 },
-          [frame.width, strip.data.length / (frame.width * 4)],
-        )
-        timings.writeTextureMs += performance.now() - writing
-        if (++submitted % 3 === 0) await device.queue.onSubmittedWorkDone()
-      }
-      timings.streamMs = performance.now() - loading
-      const pipelines = performance.now()
-      const mipLayout = device.createBindGroupLayout({
-        entries: [
-          {
-            binding: 0,
-            visibility: GPUShaderStage.COMPUTE,
-            texture: { sampleType: 'unfilterable-float' },
-          },
-          {
-            binding: 1,
-            visibility: GPUShaderStage.COMPUTE,
-            storageTexture: { access: 'write-only', format: 'rgba32float' },
-          },
-        ],
-      })
-      const mip = await device.createComputePipelineAsync({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [mipLayout] }),
-        compute: { module: device.createShaderModule({ code: hdrMipShader }), entryPoint: 'down' },
-      })
-      if (this.abort.signal.aborted) return
-      const encoder = device.createCommandEncoder()
-      for (let level = 1; level < this.levels; level++) {
-        const group = device.createBindGroup({
-          layout: mipLayout,
-          entries: [
-            {
-              binding: 0,
-              resource: this.texture.createView({ baseMipLevel: level - 1, mipLevelCount: 1 }),
-            },
-            {
-              binding: 1,
-              resource: this.texture.createView({ baseMipLevel: level, mipLevelCount: 1 }),
-            },
-          ],
+      const uploaded: { value?: HdrUploadedSource } = {}
+      if (!this.sourceLease) {
+        // A miss remains presenter-owned until verified EOF and the mip completion fence.
+        this.texture = device.createTexture({
+          size: [frame.width, frame.height],
+          format: 'rgba32float',
+          mipLevelCount: this.levels,
+          usage:
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_DST |
+            GPUTextureUsage.STORAGE_BINDING,
         })
-        const pass = encoder.beginComputePass()
-        pass.setPipeline(mip)
-        pass.setBindGroup(0, group)
-        pass.dispatchWorkgroups(
-          Math.ceil(Math.max(1, frame.width >> level) / 8),
-          Math.ceil(Math.max(1, frame.height >> level) / 8),
-        )
-        pass.end()
+        const loading = performance.now()
+        let submitted = 0
+        for await (const strip of uploadHdr(frame.hdr!, this.abort.signal, (result) => {
+          uploaded.value = result
+        })) {
+          for (const [key, value] of Object.entries(strip.timings)) timings[key] += value
+          const writing = performance.now()
+          device.queue.writeTexture(
+            { texture: this.texture!, origin: [0, strip.row] },
+            strip.data,
+            { bytesPerRow: frame.width * 16 },
+            [frame.width, strip.data.length / (frame.width * 4)],
+          )
+          timings.writeTextureMs += performance.now() - writing
+          if (++submitted % 3 === 0) await device.queue.onSubmittedWorkDone()
+        }
+        timings.streamMs = performance.now() - loading
+      } else timings.streamMs = 0
+      const pipelines = performance.now()
+      const prepared = await preparedPipelines
+      if (
+        this.abort.signal.aborted ||
+        this.deviceLost ||
+        this.sourceFailed ||
+        this.device !== device ||
+        this.frame !== frame
+      )
+        return
+      timings.pipelineWaitMs = performance.now() - pipelines
+      timings.pipelinePreparationReused = Number(pipelinePreparation.state !== 'cold')
+      timings.pipelineReadyAtAcquire = Number(pipelinePreparation.state === 'ready')
+      if (!prepared.ok) throw prepared.error
+      const compiled = prepared.pipelines,
+        mipLayout = compiled.mipLayout,
+        mip = compiled.mip
+      this.layout = compiled.layout
+      this.pipeline = compiled.presentation
+      this.histogramPipeline = compiled.histogram
+      this.cacheLayout = compiled.cacheLayout
+      this.cachePipeline = compiled.cache
+      this.blit = compiled.blit
+      this.interactivePipelines.clear()
+      for (const policy of [
+        ACES_HDR_INTERACTIVE_PREVIEW_VERSION,
+        ACES_SDR_INTERACTIVE_PREVIEW_VERSION,
+      ]) {
+        const program = compiled.interactive[policy]
+        if (program) this.interactivePipelines.set(policy, program)
       }
-      device.queue.submit([encoder.finish()])
-      const layout = device.createBindGroupLayout({
-        entries: [
-          { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      if (!this.sourceLease) {
+        const encoder = device.createCommandEncoder()
+        for (let level = 1; level < this.levels; level++) {
+          const group = device.createBindGroup({
+            layout: mipLayout,
+            entries: [
+              {
+                binding: 0,
+                resource: this.texture!.createView({ baseMipLevel: level - 1, mipLevelCount: 1 }),
+              },
+              {
+                binding: 1,
+                resource: this.texture!.createView({ baseMipLevel: level, mipLevelCount: 1 }),
+              },
+            ],
+          })
+          const pass = encoder.beginComputePass()
+          pass.setPipeline(mip)
+          pass.setBindGroup(0, group)
+          pass.dispatchWorkgroups(
+            Math.ceil(Math.max(1, frame.width >> level) / 8),
+            Math.ceil(Math.max(1, frame.height >> level) / 8),
+          )
+          pass.end()
+        }
+        device.queue.submit([encoder.finish()])
+        const completed = uploaded.value
+        if (!completed) throw new Error('HDR source upload completed without verification.')
+        const fence = device.queue.onSubmittedWorkDone()
+        const lease = await sourceCache.admit(
+          device,
           {
-            binding: 3,
-            visibility: GPUShaderStage.FRAGMENT,
-            texture: { sampleType: 'unfilterable-float', viewDimension: '2d-array' },
+            identity: sourceIdentity,
+            resource: this.texture!,
+            samples: completed.samples,
+            verification: completed.verification,
+            mipCompletion: fence,
+            photoId: sourcePhotoId,
           },
           {
-            binding: 2,
-            visibility: GPUShaderStage.FRAGMENT,
-            buffer: { type: 'read-only-storage' },
+            signal: this.abort.signal,
+            isCurrent: () =>
+              !this.sourceFailed &&
+              !this.deviceLost &&
+              this.frame === frame &&
+              this.device === device,
           },
-        ],
-      })
-      this.layout = layout
-      const module = device.createShaderModule({ code: hdrShader })
-      this.pipeline = await device.createRenderPipelineAsync({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-        vertex: { module, entryPoint: 'vs' },
-        fragment: { module, entryPoint: 'fs', targets: [{ format: 'rgba16float' }] },
-      })
-      if (this.abort.signal.aborted) return
+        )
+        this.sourceLease = lease ?? undefined
+        if (
+          this.abort.signal.aborted ||
+          this.sourceFailed ||
+          this.deviceLost ||
+          this.frame !== frame
+        )
+          return
+        this.canvas.dataset.sourceCache = lease ? 'miss-retained' : 'miss-unretained'
+        publishHdrSample(frame.hdr!.sha256, completed.samples.sample, completed.samples.draft)
+        this.canvas.dataset.sourceUploads = String(
+          Number(this.canvas.dataset.sourceUploads ?? 0) + 1,
+        )
+      } else {
+        // Cached source samples are immutable. No previous edits, target or statistics are reused.
+        publishHdrSample(
+          frame.hdr!.sha256,
+          this.sourceLease.samples.sample,
+          this.sourceLease.samples.draft,
+        )
+      }
+      this.sourceReservation()
       this.uniform = device.createBuffer({
         size: 176,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -858,26 +1659,16 @@ export class HdrPresenter {
         size: HDR_HISTOGRAM_WORDS * 4,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       })
-      this.histogramPipeline = await device.createComputePipelineAsync({
-        layout: 'auto',
-        compute: {
-          module: device.createShaderModule({ code: hdrHistogramShader }),
-          entryPoint: 'sampleHistogram',
-        },
-      })
-      if (this.abort.signal.aborted) return
       this.histogramGroup = device.createBindGroup({
         layout: this.histogramPipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: this.histogramUniform } },
-          { binding: 1, resource: this.texture.createView({ mipLevelCount: 1 }) },
+          { binding: 1, resource: this.texture!.createView({ mipLevelCount: 1 }) },
           { binding: 4, resource: { buffer: this.rendering } },
           { binding: 6, resource: { buffer: this.histogramBuffer } },
         ],
       })
-      this.blit ??= await presentationBlit(device)
-      if (this.abort.signal.aborted) return
-      const tileSize = hdrPresentationMemory(frame.width, frame.height).tileSize
+      const tileSize = uploadMemory.tileSize
       this.lookup = device.createBuffer({
         size: Math.ceil(frame.width / tileSize) * Math.ceil(frame.height / tileSize) * 8,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -886,59 +1677,46 @@ export class HdrPresenter {
         size: HDR_CACHE_MAX_TILES * 16,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       })
-      this.cacheLayout = device.createBindGroupLayout({
-        entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
-          {
-            binding: 1,
-            visibility: GPUShaderStage.COMPUTE,
-            texture: { sampleType: 'unfilterable-float' },
-          },
-          {
-            binding: 3,
-            visibility: GPUShaderStage.COMPUTE,
-            storageTexture: {
-              access: 'write-only',
-              format: 'rgba32float',
-              viewDimension: '2d-array',
-            },
-          },
-          {
-            binding: 4,
-            visibility: GPUShaderStage.COMPUTE,
-            buffer: { type: 'read-only-storage' },
-          },
-          { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-        ],
-      })
-      this.cachePipeline = await device.createComputePipelineAsync({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [this.cacheLayout] }),
-        compute: {
-          module: device.createShaderModule({ code: this.cacheKernel.shader }),
-          entryPoint: 'renderTile',
-        },
-      })
-      if (this.abort.signal.aborted) return
-      if (INTERACTIVE_PRECISION)
-        this.interactivePipeline = await device.createComputePipelineAsync({
-          layout: device.createPipelineLayout({ bindGroupLayouts: [this.cacheLayout] }),
-          compute: {
-            module: device.createShaderModule({
-              code: hdrCacheKernel(this.cacheKernel.kind, 'interactive').shader,
-            }),
-            entryPoint: 'renderTile',
-          },
-        })
-      if (this.abort.signal.aborted) return
+      if (
+        this.abort.signal.aborted ||
+        this.deviceLost ||
+        this.sourceFailed ||
+        this.device !== device ||
+        this.frame !== frame
+      )
+        return
       await device.queue.onSubmittedWorkDone()
       timings.pipelinesMs = performance.now() - pipelines
-      this.canvas.dataset.loadTimings = JSON.stringify(timings)
     }
-    if (this.abort.signal.aborted) return
+    if (
+      this.abort.signal.aborted ||
+      this.deviceLost ||
+      this.sourceFailed ||
+      this.device !== device ||
+      this.frame !== frame
+    )
+      return
     this.canvas.dataset.uploadMs = String(performance.now() - started)
-    this.canvas.dataset.sourceUploads = String(Number(this.canvas.dataset.sourceUploads ?? 0) + 1)
+    const waiting = performance.now()
+    const prepared = await preparedTables
+    if (
+      this.abort.signal.aborted ||
+      this.deviceLost ||
+      this.sourceFailed ||
+      this.device !== device ||
+      this.frame !== frame
+    )
+      return
+    if (!prepared.ok) throw prepared.error
+    this.device!.queue.writeBuffer(this.rendering!, 0, prepared.tables.packed)
+    for (const space of ['srgb', 'display-p3'] as const)
+      this.device!.queue.writeBuffer(this.sdrRendering.get(space)!, 0, prepared.tables.sdr[space])
+    this.renderingGeneration = 0
+    timings.tablePreparationMs = prepared.tables.preparationMs
+    timings.tableWaitMs = performance.now() - waiting
+    timings.tablePreparationReused = Number(preparation.state !== 'cold')
+    this.canvas.dataset.loadTimings = JSON.stringify(timings)
     this.ready = true
-    this.prepareRendering()
     if (this.view)
       this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
   }
@@ -949,9 +1727,10 @@ export class HdrPresenter {
     confirmed: HdrPresentationState | null = null,
   ) {
     const released = this.gesturing && !gesturing
-    if (INTERACTIVE_PRECISION) this.editingConfirmation = confirmed
+    // Recovery identity also needs the accepted revision on the reference path.
+    this.editingConfirmation = confirmed
     const continuing =
-      INTERACTIVE_PRECISION &&
+      this.interactivePrecision &&
       this.gestureHandoff.update({
         gesturing,
         epoch,
@@ -961,14 +1740,15 @@ export class HdrPresenter {
         nativePresented: this.nativePresented,
       })
     if ((epoch !== this.epoch && !continuing) || (gesturing && !this.gesturing)) {
-      this.invalidate(INTERACTIVE_PRECISION)
+      this.invalidate(this.interactivePrecision)
       this.refinementPending = false
     }
     this.refinementPending ||= released
     this.epoch = epoch
     this.gesturing = gesturing
-    if (INTERACTIVE_PRECISION) this.canvas.dataset.gestureHandoff = this.gestureHandoff.phase
+    if (this.interactivePrecision) this.canvas.dataset.gestureHandoff = this.gestureHandoff.phase
     this.checkCachedIdentity()
+    this.checkFirstSurfaceIdentity()
   }
   private gestureContext(snapshot = this.view) {
     if (!snapshot || !this.frame?.hdr) return null
@@ -986,10 +1766,11 @@ export class HdrPresenter {
   }
   draw(image: Size, viewport: Size, view: View, parameters: AdjustmentParameters) {
     this.view = { image, viewport, view, parameters }
+    this.checkFirstSurfaceIdentity()
     this.checkCachedIdentity()
-    if (PRESENTATION_CACHE) void this.restoreCached()
+    if (this.previewPolicy.presentationCache) void this.restoreCached()
     if (
-      (PRESENTATION_CACHE && !this.presentationState) ||
+      (this.previewPolicy.presentationCache && !this.presentationState) ||
       !this.ready ||
       !this.device ||
       !this.context ||
@@ -1001,9 +1782,11 @@ export class HdrPresenter {
       return
     const editsKey = JSON.stringify(parameters)
     const changed = this.editsKey !== editsKey
-    const context = INTERACTIVE_PRECISION ? this.gestureContext()! : '',
-      handoff = INTERACTIVE_PRECISION ? this.gestureHandoff.plan(context, parameters) : 'ordinary'
-    if (INTERACTIVE_PRECISION) this.canvas.dataset.gestureHandoff = this.gestureHandoff.phase
+    const context = this.interactivePrecision ? this.gestureContext()! : '',
+      handoff = this.interactivePrecision
+        ? this.gestureHandoff.plan(context, parameters)
+        : 'ordinary'
+    if (this.interactivePrecision) this.canvas.dataset.gestureHandoff = this.gestureHandoff.phase
     if (handoff === 'hold') return
     if (changed && !this.gesturing && handoff === 'ordinary') this.invalidate()
     this.editsKey = editsKey
@@ -1044,7 +1827,7 @@ export class HdrPresenter {
           : null,
       epoch: this.epoch,
       interactivePrecision:
-        INTERACTIVE_PRECISION &&
+        this.interactivePrecision &&
         (this.gesturing || handoff === 'feedback') &&
         handoff !== 'refinement' &&
         this.mode === 'after',
@@ -1091,20 +1874,40 @@ export class HdrPresenter {
       request.value.sourceIdentity,
     )
     let imagePresented = false
+    const deviceQueue = this.device!.queue
     try {
-      const rendered = await this.render(request, gpuFrame)
-      const present = this.queue.finish(request)
-      if (present && rendered && !this.abort.signal.aborted) {
-        imagePresented = await this.present(request, rendered, gpuFrame)
+      let rendered: RenderedPresentation | undefined
+      try {
+        rendered = await this.render(request, gpuFrame)
+        const present = this.queue.finish(request)
+        if (present && rendered && !this.abort.signal.aborted) {
+          imagePresented = await this.present(request, rendered, gpuFrame)
+        }
+      } finally {
+        // Discarded frames retain rendering ownership until their deferred work drains.
+        if (
+          this.finalInteractiveFence &&
+          request.value.interactivePrecision &&
+          !rendered?.completionFenced
+        )
+          await deviceQueue.onSubmittedWorkDone()
       }
     } catch (error) {
       this.queue.finish(request)
-      if (INTERACTIVE_PRECISION) this.invalidate()
+      if (this.interactivePrecision) this.invalidate()
+      if (!this.abort.signal.aborted && String(error).includes('resource budget')) {
+        // A larger viewport may fail admission even after its source fitted at upload time.
+        // Stop new work, release our pin after the final source read, then drain optional sources.
+        this.ready = false
+        this.invalidate()
+        await this.releaseSource()
+        if (!this.abort.signal.aborted) await sourceCache.clearAndDrain()
+      }
       if (!this.abort.signal.aborted) this.lost(`GPU presentation failed: ${String(error)}`)
     } finally {
       this.gpuTimings?.finish(gpuFrame, imagePresented)
     }
-    if (INTERACTIVE_PRECISION && request.value.handoff) {
+    if (this.interactivePrecision && request.value.handoff) {
       if (!imagePresented)
         this.gestureHandoff.invalidateQueued(request.value.handoff.id, request.value.inputSerial)
       // The next phase is admitted only after the final feedback image was published.
@@ -1120,7 +1923,7 @@ export class HdrPresenter {
   }
   private requestSuperseded(request: HdrEditRequest<PresentationRequest>) {
     if (this.queue.superseded(request)) return true
-    if (!INTERACTIVE_PRECISION) return false
+    if (!this.interactivePrecision) return false
     const { handoff, context, parameters, epoch } = request.value
     // Only the exact owned final snapshot may cross its own accepted epoch transition.
     return handoff
@@ -1150,8 +1953,15 @@ export class HdrPresenter {
       computedTexels: 0,
       renderSubmissionMs: 0,
       offscreenFenceMs: 0,
+      offscreenFenceDeferred: 0,
       blitSubmissionMs: 0,
       retainedCopyMs: 0,
+      retainedRawHalfUsed: 0,
+      retainedCpuStagingUsed: 0,
+      retainedMapMs: 0,
+      retainedCpuCopyMs: 0,
+      retainedDrawMs: 0,
+      retainedReadMs: 0,
       finalBlitFenceMs: 0,
       totalMs: 0,
       unattributedMs: 0,
@@ -1173,11 +1983,12 @@ export class HdrPresenter {
       ),
       memory = memoryPlan instanceof Promise ? await memoryPlan : memoryPlan
     if (this.abort.signal.aborted || this.requestSuperseded(request)) return undefined
-    this.canvas.dataset.allocatedBytes = String(memory.total)
-    if (memory.total > HDR_PRESENTATION_BUDGET)
-      throw new Error(
-        'Presentation memory limit exceeded by the source texture and canvas allocations.',
-      )
+    this.canvas.dataset.plannedRetentionMethod = memory.retentionMethod
+    if (!memory.accepted) {
+      this.publishRejectedMemory(memory)
+      throw new Error('Presentation exceeds the managed RAM or GPU image resource budget.')
+    }
+    this.publishMemory(memory)
     if (this.cache?.capacity !== memory.cacheSlots) {
       this.cacheTexture?.destroy()
       this.cache = new HdrRenderCache(memory.cacheSlots)
@@ -1203,7 +2014,10 @@ export class HdrPresenter {
       this.surface = device.createTexture({
         size: [width, height],
         format: 'rgba16float',
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        usage:
+          GPUTextureUsage.RENDER_ATTACHMENT |
+          GPUTextureUsage.TEXTURE_BINDING |
+          GPUTextureUsage.COPY_SRC,
       })
       this.blitGroup = device.createBindGroup({
         layout: this.blit!.getBindGroupLayout(0),
@@ -1259,7 +2073,15 @@ export class HdrPresenter {
     const plan = hdrCachePlan(this.frame!, image, viewport, view, mode, split, memory.tileSize)
     plan.variant = target.mode === 'hdr' ? 'content-hdr' : `sdr-${target.colorSpace}`
     const interactivePrecision = request.value.interactivePrecision
-    if (interactivePrecision) plan.variant += `:${ACES_INTERACTIVE_PREVIEW_VERSION}`
+    const arithmeticPolicy = selectInteractivePreviewPolicy(
+      interactivePrecision ? 'f32' : undefined,
+      target.mode,
+    )
+    if (interactivePrecision) plan.variant += `:${arithmeticPolicy}`
+    const rangeArithmeticPolicy =
+      ranges && target.mode === 'sdr'
+        ? selectInteractivePreviewPolicy(interactivePrecision ? 'f32' : undefined, 'hdr')
+        : null
     const quality = interactivePrecision ? ('interactive' as const) : ('normal' as const)
     p.set([plan.columns, plan.columns * plan.rows, plan.width, plan.height], 32)
     p[40] = plan.level
@@ -1286,6 +2108,7 @@ export class HdrPresenter {
       selected: typeof plan,
       parameters: Float32Array<ArrayBuffer>,
       table: GPUBuffer,
+      policy: AcesPreviewPolicy,
     ) => {
       const preparing = performance.now()
       device.queue.writeBuffer(this.uniform!, 0, parameters)
@@ -1315,8 +2138,8 @@ export class HdrPresenter {
       timings.planningMs += performance.now() - preparing
       for (const batch of this.cache!.batches(selected, neutral)) {
         device.queue.writeBuffer(this.lookup!, 0, batch.lookup)
-        for (let start = 0; start < batch.jobs.length; start += HDR_TILE_BATCH * 4) {
-          const jobs = batch.jobs.subarray(start, start + HDR_TILE_BATCH * 4)
+        for (let start = 0; start < batch.jobs.length; start += this.previewPolicy.tileBatch * 4) {
+          const jobs = batch.jobs.subarray(start, start + this.previewPolicy.tileBatch * 4)
           const submitting = performance.now()
           device.queue.writeBuffer(this.jobs!, 0, jobs)
           const computation = device.createCommandEncoder()
@@ -1324,7 +2147,7 @@ export class HdrPresenter {
             timestampWrites: this.gpuTimings?.writes(gpuFrame, 'tile'),
           })
           compute.setPipeline(
-            interactivePrecision ? this.interactivePipeline! : this.cachePipeline!,
+            policy === 'reference' ? this.cachePipeline! : this.interactivePipelines.get(policy)!,
           )
           compute.setBindGroup(0, cacheGroup)
           compute.dispatchWorkgroups(
@@ -1385,6 +2208,7 @@ export class HdrPresenter {
         plan,
         p,
         target.mode === 'hdr' ? this.rendering! : this.sdrRendering.get(target.colorSpace)!,
+        arithmeticPolicy,
       ))
     )
       return undefined
@@ -1393,21 +2217,38 @@ export class HdrPresenter {
       rangeParams[14] = 10
       rangeParams[41] = 1
       const rangeVariant = interactivePrecision
-        ? `content-hdr:${ACES_INTERACTIVE_PREVIEW_VERSION}`
+        ? `content-hdr:${rangeArithmeticPolicy}`
         : 'content-hdr'
-      if (!(await drawPlan({ ...plan, variant: rangeVariant }, rangeParams, this.rendering!)))
+      if (
+        !(await drawPlan(
+          { ...plan, variant: rangeVariant },
+          rangeParams,
+          this.rendering!,
+          rangeArithmeticPolicy!,
+        ))
+      )
         return undefined
     }
     if (this.abort.signal.aborted) return undefined
     // Presentation has its own completion boundary; mapping an unrelated analysis
     // buffer must never delay an already sharp completed image.
-    const fencing = performance.now()
-    await device.queue.onSubmittedWorkDone()
-    timings.offscreenFenceMs = performance.now() - fencing
+    const offscreenCompletionDeferred = this.finalInteractiveFence && interactivePrecision
+    if (offscreenCompletionDeferred) timings.offscreenFenceDeferred = 1
+    else {
+      const fencing = performance.now()
+      await device.queue.onSubmittedWorkDone()
+      timings.offscreenFenceMs = performance.now() - fencing
+    }
     return {
       startedAt,
       timings,
       quality,
+      arithmeticPolicy,
+      rangeArithmeticPolicy,
+      offscreenCompletionDeferred,
+      completionFenced: false,
+      retentionMethod: memory.retentionMethod,
+      cacheBytes: memory.cacheBytes,
       histogram: { key: statisticsKey, parameters: histogramParams, presentation: request.value },
     } satisfies RenderedPresentation
   }
@@ -1418,10 +2259,11 @@ export class HdrPresenter {
     gpuFrame?: HdrGpuTimingFrame,
   ) {
     if (this.restoring) await this.restoring
-    if (this.abort.signal.aborted || this.requestSuperseded(request)) return false
+    if (this.abort.signal.aborted || this.deviceLost || this.requestSuperseded(request))
+      return false
     const { viewport, view, parameters, target, mode, ranges, inputSerial } = request.value
     const confirmed = () =>
-      !PRESENTATION_CACHE ||
+      !this.previewPolicy.presentationCache ||
       (!!this.presentationState &&
         (this.nativePresented || sameAdjustments(this.presentationState.settings, parameters)))
     if (!confirmed()) return false
@@ -1430,37 +2272,148 @@ export class HdrPresenter {
     const dpr = window.devicePixelRatio || 1
     const width = Math.max(1, Math.round(viewport.width * dpr)),
       height = Math.max(1, Math.round(viewport.height * dpr))
-    if (this.canvas.width !== width || this.canvas.height !== height) {
-      this.canvas.width = width
-      this.canvas.height = height
+    const device = this.device!,
+      deviceQueue = device.queue,
+      encoder = device.createCommandEncoder()
+    const retentionMethod: HdrRetentionMethod =
+      rendered.retentionMethod === 'raw-half-cpu' &&
+      Math.ceil((width * 8) / 256) * 256 * height <= device.limits.maxBufferSize &&
+      supportsHdrRecovery()
+        ? 'raw-half-cpu'
+        : 'cpu-staging'
+    rendered.retentionMethod = retentionMethod
+    const cachedReceipt = this.cachedPaintReceipt,
+      renderedIdentity = this.presentationIdentity(request.value, request.value),
+      reuseCanvas =
+        retentionMethod === 'raw-half-cpu' &&
+        !!this.retainedCanvas &&
+        rendered.quality === 'normal' &&
+        rendered.arithmeticPolicy === 'reference' &&
+        (rendered.rangeArithmeticPolicy === null ||
+          rendered.rangeArithmeticPolicy === 'reference') &&
+        !!cachedReceipt &&
+        renderedIdentity?.key === cachedReceipt.identity.key &&
+        this.cachedCanvasCurrent()
+    timings.cachedCanvasReused = Number(reuseCanvas)
+    if (!reuseCanvas) {
+      // A normal blit takes canvas ownership before its map/fence can publish readiness.
+      this.cachedPaintReceipt = undefined
+      if (this.canvas.width !== width || this.canvas.height !== height) {
+        this.canvas.width = width
+        this.canvas.height = height
+      }
+      const configured = `${target.mode}:${target.colorSpace}`
+      if (configured !== this.configured) {
+        this.configure(target)
+        this.configured = configured
+      }
+      const pass = encoder.beginRenderPass({
+        timestampWrites: this.gpuTimings?.writes(gpuFrame, 'blit'),
+        colorAttachments: [
+          {
+            view: this.context!.getCurrentTexture().createView(),
+            loadOp: 'clear',
+            storeOp: 'store',
+          },
+        ],
+      })
+      pass.setPipeline(this.blit!)
+      pass.setBindGroup(0, this.blitGroup!)
+      pass.draw(3)
+      pass.end()
     }
-    const configured = `${target.mode}:${target.colorSpace}`
-    if (configured !== this.configured) {
-      this.configure(target)
-      this.configured = configured
+    let retained: RetainedFrameCopy | undefined
+    let raw: HdrRecoveryCapture | undefined
+    let recoverySnapshot: HdrRecoverySnapshot | undefined
+    const current = () =>
+      !this.abort.signal.aborted &&
+      !this.deviceLost &&
+      !this.requestSuperseded(request) &&
+      confirmed() &&
+      (!reuseCanvas || (this.cachedPaintReceipt === cachedReceipt && this.cachedCanvasCurrent()))
+    try {
+      if (retentionMethod === 'raw-half-cpu' && this.retainedCanvas) {
+        const copying = performance.now()
+        // Copy the exact encoded output, not Chromium's expiring drawing buffer.
+        raw = this.recovery.encode(device, encoder, this.surface!, width, height)
+        timings.retainedCopyMs = performance.now() - copying
+      }
+      deviceQueue.submit([encoder.finish()])
+      const submittedAt = performance.now()
+      timings.blitSubmissionMs = submittedAt - submitting - timings.retainedCopyMs
+      // Same renderer clock as cachedFencedAt/nativeEditingReadyAt. The start
+      // precedes canvas ownership changes; submittedAt follows the real submit.
+      if (!reuseCanvas)
+        Object.assign(this.canvas.dataset, {
+          normalCanvasWriteStartedAt: String(submitting),
+          normalCanvasSubmittedAt: String(submittedAt),
+          normalCanvasSubmittedSerial: String(inputSerial),
+          normalCanvasSubmittedEpoch: String(request.value.epoch),
+        })
+      // Tight-memory and unsupported-format fallback retains the earlier exact
+      // CPU Canvas2D path, including its synchronous read/commit contract.
+      if (retentionMethod === 'cpu-staging') retained = this.stageCompletedFrame()
+      if (retained?.drawFailure) throw retained.drawFailure.error
+      timings.retainedDrawMs = retained?.drawMs ?? 0
+      timings.retainedCopyMs += timings.retainedDrawMs
+      timings.retainedRawHalfUsed = Number(!!raw)
+      timings.retainedCpuStagingUsed = Number(retained?.method === 'cpu-staging')
+      const fencing = performance.now()
+      const fence = deviceQueue.onSubmittedWorkDone().then(() => {
+        rendered.completionFenced = true
+        timings.finalBlitFenceMs = performance.now() - fencing
+      })
+      if (raw) {
+        const completed = await raw.complete(fence)
+        timings.retainedMapMs = completed.mapMs
+        timings.retainedCpuCopyMs = completed.copyMs
+        timings.retainedReadMs = completed.mapMs
+        timings.retainedCopyMs += completed.copyMs
+      } else await fence
+      if (!current()) return false
+      if (raw) {
+        recoverySnapshot = {
+          serial: inputSerial,
+          presentationSerial: Number(this.canvas.dataset.presentationSerial ?? 0) + 1,
+          sourceIdentity: request.value.sourceIdentity,
+          epoch: request.value.epoch,
+          settingsRevision: request.value.settingsRevision,
+          target: {
+            mode: target.mode,
+            colorSpace: target.colorSpace,
+            peak: target.peak,
+            headroom: target.headroom,
+            generation: target.generation,
+          },
+          quality: rendered.quality,
+          arithmeticPolicy: rendered.arithmeticPolicy,
+          width,
+          height,
+        }
+        raw.commit(recoverySnapshot)
+      } else {
+        const retaining = performance.now(),
+          completed = this.completeRetainedFrame(retained, current)
+        timings.retainedCopyMs += performance.now() - retaining
+        timings.retainedDrawMs += completed.drawMs
+        timings.retainedReadMs = completed.readMs
+        if (retained && current()) {
+          this.recovery.clear()
+          void this.recovery.releaseTransient()
+        }
+      }
+      if (!current()) return false
+    } finally {
+      // A staging failure still owns the submitted source blit. Drain that
+      // failure path before its source or next render can be released.
+      try {
+        if (!rendered.completionFenced)
+          await deviceQueue.onSubmittedWorkDone().catch(() => undefined)
+      } finally {
+        retained?.release()
+        raw?.release()
+      }
     }
-    const encoder = this.device!.createCommandEncoder()
-    const pass = encoder.beginRenderPass({
-      timestampWrites: this.gpuTimings?.writes(gpuFrame, 'blit'),
-      colorAttachments: [
-        { view: this.context!.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store' },
-      ],
-    })
-    pass.setPipeline(this.blit!)
-    pass.setBindGroup(0, this.blitGroup!)
-    pass.draw(3)
-    pass.end()
-    this.device!.queue.submit([encoder.finish()])
-    timings.blitSubmissionMs = performance.now() - submitting
-    // Copy before Chromium can expire the drawing buffer, then fence the image's
-    // final blit explicitly. Analysis readback remains independently scheduled.
-    const copying = performance.now()
-    this.retainCompletedFrame()
-    timings.retainedCopyMs = performance.now() - copying
-    const fencing = performance.now()
-    await this.device!.queue.onSubmittedWorkDone()
-    timings.finalBlitFenceMs = performance.now() - fencing
-    if (this.abort.signal.aborted || this.requestSuperseded(request) || !confirmed()) return false
     // These elapsed CPU stages include scheduling/queue waits, not hardware timestamps.
     timings.totalMs = performance.now() - rendered.startedAt
     timings.unattributedMs = Math.max(
@@ -1480,25 +2433,23 @@ export class HdrPresenter {
     Object.assign(this.canvas.dataset, {
       renderedTiles: String(this.renderedTiles),
       cachedTiles: String(this.cache!.size),
-      cacheBytes: String(
-        hdrPresentationMemory(
-          this.frame!.width,
-          this.frame!.height,
-          width,
-          height,
-          this.device!.limits.maxTextureArrayLayers,
-          this.gpuTimings ? HDR_GPU_TIMING_BYTES : 0,
-          this.presentationHeadroom.reservationBytes,
-        ).cacheBytes,
-      ),
+      cacheBytes: String(rendered.cacheBytes),
       presentationSerial: String(Number(this.canvas.dataset.presentationSerial ?? 0) + 1),
       completedEditSerial: String(inputSerial),
+      retainedPresentationBytes: String(presentationCache.bytes),
       presentedSourceIdentity: request.value.sourceIdentity,
       presentedEpoch: String(request.value.epoch),
       displayedAnalysisKey: rendered.histogram.key,
       quality: rendered.quality,
       presentedPolicy:
         rendered.quality === 'interactive' ? ACES_INTERACTIVE_PREVIEW_VERSION : 'reference',
+      presentedArithmeticPolicy: rendered.arithmeticPolicy,
+      rangeArithmeticPolicy: rendered.rangeArithmeticPolicy ?? '',
+      retentionMethod: rendered.retentionMethod,
+      retentionWillReadFrequently: raw
+        ? 'deferred-cpu-conversion'
+        : String(retained?.context.getContextAttributes().willReadFrequently),
+      recoveryPolicy: raw ? HDR_RECOVERY_VERSION : 'canvas2d-cpu-staging-v1',
       presentationIntent: request.intent,
       targetGeneration: String(target.generation),
       editing: 'ready',
@@ -1517,8 +2468,11 @@ export class HdrPresenter {
     if (request.value.settingsRevision === null)
       delete this.canvas.dataset.presentedSettingsRevision
     else this.canvas.dataset.presentedSettingsRevision = String(request.value.settingsRevision)
+    if (recoverySnapshot) this.canvas.dataset.recoverySnapshot = JSON.stringify(recoverySnapshot)
+    else delete this.canvas.dataset.recoverySnapshot
     this.nativePresented = true
-    if (INTERACTIVE_PRECISION) {
+    this.invalidateFirstSurface()
+    if (this.interactivePrecision) {
       this.gestureHandoff.published(
         request.value.context,
         request.value.epoch,
@@ -1530,7 +2484,7 @@ export class HdrPresenter {
       )
       this.canvas.dataset.gestureHandoff = this.gestureHandoff.phase
     }
-    this.hideCachedPresentation()
+    if (!reuseCanvas) this.hideCachedPresentation()
     const completedIdentity = this.presentationIdentity(request.value)
     if (rendered.quality === 'normal' && completedIdentity) {
       this.completedSurface = {
@@ -1540,14 +2494,34 @@ export class HdrPresenter {
       }
     }
     this.canvas.dataset.presentationCacheEligible = String(!!this.completedSurface)
-    if (this.retainedCanvas)
+    if (this.retainedCanvas && retained)
       this.retainedCanvas.dataset.presentationSerial = this.canvas.dataset.presentationSerial
+    this.maskKey =
+      rendered.quality === 'normal'
+        ? JSON.stringify([
+            this.frame?.cpuSource,
+            request.value.sourceIdentity,
+            request.value.settingsRevision,
+            request.value.mode === 'before' ? neutralAdjustments : request.value.parameters,
+            maskPixelTarget(request.value.target),
+            request.value.mode,
+            request.value.ranges,
+            rendered.quality,
+          ])
+        : undefined
     this.loaded()
-    this.requestHistogram(rendered.histogram)
+    this.requestHistogram(rendered.histogram, request.intent === 'navigation')
     return true
   }
-  private requestHistogram(snapshot: HistogramRequest) {
-    if (snapshot.key === this.publishedStatisticsKey) {
+  private requestHistogram(snapshot: HistogramRequest, navigation: boolean) {
+    this.latestHistogram = snapshot
+    const published = snapshot.key === this.publishedStatisticsKey
+    // A view change does not change this analysis. Preserve its settled curve;
+    // real adjustment draws still publish their matching input serial.
+    if (
+      published &&
+      (navigation || snapshot.presentation.inputSerial === this.publishedStatisticsSerial)
+    ) {
       this.histogramQueue.invalidate()
       this.requestedStatisticsKey = snapshot.key
       this.canvas.dataset.analysisPending = 'false'
@@ -1560,6 +2534,8 @@ export class HdrPresenter {
       this.publishHistogram(snapshot, this.statisticsCache.result)
       return
     }
+    // A published key without its matching owned result cannot satisfy a newer draw.
+    if (published) this.requestedStatisticsKey = ''
     if (snapshot.key === this.requestedStatisticsKey) return
     this.requestedStatisticsKey = snapshot.key
     this.histogramQueue.request(snapshot, 'interactive')
@@ -1602,7 +2578,10 @@ export class HdrPresenter {
       )
       if (this.histogramQueue.finish(request) && !this.abort.signal.aborted) {
         this.statisticsCache = { key, result }
-        this.publishHistogram(request.value, result)
+        const latest = this.latestHistogram
+        // The key includes every histogram input; view-only draws reuse its real
+        // result while retaining the serial of the latest completed presentation.
+        this.publishHistogram(latest?.key === key ? latest : request.value, result)
       }
     } catch (error) {
       this.histogramQueue.finish(request)
@@ -1635,9 +2614,9 @@ export class HdrPresenter {
     this.statistics(statistics)
   }
 
-  private retainCompletedFrame() {
-    const surface = this.retainedCanvas
-    if (!surface) return
+  private stageCompletedFrame(): RetainedFrameCopy | undefined {
+    if (!this.retainedCanvas) return undefined
+    const surface = (this.retainedStaging ??= document.createElement('canvas'))
     const scale = Math.min(1, 1024 / Math.max(this.canvas.width, this.canvas.height))
     const width = Math.max(1, Math.round(this.canvas.width * scale)),
       height = Math.max(1, Math.round(this.canvas.height * scale))
@@ -1645,12 +2624,110 @@ export class HdrPresenter {
       surface.width = width
       surface.height = height
     }
-    const context = surface.getContext('2d', { willReadFrequently: true })!
-    context.drawImage(this.canvas, 0, 0, width, height)
-    // Complete the copy before the WebGPU drawing buffer expires or is lost.
-    // The retained surface is at most 4 MiB and never enters analysis.
+    const context = surface.getContext('2d', {
+      colorSpace: 'srgb',
+      willReadFrequently: true,
+    })!
+    let finish!: () => void
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    let released = false
+    const copy: RetainedFrameCopy = {
+      method: 'cpu-staging',
+      surface,
+      context,
+      width,
+      height,
+      drawMs: 0,
+      readbackComplete: false,
+      finished,
+      release: () => {
+        if (released) return
+        released = true
+        // Discard unflushed drawing commands and their source owner after an
+        // interrupted frame. Never read or commit a stale stage to do cleanup.
+        try {
+          if (!copy.readbackComplete) {
+            surface.width = 0
+            surface.height = 0
+          }
+        } finally {
+          if (this.retainedCopy === copy) this.retainedCopy = undefined
+          finish()
+        }
+      },
+    }
+    this.retainedCopy = copy
+    const drawing = performance.now()
+    try {
+      context.drawImage(this.canvas, 0, 0, width, height)
+    } catch (error) {
+      // Return the owner even if staging throws, so present drains the captured
+      // source queue before discarding the private canvas and releasing load.
+      copy.drawFailure = { error }
+    }
+    copy.drawMs = performance.now() - drawing
+    return copy
+  }
+  private async releaseRetainedStaging() {
+    if (this.retainedCopy) await this.retainedCopy.finished
+    if (this.retainedStaging) {
+      this.retainedStaging.width = 0
+      this.retainedStaging.height = 0
+    }
+    this.retainedStaging = undefined
+  }
+  private completeRetainedFrame(copy: RetainedFrameCopy | undefined, current: () => boolean) {
+    const surface = this.retainedCanvas
+    if (!copy || !surface) return { drawMs: 0, readMs: 0 }
+    if (copy.context.isContextLost()) throw new Error('The recovery staging context was lost.')
+    const reading = performance.now()
+    copy.context.getImageData(0, 0, 1, 1)
+    if (copy.context.isContextLost()) throw new Error('The recovery staging readback was lost.')
+    copy.readbackComplete = true
+    let readMs = performance.now() - reading
+    if (!current()) return { drawMs: 0, readMs }
+    if (surface.width !== copy.width || surface.height !== copy.height) {
+      surface.width = copy.width
+      surface.height = copy.height
+    }
+    const context = surface.getContext('2d', { colorSpace: 'srgb', willReadFrequently: true })!
+    const drawing = performance.now()
+    context.drawImage(copy.surface, 0, 0)
+    const drawMs = performance.now() - drawing
+    const committing = performance.now()
     context.getImageData(0, 0, 1, 1)
-    surface.dataset.presentationSerial = this.canvas.dataset.presentationSerial
+    readMs += performance.now() - committing
+    return { drawMs, readMs }
+  }
+  /** Materialize before a DOM ref is cleared; no lost-device access is needed. */
+  recoverCompletedFrame(surface = this.retainedCanvas): boolean {
+    if (!surface || this.canvas.dataset.editing !== 'ready') return false
+    const snapshot = this.recovery.snapshot
+    if (this.canvas.dataset.retentionMethod !== 'raw-half-cpu')
+      return surface.dataset.presentationSerial === this.canvas.dataset.presentationSerial
+    if (
+      !snapshot ||
+      String(snapshot.serial) !== this.canvas.dataset.completedEditSerial ||
+      String(snapshot.presentationSerial) !== this.canvas.dataset.presentationSerial ||
+      snapshot.sourceIdentity !== this.canvas.dataset.presentedSourceIdentity ||
+      String(snapshot.epoch) !== this.canvas.dataset.presentedEpoch ||
+      String(snapshot.target.generation) !== this.canvas.dataset.targetGeneration
+    )
+      return false
+    if (
+      surface.dataset.presentationSerial === String(snapshot.presentationSerial) &&
+      surface.dataset.recoverySnapshot === this.canvas.dataset.recoverySnapshot &&
+      surface.dataset.recoveryMaterialized === 'true'
+    )
+      return true
+    try {
+      return this.recovery.recover(surface)
+    } catch (error) {
+      this.canvas.dataset.recoveryError = String(error).slice(0, 512)
+      return false
+    }
   }
   dispose() {
     if (this.abort.signal.aborted) return
@@ -1665,12 +2742,12 @@ export class HdrPresenter {
       pending = this.queue.hasPending,
       restoring = !!this.restoring,
       identityMatches = !!completed && currentIdentity?.key === completed.identity.key,
-      cacheEligible = this.presentationHeadroom.eligible,
-      reservationBytes = this.presentationHeadroom.reservationBytes,
+      cacheEligible = this.presentationHeadroom?.eligible ?? false,
+      reservationBytes = this.presentationHeadroom?.reservationBytes ?? 0,
       bytesBefore = presentationCache.bytes
-    let departureReason: HdrPresentationDepartureReason = !PRESENTATION_CACHE
+    let departureReason: HdrPresentationDepartureReason = !this.previewPolicy.presentationCache
       ? 'disabled'
-      : this.presentationHeadroom.bypassed
+      : this.presentationHeadroom?.bypassed
         ? 'memory-bypass'
         : !cacheEligible
           ? 'closed'
@@ -1692,12 +2769,29 @@ export class HdrPresenter {
     this.releaseHistogramActivity?.()
     this.releaseHistogramActivity = undefined
     this.abort.abort()
+    const maskDrained = this.maskReservation.cancelAndDrain()
+    this.invalidateFirstSurface()
+    const retentionDrained = Promise.all([
+      maskDrained,
+      this.releaseRetainedStaging(),
+      this.recovery.dispose(),
+      this.loadWork?.catch(() => undefined),
+      this.firstSurfaceWork?.catch(() => undefined),
+    ]).then(async () => {
+      await this.releaseSource()
+      this.cachedPaintReceipt = undefined
+      this.context?.unconfigure()
+    })
+    const retired = retentionDrained.finally(() => retiredPreviewOwners.delete(retired))
+    this.retirement = retired
+    retiredPreviewOwners.add(retired)
     if (this.deviceObserver) this.deviceObserver.lost = undefined
     this.hideCachedPresentation()
     this.statisticsPending(false)
-    this.releaseBitmaps?.()
+    const releaseBitmaps = this.releaseBitmaps
+    this.releaseBitmaps = undefined
+    void retentionDrained.then(releaseBitmaps, releaseBitmaps)
     this.ready = false
-    this.texture?.destroy()
     this.cacheTexture?.destroy()
     this.lookup?.destroy()
     this.jobs?.destroy()
@@ -1745,9 +2839,7 @@ export class HdrPresenter {
       bytesBefore,
       bytesAfter: presentationCache.bytes,
     })
-    this.presentationHeadroom.dispose()
+    this.presentationHeadroom?.dispose()
     this.invalidate()
-    this.renderingWorker.terminate()
-    this.context?.unconfigure()
   }
 }

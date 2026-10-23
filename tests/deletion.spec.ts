@@ -13,7 +13,7 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import type { PreviewProcessor } from '../src/main/preview-types'
 
 const fixture = resolve('tests/fixtures/photos/alpine-lake.jpg')
@@ -178,23 +178,13 @@ test('cancellation waits for the current Trash move and queues subsequent confir
   }
 })
 
-test('migrates v1 and reconciles interrupted removals without erasing OS-restored bundles', async () => {
+test('current catalogs reconcile interrupted removals without erasing OS-restored bundles', async () => {
   const t = await setup()
   try {
     await populate(t.service, t.root)
     const photos = t.service.list().photos
     await t.service.close()
     const library = join(t.root, 'library')
-    const db = new DatabaseSync(join(library, 'catalog.sqlite'))
-    // Simulate the old schema, then exercise the real migration.
-    db.exec(
-      'DROP TABLE removals; ALTER TABLE photos DROP COLUMN processing_identity; PRAGMA user_version = 1;',
-    )
-    db.close()
-    const migrated = new PhotoLibrary(library, preview, () => {})
-    await migrated.open()
-    expect(migrated.list().total).toBe(3)
-    await migrated.close()
     const journal = new DatabaseSync(join(library, 'catalog.sqlite'))
     for (const photo of photos)
       journal

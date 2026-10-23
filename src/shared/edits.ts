@@ -9,6 +9,8 @@ import { automaticLensSettings, correctionKinds, type LensSettings } from './len
 import type { ProcessingIdentity } from './hdr'
 
 export const SETTINGS_VERSION = 7
+export type EditFlushScope = { kind: 'all' } | { kind: 'photos'; photoIds: string[] }
+
 export interface EditSettings extends AdjustmentParameters {
   version: 7
   processing: ProcessingIdentity

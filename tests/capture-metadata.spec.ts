@@ -1,10 +1,11 @@
+import { seedFixtureEdits } from './catalog-fixture.helpers'
 import { test, expect } from '@playwright/test'
 import { copyFile, mkdtemp, rm, writeFile, readFile, access, rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { PreviewProcess } from '../src/main/preview-process'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { detectCaptureSequences, type CaptureMetadata } from '../src/shared/capture-sequence'
 import { sequenceMetadata } from './capture.helpers'
 import { stackFixture, finishTask } from './stack.helpers'
@@ -80,7 +81,6 @@ test('successful shuffled imports reconcile cached sequences across batches and 
     undefined,
     undefined,
     undefined,
-    undefined,
     {
       inspectCapture: async () => {
         throw new Error('Committed metadata must be reused.')
@@ -99,7 +99,7 @@ test('successful shuffled imports reconcile cached sequences across batches and 
     await commit(library, await scan(library, [paths[1], paths[0]]))
     const first = library.listStacks().stacks[0]
     expect(first).toMatchObject({ count: 2, expanded: false, origin: 'capture' })
-    library.setStackExpanded(first.id, true, first.revision)
+    await library.setStackExpanded(first.id, true, first.revision)
     await commit(library, await scan(library, [paths[3], paths[2]]))
     const extended = library.listStacks().stacks[0]
     expect(extended).toMatchObject({
@@ -109,13 +109,13 @@ test('successful shuffled imports reconcile cached sequences across batches and 
       expanded: true,
     })
     const removedId = library.getStackMembers(first.id).photos[2].id
-    library.removeFromStack(removedId, extended.revision)
+    await library.removeFromStack(removedId, extended.revision)
     await commit(library, await scan(library, [paths[4]]))
     expect(library.listStacks().stacks[0].count).toBe(3)
     expect((await finishTask(library, library.groupCaptureSequences())).status).toBe('completed')
     expect(library.getPhotoStack(removedId)).toBeNull()
     const current = library.listStacks().stacks[0]
-    library.ungroupStack(current.id, current.revision)
+    await library.ungroupStack(current.id, current.revision)
     await finishTask(library, library.groupCaptureSequences())
     expect(library.listStacks().stacks).toEqual([])
   } finally {
@@ -189,7 +189,7 @@ test('a scan error remains visible and untouched automatic membership does not a
   const t = await stackFixture(4)
   try {
     for (let i = 0; i < 4; i++) t.capture(i, sequenceMetadata(i + 1))
-    const manual = t.library.groupPhotos(
+    const manual = await t.library.groupPhotos(
       t.photos.slice(0, 2).map((p) => p.id),
       t.photos[0].id,
       t.library.listStacks().revision,
@@ -336,6 +336,7 @@ async function mergeCaptureFixture(processor: CaptureMetadataProcessor) {
       t.db
         .prepare('INSERT INTO processing VALUES (?, ?)')
         .run(photo.id, JSON.stringify({ metadata, settings: noLensSettings, revision: 0 }))
+      seedFixtureEdits(t.db)
       t.capture(index, sequenceMetadata(index + 1))
     }
     ;(t.library as unknown as { captureProcessor: CaptureMetadataProcessor }).captureProcessor =

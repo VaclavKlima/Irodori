@@ -1,5 +1,6 @@
 import { app, powerMonitor } from 'electron'
 import { createAppWindow } from './window-presentation'
+import { installWaylandDisplayRefresh } from './wayland-display'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -42,6 +43,7 @@ void app
         webSecurity: true,
       },
     })
+    installWaylandDisplayRefresh(window)
     const allowed = (
       contents: Electron.WebContents | null,
       permission: string,

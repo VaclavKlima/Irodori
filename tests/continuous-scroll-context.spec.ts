@@ -17,7 +17,7 @@ test('gallery summaries and 60-record chunks share catalog and stack revisions w
       index: 75,
       photo: target,
     })
-    const stack = t.library.groupPhotos(
+    const stack = await t.library.groupPhotos(
       t.photos.slice(0, 125).map((p) => p.id),
       t.photos[0].id,
       summary.revision,
@@ -32,7 +32,7 @@ test('gallery summaries and 60-record chunks share catalog and stack revisions w
     const cover = t.library.locateGalleryPhoto(t.photos[1].id, 0, collapsed)!
     expect(cover.entries[cover.index - cover.offset].photo.id).toBe(stack.coverId)
     expect(t.library.getGalleryRange(stack.coverId, stack.coverId)).toHaveLength(125)
-    t.library.setStackExpanded(stack.id, true, stack.revision)
+    await t.library.setStackExpanded(stack.id, true, stack.revision)
     expect(() => t.library.locateGalleryPhoto(target.id, 0, collapsed)).toThrow(
       CollectionChangedError,
     )

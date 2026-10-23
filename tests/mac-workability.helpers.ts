@@ -92,6 +92,57 @@ export async function sustainedEditorInput(
           expectedSourceIdentity.startsWith(`luma-photo://library/${photoId}/`) &&
           Number.isFinite(baselineEpoch)
 
+        const memoryGeometry = { width: canvas.width, height: canvas.height }
+        const readMemory = () => {
+          const value = (key: string) => {
+            const raw = canvas.dataset[key]
+            return raw === undefined || raw.trim() === '' ? Number.NaN : Number(raw)
+          }
+          return {
+            allocatedRamBytes: value('allocatedRamBytes'),
+            allocatedGpuBytes: value('allocatedGpuBytes'),
+            ramBudgetBytes: value('ramBudgetBytes'),
+            vramBudgetBytes: value('vramBudgetBytes'),
+            resourcePolicyRevision: value('resourcePolicyRevision'),
+            allocatedBytes: value('allocatedBytes'),
+          }
+        }
+        const admittedMemory = readMemory()
+        let peakAllocatedRamBytes = Number.NEGATIVE_INFINITY,
+          peakAllocatedGpuBytes = Number.NEGATIVE_INFINITY,
+          peakAllocatedBytes = Number.NEGATIVE_INFINITY,
+          memoryObservationCount = 0,
+          invalidMemoryObservations = 0
+        let peakRamWitness: Record<string, unknown> | undefined,
+          peakGpuWitness: Record<string, unknown> | undefined
+        const observeMemory = () => {
+          const memory = readMemory(),
+            witness = {
+              at: performance.now(),
+              sourceIdentity: canvas.dataset.presentedSourceIdentity,
+              width: canvas.width,
+              height: canvas.height,
+              ...memory,
+            }
+          memoryObservationCount++
+          if (
+            witness.sourceIdentity !== expectedSourceIdentity ||
+            witness.width !== memoryGeometry.width ||
+            witness.height !== memoryGeometry.height ||
+            !Object.values(memory).every(Number.isSafeInteger) ||
+            memory.resourcePolicyRevision !== admittedMemory.resourcePolicyRevision ||
+            memory.ramBudgetBytes !== admittedMemory.ramBudgetBytes ||
+            memory.vramBudgetBytes !== admittedMemory.vramBudgetBytes
+          )
+            invalidMemoryObservations++
+          if (memory.allocatedRamBytes > peakAllocatedRamBytes) peakRamWitness = witness
+          if (memory.allocatedGpuBytes > peakAllocatedGpuBytes) peakGpuWitness = witness
+          peakAllocatedRamBytes = Math.max(peakAllocatedRamBytes, memory.allocatedRamBytes)
+          peakAllocatedGpuBytes = Math.max(peakAllocatedGpuBytes, memory.allocatedGpuBytes)
+          peakAllocatedBytes = Math.max(peakAllocatedBytes, memory.allocatedBytes)
+        }
+        observeMemory()
+
         const inputs: {
           serial: number
           value: number
@@ -193,6 +244,7 @@ export async function sustainedEditorInput(
           previousRequestedSerial = Number(canvas.dataset.requestedSerial),
           lastPresentedInputAt = performance.now()
         const observeFrame = () => {
+          observeMemory()
           const editSerial = Number(canvas.dataset.completedEditSerial)
           if (seenFrames.has(editSerial)) return
           const input = requestedInputs.get(editSerial)
@@ -385,6 +437,11 @@ export async function sustainedEditorInput(
             'data-requested-serial',
             'data-completed-edit-serial',
             'data-gpu-frame-timings',
+            'data-allocated-ram-bytes',
+            'data-allocated-gpu-bytes',
+            'data-ram-budget-bytes',
+            'data-vram-budget-bytes',
+            'data-resource-policy-revision',
           ],
         })
         const histogramObserver = new MutationObserver(observeHistogram)
@@ -476,6 +533,7 @@ export async function sustainedEditorInput(
           error = String(failure)
         } finally {
           slider.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+          observeMemory()
           canvasObserver.disconnect()
           histogramObserver.disconnect()
           pacer?.stop()
@@ -580,6 +638,22 @@ export async function sustainedEditorInput(
         return {
           label,
           zoom,
+          allocatedRamBytes: invalidMemoryObservations ? Number.NaN : peakAllocatedRamBytes,
+          allocatedGpuBytes: invalidMemoryObservations ? Number.NaN : peakAllocatedGpuBytes,
+          ramBudgetBytes: admittedMemory.ramBudgetBytes,
+          vramBudgetBytes: admittedMemory.vramBudgetBytes,
+          resourcePolicyRevision: admittedMemory.resourcePolicyRevision,
+          allocatedBytes: peakAllocatedBytes,
+          resourceMemory: {
+            scope:
+              'Observed planned peaks for this source and fixed canvas geometry; not physical residency.',
+            sourceIdentity: expectedSourceIdentity,
+            geometry: memoryGeometry,
+            observationCount: memoryObservationCount,
+            invalidObservations: invalidMemoryObservations,
+            peakRamWitness,
+            peakGpuWitness,
+          },
           epochMs: performance.timeOrigin,
           requestedHz: frequency,
           pacingMode: options.pacing ?? 'legacy-native-raf',

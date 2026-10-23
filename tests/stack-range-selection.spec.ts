@@ -11,12 +11,12 @@ for (const expanded of [false, true]) {
     try {
       const ids = t.photos.map((p) => p.id)
       for (const members of [ids.slice(1, 4), ids.slice(5, 9)]) {
-        const stack = t.library.groupPhotos(
+        const stack = await t.library.groupPhotos(
           members,
           members.at(-1)!,
           t.library.listStacks().revision,
         )
-        if (expanded) t.library.setStackExpanded(stack.id, true, stack.revision)
+        if (expanded) await t.library.setStackExpanded(stack.id, true, stack.revision)
       }
       const cases: [string, string, string[]][] = [
         [ids[8], ids[8], [ids[8], ids[5], ids[6], ids[7]]],
@@ -48,10 +48,14 @@ test('member-only ranges stay narrow; hidden boundaries use covers and missing a
   const t = await stackFixture(7)
   try {
     const ids = t.photos.map((p) => p.id)
-    const stack = t.library.groupPhotos(ids.slice(1, 6), ids[5], t.library.listStacks().revision)
+    const stack = await t.library.groupPhotos(
+      ids.slice(1, 6),
+      ids[5],
+      t.library.listStacks().revision,
+    )
     const all = [ids[5], ids[1], ids[2], ids[3], ids[4]]
     expect(t.library.getGalleryRange(ids[1], ids[4]).map((p) => p.id)).toEqual(all)
-    const expanded = t.library.setStackExpanded(stack.id, true, stack.revision)
+    const expanded = await t.library.setStackExpanded(stack.id, true, stack.revision)
     for (const [from, to, expected] of [
       [ids[2], ids[4], [ids[2], ids[3], ids[4]]],
       [ids[2], ids[2], [ids[2]]],
@@ -62,7 +66,7 @@ test('member-only ranges stay narrow; hidden boundaries use covers and missing a
       expect(t.library.getGalleryRange(to, from).map((p) => p.id)).toEqual(expected)
     }
     expect(t.library.getGalleryRange('f'.repeat(64), ids[3]).map((p) => p.id)).toEqual([ids[3]])
-    t.library.setStackExpanded(stack.id, false, expanded.revision)
+    await t.library.setStackExpanded(stack.id, false, expanded.revision)
     expect(t.library.getGalleryRange('f'.repeat(64), ids[5]).map((p) => p.id)).toEqual(all)
     expect(() => t.library.getGalleryRange(ids[0], 'f'.repeat(64))).toThrow('unavailable')
     expect(() => t.library.getGalleryRange('../photo', ids[5])).toThrow('Invalid')
@@ -78,13 +82,17 @@ test('groups larger than two chunks resolve completely while member-only and ind
     const ids = t.photos.map((p) => p.id)
     const flatBefore = t.library.getBrowseRange({ search: '', grouping: 'date' }, ids[0], ids[129])
     expect(flatBefore.length).toBeGreaterThan(0)
-    const stack = t.library.groupPhotos(ids.slice(5), ids[129], t.library.listStacks().revision)
+    const stack = await t.library.groupPhotos(
+      ids.slice(5),
+      ids[129],
+      t.library.listStacks().revision,
+    )
     const ordered = [0, 60, 120]
       .flatMap((offset) => t.library.getStackMembers(stack.id, offset).photos)
       .map(({ id, filename }) => ({ id, filename }))
     expect(ordered).toHaveLength(125)
     expect(t.library.getGalleryRange(ids[129], ids[129])).toEqual(ordered)
-    t.library.setStackExpanded(stack.id, true, stack.revision)
+    await t.library.setStackExpanded(stack.id, true, stack.revision)
     expect(t.library.listGallery(60).entries[0].memberIndex).toBe(60)
     expect(t.library.getGalleryRange(ids[129], ordered[58].id)).toEqual(ordered)
     const narrow = ordered.slice(58, 123)
@@ -107,7 +115,7 @@ test('capture and merge covers use current membership, including older results a
     expect(t.store.reconcileCaptures()).toBe(1)
     expect(t.library.getPhotoStack(ids[0])?.origin).toBe('capture')
     expect(t.library.getGalleryRange(ids[0], ids[0]).map((p) => p.id)).toEqual(ids.slice(0, 3))
-    t.library.groupPhotos(ids.slice(3, 6), ids[5], t.library.listStacks().revision)
+    await t.library.groupPhotos(ids.slice(3, 6), ids[5], t.library.listStacks().revision)
     for (const index of [6, 7]) {
       const manifest = {
         photo: { ...t.photos[index], assetKind: 'derived' },
@@ -132,8 +140,8 @@ test('capture and merge covers use current membership, including older results a
       ...ids.slice(3, 6),
       ...ids.slice(0, 3),
     ])
-    const changed = t.library.removeFromStack(ids[1], stack.revision)!
-    const cover = t.library.setStackCover(stack.id, ids[6], changed.revision)
+    const changed = (await t.library.removeFromStack(ids[1], stack.revision))!
+    const cover = await t.library.setStackCover(stack.id, ids[6], changed.revision)
     expect(t.library.getGalleryRange(ids[6], ids[6]).map((p) => p.id)).toEqual([
       ids[6],
       ids[7],
@@ -157,11 +165,15 @@ test('deletion moves exactly the frozen range bundles despite later regrouping a
     await mkdir(sources)
     for (const [index, photo] of t.photos.entries())
       await writeFile(join(sources, photo.filename), `original-${index}`)
-    const stack = t.library.groupPhotos(ids.slice(2, 6), ids[5], t.library.listStacks().revision)
+    const stack = await t.library.groupPhotos(
+      ids.slice(2, 6),
+      ids[5],
+      t.library.listStacks().revision,
+    )
     const frozen = t.library.getGalleryRange(ids[7], ids[5]).map((p) => p.id)
     expect(frozen).toEqual([ids[7], ids[6], ids[5], ids[2], ids[3], ids[4]])
-    t.library.ungroupStack(stack.id, stack.revision)
-    t.library.groupPhotos(ids.slice(1, 6), ids[5], t.library.listStacks().revision)
+    await t.library.ungroupStack(stack.id, stack.revision)
+    await t.library.groupPhotos(ids.slice(1, 6), ids[5], t.library.listStacks().revision)
     expect(await finishTask(t.library, t.library.deletePhotos(frozen)!)).toMatchObject({
       status: 'completed',
       items: { completed: 6, total: 6 },
@@ -194,7 +206,7 @@ test('range deletion restores a failed cover and waits for an in-flight move bef
   })
   try {
     const ids = t.photos.map((p) => p.id)
-    const stack = t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
+    const stack = await t.library.groupPhotos(ids, ids[0], t.library.listStacks().revision)
     let attempts = 0
     await t.restart(async (path) => {
       if (++attempts === 1) throw new Error('Trash unavailable for the cover')

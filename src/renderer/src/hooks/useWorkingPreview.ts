@@ -84,6 +84,7 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
                 prepared.current = true
                 setError('')
                 setWorking({
+                  cpuSource: result.cpuSource,
                   identity: `${asset.url}:${asset.sha256}`,
                   data: new Float32Array(0),
                   width: result.width,

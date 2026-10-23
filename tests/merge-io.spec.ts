@@ -1,14 +1,29 @@
 import { test, expect } from '@playwright/test'
 import { createHash } from 'node:crypto'
-import { mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises'
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import type { PreparedSource } from '../src/main/merge/prepare'
 import { bandData, mergeReadBytes, resetMergeReads } from '../src/main/merge/sampling'
 import { identityTransform } from '../src/main/merge/alignment'
 import { nativePlane } from '../src/main/merge/native-plane'
 import { mergeReadMeasurements } from '../src/main/merge/read-metrics'
-import { verifyMaster, type MasterVerificationMeasurements } from '../src/main/merge/store'
+import {
+  recoverMerges,
+  verifyMaster,
+  type MasterVerificationMeasurements,
+} from '../src/main/merge/store'
 import {
   MERGE_LIMITS,
   MERGE_PIPELINE,
@@ -295,6 +310,185 @@ test('master verification attributes disjoint work without changing partial-stri
     expect(manifest).toEqual(frozen)
     expect(await readFile(path)).toEqual(f.bytes)
 
+    // A rejected retired publication must keep every recovery byte and journal
+    // row, rather than being renamed, published or mistaken for disposable data.
+    for (const retiredVersion of [
+      'hdr-source-v1',
+      'sony-merge-v1',
+      'sony-merge-v2',
+      'sony-merge-v3',
+      'retired-merge-format',
+    ]) {
+      const retired = structuredClone(manifest),
+        unsupportedReason =
+          retiredVersion === 'hdr-source-v1'
+            ? 'Unsupported HDR capture source version.'
+            : 'Unsupported merge version.'
+      if (retiredVersion === 'hdr-source-v1')
+        Object.assign(retired.asset.source, { version: retiredVersion })
+      else {
+        Object.assign(retired, { version: retiredVersion })
+        Object.assign(retired.recipe, { version: retiredVersion })
+      }
+      const recoveryRoot = await mkdtemp(join(tmpdir(), 'luma-retired-publication-'))
+      let db: DatabaseSync | undefined
+      try {
+        const stage = join(recoveryRoot, 'merge-publications', id),
+          originals = join(recoveryRoot, 'originals'),
+          names = ['linear.f32', 'motion.mask', 'thumb.jpg', 'preview.jpg', 'manifest.json'],
+          retiredBytes = Buffer.from(JSON.stringify(retired)),
+          retiredHash = createHash('sha256').update(retiredBytes).digest('hex')
+        await mkdir(stage, { recursive: true })
+        await mkdir(originals)
+        for (const name of names.slice(0, -1)) await cp(join(directory, name), join(stage, name))
+        await writeFile(join(stage, 'manifest.json'), retiredBytes)
+        const before = await Promise.all(names.map((name) => readFile(join(stage, name))))
+        db = new DatabaseSync(join(recoveryRoot, 'catalog.sqlite'))
+        db.exec(
+          'CREATE TABLE merge_publications (id TEXT PRIMARY KEY, manifest_sha256 TEXT NOT NULL)',
+        )
+        db.prepare('INSERT INTO merge_publications VALUES (?, ?)').run(id, retiredHash)
+        let publications = 0
+        const recover = () =>
+          recoverMerges(recoveryRoot, db!, () => {
+            publications++
+          })
+        await expect(verifyMaster(stage, retired)).rejects.toThrow(unsupportedReason)
+        expect(await recover()).toEqual([
+          {
+            id,
+            manifestSha256: retiredHash,
+            filename: retired.photo.filename,
+            reason: expect.stringContaining(unsupportedReason),
+          },
+        ])
+        // Invalid common geometry must fail before a source is opened or staging
+        // storage allocated, even when the version itself is unsupported.
+        const heldMaster = join(stage, 'linear.held')
+        await rename(join(stage, 'linear.f32'), heldMaster)
+        try {
+          const malformed: Array<(value: MergeManifest) => void> = [
+            (value) => {
+              value.asset.width = 1.5
+              value.recipe.crop.width = 1.5
+            },
+            (value) => {
+              value.asset.height = 0
+              value.recipe.crop.height = 0
+            },
+            (value) => {
+              value.asset.byteLength = 2 * 1024 ** 3
+            },
+            (value) => {
+              value.asset.strips[0].sha256 = 'invalid'
+            },
+            (value) => {
+              value.recipe.maskDimensions.width = 0
+            },
+          ]
+          for (const change of malformed) {
+            const invalid = structuredClone(retired)
+            change(invalid)
+            const bytes = Buffer.from(JSON.stringify(invalid))
+            await writeFile(join(stage, 'manifest.json'), bytes)
+            db.prepare('UPDATE merge_publications SET manifest_sha256 = ? WHERE id = ?').run(
+              createHash('sha256').update(bytes).digest('hex'),
+              id,
+            )
+            await expect(recover()).rejects.toThrow(/dimensions|strip manifest|merge manifest/)
+          }
+        } finally {
+          await rename(heldMaster, join(stage, 'linear.f32'))
+          await writeFile(join(stage, 'manifest.json'), retiredBytes)
+          db.prepare('UPDATE merge_publications SET manifest_sha256 = ? WHERE id = ?').run(
+            retiredHash,
+            id,
+          )
+        }
+        // Correct strip, whole-file and journal hashes cannot excuse NaN pixels.
+        const nonfinite = Buffer.from(f.bytes),
+          invalidPixels = structuredClone(retired)
+        nonfinite.writeFloatLE(NaN, 0)
+        invalidPixels.asset.sha256 = createHash('sha256').update(nonfinite).digest('hex')
+        for (const [index, strip] of invalidPixels.asset.strips.entries()) {
+          const bytes = nonfinite.subarray(
+            index * f.source.width * 64 * 16,
+            Math.min(f.source.height, (index + 1) * 64) * f.source.width * 16,
+          )
+          strip.sha256 = createHash('sha256').update(bytes).digest('hex')
+        }
+        const invalidBytes = Buffer.from(JSON.stringify(invalidPixels))
+        await writeFile(join(stage, 'linear.f32'), nonfinite)
+        await writeFile(join(stage, 'manifest.json'), invalidBytes)
+        db.prepare('UPDATE merge_publications SET manifest_sha256 = ? WHERE id = ?').run(
+          createHash('sha256').update(invalidBytes).digest('hex'),
+          id,
+        )
+        await expect(recover()).rejects.toThrow('Invalid master pixels.')
+        await writeFile(join(stage, 'linear.f32'), f.bytes)
+        await writeFile(join(stage, 'manifest.json'), retiredBytes)
+        db.prepare('UPDATE merge_publications SET manifest_sha256 = ? WHERE id = ?').run(
+          retiredHash,
+          id,
+        )
+        // Unsupported is not a shortcut around any actual byte/provenance check.
+        const pixelDamage = Buffer.from(f.bytes)
+        pixelDamage[pixelDamage.length - 1] ^= 0xff
+        await writeFile(join(stage, 'linear.f32'), pixelDamage)
+        await expect(recover()).rejects.toThrow('Damaged master strip.')
+        await writeFile(join(stage, 'linear.f32'), f.bytes)
+        const oversizedMask = await open(join(stage, 'motion.mask'), 'r+')
+        try {
+          // Actual sparse filesystem length exceeds both the admitted mask and
+          // a hash strip. Metadata must reject it before a full-file allocation.
+          await oversizedMask.truncate(64 * 1024 ** 2 + 1)
+        } finally {
+          await oversizedMask.close()
+        }
+        await expect(recover()).rejects.toThrow('Damaged merge mask.')
+        await writeFile(join(stage, 'motion.mask'), mask.subarray(0, mask.length - 1))
+        await expect(recover()).rejects.toThrow('Damaged merge mask.')
+        await writeFile(join(stage, 'motion.mask'), Buffer.alloc(mask.length, 7))
+        await expect(recover()).rejects.toThrow('Damaged merge mask.')
+        await writeFile(join(stage, 'motion.mask'), mask)
+        const malformed = structuredClone(retired)
+        malformed.asset.source.normalization.referenceWhite = 0
+        const malformedBytes = Buffer.from(JSON.stringify(malformed))
+        await writeFile(join(stage, 'manifest.json'), malformedBytes)
+        db.prepare('UPDATE merge_publications SET manifest_sha256 = ? WHERE id = ?').run(
+          createHash('sha256').update(malformedBytes).digest('hex'),
+          id,
+        )
+        await expect(recover()).rejects.toThrow('Invalid HDR source provenance.')
+        const currentBytes = Buffer.from(JSON.stringify(manifest))
+        await writeFile(join(stage, 'manifest.json'), currentBytes)
+        db.prepare('UPDATE merge_publications SET manifest_sha256 = ? WHERE id = ?').run(
+          createHash('sha256').update(currentBytes).digest('hex'),
+          id,
+        )
+        await writeFile(join(stage, 'linear.f32'), pixelDamage)
+        await expect(recover()).rejects.toThrow('Damaged master strip.')
+        await writeFile(join(stage, 'linear.f32'), f.bytes)
+        await writeFile(join(stage, 'manifest.json'), retiredBytes)
+        db.prepare('UPDATE merge_publications SET manifest_sha256 = ? WHERE id = ?').run(
+          retiredHash,
+          id,
+        )
+        expect(await recover()).toHaveLength(1)
+        expect(publications).toBe(0)
+        expect(db.prepare('SELECT id, manifest_sha256 FROM merge_publications').all()).toEqual([
+          { id, manifest_sha256: retiredHash },
+        ])
+        expect(await readdir(originals)).toEqual([])
+        expect((await readdir(stage)).sort()).toEqual([...names].sort())
+        expect(await Promise.all(names.map((name) => readFile(join(stage, name))))).toEqual(before)
+        expect(await readFile(path)).toEqual(f.bytes)
+        expect(manifest).toEqual(frozen)
+      } finally {
+        db?.close()
+        await rm(recoveryRoot, { recursive: true, force: true })
+      }
+    }
     const damaged = Buffer.from(f.bytes)
     damaged[damaged.length - 1] ^= 0xff
     await writeFile(path, damaged)

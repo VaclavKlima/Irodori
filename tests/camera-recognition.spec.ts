@@ -1,10 +1,10 @@
+import { CameraMutations as CameraRecognition } from '../src/main/catalog/camera-mutations'
 import { expect, test } from '@playwright/test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import {
-  CameraRecognition,
   cameraMetadataMatches,
   cameraSampleWindows,
   cameraSourceKey,

@@ -9,6 +9,7 @@ import {
   mergeFailure,
   type MergeFailure,
   type MergeDiagnostics,
+  type MergeReviewProgress,
   validateMergeSettings,
   validateMergeSources,
   mergeUnavailable,
@@ -28,6 +29,8 @@ interface ReviewState {
   result?: MergeResult
   output?: string
   failure?: MergeFailure
+  workerProgress?: MergeReviewProgress
+  progressOwner?: object
   accepted: boolean
   updating?: boolean
   closing?: boolean
@@ -83,6 +86,7 @@ export class MergeReviews {
       })),
       error: s.failure,
       measurements: s.result?.recipe.measurements,
+      workerProgress: s.workerProgress,
     })
   }
   async create(ids: string[], mode: MergeMode): Promise<MergeReview> {
@@ -202,6 +206,8 @@ export class MergeReviews {
     try {
       s.updating = true
       s.review = { ...s.review, revision: revision + 1, settings: structuredClone(settings) }
+      s.progressOwner = undefined
+      s.workerProgress = undefined
       s.abort.abort()
       await s.work?.catch(() => {})
       if (this.state !== s || s.closing) throw new Error('Merge review is unavailable.')
@@ -226,8 +232,12 @@ export class MergeReviews {
     if (s.accepted) throw new Error('This merge was already accepted.')
     if (!s.work) {
       const directory = join(s.directory, 'prepared'),
-        output = join(s.directory, `revision-${revision}`)
+        output = join(s.directory, `revision-${revision}`),
+        abort = s.abort,
+        owner = {}
       s.output = output
+      s.workerProgress = undefined
+      s.progressOwner = owner
       s.work = this.foreground(async () => {
         await mkdir(directory, { recursive: true })
         this.get(id, revision)
@@ -240,10 +250,52 @@ export class MergeReviews {
             sources: s.review.sources,
             settings: s.review.settings,
           },
-          s.abort.signal,
-          () => {},
+          abort.signal,
+          (phase, completed, total, producedAtEpochMs) => {
+            if (
+              this.state !== s ||
+              this.closing ||
+              s.review.revision !== revision ||
+              s.abort !== abort ||
+              abort.signal.aborted ||
+              s.updating ||
+              s.closing ||
+              s.progressOwner !== owner ||
+              s.result ||
+              s.failure ||
+              typeof phase !== 'string' ||
+              !phase.trim() ||
+              phase.length > 128 ||
+              !Number.isFinite(producedAtEpochMs) ||
+              producedAtEpochMs <= 0 ||
+              !Number.isSafeInteger(completed) ||
+              !Number.isSafeInteger(total) ||
+              total <= 0 ||
+              completed < 0 ||
+              completed > total
+            )
+              return
+            const previous = s.workerProgress
+            if (
+              previous &&
+              ((previous.phase === phase &&
+                (previous.total !== total || completed <= previous.completed)) ||
+                producedAtEpochMs < previous.producedAtEpochMs ||
+                previous.sequence === Number.MAX_SAFE_INTEGER)
+            )
+              return
+            s.workerProgress = {
+              producedAtEpochMs,
+              sequence: (previous?.sequence ?? 0) + 1,
+              phase,
+              completed,
+              total,
+            }
+          },
         )
-      }, s.abort.signal)
+      }, abort.signal).finally(() => {
+        if (s.progressOwner === owner) s.progressOwner = undefined
+      })
     }
     let result: MergeResult
     try {
@@ -289,6 +341,7 @@ export class MergeReviews {
     const s = this.get(id, undefined, true)
     if (s.accepted && !finished) throw new Error('Cancel the background merge task first.')
     s.closing = true
+    s.progressOwner = undefined
     s.abort.abort()
     await s.work?.catch(() => {})
     await rm(s.directory, { recursive: true, force: true })

@@ -5,7 +5,7 @@ import { cp, mkdtemp, mkdir, open, readFile, rename, rm, writeFile } from 'node:
 import { join, basename, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import sharp from 'sharp'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { PreviewProcess } from '../src/main/preview-process'
 import { PreviewEngine } from '../src/main/preview-engine'
 import { RawGpuRenderer } from '../src/main/gpu/raw-renderer'
@@ -93,7 +93,6 @@ for (const stem of stems)
             await rename(path, join(root, 'trash', basename(path)))
           },
           new PreviewProcess(workerPath),
-          undefined,
           resolve('out/main/merge-worker.js'),
           undefined,
           new PreviewProcess(workerPath),

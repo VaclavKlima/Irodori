@@ -1,4 +1,4 @@
-import type { HdrWorkingAsset } from '../../../shared/hdr'
+export { collectHdrSample } from '../../../shared/hdr-source-sample'
 import { sameAdjustments, type AdjustmentParameters } from '../../../shared/adjustments'
 import type { HdrStatistics } from '../../../shared/hdr-statistics'
 // Retain the active photo's two sample resolutions across presentation/device changes.
@@ -64,31 +64,5 @@ export function observeHdrSample(
   notify()
   return () => {
     listeners.delete(notify)
-  }
-}
-export function collectHdrSample(asset: HdrWorkingAsset) {
-  const total = asset.width * asset.height,
-    count = Math.min(65536, total)
-  const sample = new Float32Array(count * 4)
-  const draft = new Float32Array(Math.min(8192, total) * 4)
-  const samplers = [sample, draft].map((data) => ({ data, next: 0 }))
-  return {
-    sample,
-    draft,
-    add(data: Float32Array, row: number) {
-      const start = row * asset.width,
-        end = start + data.length / 4
-      for (const sampler of samplers) {
-        const count = sampler.data.length / 4
-        while (sampler.next < count) {
-          const position = Math.floor(((sampler.next + 0.5) * total) / count)
-          if (position >= end) break
-          sampler.data.set(
-            data.subarray((position - start) * 4, (position - start) * 4 + 4),
-            sampler.next++ * 4,
-          )
-        }
-      }
-    },
   }
 }

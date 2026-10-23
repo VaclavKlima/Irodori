@@ -111,12 +111,10 @@ test('every spec has one unique target and group; fast checks exclude build, Ele
   expect(fast.mcp).toBe(false)
   expect(fast.benchmark).toBe(false)
   expect(files(['--full'])).toHaveLength(
-    specs.length - suites.filter((s) => s.group === 'benchmark' || s.candidateBuild).length,
+    specs.length - suites.filter((s) => s.group === 'benchmark').length,
   )
   expect(selectPlan(['--full']).mcp).toBe(true)
-  expect(files(['--all'])).toHaveLength(
-    specs.length - suites.filter((s) => s.candidateBuild).length,
-  )
+  expect(files(['--all'])).toHaveLength(specs.length)
   expect(selectPlan(['--all']).mcp).toBe(true)
 })
 
@@ -330,43 +328,29 @@ test('one shared build, sequential phases, benchmark-only flags and measurement 
   })
 })
 
-test('experimental renderer UI builds remain explicit and report their required selectors', () => {
-  for (const args of [['--full'], ['--all'], ['--functional'], ['preview']]) {
-    const plan = selectPlan(args)
-    expect(plan.targets).not.toContain('interactive-preview-ui')
-    expect(plan.targets).not.toContain('interactive-preview-lifecycle')
-    expect(plan.targets).not.toContain('hdr-presentation-cache-ui')
-    expect(plan.candidateBuilds).toEqual(
-      expect.arrayContaining([
-        {
-          target: 'interactive-preview-ui',
-          environment: { VITE_LUMA_HDR_INTERACTIVE_PRECISION: 'f32' },
-          selected: false,
-        },
-        {
-          target: 'interactive-preview-lifecycle',
-          environment: { VITE_LUMA_HDR_INTERACTIVE_PRECISION: 'f32' },
-          selected: false,
-        },
-        {
-          target: 'hdr-presentation-cache-ui',
-          environment: { VITE_LUMA_HDR_PRESENTATION_CACHE: '1' },
-          selected: false,
-        },
-      ]),
-    )
-  }
-  for (const target of [
+test('ordinary preview UI targets participate in regression scopes and retain exclusive GPU groups', () => {
+  const ordinaryTargets = [
     'interactive-preview-ui',
     'interactive-preview-lifecycle',
     'hdr-presentation-cache-ui',
-  ]) {
+  ]
+  for (const args of [['--full'], ['--all'], ['--functional'], ['preview'], ['ui']]) {
+    const plan = selectPlan(args)
+    expect(plan.targets).toEqual(expect.arrayContaining(ordinaryTargets))
+    for (const target of ordinaryTargets) {
+      const group = plan.groups.find((group) => group.targets.includes(target))
+      expect(group).toMatchObject({ name: 'raw-gpu', workers: 1 })
+      expect(group!.files).toContain(`tests/${target}.spec.ts`)
+    }
+  }
+  for (const target of ordinaryTargets) {
     const plan = selectPlan(['--target', target])
     expect(plan.targets).toContain(target)
-    expect(plan.candidateBuilds?.find((candidate) => candidate.target === target)?.selected).toBe(
-      true,
-    )
-    expect(plan.groups.find((group) => group.targets.includes(target))?.workers).toBe(1)
+    expect(plan.groups.find((group) => group.targets.includes(target))).toMatchObject({
+      name: 'raw-gpu',
+      workers: 1,
+    })
+    expect(plan.targets.filter((id) => ordinaryTargets.includes(id))).toEqual([target])
   }
   expect(selectPlan(['--full']).targets).toEqual(
     expect.arrayContaining(['interactive-preview-gpu', 'interactive-preview-quality']),

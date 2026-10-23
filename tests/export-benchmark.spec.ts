@@ -1,7 +1,7 @@
 /* eslint-disable no-empty-pattern -- Playwright requires destructured fixture arguments. */
 import { test, expect } from '@playwright/test'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import sharp from 'sharp'
 import { setup, scan, commit } from './library.helpers'
 import { recordBenchmark } from './benchmark.helpers'
@@ -11,7 +11,71 @@ import type { ExportDiagnostics } from '../src/main/export/types'
 import { ExportProcess } from '../src/main/export/process'
 import { jpegIdentity } from '../src/main/export/jpeg'
 import { nativeEncoderPath } from '../src/main/export/encoder'
+import { verifyUltraHdrBundle } from '../src/main/export/codec'
+import { provenance } from '../scripts/research/pipeline/provenance'
 import { randomUUID } from 'node:crypto'
+
+const requestedEncoder = process.env.LUMA_EXPORT_BENCHMARK_ENCODER ?? 'auto'
+if (!['auto', 'native', 'wasm'].includes(requestedEncoder))
+  throw new Error('LUMA_EXPORT_BENCHMARK_ENCODER must be auto, native or wasm when set.')
+const expectedEncoder = requestedEncoder === 'auto' ? 'native' : requestedEncoder
+
+let previousEncoder: string | undefined
+test.beforeEach(() => {
+  previousEncoder = process.env.LUMA_EXPORT_ENCODER
+  // Default measurements use application Auto; explicit controls remain isolated.
+  if (requestedEncoder === 'auto') delete process.env.LUMA_EXPORT_ENCODER
+  else process.env.LUMA_EXPORT_ENCODER = requestedEncoder
+})
+test.afterEach(() => {
+  if (previousEncoder === undefined) delete process.env.LUMA_EXPORT_ENCODER
+  else process.env.LUMA_EXPORT_ENCODER = previousEncoder
+})
+
+async function benchmarkProvenance() {
+  const bundle = resolve('out/main/ultrahdr')
+  const executable = expectedEncoder === 'native' ? await nativeEncoderPath(bundle) : undefined
+  test.skip(
+    expectedEncoder === 'native' && !executable,
+    `The native full-size gate requires a checksummed bundled encoder for ${process.platform}-${process.arch}; WASM is a separate explicit benchmark selection.`,
+  )
+  await verifyUltraHdrBundle(bundle)
+  const compiled = (await readdir('out/main', { recursive: true }))
+    .filter((file) => /\.(?:js|cjs|mjs)$/.test(file))
+    .map((file) => join('out/main', file))
+    .sort()
+  return {
+    ...(await provenance([
+      'tests/fixtures/sony-zv1.ARW',
+      'tests/export-benchmark.spec.ts',
+      'tests/library.helpers.ts',
+      'src/main/export/encoder.ts',
+      'src/main/export/process.ts',
+      'src/main/export/render.ts',
+      'src/main/export/renditions.ts',
+      'src/main/export/jobs.ts',
+      'src/shared/export.ts',
+      'src/shared/display-rendering.ts',
+      join(bundle, 'SHA256SUMS'),
+      join(bundle, 'luma-ultrahdr.wasm'),
+      ...(executable ? [executable, join(dirname(executable), 'SHA256SUMS')] : []),
+      ...compiled,
+    ])),
+    build:
+      'Production PhotoLibrary export acceptance through isolated compiled decoder/encoder workers, durable publication and scratch cleanup; no Electron presentation measurement.',
+    encoderSelection: {
+      environment: 'LUMA_EXPORT_BENCHMARK_ENCODER',
+      requested: process.env.LUMA_EXPORT_BENCHMARK_ENCODER ?? 'unset (application Auto)',
+      expected: expectedEncoder,
+      inheritedWorkerMode: process.env.LUMA_EXPORT_ENCODER ?? 'auto',
+      bundle,
+      executable: executable ?? null,
+      fallbackAllowed: false,
+    },
+    memoryLimitations:
+      'Native encoderMemory is helper-process peak RSS; WASM encoderMemory is linear-heap capacity. Neither measures combined Node/helper process peak RSS or total application memory. GPU ownership remains a separate bound.',
+  }
+}
 
 test('quality 100 original-size HDR export measures acceptance through durable publication', async ({}, info) => {
   test.skip(
@@ -19,10 +83,7 @@ test('quality 100 original-size HDR export measures acceptance through durable p
     'Run npm run benchmark:export for the isolated hardware benchmark.',
   )
   test.setTimeout(600000)
-  test.skip(
-    !(await nativeEncoderPath()),
-    'This complete hardware gate requires the bundled macOS arm64 encoder.',
-  )
+  const source = await benchmarkProvenance()
   const fixture = await setup(
     undefined,
     undefined,
@@ -35,9 +96,14 @@ test('quality 100 original-size HDR export measures acceptance through durable p
     diagnostics: ExportDiagnostics
   }[] = []
   const outputPath = info.outputPath('benchmark.json')
+  const plannedSamples = { 'fresh-workers': 10, subsequent: 10 }
   const percentile = (values: number[]) =>
     [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1]
   try {
+    await writeFile(
+      outputPath,
+      JSON.stringify({ provenance: source, plannedSamples, measurements }, null, 2),
+    )
     const session = await scan(fixture.service, [resolve('tests/fixtures/sony-zv1.ARW')])
     await commit(fixture.service, session)
     const photo = fixture.service.list().photos[0]
@@ -73,9 +139,26 @@ test('quality 100 original-size HDR export measures acceptance through durable p
         const task = fixture.service.listTasks().find((task) => task.id === id)!
         expect(task.status, JSON.stringify(fixture.service.exports.results(id))).toBe('completed')
         const file = fixture.service.exports.store.files(id)[0]
+        await writeFile(
+          outputPath,
+          JSON.stringify(
+            {
+              provenance: source,
+              plannedSamples,
+              measurements,
+              latestDiagnostics: file.diagnostics,
+            },
+            null,
+            2,
+          ),
+        )
         expect(file.diagnostics?.sourceBackend).toBe('gpu')
         expect(file.diagnostics?.renderer, JSON.stringify(file.diagnostics)).toBe('gpu')
-        expect(file.diagnostics?.encoder, JSON.stringify(file.diagnostics)).toBe('native')
+        expect(file.diagnostics?.encoder, JSON.stringify(file.diagnostics)).toBe(expectedEncoder)
+        expect(file.diagnostics?.encoderFallback, JSON.stringify(file.diagnostics)).toBeUndefined()
+        expect(file.diagnostics?.encoderMemory?.kind).toBe(
+          expectedEncoder === 'native' ? 'process-rss' : 'wasm-heap',
+        )
         expect(file.diagnostics?.encoderMemory?.peakBytes).toBeLessThanOrEqual(2 * 1024 ** 3)
         expect(file.diagnostics?.gpuMemoryBytes).toBeLessThanOrEqual(1024 ** 3)
         expect(file.diagnostics?.retries).toBe(0)
@@ -87,7 +170,10 @@ test('quality 100 original-size HDR export measures acceptance through durable p
           bytes: bytes.length,
           diagnostics: file.diagnostics!,
         })
-        await writeFile(outputPath, JSON.stringify({ measurements }, null, 2))
+        await writeFile(
+          outputPath,
+          JSON.stringify({ provenance: source, plannedSamples, measurements }, null, 2),
+        )
         const metadata = await sharp(bytes).metadata()
         expect(metadata).toMatchObject({
           width: 5422,
@@ -105,6 +191,8 @@ test('quality 100 original-size HDR export measures acceptance through durable p
       ]),
     )
     const result = {
+      provenance: source,
+      plannedSamples,
       fixture: 'sony-zv1.ARW',
       quality: 100,
       size: 'original',
@@ -140,10 +228,7 @@ test('quality 100 warm working-source and retained-preparation retries measure d
     'Run npm run benchmark:export for the isolated hardware benchmark.',
   )
   test.setTimeout(600000)
-  test.skip(
-    !(await nativeEncoderPath()),
-    'This complete hardware measurement requires the bundled macOS arm64 encoder.',
-  )
+  const source = await benchmarkProvenance()
   const fixture = await setup(
     undefined,
     undefined,
@@ -156,9 +241,14 @@ test('quality 100 warm working-source and retained-preparation retries measure d
     diagnostics: ExportDiagnostics
   }[] = []
   const outputPath = info.outputPath('warm-retry-benchmark.json')
+  const plannedSamples = { 'warm-working-source': 10, 'retained-preparation-retry': 10 }
   const percentile = (values: number[]) =>
     [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1]
   try {
+    await writeFile(
+      outputPath,
+      JSON.stringify({ provenance: source, plannedSamples, measurements }, null, 2),
+    )
     const session = await scan(fixture.service, [resolve('tests/fixtures/sony-zv1.ARW')])
     await commit(fixture.service, session)
     const photo = fixture.service.list().photos[0]
@@ -221,12 +311,29 @@ test('quality 100 warm working-source and retained-preparation retries measure d
         const task = fixture.service.listTasks().find((task) => task.id === id)!
         expect(task.status, JSON.stringify(fixture.service.exports.results(id))).toBe('completed')
         const file = fixture.service.exports.store.files(id)[0]
+        await writeFile(
+          outputPath,
+          JSON.stringify(
+            {
+              provenance: source,
+              plannedSamples,
+              measurements,
+              latestDiagnostics: file.diagnostics,
+            },
+            null,
+            2,
+          ),
+        )
         expect(file.diagnostics?.sourcePreparation).toBe(
           series === 'warm-working-source' ? 'preview-cache' : 'retained',
         )
         expect(file.diagnostics?.sourceBackend).toBe('gpu')
         expect(file.diagnostics?.renderer, JSON.stringify(file.diagnostics)).toBe('gpu')
-        expect(file.diagnostics?.encoder, JSON.stringify(file.diagnostics)).toBe('native')
+        expect(file.diagnostics?.encoder, JSON.stringify(file.diagnostics)).toBe(expectedEncoder)
+        expect(file.diagnostics?.encoderFallback, JSON.stringify(file.diagnostics)).toBeUndefined()
+        expect(file.diagnostics?.encoderMemory?.kind).toBe(
+          expectedEncoder === 'native' ? 'process-rss' : 'wasm-heap',
+        )
         expect(file.diagnostics?.encoderMemory?.peakBytes).toBeLessThanOrEqual(2 * 1024 ** 3)
         expect(file.diagnostics?.gpuMemoryBytes).toBeLessThanOrEqual(1024 ** 3)
         expect(file.diagnostics?.retries).toBe(series === 'warm-working-source' ? 0 : 1)
@@ -238,7 +345,10 @@ test('quality 100 warm working-source and retained-preparation retries measure d
           bytes: bytes.length,
           diagnostics: file.diagnostics!,
         })
-        await writeFile(outputPath, JSON.stringify({ measurements }, null, 2))
+        await writeFile(
+          outputPath,
+          JSON.stringify({ provenance: source, plannedSamples, measurements }, null, 2),
+        )
         expect(await sharp(bytes).metadata()).toMatchObject({
           width: 5422,
           height: 3622,
@@ -257,6 +367,8 @@ test('quality 100 warm working-source and retained-preparation retries measure d
       ]),
     )
     const result = {
+      provenance: source,
+      plannedSamples,
       fixture: 'sony-zv1.ARW',
       quality: 100,
       size: 'original',

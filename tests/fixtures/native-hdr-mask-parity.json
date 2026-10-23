@@ -1,0 +1,1758 @@
+{
+  "version": "native-hdr-mask-electron-parity-fixtures-v1",
+  "scope": "Metadata and synthetic numeric controls only. Both generated photographic working planes stay ignored/read-only and retain the original fixture licensing. No substituted/repeated source.",
+  "historicalSources": {
+    "artifacts/bazzite-native-20261019/native-mask-research/run-20261020-two-source/report.json": "3028a1cd3beccb8b18b2d1f05075a64b58d7ac172a2a9000faa0273cce86c2b9",
+    "artifacts/bazzite-native-20261019/native-mask-research/native-c-public-threshold/run-20261020-a/report.json": "1872d2a323930830ee4f388de301cac382d90d24b41847a91995d8c91486f5ae"
+  },
+  "photographs": [
+    {
+      "name": "landscape",
+      "defaultWorkingPath": "artifacts/bazzite-native-20261019/sony-maximized-p3-reference-fixture/source.f32",
+      "workingPathEnvironment": "LUMA_MASK_PARITY_LANDSCAPE_SOURCE",
+      "originalPath": "tests/fixtures/sony-zv1.ARW",
+      "originalSha256": "14c9d2912584a3ccc5cf10f554fbe495fc960c36758a14d7d858b36ac5ca88e2",
+      "asset": {
+        "kind": "hdr-working-v1",
+        "width": 5422,
+        "height": 3622,
+        "byteLength": 314215744,
+        "sha256": "632578e368f3ed0b538291b9a4082c5b3f4a7362bf6304083b7f723ed7d381a1",
+        "strips": [
+          {
+            "byteLength": 5552128,
+            "sha256": "8de50bcc2240d34071da4620f711ee0fa3bc597f57765c95bef68096a12da9ff"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "c17221e267bbba063a9e1552927a1d843fa42f42fcbaca96b23c54c64345d164"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "546ff465e5a706e8984248bed3b19a4c482187479181177bab69d82451d6109d"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "ca1d694c4ae71a78be63631dd57aa11876c3b6ca5a65275bf8ae1b1693cb1927"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "91813ade17e3998aafac37eadb307dec2c54dda10e0540be40e1e4a52eb0c0ab"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "d6f806988e2924101276b52788ef9ee58885ff1bdf3b56095e7bce26861b94f5"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "fe250b1e5b39822667bb6e0920d2fa74f7ce415a28a82b742e7470e584f8d512"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "b42df183adbf9a27299bbcf36c5e0a398ff567cc86a17d94e8e5e60efc8ea240"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "9b2ebb8b7af903395c3a7b283f178a58c30990d8077b188d84d732b861737cc8"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "95a0bf6a5388d5de6dee2a06ccfeb3b3ceead4a568ca97c8ed5ac7559f49effe"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "a71a07841bf5a7fc3a74d3c95d0266aff027e6729fccf747f5910e17a0c224ce"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "cd5fa37df6b4a3d0be09ba3c17fdaf2f912da2a99fb7a32428b66432f344bf5a"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "ffb8126040485fc8d4c3e3101eefec9a16df0c483770549e3fbbd652c995eb0e"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "f45531d929880b2c4e5890a96788c19b067b7c59f6a62f758ae855a41c9a8920"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "fd6863ad803683e3c3dee4180e9a2e941b468f6045a94e37992b19457cb4e279"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "aca14edc5c615d1431874eb674ce3bb4f23e17e81c33de100a8288ac217a9ec8"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "e33bf61df92cf22081e559c0d9be9393a5965d7b9f1456e0243c10fdf79f1315"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "e1a43264191a4c7e548d9ef963a6cefb812bd6192ff7c033450f03cad16e7337"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "2bb2b56818f40543a1e3ef58db4ee01c521a50465b84b2ef0961ca030abf1499"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "7c4f6f63350e8e938bd007da498193d7a9faf830cf4f0f5a894223e01862c947"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "8ba8d156b7c1a917b9ec463e00911c53f5928347e9902cc35eae697af0031f3b"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "bc5eeeb08dd016e065f551ab2bffe7970710af8121f752e0477e9decaa37272f"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "fe3ce282cc98e0e84f0be37c8cc825b272691ea60a99f424e7405646d5b78dba"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "8b44fa1b604d73a3bbb859ac1db5842eeb09f3234b780a58f00948f872ec487b"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "c2d2470895ca09353a8578d5b488ccb9befe1d267a37a6390581d775427163f8"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "2e9df0eb3f80529608b6d6f344b549ad2142511298af909707ccdc5353ef83a6"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "6e31f1548f7759cf782298ce0a6eb9ce20de2ff683970e27d215aa7117786656"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "7c84b1071f537caf300f5d6e4b372784540400485101a61e78b6f4badbb69783"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "3ca33e844803f6637255138eb222b55b2f50e223779d2e8ac4956b523da21f36"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "f4e0f0e437733593f7b9f93670ffcdd05836781ad3479f9731f1606f30b135d1"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "5ea0b5f52639964a29096a4b30ed9986dc9450e7dace90328d82b73e17b514ae"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "c76ac55c5162f874a3b63cb7f408cb1f7c1fd9b09a803bbefc913b1d37cbbce3"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "8ec080db8a734bde1e3561fa03bb0a46dec41af2e4a08cb0582ae54fb63979ab"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "615c9ef53af9b83fdbdd8145d7be182196e5f46371397fc014e59ec0d2919924"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "ffa1237a0510c20c80e6f53d26adbdbde9a60ed2f3fd7920df2b5fb8fa44678e"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "8a6358d106341792e693eff234b9fb41df3148c5742c85a20c0e9464c8e950ad"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "7b8c45abd52e9eae161ff564a7e9b01058304805d14d921547db90d48790297c"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "bac02528526b0a72dbb0d12dbfda510e506500de1ff0facd6e03612895adc87e"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "c0f03eda0106446fb0a9a96300e5180b49ce0646a0507c766df97cb866a2640b"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "804a0f41fdc173fc4e92d8d13894578b6299b41235ae3eba8a75ceab13f8e4d0"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "2407b89f35675bb63c77ce0005a772454dfa45ad15e0ca1b0775925c4903b5fd"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "16c31d01c765307c6cbefc16fd6782206c4fa1bf8687e2ab67f28ea5072ddf00"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "a538fa3b7881cde0f0bfefdc2cecc49a2b5470fc5a7fa48a73f2d2376d462f0b"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "ac61fd4f527ac6e3f59b5acc8b02e7afe449bbfabcc33f3d6444686411587ca4"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "470483b685254a7ce70d132ae5772c3005c67d9a4aa027750f1ecbfd4cf34d88"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "6ef3125a5f3453545b867e7c9e76b5fca084c6381c9d4c31968f71fe3be3eba4"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "3918083418cbeb4a910509aad942e6dc4e9e47a1eaa32a59eeefb2ad36e92845"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "cfd3de90de4269f6c76b8265f051a234b6523c0f2c4759f05d92fa3ef6306d6d"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "67b1c026d56fd878e0eaee1b90c76ecd95dead60b9eca7a5bdadb96eb7755092"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "384dc9d0fa914c5ed7e880f5c821260ba5d9d2fdd92d43793457ba5b05cd8c75"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "899f183bae856572fb0cebb3547ac1c07a9b6c2d71db96b749e47be51dd15d1e"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "75e365089eba5bb903941fcdba026d0c80e9e6c7912be510885f58fa711ae5be"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "197f415e0ac6584a9f7dcf46f1bf31c8aa6a4d1d30b4987f6db4b1c9113095fe"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "4449afd16e766e14fcd89cd0e80a345898658a37b649c9840bcb1d0424d5e3e2"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "46d0e62eadda5b9dddda4d9c3aee01dab06b9e81069e7db7734fb48cc2db7e51"
+          },
+          {
+            "byteLength": 5552128,
+            "sha256": "4c57e97c69f7eb8f958392c7170a495ddf90b5d16c01f58269ee2623dd187b14"
+          },
+          {
+            "byteLength": 3296576,
+            "sha256": "6d2fc15a93a34d237d7fe414704df791c1b9006406ab0965c49f25f20697cf90"
+          }
+        ],
+        "source": {
+          "version": "hdr-source-v2-capture-scale-1",
+          "highlightBlend": "sensor-blend-v1",
+          "processing": "hdr-v1",
+          "colorSpace": "rec2020",
+          "whitePoint": "D65",
+          "transfer": "linear",
+          "alpha": "straight",
+          "normalization": {
+            "black": [800, 800, 800, 800],
+            "maximum": 15580,
+            "gains": [2528, 1024, 1756, 1024],
+            "restoreGain": 2.46875,
+            "referenceWhite": 1,
+            "sourceSaturation": {
+              "thresholds": [15360, 15360, 15360, 15360],
+              "saturatedSites": 914597,
+              "totalSites": 20181312
+            }
+          },
+          "decoder": "libraw-0.22.1-1",
+          "cameraProfile": "sony-zv1-family-1",
+          "orientation": "applied-once"
+        },
+        "whiteBalance": {
+          "provider": "sony-zv1-white-balance",
+          "version": "1",
+          "identity": "sony-zv1-white-balance-1-sony-zv1-family-1",
+          "model": "luma-kang2002-ucs-1",
+          "asShotGains": [2528, 1024, 1756],
+          "xyzToCamera": [
+            0.828000009059906, -0.2987000048160553, -0.07029999792575836, -0.3531000018119812,
+            1.1644999980926514, 0.21330000460147858, -0.054999999701976776, 0.1542000025510788,
+            0.5311999917030334
+          ],
+          "cameraToWorking": [
+            0.8967112915248392, 0.31191889702401443, -0.20863017388926236, -0.10119069095402336,
+            1.4855423301672763, -0.3843515981224667, 0.011302085197730627, -0.29710913934756866,
+            1.2858070568332076
+          ],
+          "ranges": {
+            "kelvin": [2000, 25000],
+            "tint": [-100, 100]
+          },
+          "estimate": {
+            "kelvin": 5700,
+            "tint": 50
+          }
+        }
+      },
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 1.25,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 4,
+        "requested": "sdr",
+        "mode": "sdr",
+        "colorSpace": "srgb",
+        "peak": 1,
+        "headroom": 1,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "preparation": {
+        "renderingVersion": "aces2-069b0bc3-v2",
+        "sourceContract": {
+          "version": "hdr-source-v2-capture-scale-1",
+          "highlightBlend": "sensor-blend-v1",
+          "processing": "hdr-v1",
+          "colorSpace": "rec2020",
+          "whitePoint": "D65",
+          "transfer": "linear",
+          "alpha": "straight",
+          "normalization": {
+            "black": [800, 800, 800, 800],
+            "maximum": 15580,
+            "gains": [2528, 1024, 1756, 1024],
+            "restoreGain": 2.46875,
+            "referenceWhite": 1,
+            "sourceSaturation": {
+              "thresholds": [15360, 15360, 15360, 15360],
+              "saturatedSites": 914597,
+              "totalSites": 20181312
+            }
+          },
+          "decoder": "libraw-0.22.1-1",
+          "cameraProfile": "sony-zv1-family-1",
+          "orientation": "applied-once"
+        },
+        "whiteBalance": {
+          "provider": "sony-zv1-white-balance",
+          "version": "1",
+          "identity": "sony-zv1-white-balance-1-sony-zv1-family-1",
+          "model": "luma-kang2002-ucs-1",
+          "asShotGains": [2528, 1024, 1756],
+          "xyzToCamera": [
+            0.828000009059906, -0.2987000048160553, -0.07029999792575836, -0.3531000018119812,
+            1.1644999980926514, 0.21330000460147858, -0.054999999701976776, 0.1542000025510788,
+            0.5311999917030334
+          ],
+          "cameraToWorking": [
+            0.8967112915248392, 0.31191889702401443, -0.20863017388926236, -0.10119069095402336,
+            1.4855423301672763, -0.3843515981224667, 0.011302085197730627, -0.29710913934756866,
+            1.2858070568332076
+          ],
+          "ranges": {
+            "kelvin": [2000, 25000],
+            "tint": [-100, 100]
+          },
+          "estimate": {
+            "kelvin": 5700,
+            "tint": 50
+          }
+        },
+        "corrections": {
+          "distortion": true,
+          "vignetting": true,
+          "chromaticAberration": true
+        },
+        "measurement": "Actual PreviewEngine sensor decode and production shader exports for native comparison."
+      },
+      "retainedManifestPath": "artifacts/bazzite-native-20261019/sony-maximized-p3-reference-fixture/fixture.json",
+      "retainedManifestSha256": "0d5dbf20fe1ae0872e382e1e3eb8bc51517499706125366cf294daa701223e97"
+    },
+    {
+      "name": "portrait",
+      "defaultWorkingPath": "artifacts/bazzite-native-20261019/native-mask-research/fixture-preparation/portrait-working-20261020-a/working/linear.f32",
+      "workingPathEnvironment": "LUMA_MASK_PARITY_PORTRAIT_SOURCE",
+      "originalPath": "tests/fixtures/research-sony/originals/DSC03243.ARW",
+      "originalSha256": "93880fc72a77553efd7a4f9b1f6d2462d0175cee94ae37f330903f70f78581ee",
+      "asset": {
+        "kind": "hdr-working-v1",
+        "width": 3672,
+        "height": 5496,
+        "byteLength": 322900992,
+        "sha256": "e0f54018ffd6506b1b19eefac33aa8139a2bb5d442bc3669a96dc257a6276856",
+        "strips": [
+          {
+            "byteLength": 3760128,
+            "sha256": "11e75d32a4f8d6d43021a8546bf3c4d1efe2c5a66f69573fbc271c8dbade4171"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "9a34b2c2a78adc8a7ca9e961ff3d1fcfaa9bc0f74cd1459a77734e281354402f"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "406eefc4fdd8f575977abda380108a4d48730a4326b514c9737511fca0962f74"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "aad70d3ae34bbafb7389b3333c56e018d9ef7101fcf238f13a2521c23361a411"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "79b48ab7258b65cc1e0bc0f3b4b4727baf0be6e7c80658336ebba94a9d8193b1"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "870ffdcfb14cdcc806075c3b7f7b6b75fce10234bcae11b2de720ea722b8412d"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "63fcf8d5bcb391a97ac51e6364e2cf42af0b7aee98bebb5b606df0e96ec7305b"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "a7a4204ce5400cd2ab6973e4a44cf8893932e78fbbcd90e18961ab57fab5d9f5"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "693181e2a9cf6f293fb2dbabe0c8ebd6ff12a3068448a289e588824d6a55ae92"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "a35fd68a33a3fe3d1691b1c0c1e111dc852c371526989f58c80f69def010d1a9"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "f307b9239ab1351eb9c94f866779a2a3e697968f4790b9fd66a2011838cdc9eb"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "f6a48840a89b9e0bd471cc4a81c275947a3148a1184491a78ca9b2abe433a0eb"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "dbfd81d908e39c093836e868919c6834073f7f1518f836c7b433d748a3bcdfe7"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "3cbd5d2b3e3338911c461ac719e7d8863f372683b1f55e11590b29cfbcbd979d"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "3266faf81fa56c47eb1c8008df657dffd13c2a40263d0a83c259391f52972343"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "bbfd70e8cc5fdfa155167ace7bd0b73d515ad45c4f2340f6ed3d615377b9c400"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "dd73f764d6a2b5b54a18b1a4cbbcb52cd92dd009402151c49945ee806112615e"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "d28ac611b298b14082bf26413b472bad8535bdd1c5318d4bb2854536b1a2a1ad"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "21a88d78de46f90b8359bcc8fbd5a1bc897d540b0ab43b32977e481525399df1"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "d09bced487f58ef1e5a24dacefea2228f7b5eff6e96a9f9e8b4f9c1eff14a741"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "7eb8483443894c0ecc8e1d672e1e85fa2cd3fe562576358300689e7201b68d95"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "fac9fccd69436558943d578ce212bdbfdf10f07b047955e41a90e70e8c1371bb"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "04a55043e33046cefe45241173bc92c2e5827ac9ef9f2edf4f5c3f938a32a505"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "4bd0812a26754c7446e360375c3f8bdd4db42d17806d00f5f5b848ab6dd5f744"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "e66f0346baa10498b08b3e6747e8ab03fdeda81cff0fbe463132a3be27c0295c"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "8b85f8736c848467be05a08f62f9eecd330d46e0ecc62f85f8bee8139fb5f649"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "fb3141d187adc0a31f2dbe6d21495f84b8b969b311b8796bc92672720fda17ba"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "b43ac0de3b8230dbe4982d8ae016d017e747e472172bef10e74490dca8f84f37"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "fa51cb44a481886c1050ca6b44c78ecee05903fe4f7954a3e7b15892b6b51dad"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "1c26d5e0cdf8d93cc1cfe2cfe083ff27c67836b4e4c31a5a11f07dbcb2840f38"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "b10e0d722e1e6c31774c1e5983dfbb6f8d329a1cadab6da44c0e7e32fa1da8cb"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "4abfa75d53217aeb1527d32a309d77aee4bbaa0518bbd7d0547d221163e74816"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "bbdf6997dfc0ca26dd3d04ee7f118bf65f9799e4ecb9ea0d0ad83dddc13b8eb8"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "64708e0f6c8832ec9b331705a4af89439208cb2262432fb7ad2443dde8414947"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "e301bd43d30d55eda78f298678fbd15604a430cfe6d31d50ee812620262bf83a"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "fcf592d6725cbba56a199fad6c1c2677818d5dd3db41da7552c4833330dab819"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "58fd9cb986ec352ac9b0fcb169890b47296f9a839e290fa260e474c73ccd57d1"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "a192ff0ce2a258acd3aefcdb777773d648fcee9e34e3ae4ed34b8b130fdd0e0e"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "d0adbceb56e2105c76980eb59cee241aabd7646049e7306d83ba5479d981e1f8"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "3053bf6ff492844067d3cd5dcedf42b11b2749c1283768a408c6fe8e475e09a6"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "42641f80dd8b6bd7d4e99506ee78cb73957c0f20c83068e8dd63c88f8f8c1e1f"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "f972f5d42e4abb2cc683314cea2077233b8ca95110f07315ac93c5b4367c0955"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "08da0b1a5ae99a68714037319777ceb6119de438587d1b6d054aef917aa1775b"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "45319e0feb7aaed8453e8875da8c0bdc17d75f17756574be8c341715a54e33da"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "1fd155f40472f35638d76453a884171a7183af2f333f488a44b391ed32001ad5"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "79f924f6a23e99b879ab6b624754403737dabeb37606f6779181f9faf001fa83"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "13999be07b02a2ccfe5672622635be4f37909a9b27582b6625e4b0f8a8ee31e9"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "007784f013eced43793836ab0546a372f642f897b654078cb5d19cb6b6879e07"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "2fc1993355727104b01d490802d98b233346e7876cdbf9aa43b340c0d34337e3"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "371726db64cb6273474e9eb9b38e53ab5845008215ade9963280f7242c8fb062"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "b3cb6810048ab32547024bb8ffaf4fdca03e4cbbb8e388b00657ed1eb49500c2"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "7373fc929ba764c6eec2bbecd54ec8317eecc023ec11bbf169799f48a459e57e"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "05d93134fccec5c4f0986388ede966b6e314e58f58d26fc4ea0bdc3b6a8a6ecd"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "1c2876557f3ad761d0ed72a898cc87706e40b03e9c9a36ff082b9ca1c5d65a86"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "bbca2fca24ce5ea9bb2309cc942bb9a90c8dad58e6ee561d68ea10bc8a77d940"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "628e0aa6bcb9fc99de8cc75483e76567b6a13b96b268806359165bb9b2964ace"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "bee2435353f48e57d49807fe8b382290507ea2eba6cc8176e75b4778d4fdaa8e"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "c59e233167a2c53f85b1e6f838cb95b38b91fb1f9d1666d9b7a233873b0f9b21"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "0e014c1d38199e08197777cdb0b69b0581b0281df3d8168691ba331d6ae7086e"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "b3f1f9347b6abed34146c205725f6eee25342d7920cf2a7d3d3439d779823f05"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "783e3af2e9df0746ae848ecdde1c0aacd1a60ab718b99bc63a377a6b15235948"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "d0299d103322046676d7b0223a5dd85187b65eddda0df7aa5374629ae5b744e6"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "85bd5c8c21d7ea74e9b9088ccce16b51630c77e704d46c810ac8036b40ed5ceb"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "a02d61daa7527170628dbfb73362fa6fd1da0976f40b1fe4b84a0ea0c91bf474"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "c5874c0cbf21bff8f089e7850d6ded7a7166176eb728446b531159190cf87d16"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "0bc858fa70db1b3a201d5f90be56dec9ba100c75c634fdb5ab9027ae5d6b4955"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "86541d8b895a5149ecaf2737cddab0181795e1e4616a9727c4a370b86b58c27c"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "ee3e0fc58abe4e5c219c7e2601ae26c5949b84b12a507a404ce0597e0a6c14c7"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "6aa5ae47848ee3799322381527cc32f57a825c64fa837af08cfbf2af97fbbdcc"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "eb1512dd07d70dc9381056451c4a1f5eca5d468fceedf9466c990e22eabdd419"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "708c34e773057178fa5f1ea01d51cda4199a3a10167327c00f91bebd06e91f3b"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "eca94e2231b36c32960ec5a44fa6e04a9a7f38cb34733a22aadbf2845e721d61"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "adbb9b5414862f9bef20b8283555787561720a71fbcc71004ac51811a5508ecc"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "621c2097d083696e73b9a17378b9c66d29b20c5258c213230ab24743963a76b6"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "ea3cc6c8b3ca78bdc5dbda31e7e793ca8ceb5d2e30a788f4d52b9b8f468ba8fb"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "15b9da0dadf60122f919562cbff02dc0760eddf2ee8cf9633b708445959bea59"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "f8dca6a85de9b69b559955977322811c293fdc508b2f7b5ffa87a0b82c52ca81"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "9a4f2b187d418d17f4e10302197ffe281a516e9a97ac36e288b2801cf1c7b6c1"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "14b85c9fe592325b4eac3636011c5be88daa2680c11b9ce9dad45726217bc9cc"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "fabe9c01b853983dcdff8b13fbf099492c1dc240e3511c22d83064bd8e082ed0"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "d3838ec56dab6b1e3d3e62ec883228e3e31c24ecbf3934d3eda8ad3761db27b4"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "c7cd508c75216778de564254562c4e3173f2adf54895ea6e915cf4616d8f8bb4"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "d9dd657d9c8d29390b2c690f248202ca7ef896055c3777c6ebd8cee5ea5f0eb7"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "9f39f4e859989ca4e670df9052c64316a8532cfb21068f08f4396dee7cd91803"
+          },
+          {
+            "byteLength": 3760128,
+            "sha256": "cb4e41b6a3c1d061ac6cc20b17befe6d6df84b041bbfb0b0eb4a5469907ea6a0"
+          },
+          {
+            "byteLength": 3290112,
+            "sha256": "06062f692420d8b6c0b52f5d79cd4824dc26561563654288f476e14a2a6892a4"
+          }
+        ],
+        "source": {
+          "version": "hdr-source-v2-capture-scale-1",
+          "highlightBlend": "sensor-blend-v1",
+          "processing": "hdr-v1",
+          "colorSpace": "rec2020",
+          "whitePoint": "D65",
+          "transfer": "linear",
+          "alpha": "straight",
+          "normalization": {
+            "black": [800, 800, 800, 800],
+            "maximum": 15580,
+            "gains": [2324, 1024, 2068, 1024],
+            "restoreGain": 2.26953125,
+            "referenceWhite": 1,
+            "sourceSaturation": {
+              "thresholds": [15360, 15360, 15360, 15360],
+              "saturatedSites": 3663,
+              "totalSites": 20181312
+            }
+          },
+          "decoder": "libraw-0.22.1-1",
+          "cameraProfile": "sony-zv1-family-1",
+          "orientation": "applied-once"
+        },
+        "whiteBalance": {
+          "provider": "sony-zv1-white-balance",
+          "version": "1",
+          "identity": "sony-zv1-white-balance-1-sony-zv1-family-1",
+          "model": "luma-kang2002-ucs-1",
+          "asShotGains": [2324, 1024, 2068],
+          "xyzToCamera": [
+            0.828000009059906, -0.2987000048160553, -0.07029999792575836, -0.3531000018119812,
+            1.1644999980926514, 0.21330000460147858, -0.054999999701976776, 0.1542000025510788,
+            0.5311999917030334
+          ],
+          "cameraToWorking": [
+            0.8967112915248392, 0.31191889702401443, -0.20863017388926236, -0.10119069095402336,
+            1.4855423301672763, -0.3843515981224667, 0.011302085197730627, -0.29710913934756866,
+            1.2858070568332076
+          ],
+          "ranges": {
+            "kelvin": [2000, 25000],
+            "tint": [-100, 100]
+          },
+          "estimate": {
+            "kelvin": 4750,
+            "tint": 75
+          }
+        }
+      },
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 1.25,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 5,
+        "requested": "sdr",
+        "mode": "hdr",
+        "colorSpace": "display-p3",
+        "peak": 4,
+        "headroom": 2,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "preparation": {
+        "renderingVersion": "aces2-069b0bc3-v3",
+        "sourceContract": {
+          "version": "hdr-source-v2-capture-scale-1",
+          "highlightBlend": "sensor-blend-v1",
+          "processing": "hdr-v1",
+          "colorSpace": "rec2020",
+          "whitePoint": "D65",
+          "transfer": "linear",
+          "alpha": "straight",
+          "normalization": {
+            "black": [800, 800, 800, 800],
+            "maximum": 15580,
+            "gains": [2324, 1024, 2068, 1024],
+            "restoreGain": 2.26953125,
+            "referenceWhite": 1,
+            "sourceSaturation": {
+              "thresholds": [15360, 15360, 15360, 15360],
+              "saturatedSites": 3663,
+              "totalSites": 20181312
+            }
+          },
+          "decoder": "libraw-0.22.1-1",
+          "cameraProfile": "sony-zv1-family-1",
+          "orientation": "applied-once"
+        },
+        "whiteBalance": {
+          "provider": "sony-zv1-white-balance",
+          "version": "1",
+          "identity": "sony-zv1-white-balance-1-sony-zv1-family-1",
+          "model": "luma-kang2002-ucs-1",
+          "asShotGains": [2324, 1024, 2068],
+          "xyzToCamera": [
+            0.828000009059906, -0.2987000048160553, -0.07029999792575836, -0.3531000018119812,
+            1.1644999980926514, 0.21330000460147858, -0.054999999701976776, 0.1542000025510788,
+            0.5311999917030334
+          ],
+          "cameraToWorking": [
+            0.8967112915248392, 0.31191889702401443, -0.20863017388926236, -0.10119069095402336,
+            1.4855423301672763, -0.3843515981224667, 0.011302085197730627, -0.29710913934756866,
+            1.2858070568332076
+          ],
+          "ranges": {
+            "kelvin": [2000, 25000],
+            "tint": [-100, 100]
+          },
+          "estimate": {
+            "kelvin": 4750,
+            "tint": 75
+          }
+        },
+        "corrections": {
+          "distortion": true,
+          "vignetting": true,
+          "chromaticAberration": true
+        },
+        "measurement": "Ignored actual-source fixture generator; current production PreviewProcess, separately compiled real preview worker and trusted owned-native RAW helper. No renderer or first surface."
+      },
+      "retainedManifestPath": "artifacts/bazzite-native-20261019/native-mask-research/fixture-preparation/portrait-working-20261020-a/fixture.json",
+      "retainedManifestSha256": "7c81a874df564dfe3151191e7f95137db9e57b0f36eb594a1ba6d8dd980c92e5"
+    }
+  ],
+  "publicThresholdControls": [
+    {
+      "name": "srgb-content-headroom-below",
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 3.72,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 42,
+        "requested": "auto",
+        "mode": "hdr",
+        "colorSpace": "srgb",
+        "peak": 100,
+        "headroom": 1.7257325822171556,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "actualInputF32": [
+        0.18000000715255737, 0.18000000715255737, 0.18000000715255737, 0, 0.18000000715255737,
+        0.18000000715255737, 0.18000000715255737, 0.5, 0.18000000715255737, 0.18000000715255737,
+        0.18000000715255737, 1
+      ],
+      "actualInputSha256": "225f1110c0d5d88ff05c38a322435739bf3864db23526691b2b2b3560a04ccad",
+      "expectedBaseBytes": [0, 6, 6],
+      "evidence": {
+        "publicPatchAccepted": true,
+        "targetAccepted": true,
+        "targetHeadroomNativeDomain": true,
+        "center": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "wantedBound": {
+          "value": 1.7257325822171556,
+          "bits": "0x3ffb9c99c4a43aa2"
+        },
+        "actualBound": {
+          "value": 1.7257325822171556,
+          "bits": "0x3ffb9c99c4a43aa2"
+        },
+        "boundRelationToActualMetric": -1,
+        "actualProof": [
+          {
+            "value": 1.5189213311978402,
+            "bits": "0x3ff84d80742b106b"
+          },
+          {
+            "value": 1.7596019324551602,
+            "bits": "0x3ffc27545b1df918"
+          },
+          {
+            "value": 1.9993606028817938,
+            "bits": "0x3ffffd618b249c41"
+          }
+        ],
+        "actualY": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "headroomPredicate": true,
+        "clippedPredicate": false,
+        "gamutPredicate": false
+      }
+    },
+    {
+      "name": "srgb-content-headroom-equal",
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 3.72,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 42,
+        "requested": "auto",
+        "mode": "hdr",
+        "colorSpace": "srgb",
+        "peak": 100,
+        "headroom": 1.7257325822171559,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "actualInputF32": [
+        0.18000000715255737, 0.18000000715255737, 0.18000000715255737, 0, 0.18000000715255737,
+        0.18000000715255737, 0.18000000715255737, 0.5, 0.18000000715255737, 0.18000000715255737,
+        0.18000000715255737, 1
+      ],
+      "actualInputSha256": "225f1110c0d5d88ff05c38a322435739bf3864db23526691b2b2b3560a04ccad",
+      "expectedBaseBytes": [0, 4, 4],
+      "evidence": {
+        "publicPatchAccepted": true,
+        "targetAccepted": true,
+        "targetHeadroomNativeDomain": true,
+        "center": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "wantedBound": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "actualBound": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "boundRelationToActualMetric": 0,
+        "actualProof": [
+          {
+            "value": 1.5189213311978402,
+            "bits": "0x3ff84d80742b106b"
+          },
+          {
+            "value": 1.7596019324551602,
+            "bits": "0x3ffc27545b1df918"
+          },
+          {
+            "value": 1.9993606028817938,
+            "bits": "0x3ffffd618b249c41"
+          }
+        ],
+        "actualY": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "headroomPredicate": false,
+        "clippedPredicate": false,
+        "gamutPredicate": false
+      }
+    },
+    {
+      "name": "srgb-content-headroom-above",
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 3.72,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 42,
+        "requested": "auto",
+        "mode": "hdr",
+        "colorSpace": "srgb",
+        "peak": 100,
+        "headroom": 1.725732582217156,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "actualInputF32": [
+        0.18000000715255737, 0.18000000715255737, 0.18000000715255737, 0, 0.18000000715255737,
+        0.18000000715255737, 0.18000000715255737, 0.5, 0.18000000715255737, 0.18000000715255737,
+        0.18000000715255737, 1
+      ],
+      "actualInputSha256": "225f1110c0d5d88ff05c38a322435739bf3864db23526691b2b2b3560a04ccad",
+      "expectedBaseBytes": [0, 4, 4],
+      "evidence": {
+        "publicPatchAccepted": true,
+        "targetAccepted": true,
+        "targetHeadroomNativeDomain": true,
+        "center": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "wantedBound": {
+          "value": 1.725732582217156,
+          "bits": "0x3ffb9c99c4a43aa4"
+        },
+        "actualBound": {
+          "value": 1.725732582217156,
+          "bits": "0x3ffb9c99c4a43aa4"
+        },
+        "boundRelationToActualMetric": 1,
+        "actualProof": [
+          {
+            "value": 1.5189213311978402,
+            "bits": "0x3ff84d80742b106b"
+          },
+          {
+            "value": 1.7596019324551602,
+            "bits": "0x3ffc27545b1df918"
+          },
+          {
+            "value": 1.9993606028817938,
+            "bits": "0x3ffffd618b249c41"
+          }
+        ],
+        "actualY": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "headroomPredicate": false,
+        "clippedPredicate": false,
+        "gamutPredicate": false
+      }
+    },
+    {
+      "name": "srgb-proof-upper-below",
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 3.72,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 42,
+        "requested": "auto",
+        "mode": "hdr",
+        "colorSpace": "srgb",
+        "peak": 1.9993586028817936,
+        "headroom": null,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "actualInputF32": [
+        0.18000000715255737, 0.18000000715255737, 0.18000000715255737, 0, 0.18000000715255737,
+        0.18000000715255737, 0.18000000715255737, 0.5, 0.18000000715255737, 0.18000000715255737,
+        0.18000000715255737, 1
+      ],
+      "actualInputSha256": "225f1110c0d5d88ff05c38a322435739bf3864db23526691b2b2b3560a04ccad",
+      "expectedBaseBytes": [0, 5, 5],
+      "evidence": {
+        "publicPatchAccepted": true,
+        "targetAccepted": true,
+        "targetHeadroomNativeDomain": true,
+        "center": {
+          "value": 1.9993606028817938,
+          "bits": "0x3ffffd618b249c41"
+        },
+        "wantedBound": {
+          "value": 1.9993606028817936,
+          "bits": "0x3ffffd618b249c40"
+        },
+        "actualBound": {
+          "value": 1.9993606028817936,
+          "bits": "0x3ffffd618b249c40"
+        },
+        "boundRelationToActualMetric": -1,
+        "actualProof": [
+          {
+            "value": 1.5189213311978402,
+            "bits": "0x3ff84d80742b106b"
+          },
+          {
+            "value": 1.7596019324551602,
+            "bits": "0x3ffc27545b1df918"
+          },
+          {
+            "value": 1.9993606028817938,
+            "bits": "0x3ffffd618b249c41"
+          }
+        ],
+        "actualY": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "headroomPredicate": false,
+        "clippedPredicate": true,
+        "gamutPredicate": false
+      }
+    },
+    {
+      "name": "srgb-proof-upper-equal",
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 3.72,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 42,
+        "requested": "auto",
+        "mode": "hdr",
+        "colorSpace": "srgb",
+        "peak": 1.9993586028817938,
+        "headroom": null,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "actualInputF32": [
+        0.18000000715255737, 0.18000000715255737, 0.18000000715255737, 0, 0.18000000715255737,
+        0.18000000715255737, 0.18000000715255737, 0.5, 0.18000000715255737, 0.18000000715255737,
+        0.18000000715255737, 1
+      ],
+      "actualInputSha256": "225f1110c0d5d88ff05c38a322435739bf3864db23526691b2b2b3560a04ccad",
+      "expectedBaseBytes": [0, 4, 4],
+      "evidence": {
+        "publicPatchAccepted": true,
+        "targetAccepted": true,
+        "targetHeadroomNativeDomain": true,
+        "center": {
+          "value": 1.9993606028817938,
+          "bits": "0x3ffffd618b249c41"
+        },
+        "wantedBound": {
+          "value": 1.9993606028817938,
+          "bits": "0x3ffffd618b249c41"
+        },
+        "actualBound": {
+          "value": 1.9993606028817938,
+          "bits": "0x3ffffd618b249c41"
+        },
+        "boundRelationToActualMetric": 0,
+        "actualProof": [
+          {
+            "value": 1.5189213311978402,
+            "bits": "0x3ff84d80742b106b"
+          },
+          {
+            "value": 1.7596019324551602,
+            "bits": "0x3ffc27545b1df918"
+          },
+          {
+            "value": 1.9993606028817938,
+            "bits": "0x3ffffd618b249c41"
+          }
+        ],
+        "actualY": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "headroomPredicate": false,
+        "clippedPredicate": false,
+        "gamutPredicate": false
+      }
+    },
+    {
+      "name": "srgb-proof-upper-above",
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 3.72,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 42,
+        "requested": "auto",
+        "mode": "hdr",
+        "colorSpace": "srgb",
+        "peak": 1.999358602881794,
+        "headroom": null,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "actualInputF32": [
+        0.18000000715255737, 0.18000000715255737, 0.18000000715255737, 0, 0.18000000715255737,
+        0.18000000715255737, 0.18000000715255737, 0.5, 0.18000000715255737, 0.18000000715255737,
+        0.18000000715255737, 1
+      ],
+      "actualInputSha256": "225f1110c0d5d88ff05c38a322435739bf3864db23526691b2b2b3560a04ccad",
+      "expectedBaseBytes": [0, 4, 4],
+      "evidence": {
+        "publicPatchAccepted": true,
+        "targetAccepted": true,
+        "targetHeadroomNativeDomain": true,
+        "center": {
+          "value": 1.9993606028817938,
+          "bits": "0x3ffffd618b249c41"
+        },
+        "wantedBound": {
+          "value": 1.999360602881794,
+          "bits": "0x3ffffd618b249c42"
+        },
+        "actualBound": {
+          "value": 1.999360602881794,
+          "bits": "0x3ffffd618b249c42"
+        },
+        "boundRelationToActualMetric": 1,
+        "actualProof": [
+          {
+            "value": 1.5189213311978402,
+            "bits": "0x3ff84d80742b106b"
+          },
+          {
+            "value": 1.7596019324551602,
+            "bits": "0x3ffc27545b1df918"
+          },
+          {
+            "value": 1.9993606028817938,
+            "bits": "0x3ffffd618b249c41"
+          }
+        ],
+        "actualY": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "headroomPredicate": false,
+        "clippedPredicate": false,
+        "gamutPredicate": false
+      }
+    },
+    {
+      "name": "display-p3-content-headroom-below",
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 3.72,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 42,
+        "requested": "auto",
+        "mode": "hdr",
+        "colorSpace": "display-p3",
+        "peak": 100,
+        "headroom": 1.7257325822171556,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "actualInputF32": [
+        0.18000000715255737, 0.18000000715255737, 0.18000000715255737, 0, 0.18000000715255737,
+        0.18000000715255737, 0.18000000715255737, 0.5, 0.18000000715255737, 0.18000000715255737,
+        0.18000000715255737, 1
+      ],
+      "actualInputSha256": "225f1110c0d5d88ff05c38a322435739bf3864db23526691b2b2b3560a04ccad",
+      "expectedBaseBytes": [0, 6, 6],
+      "evidence": {
+        "publicPatchAccepted": true,
+        "targetAccepted": true,
+        "targetHeadroomNativeDomain": true,
+        "center": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "wantedBound": {
+          "value": 1.7257325822171556,
+          "bits": "0x3ffb9c99c4a43aa2"
+        },
+        "actualBound": {
+          "value": 1.7257325822171556,
+          "bits": "0x3ffb9c99c4a43aa2"
+        },
+        "boundRelationToActualMetric": -1,
+        "actualProof": [
+          {
+            "value": 1.5616512913138483,
+            "bits": "0x3ff8fc86107f2fb5"
+          },
+          {
+            "value": 1.7516127327175646,
+            "bits": "0x3ffc069b12a47750"
+          },
+          {
+            "value": 1.9737955221039454,
+            "bits": "0x3fff94aa9d06d7d2"
+          }
+        ],
+        "actualY": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "headroomPredicate": true,
+        "clippedPredicate": false,
+        "gamutPredicate": false
+      }
+    },
+    {
+      "name": "display-p3-content-headroom-equal",
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 3.72,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 42,
+        "requested": "auto",
+        "mode": "hdr",
+        "colorSpace": "display-p3",
+        "peak": 100,
+        "headroom": 1.7257325822171559,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "actualInputF32": [
+        0.18000000715255737, 0.18000000715255737, 0.18000000715255737, 0, 0.18000000715255737,
+        0.18000000715255737, 0.18000000715255737, 0.5, 0.18000000715255737, 0.18000000715255737,
+        0.18000000715255737, 1
+      ],
+      "actualInputSha256": "225f1110c0d5d88ff05c38a322435739bf3864db23526691b2b2b3560a04ccad",
+      "expectedBaseBytes": [0, 4, 4],
+      "evidence": {
+        "publicPatchAccepted": true,
+        "targetAccepted": true,
+        "targetHeadroomNativeDomain": true,
+        "center": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "wantedBound": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "actualBound": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "boundRelationToActualMetric": 0,
+        "actualProof": [
+          {
+            "value": 1.5616512913138483,
+            "bits": "0x3ff8fc86107f2fb5"
+          },
+          {
+            "value": 1.7516127327175646,
+            "bits": "0x3ffc069b12a47750"
+          },
+          {
+            "value": 1.9737955221039454,
+            "bits": "0x3fff94aa9d06d7d2"
+          }
+        ],
+        "actualY": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "headroomPredicate": false,
+        "clippedPredicate": false,
+        "gamutPredicate": false
+      }
+    },
+    {
+      "name": "display-p3-content-headroom-above",
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 3.72,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 42,
+        "requested": "auto",
+        "mode": "hdr",
+        "colorSpace": "display-p3",
+        "peak": 100,
+        "headroom": 1.725732582217156,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "actualInputF32": [
+        0.18000000715255737, 0.18000000715255737, 0.18000000715255737, 0, 0.18000000715255737,
+        0.18000000715255737, 0.18000000715255737, 0.5, 0.18000000715255737, 0.18000000715255737,
+        0.18000000715255737, 1
+      ],
+      "actualInputSha256": "225f1110c0d5d88ff05c38a322435739bf3864db23526691b2b2b3560a04ccad",
+      "expectedBaseBytes": [0, 4, 4],
+      "evidence": {
+        "publicPatchAccepted": true,
+        "targetAccepted": true,
+        "targetHeadroomNativeDomain": true,
+        "center": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "wantedBound": {
+          "value": 1.725732582217156,
+          "bits": "0x3ffb9c99c4a43aa4"
+        },
+        "actualBound": {
+          "value": 1.725732582217156,
+          "bits": "0x3ffb9c99c4a43aa4"
+        },
+        "boundRelationToActualMetric": 1,
+        "actualProof": [
+          {
+            "value": 1.5616512913138483,
+            "bits": "0x3ff8fc86107f2fb5"
+          },
+          {
+            "value": 1.7516127327175646,
+            "bits": "0x3ffc069b12a47750"
+          },
+          {
+            "value": 1.9737955221039454,
+            "bits": "0x3fff94aa9d06d7d2"
+          }
+        ],
+        "actualY": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "headroomPredicate": false,
+        "clippedPredicate": false,
+        "gamutPredicate": false
+      }
+    },
+    {
+      "name": "display-p3-proof-upper-below",
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 3.72,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 42,
+        "requested": "auto",
+        "mode": "hdr",
+        "colorSpace": "display-p3",
+        "peak": 1.973793522103945,
+        "headroom": null,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "actualInputF32": [
+        0.18000000715255737, 0.18000000715255737, 0.18000000715255737, 0, 0.18000000715255737,
+        0.18000000715255737, 0.18000000715255737, 0.5, 0.18000000715255737, 0.18000000715255737,
+        0.18000000715255737, 1
+      ],
+      "actualInputSha256": "225f1110c0d5d88ff05c38a322435739bf3864db23526691b2b2b3560a04ccad",
+      "expectedBaseBytes": [0, 5, 5],
+      "evidence": {
+        "publicPatchAccepted": true,
+        "targetAccepted": true,
+        "targetHeadroomNativeDomain": true,
+        "center": {
+          "value": 1.9737955221039454,
+          "bits": "0x3fff94aa9d06d7d2"
+        },
+        "wantedBound": {
+          "value": 1.9737955221039452,
+          "bits": "0x3fff94aa9d06d7d1"
+        },
+        "actualBound": {
+          "value": 1.9737955221039452,
+          "bits": "0x3fff94aa9d06d7d1"
+        },
+        "boundRelationToActualMetric": -1,
+        "actualProof": [
+          {
+            "value": 1.5616512913138483,
+            "bits": "0x3ff8fc86107f2fb5"
+          },
+          {
+            "value": 1.7516127327175646,
+            "bits": "0x3ffc069b12a47750"
+          },
+          {
+            "value": 1.9737955221039454,
+            "bits": "0x3fff94aa9d06d7d2"
+          }
+        ],
+        "actualY": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "headroomPredicate": false,
+        "clippedPredicate": true,
+        "gamutPredicate": false
+      }
+    },
+    {
+      "name": "display-p3-proof-upper-equal",
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 3.72,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 42,
+        "requested": "auto",
+        "mode": "hdr",
+        "colorSpace": "display-p3",
+        "peak": 1.9737935221039453,
+        "headroom": null,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "actualInputF32": [
+        0.18000000715255737, 0.18000000715255737, 0.18000000715255737, 0, 0.18000000715255737,
+        0.18000000715255737, 0.18000000715255737, 0.5, 0.18000000715255737, 0.18000000715255737,
+        0.18000000715255737, 1
+      ],
+      "actualInputSha256": "225f1110c0d5d88ff05c38a322435739bf3864db23526691b2b2b3560a04ccad",
+      "expectedBaseBytes": [0, 4, 4],
+      "evidence": {
+        "publicPatchAccepted": true,
+        "targetAccepted": true,
+        "targetHeadroomNativeDomain": true,
+        "center": {
+          "value": 1.9737955221039454,
+          "bits": "0x3fff94aa9d06d7d2"
+        },
+        "wantedBound": {
+          "value": 1.9737955221039454,
+          "bits": "0x3fff94aa9d06d7d2"
+        },
+        "actualBound": {
+          "value": 1.9737955221039454,
+          "bits": "0x3fff94aa9d06d7d2"
+        },
+        "boundRelationToActualMetric": 0,
+        "actualProof": [
+          {
+            "value": 1.5616512913138483,
+            "bits": "0x3ff8fc86107f2fb5"
+          },
+          {
+            "value": 1.7516127327175646,
+            "bits": "0x3ffc069b12a47750"
+          },
+          {
+            "value": 1.9737955221039454,
+            "bits": "0x3fff94aa9d06d7d2"
+          }
+        ],
+        "actualY": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "headroomPredicate": false,
+        "clippedPredicate": false,
+        "gamutPredicate": false
+      }
+    },
+    {
+      "name": "display-p3-proof-upper-above",
+      "parameters": {
+        "whiteBalance": {
+          "mode": "custom",
+          "kelvin": 4500,
+          "tint": 12
+        },
+        "exposureEv": 3.72,
+        "contrast": 45,
+        "highlights": -55,
+        "shadows": 40,
+        "whites": 20,
+        "blacks": -25
+      },
+      "target": {
+        "generation": 42,
+        "requested": "auto",
+        "mode": "hdr",
+        "colorSpace": "display-p3",
+        "peak": 1.9737935221039455,
+        "headroom": null,
+        "reason": "SDR rendition.",
+        "physicalOutputVerified": false,
+        "outputVersion": "hdr-output-v6-content-proof-aces2-069b0bc3-v3"
+      },
+      "actualInputF32": [
+        0.18000000715255737, 0.18000000715255737, 0.18000000715255737, 0, 0.18000000715255737,
+        0.18000000715255737, 0.18000000715255737, 0.5, 0.18000000715255737, 0.18000000715255737,
+        0.18000000715255737, 1
+      ],
+      "actualInputSha256": "225f1110c0d5d88ff05c38a322435739bf3864db23526691b2b2b3560a04ccad",
+      "expectedBaseBytes": [0, 4, 4],
+      "evidence": {
+        "publicPatchAccepted": true,
+        "targetAccepted": true,
+        "targetHeadroomNativeDomain": true,
+        "center": {
+          "value": 1.9737955221039454,
+          "bits": "0x3fff94aa9d06d7d2"
+        },
+        "wantedBound": {
+          "value": 1.9737955221039456,
+          "bits": "0x3fff94aa9d06d7d3"
+        },
+        "actualBound": {
+          "value": 1.9737955221039456,
+          "bits": "0x3fff94aa9d06d7d3"
+        },
+        "boundRelationToActualMetric": 1,
+        "actualProof": [
+          {
+            "value": 1.5616512913138483,
+            "bits": "0x3ff8fc86107f2fb5"
+          },
+          {
+            "value": 1.7516127327175646,
+            "bits": "0x3ffc069b12a47750"
+          },
+          {
+            "value": 1.9737955221039454,
+            "bits": "0x3fff94aa9d06d7d2"
+          }
+        ],
+        "actualY": {
+          "value": 1.7257325822171559,
+          "bits": "0x3ffb9c99c4a43aa3"
+        },
+        "headroomPredicate": false,
+        "clippedPredicate": false,
+        "gamutPredicate": false
+      }
+    }
+  ]
+}

@@ -2,8 +2,11 @@
 set -eu
 LUMA_EXPORT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$LUMA_EXPORT_ROOT"
+if [ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ]; then
+  exec node "$LUMA_EXPORT_ROOT/scripts/ultrahdr/build-linux.mjs"
+fi
 if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
-  echo 'The native export encoder currently targets macOS arm64.' >&2
+  echo 'The native export encoder targets Linux x64 and macOS arm64.' >&2
   exit 1
 fi
 LUMA_NATIVE_BUILD="$LUMA_EXPORT_ROOT/artifacts/ultrahdr-native-build"

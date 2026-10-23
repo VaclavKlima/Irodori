@@ -21,7 +21,11 @@ import {
 } from 'electron'
 import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
-import { createReadStream } from 'node:fs'
+import {
+  createPreviewAssetStream,
+  PREVIEW_STREAM_CHUNK_BYTES,
+  type PreviewAssetStreamLease,
+} from './preview-asset-stream'
 import { Readable } from 'node:stream'
 import type { AppInfo } from '../shared/contracts'
 import { PhotoLibrary } from './library'
@@ -29,6 +33,29 @@ import { PreviewProcess } from './preview-process'
 import { ImportDevices } from './import-devices'
 import { createAppWindow, showAppWindow } from './window-presentation'
 import { closeServices } from './shutdown'
+import { ResourceService } from './resource-service'
+import {
+  NativeCpuController,
+  NativeCpuMemoryLimit,
+  NativeCpuCancelled,
+} from './native-cpu-controller'
+import {
+  cpuPreviewBackend,
+  nativeCpuExecutable,
+  nativeCpuMaskCapability,
+} from './native-cpu-executable'
+import { SDR_TARGET } from '../shared/hdr'
+import {
+  NATIVE_HDR_MASK_VERSION,
+  type NativeHdrMaskRequest,
+  type NativeHdrMaskOutcome,
+} from '../shared/native-hdr-mask'
+import { nativeCpuExistingOwners } from '../shared/native-cpu-memory'
+import {
+  NATIVE_CPU_PREVIEW_VERSION,
+  type CpuPreviewOutcome,
+  type CpuPreviewRequest,
+} from '../shared/native-cpu-preview'
 
 const importDevices = new ImportDevices()
 
@@ -46,13 +73,15 @@ let displayState: DisplayState
 
 let mainWindow: BrowserWindow | null = null
 let library: PhotoLibrary | undefined
+let resourceService: ResourceService | undefined
+let nativeCpu: NativeCpuController | undefined
 let editorEndpoint: Awaited<ReturnType<typeof startEditorEndpoint>> | undefined
 let quitting = false
 let picking = false
 let quitPending = false
 let closingRenderer: Electron.WebContents | undefined
 
-async function flushEditorEdits() {
+async function flushEditorEdits(scope: import('../shared/edits').EditFlushScope) {
   const window = mainWindow
   if (!window || window.isDestroyed()) return
   await new Promise<void>((resolve, reject) => {
@@ -74,7 +103,7 @@ async function flushEditorEdits() {
       else resolve()
     }
     ipcMain.on('edits:flushed', handler)
-    window.webContents.send('edits:flush', token)
+    window.webContents.send('edits:flush', token, scope)
   })
 }
 
@@ -131,7 +160,7 @@ async function requestQuit(): Promise<void> {
           else resolve()
         }
         ipcMain.on('edits:flushed', handler)
-        window.webContents.send('edits:flush', token)
+        window.webContents.send('edits:flush', token, { kind: 'all' })
       })
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -163,7 +192,11 @@ async function requestQuit(): Promise<void> {
       mainWindow.destroy()
     }
     try {
-      await closeServices([() => editorEndpoint?.close(), () => library?.close()])
+      await closeServices([
+        () => editorEndpoint?.close(),
+        () => library?.close(),
+        () => resourceService?.drain(),
+      ])
       quitting = true
       app.quit()
     } catch (error) {
@@ -227,6 +260,7 @@ function createWindow(): void {
   mainWindow = window
   installWaylandDisplayRefresh(window)
   const releasePreview = () => {
+    void nativeCpu?.reset().catch((error: unknown) => console.warn('CPU preview cleanup:', error))
     library?.releaseForegroundActivities()
     void library?.fullPreviews.release().catch(() => undefined)
   }
@@ -295,6 +329,22 @@ app
         : null,
     )
 
+    resourceService = new ResourceService(app.getPath('userData'))
+    await resourceService.open()
+
+    handleLibraryRequest('resources:get-settings', (event) => {
+      trusted(event)
+      return resourceService!.getSettings()
+    })
+    handleLibraryRequest('resources:set-settings', (event, value: unknown) => {
+      trusted(event)
+      return resourceService!.saveSettings(value)
+    })
+    handleLibraryRequest('resources:get-policy', (event, adapter: unknown) => {
+      trusted(event)
+      return resourceService!.getPolicy(adapter)
+    })
+
     handleLibraryRequest('app:get-info', (event): AppInfo => {
       if (
         !mainWindow ||
@@ -313,9 +363,8 @@ app
       trusted(event)
       return library!.getExportPreferences()
     })
-    handleLibraryRequest('export:prepare', async (event, ids: string[]) => {
+    handleLibraryRequest('export:prepare', (event, ids: string[]) => {
       trusted(event)
-      await flushEditorEdits()
       return library!.prepareExport(ids)
     })
     handleLibraryRequest('export:dispose', (event, id: string) => {
@@ -324,9 +373,8 @@ app
     })
     handleLibraryRequest(
       'export:start',
-      async (event, request: import('../shared/export').ExportStart) => {
+      (event, request: import('../shared/export').ExportStart) => {
         trusted(event)
-        await flushEditorEdits()
         return library!.startExport(request)
       },
     )
@@ -464,17 +512,152 @@ app
       (path) => shell.trashItem(path),
       undefined,
     )
+    library.fullPreviews.installFirstSurface({
+      policy: () => resourceService!.getPolicy(null),
+      publish: (offer) => {
+        if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed())
+          throw new Error('The first HDR surface renderer is unavailable.')
+        mainWindow.webContents.send('preview:first-surface', offer)
+      },
+    })
     library.displayTarget = () => displayState.get()
+    library.flushEditorEdits = flushEditorEdits
     await library.open()
-    editorEndpoint = await startEditorEndpoint(
-      app.getPath('userData'),
-      library,
-      displayState,
-      flushEditorEdits,
+    if (process.platform === 'linux' && process.arch === 'x64')
+      void library.fullPreviews.prewarmHdr('linear64')
+    const maskCapability =
+      cpuPreviewBackend() === 'native' ? await nativeCpuMaskCapability() : undefined
+    nativeCpu = new NativeCpuController({
+      root: join(app.getPath('userData'), 'library/cache/cpu-presentations'),
+      executable: () => nativeCpuExecutable(),
+      policy: () => resourceService!.getPolicy(null),
+      acquireSource: (request, signal) =>
+        library!.fullPreviews.acquireCpuWorkingSource(request, signal),
+      foreground: (work, signal) => library!.fullPreviews.runCpuForeground(work, signal),
+      mask: maskCapability
+        ? {
+            arithmeticSha256: maskCapability.arithmeticSha256,
+            acquireSource: (request, signal) =>
+              library!.fullPreviews.acquireCpuMaskWorkingSource(request, signal),
+            checkTarget: (request) => {
+              const current = displayState.get()
+              const fallback =
+                nativeCpu?.hasCpuPresentationSource(request.source) ||
+                (current.presentation?.photoId === request.source.photoId &&
+                  current.presentation.stage === 'presented' &&
+                  current.presentation.backend === 'canvas2d-hdr-sdr')
+              const expected =
+                request.domain === 'working-hdr'
+                  ? SDR_TARGET
+                  : fallback
+                    ? {
+                        ...SDR_TARGET,
+                        generation: current.generation,
+                        requested: current.requested,
+                        headroom: current.headroom,
+                      }
+                    : current
+              for (const key of [
+                'generation',
+                'requested',
+                'mode',
+                'colorSpace',
+                'peak',
+                'headroom',
+                'outputVersion',
+              ] as const)
+                if (request.target[key] !== expected[key])
+                  throw new Error('Native mask display target changed.')
+            },
+          }
+        : undefined,
+
+      existingOwners: (asset, request) =>
+        nativeCpuExistingOwners(
+          asset.width,
+          asset.height,
+          Math.max(1, Math.round(request.viewport.width * request.viewport.dpr)),
+          Math.max(1, Math.round(request.viewport.height * request.viewport.dpr)),
+        ),
+    })
+    await nativeCpu.open()
+    library.fullPreviews.installCpuController(nativeCpu)
+    handleLibraryRequest('preview:cpu-backend', (event) => {
+      trusted(event)
+      return cpuPreviewBackend()
+    })
+    handleLibraryRequest(
+      'preview:cpu-render',
+      async (event, request: CpuPreviewRequest): Promise<CpuPreviewOutcome> => {
+        trusted(event)
+        try {
+          return await nativeCpu!.render(request)
+        } catch (error) {
+          if (error instanceof NativeCpuCancelled)
+            return {
+              kind: 'cancelled',
+              version: NATIVE_CPU_PREVIEW_VERSION,
+              requestId: request.requestId,
+              sessionId: request.sessionId,
+              generation: request.generation,
+            }
+          if (!(error instanceof NativeCpuMemoryLimit)) throw error
+          return {
+            kind: 'memory-limit',
+            version: NATIVE_CPU_PREVIEW_VERSION,
+            requestId: request.requestId,
+            sessionId: request.sessionId,
+            generation: request.generation,
+            policy: error.policy,
+          }
+        }
+      },
     )
+    handleLibraryRequest(
+      'preview:hdr-mask-render',
+      async (event, request: NativeHdrMaskRequest): Promise<NativeHdrMaskOutcome> => {
+        trusted(event)
+        try {
+          return await nativeCpu!.renderMask(request)
+        } catch (error) {
+          if (!(error instanceof NativeCpuCancelled)) throw error
+          return {
+            kind: 'cancelled',
+            version: NATIVE_HDR_MASK_VERSION,
+            requestId: request.requestId,
+            sessionId: request.sessionId,
+            generation: request.generation,
+          }
+        }
+      },
+    )
+    handleLibraryRequest('preview:hdr-mask-cancel', (event, sessionId, requestId) => {
+      trusted(event)
+      return nativeCpu!.cancelMask(sessionId, requestId)
+    })
+    handleLibraryRequest('preview:hdr-mask-release', (event, sessionId, maskId) => {
+      trusted(event)
+      return nativeCpu!.releaseMask(sessionId, maskId)
+    })
+    handleLibraryRequest('preview:cpu-cancel', (event, sessionId, requestId) => {
+      trusted(event)
+      return nativeCpu!.cancel(sessionId, requestId)
+    })
+    handleLibraryRequest('preview:cpu-ack', (event, sessionId, pairId, previous) => {
+      trusted(event)
+      return nativeCpu!.acknowledge(sessionId, pairId, previous)
+    })
+    handleLibraryRequest('preview:cpu-release', (event, sessionId, pairId) => {
+      trusted(event)
+      return nativeCpu!.release(sessionId, pairId)
+    })
+    editorEndpoint = await startEditorEndpoint(app.getPath('userData'), library, displayState)
     protocol.handle('luma-photo', async (request) => {
       if (request.method !== 'GET') return new Response(null, { status: 404 })
-      const asset = library?.fullPreviews.acquire(new URL(request.url))
+      const asset: PreviewAssetStreamLease | undefined =
+        nativeCpu?.acquire(new URL(request.url)) ??
+        nativeCpu?.acquireMask(new URL(request.url)) ??
+        library?.fullPreviews.acquire(new URL(request.url))
       if (asset) {
         const range = request.headers.get('range')
         const match = range?.match(/^bytes=(\d+)-(\d+)$/)
@@ -494,15 +677,8 @@ app
           return new Response(null, { status: 416 })
         }
         // Keep protocol chunks large enough to avoid thousands of cross-process transfers.
-        const highWaterMark = 1024 * 1024
-        const stream = createReadStream(asset.path, { start, end, highWaterMark })
-        const abort = () => stream.destroy()
-        request.signal.addEventListener('abort', abort, { once: true })
-        stream.once('close', () => {
-          request.signal.removeEventListener('abort', abort)
-          asset.release()
-        })
-        if (request.signal.aborted) stream.destroy()
+        const highWaterMark = PREVIEW_STREAM_CHUNK_BYTES
+        const stream = createPreviewAssetStream(asset, start, end, request.signal)
         return new Response(
           Readable.toWeb(stream, {
             strategy: { highWaterMark, size: (chunk: Uint8Array) => chunk.byteLength },
@@ -593,12 +769,21 @@ app
         )
       },
     )
-    handleLibraryRequest('preview:hdr', (event, id, token, regenerate = false, mode = 'hdr') => {
+    handleLibraryRequest(
+      'preview:hdr',
+      (event, id, token, regenerate = false, mode = 'hdr', firstSurface, rendererReservation) => {
+        trusted(event)
+        return library!.fullPreviews
+          .requestHdr(id, token, regenerate, mode, firstSurface, rendererReservation)
+          .then(
+            (preview) => ({ preview }),
+            (error: unknown) => ({ error: String(error) }),
+          )
+      },
+    )
+    handleLibraryRequest('preview:first-surface-release', (event, requestId, surfaceId) => {
       trusted(event)
-      return library!.fullPreviews.requestHdr(id, token, regenerate, mode).then(
-        (preview) => ({ preview }),
-        (error: unknown) => ({ error: String(error) }),
-      )
+      return library!.fullPreviews.releaseFirstSurface(requestId, surfaceId)
     })
     handleLibraryRequest('preview:editing', (event, id, token) => {
       trusted(event)
@@ -802,7 +987,7 @@ app
     })
     handleLibraryRequest('tasks:dismiss', (event, id: string) => {
       trusted(event)
-      library!.dismissTask(id)
+      return library!.dismissTask(id)
     })
     handleLibraryRequest('tasks:errors', (event, id: string, offset: number) => {
       trusted(event)

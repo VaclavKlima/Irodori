@@ -48,7 +48,7 @@ interface HdrSourceBase {
 interface CaptureHdrSource extends HdrSourceBase {
   composite?: { kind: 'hdr' | 'noise'; sourceCount: number }
   highlightBlend?: typeof SENSOR_BLEND_VERSION
-  version: typeof HDR_SOURCE_VERSION | 'hdr-source-v1'
+  version: typeof HDR_SOURCE_VERSION
   normalization: HdrNormalization
   cameraProfile: string
   display?: never
@@ -257,6 +257,14 @@ export function presentHdrContent(content: RGB, target: DisplayTarget) {
 }
 export const encodeHdr = encodeDiagnosticChannel
 
+/** Unsupported capture provenance is distinct from malformed or damaged source metadata. */
+export class UnsupportedHdrSourceVersionError extends Error {
+  constructor(readonly sourceVersion: string) {
+    super(`Unsupported HDR capture source version. Expected ${HDR_SOURCE_VERSION}.`)
+    this.name = 'UnsupportedHdrSourceVersionError'
+  }
+}
+
 /** Validate provenance before a working asset can enter any HDR processing stage. */
 export function validateHdrSource(source: HdrSource): void {
   if (source?.display) {
@@ -292,10 +300,10 @@ export function validateHdrSource(source: HdrSource): void {
   const normalization = source?.normalization
   if (
     !source ||
+    typeof source.version !== 'string' ||
+    !source.version ||
     (source.highlightBlend !== undefined &&
       (source.highlightBlend !== SENSOR_BLEND_VERSION || !!source.composite)) ||
-    (source.version !== HDR_SOURCE_VERSION &&
-      !(source.composite && source.version === 'hdr-source-v1')) ||
     source.processing !== 'hdr-v1' ||
     source.colorSpace !== 'rec2020' ||
     source.whitePoint !== 'D65' ||
@@ -332,4 +340,8 @@ export function validateHdrSource(source: HdrSource): void {
       saturation.saturatedSites > saturation.totalSites)
   )
     throw new Error('Invalid RAW saturation provenance.')
+  // Classify unsupported versions only after every current provenance shape check.
+  const sourceVersion: string = source.version
+  if (sourceVersion !== HDR_SOURCE_VERSION)
+    throw new UnsupportedHdrSourceVersionError(sourceVersion)
 }

@@ -23,6 +23,25 @@ Retain `LICENSE` and all files in `licenses/`: Ultra HDR's MIT/Apache terms, the
 
 Primary references: [pinned API](https://github.com/google/libultrahdr/blob/v2.0.2/ultrahdr_api.h), [encoder metadata constraints](https://github.com/google/libultrahdr/blob/v2.0.2/lib/src/jpegr.cpp), and [libjpeg-turbo 3.1.0](https://github.com/libjpeg-turbo/libjpeg-turbo/tree/3.1.0).
 
+## Native Bazzite Linux x64 export
+
+Linux x64 export uses the Rust host in [native/luma-codec](../../native/luma-codec/README.md)
+with the same pinned C ABI codec and at most four upstream encoder threads.
+Rebuild with `npm run build:export-native` after supplying the verified source
+archives described there. Rust, C/C++, CMake and NASM are build dependencies;
+the running app uses the bundled executable. It dynamically links the system
+C/C++ runtime, verified on the current Bazzite host. Broader distro packaging is
+unverified.
+
+The normal Linux x64 application build requires the helper and checks its digest
+and executable permission before copying the runtime. Package the generated
+`native/linux-x64` directory outside ASAR with `SHA256SUMS`, its build manifest,
+executable permission and existing codec notices. Linux Auto requires native;
+missing or failed helpers do not silently retry WASM encoding. The explicit WASM
+encoder control remains for diagnostics, and WASM remains the HDR JPEG import
+decoder. Full-size equivalence and measured throughput are recorded in the
+[implementation ledger](../../docs/bazzite-native-engine.md).
+
 ## Native macOS arm64 export
 
 `native/darwin-arm64/luma-ultrahdr` is a statically linked command-line helper, invoked only by the isolated Node export worker after verification against its adjacent `SHA256SUMS`. It uses the same pinned source archives and `bridge.cpp`, enables ARM NEON in both libraries, keeps upstream's maximum of four encoding threads and explicitly selects `UHDR_USAGE_BEST_QUALITY`. libultrahdr retains accurate integer JPEG DCT (`JDCT_ISLOW`). No fast-math flags, reduced gain-map dimensions, reduced channels or alternative quality settings are used. The minimum build deployment target is macOS 13.0; installer and broader OS acceptance remain separate.

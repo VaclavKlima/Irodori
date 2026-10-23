@@ -2,7 +2,7 @@ import { expect } from '@playwright/test'
 import { mkdtemp, rm, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { PreviewEngine } from '../src/main/preview-engine'
 import { PreviewProcess } from '../src/main/preview-process'
 import type { PreviewProcessor } from '../src/main/preview-types'
@@ -23,7 +23,6 @@ export async function setup(
     undefined,
     undefined,
     new PreviewProcess(resolve('out/main/preview-worker.js')),
-    undefined,
     undefined,
     undefined,
     undefined,

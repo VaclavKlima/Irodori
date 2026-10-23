@@ -6,6 +6,10 @@ import { acesRegressionInputs } from './aces-regression-inputs'
 import { prepareDisplayRendering, renderDisplay } from '../src/shared/display-rendering'
 import { packAces, ACES_DATA_BYTES } from '../src/shared/aces-data'
 import { buildAcesReference, referenceAces } from './aces-reference'
+import {
+  acesReferenceFixtureProvenance,
+  assessAcesReferenceFixture,
+} from './aces-reference-fixture.helpers'
 
 let retainedGpu: GPU | undefined
 // eslint-disable-next-line no-empty-pattern -- Playwright requires a destructured fixture argument.
@@ -13,6 +17,7 @@ test('actual forward WGSL agrees with independent Float64 CTL, including signed 
   const directory = info.outputPath('reference')
   await mkdir(directory, { recursive: true })
   const binary = buildAcesReference(directory)
+  const fixtureProvenance = await acesReferenceFixtureProvenance(reference)
   const { create, globals } = await import('webgpu')
   Object.assign(globalThis, globals)
   retainedGpu = create([])
@@ -80,11 +85,12 @@ test('actual forward WGSL agrees with independent Float64 CTL, including signed 
     maximumEncodedRatio = 0,
     worst: unknown,
     worstCpu: unknown
+  const freshFixtureTargets: number[][][] = []
   try {
     for (const sample of reference.targets) {
       const space = sample.colorSpace as 'srgb' | 'display-p3' | 'rec2020'
       const independent = referenceAces(binary, inputs, sample.peak, space)
-      expect(independent.slice(0, reference.inputs.length)).toEqual(sample.rgb)
+      freshFixtureTargets.push(independent.slice(0, reference.inputs.length))
       const target = {
         mode: sample.peak === 1 ? ('sdr' as const) : ('hdr' as const),
         peak: sample.peak,
@@ -166,6 +172,7 @@ test('actual forward WGSL agrees with independent Float64 CTL, including signed 
         staging.unmap()
       }
     }
+    const fixturePortability = assessAcesReferenceFixture(reference, freshFixtureTargets)
     await writeFile(
       info.outputPath('conformance.json'),
       JSON.stringify(
@@ -175,6 +182,10 @@ test('actual forward WGSL agrees with independent Float64 CTL, including signed 
           maximumRatio,
           maximumEncodedRatio,
           maximumCpuRatio,
+          fixtureProvenance,
+          fixturePortability,
+          historicalExactFloat64: fixturePortability.historicalExactFloat64,
+          goldenMismatchCount: fixturePortability.historicalExactFloat64.mismatchCount,
           worstCpu,
           worst,
         },
@@ -182,7 +193,9 @@ test('actual forward WGSL agrees with independent Float64 CTL, including signed 
         2,
       ),
     )
-    expect(maximumCpuRatio, JSON.stringify(worstCpu)).toBeLessThanOrEqual(1)
+    expect.soft(fixtureProvenance.status, JSON.stringify(fixtureProvenance)).toBe('passed')
+    expect.soft(fixturePortability.status, JSON.stringify(fixturePortability)).toBe('passed')
+    expect.soft(maximumCpuRatio, JSON.stringify(worstCpu)).toBeLessThanOrEqual(1)
     expect(maximumRatio, JSON.stringify(worst)).toBeLessThanOrEqual(1)
   } finally {
     texture.destroy()

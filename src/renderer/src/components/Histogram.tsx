@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Eye } from 'lucide-react'
 import type { PreviewTools } from '../hooks/usePreviewTools'
 import layout from '../App.module.css'
 import styles from './Histogram.module.css'
 export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolean }) {
+  const clippingStatusId = useId()
   const [open, setOpen] = useState(true),
     [bin, setBin] = useState(128)
   const hdr = tools.analysis && 'domain' in tools.analysis ? tools.analysis : undefined
@@ -271,12 +272,23 @@ export function Histogram({ tools, ready }: { tools: PreviewTools; ready: boolea
           {tools.hdr && (
             <div className={styles.indicators}>
               <button
+                aria-describedby={tools.clippingError ? clippingStatusId : undefined}
                 aria-pressed={!!(tools.hdrOverlay & 1)}
                 onClick={() => tools.update({ hdrOverlay: tools.hdrOverlay ^ 1 })}
               >
                 Canvas channel clipping
               </button>
             </div>
+          )}
+          {tools.hdr && tools.clippingError && (
+            <p
+              id={clippingStatusId}
+              className={styles.status}
+              role="status"
+              aria-label="Clipping overlay status"
+            >
+              Clipping overlay unavailable.
+            </p>
           )}
           {!tools.hdr && (
             <div className={styles.indicators}>

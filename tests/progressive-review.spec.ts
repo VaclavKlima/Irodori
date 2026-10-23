@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { copyFile, mkdir, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { PreviewEngine } from '../src/main/preview-engine'
 import { PreviewProcess } from '../src/main/preview-process'
 import { ReviewThumbnails } from '../src/main/review-thumbnails'
@@ -106,7 +106,6 @@ test('enumeration, paging and selection proceed while visible thumbnails are hel
       close: () => engine.close(),
     },
     () => {},
-    undefined,
     undefined,
     undefined,
     undefined,
@@ -321,7 +320,6 @@ test('source replacement waits for active thumbnail cleanup and ignores expired 
     join(t.root, 'library'),
     new PreviewEngine(),
     () => {},
-    undefined,
     undefined,
     undefined,
     undefined,

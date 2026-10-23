@@ -58,6 +58,8 @@ export interface LensState {
   profile: LensProfile
 }
 export interface ProcessingOptions {
+  /** Main-owned admission and display snapshot; never a renderer-supplied path. */
+  firstSurface?: import('./hdr-first-surface').HdrFirstSurfacePreparation
   processing?: ProcessingIdentity
   /** Main-process owned cache asset, never accepted from the renderer. */
   workingAsset?: {

@@ -6,6 +6,207 @@ import { test, expect } from './electron.fixture'
 import { choose, importPhotos } from './import.helpers'
 import { holdBrowseSelections, seedLargeBrowser } from './all-photos.helpers'
 import { DEFAULT_BROWSE_QUERY } from '../src/shared/browse'
+import type { Page } from '@playwright/test'
+import type { ExportPreparation, ExportStart } from '../src/shared/export'
+
+async function draftExposure(page: Page, value: number) {
+  const slider = page.getByRole('slider', { name: 'Exposure', exact: true })
+  await expect(slider).toBeEnabled()
+  await slider.evaluate((element, value) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      element,
+      String(value),
+    )
+    element.dispatchEvent(new Event('input', { bubbles: true }))
+  }, value)
+  await expect(page.getByRole('spinbutton', { name: 'Exposure value', exact: true })).toHaveValue(
+    value.toFixed(2),
+  )
+}
+
+async function finishExposure(page: Page) {
+  await page.getByRole('slider', { name: 'Exposure', exact: true }).evaluate((element) => {
+    element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+  })
+}
+
+for (const route of ['ipc', 'mcp'] as const)
+  test(`${route} export preparation and start preserve an unrelated active gesture as one Undo entry`, async ({
+    luma,
+  }) => {
+    test.setTimeout(90000)
+    const { app, page } = luma
+    await importPhotos(app, page)
+    const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+    const editor = photos[0]
+    const target = photos[1]
+    await page.getByTestId(`photo-card-${editor.id}`).click()
+    await expect(page.getByTestId('preview-filename')).toHaveText(editor.filename)
+    const before = await page.evaluate((id) => window.luma.getEditHistory(id), editor.id)
+    const targetBefore = await page.evaluate((id) => window.luma.getEditHistory(id), target.id)
+    const destination = join(luma.userDataDir, 'exports')
+    await mkdir(destination)
+    await app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
+    }, destination)
+    const grant = await page.evaluate(() => window.luma.chooseExportDestination())
+    let client: Client | undefined
+    let transport: StdioClientTransport | undefined
+    try {
+      if (route === 'mcp') {
+        client = new Client({ name: 'export-gesture-test', version: '1' })
+        transport = new StdioClientTransport({
+          command: process.execPath,
+          args: [resolve('scripts/editor-mcp.mjs')],
+          env: { ...(process.env as Record<string, string>), LUMA_PROFILE: luma.userDataDir },
+        })
+        await client.connect(transport)
+      }
+      await draftExposure(page, 0.5)
+      let prepared: ExportPreparation
+      if (client) {
+        const result = await client.callTool({
+          name: 'luma_prepare_export',
+          arguments: { ids: [target.id] },
+        })
+        expect(result.isError).not.toBe(true)
+        prepared = result.structuredContent as unknown as ExportPreparation
+      } else prepared = await page.evaluate((id) => window.luma.prepareExport([id]), target.id)
+      expect(prepared.targets).toEqual([
+        expect.objectContaining({ photoId: target.id, revision: targetBefore.revision }),
+      ])
+      expect(await page.evaluate((id) => window.luma.getEditHistory(id), editor.id)).toEqual(before)
+      await draftExposure(page, 1)
+      const request: ExportStart = {
+        preparationId: prepared.id,
+        destinationId: grant!.id,
+        action: 'high',
+      }
+      let taskId: string
+      if (client) {
+        const result = await client.callTool({
+          name: 'luma_start_export',
+          arguments: { exportRequest: request },
+        })
+        expect(result.isError).not.toBe(true)
+        taskId = (result.structuredContent as { taskId: string }).taskId
+      } else taskId = await page.evaluate((request) => window.luma.startExport(request), request)
+      expect(await page.evaluate((id) => window.luma.getEditHistory(id), editor.id)).toEqual(before)
+      await expect(page.getByTestId('preview-filename')).toHaveText(editor.filename)
+      await draftExposure(page, 1.5)
+      await finishExposure(page)
+      await expect
+        .poll(() => page.evaluate((id) => window.luma.getEditHistory(id), editor.id))
+        .toMatchObject({
+          settings: { exposureEv: 1.5 },
+          snapshots: [
+            ...before.snapshots,
+            expect.objectContaining({ settings: expect.objectContaining({ exposureEv: 1.5 }) }),
+          ],
+        })
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              async (id) => (await window.luma.listTasks()).find((task) => task.id === id)?.status,
+              taskId,
+            ),
+          { timeout: 30000 },
+        )
+        .toBe('completed')
+      expect(await page.evaluate((id) => window.luma.getEditHistory(id), target.id)).toEqual(
+        targetBefore,
+      )
+      const after = await page.evaluate((id) => window.luma.getEditHistory(id), editor.id)
+      await page.evaluate(({ id, revision }) => window.luma.undoEdit(id, revision), {
+        id: editor.id,
+        revision: after.revision,
+      })
+      await expect
+        .poll(() => page.evaluate((id) => window.luma.getEdits(id), editor.id))
+        .toMatchObject({ settings: before.settings })
+    } finally {
+      await client?.close()
+      await transport?.close()
+    }
+  })
+
+test('exporting the edited photo flushes its draft and rejects a preparation made stale by a later gesture', async ({
+  luma,
+}) => {
+  const { app, page } = luma
+  await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
+  const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
+  const before = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+  const destination = join(luma.userDataDir, 'exports')
+  await mkdir(destination)
+  await app.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
+  }, destination)
+  const grant = await page.evaluate(() => window.luma.chooseExportDestination())
+  await draftExposure(page, 0.75)
+  const prepared = await page.evaluate((id) => window.luma.prepareExport([id]), id)
+  const first = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+  expect(prepared.targets[0].revision).toBe(first.revision)
+  expect(first.settings.exposureEv).toBe(0.75)
+  expect(first.snapshots).toHaveLength(before.snapshots.length + 1)
+  await finishExposure(page)
+  await draftExposure(page, 1.5)
+  const rejection = await app.evaluateHandle(() => {
+    const expectedErrors: string[] = []
+    const originalError = console.error
+    console.error = (...args) => {
+      if (
+        args[0] === "Error occurred in handler for 'export:start':" &&
+        args[1] instanceof Error &&
+        args[1].message === 'Export targets or edits changed. Open the export chooser again.'
+      ) {
+        expectedErrors.push(args[1].message)
+        return
+      }
+      originalError(...args)
+    }
+    return {
+      expectedErrors,
+      restore: () => {
+        console.error = originalError
+      },
+    }
+  })
+  try {
+    await expect(
+      page.evaluate((request) => window.luma.startExport(request), {
+        preparationId: prepared.id,
+        destinationId: grant!.id,
+        action: 'high' as const,
+      }),
+    ).rejects.toThrow('edits changed')
+    expect(await rejection.evaluate((state) => state.expectedErrors)).toEqual([
+      'Export targets or edits changed. Open the export chooser again.',
+    ])
+  } finally {
+    await rejection.evaluate((state) => state.restore())
+    await rejection.dispose()
+  }
+  const second = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+  expect(second.settings.exposureEv).toBe(1.5)
+  expect(second.snapshots).toHaveLength(before.snapshots.length + 2)
+  expect(
+    (await page.evaluate(() => window.luma.listTasks())).some((task) => task.kind === 'export'),
+  ).toBe(false)
+  expect(await readdir(destination)).toEqual([])
+})
+
+test('global shutdown still commits a draft before the library is reopened', async ({ luma }) => {
+  await importPhotos(luma.app, luma.page, ['tests/fixtures/photos/alpine-lake.jpg'])
+  const id = (await luma.page.evaluate(() => window.luma.listPhotos())).photos[0].id
+  const before = await luma.page.evaluate((id) => window.luma.getEditHistory(id), id)
+  await draftExposure(luma.page, 1.25)
+  const { page } = await luma.restart()
+  const after = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+  expect(after.settings.exposureEv).toBe(1.25)
+  expect(after.snapshots).toHaveLength(before.snapshots.length + 1)
+})
 
 test('an active export permits a new file import while preserving the current photo and selection', async ({
   luma,

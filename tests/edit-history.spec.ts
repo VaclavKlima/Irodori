@@ -3,41 +3,54 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { PhotoLibrary } from '../src/main/library'
+import { PhotoLibrary } from './photo-library.helpers'
 import { PreviewEngine } from '../src/main/preview-engine'
 import { processingMetadata } from '../src/main/processing/metadata'
 import { noLensSettings } from '../src/shared/lens'
 import type { EditHistory, EditPatch } from '../src/shared/edits'
 import type { Photo } from '../src/shared/contracts'
 const id = 'a'.repeat(64)
-test('migrates v3 choices and revisions, commits shared history atomically, rejects conflicts, branches redo and cleans deletion', async () => {
+test('current history preserves lens choices and revisions, commits atomically, rejects conflicts, branches redo and cleans deletion', async () => {
   const root = await mkdtemp(join(tmpdir(), 'luma-edits-'))
-  await mkdir(join(root, 'originals', id), { recursive: true })
-  const db = new DatabaseSync(join(root, 'catalog.sqlite'))
-  db.exec(
-    'CREATE TABLE photos (id TEXT PRIMARY KEY, imported_at TEXT, photo TEXT); CREATE TABLE processing (id TEXT PRIMARY KEY, data TEXT); PRAGMA user_version = 3',
-  )
-  db.prepare('INSERT INTO photos VALUES (?, ?, ?)').run(
-    id,
-    '2026',
-    JSON.stringify({ id, filename: 'test.arw' }),
-  )
   const metadata = processingMetadata({
     'IFD0:Make': 'SONY',
     'IFD0:Model': 'ZV-1',
     'SubIFD:DistortionCorrParams': '3 100 0 -100',
   })
-  db.prepare('INSERT INTO processing VALUES (?, ?)').run(
-    id,
-    JSON.stringify({ metadata, settings: noLensSettings, revision: 7 }),
-  )
-  db.close()
   const events: number[] = []
   let library = new PhotoLibrary(root, new PreviewEngine(), (event) => {
     if (event.editsChanged) events.push(event.editsChanged.revision)
   })
   try {
     await library.open()
+    await mkdir(join(root, 'originals', id))
+    await library.catalogCommands.command({
+      operation: 'original.publish',
+      payload: {
+        photo: {
+          id,
+          filename: 'test.arw',
+          format: 'ARW',
+          width: 3,
+          height: 2,
+          bytes: 0,
+          importedAt: '2026-10-01T00:00:00.000Z',
+          previewSource: 'decoded',
+          thumbnailUrl: '',
+          previewUrl: '',
+        },
+        processingIdentity: 'hdr-v1',
+        createdAt: '2026-10-01T00:00:00.000Z',
+      },
+    })
+    await library.catalogCommands.command({
+      operation: 'processing.publish',
+      payload: {
+        id,
+        data: { metadata, settings: noLensSettings, revision: 7 },
+        createdAt: '2026-10-01T00:00:00.000Z',
+      },
+    })
     expect(await library.getEdits(id)).toMatchObject({
       revision: 7,
       settings: {
@@ -176,15 +189,15 @@ async function historyFixture(beforeTrash?: () => Promise<void>) {
     thumbnailUrl: '',
     previewUrl: '',
   }
-  db.prepare("INSERT INTO photos VALUES (?, ?, ?, 'display-referred-v1')").run(
-    id,
-    photo.importedAt,
-    JSON.stringify(photo),
-  )
-  db.prepare('INSERT INTO processing VALUES (?, ?)').run(
-    id,
-    JSON.stringify({ metadata: processingMetadata({}, []), settings: noLensSettings, revision: 0 }),
-  )
+  await library.catalogCommands.command({
+    operation: 'original.publish',
+    payload: {
+      photo,
+      processingIdentity: 'display-referred-v1',
+      metadata: processingMetadata({}, []),
+      createdAt: photo.importedAt,
+    },
+  })
   await mkdir(join(root, 'originals', id))
   await writeFile(join(root, 'originals', id, 'original.png'), 'synthetic source')
   const settingsChanged = library.fullPreviews.settingsChanged.bind(library.fullPreviews)

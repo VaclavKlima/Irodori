@@ -1,12 +1,16 @@
 import { totalmem, cpus } from 'node:os'
 import { collectionPolicy, CollectionChangedError } from '../shared/collections'
 import { WorkspaceStore } from './workspace'
-import { ExportStore } from './export/store'
+import { ExportStore, ExportReadStore } from './export/store'
 import { ExportJobs } from './export/jobs'
 import type { ExportProcess } from './export/process'
 import { identity } from './export/files'
-import { verifyUltraHdrBundle } from './export/codec'
-import { EXPORT_CODEC_VERSION, EXPORT_RENDERING_VERSION } from '../shared/export'
+import { verifyExportEncoder } from './export/encoder'
+import {
+  EXPORT_CODEC_VERSION,
+  EXPORT_RENDERING_VERSION,
+  validateExportPhotoIds,
+} from '../shared/export'
 import type { WorkspaceChange } from '../shared/workspace'
 import type { GalleryRevision } from '../shared/stacks'
 import { MergeReviews } from './merge/reviews'
@@ -18,6 +22,8 @@ import { CAPTURE_METADATA_VERSION } from '../shared/capture-sequence'
 import { durableJson, recoverMerges, syncDirectory, verifyMaster } from './merge/store'
 import {
   MERGE_VERSION,
+  validateMergeVersion,
+  type MergeBundleManifest,
   type MergeManifest,
   type MergeMeasurements,
   type MergeMode,
@@ -28,16 +34,16 @@ import { srgbTransform } from '../shared/adjustments'
 import type { HdrAnalysisRequest, HdrPhotoStatistics } from '../shared/hdr-statistics'
 import type { HdrPhotoPixel } from '../shared/hdr-pixel'
 import type { PhotoStatistics } from '../shared/statistics'
-import { SDR_TARGET, type DisplayTarget } from '../shared/hdr'
+import { SDR_TARGET, validateHdrSource, type DisplayTarget } from '../shared/hdr'
 import {
-  initialSettings,
   SETTINGS_VERSION,
   validatePatch,
   type EditState,
   type EditPatch,
   type EditHistory,
+  type EditFlushScope,
 } from '../shared/edits'
-import { photoExtensions, rawDecoderId } from './processing/formats'
+import { photoExtensions } from './processing/formats'
 import {
   automaticLensSettings,
   PROCESSING_METADATA_VERSION,
@@ -51,6 +57,9 @@ import { existsSync, type Stats } from 'node:fs'
 import { cp, mkdir, open, readdir, realpath, rename, rm, stat, lstat } from 'node:fs/promises'
 import { basename, extname, join, relative, resolve, sep } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { CatalogWriter, CatalogWriterFailure } from './catalog/writer'
+import { CatalogMutations } from './catalog/domain'
+import type { CatalogCommand, CatalogOperation, CatalogOutput } from './catalog/contracts'
 import { RemovalStore } from './removal-store'
 import { copyOriginal } from './copy-original'
 import {
@@ -192,6 +201,7 @@ export class PhotoLibrary {
   readonly merges: MergeReviews
   exports!: ExportJobs
   private db!: DatabaseSync
+  private catalog?: CatalogWriter
   private stacks!: StackStore
   private browse!: BrowseStore
   private workspace!: WorkspaceStore
@@ -202,8 +212,10 @@ export class PhotoLibrary {
   private metadataTail: Promise<unknown> = Promise.resolve()
   private captureTail: Promise<unknown> = Promise.resolve()
   private removals!: RemovalStore
+  private retainedUnsupportedMerges = new Map<string, string>()
   private session?: Session
   private closed = false
+  private closing?: Promise<void>
   private replacingSession = false
   private notification?: ReturnType<typeof setTimeout>
   private tasks = new Map<
@@ -211,6 +223,7 @@ export class PhotoLibrary {
     {
       snapshot: BackgroundTask
       errors: TaskErrorPage['errors']
+      importCapacity?: boolean
       abort?: AbortController
       work?: Promise<void>
     }
@@ -225,7 +238,6 @@ export class PhotoLibrary {
       throw new Error('System Trash is unavailable.')
     },
     private metadataProcessor: Pick<PreviewProcess, 'inspect' | 'close'> = new PreviewProcess(),
-    obsoleteImportPreference?: boolean,
     mergeWorkerPath?: string,
     private mergeBoundary?: (
       boundary: 'staged' | 'journaled' | 'published' | 'committed',
@@ -244,9 +256,9 @@ export class PhotoLibrary {
     private sampleSource = sampleCameraOriginal,
     private exportRenderer?: Pick<ExportProcess, 'render'>,
     fullPreviewProcessor: FullPreviewProcessor = new PreviewProcess(),
+    private createCatalogWriter: (databasePath: string) => CatalogWriter = (path) =>
+      new CatalogWriter(path),
   ) {
-    void obsoleteImportPreference // Old internal callers cannot select a previous rendering path.
-
     this.merges = new MergeReviews(
       root,
       async (id, signal) => (await this.inspectMergeSources([id], signal))[0],
@@ -278,12 +290,15 @@ export class PhotoLibrary {
       this.scheduler,
     )
     this.scheduler.onChange(() => {
-      this.merges.worker.pause(this.scheduler.interactivePending)
+      this.merges.worker.pause(this.scheduler.interactiveRequestPending)
       let changed = false
       for (const task of this.tasks.values()) {
         if (task.snapshot.kind === 'import' && task.snapshot.status === 'running') {
-          if (task.snapshot.waitingReason !== this.scheduler.waitingReason) {
-            task.snapshot.waitingReason = this.scheduler.waitingReason
+          const waitingReason =
+            this.scheduler.preparationWaitingReason ??
+            (task.importCapacity ? 'pipeline-capacity' : undefined)
+          if (task.snapshot.waitingReason !== waitingReason) {
+            task.snapshot.waitingReason = waitingReason
             changed = true
           }
           if (task.snapshot.waitingReason && task.snapshot.transfer)
@@ -406,138 +421,128 @@ export class PhotoLibrary {
   }
 
   async open(): Promise<void> {
-    await mkdir(join(this.root, 'originals'), { recursive: true })
+    await mkdir(this.root, { recursive: true })
     this.db = new DatabaseSync(join(this.root, 'catalog.sqlite'))
-    this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;')
     const version = this.db.prepare('PRAGMA user_version').get() as { user_version: number }
-    if (version.user_version > 17) throw new Error('This library requires a newer version of Luma.')
+    const fresh =
+      version.user_version === 0 &&
+      !this.db.prepare("SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' LIMIT 1").get()
+    if (!fresh && version.user_version !== 17)
+      throw new Error(
+        version.user_version > 17
+          ? 'This library requires a newer version of Luma.'
+          : 'This catalog format is unsupported. Its files were preserved; reimport originals into a fresh library.',
+      )
+    if (
+      fresh &&
+      existsSync(join(this.root, 'originals')) &&
+      (await readdir(join(this.root, 'originals'))).length
+    )
+      throw new Error(
+        'This unversioned library contains managed originals. Its files were preserved; restore its catalog or reimport originals into a fresh library.',
+      )
+    // Check persisted contracts before WAL, schema/history writes or recovery cleanup.
+    if (!fresh) {
+      if (
+        this.db
+          .prepare(
+            "SELECT 1 FROM photos WHERE processing_identity IS NULL OR processing_identity NOT IN ('hdr-v1', 'display-referred-v1') LIMIT 1",
+          )
+          .get()
+      )
+        throw new Error(
+          'This library has an unsupported processing identity. Its files were preserved.',
+        )
+      for (const row of this.db.prepare('SELECT data FROM edits').all() as { data: string }[]) {
+        const history = JSON.parse(row.data)
+        if (
+          !history ||
+          !Array.isArray(history.snapshots) ||
+          !history.snapshots.length ||
+          [
+            history.settings,
+            ...history.snapshots.map((snapshot: { settings: unknown }) => snapshot?.settings),
+          ].some(
+            (settings) =>
+              !settings ||
+              settings.version !== SETTINGS_VERSION ||
+              !['hdr-v1', 'display-referred-v1'].includes(settings.processing),
+          )
+        )
+          throw new Error('This edit history format is unsupported. Its files were preserved.')
+      }
+      new ExportReadStore(this.db).preferences()
+    }
+    this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;')
+    await mkdir(join(this.root, 'originals'), { recursive: true })
+    // Fresh schema setup and current-history initialization precede runtime ownership.
+    const bootstrap = new CatalogMutations(this.db)
     this.stacks = new StackStore(this.db)
     this.browse = new BrowseStore(this.db)
     this.workspace = new WorkspaceStore(this.db, this.browse)
     this.importSources = new ImportSourceRecords(this.db)
     this.cameraRecognition = new CameraRecognition(this.db)
-    this.db.exec(
-      'BEGIN; CREATE TABLE IF NOT EXISTS photos (id TEXT PRIMARY KEY, imported_at TEXT NOT NULL, photo TEXT NOT NULL); CREATE TABLE IF NOT EXISTS removals (id TEXT PRIMARY KEY, staged TEXT NOT NULL); CREATE TABLE IF NOT EXISTS processing (id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TRIGGER IF NOT EXISTS remove_processing AFTER DELETE ON photos BEGIN DELETE FROM processing WHERE id = old.id; END; CREATE TABLE IF NOT EXISTS edits (id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TRIGGER IF NOT EXISTS remove_edits AFTER DELETE ON photos BEGIN DELETE FROM edits WHERE id = old.id; END;',
-    )
+    this.db.exec('BEGIN')
     try {
-      if (version.user_version < 9)
+      if (fresh) {
         this.db.exec(
-          "ALTER TABLE photos ADD COLUMN processing_identity TEXT NOT NULL DEFAULT 'legacy-sdr-v1'",
+          'CREATE TABLE photos (id TEXT PRIMARY KEY, imported_at TEXT NOT NULL, photo TEXT NOT NULL, processing_identity TEXT NOT NULL); CREATE TABLE removals (id TEXT PRIMARY KEY, staged TEXT NOT NULL); CREATE TABLE processing (id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TRIGGER remove_processing AFTER DELETE ON photos BEGIN DELETE FROM processing WHERE id = old.id; END; CREATE TABLE edits (id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TRIGGER remove_edits AFTER DELETE ON photos BEGIN DELETE FROM edits WHERE id = old.id; END; CREATE TABLE merge_publications (id TEXT PRIMARY KEY, manifest_sha256 TEXT NOT NULL); CREATE TABLE derived_assets (id TEXT PRIMARY KEY, manifest TEXT NOT NULL); CREATE TRIGGER remove_derived AFTER DELETE ON photos BEGIN DELETE FROM derived_assets WHERE id = old.id; END;',
         )
-      const identities = new Map<string, 'hdr-v1' | 'display-referred-v1'>()
-      for (const row of this.db.prepare('SELECT id, photo FROM photos').all() as {
-        id: string
-        photo: string
-      }[]) {
-        const photo = JSON.parse(row.photo) as Photo
-        const existing = this.db.prepare('SELECT data FROM processing WHERE id = ?').get(row.id) as
-          { data: string } | undefined
-        const metadata = existing
-          ? (JSON.parse(existing.data) as ProcessingOptions).metadata
-          : undefined
-        if (
-          metadata?.version === 3 &&
-          !['.jpg', '.jpeg'].includes(extname(photo.filename).toLowerCase())
-        ) {
-          metadata.version = PROCESSING_METADATA_VERSION
-          const data = JSON.parse(existing!.data) as ProcessingOptions
-          data.metadata = metadata
-          this.db
-            .prepare('UPDATE processing SET data = ? WHERE id = ?')
-            .run(JSON.stringify(data), row.id)
-        }
-        const identity =
-          metadata?.mergeMaster || metadata?.hdrEligible || rawDecoderId(photo.filename)
-            ? 'hdr-v1'
-            : 'display-referred-v1'
-        identities.set(row.id, identity)
-        if (version.user_version < 12)
-          this.db
-            .prepare('UPDATE photos SET processing_identity = ? WHERE id = ?')
-            .run(identity, row.id)
-      }
-      for (const row of this.db.prepare('SELECT id, data FROM edits').all() as {
-        id: string
-        data: string
-      }[]) {
-        const history = JSON.parse(row.data)
-        let migrated = false
-        for (const settings of [
-          history.settings,
-          ...history.snapshots.map(
-            (snapshot: { settings: { version: number; contrast?: number } }) => snapshot.settings,
-          ),
-        ]) {
-          if (settings.version === 1) {
-            settings.version = 2
-            settings.contrast = 0
-            migrated = true
-          }
-          if (settings.version === 2) {
-            settings.version = 3
-            settings.highlights = 0
-            migrated = true
-          }
-          if (settings.version === 3) {
-            settings.version = 4
-            settings.shadows = 0
-            settings.whites = 0
-            settings.blacks = 0
-            migrated = true
-          }
-          if (settings.version === 4) {
-            settings.version = 5
-            settings.whiteBalance = { mode: 'as-shot' }
-            migrated = true
-          }
-          if (settings.version === 5) {
-            settings.version = 6
-            settings.processing = 'legacy-sdr-v1'
-            migrated = true
-          }
-          if (settings.version === 6) {
-            settings.version = SETTINGS_VERSION
-            settings.processing = identities.get(row.id) ?? 'display-referred-v1'
-            migrated = true
-          } else if (settings.version !== SETTINGS_VERSION) {
-            throw new Error('These edits require a newer version of Luma.')
-          }
-        }
-        if (migrated)
-          this.db
-            .prepare('UPDATE edits SET data = ? WHERE id = ?')
-            .run(JSON.stringify(history), row.id)
-      }
+        this.stacks.initialize()
+        this.importSources.initialize()
+        this.cameraRecognition.initialize()
+        this.browse.initialize()
+        this.workspace.initialize()
+        new ExportReadStore(this.db).initialize()
+      } else this.cameraRecognition.prepare()
       for (const row of this.db.prepare('SELECT id, data FROM processing').all() as {
         id: string
         data: string
       }[]) {
         const data = JSON.parse(row.data) as ProcessingOptions
-        this.ensureEdits(row.id, data)
+        bootstrap.seedEdits(row.id, data, new Date().toISOString())
       }
-      this.db.exec(
-        'CREATE TABLE IF NOT EXISTS merge_publications (id TEXT PRIMARY KEY, manifest_sha256 TEXT NOT NULL); CREATE TABLE IF NOT EXISTS derived_assets (id TEXT PRIMARY KEY, manifest TEXT NOT NULL); CREATE TRIGGER IF NOT EXISTS remove_derived AFTER DELETE ON photos BEGIN DELETE FROM derived_assets WHERE id = old.id; END;',
-      )
-      this.stacks.migrate()
-      this.importSources.initialize()
-      this.cameraRecognition.initialize()
-      if (version.user_version < 11) this.stacks.backfillMerges()
-      this.browse.initialize()
-      this.browse.backfill()
-      this.workspace.migrate()
-      new ExportStore(this.db).migrate()
-      this.db.exec('PRAGMA user_version = 17; COMMIT;')
+      if (fresh) this.db.exec('PRAGMA user_version = 17')
+      this.db.exec('COMMIT')
     } catch (error) {
       this.db.exec('ROLLBACK')
       throw error
     }
-    this.removals = new RemovalStore(this.root, this.db, this.trash, (id) =>
-      this.stacks.repairRemoval(id),
-    )
+    // No runtime path may write through this connection, including an accidental lazy read.
+    this.db.exec('PRAGMA query_only = ON;')
+    this.catalog = this.createCatalogWriter(join(this.root, 'catalog.sqlite'))
+    await this.catalog.open()
+    this.removals = new RemovalStore(this.root, this.db, this.trash, this.catalog)
     await this.removals.recover()
-    await recoverMerges(this.root, this.db, (manifest) => this.commitMerge(manifest))
+    const retained = await recoverMerges(this.root, this.db, (manifest) =>
+      this.commitMerge(manifest),
+    )
+    this.retainedUnsupportedMerges = new Map(
+      retained.map((entry) => [entry.id, entry.manifestSha256]),
+    )
+    for (const entry of retained) {
+      const id = randomUUID()
+      this.tasks.set(id, {
+        snapshot: {
+          id,
+          kind: 'merge',
+          title: 'Merged photo unsupported',
+          status: 'failed',
+          phase: 'Publication retained',
+          detail: entry.filename,
+          errorCount: 1,
+          finishedAt: Date.now(),
+        },
+        errors: [
+          {
+            filename: entry.filename,
+            message: `${entry.reason} Its bundle and publication journal were retained.`,
+          },
+        ],
+      })
+    }
     this.exports = new ExportJobs(
-      new ExportStore(this.db),
+      new ExportStore(this.db, this.catalog),
       this.root,
       this.scheduler,
       async (id) => {
@@ -584,11 +589,21 @@ export class PhotoLibrary {
     await rm(join(this.root, 'staging'), { recursive: true, force: true })
     await mkdir(join(this.root, 'staging'), { recursive: true })
     for (const entry of await readdir(join(this.root, 'originals'), { withFileTypes: true })) {
-      if (entry.isDirectory() && hashPattern.test(entry.name) && !this.find(entry.name)) {
+      if (
+        entry.isDirectory() &&
+        hashPattern.test(entry.name) &&
+        !this.find(entry.name) &&
+        !this.retainedUnsupportedMerges.has(entry.name)
+      ) {
         await rm(join(this.root, 'originals', entry.name), { recursive: true, force: true })
       }
     }
     await this.fullPreviews.open()
+  }
+
+  private write<K extends CatalogOperation>(command: CatalogCommand<K>): Promise<CatalogOutput<K>> {
+    if (!this.catalog) return Promise.reject(new Error('Catalog writer is not open.'))
+    return this.catalog.command(command)
   }
 
   private find(id: string): Photo | undefined {
@@ -602,7 +617,8 @@ export class PhotoLibrary {
       { data: string } | undefined
     if (!row) return undefined
     const data = JSON.parse(row.data) as ProcessingOptions
-    const edits = this.ensureEdits(id, data)
+    if (data.metadata.mergeMaster) validateMergeVersion(data.metadata.mergeMaster.recipe?.version)
+    const edits = this.readEdits(id)
     return {
       ...data,
       workingAsset: data.metadata.mergeMaster
@@ -693,28 +709,14 @@ export class PhotoLibrary {
       await this.scheduler.mutate(async () => {
         this.assertRecovered()
         if (!this.find(id)) throw new Error('This photo is unavailable.')
-        this.db.exec('BEGIN IMMEDIATE')
-        try {
-          this.db
-            .prepare('INSERT OR REPLACE INTO processing (id, data) VALUES (?, ?)')
-            .run(id, JSON.stringify(data))
-          if (metadata.hdrJpeg?.state === 'supported') {
-            // Recognition upgrades existing JPEGs from container evidence. Preserve
-            // numeric edits and history order; no synthetic edit entry is added.
-            this.db.prepare("UPDATE photos SET processing_identity = 'hdr-v1' WHERE id = ?").run(id)
-            const history = this.ensureEdits(id, data)
-            history.settings.processing = 'hdr-v1'
-            for (const snapshot of history.snapshots) snapshot.settings.processing = 'hdr-v1'
-            this.db
-              .prepare('UPDATE edits SET data = ? WHERE id = ?')
-              .run(JSON.stringify(history), id)
-          }
-          this.browse.put(this.find(id)!, metadata, undefined, this.stacks.capture(id) ?? undefined)
-          this.db.exec('COMMIT')
-        } catch (error) {
-          this.db.exec('ROLLBACK')
-          throw error
-        }
+        await this.write({
+          operation: 'processing.publish',
+          payload: {
+            id,
+            data,
+            createdAt: new Date().toISOString(),
+          },
+        })
         this.changed(undefined, true)
       }, signal)
       return this.readProcessing(id)!
@@ -734,7 +736,7 @@ export class PhotoLibrary {
     }
   }
 
-  private ensureEdits(id: string, data: ProcessingOptions): EditHistory {
+  private readEdits(id: string): EditHistory {
     const row = this.db.prepare('SELECT data FROM edits WHERE id = ?').get(id) as
       { data: string } | undefined
     if (row) {
@@ -746,31 +748,17 @@ export class PhotoLibrary {
         throw new Error('These edits require a newer version of Luma.')
       return history
     }
-    const settings = initialSettings(data.settings)
-    const seed = this.db.prepare('SELECT processing_identity FROM photos WHERE id = ?').get(id) as
-      { processing_identity: 'display-referred-v1' | 'hdr-v1' } | undefined
-    settings.processing =
-      seed?.processing_identity ?? (data.metadata.hdrEligible ? 'hdr-v1' : 'display-referred-v1')
-    const history: EditHistory = {
-      photoId: id,
-      revision: data.revision,
-      settings,
-      canUndo: false,
-      canRedo: false,
-      cursor: 0,
-      snapshots: [{ settings, createdAt: new Date().toISOString() }],
-    }
-    this.db.prepare('INSERT INTO edits (id, data) VALUES (?, ?)').run(id, JSON.stringify(history))
-    return history
+    throw new Error('This photo has no confirmed edit history.')
   }
 
   async getEditHistory(id: string): Promise<EditHistory> {
-    const data = await this.processingOptions(id)
+    await this.processingOptions(id)
     if (this.closed || !this.find(id)) throw new Error('This photo is unavailable.')
-    return this.ensureEdits(id, data)
+    return this.readEdits(id)
   }
 
   displayTarget?: () => DisplayTarget
+  flushEditorEdits: (scope: EditFlushScope) => Promise<void> = async () => {}
   getPhotoStatistics(id: string, expectedRevision: number): Promise<PhotoStatistics>
   getPhotoStatistics(
     id: string,
@@ -861,43 +849,21 @@ export class PhotoLibrary {
     }
   }
 
-  private publishEdit(history: EditHistory, expectedRevision: number): EditState {
+  private async publishEdit(history: EditHistory, expectedRevision: number): Promise<EditState> {
     this.assertRecovered()
-    if (
-      !Number.isSafeInteger(expectedRevision) ||
-      expectedRevision < 0 ||
-      history.revision !== expectedRevision
-    )
-      throw new Error('Edit conflict: reload the confirmed settings and try again.')
-    let lensChanged: boolean
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      if (this.closed || !this.find(history.photoId)) throw new Error('This photo is unavailable.')
-      const previous = this.ensureEdits(history.photoId, this.readProcessing(history.photoId)!)
-      if (previous.revision !== expectedRevision)
-        throw new Error('Edit conflict: reload the confirmed settings and try again.')
-      lensChanged =
-        previous.settings.processing !== history.settings.processing ||
-        JSON.stringify(previous.settings.lens) !== JSON.stringify(history.settings.lens)
-      history.revision++
-      history.canUndo = history.cursor > 0
-      history.canRedo = history.cursor < history.snapshots.length - 1
-      this.db
-        .prepare('UPDATE edits SET data = ? WHERE id = ?')
-        .run(JSON.stringify(history), history.photoId)
-      this.db.exec('COMMIT')
-    } catch (error) {
-      this.db.exec('ROLLBACK')
-      throw error
-    }
-    this.fullPreviews.settingsChanged(history.photoId)
-    this.emit({
-      editsChanged: { photoId: history.photoId, revision: history.revision },
-      lensChanged: lensChanged
-        ? { photoId: history.photoId, revision: history.revision }
-        : undefined,
+    const confirmed = await this.write({
+      operation: 'edits.commit',
+      payload: { history, expectedRevision },
     })
-    return this.editState(history)
+    if (!this.closed) this.fullPreviews.settingsChanged(confirmed.history.photoId)
+    if (!this.closed)
+      this.emit({
+        editsChanged: { photoId: confirmed.history.photoId, revision: confirmed.history.revision },
+        lensChanged: confirmed.lensChanged
+          ? { photoId: confirmed.history.photoId, revision: confirmed.history.revision }
+          : undefined,
+      })
+    return this.editState(confirmed.history)
   }
 
   async updateEdits(id: string, patch: EditPatch, expectedRevision: number): Promise<EditState> {
@@ -907,7 +873,7 @@ export class PhotoLibrary {
     await this.processingOptions(id)
     if (this.closed || !this.find(id)) throw new Error('This photo is unavailable.')
     const data = this.readProcessing(id)!
-    const history = this.ensureEdits(id, data)
+    const history = this.readEdits(id)
     if (
       !Number.isSafeInteger(expectedRevision) ||
       expectedRevision < 0 ||
@@ -952,7 +918,7 @@ export class PhotoLibrary {
   ): Promise<EditState> {
     await this.processingOptions(id)
     if (this.closed || !this.find(id)) throw new Error('This photo is unavailable.')
-    const history = this.ensureEdits(id, this.readProcessing(id)!)
+    const history = this.readEdits(id)
     const cursor = history.cursor + direction
     if (cursor < 0 || cursor >= history.snapshots.length)
       throw new Error('No edit history in that direction.')
@@ -982,7 +948,7 @@ export class PhotoLibrary {
     return this.workspace.read()
   }
   async getExportCapabilities() {
-    const unavailable = await verifyUltraHdrBundle().then(
+    const unavailable = await verifyExportEncoder().then(
       () => undefined,
       (error) => errorMessage(error),
     )
@@ -998,17 +964,22 @@ export class PhotoLibrary {
   getExportPreferences() {
     return this.exports.store.publicPreferences()
   }
-  prepareExport(ids: string[]) {
+  async prepareExport(ids: string[]) {
     this.assertRecovered(true)
-    return this.exports.prepare(ids)
+    const photoIds = validateExportPhotoIds(ids)
+    await this.flushEditorEdits({ kind: 'photos', photoIds })
+    return this.exports.prepare(photoIds)
   }
-  startExport(request: import('../shared/export').ExportStart) {
+  async startExport(request: import('../shared/export').ExportStart) {
     this.assertRecovered(true)
-    return this.exports.start(request)
+    const snapshot = structuredClone(request)
+    const photoIds = this.exports.preparedPhotoIds(snapshot)
+    await this.flushEditorEdits({ kind: 'photos', photoIds })
+    return this.exports.start(snapshot)
   }
   saveWorkspaceState(change: WorkspaceChange) {
     if (this.closed) throw new Error('This library is closed.')
-    return this.workspace.save(change)
+    return this.write({ operation: 'workspace.save', payload: change })
   }
   getCollectionPolicy() {
     return this.collectionResources
@@ -1109,31 +1080,49 @@ export class PhotoLibrary {
   getGalleryRange(from: string, to: string) {
     return this.stacks.range(from, to)
   }
-  private mutateStack<T>(work: () => T): T {
+  private async mutateStack<T>(work: () => Promise<T>): Promise<T> {
     const reason = this.libraryOperationReason('organization')
     if (reason) throw new Error(reason)
     this.assertRecovered()
-    const result = work()
-    this.changed(undefined, true)
-    return result
+    return this.scheduler.run('operation', () =>
+      this.scheduler.mutate(async () => {
+        const current = this.libraryOperationReason('organization')
+        if (current) throw new Error(current)
+        this.assertRecovered()
+        const result = await work()
+        this.changed(undefined, true)
+        return result
+      }),
+    )
   }
   groupPhotos(ids: string[], coverId: string, revision: number) {
-    return this.mutateStack(() => this.stacks.group(ids, coverId, revision))
+    return this.mutateStack(() =>
+      this.write({ operation: 'stack.group', payload: { ids, coverId, revision } }),
+    )
   }
   ungroupStack(id: string, revision: number) {
-    return this.mutateStack(() => this.stacks.ungroup(id, revision))
+    return this.mutateStack(() =>
+      this.write({ operation: 'stack.ungroup', payload: { id, revision } }),
+    )
   }
   removeFromStack(id: string, revision: number) {
-    return this.mutateStack(() => this.stacks.remove(id, revision))
+    return this.mutateStack(() =>
+      this.write({ operation: 'stack.remove', payload: { photoId: id, revision } }),
+    )
   }
   setStackCover(id: string, photoId: string, revision: number) {
-    return this.mutateStack(() => this.stacks.setCover(id, photoId, revision))
+    return this.mutateStack(() =>
+      this.write({ operation: 'stack.cover', payload: { id, photoId, revision } }),
+    )
   }
-  setStackExpanded(id: string, expanded: boolean, revision: number) {
+  async setStackExpanded(id: string, expanded: boolean, revision: number) {
     // Expansion is safe while a task imports or inspects originals; membership stays fixed.
     if (this.closed) throw new Error('This library is closed.')
     this.assertRecovered()
-    const result = this.stacks.setExpanded(id, expanded, revision)
+    const result = await this.write({
+      operation: 'stack.expanded',
+      payload: { id, expanded, revision },
+    })
     this.changed(undefined, true)
     return result
   }
@@ -1182,15 +1171,10 @@ export class PhotoLibrary {
               )
               const metadata = await this.inspectCapture(path, task.abort.signal)
               task.abort.signal.throwIfAborted()
-              this.db.exec('BEGIN IMMEDIATE')
-              try {
-                this.stacks.putCapture(photo.id, metadata)
-                this.browse.put(photo, this.readProcessing(photo.id)?.metadata, undefined, metadata)
-                this.db.exec('COMMIT')
-              } catch (error) {
-                this.db.exec('ROLLBACK')
-                throw error
-              }
+              await this.write({
+                operation: 'capture.publish',
+                payload: { photoId: photo.id, metadata },
+              })
             }
           } catch (error) {
             if (task.abort.signal.aborted) throw error
@@ -1204,7 +1188,7 @@ export class PhotoLibrary {
           await new Promise<void>((resolve) => setImmediate(resolve))
         }
         task.abort.signal.throwIfAborted()
-        const count = this.stacks.reconcileCaptures()
+        const count = await this.write({ operation: 'capture.reconcile', payload: {} })
         task.snapshot.detail = `${count} ${count === 1 ? 'stack' : 'stacks'} created or extended`
       } catch (error) {
         if (!task.abort.signal.aborted)
@@ -1423,7 +1407,7 @@ export class PhotoLibrary {
     } else await this.cancel(id)
   }
 
-  dismissTask(id: string): void {
+  async dismissTask(id: string): Promise<void> {
     if (this.exports?.has(id)) return this.exports.dismiss(id)
     const task = this.tasks.get(id)
     if (!task) return
@@ -1434,15 +1418,24 @@ export class PhotoLibrary {
   }
 
   private recoveryReason(): string | undefined {
-    if (
-      this.db
-        .prepare('SELECT 1 FROM removals UNION ALL SELECT 1 FROM merge_publications LIMIT 1')
-        .get()
-    )
+    if (this.catalog?.failure)
+      return 'Catalog writes are unavailable. Restart Luma before changing this library.'
+    if (this.db.prepare('SELECT 1 FROM removals LIMIT 1').get())
       return 'An interrupted deletion needs recovery. Restart Luma before changing the library.'
+    for (const row of this.db
+      .prepare('SELECT id, manifest_sha256 FROM merge_publications')
+      .all() as {
+      id: string
+      manifest_sha256: string
+    }[]) {
+      if (this.retainedUnsupportedMerges.get(row.id) !== row.manifest_sha256)
+        return 'An interrupted merge publication needs recovery. Restart Luma before changing the library.'
+    }
     return undefined
   }
   private assertRecovered(admission = false): void {
+    if (this.catalog?.failure)
+      throw new Error('Catalog writes are unavailable. Restart Luma before changing this library.')
     if (admission && this.scheduler.mutating) return
     const reason = this.recoveryReason()
     if (reason) throw new Error(reason)
@@ -1903,7 +1896,11 @@ export class PhotoLibrary {
       signal.throwIfAborted()
       if (this.liveCameraOriginal(hash)) {
         c.verifiedHash = hash
-        if (c.cameraKey) this.cameraRecognition.record(c.cameraKey, witness, hash, 'full')
+        if (c.cameraKey)
+          await this.write({
+            operation: 'camera.record',
+            payload: { key: c.cameraKey, witness, photoId: hash, proof: 'full' },
+          })
         this.markRecognized(s, c, hash)
       } else c.recognitionRejected = true
       return
@@ -1925,7 +1922,10 @@ export class PhotoLibrary {
           digest = (await this.sampleSource(path, signal, this.sourceReadControl(s, c, signal)))
             .digest
           signal.throwIfAborted()
-          this.cameraRecognition.cacheSample(original.id, digest)
+          await this.write({
+            operation: 'camera.sample',
+            payload: { photoId: original.id, digest },
+          })
         } catch (error) {
           signal.throwIfAborted()
           if (error instanceof DeviceUnavailableError) throw error
@@ -1937,7 +1937,11 @@ export class PhotoLibrary {
     await this.validateSource(s, c)
     signal.throwIfAborted()
     if (matches.length === 1) {
-      if (c.cameraKey) this.cameraRecognition.record(c.cameraKey, witness, matches[0], 'sample')
+      if (c.cameraKey)
+        await this.write({
+          operation: 'camera.record',
+          payload: { key: c.cameraKey, witness, photoId: matches[0], proof: 'sample' },
+        })
       this.markRecognized(s, c, matches[0])
     }
   }
@@ -2216,7 +2220,15 @@ export class PhotoLibrary {
                 'The source changed after review. Choose it again to review the updated photo.',
               )
             if (c.cameraKey && c.sourceWitness)
-              this.cameraRecognition.record(c.cameraKey, c.sourceWitness, hash, 'full')
+              await this.write({
+                operation: 'camera.record',
+                payload: {
+                  key: c.cameraKey,
+                  witness: c.sourceWitness,
+                  photoId: hash,
+                  proof: 'full',
+                },
+              })
           }
         }
         s.abort.signal.throwIfAborted()
@@ -2241,10 +2253,11 @@ export class PhotoLibrary {
     const selected = this.selectedCandidates(s)
     if (!selected.length) throw new Error('Select at least one photo after scanning finishes.')
     const task = {
+      importCapacity: false,
       snapshot: {
         id,
         kind: 'import',
-        waitingReason: this.scheduler.waitingReason,
+        waitingReason: this.scheduler.preparationWaitingReason,
         title: 'Importing photos',
         status: 'running' as BackgroundTask['status'],
         progress: {
@@ -2285,7 +2298,7 @@ export class PhotoLibrary {
         if (!s.abort.signal.aborted && !task.errors.length)
           await this.scheduler.mutate(async () => {
             this.assertRecovered()
-            this.stacks.reconcileCaptures()
+            await this.write({ operation: 'capture.reconcile', payload: {} })
           }, s.abort.signal)
       } catch (error) {
         if (!s.abort.signal.aborted)
@@ -2369,7 +2382,7 @@ export class PhotoLibrary {
                 this.changed(s)
               },
               {
-                checkpoint: () => this.scheduler.checkpoint(signal),
+                checkpoint: () => this.scheduler.preparationCheckpoint(signal),
                 resumed: () => this.validateSource(s, c, true),
                 chunk: (work) =>
                   this.scheduler.background(async (_signal, paused) => {
@@ -2429,38 +2442,22 @@ export class PhotoLibrary {
               }
               await rename(staged.directory, finalDir)
               try {
-                this.db.exec('BEGIN IMMEDIATE')
-                try {
-                  this.db
-                    .prepare(
-                      'INSERT INTO photos (id, imported_at, photo, processing_identity) VALUES (?, ?, ?, ?)',
-                    )
-                    .run(
-                      photo.id,
-                      photo.importedAt,
-                      JSON.stringify(photo),
-                      preview.processing?.hdrEligible ? 'hdr-v1' : 'display-referred-v1',
-                    )
-                  if (preview.processing)
-                    this.db
-                      .prepare('INSERT OR REPLACE INTO processing (id, data) VALUES (?, ?)')
-                      .run(
-                        photo.id,
-                        JSON.stringify({
-                          metadata: preview.processing,
-                          settings: automaticLensSettings,
-                          revision: 0,
-                        }),
-                      )
-                  if (preview.captureMetadata)
-                    this.stacks.putCapture(photo.id, preview.captureMetadata)
-                  this.browse.put(photo, preview.processing, undefined, preview.captureMetadata)
-                  this.db.exec('COMMIT')
-                } catch (error) {
-                  this.db.exec('ROLLBACK')
-                  throw error
-                }
+                await this.write({
+                  operation: 'original.publish',
+                  payload: {
+                    photo,
+                    processingIdentity: preview.processing?.hdrEligible
+                      ? 'hdr-v1'
+                      : 'display-referred-v1',
+                    metadata: preview.processing,
+                    capture: preview.captureMetadata,
+                    createdAt: photo.importedAt,
+                  },
+                })
               } catch (error) {
+                // An acknowledgement can be lost after durable publication. The dead writer
+                // cannot make further progress; preserve this owned bundle for readback/reopen.
+                if (error instanceof CatalogWriterFailure) throw error
                 await rm(finalDir, { recursive: true, force: true })
                 throw error
               }
@@ -2475,20 +2472,7 @@ export class PhotoLibrary {
           clean: async (c) => {
             await rm(stagingFor(c), { recursive: true, force: true }).catch(() => undefined)
           },
-          resolved: (c, outcome, error) => {
-            if (
-              (outcome === 'imported' || outcome === 'duplicate') &&
-              c.sourceRecord &&
-              c.copiedHash
-            )
-              this.importSources.record(c.sourceRecord.key, c.sourceRecord.witness, c.copiedHash)
-            if (
-              (outcome === 'imported' || outcome === 'duplicate') &&
-              c.cameraKey &&
-              c.sourceWitness &&
-              c.copiedHash
-            )
-              this.cameraRecognition.record(c.cameraKey, c.sourceWitness, c.copiedHash, 'full')
+          resolved: async (c, outcome, error) => {
             c.selected = false
             if (outcome === 'imported') c.status = 'imported'
             else if (outcome === 'duplicate') {
@@ -2510,6 +2494,34 @@ export class PhotoLibrary {
             this.countCandidate(s, c)
             task.snapshot.progress!.completed = task.snapshot.outcomes!.processed
             this.changed(s)
+            if (
+              (outcome === 'imported' || outcome === 'duplicate') &&
+              c.sourceRecord &&
+              c.copiedHash
+            )
+              await this.write({
+                operation: 'source.record',
+                payload: {
+                  key: c.sourceRecord.key,
+                  witness: c.sourceRecord.witness,
+                  photoId: c.copiedHash,
+                },
+              })
+            if (
+              (outcome === 'imported' || outcome === 'duplicate') &&
+              c.cameraKey &&
+              c.sourceWitness &&
+              c.copiedHash
+            )
+              await this.write({
+                operation: 'camera.record',
+                payload: {
+                  key: c.cameraKey,
+                  witness: c.sourceWitness,
+                  photoId: c.copiedHash,
+                  proof: 'full',
+                },
+              })
           },
           sourceStopped: (error) => {
             if (!(error instanceof DeviceUnavailableError)) return false
@@ -2522,8 +2534,10 @@ export class PhotoLibrary {
               state.stagedBytes,
             )
             measurements.inFlightPeak = Math.max(measurements.inFlightPeak, state.inFlight)
+            task.importCapacity = state.capacity
             task.snapshot.waitingReason =
-              this.scheduler.waitingReason ?? (state.capacity ? 'pipeline-capacity' : undefined)
+              this.scheduler.preparationWaitingReason ??
+              (state.capacity ? 'pipeline-capacity' : undefined)
             this.changed(s)
           },
         },
@@ -2626,7 +2640,7 @@ export class PhotoLibrary {
     const row = this.db.prepare('SELECT manifest FROM derived_assets WHERE id = ?').get(id) as
       { manifest: string } | undefined
     if (!row) throw new Error('This photo is not a merged asset.')
-    const manifest = JSON.parse(row.manifest) as MergeManifest
+    const manifest = JSON.parse(row.manifest) as MergeBundleManifest
     const available = await Promise.all(
       manifest.recipe.sources.map(async (source) => {
         const photo = this.find(source.id)
@@ -2643,42 +2657,26 @@ export class PhotoLibrary {
         )
       }),
     )
-    return { manifest, reproducible: available.every(Boolean) }
-  }
-  private commitMerge(manifest: MergeManifest) {
-    const { photo, metadata } = manifest
-    this.db.exec('BEGIN')
+    let supportedSource = true
     try {
-      this.db
-        .prepare(
-          "INSERT OR IGNORE INTO photos (id, imported_at, photo, processing_identity) VALUES (?, ?, ?, 'hdr-v1')",
-        )
-        .run(photo.id, photo.importedAt, JSON.stringify(photo))
-      this.db
-        .prepare('INSERT OR IGNORE INTO derived_assets (id, manifest) VALUES (?, ?)')
-        .run(photo.id, JSON.stringify(manifest))
-      const options: ProcessingOptions = {
-        processing: 'hdr-v1',
-        metadata: {
-          ...metadata,
-          version: PROCESSING_METADATA_VERSION,
-          mergeMaster: { asset: manifest.asset, recipe: manifest.recipe },
-        },
-        settings: { distortion: false, vignetting: false, chromaticAberration: false },
-        revision: 0,
-      }
-      this.db
-        .prepare('INSERT OR IGNORE INTO processing (id, data) VALUES (?, ?)')
-        .run(photo.id, JSON.stringify(options))
-      this.ensureEdits(photo.id, options)
-      this.browse.put(photo, options.metadata, manifest)
-      this.stacks.attachMerge(manifest)
-      this.db.prepare('DELETE FROM merge_publications WHERE id = ?').run(photo.id)
-      this.db.exec('COMMIT')
-    } catch (error) {
-      this.db.exec('ROLLBACK')
-      throw error
+      validateHdrSource(manifest.asset.source)
+    } catch {
+      supportedSource = false
     }
+    return {
+      manifest,
+      reproducible:
+        manifest.version === MERGE_VERSION &&
+        manifest.recipe.version === MERGE_VERSION &&
+        supportedSource &&
+        available.every(Boolean),
+    }
+  }
+  private commitMerge(manifest: MergeManifest): Promise<void> {
+    return this.write({
+      operation: 'merge.publish',
+      payload: { manifest, createdAt: manifest.photo.importedAt },
+    })
   }
   startMerge(reviewId: string, revision: number): string {
     if (this.closed || this.hasCaptureTask() || this.session?.phase === 'scanning')
@@ -2808,8 +2806,9 @@ export class PhotoLibrary {
             }
             await verifyMaster(output, manifest, publication.sourceVerification)
             task.abort.signal.throwIfAborted()
+            // Cleanup ownership begins only after this job creates its own directory.
+            await mkdir(directory)
             pendingDirectory = directory
-            await mkdir(directory, { recursive: true })
             let copiedBytes = 0
             for (const name of ['linear.f32', 'motion.mask', 'thumb.jpg', 'preview.jpg']) {
               task.abort.signal.throwIfAborted()
@@ -2847,12 +2846,33 @@ export class PhotoLibrary {
                 const journalStart = performance.now()
                 // Once journaled, finish publication even when cancellation arrives.
                 try {
-                  this.db
-                    .prepare('INSERT INTO merge_publications (id, manifest_sha256) VALUES (?, ?)')
-                    .run(
-                      photoId,
-                      createHash('sha256').update(JSON.stringify(manifest)).digest('hex'),
-                    )
+                  await this.write({
+                    operation: 'merge.journal',
+                    payload: {
+                      id: photoId,
+                      manifestSha256: createHash('sha256')
+                        .update(JSON.stringify(manifest))
+                        .digest('hex'),
+                    },
+                  })
+                } catch (error) {
+                  // Lost ACK must not turn a durable publication journal into disposable staging.
+                  if (error instanceof CatalogWriterFailure) {
+                    // Unknown comes first: an unavailable read connection cannot prove absence.
+                    journaled = true
+                    try {
+                      journaled = !!this.db
+                        .prepare('SELECT 1 FROM merge_publications WHERE id = ?')
+                        .get(photoId)
+                    } catch (readback) {
+                      throw new AggregateError(
+                        [error, readback],
+                        'Merge journal acknowledgement and readback failed; publication bytes were retained.',
+                        { cause: readback },
+                      )
+                    }
+                  }
+                  throw error
                 } finally {
                   publication!.journalMs = performance.now() - journalStart
                 }
@@ -2871,7 +2891,7 @@ export class PhotoLibrary {
                 await this.mergeBoundary?.('published')
                 const commitStart = performance.now()
                 try {
-                  this.commitMerge(manifest)
+                  await this.commitMerge(manifest)
                 } finally {
                   publication!.catalogCommitMs = performance.now() - commitStart
                 }
@@ -2924,7 +2944,11 @@ export class PhotoLibrary {
     return id
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    return (this.closing ??= this.performClose())
+  }
+
+  private async performClose(): Promise<void> {
     if (this.closed) return
     this.closed = true
     this.activities.clear()
@@ -2950,7 +2974,11 @@ export class PhotoLibrary {
       try {
         await this.processor.close()
       } finally {
-        this.db?.close()
+        try {
+          await this.catalog?.close()
+        } finally {
+          this.db?.close()
+        }
       }
     }
   }

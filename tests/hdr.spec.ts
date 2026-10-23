@@ -83,41 +83,43 @@ test('RGB output histogram maps encoded SDR and fixed HDR stop boundaries indepe
   expect(() => addRgbHistogram(hdr, [NaN, 0, 0], 1)).toThrow('Invalid')
 })
 
-test('HDR presentation budgets count actual source mips and large viewport allocations', async () => {
-  const { hdrPresentationMemory, HDR_PRESENTATION_BUDGET } =
+test('HDR presentation accounts for independent managed RAM and GPU owners and exact admission boundaries', async () => {
+  const { hdrPresentationMemory, HDR_BITMAP_RESERVATION } =
     await import('../src/renderer/src/preview/hdr-memory')
-  const small = hdrPresentationMemory(2, 2, 10, 10)
-  expect(small.textureBytes).toBe((4 + 1) * 16)
-  expect(small.canvasBytes).toBe(3200)
-  expect(small.transportBytes).toBe(2 * 1024 ** 2)
-  expect(HDR_PRESENTATION_BUDGET).toBe(768 * 1024 ** 2)
-  const ultrawide = hdrPresentationMemory(4000, 3000, 3440, 1440)
-  expect(ultrawide.total).toBeLessThan(HDR_PRESENTATION_BUDGET)
-  // A native 20 MP source and a wide canvas fit because upload and presentation do not overlap.
-  const sony = hdrPresentationMemory(5472, 3648, 2900, 1000)
-  expect(sony.uploadPeak).toBeLessThan(HDR_PRESENTATION_BUDGET)
-  expect(sony.presentationPeak).toBeLessThan(HDR_PRESENTATION_BUDGET)
-  expect(sony.total).toBeLessThan(HDR_PRESENTATION_BUDGET)
-  const retina = hdrPresentationMemory(5496, 3672, 4800, 1800)
-  expect(retina.total).toBeGreaterThan(512 * 1024 ** 2)
-  expect(retina.total).toBeLessThan(HDR_PRESENTATION_BUDGET)
-  expect(retina.cacheSlots).toBeLessThan(sony.cacheSlots)
-  expect(retina.cacheSlots).toBeGreaterThan(0)
-  // The offscreen completed-frame surface is included; larger surfaces use explicit fallback.
-  expect(hdrPresentationMemory(5496, 3672, 5800, 2000).total).toBeGreaterThan(
-    HDR_PRESENTATION_BUDGET,
+  const limits = { ramBytes: 8 * 1024 ** 3, vramBytes: 2 * 1024 ** 3, revision: 4 }
+  const request = (width: number, height: number, canvasWidth: number, canvasHeight: number) => ({
+    width,
+    height,
+    canvasWidth,
+    canvasHeight,
+    bitmapReservation: HDR_BITMAP_RESERVATION,
+  })
+  const small = hdrPresentationMemory(request(2, 2, 10, 10), limits)
+  expect(small.owners.source).toEqual({ ramBytes: 0, vramBytes: (4 + 1) * 16 })
+  expect(small.owners.nativeCanvas).toEqual({ ramBytes: 3200, vramBytes: 3200 })
+  expect(small.owners.transport).toEqual({ ramBytes: 2 * 1024 ** 2, vramBytes: 0 })
+  for (const dimensions of [
+    [4000, 3000, 3440, 1440],
+    [5472, 3648, 2900, 1000],
+  ]) {
+    const [width, height, canvasWidth, canvasHeight] = dimensions
+    const plan = hdrPresentationMemory(request(width, height, canvasWidth, canvasHeight), limits)
+    expect(plan.accepted).toBe(true)
+    expect(plan.peak.ramBytes).toBeLessThanOrEqual(limits.ramBytes)
+    expect(plan.peak.vramBytes).toBeLessThanOrEqual(limits.vramBytes)
+    expect(plan.tileSize).toBe(128)
+  }
+  const fixed = { ...request(5496, 3672, 3000, 2000), maximumLayers: 1, rawHalfSupported: false }
+  const reference = hdrPresentationMemory(fixed, limits)
+  const exact = { ...reference.peak, revision: 5 }
+  expect(hdrPresentationMemory(fixed, exact).accepted).toBe(true)
+  expect(hdrPresentationMemory(fixed, { ...exact, ramBytes: exact.ramBytes - 1 }).accepted).toBe(
+    false,
   )
-  const fixed = hdrPresentationMemory(5496, 3672).minimumPresentationPeak
-  const pixels = Math.floor((HDR_PRESENTATION_BUDGET - fixed) / 32)
-  expect(hdrPresentationMemory(5496, 3672, pixels, 1).total).toBeLessThanOrEqual(
-    HDR_PRESENTATION_BUDGET,
+  expect(hdrPresentationMemory(fixed, { ...exact, vramBytes: exact.vramBytes - 1 }).accepted).toBe(
+    false,
   )
-  expect(hdrPresentationMemory(5496, 3672, pixels + 1, 1).total).toBeGreaterThan(
-    HDR_PRESENTATION_BUDGET,
-  )
-  expect(hdrPresentationMemory(6000, 4000, 6880, 2880).total).toBeGreaterThan(
-    HDR_PRESENTATION_BUDGET,
-  )
+  expect(hdrPresentationMemory(request(5496, 3672, 9000, 6000), limits).accepted).toBe(false)
 })
 
 test('sensor-aware highlight blending preserves intensity, smooth onset and unsaturated HDR color', () => {

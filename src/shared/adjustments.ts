@@ -153,6 +153,7 @@ export function renderAdjustments(
   return output
 }
 export interface WorkingFrame {
+  cpuSource?: import('./native-cpu-preview').CpuPreviewSourceRef
   hdr?: import('./hdr').HdrWorkingAsset
   identity?: string
   data: Float32Array<ArrayBuffer>

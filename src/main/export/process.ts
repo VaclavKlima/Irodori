@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path'
 import { PreviewProcess } from '../preview-process'
 import type { ExportRenderJob, ExportRenderResult } from './types'
 import { prepareExportWorkingSource } from './preparation'
+import type { ExportWorkerProgress } from '../../shared/export'
+import { acceptExportWorkerProgress, exportProgressOwner } from './progress'
 
 /** Decoder and encoder never retain their WASM heaps in the same process. */
 export class ExportProcess {
@@ -11,7 +13,11 @@ export class ExportProcess {
     private workerPath = join(import.meta.dirname, 'export-worker.js'),
     private previewWorkerPath = join(import.meta.dirname, 'preview-worker.js'),
   ) {}
-  async render(job: ExportRenderJob, signal: AbortSignal): Promise<ExportRenderResult> {
+  async render(
+    job: ExportRenderJob,
+    signal: AbortSignal,
+    onProgress?: (progress: ExportWorkerProgress) => void,
+  ): Promise<ExportRenderResult> {
     const started = performance.now()
     let sourceMs = 0,
       sourceBackend: string | undefined,
@@ -48,6 +54,7 @@ export class ExportProcess {
     const env = { ...process.env }
     delete env.ELECTRON_RUN_AS_NODE
     delete env.NODE_OPTIONS
+    const owner = exportProgressOwner(job, performance.timeOrigin + performance.now())
     const child = fork(this.workerPath, [], {
       execPath: executable,
       execArgv: [],
@@ -87,6 +94,8 @@ export class ExportProcess {
     })
     return new Promise((resolve, reject) => {
       let result: ExportRenderResult | undefined, error: Error | undefined
+      let terminal = false,
+        previousProgress: ExportWorkerProgress | undefined
       const abort = () => {
         error = new Error('Export rendering cancelled.')
         void stop()
@@ -100,10 +109,50 @@ export class ExportProcess {
         clearTimeout(timer)
         signal.removeEventListener('abort', abort)
       }
-      child.on('message', (value: { result?: typeof result; error?: string }) => {
-        result = value.result
-        if (value.error) error = new Error(value.error)
-      })
+      child.on(
+        'message',
+        (value: { result?: typeof result; error?: string; progress?: unknown }) => {
+          if (!value || typeof value !== 'object') return
+          if (value.progress !== undefined) {
+            if (
+              !owner ||
+              !onProgress ||
+              terminal ||
+              error ||
+              signal.aborted ||
+              Object.keys(value).length !== 1
+            )
+              return
+            const accepted = acceptExportWorkerProgress(
+              value.progress,
+              owner,
+              previousProgress,
+              performance.timeOrigin + performance.now(),
+            )
+            if (accepted) {
+              previousProgress = accepted
+              try {
+                onProgress(accepted)
+              } catch (callbackError) {
+                error =
+                  callbackError instanceof Error
+                    ? callbackError
+                    : new Error('Export progress observer failed.')
+                void stop()
+              }
+            }
+            return
+          }
+          if (value.result) {
+            result = value.result
+            terminal = true
+          }
+          if (value.error) {
+            error = new Error(value.error)
+            terminal = true
+          }
+        },
+      )
       child.once('error', (e) => {
         error = e
         if (!child.pid) {

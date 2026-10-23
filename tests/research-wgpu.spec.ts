@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { hdrCacheShader } from '../src/renderer/src/preview/hdr-shader'
+import { grid8ReferenceKernel } from '../scripts/research/pipeline/grid8-reference'
 import { packAces } from '../src/shared/aces-data'
 import { prepareDisplayRendering, renderDisplay } from '../src/shared/display-rendering'
 import { imageSpec, pattern } from '../scripts/research/pipeline/workloads'
@@ -72,7 +72,7 @@ test('Dawn and pinned wgpu complete identical exact Float32 tile kernels on the 
     p[39] = 1
   }
   const inputFiles: Record<string, string | Uint8Array> = {
-    'render.wgsl': hdrCacheShader,
+    'render.wgsl': grid8ReferenceKernel.shader,
     'source.f32': new Uint8Array(input.buffer),
     'tables.f32': new Uint8Array(tables.buffer, tables.byteOffset, tables.byteLength),
     'uniforms.f32': new Uint8Array(uniforms.buffer),
@@ -183,7 +183,7 @@ test('Dawn and pinned wgpu complete identical exact Float32 tile kernels on the 
     const pipeline = await device.createComputePipelineAsync({
       layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
       compute: {
-        module: device.createShaderModule({ code: hdrCacheShader }),
+        module: device.createShaderModule({ code: grid8ReferenceKernel.shader }),
         entryPoint: 'renderTile',
       },
     })

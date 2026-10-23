@@ -410,7 +410,7 @@ fn dsExp(a:vec2f)->vec2f {
   // Subtract the leading product before adding its residual, avoiding cancellation
   // after normalizing a large n*unit to only two floats.
   let product=acesRound(n*unit.x);
-  let residual=dsAdd(ds(fma(n,unit.x,-product)),dsMul(ds(n),ds(unit.y)));
+  let residual=dsAdd(ds(acesProductError(n,unit.x,product)),dsMul(ds(n),ds(unit.y)));
   let r=dsSub(dsSub(a,ds(product)),residual);
   var polynomial=vec2f(0.041666666666666664,-1.2417634351336027e-9);
   polynomial=dsAdd(vec2f(0.16666666666666666,-4.967053740534411e-9),dsMul(r,polynomial));
