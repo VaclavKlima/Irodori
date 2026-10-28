@@ -1,19 +1,20 @@
 # Public naming research
 
 **Research snapshot: 2026-10-28. Replacement name remains open.** Luma stays the
-working application and repository name. The current direction is a natural
-two-word name involving **Flash**, with a clear connection to photographs and
-quick personal editing. No rebrand, domain purchase, or repository rename is
-part of this research delivery.
+working application and repository name. The latest user-proposed candidate is
+**Irodori**. Its meaning and an existing photo-editor use are assessed below;
+earlier Flash compounds remain documented as previous research. No rebrand,
+domain purchase, or repository rename is part of this research delivery.
 
 ## Naming brief
 
 The name should suit an approachable personal photo editor: open a photograph,
 make common adjustments, and move on. It should communicate speed and ease,
 remain easy to pronounce in English, and be memorable without an elaborate
-origin story. A meaningful combination of familiar words, like Lightroom,
-is the current direction. This describes the naming and product feel; it does
-not change the application's implemented capabilities or feature roadmap.
+origin story. Earlier directions explored combinations of familiar words, like
+Lightroom; the latest proposal is the real Japanese word Irodori. This describes
+the naming and product feel; it does not change the application's implemented
+capabilities or feature roadmap.
 
 Keep the complete spelling compact and readable in an application menu. Avoid
 names that imply an unrelated AI-generation service, camera-only capture,
@@ -38,7 +39,37 @@ application would enter:
 The conclusion about discoverability is an inference from these observed uses.
 The term's relationship to luminance does not establish trademark freedom.
 
-## Current Flash comparison
+## User-proposed candidate: Irodori
+
+**Status: under discussion; no replacement has been selected.** The user proposed
+Irodori and asked whether another word would improve it.
+
+**Meaning:** Japanese 彩り (いろどり, approximately "ee-roh-doh-ree") refers to
+coloring, an arrangement of colors, or figuratively adding interest and charm.
+The [Shogakukan dictionary entry](https://kotobank.jp/word/%E5%BD%A9%E3%82%8A-436757)
+supports those meanings. That connection suits photographic editing. The name
+has seven letters and four syllables, so it takes longer to say than Luma or
+Figma, but it gives this proposal a real meaning without an invented blend.
+
+**Existing photo-editor use:** [irodori - Color Pop Editor](https://apps.apple.com/us/app/irodori-color-pop-editor/id6776964361)
+is already listed in the App Store by Ryogo Owashi. It edits photographs with
+selective color, brightness, contrast, filters, and export. This is a direct
+photo-editing overlap, making discoverability and mistaken association concerns
+more concrete than an unrelated business with the same word. That assessment
+is an inference from the listing, not a legal conclusion.
+
+For presentation, **Irodori** with the separate descriptor **Personal photo
+editing** is concise. If another word belongs in the name, **Irodori Desk**
+suggests a personal desktop workspace; **Irodori Edit** describes the software's
+purpose more directly. Desk is the preferred creative extension of these two.
+These are naming suggestions, not screened or cleared brands. Adding a generic
+word does not establish that the existing photo-editor overlap is resolved.
+
+Irodori and its extensions have not received the domain, GitHub namespace, or
+trademark checks documented for the earlier candidates below. The existing
+photo-editor use should be resolved before recommending public adoption.
+
+## Earlier Flash comparison
 
 These are creative naming assessments, not a claim that any name is cleared.
 The three leading concepts are followed by two screened-out comparisons.
@@ -51,7 +82,7 @@ The three leading concepts are followed by two screened-out comparisons.
 | **Flashroom** | Flash + room. A personal photographic workspace with a familiar compound structure.              | Exclude from the shortlist: an existing [Flashroom photo-booth app](https://apps.apple.com/us/app/flashroom-retro-photo-booth/id6813983439) is directly in the Photo & Video category. `.com` and `.app` are registered.                                                                                                                                                                                                     |
 | **Flashpad**  | Flash + pad. A lightweight personal workspace.                                                   | Exclude from the shortlist: [Flashpad](https://flashpad.cc/) already identifies cross-platform note-taking software, and many exact GitHub names were returned. `.com` and `.app` are registered.                                                                                                                                                                                                                            |
 
-**Provisional creative recommendation: Flashroll.** It best connects ordinary
+**Earlier provisional creative recommendation: Flashroll.** It connects ordinary
 English pronunciation with photographs and speed. Flashleaf is the softer
 alternative, with a potentially useful `.app` lookup result but a known unrelated
 application use. Flashlane's existing desktop-software name is a meaningful
