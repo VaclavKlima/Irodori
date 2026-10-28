@@ -1,0 +1,33 @@
+Luma
+Copyright 2026 Václav Klíma and contributors
+
+Luma's original code and documentation are licensed under the Apache License,
+Version 2.0, except where a file or component carries separate terms. See LICENSE
+and docs/licensing.md for the scope, component inventory, and fixture exceptions.
+
+This product includes software developed by Contributors to the ACES Project.
+The retained ACES source and generated ports carry their existing Apache-2.0
+attribution; see third_party/aces-core/.
+
+This product includes source adapted from LibRaw 0.22.1, Copyright 2019-2025
+LibRaw LLC, with dcraw portions Copyright 1997-2018 Dave Coffin. The existing
+CDDL-1.0 notices and covered modifications remain applicable; see
+third_party/libraw/ and native/raw-source/licenses/.
+
+The native math source includes LLVM libc under Apache-2.0 WITH LLVM-exception
+and retained Electron, Chromium, V8, and Sun Microsystems provenance notices;
+see native/luma-cpu-render/upstream/electron-llvm/.
+
+The standalone merge preparation kernels retain their MIT license; see
+vendor/merge-kernels/LICENSE.
+
+OpenCV, Ultra HDR, libjpeg-turbo, the Adobe gain-map notice, Electron/Chromium,
+Node.js, Dawn/Tint, sharp/libvips, ExifTool, interface dependencies, and their
+bundled components retain their own licenses and notices. Preserve the complete
+upstream files with the components you distribute; this notice is not a
+replacement for them.
+
+Photographic fixtures and separately dedicated reference vectors retain the
+terms recorded in tests/fixtures/. The fifteen research-sony originals have
+project-testing permission, not a general open-content license. They are not
+covered by Luma's Apache-2.0 grant.

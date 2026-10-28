@@ -145,6 +145,16 @@ Preview generation runs in a separate process using a pinned, bundled Node 24 ru
 
 The production build keeps processing dependencies external in `node_modules`. An installable distributable is a later milestone; packaging requirements and licenses are documented in [runtime dependencies](docs/runtime-dependencies.md).
 
+## License and contributions
+
+Luma's original code and documentation are licensed under [Apache-2.0](LICENSE).
+Commercial reuse and contributions are welcome under its terms. Contributions
+to separately licensed files retain those files' applicable terms.
+
+Dependencies, adapted source, and photographic fixtures retain their own
+licenses and permissions. See [NOTICE](NOTICE) and the [licensing inventory](docs/licensing.md)
+for attribution, fixture exceptions, and outstanding binary-distribution requirements.
+
 ## Stack and boundaries
 
 | Layer        | Technology and responsibility                                        |

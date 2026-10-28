@@ -23,17 +23,24 @@ This repository currently builds an unpacked development application, not instal
 
 ## Third-party notices
 
-Retain each shipped package's complete license/notice files. The npm dependencies include them; do not prune them from distributables.
+Luma's default source license is Apache-2.0. The [licensing inventory](licensing.md)
+records component and fixture exceptions, source-availability obligations, and
+the remaining checks for distributing application binaries.
 
-| Component           | License / notice source                                                                                                 |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| sharp               | Apache-2.0; its `LICENSE` and native `@img` notices cover libvips and bundled codecs                                    |
-| ExifTool wrapper    | MIT; `exiftool-vendored/LICENSE`                                                                                        |
-| ExifTool executable | Perl licensing; retain vendored package licenses and documentation                                                      |
-| LibRaw WASM wrapper | MIT; retain the package's license files                                                                                 |
-| LibRaw              | CDDL-1.0 or LGPL-2.1; retain `LibRaw/COPYRIGHT`, `LibRaw/LICENSE.CDDL`, and `LibRaw/LICENSE.LGPL` from the WASM package |
-| typed-cstruct       | MIT; retain its package license                                                                                         |
-| Node.js             | MIT and bundled third-party notices in the runtime package's `LICENSE`                                                  |
+Retain complete license/notice files for each shipped package and its embedded
+components. Package metadata alone is insufficient; obtain any missing texts
+and corresponding source before distributing the binaries.
+
+| Component           | License / notice source                                                                                                                                  |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| sharp               | Apache-2.0; its `LICENSE` and native `@img` notices cover libvips and bundled codecs                                                                     |
+| Prebuilt libvips    | The locked `@img/sharp-libvips-*` packages declare LGPL-3.0-or-later; obtain complete codec notices and satisfy matching source/replacement requirements |
+| ExifTool wrapper    | MIT; `exiftool-vendored/LICENSE`                                                                                                                         |
+| ExifTool executable | Perl licensing; retain vendored package licenses and documentation                                                                                       |
+| LibRaw WASM wrapper | MIT; retain the package's license files                                                                                                                  |
+| LibRaw              | CDDL-1.0 or LGPL-2.1; retain `LibRaw/COPYRIGHT`, `LibRaw/LICENSE.CDDL`, and `LibRaw/LICENSE.LGPL` from the WASM package                                  |
+| typed-cstruct       | MIT; retain its package license                                                                                                                          |
+| Node.js             | MIT and bundled third-party notices in the runtime package's `LICENSE`                                                                                   |
 
 Test photographs are never part of the application bundle. Their provenance is in [fixture documentation](../tests/fixtures/README.md).
 

@@ -1,5 +1,8 @@
 # Exact merge preparation kernels
 
+The maintained C source and generated WASM retain their existing MIT license.
+Ship the complete [license and copyright notice](LICENSE) with the runtime.
+
 `luma-merge-kernels.wasm` is an optional, worker-only acceleration of the existing
 Float64 HDR preparation, camera-registration strips, ordered area reductions and
 canonical clipping masks. It does not decode RAW data or change lens geometry.
