@@ -1,10 +1,11 @@
 # Public naming research
 
 **Decision: Irodori, with the tagline Personal photo editing.** Selected by the
-owner on 2026-10-28. Application branding is prepared in the isolated worktree;
-the primary checkout and GitHub repository still use Luma while another session
-is running. The existing photo-editor overlap and incomplete registry checks
-remain documented below. The selection does not establish name clearance.
+owner on 2026-10-28. Application branding is integrated on `main`, and the
+existing GitHub repository has been renamed to `VaclavKlima/Irodori`. The local
+checkout folder remains named Luma for session continuity. The existing
+photo-editor overlap and incomplete registry checks remain documented below.
+The selection does not establish name clearance.
 
 ## Naming brief
 
@@ -70,18 +71,20 @@ below. The existing photo-editor overlap remains a public-brand concern.
 
 ## Repository and compatibility
 
-**Recommendation: rename the existing repository to `VaclavKlima/Irodori` after
-the concurrent session's work and this branch have been safely integrated.**
-Keep the existing repository so its history and collaboration records remain
-together. [GitHub's rename documentation](https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository)
+**Completed on 2026-10-28: the existing repository is now
+[`VaclavKlima/Irodori`](https://github.com/VaclavKlima/Irodori), with the description
+Personal photo editing.** Its GitHub repository ID remains `1373470999`; no new
+repository was created. History and collaboration records remain together.
+[GitHub's rename documentation](https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository)
 describes redirects for normal repository URLs and Git operations. GitHub Pages
 URLs and uses of a repository as a published Action need separate handling.
 
-The remote URL and primary checkout directory remain unchanged during the
-concurrent session. After an authorized repository rename, update the shared
-`origin` URL, check linked worktrees and external integrations, and move the
-local checkout directory only when no session or process depends on its old
-path. No repository has been renamed or created by this implementation.
+The shared `origin` URL is now `git@github.com:VaclavKlima/Irodori.git` in both
+linked worktrees. A lookup through the old `VaclavKlima/Luma` name resolves to
+Irodori. The primary checkout directory remains named Luma so the paused session
+can resume at its existing path. No local directory was moved. GitHub reported
+no Pages site before the rename; external integrations beyond the verified
+repository lookup and Git remote remain unverified.
 
 The app display name, tagline, package metadata, interface text, and main
 documentation adopt Irodori. The existing `Luma` profile directory remains the
@@ -109,8 +112,28 @@ Four naming-document checks passed in 78 ms: Markdown formatting, local links,
 the retained 18 domain records, and the five earlier scoped repository results.
 Evidence is retained under
 `artifacts/verification/project-naming-20261028T164820279Z-2/summary.md`.
-Desktop launch, visual acceptance, packaged application naming, and client MCP
-integration were not selected in this isolated run and remain unverified.
+
+Post-integration workspace verification passed the same 669 fast tests, static
+checks, and application build. Five Electron cases initially failed because the
+primary checkout's prebuilt CPU helper belonged to the paused session's newer
+processing code. That evidence is retained in
+`artifacts/verification/2026-10-28T16-57-31.488Z-check-bmiNBz/summary.md`.
+
+A matching helper was built in the isolated worktree without replacing the
+paused session's helper. The failed startup case then passed in 1.05 seconds;
+the other four failed workspace cases passed in 30.3 seconds. Evidence is
+retained under `artifacts/verification/branding-ui-NkMIZP/` and
+`artifacts/verification/branding-workspace-E2zWeU/`. The five native Wayland
+capture cases remain deferred; visual acceptance, packaged application naming,
+and a particular client MCP connection remain unverified. A helper build and
+these UI cases do not establish new numerical or performance acceptance.
+
+The paused session's unfinished work was restored locally and left unstaged.
+All 358 source paths were accounted for: 345 stayed byte-identical and 13
+overlaps received only the naming/licensing adaptations. Three conflicts were
+resolved without discarding catalog migration or editing test targets. The
+restored checkout passed type checking. Only the completed naming/licensing
+commits are included in the push; unfinished editing changes remain local.
 
 ## Earlier Flash comparison
 
@@ -194,9 +217,8 @@ not establish legal clearance or trademark registrability.
 The owner selected Irodori and the tagline Personal photo editing. The
 implementation changes application branding while retaining the existing
 library location and compatibility identifiers. Backlog #22 remains open for
-integration and the documented registry gaps; the name decision is settled.
+the documented registry gaps; the name decision and integration are settled.
 
-Merge this isolated branch only when the concurrent checkout's work can be
-preserved and checked. Repository renaming and local-directory changes remain
-separate follow-up actions after integration. No GitHub repository or local
-primary checkout has been renamed.
+The repository rename is complete. Local-directory renaming remains deferred
+while the existing session depends on that path. Its unfinished editing work
+is preserved locally and must not be discarded when the session resumes.
