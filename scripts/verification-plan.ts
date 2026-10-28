@@ -16,6 +16,7 @@ interface Suite {
   family?: BenchmarkFamily
 }
 const definitions: Suite[] = [
+  { file: 'app-identity', group: 'node', scopes: ['ui', 'library'] },
   { file: 'research-pipeline', group: 'node', scopes: [] },
   { file: 'research-resources', group: 'node', scopes: [] },
   ...[

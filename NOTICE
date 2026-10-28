@@ -1,7 +1,7 @@
-Luma
+Irodori (formerly Luma)
 Copyright 2026 Václav Klíma and contributors
 
-Luma's original code and documentation are licensed under the Apache License,
+Irodori's original code and documentation are licensed under the Apache License,
 Version 2.0, except where a file or component carries separate terms. See LICENSE
 and docs/licensing.md for the scope, component inventory, and fixture exceptions.
 
@@ -30,4 +30,4 @@ replacement for them.
 Photographic fixtures and separately dedicated reference vectors retain the
 terms recorded in tests/fixtures/. The fifteen research-sony originals have
 project-testing permission, not a general open-content license. They are not
-covered by Luma's Apache-2.0 grant.
+covered by Irodori's Apache-2.0 grant.

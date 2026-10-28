@@ -40,7 +40,7 @@ export class ExportReadStore {
       .get() as { data: string }
     const value = JSON.parse(row.data) as Preferences
     if (value.version !== 1)
-      throw new Error('These export preferences require a newer Luma version.')
+      throw new Error('These export preferences require a newer Irodori version.')
     if (value.lastCustom) validateExportOptions(value.lastCustom)
     return value
   }

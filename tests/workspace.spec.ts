@@ -100,7 +100,9 @@ async function expectViewportSize(page: Page, width: number, height: number) {
 test('starts the built desktop application with its isolated preload bridge', async ({ luma }) => {
   const { app, page } = luma
   const packageInfo = JSON.parse(await readFile('package.json', 'utf8')) as { version: string }
-  await expect(page).toHaveTitle('Luma')
+  await expect(page).toHaveTitle('Irodori — Personal photo editing')
+  await expect(page.getByText('Irodori', { exact: true })).toBeVisible()
+  await expect(page.getByText('Personal photo editing', { exact: true })).toBeVisible()
   const navigation = page.getByRole('navigation', { name: 'Workspaces' })
   await expect(navigation.getByRole('button', { name: 'Editor', exact: true })).toHaveAttribute(
     'aria-current',
@@ -116,15 +118,19 @@ test('starts the built desktop application with its isolated preload bridge', as
   const nativeInfo = await app.evaluate(({ app }) => {
     return {
       version: app.getVersion(),
+      name: app.getName(),
       platform: process.platform,
       userData: app.getPath('userData'),
+      sessionData: app.getPath('sessionData'),
       noSandbox: app.commandLine.hasSwitch('no-sandbox'),
       debugPort: app.commandLine.getSwitchValue('remote-debugging-port'),
     }
   })
   expect(nativeInfo).toMatchObject({
     version: packageInfo.version,
+    name: 'Irodori',
     userData: await realpath(luma.userDataDir),
+    sessionData: await realpath(luma.userDataDir),
     noSandbox: false,
   })
   // Playwright owns an ephemeral debugging endpoint; the fixed MCP port is development-only.

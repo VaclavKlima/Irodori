@@ -430,7 +430,7 @@ export class PhotoLibrary {
     if (!fresh && version.user_version !== 17)
       throw new Error(
         version.user_version > 17
-          ? 'This library requires a newer version of Luma.'
+          ? 'This library requires a newer version of Irodori.'
           : 'This catalog format is unsupported. Its files were preserved; reimport originals into a fresh library.',
       )
     if (
@@ -745,7 +745,7 @@ export class PhotoLibrary {
         history.settings.version !== SETTINGS_VERSION ||
         history.snapshots.some((snapshot) => snapshot.settings.version !== SETTINGS_VERSION)
       )
-        throw new Error('These edits require a newer version of Luma.')
+        throw new Error('These edits require a newer version of Irodori.')
       return history
     }
     throw new Error('This photo has no confirmed edit history.')
@@ -1419,9 +1419,9 @@ export class PhotoLibrary {
 
   private recoveryReason(): string | undefined {
     if (this.catalog?.failure)
-      return 'Catalog writes are unavailable. Restart Luma before changing this library.'
+      return 'Catalog writes are unavailable. Restart Irodori before changing this library.'
     if (this.db.prepare('SELECT 1 FROM removals LIMIT 1').get())
-      return 'An interrupted deletion needs recovery. Restart Luma before changing the library.'
+      return 'An interrupted deletion needs recovery. Restart Irodori before changing the library.'
     for (const row of this.db
       .prepare('SELECT id, manifest_sha256 FROM merge_publications')
       .all() as {
@@ -1429,13 +1429,15 @@ export class PhotoLibrary {
       manifest_sha256: string
     }[]) {
       if (this.retainedUnsupportedMerges.get(row.id) !== row.manifest_sha256)
-        return 'An interrupted merge publication needs recovery. Restart Luma before changing the library.'
+        return 'An interrupted merge publication needs recovery. Restart Irodori before changing the library.'
     }
     return undefined
   }
   private assertRecovered(admission = false): void {
     if (this.catalog?.failure)
-      throw new Error('Catalog writes are unavailable. Restart Luma before changing this library.')
+      throw new Error(
+        'Catalog writes are unavailable. Restart Irodori before changing this library.',
+      )
     if (admission && this.scheduler.mutating) return
     const reason = this.recoveryReason()
     if (reason) throw new Error(reason)

@@ -22,20 +22,26 @@ let evidenceFile
 let profile
 const transcript = []
 
-async function waitForLuma() {
+async function waitForIrodori() {
   for (let attempt = 0; attempt < 30; attempt++) {
     try {
       const response = await fetch(`${endpoint}/json/list`, { signal: AbortSignal.timeout(1000) })
       if (response.ok) {
         const targets = await response.json()
-        if (targets.some((target) => target.type === 'page' && target.title === 'Luma')) return
+        if (
+          targets.some(
+            (target) =>
+              target.type === 'page' && target.title === 'Irodori — Personal photo editing',
+          )
+        )
+          return
       }
     } catch {
       // The Electron window may still be starting.
     }
     await delay(250)
   }
-  throw new Error('No Luma window is available on port 9222. Start npm run dev:mcp first.')
+  throw new Error('No Irodori window is available on port 9222. Start npm run dev:mcp first.')
 }
 
 function contentText(result) {
@@ -89,7 +95,7 @@ try {
       })
     }, root)
   }
-  await waitForLuma()
+  await waitForIrodori()
   await mkdir(output, { recursive: true })
   transport = new StdioClientTransport({
     command: process.execPath,
@@ -126,7 +132,7 @@ try {
 
   // The app owns one renderer window. Confirm its title before any UI action.
   const initial = await call('browser_snapshot')
-  if (!initial.text.includes('Luma')) throw new Error('The connected renderer is not Luma.')
+  if (!initial.text.includes('Irodori')) throw new Error('The connected renderer is not Irodori.')
   async function clickButton(name) {
     const snapshot = await call('browser_snapshot')
     await call('browser_click', { element: name, target: buttonRef(snapshot.text, name) })

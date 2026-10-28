@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 // Separate entry point: no catalog, photo processing, editor endpoint, or user settings.
 if (!app.commandLine.hasSwitch('user-data-dir'))
   throw new Error('Launch the HDR diagnostic with its temporary-profile harness.')
-app.setName('Luma HDR diagnostic')
+app.setName('Irodori HDR diagnostic')
 app.enableSandbox()
 // Playwright's Electron loader forces sRGB and replaces --enable-features.
 // Neither override is valid evidence for an HDR display diagnostic.
@@ -27,7 +27,7 @@ void app
     const page = join(import.meta.dirname, '../renderer/hdr-diagnostic.html')
     const trustedUrl = pathToFileURL(page).href
     const window = createAppWindow({
-      title: 'Luma HDR diagnostic — unverified output',
+      title: 'Irodori HDR diagnostic — unverified output',
       width: 1100,
       height: 700,
       minWidth: 1100,

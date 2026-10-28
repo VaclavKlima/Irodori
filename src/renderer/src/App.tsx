@@ -1,4 +1,5 @@
 import { configureCollections } from './collections/controller'
+import { APP_NAME, APP_TAGLINE } from '../../shared/app-identity'
 import { useWorkspaceCheckpoint } from './hooks/useWorkspaceCheckpoint'
 import type { WorkspaceState } from '../../shared/workspace'
 import { MergeDialog } from './components/MergeDialog'
@@ -763,9 +764,9 @@ export function App() {
       <header className={styles.appHeader}>
         <div className={styles.brand}>
           <Aperture size={23} strokeWidth={1.35} />
-          <span>luma</span>
+          <span>{APP_NAME}</span>
           <span className={styles.brandDivider} />
-          <span className={styles.workspaceName}>My library</span>
+          <span className={styles.brandTagline}>{APP_TAGLINE}</span>
         </div>
         <nav className={styles.workspaceMode} aria-label="Workspaces">
           <button

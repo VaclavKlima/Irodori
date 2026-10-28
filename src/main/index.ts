@@ -1,4 +1,6 @@
 import { CollectionChangedError } from '../shared/collections'
+import { APP_TITLE } from '../shared/app-identity'
+import { configureAppIdentity } from './app-identity'
 import { mergeFailure } from '../shared/merge'
 import { DisplayState } from './display-state'
 import { installWaylandDisplayRefresh } from './wayland-display'
@@ -59,7 +61,7 @@ import {
 
 const importDevices = new ImportDevices()
 
-app.setName('Luma')
+configureAppIdentity(app)
 app.enableSandbox()
 app.commandLine.appendSwitch('enable-blink-features', 'ScreenDetailedHdrHeadroom')
 if (process.platform === 'linux' && process.env.WAYLAND_DISPLAY) {
@@ -202,7 +204,7 @@ async function requestQuit(): Promise<void> {
     } catch (error) {
       // The saved renderer has already gone; finish all cleanup and terminate
       // instead of reopening a workspace against partially closed services.
-      console.error('Could not finish shutting down Luma:', error)
+      console.error('Could not finish shutting down Irodori:', error)
       app.exit(1)
     }
   } catch (error) {
@@ -240,7 +242,7 @@ function trusted(event: IpcMainInvokeEvent): void {
 function createWindow(): void {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
   const window = createAppWindow({
-    title: 'Luma',
+    title: APP_TITLE,
     width: Math.min(1440, width),
     height: Math.min(900, height),
     minWidth: 1100,
@@ -311,7 +313,7 @@ function createWindow(): void {
       ? window.loadURL(devUrl)
       : window.loadFile(join(import.meta.dirname, '../renderer/index.html'))
   loading.catch((error: unknown) => {
-    console.error('Could not load the Luma interface:', error)
+    console.error('Could not load the Irodori interface:', error)
     app.exit(1)
   })
 }
@@ -1104,7 +1106,7 @@ app
     })
   })
   .catch((error: unknown) => {
-    console.error('Could not start Luma:', error)
+    console.error('Could not start Irodori:', error)
     app.exit(1)
   })
 

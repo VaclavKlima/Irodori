@@ -36,7 +36,7 @@ export function Console({ onClose }: { onClose: () => void }) {
       'Agent console output, disconnected and read only',
     )
     terminal.textarea?.setAttribute('readonly', '')
-    terminal.writeln('\x1b[38;2;197;189;142m  LUMA\x1b[0m  /  Agent console')
+    terminal.writeln('\x1b[38;2;197;189;142m  IRODORI\x1b[0m  /  Agent console')
     terminal.writeln('')
     terminal.writeln('  No agent connected.')
     terminal.writeln('  Your workspace is ready. CLI agent support is coming in a future version.')

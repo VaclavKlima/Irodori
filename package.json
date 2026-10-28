@@ -1,9 +1,10 @@
 {
-  "name": "luma",
+  "name": "irodori",
+  "productName": "Irodori",
   "version": "0.2.0",
   "private": true,
   "license": "Apache-2.0",
-  "description": "A local photo library and editor with an AI console.",
+  "description": "Personal photo editing",
   "type": "module",
   "main": "out/main/index.js",
   "engines": {

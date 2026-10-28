@@ -20,13 +20,13 @@ export default defineConfig(({ command }) => {
               const encoder = await nativeEncoderPath(resolve('vendor/ultrahdr'))
               if (!encoder)
                 throw new Error(
-                  'The Linux native HDR codec is missing. Supply the pinned source archives and run npm run build:export-native before building Luma.',
+                  'The Linux native HDR codec is missing. Supply the pinned source archives and run npm run build:export-native before building Irodori.',
                 )
               try {
                 await nativeCpuExecutable(resolve('vendor'))
               } catch (cause) {
                 throw new Error(
-                  'The Linux native CPU renderer is missing or invalid. Run npm run build:cpu-native before building Luma.',
+                  'The Linux native CPU renderer is missing or invalid. Run npm run build:cpu-native before building Irodori.',
                   { cause },
                 )
               }
@@ -40,7 +40,7 @@ export default defineConfig(({ command }) => {
               const raw = await prepareNativeRawExecutable(resolve('vendor'))
               if (raw.status !== 'ready')
                 throw new Error(
-                  'The Linux native RAW decoder is missing or invalid. Run npm run build:raw-native before building Luma.',
+                  'The Linux native RAW decoder is missing or invalid. Run npm run build:raw-native before building Irodori.',
                 )
               await cp('vendor/native-raw/linux-x64', 'out/main/native-raw/linux-x64', {
                 recursive: true,

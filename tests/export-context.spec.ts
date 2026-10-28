@@ -476,7 +476,7 @@ test('current export schema initialization is transactional, rejects unknown pre
     store.initialize()
     expect(store.preferences()).toEqual(before)
     db.prepare('UPDATE export_preferences SET data = ?').run('{"version":2}')
-    expect(() => store.initialize()).toThrow('newer Luma')
+    expect(() => store.initialize()).toThrow('newer Irodori')
   } finally {
     db.close()
   }

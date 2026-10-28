@@ -72,7 +72,7 @@ export class CatalogWriter implements CatalogCommands {
         this.problem ??= new Error(`Catalog writer exited without a clean close (${code}).`)
       if (this.problem) {
         const error = new CatalogWriterFailure(
-          'Catalog write acknowledgement was lost. Restart Luma before changing this library.',
+          'Catalog write acknowledgement was lost. Restart Irodori before changing this library.',
           { cause: this.problem },
         )
         this.readyReject(error)
@@ -139,7 +139,7 @@ export class CatalogWriter implements CatalogCommands {
   command<K extends CatalogOperation>(command: CatalogCommand<K>): Promise<CatalogOutput<K>> {
     if (this.closeRequested || this.problem || this.exited)
       return Promise.reject(
-        new Error('Catalog writes are unavailable. Restart Luma before changing this library.'),
+        new Error('Catalog writes are unavailable. Restart Irodori before changing this library.'),
       )
     // Capture caller-owned history/manifest objects before the first asynchronous boundary.
     const snapshot = structuredClone(command) as CatalogCommand

@@ -430,7 +430,7 @@ const tools = [
   })),
 ]
 const server = new Server(
-  { name: 'luma-editor', version: '1.0.0' },
+  { name: 'irodori-editor', version: '1.0.0' },
   { capabilities: { tools: {} } },
 )
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }))

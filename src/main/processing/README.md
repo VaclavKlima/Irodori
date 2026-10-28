@@ -1,6 +1,6 @@
 # Adding lens corrections and image processors
 
-This guide explains how to extend Luma's processing modules. Start with the [contracts](contracts.ts) and the working [LibRaw adapter](decoders/libraw.ts), [Sony camera profile](cameras/sony-zv1.ts), and [Sony lens provider](lenses/sony-embedded.ts). The [processing overview](../../../docs/raw-processing.md) describes the pipeline and its existing verification results.
+This guide explains how to extend Irodori's processing modules. Start with the [contracts](contracts.ts) and the working [LibRaw adapter](decoders/libraw.ts), [Sony camera profile](cameras/sony-zv1.ts), and [Sony lens provider](lenses/sony-embedded.ts). The [processing overview](../../../docs/raw-processing.md) describes the pipeline and its existing verification results.
 
 Modules are TypeScript files registered in the repository and included in the application build. Runtime plugin installation is not implemented.
 

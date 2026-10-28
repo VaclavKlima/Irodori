@@ -23,7 +23,7 @@ This repository currently builds an unpacked development application, not instal
 
 ## Third-party notices
 
-Luma's default source license is Apache-2.0. The [licensing inventory](licensing.md)
+Irodori's default source license is Apache-2.0. The [licensing inventory](licensing.md)
 records component and fixture exceptions, source-availability obligations, and
 the remaining checks for distributing application binaries.
 

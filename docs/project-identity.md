@@ -1,10 +1,10 @@
 # Public naming research
 
-**Research snapshot: 2026-10-28. Replacement name remains open.** Luma stays the
-working application and repository name. The latest user-proposed candidate is
-**Irodori**. Its meaning and an existing photo-editor use are assessed below;
-earlier Flash compounds remain documented as previous research. No rebrand,
-domain purchase, or repository rename is part of this research delivery.
+**Decision: Irodori, with the tagline Personal photo editing.** Selected by the
+owner on 2026-10-28. Application branding is prepared in the isolated worktree;
+the primary checkout and GitHub repository still use Luma while another session
+is running. The existing photo-editor overlap and incomplete registry checks
+remain documented below. The selection does not establish name clearance.
 
 ## Naming brief
 
@@ -12,7 +12,7 @@ The name should suit an approachable personal photo editor: open a photograph,
 make common adjustments, and move on. It should communicate speed and ease,
 remain easy to pronounce in English, and be memorable without an elaborate
 origin story. Earlier directions explored combinations of familiar words, like
-Lightroom; the latest proposal is the real Japanese word Irodori. This describes
+Lightroom; the selected name is the real Japanese word Irodori. This describes
 the naming and product feel; it does not change the application's implemented
 capabilities or feature roadmap.
 
@@ -23,9 +23,8 @@ use in photography and software before recommending public adoption.
 
 ## Assessment of Luma
 
-**Recommendation: retain Luma during development, but resolve public branding
-before a broad release.** It is short, readable, and connected to image
-brightness. It is also crowded in the exact creative-software area this
+Luma was the previous working name. It is short, readable, and connected to image
+brightness. Research found it crowded in the exact creative-software area this
 application would enter:
 
 | Observed use            | Source and implication                                                                                                                                                                                                                                                                                                                                                                    |
@@ -39,10 +38,11 @@ application would enter:
 The conclusion about discoverability is an inference from these observed uses.
 The term's relationship to luminance does not establish trademark freedom.
 
-## User-proposed candidate: Irodori
+## Selected name: Irodori
 
-**Status: under discussion; no replacement has been selected.** The user proposed
-Irodori and asked whether another word would improve it.
+**Status: selected by the owner.** The chosen presentation is **Irodori**, with
+**Personal photo editing** as a separate tagline. No second word is part of the
+application name.
 
 **Meaning:** Japanese 彩り (いろどり, approximately "ee-roh-doh-ree") refers to
 coloring, an arrangement of colors, or figuratively adding interest and charm.
@@ -58,16 +58,59 @@ photo-editing overlap, making discoverability and mistaken association concerns
 more concrete than an unrelated business with the same word. That assessment
 is an inference from the listing, not a legal conclusion.
 
-For presentation, **Irodori** with the separate descriptor **Personal photo
-editing** is concise. If another word belongs in the name, **Irodori Desk**
-suggests a personal desktop workspace; **Irodori Edit** describes the software's
-purpose more directly. Desk is the preferred creative extension of these two.
-These are naming suggestions, not screened or cleared brands. Adding a generic
-word does not establish that the existing photo-editor overlap is resolved.
+The owner selected the standalone name after the existing photo-editor use was
+reported. Irodori Desk and Irodori Edit were considered as possible extensions;
+neither is part of the selected presentation. A generic suffix would not itself
+establish that the existing photo-editor overlap is resolved.
 
-Irodori and its extensions have not received the domain, GitHub namespace, or
-trademark checks documented for the earlier candidates below. The existing
-photo-editor use should be resolved before recommending public adoption.
+An authenticated GitHub search for `user:VaclavKlima Irodori in:name` returned no
+repositories on 2026-10-28. This does not reserve the destination. Irodori has not
+received the domain or trademark checks documented for the earlier candidates
+below. The existing photo-editor overlap remains a public-brand concern.
+
+## Repository and compatibility
+
+**Recommendation: rename the existing repository to `VaclavKlima/Irodori` after
+the concurrent session's work and this branch have been safely integrated.**
+Keep the existing repository so its history and collaboration records remain
+together. [GitHub's rename documentation](https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository)
+describes redirects for normal repository URLs and Git operations. GitHub Pages
+URLs and uses of a repository as a published Action need separate handling.
+
+The remote URL and primary checkout directory remain unchanged during the
+concurrent session. After an authorized repository rename, update the shared
+`origin` URL, check linked worktrees and external integrations, and move the
+local checkout directory only when no session or process depends on its old
+path. No repository has been renamed or created by this implementation.
+
+The app display name, tagline, package metadata, interface text, and main
+documentation adopt Irodori. The existing `Luma` profile directory remains the
+default, and an explicit `--user-data-dir` retains priority. Both Electron
+`userData` and `sessionData` are pinned before startup; photographs, histories,
+settings, and the editor endpoint continue to use the same location. This uses
+Electron's documented [application paths](https://www.electronjs.org/docs/latest/api/app#appgetpathname)
+and [path overrides before readiness](https://www.electronjs.org/docs/latest/api/app#appsetpathname-path).
+
+The `window.luma` bridge, `luma-photo` scheme, MCP `luma_*` tools, `LUMA_*`
+configuration variables, native binary names, rendering identities, historical
+evidence, and `Luma.md` product-direction path remain stable compatibility
+identifiers. They do not require a data migration for this branding change.
+
+### Local verification — 2026-10-28
+
+`npm run verify -- --target app-identity` passed **669 tests in 32.10 seconds**,
+including the runner's fast Node coverage, type checking, lint, and formatting.
+The three identity cases verify preserved original/settings bytes at the legacy
+profile path, explicit temporary-profile priority, and creation of a fresh
+profile. Evidence is retained under
+`artifacts/verification/2026-10-28T16-46-15.017Z-check-AVWKGT/summary.md`.
+
+Four naming-document checks passed in 78 ms: Markdown formatting, local links,
+the retained 18 domain records, and the five earlier scoped repository results.
+Evidence is retained under
+`artifacts/verification/project-naming-20261028T164820279Z-2/summary.md`.
+Desktop launch, visual acceptance, packaged application naming, and client MCP
+integration were not selected in this isolated run and remain unverified.
 
 ## Earlier Flash comparison
 
@@ -86,8 +129,7 @@ The three leading concepts are followed by two screened-out comparisons.
 English pronunciation with photographs and speed. Flashleaf is the softer
 alternative, with a potentially useful `.app` lookup result but a known unrelated
 application use. Flashlane's existing desktop-software name is a meaningful
-drawback. Final naming remains under discussion; none of these candidates is a
-confirmed public brand.
+drawback. These earlier candidates were not selected.
 
 ## Domain and repository checks
 
@@ -110,7 +152,7 @@ Registry endpoints were selected from the [IANA RDAP bootstrap](https://data.ian
 [Verisign `.com`](https://rdap.verisign.com/com/v1/domain/flashroll.com),
 [Google Registry `.app`](https://pubapi.registry.google/rdap/domain/flashleaf.app),
 and [the `.photo` registry](https://rdap.nic.photo/domain/flashleaf.photo).
-The complete 18-query snapshot for the working name and current comparison is
+The complete 18-query snapshot for the previous working name and Flash comparison is
 retained under ignored `artifacts/project-setup-20261028/domains/`.
 
 Website behavior was recorded separately. `luma.com` returned HTTP 200 and
@@ -149,12 +191,12 @@ not establish legal clearance or trademark registrability.
 
 ## Remaining work and completion boundary
 
-The Luma assessment and initial source-backed comparison are recorded. Backlog
-#22 remains open while a satisfactory replacement recommendation is refined
-and the registry gaps above remain explicit. Selecting or applying a new name
-is separate from documenting the options.
+The owner selected Irodori and the tagline Personal photo editing. The
+implementation changes application branding while retaining the existing
+library location and compatibility identifiers. Backlog #22 remains open for
+integration and the documented registry gaps; the name decision is settled.
 
-A later rebrand must account for application/repository identity, existing
-library and user-data locations, protocol identifiers and development tooling.
-It must not silently create a second user library. No such implementation change
-is made by this research snapshot.
+Merge this isolated branch only when the concurrent checkout's work can be
+preserved and checked. Repository renaming and local-directory changes remain
+separate follow-up actions after integration. No GitHub repository or local
+primary checkout has been renamed.

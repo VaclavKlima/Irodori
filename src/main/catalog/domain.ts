@@ -50,7 +50,7 @@ export class CatalogMutations {
       history.settings.version !== SETTINGS_VERSION ||
       history.snapshots.some((snapshot) => snapshot.settings.version !== SETTINGS_VERSION)
     )
-      throw new Error('These edits require a newer version of Luma.')
+      throw new Error('These edits require a newer version of Irodori.')
     return history
   }
   /** Used only inside startup or the transaction that publishes processing metadata. */

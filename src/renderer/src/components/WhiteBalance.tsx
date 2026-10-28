@@ -29,7 +29,7 @@ export function WhiteBalance({
         {!profile
           ? 'White balance is unavailable for this photo. Verified Sony ZV-1/ZV-1A RAW required.'
           : wb?.mode === 'custom'
-            ? 'Custom · Luma temperature model'
+            ? 'Custom · Irodori temperature model'
             : edits.state?.referenceWhiteBalance
               ? 'Reference-based reset · estimated Kelvin and Tint'
               : 'As Shot · estimated Kelvin and Tint'}

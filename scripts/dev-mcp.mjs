@@ -13,7 +13,7 @@ try {
 } catch (error) {
   console.error(
     error.code === 'EADDRINUSE'
-      ? 'Port 9222 is already in use. Close the existing debugging session before starting Luma.'
+      ? 'Port 9222 is already in use. Close the existing debugging session before starting Irodori.'
       : `Cannot open the local debugging endpoint: ${error.message}`,
   )
   process.exit(1)
@@ -44,12 +44,12 @@ function stopTree(signal = 'SIGTERM') {
     process.kill(-child.pid, signal)
   } catch (error) {
     if (error.code !== 'ESRCH')
-      console.error('Could not stop the Luma process group:', error.message)
+      console.error('Could not stop the Irodori process group:', error.message)
   }
 }
 
 child.on('error', (error) => {
-  console.error('Could not start the Luma development session:', error.message)
+  console.error('Could not start the Irodori development session:', error.message)
   process.exitCode = 1
 })
 child.on('exit', (code) => {

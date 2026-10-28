@@ -1,8 +1,8 @@
-# Luma — a local photo editor with an AI console
+# Irodori — Personal photo editing
 
 ## Application concept
 
-Luma is a desktop photo editor inspired by the Adobe Lightroom workflow. It combines manual editing with the ability to control the same features through an AI agent in an integrated terminal.
+Irodori is a desktop photo editor inspired by the Adobe Lightroom workflow. It combines manual editing with the ability to control the same features through an AI agent in an integrated terminal.
 
 Users can edit a photograph manually, give the agent a request in natural language, and then fine-tune its work. Both methods share adjustment settings, the preview, and the edit history.
 
@@ -48,4 +48,4 @@ The first technical prototype must validate:
 4. HDR preview, HDR export, and SDR preview on the appropriate displays.
 5. Running the application and terminal on all three operating systems; the interface remains usable during computations.
 
-Luma is a working name. This document establishes the product intent and scope of the first release. A subsequent technical design will determine the specific RAW engine, HDR export format, and supported combinations of operating systems and hardware based on the prototype results.
+Irodori is the selected product name, with the tagline "Personal photo editing". This document establishes the product intent and scope of the first release. A subsequent technical design will determine the specific RAW engine, HDR export format, and supported combinations of operating systems and hardware based on the prototype results.
