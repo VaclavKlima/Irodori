@@ -1,0 +1,183 @@
+{
+  "version": 1,
+  "fixtureSet": "sony-zv-1a-tree-covered-bracket-v1",
+  "camera": {
+    "make": "SONY",
+    "model": "ZV-1A"
+  },
+  "provenance": {
+    "source": "User-provided camera SD card",
+    "sourceDirectory": "DCIM/100MSDCF",
+    "selectedOn": "2026-10-29",
+    "policy": "Three distinct unchanged camera originals, retaining full genuine bracket sequence membership. No repeated file, synthetic input, crop, metadata stripping or rewritten original.",
+    "permission": "On 2026-10-29 the user explicitly requested repository retention of photographic test/benchmark inputs. This selected privacy-reviewed bracket may be included in the Irodori GitHub repository and used for repeatable project testing and benchmarks. The photographs are not Apache-2.0 or CC0 and no general open-content or unrelated-reuse license is granted by this notice."
+  },
+  "sequence": {
+    "kind": "Genuine metadata-identified continuous exposure bracket",
+    "members": ["DSC03277.ARW", "DSC03278.ARW", "DSC03279.ARW"],
+    "recordedAperture": 4,
+    "recordedIso": 400,
+    "relativeMetadataEv": [0, -2, 2],
+    "evidence": "ReleaseMode=5 (Exposure Bracketing); ReleaseMode2=2 (Continuous Exposure Bracketing); ReleaseMode3=2 (Bracketing); SequenceNumber, SequenceImageNumber and SequenceFileNumber are 1/2/3 with SequenceLength=3; same subsecond capture sequence.",
+    "limitations": "Metadata exposure ratios do not establish recovered radiance, alignment, deghost quality or a successful v4 master. No larger 5/9-source capture or noise burst is supplied."
+  },
+  "privacyReview": {
+    "reviewedOn": "2026-10-29",
+    "scope": "Repository privacy inspection only; not photographic-quality/application acceptance.",
+    "visualReview": [
+      "Every whole oriented native CPU-decoded scene at 3672 x 5496",
+      "Every extracted PreviewImage and ThumbnailImage; PreviewImage independently reviewed by parent",
+      "Nine native-pixel background crops covering partial building exteriors/openings, the white post/lamp and fences; independently reviewed by parent"
+    ],
+    "findings": "Tree-covered fenced outdoor scene with partial building exteriors/roofs, paths and an unlabeled post/lamp. No identifiable people, private interiors, readable addresses or other identifying labels, screens, documents or vehicle plates observed. Ownership and exact location are not inferred.",
+    "metadataTool": "ExifTool 13.59, read-only -n -a -u -G1 -s; interpreted and unknown tags included.",
+    "metadataFindings": {
+      "cameraLensOrInternalSerialTagsPresent": false,
+      "gpsTagsPresent": false,
+      "privateOwnerNameOrContactTagsPresent": false,
+      "personalMetadataValuesCopiedIntoNotice": false,
+      "filenameAndProvenanceReviewed": true
+    },
+    "policy": "No source original or embedded preview was rewritten, redacted, resized or metadata-stripped. Generated privacy views remain ignored."
+  },
+  "files": [
+    {
+      "name": "DSC03277.ARW",
+      "path": "originals/DSC03277.ARW",
+      "sourceRelativePath": "DCIM/100MSDCF/DSC03277.ARW",
+      "sha256": "159e5461fceddede2dc9903cb080caf63dcd2e4dc9ef70881b35f1fc65bd91db",
+      "bytes": 21533696,
+      "sequenceIndex": 1,
+      "relativeMetadataEv": 0,
+      "numericExif": {
+        "Make": "SONY",
+        "Model": "ZV-1A",
+        "ISO": 400,
+        "ExposureTime": 0.0125,
+        "FNumber": 4,
+        "FocalLength": 19.18,
+        "Orientation": 8,
+        "BitsPerSample": 12,
+        "SonyRawFileType": 2,
+        "Compression": 32767
+      },
+      "captureSequence": {
+        "ReleaseMode": 5,
+        "SequenceNumber": 1,
+        "ReleaseMode2": 2,
+        "SequenceImageNumber": 1,
+        "SequenceFileNumber": 1,
+        "SequenceLength": 3,
+        "ReleaseMode3": 2
+      },
+      "subsecondCaptureTime": "2026:10:17 12:02:12.331+02:00",
+      "storageDimensions": {
+        "width": 5504,
+        "height": 3672
+      },
+      "nativePrivacyDecode": {
+        "library": "LibRaw 0.22.1-Release",
+        "width": 3672,
+        "height": 5496,
+        "orientationPolicy": "Native decoder applies Orientation8 exactly once; 3672 x 5496 before application lens correction/crop."
+      },
+      "sourceHashVerifiedBeforeAndAfterReadOnlyPrivacyDecode": true
+    },
+    {
+      "name": "DSC03278.ARW",
+      "path": "originals/DSC03278.ARW",
+      "sourceRelativePath": "DCIM/100MSDCF/DSC03278.ARW",
+      "sha256": "d3f8954afbe5f9d1d61ca5bea39d25a04a18143eb8fa1f6360960c4e0cbb1578",
+      "bytes": 21242880,
+      "sequenceIndex": 2,
+      "relativeMetadataEv": -2,
+      "numericExif": {
+        "Make": "SONY",
+        "Model": "ZV-1A",
+        "ISO": 400,
+        "ExposureTime": 0.003125,
+        "FNumber": 4,
+        "FocalLength": 19.18,
+        "Orientation": 8,
+        "BitsPerSample": 12,
+        "SonyRawFileType": 2,
+        "Compression": 32767
+      },
+      "captureSequence": {
+        "ReleaseMode": 5,
+        "SequenceNumber": 2,
+        "ReleaseMode2": 2,
+        "SequenceImageNumber": 2,
+        "SequenceFileNumber": 2,
+        "SequenceLength": 3,
+        "ReleaseMode3": 2
+      },
+      "subsecondCaptureTime": "2026:10:17 12:02:12.469+02:00",
+      "storageDimensions": {
+        "width": 5504,
+        "height": 3672
+      },
+      "nativePrivacyDecode": {
+        "library": "LibRaw 0.22.1-Release",
+        "width": 3672,
+        "height": 5496,
+        "orientationPolicy": "Native decoder applies Orientation8 exactly once; 3672 x 5496 before application lens correction/crop."
+      },
+      "sourceHashVerifiedBeforeAndAfterReadOnlyPrivacyDecode": true
+    },
+    {
+      "name": "DSC03279.ARW",
+      "path": "originals/DSC03279.ARW",
+      "sourceRelativePath": "DCIM/100MSDCF/DSC03279.ARW",
+      "sha256": "e17e3c0ab859945212e031e35e13c241224ed1ccb0f1335de4c0f1fc4dc90f3c",
+      "bytes": 21242880,
+      "sequenceIndex": 3,
+      "relativeMetadataEv": 2,
+      "numericExif": {
+        "Make": "SONY",
+        "Model": "ZV-1A",
+        "ISO": 400,
+        "ExposureTime": 0.05,
+        "FNumber": 4,
+        "FocalLength": 19.18,
+        "Orientation": 8,
+        "BitsPerSample": 12,
+        "SonyRawFileType": 2,
+        "Compression": 32767
+      },
+      "captureSequence": {
+        "ReleaseMode": 5,
+        "SequenceNumber": 3,
+        "ReleaseMode2": 2,
+        "SequenceImageNumber": 3,
+        "SequenceFileNumber": 3,
+        "SequenceLength": 3,
+        "ReleaseMode3": 2
+      },
+      "subsecondCaptureTime": "2026:10:17 12:02:12.624+02:00",
+      "storageDimensions": {
+        "width": 5504,
+        "height": 3672
+      },
+      "nativePrivacyDecode": {
+        "library": "LibRaw 0.22.1-Release",
+        "width": 3672,
+        "height": 5496,
+        "orientationPolicy": "Native decoder applies Orientation8 exactly once; 3672 x 5496 before application lens correction/crop."
+      },
+      "sourceHashVerifiedBeforeAndAfterReadOnlyPrivacyDecode": true
+    }
+  ],
+  "totalBytes": 64019456,
+  "intendedCoverage": [
+    "Genuine three-source HDR/native RAW preparation",
+    "Fresh current-v4 merge publication/export/restart from compliant retained originals",
+    "Foliage, branches, dark texture and merge-boundary checks"
+  ],
+  "limits": [
+    "ISO400 is not high-ISO noise-reduction acceptance.",
+    "No noiseless/radiometric truth, identifiable portrait-skin fixture or starfield is supplied.",
+    "Final application dimensions can differ after decoder orientation, lens correction, alignment and crop.",
+    "Keep test assets out of production bundles and automatic user-library imports."
+  ]
+}
