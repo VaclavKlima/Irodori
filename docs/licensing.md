@@ -60,6 +60,12 @@ and project testing. They retain their original rights and grant no general
 open-content license or unrelated reuse. Preserve their bytes, manifest and notice;
 exclude them from application bundles.
 
+The [observed starfield fixture](../tests/fixtures/astrophotography/README.md),
+ESO image `eso0106a`, retains **AURA** credit and CC BY 4.0 under the linked ESO
+image policy. Preserve visible credit, source/license links and descriptions of
+changes with distributed derivatives. This published telescope JPEG is separate
+from Sony photography and the project's Apache-2.0 code license.
+
 ## Dependency audit: 2026-10-28
 
 Baseline: committed revision `0b8098f71f30cc1dd65740a43b9d36e226da297a`.

@@ -8,6 +8,15 @@ These files are used only by automated tests. Luma never loads them into a user'
 
 [research-sony](research-sony/README.md) contains fifteen unchanged Sony ZV-1A SD-card originals: one real three-frame HDR BRK capture and a twelve-frame noise burst. The user explicitly requested repository inclusion for reproducible benchmarks across Linux and Mac. Its manifest records provenance, per-file hashes, recording/capture facts and dimensions; its notice grants no general open-content license. This permission applies only to this set. Other private photographs and generated evidence remain outside Git.
 
+## Observed starfield
+
+[astrophotography](astrophotography/README.md) retains the unchanged published
+651 × 651 JPEG of ESO image `eso0106a`, with full **AURA** credit and CC BY 4.0
+source/license links. Its manifest pins the download and byte hash. This processed
+telescope U-band image supports bounded star-detail review; it is not Sony RAW,
+radiometric truth or a clean/noisy pair. Generated variants retain visible credit
+and identify their processing changes.
+
 ## Sony portrait detail originals
 
 [sony-detail](sony-detail/README.md) contains two unchanged Sony ZV-1A camera

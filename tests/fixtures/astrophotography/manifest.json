@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "fixtureSet": "published-observed-starfield-v1",
+  "files": [
+    {
+      "name": "eso0106a.jpg",
+      "path": "eso0106a.jpg",
+      "sha256": "48a9fd312614b72b548c0c5e4b66d8ba0af9c5b76b5117828e5d39ae09dec9d6",
+      "bytes": 96925,
+      "format": "JPEG",
+      "width": 651,
+      "height": 651,
+      "channels": 3,
+      "source": {
+        "imageId": "eso0106a",
+        "title": "The Milky Way star field around CS 31082-001",
+        "type": "Observation",
+        "page": "https://www.eso.org/public/images/eso0106a/",
+        "download": "https://cdn.eso.org/images/large/eso0106a.jpg",
+        "downloadVariant": "Large JPEG",
+        "releaseDate": "2001-02-07",
+        "downloadedOn": "2026-10-29",
+        "credit": "AURA",
+        "telescope": "Very Large Telescope",
+        "instrument": "UVES",
+        "band": "Ultraviolet U",
+        "unchangedDownload": true,
+        "license": {
+          "identifier": "CC-BY-4.0",
+          "name": "Creative Commons Attribution 4.0 International",
+          "url": "https://creativecommons.org/licenses/by/4.0/",
+          "usagePolicy": "https://www.eso.org/public/outreach/copyright/",
+          "checkedOn": "2026-10-29",
+          "basis": "ESO public images use CC BY 4.0 unless specifically excepted. The image page provides the full credit AURA and no image-specific exception was identified."
+        }
+      },
+      "intendedCoverage": [
+        "Real observed compact stars against a textured dark background in an authored raster input",
+        "Point/edge preservation during manual denoise/detail and ordinary enlargement",
+        "Preexisting telescope optical reflections around bright points"
+      ],
+      "limitations": [
+        "This is a published processed telescope U-band JPEG, not Sony RAW, calibrated sensor data or a clean/noisy pair.",
+        "The native published image is only 651 \u00d7 651 pixels; it does not establish full-size astrophotography performance.",
+        "The bright central cross is described by ESO as an optical reflection, not evidence of a new sharpening artifact.",
+        "No calibrated radiometry, star photometry, true sky color, physical HDR or ground-truth denoising claim follows from these pixels.",
+        "Generated crops/filter/resizing results must retain clear visible AURA credit, active source/license links and descriptions of changes.",
+        "The fixture is for isolated project testing, never an automatic application demo/import."
+      ]
+    }
+  ],
+  "verification": {
+    "unchangedDownloadSha256Verified": true,
+    "decodedMetadataOnly": {
+      "tool": "Sharp",
+      "width": 651,
+      "height": 651,
+      "format": "jpeg",
+      "space": "srgb",
+      "channels": 3,
+      "depth": "uchar",
+      "hasProfile": true
+    },
+    "visualContentReviewed": true,
+    "visualMethod": "view_image(detail=original) on the unchanged local JPEG; compact bright/faint stars and the preexisting central optical cross are visible.",
+    "processingAcceptance": "Pending; content suitability is not photographic/numerical approval."
+  }
+}
