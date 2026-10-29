@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "fixtureSet": "sony-detail-portraits-v1",
+  "camera": {
+    "make": "SONY",
+    "model": "ZV-1A"
+  },
+  "provenance": {
+    "source": "User-provided camera SD card",
+    "volumeUuid": "42C1-6450",
+    "filesystem": "exfat",
+    "sourceDirectory": "DCIM/100MSDCF",
+    "copiedOn": "2026-10-29",
+    "policy": "Two distinct unmodified full camera originals; no resizing, repetition, metadata rewriting or RAW processing was performed for fixture preparation.",
+    "permission": "On 2026-10-29 the user explicitly requested that all photographs used for project testing or benchmarks be stored in the project GitHub repository. These selected originals may be included in that repository and used for repeatable Irodori project testing. This is not a CC0 grant or a general open-content license; unrelated reuse is not authorized by this notice.",
+    "metadataTool": {
+      "name": "ExifTool",
+      "version": "13.59",
+      "arguments": "-n -fast with selected capture, orientation, storage-dimension and recording tags; no write arguments"
+    },
+    "dimensions": "ExifTool storage dimensions are provisional source metadata, not authoritative decoded, oriented or lens-corrected dimensions. Establish the actual native frame through the application processing path.",
+    "sourceAndCopyHashesVerifiedBeforeAndAfter": true
+  },
+  "acceptance": {
+    "state": "Fixtures only; photographic and numerical acceptance remain pending",
+    "intendedUse": "Native portrait skin/hair review and manual single-image denoise/detail/enlargement verification at low and high recorded ISO.",
+    "limitations": [
+      "Embedded JPEGs were used only for content selection; they cannot stand in for native RAW detail.",
+      "The photographs are not a matched clean/noisy pair or radiometric ground truth.",
+      "ISO is recorded metadata, not an automatic noise estimate.",
+      "No real starfield is provided by this set.",
+      "These fixtures do not enable an application demo or automatic import."
+    ]
+  },
+  "files": [
+    {
+      "name": "DSC03315.ARW",
+      "path": "originals/DSC03315.ARW",
+      "sha256": "c985698ac16c74db84315bd1e0fc7c6aac49887c3856866a5b4e4a3468100805",
+      "bytes": 20984832,
+      "sourceRelativePath": "DCIM/100MSDCF/DSC03315.ARW",
+      "sourceInventoryIndex": 39,
+      "intendedCoverage": [
+        "Outdoor portrait skin and long hair",
+        "Knitted hat and fleece texture",
+        "Fine foreground leaves and soft background"
+      ],
+      "numericExif": {
+        "Make": "SONY",
+        "Model": "ZV-1A",
+        "DateTimeOriginal": "2026:10:18 11:14:33.303+02:00",
+        "ISO": 400,
+        "ExposureTime": 0.004,
+        "FNumber": 4,
+        "FocalLength": 25.7,
+        "Orientation": 1,
+        "ImageWidth": 5504,
+        "ImageHeight": 3672,
+        "BitsPerSample": 12,
+        "SonyRawFileType": 2,
+        "Compression": 32767,
+        "errors": [],
+        "warnings": []
+      }
+    },
+    {
+      "name": "DSC03408.ARW",
+      "path": "originals/DSC03408.ARW",
+      "sha256": "2fa6f0a19e995f8ca46ae91e66a0e247d80b9a4583af5357a796cd759cc24b20",
+      "bytes": 20980736,
+      "sourceRelativePath": "DCIM/100MSDCF/DSC03408.ARW",
+      "sourceInventoryIndex": 121,
+      "intendedCoverage": [
+        "High-ISO indoor portrait skin and dark hair",
+        "Warm authored capture lighting and smooth wall",
+        "Fine colored backdrop and bright decorative lights"
+      ],
+      "numericExif": {
+        "Make": "SONY",
+        "Model": "ZV-1A",
+        "DateTimeOriginal": "2026:10:24 19:57:43.023+02:00",
+        "ISO": 6400,
+        "ExposureTime": 0.01,
+        "FNumber": 2.8,
+        "FocalLength": 25.7,
+        "Orientation": 1,
+        "ImageWidth": 5504,
+        "ImageHeight": 3672,
+        "BitsPerSample": 12,
+        "SonyRawFileType": 2,
+        "Compression": 32767,
+        "errors": [],
+        "warnings": []
+      }
+    }
+  ]
+}

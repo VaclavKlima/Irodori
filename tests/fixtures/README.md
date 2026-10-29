@@ -8,6 +8,15 @@ These files are used only by automated tests. Luma never loads them into a user'
 
 [research-sony](research-sony/README.md) contains fifteen unchanged Sony ZV-1A SD-card originals: one real three-frame HDR BRK capture and a twelve-frame noise burst. The user explicitly requested repository inclusion for reproducible benchmarks across Linux and Mac. Its manifest records provenance, per-file hashes, recording/capture facts and dimensions; its notice grants no general open-content license. This permission applies only to this set. Other private photographs and generated evidence remain outside Git.
 
+## Sony portrait detail originals
+
+[sony-detail](sony-detail/README.md) contains two unchanged Sony ZV-1A camera
+originals selected from the user's SD card for skin, hair and texture checks at
+recorded ISO 400 and ISO 6400. The user authorized repository inclusion and project
+testing on 2026-10-29. The manifest pins original hashes, bytes, provenance and
+capture facts; the photographs retain their separate rights and are not CC0.
+Generated crops and measurements remain outside Git.
+
 ## Sony ZV-1
 
 `sony-zv1.ARW` is the unmodified **Sony ZV-1, 12-bit compressed, 3:2** sample (original filename `DSC00056.ARW`) published by [raw.pixls.us](https://raw.pixls.us/), record 4000, uploaded July 10, 2020.

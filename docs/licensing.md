@@ -54,6 +54,12 @@ The independently written lens-correction provider does not bundle a Lensfun
 database or upstream lens module; see the [RAW processing provenance](raw-processing.md).
 An upstream algorithm citation alone is not a blanket license for copying code.
 
+The two [Sony portrait detail originals](../tests/fixtures/sony-detail/README.md)
+have separately recorded user permission dated 2026-10-29 for repository inclusion
+and project testing. They retain their original rights and grant no general
+open-content license or unrelated reuse. Preserve their bytes, manifest and notice;
+exclude them from application bundles.
+
 ## Dependency audit: 2026-10-28
 
 Baseline: committed revision `0b8098f71f30cc1dd65740a43b9d36e226da297a`.
