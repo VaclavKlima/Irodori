@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "fixtureSet": "sony-zv-1a-fog-dogs-v1",
+  "camera": {
+    "make": "SONY",
+    "model": "ZV-1A"
+  },
+  "provenance": {
+    "source": "User-provided camera SD card",
+    "sourceRelativePath": "DCIM/100MSDCF/DSC03280.ARW",
+    "selectedOn": "2026-10-29",
+    "policy": "One unchanged full camera original; original bytes and source-card contents preserved. No generated or private proof image belongs to this dataset.",
+    "permission": "On 2026-10-29 the user explicitly requested repository retention of all photographic test and benchmark inputs. This selected, privacy-reviewed original may be included in the Irodori GitHub repository and used for repeatable project testing and benchmarks. This is not an Apache-2.0 or CC0 grant for the photograph, nor a general open-content license; unrelated reuse is not authorized by this notice.",
+    "sourceHashesVerifiedBeforeAndAfterInventoryAndNativeDecode": true
+  },
+  "privacyReview": {
+    "reviewedOn": "2026-10-29",
+    "status": "Passed model and parent-agent privacy inspection before proposed repository inclusion; no human photographic-quality approval is implied.",
+    "visualReview": [
+      "Entire embedded PreviewImage and ThumbnailImage",
+      "Entire 5496 x 3672 CPU-decoded native scene via diagnostic view",
+      "Three native-pixel neck/collar crops, independently reviewed by the parent agent"
+    ],
+    "visualFindings": "Three dogs on a rock in fog with a background tree. No identifiable people, private interiors, documents, screens, addresses, vehicle plates, readable pet tags or other personal information observed.",
+    "metadataTool": "ExifTool 13.59, read-only -a -u -G1 -s (including interpreted and unknown tags); selected capture facts also read with -n.",
+    "metadataFindings": {
+      "cameraLensOrInternalSerialTagsPresent": false,
+      "gpsTagsPresent": false,
+      "privateNameOwnerOrContactTagsPresent": false,
+      "personalAddressOrDocumentTagsObserved": false,
+      "filenameAndProvenanceReviewed": true
+    },
+    "limits": "Review covers actual visible pixels, embedded previews and metadata exposed by the stated tools. No sensitive values were copied into this notice. Source original was not redacted, stripped, resized or otherwise rewritten."
+  },
+  "files": [
+    {
+      "name": "DSC03280.ARW",
+      "path": "originals/DSC03280.ARW",
+      "sha256": "dead1a70a02909faf8458119fcc8f7067733b756978fd26921710e3008364605",
+      "bytes": 20743168,
+      "numericExif": {
+        "Make": "SONY",
+        "Model": "ZV-1A",
+        "ISO": 400,
+        "ExposureTime": 0.01,
+        "FNumber": 4,
+        "FocalLength": 25.7,
+        "Orientation": 1,
+        "ImageWidth": 5504,
+        "ImageHeight": 3672,
+        "BitsPerSample": 12,
+        "SonyRawFileType": 2,
+        "Compression": 32767
+      },
+      "storageDimensions": {
+        "width": 5504,
+        "height": 3672
+      },
+      "nativeCpuDecode": {
+        "library": "LibRaw 0.22.1-Release",
+        "width": 5496,
+        "height": 3672,
+        "orientation": 1,
+        "scope": "Sensor-derived full-native CPU privacy inspection; native dimensions before application lens correction/crop, not catalog/embedded-JPEG dimensions."
+      },
+      "intendedCoverage": [
+        "Full-source native Sony RAW decode and presentation/resource verification",
+        "Animal fur and whisker retention, dark texture and smooth fog",
+        "Standard export geometry and source-integrity checks"
+      ],
+      "limits": [
+        "ISO 400 is not high-ISO acceptance or a calibrated noise estimate.",
+        "This is not a matched clean/noisy pair, radiometric reference, portrait-skin fixture or starfield.",
+        "Native privacy inventory is not application correctness, photographic-quality or performance acceptance.",
+        "Final application dimensions can differ after orientation, lens correction and committed crop.",
+        "Keep this test asset out of production packages and automatic user-library imports."
+      ],
+      "rawMetadataGroup": "BitsPerSample, SonyRawFileType and Compression refer to SubIFD sensor storage; IFD0/IFD1 Compression=6 describes embedded JPEG previews."
+    }
+  ]
+}
