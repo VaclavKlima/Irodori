@@ -1,0 +1,188 @@
+{
+  "version": 1,
+  "fixtureSet": "sony-zv-1a-carpet-high-iso-v1",
+  "camera": {
+    "make": "SONY",
+    "model": "ZV-1A"
+  },
+  "provenance": {
+    "source": "User-provided camera SD card",
+    "sourceDirectory": "DCIM/100MSDCF",
+    "selectedOn": "2026-10-29",
+    "permission": "On 2026-10-29 the user explicitly requested repository retention of photographic test/benchmark inputs and supplied this requested three-ISO scene. These selected privacy-reviewed originals may be included in the Irodori GitHub repository and used for repeatable project testing and benchmarks. They are not Apache-2.0 or CC0 photographs; no general open-content or unrelated-reuse license is granted by this notice.",
+    "policy": "Three distinct unchanged camera originals. No metadata stripping, crop, redaction, resize, synthetic noise or repeated source. Selected originals must be tracked and included in the benchmark commit before acceptance use."
+  },
+  "scene": "Carpet fibers beside blank paper, with a narrow defocused dark upper background strip containing unidentifiable generic shapes. No identifiable room detail is inferred.",
+  "capture": {
+    "requestedIsoOrder": [400, 6400, 12800],
+    "actualIsoOrder": [400, 6400, 12800],
+    "commonAperture": 4,
+    "commonFocalLengthMm": 9.4,
+    "actualExposureProgram": "Program AE",
+    "actualFocusMode": "AF-S",
+    "actualWhiteBalance": "Auto",
+    "comparisonLimits": [
+      "ISO400 uses 1/15s; ISO6400 uses 1/250s; ISO12800 uses 1/500s. ISO times exposure differs by about 0.059EV between lower/higher ISO shots.",
+      "ISO400 recorded WB gains differ slightly from the matching ISO6400/12800 gains. AF-S does not prove unchanged focus, and registration/illumination stability have not been measured.",
+      "This is an approximately exposure-matched photographic comparison, not a calibrated noiseless ground-truth pair, automatic burst or radiometric reference."
+    ]
+  },
+  "privacyReview": {
+    "reviewedOn": "2026-10-29",
+    "scope": "Repository privacy inspection only, not application/denoising/quality acceptance",
+    "visualReview": "Every extracted PreviewImage and ThumbnailImage and every whole native 5496x3672 scene were viewed. Parent independently reviewed all three complete native scenes.",
+    "findings": "No identifiable people, readable labels/addresses/plates, personal document or screen content, or identifying private-interior details observed. The narrow defocused upper background strip was explicitly reviewed; no original was sanitized.",
+    "metadataTool": "ExifTool 13.59, read-only -j -n -a -u -G1 -s including interpreted and unknown tags; 2139 tags per file.",
+    "metadataFindings": {
+      "cameraLensOrInternalSerialTagsPresent": false,
+      "gpsTagsPresent": false,
+      "privateOwnerNameOrContactTagsPresent": false,
+      "descriptiveText": "ImageDescription and UserComment fields empty; numeric XMP Rating only.",
+      "filenamesAndProvenanceReviewed": true
+    },
+    "policy": "Originals and embedded previews remain byte-for-byte unchanged; generated privacy views and private inventory remain outside Git."
+  },
+  "files": [
+    {
+      "name": "DSC03483.ARW",
+      "path": "originals/DSC03483.ARW",
+      "sourceRelativePath": "DCIM/100MSDCF/DSC03483.ARW",
+      "bytes": 20898816,
+      "sha256": "7e6e048962eacf890ef8bfb04fcadb5ac42e578bc5b67aa7912f08281975569f",
+      "isoRole": "Approximately exposure-matched lower-noise comparison; not clean truth",
+      "numericExif": {
+        "ISO": 400,
+        "ExposureTime": 0.06666666667,
+        "FNumber": 4,
+        "FocalLength": 9.4,
+        "ExposureCompensation": 0,
+        "ExposureProgram": 2,
+        "ExposureMode": 0,
+        "WhiteBalance": 0,
+        "Orientation": 1,
+        "FocusMode": 2,
+        "BitsPerSample": 12,
+        "SonyRawFileType": 2,
+        "Compression": 32767
+      },
+      "interpretedSettings": {
+        "exposureProgram": "Program AE",
+        "focusMode": "AF-S",
+        "whiteBalance": "Auto",
+        "highIsoNoiseReduction": "Off",
+        "longExposureNoiseReduction": "Off"
+      },
+      "recordedWhiteBalanceRggb": "2256 1024 1024 2132",
+      "subsecondCaptureTime": "2026:10:29 13:31:32.896+02:00",
+      "storageDimensions": {
+        "width": 5504,
+        "height": 3672
+      },
+      "nativePrivacyDecode": {
+        "library": "0.22.1-Release",
+        "width": 5496,
+        "height": 3672,
+        "orientationPolicy": "Orientation1; native decoder applied orientation once. No extra image rotation or resampling."
+      },
+      "sourceAndPrivateCopyHashVerified": true
+    },
+    {
+      "name": "DSC03489.ARW",
+      "path": "originals/DSC03489.ARW",
+      "sourceRelativePath": "DCIM/100MSDCF/DSC03489.ARW",
+      "bytes": 20902912,
+      "sha256": "d825bcd7c121e2998f8506bdb6ac02f6992c604443c4d0ecf4dde0c96b66be64",
+      "isoRole": "High-ISO single-image noise/detail assessment",
+      "numericExif": {
+        "ISO": 6400,
+        "ExposureTime": 0.004,
+        "FNumber": 4,
+        "FocalLength": 9.4,
+        "ExposureCompensation": 0,
+        "ExposureProgram": 2,
+        "ExposureMode": 0,
+        "WhiteBalance": 0,
+        "Orientation": 1,
+        "FocusMode": 2,
+        "BitsPerSample": 12,
+        "SonyRawFileType": 2,
+        "Compression": 32767
+      },
+      "interpretedSettings": {
+        "exposureProgram": "Program AE",
+        "focusMode": "AF-S",
+        "whiteBalance": "Auto",
+        "highIsoNoiseReduction": "Off",
+        "longExposureNoiseReduction": "On (unused)"
+      },
+      "recordedWhiteBalanceRggb": "2236 1024 1024 2176",
+      "subsecondCaptureTime": "2026:10:29 13:32:32.153+02:00",
+      "storageDimensions": {
+        "width": 5504,
+        "height": 3672
+      },
+      "nativePrivacyDecode": {
+        "library": "0.22.1-Release",
+        "width": 5496,
+        "height": 3672,
+        "orientationPolicy": "Orientation1; native decoder applied orientation once. No extra image rotation or resampling."
+      },
+      "sourceAndPrivateCopyHashVerified": true
+    },
+    {
+      "name": "DSC03490.ARW",
+      "path": "originals/DSC03490.ARW",
+      "sourceRelativePath": "DCIM/100MSDCF/DSC03490.ARW",
+      "bytes": 20952064,
+      "sha256": "89e121a64b47c1e0ce04192dea6da19db0827f89ebca8971a4dfccd020a7011d",
+      "isoRole": "High-ISO single-image noise/detail assessment",
+      "numericExif": {
+        "ISO": 12800,
+        "ExposureTime": 0.002,
+        "FNumber": 4,
+        "FocalLength": 9.4,
+        "ExposureCompensation": 0,
+        "ExposureProgram": 2,
+        "ExposureMode": 0,
+        "WhiteBalance": 0,
+        "Orientation": 1,
+        "FocusMode": 2,
+        "BitsPerSample": 12,
+        "SonyRawFileType": 2,
+        "Compression": 32767
+      },
+      "interpretedSettings": {
+        "exposureProgram": "Program AE",
+        "focusMode": "AF-S",
+        "whiteBalance": "Auto",
+        "highIsoNoiseReduction": "Off",
+        "longExposureNoiseReduction": "On (unused)"
+      },
+      "recordedWhiteBalanceRggb": "2236 1024 1024 2176",
+      "subsecondCaptureTime": "2026:10:29 13:33:06.376+02:00",
+      "storageDimensions": {
+        "width": 5504,
+        "height": 3672
+      },
+      "nativePrivacyDecode": {
+        "library": "0.22.1-Release",
+        "width": 5496,
+        "height": 3672,
+        "orientationPolicy": "Orientation1; native decoder applied orientation once. No extra image rotation or resampling."
+      },
+      "sourceAndPrivateCopyHashVerified": true
+    }
+  ],
+  "totalBytes": 62753792,
+  "intendedCoverage": [
+    "Native full-source high-ISO noise/detail photographic assessment at ISO6400 and ISO12800",
+    "Visible carpet fiber/edge preservation and blank-paper residual noise/bias observations",
+    "Comparison with an approximately exposure-matched ISO400 image at authoritative native pixels"
+  ],
+  "limits": [
+    "Fixture inclusion does not accept a denoiser or establish numerical known truth.",
+    "Use actual prepared native frames, not embedded JPEGs or fit-scale images, for detail acceptance.",
+    "This set supplies no portrait-skin, moving-subject, astrophotographic, HDR bracket or temporal denoising coverage.",
+    "Keep test images out of production bundles and automatic user-library imports."
+  ]
+}
