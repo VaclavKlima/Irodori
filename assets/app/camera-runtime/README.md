@@ -59,7 +59,10 @@ remove access to the build installation prefix before testing version, Sony
 camera-module enumeration, USB-port enumeration and discovery. Linkage checks
 reject unbundled non-glibc dependencies. A second packaging check installs into a
 temporary checkout with spaces, initializes the SDK and discovers with all seven
-tools. This is packaging acceptance, not Linux hardware acceptance. See
+tools. Hardware-free hosted Linux uses an empty USB bus directory with no device
+nodes so libusb built without udev can initialize; the installer never creates
+this directory or changes host permissions. This is packaging acceptance, not
+Linux hardware acceptance. See
 [upstream packaging guidance](https://raw.githubusercontent.com/gphoto/libgphoto2/v2.5.34/README.packaging)
 for the camera and I/O modules required alongside both libgphoto libraries.
 

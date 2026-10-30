@@ -249,7 +249,8 @@ Reuse suitable fixtures first; agents may take needed bounded captures once the
 camera and scene are ready, asking for missing information or physical setup.
 Sony ZV-1A settings, RAW/JPEG capture, three
 separate software exposures and restoration have macOS MCP evidence through
-ImageCaptureCore. Linux uses host gphoto2; physical Bazzite acceptance remains
+ImageCaptureCore. Linux uses the pinned repository-managed gphoto2 runtime;
+physical Bazzite acceptance remains
 pending and Windows camera support is unavailable. See
 [camera setup, complete recipes, recovery and evidence](docs/camera-control.md).
 

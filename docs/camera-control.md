@@ -436,6 +436,8 @@ npm run camera:acceptance -- --run --serial <exact-USB-serial>
 The first command only discovers. `--camera-id <discovered-id>` may replace
 `--serial <exact-USB-serial>` in each command; the selectors are mutually
 exclusive. Linux discovery initially has no serial, so use its exact camera ID.
+macOS native connection IDs can change when its helper restarts; use the USB
+serial across separate macOS CLI invocations.
 Inspection, controls and capture all require an explicit selector; no camera is
 selected implicitly. `--inspect` reads controls. `--controls` changes
 and restores settings without shooting. `--run` changes settings, captures one
@@ -498,6 +500,31 @@ Physical Bazzite acceptance, complete card-byte comparison, sustained disconnect
 during an active capture, autofocus quality, native burst/bracketing and other
 camera models remain explicit limits. This is development camera control,
 not production camera or photographic-quality certification.
+
+### Repository runtime delivery acceptance
+
+The [runtime acceptance record](../assets/app/camera-runtime/acceptance.md) pins
+the published macOS/Linux archives and build runs. A fresh sparse macOS checkout
+completed `npm ci`, installed the exact Actions candidate with `camera:setup
+-- --archive`, and ran Sony settings, one RAW/JPEG pair, three software exposures,
+hash/metadata checks, cancellation and restoration in **41.70 seconds**.
+Eight unchanged originals remain private. Setup and operation used an isolated
+PATH with Homebrew, compiler and Xcode commands trapped; none was invoked.
+The full capture check passed after replacing the aperture probe's request for
+the lens's advertised widest stop with a neighboring narrower stop. The earlier
+probe failed before any shutter release and restored settings; it is not passing
+evidence. An immediate native process handoff also needed a read-only discovery
+retry. No uncertain shutter request was repeated.
+
+The four requested Node targets and shared checks completed in **30.60 seconds**:
+**775 passed, 0 failed, 52 existing Linux-only skips**, with type checking, lint
+and formatting passing. The runner correctly reports **incomplete (exit 2)** for
+those platform skips. See
+`artifacts/verification/2026-10-30T10-49-35.301Z-check-xxhe6J/summary.md`.
+This focused selection is separate from comprehensive application acceptance.
+Linux Actions verifies the packaged libraries/modules and SDK discovery with an
+empty USB bus and no camera; physical Bazzite acceptance and backlog #37 remain
+open. The public-download macOS check is recorded alongside the archive pins.
 
 ## Protocol references
 

@@ -36,6 +36,225 @@
           "sha256": "6b7e17aeaef43fcbd53beb6da232d8cf6f844e5e2b734e2edd8d7da412b4a3f0"
         }
       ]
+    },
+    "linux-x64": {
+      "version": "1.0.0",
+      "platform": "linux-x64",
+      "archive": "irodori-camera-1.0.0-linux-x64.tar.gz",
+      "url": "https://github.com/VaclavKlima/Irodori/releases/download/camera-runtime-v1.0.0/irodori-camera-1.0.0-linux-x64.tar.gz",
+      "bytes": 1226172,
+      "sha256": "d73a7739ce92e3d630b1b0ccaf3f917b42a3757c1f4c21ba87acbcc18dd8347c",
+      "executable": "bin/gphoto2",
+      "modules": {
+        "cameras": "lib/libgphoto2/2.5.34",
+        "ports": "lib/libgphoto2_port/0.12.2"
+      },
+      "files": [
+        {
+          "path": "bin/gphoto2",
+          "mode": 493,
+          "bytes": 403728,
+          "sha256": "7f881b9987d98f88c07b5b108183c45fd92269b2c140e628b23dfd7878d420fa"
+        },
+        {
+          "path": "build.json",
+          "mode": 420,
+          "bytes": 2229,
+          "sha256": "8492497443db64c470937881e0ace31a8ced02769cc24aec369a711b27063abe"
+        },
+        {
+          "path": "lib/libgphoto2/2.5.34/ptp2.so",
+          "mode": 493,
+          "bytes": 1256104,
+          "sha256": "5b77b4834ba49f0221e11c495fef9a130aa61e348a5a6aa54c67a10402e5f9f2"
+        },
+        {
+          "path": "lib/libgphoto2_port/0.12.2/usb1.so",
+          "mode": 493,
+          "bytes": 49720,
+          "sha256": "d10a52906f00b868a0a1356f8bcff59da004b2cc561fb29301007dc479a459dd"
+        },
+        {
+          "path": "lib/libgphoto2_port/0.12.2/usbdiskdirect.so",
+          "mode": 493,
+          "bytes": 18024,
+          "sha256": "16493a3dc10a2e87360cf30f936de995d89957c84666d77c481517e4abbbb87b"
+        },
+        {
+          "path": "lib/libgphoto2_port/0.12.2/usbscsi.so",
+          "mode": 493,
+          "bytes": 18152,
+          "sha256": "d3c08c6a3d05ffa0be0e812d6760cfe8f5949897231012572b69e7419532fd95"
+        },
+        {
+          "path": "lib/libgphoto2_port.so",
+          "mode": 493,
+          "bytes": 60680,
+          "sha256": "8692002567f2883a776be4b68cc7cbc5b044e7849ba37d6889c6256195039512"
+        },
+        {
+          "path": "lib/libgphoto2_port.so.12",
+          "mode": 493,
+          "bytes": 60680,
+          "sha256": "8692002567f2883a776be4b68cc7cbc5b044e7849ba37d6889c6256195039512"
+        },
+        {
+          "path": "lib/libgphoto2_port.so.12.2.0",
+          "mode": 493,
+          "bytes": 60680,
+          "sha256": "8692002567f2883a776be4b68cc7cbc5b044e7849ba37d6889c6256195039512"
+        },
+        {
+          "path": "lib/libgphoto2.so",
+          "mode": 493,
+          "bytes": 178032,
+          "sha256": "7daff3b612172e2c549816e9a10670df50a9f1aebd06a08d7da4362a3a47fcac"
+        },
+        {
+          "path": "lib/libgphoto2.so.6",
+          "mode": 493,
+          "bytes": 178032,
+          "sha256": "7daff3b612172e2c549816e9a10670df50a9f1aebd06a08d7da4362a3a47fcac"
+        },
+        {
+          "path": "lib/libgphoto2.so.6.4.0",
+          "mode": 493,
+          "bytes": 178032,
+          "sha256": "7daff3b612172e2c549816e9a10670df50a9f1aebd06a08d7da4362a3a47fcac"
+        },
+        {
+          "path": "lib/libltdl.so",
+          "mode": 493,
+          "bytes": 51944,
+          "sha256": "9e1a9a44050935b8a3b8d458898aa0b4820a03da3e84f267ddd4483f132adf4e"
+        },
+        {
+          "path": "lib/libltdl.so.7",
+          "mode": 493,
+          "bytes": 51944,
+          "sha256": "9e1a9a44050935b8a3b8d458898aa0b4820a03da3e84f267ddd4483f132adf4e"
+        },
+        {
+          "path": "lib/libltdl.so.7.3.2",
+          "mode": 493,
+          "bytes": 51944,
+          "sha256": "9e1a9a44050935b8a3b8d458898aa0b4820a03da3e84f267ddd4483f132adf4e"
+        },
+        {
+          "path": "lib/libpopt.so",
+          "mode": 493,
+          "bytes": 68008,
+          "sha256": "0655dfc57902b423a9c5e94ae894dc638e85340db0e1fa12bc24be5c2ec4c6b9"
+        },
+        {
+          "path": "lib/libpopt.so.0",
+          "mode": 493,
+          "bytes": 68008,
+          "sha256": "0655dfc57902b423a9c5e94ae894dc638e85340db0e1fa12bc24be5c2ec4c6b9"
+        },
+        {
+          "path": "lib/libpopt.so.0.0.2",
+          "mode": 493,
+          "bytes": 68008,
+          "sha256": "0655dfc57902b423a9c5e94ae894dc638e85340db0e1fa12bc24be5c2ec4c6b9"
+        },
+        {
+          "path": "lib/libusb-1.0.so",
+          "mode": 493,
+          "bytes": 156824,
+          "sha256": "34811d69a78af6aa43925fe28790d1af69e6ad7c083fa4d4e7821078da5222e3"
+        },
+        {
+          "path": "lib/libusb-1.0.so.0",
+          "mode": 493,
+          "bytes": 156824,
+          "sha256": "34811d69a78af6aa43925fe28790d1af69e6ad7c083fa4d4e7821078da5222e3"
+        },
+        {
+          "path": "lib/libusb-1.0.so.0.4.0",
+          "mode": 493,
+          "bytes": 156824,
+          "sha256": "34811d69a78af6aa43925fe28790d1af69e6ad7c083fa4d4e7821078da5222e3"
+        },
+        {
+          "path": "licenses/gphoto2/AUTHORS",
+          "mode": 420,
+          "bytes": 285,
+          "sha256": "9d8710904632565a99e06a0c00f73f7a2ca8c8acfe085e8766bdc979e993951d"
+        },
+        {
+          "path": "licenses/gphoto2/COPYING",
+          "mode": 420,
+          "bytes": 18002,
+          "sha256": "231f7edcc7352d7734a96eef0b8030f77982678c516876fcb81e25b32d68564c"
+        },
+        {
+          "path": "licenses/libgphoto2/AUTHORS",
+          "mode": 420,
+          "bytes": 6247,
+          "sha256": "08c3781105ec1332bda24c864089e2ae54a621e0bd356d10e018d81f048abd23"
+        },
+        {
+          "path": "licenses/libgphoto2/COPYING",
+          "mode": 420,
+          "bytes": 26428,
+          "sha256": "530128f45fc02d92d4dae04d9c1e1f28a078a9b0d32c0ab254c406ba8fba43ec"
+        },
+        {
+          "path": "licenses/libgphoto2/README.packaging",
+          "mode": 420,
+          "bytes": 4458,
+          "sha256": "32d5debd046aeeb7cabbb24467d5628ded50d2e6fff7dfe5e3f0a25d041d20f3"
+        },
+        {
+          "path": "licenses/libgphoto2/README.ptp2",
+          "mode": 420,
+          "bytes": 7191,
+          "sha256": "3a503acf982dfa9bf66f06af8f60cf6873589b3b2aeff9d381895adf0d9f80e9"
+        },
+        {
+          "path": "licenses/libtool/AUTHORS",
+          "mode": 420,
+          "bytes": 1879,
+          "sha256": "aaf42fe812e59b59e1d05b5920f969871698ca0be5db5ea9622617fe674ceb07"
+        },
+        {
+          "path": "licenses/libtool/COPYING",
+          "mode": 420,
+          "bytes": 18092,
+          "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+        },
+        {
+          "path": "licenses/libtool/COPYING.LIB",
+          "mode": 420,
+          "bytes": 26530,
+          "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+        },
+        {
+          "path": "licenses/libusb/AUTHORS",
+          "mode": 420,
+          "bytes": 3700,
+          "sha256": "1c0aa75d6b849856bc6124d6e0775d17ed6a0629a98b550a3ab29a9afc5d6362"
+        },
+        {
+          "path": "licenses/libusb/COPYING",
+          "mode": 420,
+          "bytes": 26436,
+          "sha256": "5df07007198989c622f5d41de8d703e7bef3d0e79d62e24332ee739a452af62a"
+        },
+        {
+          "path": "licenses/popt/COPYING",
+          "mode": 420,
+          "bytes": 1061,
+          "sha256": "2b488b239927935f34769a39309c0680be16e3725a1f55dbb06ed20d53852801"
+        },
+        {
+          "path": "NOTICE.txt",
+          "mode": 420,
+          "bytes": 1041,
+          "sha256": "75da526cb0c1697223a34e49879202d4582ec43c72d7cc6ebbad8dc82d447a25"
+        }
+      ]
     }
   }
 }
