@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "version": "1.0.0",
+  "sources": [
+    {
+      "name": "libusb",
+      "version": "1.0.27",
+      "archive": "libusb-1.0.27.tar.bz2",
+      "directory": "libusb-1.0.27",
+      "url": "https://github.com/libusb/libusb/releases/download/v1.0.27/libusb-1.0.27.tar.bz2",
+      "sha256": "ffaa41d741a8a3bee244ac8e54a72ea05bf2879663c098c82fc5757853441575",
+      "license": "LGPL-2.1-or-later",
+      "notices": ["COPYING", "AUTHORS"]
+    },
+    {
+      "name": "libtool",
+      "version": "2.4.7",
+      "archive": "libtool-2.4.7.tar.xz",
+      "directory": "libtool-2.4.7",
+      "url": "https://ftp.gnu.org/gnu/libtool/libtool-2.4.7.tar.xz",
+      "sha256": "4f7f217f057ce655ff22559ad221a0fd8ef84ad1fc5fcb6990cecc333aa1635d",
+      "license": "LGPL-2.1-or-later (libltdl); GPL-2.0-or-later (build tools)",
+      "notices": ["COPYING", "libltdl/COPYING.LIB", "AUTHORS"]
+    },
+    {
+      "name": "popt",
+      "version": "1.19",
+      "archive": "popt-1.19.tar.gz",
+      "directory": "popt-1.19",
+      "url": "https://sources.buildroot.net/popt/popt-1.19.tar.gz",
+      "upstream": "https://github.com/rpm-software-management/popt/releases/tag/popt-1.19-release",
+      "sha256": "c25a4838fc8e4c1c8aacb8bd620edb3084a3d63bf8987fdad3ca2758c63240f9",
+      "license": "MIT",
+      "notices": ["COPYING"]
+    },
+    {
+      "name": "libgphoto2",
+      "version": "2.5.34",
+      "archive": "libgphoto2-2.5.34.tar.xz",
+      "directory": "libgphoto2-2.5.34",
+      "url": "https://github.com/gphoto/libgphoto2/releases/download/v2.5.34/libgphoto2-2.5.34.tar.xz",
+      "sha256": "51993f5d9bfb6b4e5925cbbe5883085791bff6f81bcacb8ffe1b783ce76d586a",
+      "license": "LGPL-2.1-or-later",
+      "notices": ["COPYING", "AUTHORS", "README.packaging", "camlibs/ptp2/README.ptp2"]
+    },
+    {
+      "name": "gphoto2",
+      "version": "2.5.32",
+      "archive": "gphoto2-2.5.32.tar.xz",
+      "directory": "gphoto2-2.5.32",
+      "url": "https://github.com/gphoto/gphoto2/releases/download/v2.5.32/gphoto2-2.5.32.tar.xz",
+      "sha256": "be08a449bbed9613bc9db105997c4ba71410d41870496420359a99b37502c406",
+      "license": "GPL-2.0-or-later",
+      "notices": ["COPYING", "AUTHORS"]
+    }
+  ]
+}

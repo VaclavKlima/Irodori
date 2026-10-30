@@ -16,6 +16,7 @@ assets/
 ├── README.md
 ├── app/
 │   ├── icons/                         Application and platform icons
+│   ├── camera-runtime/                Development runtime pins and provenance
 │   └── images/                        Bundled interface artwork
 └── tests/
     ├── images/
@@ -81,7 +82,10 @@ retained under `assets/tests/images/` with hashes and provenance notices.
 
 The tracked [camera registration](../.codex/config.toml) starts automatically after
 trusting the checkout and refreshing Codex. Complete the guide's per-machine
-Node/dependency, macOS helper or Linux gphoto2/USB setup first. No Electron window
+`npm ci` and `npm run camera:setup` first on Apple Silicon macOS 14+ or Linux x64;
+Linux USB permissions remain a host prerequisite. The [runtime manifest and
+provenance](app/camera-runtime/README.md) are committed; binaries stay under ignored
+`artifacts/camera/runtime/` and are not bundled into Electron. No Electron window
 or managed photo library is involved. Discover the exact camera, inspect its
 current capabilities, open a session, configure supported choices, capture and
 poll to completion, then close and inspect restoration. The guide includes

@@ -20,7 +20,8 @@ tool_timeout_sec = 60
 # env = { IRODORI_PROFILE = "/absolute/test/profile" }
 
 # Development USB camera server; independent of Electron and the photo library.
-# On macOS first run npm run camera:setup:macos. Linux requires host gphoto2/USB access.
+# First run npm ci and npm run camera:setup (Apple Silicon macOS 14+ / Linux x64).
+# Linux USB access remains a host prerequisite; setup never changes permissions.
 # Reference only: do not duplicate the camera table already present in the project.
 [mcp_servers.irodori_camera]
 command = "npm"

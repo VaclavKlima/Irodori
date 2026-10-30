@@ -6,22 +6,10 @@ import { resolve, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { exposureSeconds } from '../../src/main/camera-control/model.ts'
+import { acceptanceOptions, selectAcceptanceCamera } from './acceptance-options.ts'
 
 const args = process.argv.slice(2)
-if (
-  args.some(
-    (arg, index) =>
-      !['--inspect', '--run', '--controls', '--serial'].includes(arg) &&
-      args[index - 1] !== '--serial',
-  ) ||
-  (args.includes('--inspect') && args.includes('--run'))
-)
-  throw new Error(
-    'Use --inspect or --run --serial <exact USB serial>. This is an explicitly invoked hardware check, never an unattended suite.',
-  )
-const serial = args[args.indexOf('--serial') + 1]
-if (args.includes('--run') && !args.includes('--serial'))
-  throw new Error('Real capture requires --run --serial <exact USB serial>.')
+const { selector } = acceptanceOptions(args)
 const directory = resolve(
   fileURLToPath(new URL('../../artifacts/camera/acceptance/', import.meta.url)),
   `${new Date().toISOString().replaceAll(':', '-')}-${randomUUID()}`,
@@ -84,14 +72,11 @@ try {
   await client.connect(transport)
   evidence.tools = (await client.listTools()).tools.map((tool) => tool.name)
   evidence.discovery = await call('list')
-  if (!args.includes('--serial')) {
+  if (!selector) {
     evidence.result = 'discovery-only'
     console.log(JSON.stringify(evidence.discovery, null, 2))
   } else {
-    const matching = evidence.discovery.cameras.filter((camera) => camera.serial === serial)
-    if (matching.length !== 1)
-      throw new Error('The exact requested serial is absent or ambiguous. No camera was selected.')
-    const camera = matching[0]
+    const camera = selectAcceptanceCamera(evidence.discovery.cameras, selector)
     evidence.camera = camera
     evidence.before = await call('list_actions', { cameraId: camera.id })
     if (args.includes('--run') || args.includes('--controls')) {
@@ -177,8 +162,12 @@ try {
         )
         for (const operation of [single, sequence])
           for (const step of operation.steps) {
-            if (!step.complete || !step.files.some((file) => /\.arw$/i.test(file.filename)))
-              throw new Error('A complete RAW original is required for every exposure.')
+            if (
+              !step.complete ||
+              !step.files.some((file) => /\.arw$/i.test(file.filename)) ||
+              !step.files.some((file) => /\.jpe?g$/i.test(file.filename))
+            )
+              throw new Error('A complete RAW/JPEG pair is required for every exposure.')
             for (const file of step.files) {
               const bytes = await readFile(file.path)
               if (

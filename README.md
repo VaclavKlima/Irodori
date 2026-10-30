@@ -50,7 +50,8 @@ npm run dev
 The shared [camera MCP registration](.codex/config.toml) starts automatically after
 trusting this checkout and refreshing Codex. Complete the per-machine
 [camera prerequisites](docs/camera-control.md#one-time-prerequisites-per-machine)
-first: build the macOS helper or install Linux host gphoto2 and USB permissions.
+first: run `npm run camera:setup` after `npm ci` on Apple Silicon macOS 14+ or
+Linux x64/Bazzite. Linux USB permissions remain a host responsibility.
 Camera control runs independently of Electron; it does not require `npm run dev`.
 
 The renderer development server starts on port `5173` and automatically tries the next available port if it is occupied. Electron uses the selected port. Set `IRODORI_DEV_PORT` to choose a different starting port, for example `IRODORI_DEV_PORT=5180 npm run dev`.
@@ -220,7 +221,9 @@ Manual exposure/contrast/highlights/shadows/whites/blacks/lens editing and the d
 | `npm run mcp:test`                             | Build and test photo import through MCP using an isolated temporary library |
 | `npm run mcp:check`                            | Verify the MCP protocol, UI inspection, interaction, and screenshot capture |
 | `npm run mcp:camera`                           | Start the development USB camera stdio MCP server                           |
-| `npm run camera:setup:macos`                   | Build this machine's ImageCaptureCore helper                                |
+| `npm run camera:setup`                         | Download and verify the pinned development camera runtime                   |
+| `npm run camera:setup:macos`                   | macOS compatibility alias for camera:setup                                  |
+| `npm run camera:build`                         | Explicit maintainer build of the platform camera runtime                    |
 | `npm run camera:acceptance`                    | Discover cameras only; hardware capture requires explicit run flags         |
 
 Use `npm run verify -- --target <id>` for routine feature verification; repeat `--target` to combine IDs from the suite registry. Broad scopes (`ui`, `adjustments`, `preview`, `library`, `mcp`) remain available for deliberate regression checks. Add `--plan` to preview selection without artifacts. Comprehensive commands require a user-requested or previously agreed checkpoint; completing a feature alone never triggers one. `benchmark:preview` deliberately covers preview measurements only; `benchmark:all` and `check:all` retain all existing performance gates. Supply a saved `IRODORI_PREVIEW_BASELINE` to enforce the 15% uncorrected-preview limit. Every invocation preserves `summary.md`, structured results, and detailed evidence in a separate ignored artifact directory. Read the compact report first. See the [verification workflow](docs/testing.md#choose-verification) for budgets, failure reruns, locking, and diagnostic tracing.

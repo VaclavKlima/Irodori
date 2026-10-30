@@ -52,38 +52,52 @@ Captured artifacts remain private until fixture promotion is reviewed.
 
 ## One-time prerequisites per machine
 
-Use Node 24 or newer and install the locked dependencies in each checkout:
+Use Node 24 or newer and install the locked dependencies and pinned runtime in
+each checkout:
 
 ```sh
 npm ci
+npm run camera:setup
 ```
 
-No camera is required for SDK initialization, tool discovery or read-only camera
-discovery. Missing backends are returned as diagnostics; they do not prevent the
-server from starting. Sharing the registration does not install machine dependencies.
+Supported hosts are **Apple Silicon macOS 14+** and **Linux x64 with glibc 2.35+**,
+including Bazzite. Intel Macs, Linux arm64, musl Linux and Windows are outside this
+delivery. No camera is required for setup, SDK initialization, tool enumeration or
+read-only discovery. Setup downloads a verified prebuilt archive from the dedicated
+[camera runtime release](https://github.com/VaclavKlima/Irodori/releases/tag/camera-runtime-v1.0.0).
+It requires neither Homebrew nor a compiler/Xcode. Runtime pins, hashes, platform
+requirements, licenses and provenance are described in the
+[runtime guide](../assets/app/camera-runtime/README.md).
+
+Executables install only under ignored `artifacts/camera/runtime/` in this
+checkout. Existing journals and captured originals are preserved. Repeating setup
+verifies every installed file and reuses a valid runtime offline; a failed install
+preserves working installations. `npm run camera:setup -- --archive <path>` uses
+the same committed checksums to test an exact candidate before release. Moving a
+complete checkout preserves the runtime; a fresh checkout needs setup again.
+
+MCP startup performs no downloads or compilation. Missing or invalid runtimes
+leave all seven tools available and return discovery diagnostics directing you to
+`npm run camera:setup`. No Electron build, open window, CDP endpoint or photo
+library is needed. Stdout carries MCP messages; diagnostics use stderr. For manual
+client diagnostics only, `npm run --silent mcp:camera` starts the same server and
+waits for MCP input. The camera helper and server are development tools and are
+not bundled into the app.
 
 ### macOS
 
-Build the small Apple ImageCaptureCore transport with Xcode or its
-Command Line Tools installed:
+The default provider uses the pinned ImageCaptureCore helper because the system's
+`ptpcamerad` can own the PTP interface. It cooperates with the system owner and
+does not disable system services. `npm run camera:setup:macos` remains a compatible
+alias for the download installer. Maintainers can explicitly compile/package with
+`npm run camera:build`; ordinary setup and MCP never compile. The helper targets
+macOS 14 and links only system frameworks/libraries. Application signing and
+notarization remain separate work.
 
-```sh
-npm run camera:setup:macos
-```
-
-The build writes only ignored `artifacts/camera/bin/` in this checkout. Rebuild
-after changing the helper or moving to another machine/architecture. No Electron
-build, open window, CDP endpoint or photo library is needed. Stdout carries MCP
-messages; diagnostics use stderr. For manual client diagnostics only,
-`npm run --silent mcp:camera` starts the same server and waits for MCP input.
-The camera helper and server are development tools and are not bundled into the app.
-
-The default macOS provider uses ImageCaptureCore because the system's
-`ptpcamerad` can own the PTP interface. Discovery with gphoto2 succeeded on this
-Mac, but control access failed with USB claim error -53, including after a
-temporary stop of the owning process. The native provider cooperates with the
-system owner; it does not disable system services. Building requires Apple's
-SDK; the camera server reports an actionable diagnostic if the helper is missing.
+Discovery with system gphoto2 succeeded on this Mac, but control access failed
+with USB claim error -53. `IRODORI_CAMERA_BACKEND=gphoto2` retains that explicit
+macOS diagnostic override; it requires a separately installed host gphoto2 and is
+never the default runtime. Linux uses the repository-managed gphoto2 instead.
 
 For the Sony ZV-1A, follow [Sony's PC Remote instructions](https://helpguide.sony.net/dc/2410/v1/en/contents/0903_pc_remote_function.html):
 turn smartphone control off, enable Network → PC Remote Function → PC Remote,
@@ -95,24 +109,41 @@ RAW & JPEG. A read-only destination is never changed by the service.
 
 ### Bazzite/Linux
 
-Use the **host** terminal, Node 24+ and gphoto2:
+Use the **host** terminal for `npm ci` and `npm run camera:setup`. The verified
+Linux archive includes gphoto2 **2.5.32**, libgphoto2 **2.5.34**, the PTP camera
+and USB I/O modules, and their private runtime dependencies. No host Homebrew or
+gphoto2 installation is required. The provider uses absolute executable paths,
+private loader/module paths and isolated configuration. Linux CI verifies
+relocation, version reporting, USB/PTP module loading, SDK initialization and
+discovery without hardware; **physical Bazzite camera acceptance remains open**.
+
+Setup never changes USB permissions. Run discovery as your ordinary logged-in
+user:
 
 ```sh
-brew install gphoto2
-gphoto2 --version
-gphoto2 --auto-detect
+npm run camera:acceptance
+npm run camera:acceptance -- --inspect --camera-id <discovered-id>
+npm run camera:acceptance -- --run --camera-id <discovered-id>
 ```
 
-[Bazzite documents Homebrew for host CLI tools](https://docs.bazzite.gg/Installing_and_Managing_Software/Homebrew/);
-[the gphoto2 formula](https://formulae.brew.sh/formula/gphoto2) supplies libgphoto2.
-Homebrew installation does not establish USB permissions. Use the distribution's
-libgphoto2 USB/udev permissions for your logged-in user, reconnect after a rule
-change, and close photo importers or other tethering clients. Run the server as
-your ordinary user. A container additionally needs explicit USB device access;
-host operation avoids that extra boundary. Do not assume a successful package
-install proves Bazzite hardware access. Physical Linux acceptance remains pending.
-`IRODORI_CAMERA_BACKEND=gphoto2` selects the CLI provider explicitly on macOS
-for diagnosis; ImageCaptureCore is the verified Mac control path.
+If discovery/control reports access denied, use the host distribution's libgphoto2
+USB/udev rules for your logged-in user, reconnect after a rule change, and close
+photo importers or other tethering clients. On Bazzite's immutable host, ask the
+administrator to inspect the camera's `054c:0c44` device node and existing rules
+with `lsusb` and `udevadm info`; a local rule, if needed, belongs under
+`/etc/udev/rules.d/` and should grant the active local user access (for example
+`TAG+="uaccess"` scoped to that exact vendor/product). An administrator can reload
+rules with `sudo udevadm control --reload-rules`, then reconnect the camera. Do not
+make every USB device world-writable or run the MCP as root. The
+[systemd udev reference](https://www.freedesktop.org/software/systemd/man/latest/udev.html)
+explains local rule precedence; [libgphoto2's packaging guide](https://raw.githubusercontent.com/gphoto/libgphoto2/v2.5.34/README.packaging)
+describes its camera permission helpers. These are manual troubleshooting steps,
+not commands executed by setup.
+
+A container additionally needs explicit USB device access; host operation avoids
+that extra boundary. Successful archive installation or hardware-free CI does
+not prove camera access on Bazzite. Keep backlog #37 open until the physical
+Linux acceptance workflow succeeds.
 
 ## MCP workflow
 
@@ -376,11 +407,11 @@ alone does not meet those requirements.
 
 ## Verification and local evidence
 
-The three registered **Node** targets use fake providers and subprocesses, with
+The four registered **Node** targets use fake providers and subprocesses, with
 no Electron, USB access or photographic inputs:
 
 ```sh
-npm run verify -- --target camera-control-model --target camera-control-service --target camera-control-mcp
+npm run verify -- --target camera-runtime --target camera-control-model --target camera-control-service --target camera-control-mcp
 ```
 
 They cover same-model routing, dynamic/read-only choices, schemas, bounded
@@ -402,7 +433,11 @@ npm run camera:acceptance -- --controls --serial <exact-USB-serial>
 npm run camera:acceptance -- --run --serial <exact-USB-serial>
 ```
 
-The first command only discovers. `--inspect` reads controls. `--controls` changes
+The first command only discovers. `--camera-id <discovered-id>` may replace
+`--serial <exact-USB-serial>` in each command; the selectors are mutually
+exclusive. Linux discovery initially has no serial, so use its exact camera ID.
+Inspection, controls and capture all require an explicit selector; no camera is
+selected implicitly. `--inspect` reads controls. `--controls` changes
 and restores settings without shooting. `--run` changes settings, captures one
 RAW/JPEG pair and a three-exposure sequence, verifies metadata/hashes, cancels
 further work, reads available card inventory, and checks restoration. Keep the
@@ -471,6 +506,8 @@ The native transport is newly written Swift using Apple's
 Sony wire constants, field layouts, handshake phases and mode-2 notch behavior
 were cross-checked against LGPL-2.1-or-later
 [libgphoto2 v2.5.34](https://github.com/gphoto/libgphoto2/tree/v2.5.34/camlibs/ptp2)
-(`ptp.h`, `ptp.c`, `ptp-pack.c`, `config.c`, `library.c`). No libgphoto2 source or
-binary is bundled by this feature. The Linux provider invokes the separately
-installed gphoto2 CLI. Apple's framework and SDK remain system dependencies.
+(`ptp.h`, `ptp.c`, `ptp-pack.c`, `config.c`, `library.c`). The Linux development runtime redistributes gphoto2, libgphoto2 and the locked
+USB/loader dependencies with license notices and matching sources in the
+[dedicated runtime release](../assets/app/camera-runtime/README.md). These are
+not bundled into Electron. Apple's frameworks remain system dependencies; the
+SDK is required only for explicit maintainer builds.

@@ -61,7 +61,7 @@ export const runProcess: ProcessRunner = async (request) =>
     child.on('error', (error) => {
       failure = new CameraError(
         'missing-backend',
-        `Cannot start camera backend: ${error.message}. Install gphoto2 on the host.`,
+        `Cannot start camera backend: ${error.message}. Run npm run camera:setup. The macOS gphoto2 diagnostic override requires a separate host installation.`,
       )
     })
     child.on('close', (code) => {

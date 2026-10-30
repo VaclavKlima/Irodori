@@ -1,18 +1,12 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CameraService } from '../src/main/camera-control/service.ts'
 import { CameraStore } from '../src/main/camera-control/store.ts'
-import { GphotoProvider } from '../src/main/camera-control/gphoto.ts'
-import { ImageCaptureTransport } from '../src/main/camera-control/image-capture.ts'
-import { SonyImageCaptureProvider } from '../src/main/camera-control/sony.ts'
+import { createCameraProvider } from './camera/provider.ts'
 import { createCameraMcpServer } from '../src/main/camera-control/mcp.ts'
 
 const root = fileURLToPath(new URL('../artifacts/camera/', import.meta.url))
-const provider =
-  process.platform === 'darwin' && process.env.IRODORI_CAMERA_BACKEND !== 'gphoto2'
-    ? new SonyImageCaptureProvider(new ImageCaptureTransport(resolve(root, 'bin/image-capture')))
-    : new GphotoProvider(root)
+const provider = await createCameraProvider()
 const service = new CameraService([provider], new CameraStore(root))
 const server = createCameraMcpServer(service)
 let closing

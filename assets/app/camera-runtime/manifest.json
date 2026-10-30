@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "release": "camera-runtime-v1.0.0",
+  "platforms": {
+    "darwin-arm64": {
+      "version": "1.0.0",
+      "platform": "darwin-arm64",
+      "archive": "irodori-camera-1.0.0-darwin-arm64.tar.gz",
+      "url": "https://github.com/VaclavKlima/Irodori/releases/download/camera-runtime-v1.0.0/irodori-camera-1.0.0-darwin-arm64.tar.gz",
+      "bytes": 31950,
+      "sha256": "369031df6e8136b06ee2bbb03a7d9aae86b119b717e69f1a91702f51a8a9770e",
+      "executable": "bin/image-capture",
+      "files": [
+        {
+          "path": "bin/image-capture",
+          "mode": 493,
+          "bytes": 113616,
+          "sha256": "46ef942f27646df56d2759b20d8a15f442df039ede0ac2acb0e7d716a03e18e6"
+        },
+        {
+          "path": "build.json",
+          "mode": 420,
+          "bytes": 1418,
+          "sha256": "a39d47df7f044e286239764008cdf0acdb9520929cd3ba35e5fd262329b644a1"
+        },
+        {
+          "path": "licenses/Irodori-LICENSE",
+          "mode": 420,
+          "bytes": 11358,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "NOTICE.txt",
+          "mode": 420,
+          "bytes": 205,
+          "sha256": "6b7e17aeaef43fcbd53beb6da232d8cf6f844e5e2b734e2edd8d7da412b4a3f0"
+        }
+      ]
+    }
+  }
+}

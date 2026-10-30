@@ -88,7 +88,7 @@ export class ImageCaptureTransport implements PtpTransport {
         pending.reject(
           new CameraError(
             'native-transport-ended',
-            'ImageCaptureCore helper ended. Run npm run camera:setup:macos if missing. Reopen the session.',
+            'ImageCaptureCore helper ended. Run npm run camera:setup if missing. Reopen the session.',
             true,
           ),
         )

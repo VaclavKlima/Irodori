@@ -72,17 +72,20 @@ export class GphotoProvider implements CameraProvider {
   root: string
   runner: ProcessRunner
   executable: string
+  runtimeEnv: NodeJS.ProcessEnv
   attachment?: (port: string) => Promise<string>
   constructor(
     root: string,
     runner: ProcessRunner = runProcess,
     executable = 'gphoto2',
     attachment?: (port: string) => Promise<string>,
+    runtimeEnv: NodeJS.ProcessEnv = {},
   ) {
     this.root = resolve(root)
     this.runner = runner
     this.executable = executable
     this.attachment = attachment
+    this.runtimeEnv = runtimeEnv
   }
   private async run(args: string[], cwd = this.root, timeout = 20_000) {
     const config = join(this.root, 'backend-config', 'gphoto')
@@ -98,6 +101,7 @@ export class GphotoProvider implements CameraProvider {
         PATH: process.env.PATH,
         LANG: 'C',
         LC_ALL: 'C',
+        ...this.runtimeEnv,
         XDG_CONFIG_HOME: join(this.root, 'backend-config'),
       },
     })

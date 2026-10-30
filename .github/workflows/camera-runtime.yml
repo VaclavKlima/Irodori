@@ -1,0 +1,63 @@
+name: Camera runtime
+
+on:
+  push:
+    branches: [camera-runtime-v1]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            runner: macos-14
+          - platform: linux-x64
+            runner: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Assert actual runner architecture
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+        run: node -e 'if (`${process.platform}-${process.arch}` !== process.env.EXPECTED_PLATFORM) process.exit(1)'
+      - name: Linux maintainer build tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config patchelf gettext
+      - run: npm ci
+      - name: Build pinned runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run --silent camera:build > artifacts-camera-build.log 2>&1
+          tail -n 1 artifacts-camera-build.log | sed 's/^/distribution=/' >> "$GITHUB_OUTPUT"
+        id: build
+      - name: Relocated clean runtime setup and SDK discovery
+        run: node scripts/camera/runtime-smoke.mjs '${{ steps.build.outputs.distribution }}'
+      - name: Upload exact candidate and matching sources
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: camera-runtime-${{ matrix.platform }}
+          path: ${{ steps.build.outputs.distribution }}
+          if-no-files-found: error
+          retention-days: 30
+      - name: Retain build diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: camera-runtime-build-${{ matrix.platform }}
+          path: |
+            artifacts-camera-build.log
+            artifacts/camera/runtime-build/**/commands.json
+            artifacts/camera/runtime-build/**/config.log
+          if-no-files-found: warn
+          retention-days: 30

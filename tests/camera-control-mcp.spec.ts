@@ -157,6 +157,14 @@ test('relocated camera startup keeps artifacts in its own checkout with spaces a
     await mkdir(join(checkout, 'nested directory'))
     await cp(join(original, 'package.json'), join(checkout, 'package.json'))
     await cp(join(original, 'scripts/camera-mcp.mjs'), join(checkout, 'scripts/camera-mcp.mjs'))
+    await cp(join(original, 'scripts/camera'), join(checkout, 'scripts/camera'), {
+      recursive: true,
+    })
+    await cp(
+      join(original, 'assets/app/camera-runtime'),
+      join(checkout, 'assets/app/camera-runtime'),
+      { recursive: true },
+    )
     await cp(join(original, 'src/main/camera-control'), join(checkout, 'src/main/camera-control'), {
       recursive: true,
     })
@@ -198,5 +206,46 @@ test('relocated camera startup keeps artifacts in its own checkout with spaces a
     }
   } finally {
     await rm(temporary, { recursive: true, force: true })
+  }
+})
+
+test('missing runtimes leave initialization and all seven tools available in a relocated checkout', async () => {
+  const original = fileURLToPath(new URL('../', import.meta.url))
+  const checkout = await mkdtemp(join(tmpdir(), 'irodori missing camera runtime '))
+  const client = new Client({ name: 'camera-missing-runtime', version: '1' })
+  let transport: StdioClientTransport | undefined
+  try {
+    for (const path of [
+      'package.json',
+      'scripts/camera-mcp.mjs',
+      'scripts/camera',
+      'src/main/camera-control',
+      'assets/app/camera-runtime',
+    ])
+      await cp(join(original, path), join(checkout, path), { recursive: true })
+    await symlink(join(original, 'node_modules'), join(checkout, 'node_modules'), 'junction')
+    transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [join(checkout, 'scripts/camera-mcp.mjs')],
+      cwd: tmpdir(),
+      env: { PATH: process.env.PATH ?? '' },
+      stderr: 'pipe',
+    })
+    transport.stderr?.on('data', () => {})
+    await client.connect(transport)
+    expect((await client.listTools()).tools).toHaveLength(7)
+    const listed = await client.callTool({ name: 'irodori_camera_list', arguments: {} })
+    expect(listed.isError).not.toBe(true)
+    expect(listed.structuredContent).toMatchObject({
+      cameras: [],
+      diagnostics: [{ available: false, message: expect.stringContaining('npm run camera:setup') }],
+    })
+    await expect(access(join(checkout, 'artifacts/camera/runtime'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+  } finally {
+    await client.close()
+    await transport?.close()
+    await rm(checkout, { recursive: true, force: true })
   }
 })

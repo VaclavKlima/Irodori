@@ -462,9 +462,14 @@ Report automated checks and MCP protocol checks separately from direct Codex too
 
 ## Development camera MCP server
 
-Development USB camera control has separate Node targets `camera-control-model`,
-`camera-control-service`, and `camera-control-mcp`, with fake providers and no
-hardware. Use `npm run verify -- --target camera-control-model --target camera-control-service --target camera-control-mcp`.
+Development USB camera control has separate Node targets `camera-runtime`,
+`camera-control-model`, `camera-control-service`, and `camera-control-mcp`, with
+fake providers and no hardware. Use `npm run verify -- --target camera-runtime --target camera-control-model --target camera-control-service --target camera-control-mcp`.
+The runtime target checks installation, offline reuse, failed/interrupted updates,
+integrity, archive safety, supported platforms, executable resolution and explicit
+acceptance selectors. The [camera runtime workflow](../.github/workflows/camera-runtime.yml)
+separately builds and relocates actual macOS/Linux distributions, checks private
+libraries/modules and SDK discovery without physical Linux hardware.
 The MCP target initializes SDK clients, checks all seven tools and read-only
 discovery with an unavailable backend, and verifies root/subdirectory startup,
 relocated paths with spaces and checkout-local artifacts without hardware.
