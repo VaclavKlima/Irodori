@@ -31,6 +31,7 @@ import {
   type RuntimeManifest,
 } from '../scripts/camera/runtime'
 import {
+  acceptanceAlternate,
   acceptanceOptions,
   acceptanceSettings,
   selectAcceptanceCamera,
@@ -415,6 +416,16 @@ test('acceptance requires mutually exclusive explicit selectors and never choose
 })
 
 test('acceptance recipes resolve actual native and gphoto choices and preserve matching read-only settings', () => {
+  expect(
+    acceptanceAlternate({
+      id: 'aperture',
+      value: 'f/4',
+      choices: ['f/1.8', 'f/2.8', 'f/4', 'f/4.5', 'f/11'],
+    }),
+  ).toBe('f/4.5')
+  expect(
+    acceptanceAlternate({ id: 'aperture', value: 'f/11', choices: ['f/1.8', 'f/10', 'f/11'] }),
+  ).toBe('f/10')
   expect(
     acceptanceSettings(
       [

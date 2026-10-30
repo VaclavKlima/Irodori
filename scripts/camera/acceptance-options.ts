@@ -47,3 +47,20 @@ export function acceptanceSettings(
   }
   return result
 }
+
+export function acceptanceAlternate(setting: { id: string; value: string; choices: string[] }) {
+  const choices = setting.choices.filter(
+    (value) => value !== setting.value && value !== 'Auto' && !value.startsWith('0/'),
+  )
+  if (setting.id === 'aperture') {
+    const numeric = (value: string) => Number(value.replace(/^f\//, ''))
+    const current = numeric(setting.value)
+    const ordered = choices
+      .filter((value) => Number.isFinite(numeric(value)))
+      .sort((a, b) => numeric(a) - numeric(b))
+    // The Sony advertises its full lens range even at zoom positions where its
+    // widest aperture is unavailable. Test a neighboring, narrower stop first.
+    return ordered.find((value) => numeric(value) > current) ?? ordered.at(-1)
+  }
+  return choices[0]
+}

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { exposureSeconds } from '../../src/main/camera-control/model.ts'
 import {
+  acceptanceAlternate,
   acceptanceOptions,
   acceptanceSettings,
   selectAcceptanceCamera,
@@ -107,9 +108,7 @@ try {
       for (const name of ['iso', 'aperture', 'whiteBalance', 'focusMode', 'exposureCompensation']) {
         const context = await call('list_actions', { cameraId: camera.id })
         const setting = context.settings.find((setting) => setting.id === name)
-        const alternate = setting?.choices.find(
-          (value) => value !== setting.value && value !== 'Auto' && !value.startsWith('0/'),
-        )
+        const alternate = setting && acceptanceAlternate(setting)
         if (!setting?.writable || !alternate) {
           evidence.controls[name] = { result: 'unavailable', setting }
           continue
