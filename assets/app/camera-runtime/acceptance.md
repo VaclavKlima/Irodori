@@ -2,8 +2,9 @@
 
 Runtime release:
 [camera-runtime-v1.0.0](https://github.com/VaclavKlima/Irodori/releases/tag/camera-runtime-v1.0.0).
-The release is dedicated to development camera tools and is not the latest
-application release. The committed [manifest](manifest.json) is the install trust
+The release is dedicated to development camera tools and is marked prerelease,
+with `make_latest=false`, to exclude it from the latest application release
+channel. The committed [manifest](manifest.json) is the install trust
 root. Runtime archives, matching source archives, every indexed file and build
 source hashes were rechecked after downloading the Actions artifacts. Generated
 binaries, logs, camera journals and captures remain outside Git.
@@ -67,5 +68,21 @@ other cameras, Windows, Intel Macs, Linux arm64, application packaging and
 signing/notarization are outside this acceptance. Captures have not been promoted
 into fixtures or uploaded.
 
-Public URL installation/discovery is checked after release publication and before
-the final main push; its result is recorded in the delivery follow-up below.
+## Public delivery follow-up
+
+On 2026-10-30 at 10:58 UTC, a second clean sparse macOS checkout completed
+ordinary `npm ci`, then `npm run camera:setup` **without an archive override**.
+It downloaded the published URL, verified the pinned archive and all four files,
+reused the installation on a second setup, initialized the SDK and discovered
+the exact intended Sony in **2.822 seconds**. Build-tool/Homebrew traps were not
+invoked. No additional photographs were taken. Private evidence:
+`artifacts/camera/runtime-acceptance/public-delivery.json` and
+`artifacts/camera/runtime-acceptance/public checkout/artifacts/camera/acceptance/2026-10-30T10-58-10.774Z-4348b543-d14e-47d0-8d2d-8bd981f0158b/evidence.json`.
+
+The release readback confirmed **21 assets**, both runtime and matching source
+archive digests matching the table, and the prerelease flag. GitHub's uncached
+latest-full-release API returned 404 because this repository has no application
+releases; it no longer selected the camera runtime. The explicit non-latest flag
+alone had still allowed the repository's first full release through that API, so
+the development-runtime prerelease flag is intentional. No published asset was
+replaced. These delivery checks completed before the final main push.

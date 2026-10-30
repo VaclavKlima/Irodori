@@ -87,7 +87,9 @@ never replacements for already-published assets.
    or discovered camera ID. Captures stay private. Required macOS failures block
    publication to main. Record platform skips and physical Linux acceptance as open.
 4. Publish the **exact tested archives**, checksums, matching sources and build
-   records to `camera-runtime-v1.0.0` as a non-latest dedicated release. Never
+   records to `camera-runtime-v1.0.0` as a non-latest dedicated development
+   prerelease. GitHub can return a repository's first full release from its latest
+   API despite `make_latest=false`; the prerelease flag also excludes it. Never
    replace assets under an existing tag/version. Future runtime changes need a
    new version and a new reviewed manifest.
 5. Repeat clean macOS setup through the public URL and verify discovery before
