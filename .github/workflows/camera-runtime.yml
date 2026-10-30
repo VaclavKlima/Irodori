@@ -32,7 +32,14 @@ jobs:
         run: node -e 'if (`${process.platform}-${process.arch}` !== process.env.EXPECTED_PLATFORM) process.exit(1)'
       - name: Linux maintainer build tools
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config patchelf gettext
+        run: |
+          sudo apt-get update && sudo apt-get install -y build-essential pkg-config patchelf gettext
+          # Hosted VMs have no USB devices. libusb built without udev needs this
+          # empty USB filesystem directory even for hardware-free initialization.
+          if [ ! -d /dev/bus/usb ]; then
+            sudo mkdir -p /dev/bus/usb
+            echo 'Provisioned an empty USB directory for packaging smoke; no devices or permission rules.'
+          fi
       - run: npm ci
       - name: Build pinned runtime
         shell: bash
@@ -59,5 +66,6 @@ jobs:
             artifacts-camera-build.log
             artifacts/camera/runtime-build/**/commands.json
             artifacts/camera/runtime-build/**/config.log
+            artifacts/camera/runtime-build/**/linux-usb-debug.txt
           if-no-files-found: warn
           retention-days: 30

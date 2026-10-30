@@ -250,8 +250,14 @@ try {
     const cameras = run(join(runtime, executable), ['--list-cameras'], working, smokeEnv).toString()
     if (!/Sony ZV-1/.test(cameras))
       throw new Error('Packaged PTP camera module did not load Sony support.')
-    const ports = run(join(runtime, executable), ['--list-ports'], working, smokeEnv).toString()
-    if (!/usb:/i.test(ports)) throw new Error('Packaged USB module did not load.')
+    const ports = run(
+      join(runtime, executable),
+      ['--debug', '--debug-logfile', join(output, 'linux-usb-debug.txt'), '--list-ports'],
+      working,
+      smokeEnv,
+    ).toString()
+    if (!/usb:/i.test(ports))
+      throw new Error(`Packaged USB module did not initialize: ${ports}. See linux-usb-debug.txt.`)
     const discovery = run(
       join(runtime, executable),
       ['--auto-detect'],
