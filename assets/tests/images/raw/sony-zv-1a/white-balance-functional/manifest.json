@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "fixtureSet": "sony-zv-1a-white-balance-functional-v1",
+  "camera": {
+    "make": "SONY",
+    "model": "ZV-1A"
+  },
+  "provenance": {
+    "source": "User camera and user-prepared scene; bounded single-frame capture through the Irodori development camera MCP.",
+    "selectedOn": "2026-10-30",
+    "captureBrief": "docs/sony-white-balance-functional-capture.md",
+    "purpose": "Functional real-RAW white-balance picker proposal, source-coordinate, native-control, Apply, history and restart validation only.",
+    "permission": "The user explicitly requested GitHub retention of photographic test and benchmark inputs on 2026-10-29, then prepared this scene after the capture brief on 2026-10-30. This selected, privacy-reviewed original may be retained in the Irodori repository for repeatable project tests and benchmarks. See NOTICE.md; no general open-content, Apache-2.0 or CC0 image license is granted.",
+    "notice": "NOTICE.md",
+    "policy": "One unchanged camera original with its downloaded capture filename; no re-encoding, redaction or metadata stripping. Private camera logs, identifiers and generated proof images are excluded.",
+    "sourceAndDestinationHashesVerifiedBeforeAndAfterCopy": true
+  },
+  "sequence": {
+    "kind": "single-software-exposure",
+    "operationCount": 1,
+    "exposureCount": 1,
+    "completedReleaseSteps": 1,
+    "originalFileCount": 1,
+    "members": [
+      {
+        "order": 1,
+        "exposure": 1,
+        "file": "originals/capt_DSC07247.ARW"
+      }
+    ],
+    "requestedSettings": {
+      "iso": "125",
+      "exposureCompensation": "1",
+      "focusMode": "Manual"
+    },
+    "preReleaseReadback": {
+      "exposureMode": "P",
+      "driveMode": "Single Shot",
+      "format": "RAW",
+      "iso": "125",
+      "whiteBalance": "Automatic",
+      "focusMode": "Manual",
+      "exposureCompensation": "1",
+      "shutterSpeed": "1/30",
+      "aperture": "(null)",
+      "captureTarget": "sdram"
+    },
+    "readbackLimit": "The aperture was unavailable in Program AE readback; f/2.5 is an original-EXIF fact, not a requested or independently verified aperture-control write.",
+    "membershipLimit": "Other diagnostic capture attempts are not part of this one-exposure operation or this selected dataset; none is silently represented as a member or accepted input."
+  },
+  "privacyReview": {
+    "reviewedOn": "2026-10-30",
+    "status": "Independent embedded-image, exposed-metadata and complete active-image visual review completed; parent/root separately confirmed visual review before dataset preparation. No photographic-quality or functional acceptance is implied.",
+    "visualReview": {
+      "embeddedImages": 2,
+      "fullActiveImageContext": true,
+      "nativeTileCoverage": {
+        "columns": 3,
+        "rows": 2,
+        "tileWidth": 1832,
+        "tileHeight": 1836,
+        "decodedWidth": 5496,
+        "decodedHeight": 3672,
+        "coveredPixels": 20181312,
+        "completeWithoutOverlap": true
+      },
+      "findings": "Light unprinted textured material with a defocused darker upper-left sliver. No identifiable people, discernible printing, private documents/screens/addresses, vehicle plates, identifying objects or private interior details observed."
+    },
+    "metadataTool": "Read-only ExifTool 13.59, -j -n -a -u -G1 -s; complete original and embedded-image fields reviewed, including exposed unknown maker fields.",
+    "metadataFieldsReviewed": 2139,
+    "metadataFindings": {
+      "recognizedGpsTags": false,
+      "recognizedCameraLensInternalSerialTags": false,
+      "ownerArtistContactAddressOrCopyrightIdentityFields": false,
+      "personalNamesOrContactTextObserved": false,
+      "imageDescriptions": "Whitespace only in IFD0 and IFD1.",
+      "userComment": "Empty.",
+      "xmp": "Only XMP-xmp:Rating=0.",
+      "iptc": "No IPTC group reported.",
+      "captureTimestamps": "Present; camera clock/timezone not independently validated.",
+      "filenameAndProvenanceReviewed": true
+    },
+    "evidenceHashes": {
+      "fullNativeVisualReviewReceiptSha256": "c9ae2f2ff736d95b5eb4021c560bf773ba3e8c911e276ba9f14b1773ec251b18",
+      "embeddedAndMetadataReviewReceiptSha256": "694ff50180cb22236cf7d96f8eb59b14fec7731eda464458401eb1311d4187ab",
+      "originalMetadataDumpSha256": "9e29bb4ed4d97bddfd6ff2257214aed094213e2fdbd92ba992ba69528e0deed2",
+      "embeddedMetadataDumpSha256": "ab2141cd91753983c3c3ebbfaeb5cfc946505479fd548cf92eed1f161f9dca18"
+    },
+    "limits": [
+      "Visual review covers the complete LibRaw active bitmap and embedded images, not forensic inactive-storage margins or content below decoder/visual resolution.",
+      "Opaque Sony numeric/hex/control-bearing maker blocks have incompletely documented semantics. No coherent personal text or recognized serial field was observed; this is not a forensic guarantee about arbitrary opaque/encrypted payloads.",
+      "Generated images, complete metadata dumps, camera identifiers and settings journals remain private outside Git."
+    ]
+  },
+  "files": [
+    {
+      "name": "capt_DSC07247.ARW",
+      "path": "originals/capt_DSC07247.ARW",
+      "sha256": "8a2e09a6798e303ea2a991139dbc50245aedc218bffe11d614f307b93d7b1cfb",
+      "bytes": 20747264,
+      "numericExif": {
+        "Make": "SONY",
+        "Model": "ZV-1A",
+        "ISO": 125,
+        "ExposureTime": 0.03333333333,
+        "ExposureCompensation": 1,
+        "ExposureProgram": 2,
+        "FNumber": 2.5,
+        "FocalLength": 9.4,
+        "WhiteBalance": 0,
+        "SonyFocusMode": 0,
+        "Orientation": 1,
+        "ImageWidth": 5504,
+        "ImageHeight": 3672,
+        "BitsPerSample": 12,
+        "SonyRawFileType": 2,
+        "Compression": 32767
+      },
+      "storageDimensions": {
+        "width": 5504,
+        "height": 3672
+      },
+      "fullActiveImagePrivacyDecode": {
+        "implementation": "@colorhythm/libraw-wasm",
+        "packageVersion": "1.1.1",
+        "library": "LibRaw 0.22.1-Release",
+        "runtime": "Isolated Node24; WASM decoder, not the native-owned-rows host.",
+        "width": 5496,
+        "height": 3672,
+        "halfSize": 0,
+        "demosaic": 3,
+        "cameraWhiteBalance": true,
+        "outputColor": 1,
+        "outputBits": 8,
+        "gamma": [0.4166666666666667, 12.92],
+        "scope": "Full active-image privacy view only; final application source dimensions and processing behavior require separate validation."
+      },
+      "intendedCoverage": [
+        "Real RAW picker proposal validity and source coordinates",
+        "Native numeric/pointer controls, Apply, Undo/Redo and restart once separately verified"
+      ],
+      "limits": [
+        "No picker validity or workflow pass is claimed by inclusion.",
+        "The target and light are unmeasured; no calibrated neutrality or two-illuminant color accuracy.",
+        "Not a clean/noisy pair, high-ISO qualification, denoising-quality or performance result.",
+        "Final application dimensions may differ after authoritative orientation/lens/crop preparation.",
+        "Exclude from production packages and automatic user-library imports."
+      ]
+    }
+  ]
+}
