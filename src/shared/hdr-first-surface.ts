@@ -1,6 +1,7 @@
 import type { AdjustmentParameters } from './adjustments'
 import { neutralAdjustments } from './adjustments'
-import { validatePatch } from './edits'
+import { validateProcessingPatch } from './edits'
+import { creativeColorIdentity } from './creative-color'
 import { validateTarget, type DisplayTarget } from './hdr'
 import type { ResourcePolicySnapshot } from './resource-policy'
 import type { WhiteBalanceProfile } from './white-balance'
@@ -209,7 +210,9 @@ export function validateHdrFirstSurfaceRequest(
     !integer(value.generation, 1) ||
     !integer(value.settingsRevision) ||
     !object(value.parameters) ||
-    Object.keys(value.parameters).length !== Object.keys(neutralAdjustments).length ||
+    Object.keys(value.parameters).some(
+      (key) => ![...Object.keys(neutralAdjustments), 'colorMixer', 'colorGrading'].includes(key),
+    ) ||
     Object.keys(neutralAdjustments).some(
       (key) => !Object.prototype.hasOwnProperty.call(value.parameters, key),
     ) ||
@@ -238,7 +241,7 @@ export function validateHdrFirstSurfaceRequest(
     !integer(value.rendererReservation.vramBytes)
   )
     throw new Error('Invalid first HDR surface request.')
-  validatePatch(value.parameters)
+  validateProcessingPatch(value.parameters)
   validateTarget(value.target as unknown as DisplayTarget)
   const target = value.target as DisplayTarget
   if (
@@ -256,7 +259,8 @@ export function validateHdrFirstSurfaceRequest(
 export function hdrFirstSurfaceRequestKey(request: HdrFirstSurfaceRequest): string {
   validateHdrFirstSurfaceRequest(hdrFirstSurfaceSnapshot(request))
   const p = request.parameters,
-    t = request.target
+    t = request.target,
+    colour = creativeColorIdentity(p)
   return JSON.stringify([
     HDR_FIRST_SURFACE_VERSION,
     request.generation,
@@ -268,9 +272,12 @@ export function hdrFirstSurfaceRequestKey(request: HdrFirstSurfaceRequest): stri
       p.shadows,
       p.whites,
       p.blacks,
+      p.saturation,
+      p.vibrance,
       p.whiteBalance?.mode === 'custom'
         ? ['custom', p.whiteBalance.kelvin, p.whiteBalance.tint]
         : ['as-shot'],
+      ...(colour ? [colour] : []),
     ],
     [t.outputVersion, t.generation, t.mode, t.colorSpace, t.peak, t.headroom],
     [request.viewport.width, request.viewport.height],
@@ -326,7 +333,7 @@ function checkedOfferMatches(
     !/^[a-f0-9]{64}$/.test(offer.sha256) ||
     !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(offer.surfaceId) ||
     offer.url !==
-      `luma-photo://library/${photoId}/first/${PREVIEW_ASSET_VERSION}/${offer.surfaceId}` ||
+      `irodori-photo://library/${photoId}/first/${PREVIEW_ASSET_VERSION}/${offer.surfaceId}` ||
     offer.format !== 'rgba16float-le' ||
     offer.width !== width ||
     offer.height !== height ||

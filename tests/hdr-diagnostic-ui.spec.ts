@@ -8,7 +8,7 @@ import type { ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
 
 test('isolated HDR diagnostic preserves the sandbox, denies unrelated permissions, and reports fallback', async ({}, testInfo) => {
-  const profile = await mkdtemp(join(tmpdir(), 'luma-hdr-test-'))
+  const profile = await mkdtemp(join(tmpdir(), 'irodori-hdr-test-'))
   const env = { ...process.env } as Record<string, string>
   delete env.ELECTRON_RUN_AS_NODE
   let desktop: ElectronApplication | undefined
@@ -80,7 +80,7 @@ test('isolated HDR diagnostic preserves the sandbox, denies unrelated permission
         height: innerHeight,
         overflow: document.documentElement.scrollWidth > innerWidth,
         node: 'require' in window,
-        library: 'luma' in window,
+        library: 'irodori' in window,
       })),
     ).toMatchObject({ width: 1100, height: 700, overflow: false, node: false, library: false })
     expect(await readdir(profile)).not.toContain('library')

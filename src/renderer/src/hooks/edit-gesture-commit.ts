@@ -2,6 +2,8 @@ import { sameAdjustments, type AdjustmentParameters } from '../../../shared/adju
 import type { EditSettings, EditState } from '../../../shared/edits'
 import { correctionKinds } from '../../../shared/lens'
 import type { EditGestureCommit } from '../preview/edit-gesture'
+import { creativeColorIdentity } from '../../../shared/creative-color'
+import { spatialControlsKey } from '../../../shared/detail-controls'
 
 export interface EditGestureScope {
   readonly photoId: string | undefined
@@ -13,6 +15,18 @@ export interface EditGestureCommitSnapshot {
 }
 
 function parametersSnapshot(parameters: AdjustmentParameters): AdjustmentParameters {
+  const colorMixer = parameters.colorMixer && structuredClone(parameters.colorMixer),
+    colorGrading = parameters.colorGrading && structuredClone(parameters.colorGrading)
+  if (colorMixer) {
+    Object.values(colorMixer.ranges).forEach(Object.freeze)
+    Object.freeze(colorMixer.ranges)
+    Object.freeze(colorMixer)
+  }
+  if (colorGrading) {
+    Object.values(colorGrading.tones).forEach(Object.freeze)
+    Object.freeze(colorGrading.tones)
+    Object.freeze(colorGrading)
+  }
   return Object.freeze({
     whiteBalance: parameters.whiteBalance
       ? Object.freeze({ ...parameters.whiteBalance })
@@ -23,13 +37,19 @@ function parametersSnapshot(parameters: AdjustmentParameters): AdjustmentParamet
     shadows: parameters.shadows,
     whites: parameters.whites,
     blacks: parameters.blacks,
+    saturation: parameters.saturation,
+    vibrance: parameters.vibrance,
+    ...(colorMixer === undefined ? {} : { colorMixer }),
+    ...(colorGrading === undefined ? {} : { colorGrading }),
   })
 }
 function settingsKey(settings: EditSettings) {
-  const white = settings.whiteBalance
+  const white = settings.whiteBalance,
+    colour = creativeColorIdentity(settings)
   return JSON.stringify([
     settings.version,
     settings.processing,
+    spatialControlsKey(settings),
     ...correctionKinds.map((kind) => settings.lens[kind]),
     white.mode,
     ...(white.mode === 'custom' ? [white.kelvin, white.tint] : []),
@@ -39,6 +59,9 @@ function settingsKey(settings: EditSettings) {
     settings.shadows,
     settings.whites,
     settings.blacks,
+    settings.saturation,
+    settings.vibrance,
+    ...(colour ? [colour] : []),
   ])
 }
 

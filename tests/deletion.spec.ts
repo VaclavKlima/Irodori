@@ -26,7 +26,7 @@ const preview: PreviewProcessor = {
   close: async () => {},
 }
 async function setup(trash?: (path: string) => Promise<void>) {
-  const root = await mkdtemp(join(tmpdir(), 'luma-delete-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-delete-'))
   await mkdir(join(root, 'trash'))
   const move =
     trash ??

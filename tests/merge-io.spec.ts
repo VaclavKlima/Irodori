@@ -35,7 +35,7 @@ import { PROCESSING_METADATA_VERSION } from '../src/shared/lens'
 import { unavailableProfile } from '../src/main/processing/metadata'
 
 async function sourceFixture(width = 13, height = 139, channel?: number) {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-merge-io-')),
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-merge-io-')),
     path = join(directory, 'source.f32'),
     rgba = new Float32Array(width * height * 4)
   for (let i = 0; i < width * height; i++)
@@ -208,8 +208,8 @@ test('master verification attributes disjoint work without changing partial-stri
       photo: {
         id,
         assetKind: 'derived',
-        filename: 'independent-io-fixture.luma',
-        format: 'LUMA HDR',
+        filename: 'independent-io-fixture.luminance',
+        format: 'IRODORI HDR',
         bytes: f.bytes.length,
         width: f.source.width,
         height: f.source.height,
@@ -330,7 +330,7 @@ test('master verification attributes disjoint work without changing partial-stri
         Object.assign(retired, { version: retiredVersion })
         Object.assign(retired.recipe, { version: retiredVersion })
       }
-      const recoveryRoot = await mkdtemp(join(tmpdir(), 'luma-retired-publication-'))
+      const recoveryRoot = await mkdtemp(join(tmpdir(), 'irodori-retired-publication-'))
       let db: DatabaseSync | undefined
       try {
         const stage = join(recoveryRoot, 'merge-publications', id),

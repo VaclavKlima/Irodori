@@ -3,9 +3,9 @@ import { holdFullPreview } from './full-preview.helpers'
 import { choose, expectImportComplete } from './import.helpers'
 
 test('shows a neutral loader on first RAW opening and then native full-resolution pixels', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const gate = await holdFullPreview(app, ['preview:hdr', 'preview:request'])
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()

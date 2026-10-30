@@ -1,0 +1,39 @@
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.shade {
+  fill: #0008;
+}
+.frame {
+  fill: transparent;
+  stroke: #eee;
+  stroke-width: 1;
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+}
+.grid {
+  stroke: #fff8;
+  stroke-width: 1;
+}
+.handle {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  background: var(--surface);
+  border: 2px solid var(--text);
+  border-radius: 2px;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+.frame:focus-visible,
+.handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

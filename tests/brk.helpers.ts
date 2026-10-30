@@ -28,7 +28,9 @@ export interface BrkFixtureManifest {
   files: { name: string; path: string; sha256: string; captureMetadata: CaptureMetadata }[]
 }
 export async function brkFixtures() {
-  const path = resolve(process.env.LUMA_BRK_FIXTURES ?? 'artifacts/fixtures/sony-brk/manifest.json')
+  const path = resolve(
+    process.env.IRODORI_BRK_FIXTURES ?? 'artifacts/fixtures/sony-brk/manifest.json',
+  )
   try {
     const manifest = JSON.parse(await readFile(path, 'utf8')) as BrkFixtureManifest
     for (const file of manifest.files)

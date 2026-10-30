@@ -58,6 +58,11 @@ export interface LensState {
   profile: LensProfile
 }
 export interface ProcessingOptions {
+  /** Source-stage controls, separate from downstream point adjustments. */
+  noiseReduction?: import('./spatial-detail').NoiseReductionSettings
+  detailSharpening?: import('./spatial-detail').DetailSharpeningSettings
+  /** Committed geometry; prepared-source identities deliberately remain uncropped. */
+  crop?: import('./crop').CropSettings
   /** Main-owned admission and display snapshot; never a renderer-supplied path. */
   firstSurface?: import('./hdr-first-surface').HdrFirstSurfacePreparation
   processing?: ProcessingIdentity

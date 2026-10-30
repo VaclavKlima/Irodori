@@ -8,7 +8,9 @@ import {
 // AHD Lab conversion adapted from LibRaw 0.22.1 under CDDL-1.0. See third_party/libraw.
 import { lensShader } from './lens-shader'
 import type { CorrectionPlan } from '../processing/lens-correction'
-import { ahdShader } from './ahd-shader'
+import { ahdShader, ahdDisplayShader } from './ahd-shader'
+import { creativeColorActive, prepareCreativeColor } from '../../shared/creative-color'
+import { packCreativeColor, CREATIVE_COLOR_PARAMETER_BYTES } from '../../shared/creative-color-gpu'
 import { displayCurve, displayTransform, type RawSource } from './raw-source'
 import { frameByteLength } from '../../shared/preview-frame'
 import { mergePrepareShader } from './merge-prepare-shader'
@@ -117,6 +119,7 @@ export class RawGpuRenderer {
   private deviceGeneration = 0
   private unavailable?: string
   private pipelines = new Map<string, GPUComputePipeline>()
+  private creativeDisplay?: Promise<GPUComputePipeline>
   private linear?: GPUTexture
   private cameraSource?: RawSource
   private adapter = ''
@@ -164,7 +167,7 @@ export class RawGpuRenderer {
     this.adapter = `${adapter.info.vendor} ${adapter.info.device} (${adapter.info.description})`
     const device = await adapter.requestDevice({
       requiredFeatures:
-        process.env.LUMA_MERGE_GPU_TIMESTAMPS === '1' && adapter.features.has('timestamp-query')
+        process.env.IRODORI_MERGE_GPU_TIMESTAMPS === '1' && adapter.features.has('timestamp-query')
           ? ['timestamp-query']
           : [],
       requiredLimits: {
@@ -187,7 +190,7 @@ export class RawGpuRenderer {
       this.unavailable ||= `GPU device lost: ${info.message}`
       this.close()
     })
-    const module = device.createShaderModule({ code: ahdShader, label: 'Luma AHD' })
+    const module = device.createShaderModule({ code: ahdShader, label: 'Irodori AHD' })
     const errors = (await module.getCompilationInfo()).messages.filter((m) => m.type === 'error')
     if (errors.length) throw new Error(errors.map((m) => `${m.lineNum}: ${m.message}`).join('\n'))
     for (const name of [
@@ -207,7 +210,7 @@ export class RawGpuRenderer {
       )
     const lensModule = device.createShaderModule({
       code: lensShader,
-      label: 'Luma lens correction',
+      label: 'Irodori lens correction',
     })
     this.pipelines.set(
       'correct',
@@ -225,6 +228,27 @@ export class RawGpuRenderer {
     return { device, adapter: this.adapter }
   }
 
+  private creativeDisplayPipeline(device: GPUDevice): Promise<GPUComputePipeline> {
+    if (this.creativeDisplay) return this.creativeDisplay
+    const pending = Promise.resolve().then(async () => {
+      const pipeline = await device.createComputePipelineAsync({
+        label: 'Irodori legacy RAW creative display',
+        layout: 'auto',
+        compute: {
+          module: device.createShaderModule({ code: ahdDisplayShader(true) }),
+          entryPoint: 'display',
+        },
+      })
+      if (this.device !== device) throw new Error('GPU creative display initialization cancelled.')
+      return pipeline
+    })
+    this.creativeDisplay = pending
+    void pending.catch(() => {
+      if (this.creativeDisplay === pending) this.creativeDisplay = undefined
+    })
+    return pending
+  }
+
   releaseFrame(): void {
     this.linear?.destroy()
     this.linear = undefined
@@ -237,6 +261,7 @@ export class RawGpuRenderer {
     this.device = undefined
     this.adapterTextureArrayLayers = 0
     this.pipelines.clear()
+    this.creativeDisplay = undefined
     device?.destroy()
     this.gpu = undefined
   }
@@ -244,7 +269,7 @@ export class RawGpuRenderer {
   async render(
     source: RawSource,
     correction?: CorrectionPlan,
-    adjustments: AdjustmentParameters = neutralAdjustments,
+    inputAdjustments: AdjustmentParameters = neutralAdjustments,
     exportLinear = false,
     cameraOnly = false,
     merge?: GpuMergePreparation,
@@ -252,6 +277,10 @@ export class RawGpuRenderer {
     firstSurface?: FirstSurfaceConsumer,
     admission?: GpuResourceAdmission,
   ): Promise<GpuFrame> {
+    const adjustments = structuredClone(inputAdjustments),
+      colour = prepareCreativeColor(adjustments),
+      creative = !source.normalization && !consumer && !cameraOnly && creativeColorActive(colour),
+      colourBytes = creative ? CREATIVE_COLOR_PARAMETER_BYTES : 0
     const checkFirstSurface = () => {
       if (firstSurface?.signal.aborted)
         throw new FirstSurfaceConsumerError(firstSurface.signal.reason)
@@ -275,6 +304,13 @@ export class RawGpuRenderer {
     })
     checkFirstSurface()
     const timings: GpuFrame['timings'] = { initializeMs: performance.now() - start }
+    let displayPipeline = this.pipelines.get('display')!
+    if (creative) {
+      const preparing = performance.now()
+      displayPipeline = await this.creativeDisplayPipeline(device)
+      checkFirstSurface()
+      timings.creativeDisplayPrepareMs = performance.now() - preparing
+    }
     const { width, height } = source
     const bytes = frameByteLength(width, height)
     const rows = consumer ? 128 : 256,
@@ -296,21 +332,26 @@ export class RawGpuRenderer {
             merge.reviewWidth * merge.reviewHeight * 32,
           ) +
           merge.reviewWidth * merge.reviewHeight * 32 +
-          272 +
+          288 +
           144 +
           correction.lut.byteLength +
           mergeReservedBytes
         : 0
-    const estimatedBytes = Math.max(
-      (consumer
-        ? bytes * 4 + source.pixels.byteLength + stripePixels * 80 + 623072 + consumer.reservedBytes
-        : Math.max(
-            bytes * 6 + source.pixels.byteLength + stripePixels * 80,
-            correction ? bytes * 9 + source.pixels.byteLength : 0,
-            exportLinear ? bytes * 12 + height * 256 : 0,
-          )) + mergeReservedBytes,
-      nativeMergeBytes,
-    )
+    const estimatedBytes =
+      Math.max(
+        (consumer
+          ? bytes * 4 +
+            source.pixels.byteLength +
+            stripePixels * 80 +
+            623072 +
+            consumer.reservedBytes
+          : Math.max(
+              bytes * 6 + source.pixels.byteLength + stripePixels * 80,
+              correction ? bytes * 9 + source.pixels.byteLength : 0,
+              exportLinear ? bytes * 12 + height * 256 : 0,
+            )) + mergeReservedBytes,
+        nativeMergeBytes,
+      ) + colourBytes
     if (
       !Number.isSafeInteger(estimatedBytes) ||
       estimatedBytes > 1024 ** 3 ||
@@ -323,7 +364,10 @@ export class RawGpuRenderer {
     merge?.observeGpuBytes?.(estimatedBytes)
     if (admission) {
       validateManagedImageBytes(admission.rendererReservation)
-      const ramBytes = admission.rendererReservation.ramBytes + admission.baseEstimatedRamBytes,
+      const ramBytes =
+          admission.rendererReservation.ramBytes +
+          admission.baseEstimatedRamBytes +
+          colourBytes * 3,
         vramBytes = admission.rendererReservation.vramBytes + estimatedBytes
       if (
         !Number.isSafeInteger(ramBytes) ||
@@ -392,7 +436,10 @@ export class RawGpuRenderer {
     try {
       const upload = performance.now()
       const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-      const uniform = makeBuffer(272, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
+      const uniform = makeBuffer(288, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
+      const colourBuffer = creative
+        ? makeBuffer(colourBytes, storage, packCreativeColor(colour!))
+        : undefined
       const raw = makeBuffer(source.pixels.byteLength, storage, source.pixels)
       const green = makeBuffer(stripePixels * 8, storage)
       const rgb = makeBuffer(stripePixels * 32, storage)
@@ -436,23 +483,27 @@ export class RawGpuRenderer {
         { buffer: labCurve },
         linear.createView(),
       )
+      if (colourBuffer) bindings.push({ buffer: colourBuffer })
       const names: [string, number[]][] = [
         ['interpolateGreen', [0, 1, 2]],
         ['interpolateColor', [0, 1, 2, 3, 4, 10]],
         ['buildHomogeneity', [0, 4, 5]],
         ['combine', [0, 1, 3, 5, 6, 7]],
-        ['display', [0, 8, 9, 11]],
+        ['display', [0, 8, 9, 11, ...(creative ? [12] : [])]],
       ]
       const groups = new Map(
         names.map(([name, indices]) => [
           name,
           device.createBindGroup({
-            layout: this.pipelines.get(name)!.getBindGroupLayout(0),
+            layout: (name === 'display'
+              ? displayPipeline
+              : this.pipelines.get(name)!
+            ).getBindGroupLayout(0),
             entries: indices.map((binding) => ({ binding, resource: bindings[binding] })),
           }),
         ]),
       )
-      const params = new ArrayBuffer(272)
+      const params = new ArrayBuffer(288)
       const ints = new Uint32Array(params),
         floats = new Float32Array(params)
       ints.set([width, height, source.rawWidth, source.flip, source.left, source.top, 0, rows])
@@ -489,13 +540,15 @@ export class RawGpuRenderer {
       floats[44] = adjustments.shadows
       floats[45] = adjustments.whites
       floats[46] = adjustments.blacks
+      floats[68] = adjustments.saturation
+      floats[69] = adjustments.vibrance
       const wb = whiteBalanceMatrix(adjustments.whiteBalance, source.whiteBalance)
       floats[47] = Number(!!wb)
       for (let r = 0; r < 3; r++)
         floats.set((wb ?? identityMatrix).slice(r * 3, r * 3 + 3), 48 + r * 4)
       const dispatch = (encoder: GPUCommandEncoder, name: string, dispatchRows: number) => {
         const pass = encoder.beginComputePass({ label: name })
-        pass.setPipeline(this.pipelines.get(name)!)
+        pass.setPipeline(name === 'display' ? displayPipeline : this.pipelines.get(name)!)
         pass.setBindGroup(0, groups.get(name)!)
         pass.dispatchWorkgroups(Math.ceil(width / 16), Math.ceil(dispatchRows / 16))
         pass.end()
@@ -799,12 +852,13 @@ export class RawGpuRenderer {
         groups.set(
           'display',
           device.createBindGroup({
-            layout: this.pipelines.get('display')!.getBindGroupLayout(0),
+            layout: displayPipeline.getBindGroupLayout(0),
             entries: [
               { binding: 0, resource: { buffer: uniform } },
               { binding: 8, resource: { buffer: output } },
               { binding: 9, resource: { buffer: curve } },
               { binding: 11, resource: corrected.createView() },
+              ...(colourBuffer ? [{ binding: 12, resource: { buffer: colourBuffer } }] : []),
             ],
           }),
         )

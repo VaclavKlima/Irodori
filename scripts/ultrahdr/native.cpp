@@ -14,11 +14,11 @@
 #include "ultrahdr_api.h"
 
 extern "C" {
-int luma_encode(void*, unsigned, unsigned, void*, unsigned, int, float);
-void* luma_output();
-unsigned luma_size();
-const char* luma_error();
-void luma_release();
+int irodori_encode(void*, unsigned, unsigned, void*, unsigned, int, float);
+void* irodori_output();
+unsigned irodori_size();
+const char* irodori_error();
+void irodori_release();
 }
 
 namespace {
@@ -83,10 +83,10 @@ int main(int argc, char** argv) {
     const Input jpeg(argv[6], 268435456);
     if (pixels * 56 + jpeg.size * 3 + 134217728 > 2147483648ULL)
       throw std::runtime_error("HDR JPEG exceeds the supported encoder allocation limit.");
-    if (!luma_encode(half.data, width, height, jpeg.data, jpeg.size, quality, headroom))
-      throw std::runtime_error(luma_error());
-    auto* start = static_cast<uint8_t*>(luma_output());
-    const auto size = luma_size();
+    if (!irodori_encode(half.data, width, height, jpeg.data, jpeg.size, quality, headroom))
+      throw std::runtime_error(irodori_error());
+    auto* start = static_cast<uint8_t*>(irodori_output());
+    const auto size = irodori_size();
     if (!start || !size) throw std::runtime_error("Native encoder returned no image.");
     // Probe the live encoder stream without copying it or decoding the photograph again.
     std::unique_ptr<uhdr_codec_private_t, decltype(&uhdr_release_decoder)> probe(
@@ -109,12 +109,12 @@ int main(int argc, char** argv) {
     if (uint64_t(usage.ru_maxrss) > 2147483648ULL)
       throw std::runtime_error("Native HDR JPEG exceeded the 2 GiB process memory limit.");
     write(argv[7], start, size);
-    luma_release();
+    irodori_release();
     std::cout << "{\"width\":" << width << ",\"height\":" << height
               << ",\"peakBytes\":" << usage.ru_maxrss << "}\n";
     return 0;
   } catch (const std::exception& error) {
-    luma_release();
+    irodori_release();
     std::cerr << error.what() << '\n';
     return 1;
   }

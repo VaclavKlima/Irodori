@@ -162,7 +162,7 @@ export class NativeRawOwner {
     if (!this.child?.stdin || this.child.exitCode !== null || this.child.signalCode !== null)
       throw new Error('Native RAW helper stopped before source admission.')
     this.started = true
-    this.child.stdin.end(`LUMA-RAW-START1 ${this.context.nonce}\n`)
+    this.child.stdin.end(`IRODORI-RAW-START1 ${this.context.nonce}\n`)
   }
 
   private stop() {

@@ -2,7 +2,12 @@
 
 ## Status
 
-**Planned.** These color controls remain disabled today. [Shared requirements](README.md#shared-implementation-requirements) apply.
+**Implemented; acceptance in progress.** Saturation and Vibrance are enabled with
+shared history, typed MCP, preview/export GPU paths and equivalent CPU fallbacks.
+The [processing decision record](professional-editing-processing.md#implemented-saturationvibrance-decision)
+defines CIE Lab/D65 intensity, frozen numerical limits, migrations and focused
+verification. Real-photo HDR/visual and source-matched performance gates remain
+pending. [Shared requirements](README.md#shared-implementation-requirements) apply.
 
 ## Goal
 

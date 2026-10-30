@@ -175,7 +175,7 @@ export function AllPhotos({
     setLoading(true)
     setFailure('')
     try {
-      const summary = await globalThis.window.luma.getBrowseSummary(nextQuery, [
+      const summary = await globalThis.window.irodori.getBrowseSummary(nextQuery, [
         ...previous.selected.keys(),
       ])
       if (ticket !== summaryTicket.current) return
@@ -209,7 +209,7 @@ export function AllPhotos({
         const index = await locateAnchor(
           anchor,
           async (id) =>
-            (await globalThis.window.luma.locateBrowsePhoto(nextQuery, id, summary.revision))
+            (await globalThis.window.irodori.locateBrowsePhoto(nextQuery, id, summary.revision))
               ?.index ?? null,
           summary.total,
         )
@@ -259,7 +259,7 @@ export function AllPhotos({
         const index = await locateAnchor(
           anchor,
           async (id) =>
-            (await globalThis.window.luma.locateBrowsePhoto(nextQuery, id, summary.revision))
+            (await globalThis.window.irodori.locateBrowsePhoto(nextQuery, id, summary.revision))
               ?.index ?? null,
           summary.total,
         )
@@ -346,7 +346,7 @@ export function AllPhotos({
     const generation = current.presentation.generation
     const requestedPhotoId = current.focusedPhoto.id
     let cancelled = false
-    void globalThis.window.luma
+    void globalThis.window.irodori
       .locateBrowsePhoto(
         current.presentation.query,
         requestedPhotoId,
@@ -403,7 +403,7 @@ export function AllPhotos({
   }, [active, selected, refresh])
   useEffect(
     () =>
-      globalThis.window.luma.onLibraryEvent((event) => {
+      globalThis.window.irodori.onLibraryEvent((event) => {
         if (event.libraryChanged) void refresh()
       }),
     [refresh],
@@ -465,7 +465,7 @@ export function AllPhotos({
       `${query.search}:${query.grouping}:${summary.revision}`,
       summary.total,
       async (offset) => ({
-        records: (await globalThis.window.luma.getBrowseChunk(query, offset, summary.revision))
+        records: (await globalThis.window.irodori.getBrowseChunk(query, offset, summary.revision))
           .photos,
       }),
     )

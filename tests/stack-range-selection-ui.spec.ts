@@ -39,21 +39,21 @@ async function numberedSources(root: string, count: number) {
 }
 
 async function allPhotos(page: Page) {
-  const first = await page.evaluate(() => window.luma.listPhotos())
+  const first = await page.evaluate(() => window.irodori.listPhotos())
   const rest =
-    first.total > 60 ? (await page.evaluate(() => window.luma.listPhotos(60))).photos : []
+    first.total > 60 ? (await page.evaluate(() => window.irodori.listPhotos(60))).photos : []
   return [...first.photos, ...rest]
 }
 
 async function group(page: Page, ids: string[], expanded = false) {
   return page.evaluate(
     async ({ ids, expanded }) => {
-      const stack = await window.luma.groupPhotos(
+      const stack = await window.irodori.groupPhotos(
         ids,
         ids[0],
-        (await window.luma.listStacks()).revision,
+        (await window.irodori.listStacks()).revision,
       )
-      return expanded ? window.luma.setStackExpanded(stack.id, true, stack.revision) : stack
+      return expanded ? window.irodori.setStackExpanded(stack.id, true, stack.revision) : stack
     },
     { ids, expanded },
   )
@@ -116,9 +116,9 @@ async function targetNames(page: Page) {
 }
 
 test('ordinary clicks stay individual; cover ranges, additive ranges, deselection and hidden anchors retain the clicked active photo', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, sources)
   const photos = await allPhotos(page)
   const members = photos.slice(1, 4)
@@ -141,7 +141,7 @@ test('ordinary clicks stay individual; cover ranges, additive ranges, deselectio
   await expect(page.getByTestId('selection-count')).toHaveText('4 selected')
   await expect(card(members[1].id)).toHaveAttribute('aria-pressed', 'false')
   await expect(page.getByTestId('preview-filename')).toHaveText(members[1].filename)
-  const ordered = (await page.evaluate((id) => window.luma.getStackMembers(id), stack.id)).photos
+  const ordered = (await page.evaluate((id) => window.irodori.getStackMembers(id), stack.id)).photos
   await card(ordered[1].id).click()
   await card(ordered[2].id).click({ modifiers: ['Shift'] })
   await expect(page.getByTestId('selection-count')).toHaveText('2 selected')
@@ -161,18 +161,18 @@ test('ordinary clicks stay individual; cover ranges, additive ranges, deselectio
 })
 
 test('scrolling and a real import preserve two delayed ranges and a queued toggle; immediate Delete waits for every action', async ({
-  luma,
+  irodori,
 }) => {
   test.setTimeout(90000)
-  const { app, page } = luma
-  const paths = await numberedSources(luma.userDataDir, 70)
+  const { app, page } = irodori
+  const paths = await numberedSources(irodori.userDataDir, 70)
   await importPhotos(app, page, paths.slice(0, 69))
   const photos = await allPhotos(page)
   const ids = photos.slice(0, 65).map((p) => p.id)
   const stack = await group(page, ids, true)
   const ordered = [
-    ...(await page.evaluate((id) => window.luma.getStackMembers(id), stack.id)).photos,
-    ...(await page.evaluate((id) => window.luma.getStackMembers(id, 60), stack.id)).photos,
+    ...(await page.evaluate((id) => window.irodori.getStackMembers(id), stack.id)).photos,
+    ...(await page.evaluate((id) => window.irodori.getStackMembers(id, 60), stack.id)).photos,
   ]
   const card = (id: string) => page.getByTestId(`photo-card-${id}`)
   await card(stack.coverId).click()
@@ -184,7 +184,7 @@ test('scrolling and a real import preserve two delayed ranges and a queued toggl
     await revealEditorPhoto(page, ordered.at(-1)!.id)
     await importPhotos(app, page, paths.slice(69))
     await expect
-      .poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total)
+      .poll(async () => (await page.evaluate(() => window.irodori.listPhotos())).total)
       .toBe(70)
     await expect(page.getByTestId('editor-photo-scroll')).toBeVisible()
     const last = ordered.at(-1)!
@@ -204,7 +204,7 @@ test('scrolling and a real import preserve two delayed ranges and a queued toggl
     await expect(page.getByTestId('selection-count')).toHaveText('64 selected')
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('editor-photo-scroll')).toBeVisible()
-    expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(70)
+    expect((await page.evaluate(() => window.irodori.listPhotos())).total).toBe(70)
   } finally {
     await hold.evaluate((h) => h.restore())
     await hold.dispose()
@@ -212,9 +212,9 @@ test('scrolling and a real import preserve two delayed ranges and a queued toggl
 })
 
 test('successive ranges and a plain click run in arrival order and replace the anchor before context-menu deletion', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, sources)
   const photos = await allPhotos(page)
   const card = (i: number) => page.getByTestId(`photo-card-${photos[i].id}`)
@@ -249,9 +249,9 @@ test('successive ranges and a plain click run in arrival order and replace the a
 })
 
 test('navigation queued after a delayed range selects the next photo before deletion can freeze targets', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, sources)
   const photos = await allPhotos(page)
   const stack = await group(
@@ -278,9 +278,9 @@ test('navigation queued after a delayed range selects the next photo before dele
 })
 
 test('ordinary cover and expanded-member deletion Trash only the clicked photo and repair the surviving stack', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, sources)
   const trash = await isolateTrash(app)
   const photos = await allPhotos(page)
@@ -297,11 +297,13 @@ test('ordinary cover and expanded-member deletion Trash only the clicked photo a
     await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
     await expect
       .poll(async () =>
-        (await page.evaluate(() => window.luma.listPhotos())).photos.some((p) => p.id === photo.id),
+        (await page.evaluate(() => window.irodori.listPhotos())).photos.some(
+          (p) => p.id === photo.id,
+        ),
       )
       .toBe(false)
     if (photo.id === photos[1].id) {
-      expect((await page.evaluate(() => window.luma.listStacks())).stacks[0]).toMatchObject({
+      expect((await page.evaluate(() => window.irodori.listStacks())).stacks[0]).toMatchObject({
         id: stack.id,
         count: 2,
         coverId: photos[0].id,
@@ -311,15 +313,15 @@ test('ordinary cover and expanded-member deletion Trash only the clicked photo a
   expect((await readdir(trash)).map((name) => name.slice(0, 64)).sort()).toEqual(
     [photos[0].id, photos[1].id].sort(),
   )
-  expect((await page.evaluate(() => window.luma.listStacks())).stacks).toEqual([])
-  expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(3)
+  expect((await page.evaluate(() => window.irodori.listStacks())).stacks).toEqual([])
+  expect((await page.evaluate(() => window.irodori.listPhotos())).total).toBe(3)
   for (const path of sources) expect((await readFile(path)).length).toBeGreaterThan(0)
 })
 
 test('a failed range blocks deletion until a later selection succeeds, including while that selection is pending', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, sources)
   const photos = await allPhotos(page)
   const card = (i: number) => page.getByTestId(`photo-card-${photos[i].id}`)
@@ -356,9 +358,9 @@ test('a failed range blocks deletion until a later selection succeeds, including
 })
 
 test('a delayed catalog response cannot reselect deleted IDs; removing the anchor makes the next Shift-click individual', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, sources)
   await isolateTrash(app)
   const photos = await allPhotos(page)
@@ -374,13 +376,14 @@ test('a delayed catalog response cannot reselect deleted IDs; removing the ancho
     await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(1)
     await page.keyboard.press('Delete')
     const task = await page.evaluate(
-      (ids) => window.luma.deletePhotos(ids),
+      (ids) => window.irodori.deletePhotos(ids),
       [stack.coverId, photos[4].id],
     )
     await expect
       .poll(
         async () =>
-          (await page.evaluate(() => window.luma.listTasks())).find((t) => t.id === task)?.status,
+          (await page.evaluate(() => window.irodori.listTasks())).find((t) => t.id === task)
+            ?.status,
       )
       .toBe('completed')
     await expect(page.getByTestId(`photo-card-${stack.coverId}`)).toHaveCount(0)
@@ -394,7 +397,7 @@ test('a delayed catalog response cannot reselect deleted IDs; removing the ancho
     )
     await expect(page.getByTestId('selection-count')).toHaveText('3 selected')
     await page.keyboard.press('Escape')
-    const survivingStack = (await page.evaluate(() => window.luma.listStacks())).stacks[0]
+    const survivingStack = (await page.evaluate(() => window.irodori.listStacks())).stacks[0]
     await card(survivingStack.coverId).click({ modifiers: ['Shift'] })
     await expect(page.getByTestId('selection-count')).toHaveText('1 selected')
     expect(await hold.evaluate((h) => h.calls.length)).toBe(1)
@@ -409,20 +412,23 @@ test(
   foregroundTest(
     'Wayland native scrolling after resize needs a presented window: trusted End reaches the focused overflowing list while hidden, but does not scroll; hidden-safe capture also stalls.',
   ),
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(90000)
-    const { app, page } = luma
-    const paths = await numberedSources(luma.userDataDir, 69)
+    const { app, page } = irodori
+    const paths = await numberedSources(irodori.userDataDir, 69)
     const originalBytes = await Promise.all(paths.map((path) => readFile(path)))
     await importPhotos(app, page, paths)
     const trash = await isolateTrash(app)
     const photos = await allPhotos(page)
     const ids = photos.slice(0, 65).map((p) => p.id)
     const stack = await group(page, ids)
-    const expected = await page.evaluate(({ from, to }) => window.luma.getGalleryRange(from, to), {
-      from: stack.coverId,
-      to: stack.coverId,
-    })
+    const expected = await page.evaluate(
+      ({ from, to }) => window.irodori.getGalleryRange(from, to),
+      {
+        from: stack.coverId,
+        to: stack.coverId,
+      },
+    )
     const cover = page.getByTestId(`photo-card-${stack.coverId}`)
     await cover.click()
     await cover.click({ modifiers: ['Shift'] })
@@ -542,11 +548,11 @@ test(
     await expect.poll(() => targetNames(page)).toEqual(expected.map((p) => p.filename))
     await page.evaluate(
       async ({ stack, ids, extra }) => {
-        await window.luma.ungroupStack(stack.id, stack.revision)
-        await window.luma.groupPhotos(
+        await window.irodori.ungroupStack(stack.id, stack.revision)
+        await window.irodori.groupPhotos(
           [...ids, extra],
           stack.coverId,
-          (await window.luma.listStacks()).revision,
+          (await window.irodori.listStacks()).revision,
         )
       },
       { stack, ids, extra: photos[65].id },
@@ -555,7 +561,7 @@ test(
     await expect.poll(() => targetNames(page)).toEqual(expected.map((p) => p.filename))
     await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
     const deletion = await page.evaluate(async () =>
-      (await window.luma.listTasks()).find((task) => task.kind === 'delete')!,
+      (await window.irodori.listTasks()).find((task) => task.kind === 'delete')!,
     )
     expect(deletion).toBeDefined()
     expect(deletion.progress!.total).toBe(65)
@@ -563,7 +569,7 @@ test(
     await expect
       .poll(
         async () => {
-          const status = (await page.evaluate(() => window.luma.listTasks())).find(
+          const status = (await page.evaluate(() => window.irodori.listTasks())).find(
             (task) => task.id === deletion.id,
           )?.status
           return ['completed', 'failed', 'cancelled'].includes(status ?? '')
@@ -572,14 +578,14 @@ test(
       )
       .toBe(true)
     const completedDeletion = await page.evaluate(
-      async (id) => (await window.luma.listTasks()).find((task) => task.id === id)!,
+      async (id) => (await window.irodori.listTasks()).find((task) => task.id === id)!,
       deletion.id,
     )
     expect(completedDeletion.status).toBe('completed')
     expect(completedDeletion.errorCount).toBe(0)
     expect(completedDeletion.progress).toEqual({ completed: 65, total: 65, unit: 'items' })
     await expect
-      .poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total)
+      .poll(async () => (await page.evaluate(() => window.irodori.listPhotos())).total)
       .toBe(4)
     expect((await readdir(trash)).map((name) => name.slice(0, 64)).sort()).toEqual([...ids].sort())
     expect((await allPhotos(page)).map((p) => p.id).sort()).toEqual(
@@ -590,16 +596,16 @@ test(
     )
     for (const [index, path] of paths.entries())
       expect(await readFile(path)).toEqual(originalBytes[index])
-    expect((await page.evaluate(() => window.luma.listStacks())).stacks).toEqual([])
-    const restarted = await luma.restart()
-    expect((await restarted.page.evaluate(() => window.luma.listPhotos())).total).toBe(4)
+    expect((await page.evaluate(() => window.irodori.listStacks())).stacks).toEqual([])
+    const restarted = await irodori.restart()
+    expect((await restarted.page.evaluate(() => window.irodori.listPhotos())).total).toBe(4)
   },
 )
 
 test('editing MCP and UI resolve the same complete and member-only ranges while flat enumeration stays separate', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, sources)
   const photos = await allPhotos(page)
   const stack = await group(
@@ -609,19 +615,19 @@ test('editing MCP and UI resolve the same complete and member-only ranges while 
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [resolve('scripts/editor-mcp.mjs')],
-    env: { ...(process.env as Record<string, string>), LUMA_PROFILE: luma.userDataDir },
+    env: { ...(process.env as Record<string, string>), IRODORI_PROFILE: irodori.userDataDir },
   })
-  const client = new Client({ name: 'luma-range-test', version: '1' })
+  const client = new Client({ name: 'irodori-range-test', version: '1' })
   try {
     await client.connect(transport)
     expect(
-      (await client.listTools()).tools.find((t) => t.name === 'luma_get_gallery_range')
+      (await client.listTools()).tools.find((t) => t.name === 'irodori_get_gallery_range')
         ?.description,
     ).toContain('all current stack members')
     for (const expanded of [false, true]) {
       if (expanded)
-        await page.evaluate((s) => window.luma.setStackExpanded(s.id, true, s.revision), stack)
-      const ordered = (await page.evaluate((id) => window.luma.getStackMembers(id), stack.id))
+        await page.evaluate((s) => window.irodori.setStackExpanded(s.id, true, s.revision), stack)
+      const ordered = (await page.evaluate((id) => window.irodori.getStackMembers(id), stack.id))
         .photos
       const pairs = [
         [stack.coverId, stack.coverId],
@@ -630,12 +636,12 @@ test('editing MCP and UI resolve the same complete and member-only ranges while 
       ]
       for (const [fromId, toId] of pairs) {
         const response = await client.callTool({
-          name: 'luma_get_gallery_range',
+          name: 'irodori_get_gallery_range',
           arguments: { fromId, toId },
         })
         expect(response.isError).not.toBe(true)
         const ui = await page.evaluate(
-          ({ fromId, toId }) => window.luma.getGalleryRange(fromId, toId),
+          ({ fromId, toId }) => window.irodori.getGalleryRange(fromId, toId),
           { fromId, toId },
         )
         expect(response.structuredContent).toEqual({ photos: ui })
@@ -647,7 +653,7 @@ test('editing MCP and UI resolve the same complete and member-only ranges while 
       await expect.poll(() => targetNames(page)).toEqual(ordered.map((p) => p.filename))
       await page.keyboard.press('Escape')
     }
-    expect((await page.evaluate(() => window.luma.listPhotos())).photos).toEqual(photos)
+    expect((await page.evaluate(() => window.irodori.listPhotos())).photos).toEqual(photos)
   } finally {
     await client.close()
     await transport.close()

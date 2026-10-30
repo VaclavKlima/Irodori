@@ -8,6 +8,12 @@ import { encodeExportHdr } from './encoder'
 import { validatePrimary } from './jpeg'
 import type { ExportDiagnostics, ExportRenderJob, ExportRenderResult } from './types'
 import type { ExportWorkerPhase } from '../../shared/export'
+import {
+  exportSdrEncodePlan,
+  requireExportAllocation,
+  ExportResourceError,
+} from '../../shared/export-resources'
+import type { ManagedImageBytes } from '../../shared/resource-policy'
 
 export { rasterLinear } from './raster'
 
@@ -69,6 +75,8 @@ export async function renderExport(
   const metadataStarted = performance.now()
   let metadataMs = 0,
     sdrEncodeMs = 0
+  const admission = job.detailAdmission ?? job.cropAdmission ?? job.resizeAdmission
+  let sdrMemory: ReturnType<typeof exportSdrEncodePlan> | undefined
   const pendingTags = metadata(job).finally(() => {
     metadataMs = performance.now() - metadataStarted
   })
@@ -76,12 +84,27 @@ export async function renderExport(
     rgb: Buffer,
     geometry: { width: number; height: number },
     exif: Awaited<ReturnType<typeof metadata>>,
+    concurrent?: ManagedImageBytes,
   ) => {
     const started = performance.now()
+    const plan = admission
+      ? exportSdrEncodePlan(geometry.width, geometry.height, {
+          policy: admission.policy,
+          reservation: concurrent ?? {
+            ramBytes:
+              admission.reservation.ramBytes +
+              rgb.byteLength +
+              (job.hdr ? geometry.width * geometry.height * 8 : 0),
+            vramBytes: admission.reservation.vramBytes,
+          },
+        })
+      : undefined
+    if (plan) requireExportAllocation(plan)
+    sdrMemory = plan
     let encoder = sharp(rgb, { raw: { ...geometry, channels: 3 } }).withIccProfile('srgb')
     if (exif) encoder = encoder.withExif(exif)
     try {
-      return await encoder
+      const output = await encoder
         .jpeg({
           quality: job.options.quality,
           chromaSubsampling: '4:4:4',
@@ -89,13 +112,16 @@ export async function renderExport(
           optimiseCoding: true,
         })
         .toBuffer()
+      if (plan && output.byteLength > plan.outputLimitBytes)
+        throw new ExportResourceError('The SDR JPEG exceeded its admitted output storage.')
+      return output
     } finally {
       sdrEncodeMs = performance.now() - started
     }
   }
   const [rendered, tags] = await Promise.allSettled([
-    exportRenditions(job, undefined, (rgb, geometry) =>
-      pendingTags.then((exif) => encodeSdr(rgb, geometry, exif)),
+    exportRenditions(job, undefined, (rgb, geometry, concurrent) =>
+      pendingTags.then((exif) => encodeSdr(rgb, geometry, exif, concurrent)),
     ).then((rendition) => {
       onProgress?.('rendition-rendered')
       return rendition
@@ -107,6 +133,11 @@ export async function renderExport(
   const rendition = rendered.value
   const { rgb, half, geometry, contentHeadroom } = rendition
   const diagnostics: ExportDiagnostics = {
+    memory: admission ? { render: rendition.diagnostics.memory } : undefined,
+    crop: rendition.diagnostics.crop,
+    resize: rendition.diagnostics.resize,
+    detail: rendition.diagnostics.detail,
+    sourcePreparation: rendition.diagnostics.sourcePreparation,
     renderer: rendition.diagnostics.renderer,
     adapter: rendition.diagnostics.adapter,
     rendererFallback: rendition.diagnostics.rendererFallback,
@@ -124,6 +155,7 @@ export async function renderExport(
   const sdr = await (rendition.earlyPrimary ?? encodeSdr(rgb, geometry, tags.value))
   onProgress?.('sdr-jpeg-obtained')
   diagnostics.stages.sdrEncodeMs = sdrEncodeMs
+  if (diagnostics.memory) diagnostics.memory.sdr = sdrMemory
   let stage: number
   let output = sdr
   let renderedPath: string | undefined,
@@ -138,6 +170,18 @@ export async function renderExport(
       job.options.quality,
       contentHeadroom,
       job.directory,
+      undefined,
+      undefined,
+      admission
+        ? {
+            policy: admission.policy,
+            reservation: {
+              ramBytes:
+                admission.reservation.ramBytes + rgb.byteLength + half.byteLength + sdr.byteLength,
+              vramBytes: admission.reservation.vramBytes,
+            },
+          }
+        : undefined,
     )
     onProgress?.('hdr-encoded')
     output = encoded.output
@@ -145,6 +189,7 @@ export async function renderExport(
     primaryWritten = encoded.primaryWritten
     diagnostics.encoder = encoded.backend
     diagnostics.encoderMemory = encoded.memory
+    if (diagnostics.memory) diagnostics.memory.hdr = encoded.admission
     diagnostics.encoderFallback = encoded.fallback
     diagnostics.stages.hdrEncodeMs = performance.now() - stage
     stage = performance.now()

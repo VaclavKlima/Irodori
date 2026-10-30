@@ -21,8 +21,8 @@ export async function hashFile(path: string) {
 }
 export function ownedPartialName(jobId: string, index: number, name: string) {
   return (
-    name.startsWith(`.luma-export-${jobId}-${index}-`) &&
-    /^\.luma-export-[a-f0-9-]+-\d+-[a-f0-9-]+\.partial$/.test(name)
+    name.startsWith(`.irodori-export-${jobId}-${index}-`) &&
+    /^\.irodori-export-[a-f0-9-]+-\d+-[a-f0-9-]+\.partial$/.test(name)
   )
 }
 export async function directoryIdentity(path: string) {

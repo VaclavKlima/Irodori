@@ -28,7 +28,7 @@ const test = base.extend<
   correctedHdr: [
     // eslint-disable-next-line no-empty-pattern -- Playwright requires destructured fixtures.
     async ({}, use) => {
-      const output = await mkdtemp(join(tmpdir(), 'luma-hdr-corrected-'))
+      const output = await mkdtemp(join(tmpdir(), 'irodori-hdr-corrected-'))
       const engine = new PreviewEngine()
       try {
         const path = 'tests/fixtures/sony-zv1.ARW',
@@ -55,7 +55,7 @@ const test = base.extend<
 
 const samples: string[] = [
   'tests/fixtures/sony-zv1.ARW',
-  ...JSON.parse(process.env.LUMA_RAW_TEST_FILES ?? '[]'),
+  ...JSON.parse(process.env.IRODORI_RAW_TEST_FILES ?? '[]'),
 ]
 for (const sample of samples)
   // eslint-disable-next-line no-empty-pattern -- Playwright requires destructured fixtures.

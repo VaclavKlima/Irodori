@@ -15,7 +15,7 @@ import {
 import type { ThumbnailProcessor, ThumbnailResult } from '../src/main/preview-types'
 
 test('Sony review thumbnails reuse warm ExifTool without opening the RAW decoder or creating large previews', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-review-raw-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-review-raw-'))
   const engine = new PreviewEngine()
   const open = librawDecoder.open
   librawDecoder.open = async () => {
@@ -46,7 +46,7 @@ test('Sony review thumbnails reuse warm ExifTool without opening the RAW decoder
 
 test('RAW embedded failure defers decoder work and forced fallback creates only one small thumbnail', async () => {
   test.setTimeout(60_000)
-  const root = await mkdtemp(join(tmpdir(), 'luma-review-fallback-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-review-fallback-'))
   const engine = new PreviewEngine(async () => {
     throw new Error('No embedded preview')
   })
@@ -70,7 +70,7 @@ test('RAW embedded failure defers decoder work and forced fallback creates only 
 })
 
 test('embedded JPEGs with readable headers but corrupt pixels defer to the decoder queue', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-review-corrupt-jpeg-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-review-corrupt-jpeg-'))
   const jpeg = await sharp({
     create: { width: 800, height: 600, channels: 3, background: '#753945' },
   })
@@ -100,7 +100,7 @@ test('embedded JPEGs with readable headers but corrupt pixels defer to the decod
 })
 
 test('embedded JPEGs without their own orientation follow all eight source orientations', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-review-orientation-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-review-orientation-'))
   const engine = new PreviewEngine(async (_tool, path, output) => {
     // Extraction strips the source's orientation, like some camera previews.
     await sharp(path).jpeg().toFile(output)
@@ -144,7 +144,7 @@ test('embedded JPEGs without their own orientation follow all eight source orien
 })
 
 test('bundled review workers support raster and embedded RAW thumbnails and reclaim cancelled workers', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-review-worker-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-review-worker-'))
   const processor = new PreviewProcess(resolve('out/main/preview-worker.js'))
   const decoder = new PreviewProcess(resolve('out/main/preview-worker.js'))
   try {
@@ -203,7 +203,7 @@ function heldProcessor() {
 }
 
 async function scheduler() {
-  const root = await mkdtemp(join(tmpdir(), 'luma-review-queue-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-review-queue-'))
   const light = heldProcessor()
   const fallback = heldProcessor()
   const states: { id: string; state: ReviewThumbnailState }[] = []

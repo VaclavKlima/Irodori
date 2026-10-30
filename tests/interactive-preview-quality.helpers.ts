@@ -72,8 +72,8 @@ export function photographPreviewMetrics(
       : [0.2289745641, 0.6917385218, 0.0792869141]
   const flags = new Uint8Array(width * height)
   const differences = new Float32Array(width * height * 3)
-  const lumaReference = new Float32Array(width * height),
-    lumaCandidate = new Float32Array(width * height)
+  const luminanceReference = new Float32Array(width * height),
+    luminanceCandidate = new Float32Array(width * height)
   let maximumGradientDifference = 0,
     baselineEdges = 0,
     candidateEdges = 0,
@@ -94,8 +94,8 @@ export function photographPreviewMetrics(
         const difference = Math.abs(a - b)
         nonfinite += Number(!Number.isFinite(a) || !Number.isFinite(b))
         differences[pixel * 3 + c] = b - a
-        lumaReference[pixel] += a * weights[c]
-        lumaCandidate[pixel] += b * weights[c]
+        luminanceReference[pixel] += a * weights[c]
+        luminanceCandidate[pixel] += b * weights[c]
         light += linear(a) * weights[c]
         if (sourceAlpha[pixel] > 0) add(aggregate, difference)
         if (difference > largestError) {
@@ -145,8 +145,8 @@ export function photographPreviewMetrics(
       for (let y = top; y < Math.min(height, top + 8); y++)
         for (let x = left; x < Math.min(width, left + 8); x++) {
           const i = y * width + x,
-            r = lumaReference[i],
-            c = lumaCandidate[i]
+            r = luminanceReference[i],
+            c = luminanceCandidate[i]
           if (sourceAlpha[i] <= 0) continue
           count++
           a += r

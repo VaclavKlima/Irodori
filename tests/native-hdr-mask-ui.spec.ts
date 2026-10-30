@@ -15,8 +15,8 @@ import {
 
 test.use({ hdrDisplay: true })
 
-async function prepare(luma: { app: ElectronApplication; page: Page }) {
-  const { app, page } = luma
+async function prepare(irodori: { app: ElectronApplication; page: Page }) {
+  const { app, page } = irodori
   const activity = await observeAnalysisActivity(app)
   let messages: Awaited<ReturnType<typeof observeAnalysisMessages>> | undefined
   let owners: Awaited<ReturnType<typeof observeGpuAnalysisOwners>> | undefined
@@ -36,11 +36,11 @@ async function prepare(luma: { app: ElectronApplication; page: Page }) {
       .filter((worker) => /\/hdr-analysis-worker-[^/]+\.js(?:\?|$)/.test(worker.url()))
     expect(matches).toHaveLength(1)
     const worker = matches[0]
-    expect(await page.evaluate(() => window.luma.getCpuPreviewBackend())).toBe('native')
+    expect(await page.evaluate(() => window.irodori.getCpuPreviewBackend())).toBe('native')
     gate = await installAnalysisHashGate(worker, actual.asset!, true)
     const gpu = await owners.evaluate((control) => control.mark())
     expect(gpu.baselineTextures).toBeGreaterThan(0)
-    const photos = await page.evaluate(() => window.luma.listPhotos())
+    const photos = await page.evaluate(() => window.irodori.listPhotos())
     expect(photos.photos).toHaveLength(1)
     const photoId = photos.photos[0].id
     await expect
@@ -95,10 +95,10 @@ async function finish(value: Prepared) {
 
 for (const reenable of [false, true]) {
   test(`native mask cancellation drains a genuine pending full-mask SHA${reenable ? ' and stale completion cannot release re-enabled work' : ''}`, async ({
-    luma,
+    irodori,
   }, info) => {
     test.setTimeout(90000)
-    const value = await prepare(luma)
+    const value = await prepare(irodori)
     const { page, gate, messages, activity, owners, photoId, before } = value
     const clipping = page.getByRole('button', { name: 'Canvas channel clipping', exact: true })
     let evidence: unknown
@@ -261,7 +261,7 @@ for (const reenable of [false, true]) {
               }
             })
           }),
-          runtime: await luma.app.evaluate(() => process.versions),
+          runtime: await irodori.app.evaluate(() => process.versions),
           pageText: await page.locator('body').innerText(),
         }
         if (evidence)
@@ -394,12 +394,12 @@ async function observeNativeMaskErrorDrain(page: Page, sentinel: string) {
 }
 
 test('an unrelated uncaught worker error retains the actual mask receiver, activity and source until genuine digest drain', async ({
-  luma,
+  irodori,
 }, info) => {
   test.setTimeout(90000)
-  const value = await prepare(luma),
+  const value = await prepare(irodori),
     { page, gate, worker, messages, activity, owners, photoId } = value,
-    sentinel = 'Luma native mask worker error drain control',
+    sentinel = 'Irodori native mask worker error drain control',
     lifetime = await observeNativeMaskErrorDrain(page, sentinel),
     clipping = page.getByRole('button', { name: 'Canvas channel clipping', exact: true })
   let evidence: unknown
@@ -598,10 +598,10 @@ test('an unrelated uncaught worker error retains the actual mask receiver, activ
 })
 
 test('the actual analysis worker acknowledges cancellation before source samples arrive', async ({
-  luma,
+  irodori,
 }) => {
   test.setTimeout(90000)
-  const value = await prepare(luma)
+  const value = await prepare(irodori)
   const { page, asset } = value
   let closeProtocol: (() => Promise<void>) | undefined
   let protocolGate: Awaited<ReturnType<typeof installAnalysisHashGate>> | undefined
@@ -644,7 +644,7 @@ test('the actual analysis worker acknowledges cancellation before source samples
     }
     const worker = await created
     protocolGate = await installAnalysisHashGate(worker, asset)
-    const target = await page.evaluate(() => window.luma.getDisplayState())
+    const target = await page.evaluate(() => window.irodori.getDisplayState())
     await handle.evaluate(
       (control, input) => {
         control.post({ asset: input.asset })

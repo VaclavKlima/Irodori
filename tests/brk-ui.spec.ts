@@ -8,14 +8,14 @@ import { resolve } from 'node:path'
 import { exposure, type MergePreview } from '../src/shared/merge'
 
 test('partial BRK group extends without changing selection or view, then reviews and publishes through UI/MCP', async ({
-  luma,
+  irodori,
 }, info) => {
   test.setTimeout(360000)
   const manifest = await brkFixtures()
   test.skip(!manifest, 'Private BRK manifest unavailable; camera UI acceptance is incomplete.')
   const sequence = manifest!.sequences.find((s) => s.files[0] === 'DSC02040.ARW')!,
     files = sequence.files.map((name) => manifest!.files.find((f) => f.name === name)!),
-    { app, page } = luma
+    { app, page } = irodori
   await isolateTrash(app)
   await importPhotos(
     app,
@@ -23,9 +23,9 @@ test('partial BRK group extends without changing selection or view, then reviews
     files.slice(0, 2).map((f) => f.path),
     false,
   )
-  const partial = (await page.evaluate(() => window.luma.listStacks())).stacks[0]
+  const partial = (await page.evaluate(() => window.irodori.listStacks())).stacks[0]
   expect(partial).toMatchObject({ count: 2, origin: 'capture' })
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos,
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos,
     cover = photos.find((p) => p.id === partial.coverId)!
   await page
     .getByRole('button', { name: `Expand stack for ${cover.filename}, 2 photos`, exact: true })
@@ -45,7 +45,7 @@ test('partial BRK group extends without changing selection or view, then reviews
   expect(Math.abs(Number(view.y))).toBeGreaterThan(0)
   const selection = await page.getByTestId('selection-count').innerText(),
     previousTasks = await page.evaluate(async () =>
-      (await window.luma.listTasks()).map((task) => task.id),
+      (await window.irodori.listTasks()).map((task) => task.id),
     )
   await importPhotos(app, page, [files[2].path], false)
   // The previous import's completion message can remain visible while this
@@ -54,7 +54,7 @@ test('partial BRK group extends without changing selection or view, then reviews
     .poll(async () =>
       page.evaluate(
         async (previous) =>
-          (await window.luma.listTasks()).find(
+          (await window.irodori.listTasks()).find(
             (task) => task.kind === 'import' && !previous.includes(task.id),
           )?.status,
         previousTasks,
@@ -62,7 +62,7 @@ test('partial BRK group extends without changing selection or view, then reviews
     )
     .toBe('completed')
   await expect
-    .poll(async () => (await page.evaluate(() => window.luma.listStacks())).stacks[0])
+    .poll(async () => (await page.evaluate(() => window.irodori.listStacks())).stacks[0])
     .toMatchObject({
       id: partial.id,
       coverId: partial.coverId,
@@ -90,17 +90,17 @@ test('partial BRK group extends without changing selection or view, then reviews
   try {
     await expect(merge).toBeEnabled({ timeout: 180000 })
   } catch (error) {
-    const review = await page.evaluate(() => window.luma.getActiveMergeReview())
+    const review = await page.evaluate(() => window.irodori.getActiveMergeReview())
     if (review)
       await info.attach('failure', {
         body: JSON.stringify(
-          await page.evaluate((r) => window.luma.getMergeDiagnostics(r.id, r.revision), review),
+          await page.evaluate((r) => window.irodori.getMergeDiagnostics(r.id, r.revision), review),
         ),
         contentType: 'application/json',
       })
     throw error
   }
-  const review = (await page.evaluate(() => window.luma.getActiveMergeReview()))!
+  const review = (await page.evaluate(() => window.irodori.getActiveMergeReview()))!
   expect(review.sources).toHaveLength(3)
   const reference = review.sources.find(
     (source) => source.photo.id === review.settings.referenceId,
@@ -117,13 +117,13 @@ test('partial BRK group extends without changing selection or view, then reviews
     transport = new StdioClientTransport({
       command: process.execPath,
       args: [resolve('scripts/editor-mcp.mjs')],
-      env: { ...(process.env as Record<string, string>), LUMA_PROFILE: luma.userDataDir },
+      env: { ...(process.env as Record<string, string>), IRODORI_PROFILE: irodori.userDataDir },
     })
   let preview: MergePreview
   try {
     await client.connect(transport)
     const response = await client.callTool({
-      name: 'luma_request_merge_preview',
+      name: 'irodori_request_merge_preview',
       arguments: { reviewId: review.id, expectedRevision: review.revision },
     })
     expect(response.isError).not.toBe(true)
@@ -146,24 +146,24 @@ test('partial BRK group extends without changing selection or view, then reviews
   await expect
     .poll(
       async () =>
-        (await page.evaluate(() => window.luma.listTasks())).find((t) => t.kind === 'merge')
+        (await page.evaluate(() => window.irodori.listTasks())).find((t) => t.kind === 'merge')
           ?.finishedAt,
       { timeout: 120000 },
     )
     .toBeTruthy()
-  const result = (await page.evaluate(() => window.luma.listPhotos())).photos.find(
+  const result = (await page.evaluate(() => window.irodori.listPhotos())).photos.find(
     (p) => p.assetKind === 'derived',
   )!
   expect(result).toBeDefined()
   expect(
-    (await page.evaluate((id) => window.luma.getMergeProvenance(id), result.id)).manifest.recipe
+    (await page.evaluate((id) => window.irodori.getMergeProvenance(id), result.id)).manifest.recipe
       .maskSha256,
   ).toBe(preview!.recipe.maskSha256)
   await expect(page.getByTestId('preview-filename')).toHaveText(result.filename)
   await expect(page.getByTestId('selection-count')).toHaveText('1 selected')
-  const restarted = await luma.restart()
+  const restarted = await irodori.restart()
   expect(
-    (await restarted.page.evaluate((id) => window.luma.getMergeProvenance(id), result.id)).manifest
-      .version,
+    (await restarted.page.evaluate((id) => window.irodori.getMergeProvenance(id), result.id))
+      .manifest.version,
   ).toBe('sony-merge-v4')
 })

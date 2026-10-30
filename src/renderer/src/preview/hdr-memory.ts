@@ -191,7 +191,7 @@ export function hdrPresentationMemory(request: HdrMemoryRequest, limits: HdrMemo
     ),
     tablesAndHistogram: bytes(
       HDR_RENDERING_TABLES_BYTES + HISTOGRAM_BYTES,
-      ACES_DATA_BYTES * 3 + 176 * 2 + HISTOGRAM_BYTES * 2,
+      ACES_DATA_BYTES * 3 + 192 * 2 + HISTOGRAM_BYTES * 2,
     ),
     // Bounded JS metadata estimate and simultaneous lookup/jobs arrays. This is not V8 heap accounting.
     cacheControl: bytes(

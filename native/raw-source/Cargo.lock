@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "luma-raw-source"
+name = "irodori-raw-source"
 version = "0.1.0"

@@ -46,7 +46,7 @@ function processingService(library: PhotoLibrary) {
 }
 
 test('an admitted actual merge child continues through activity but pauses until explicit processing drains', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-merge-activity-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-merge-activity-'))
   const workerPath = join(root, 'pause-control.cjs')
   // A control-only IPC child reports its actual received pause state. It does
   // not decode images, invent merge results or stand in for benchmark progress.
@@ -164,7 +164,7 @@ process.on('message', message => {
 })
 
 test('closing a queued merge inspection cancels admission and releases source pins', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-merge-queued-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-merge-queued-'))
   const scheduler = new WorkScheduler()
   let inspected = false
   const reviews = new MergeReviews(
@@ -199,7 +199,7 @@ test('closing a queued merge inspection cancels admission and releases source pi
 for (const version of [MERGE_VERSION] as const)
   test(`${version} journal recovery preserves derived master, neutral history, fixed lens and source-independent previews`, async () => {
     const f = await syntheticMerge([0.25, 1, 4]),
-      root = await mkdtemp(join(tmpdir(), 'luma-merge-library-')),
+      root = await mkdtemp(join(tmpdir(), 'irodori-merge-library-')),
       id = 'a'.repeat(64),
       inspections: string[] = []
     const make = () =>
@@ -237,8 +237,8 @@ for (const version of [MERGE_VERSION] as const)
           ...f.sources[1].photo,
           id,
           assetKind: 'derived',
-          filename: 'Result.luma',
-          format: 'LUMA HDR',
+          filename: 'Result.luminance',
+          format: 'IRODORI HDR',
           bytes: f.result.asset.byteLength,
           importedAt: new Date().toISOString(),
         },
@@ -417,13 +417,13 @@ for (const retiredVersion of ['hdr-source-v1', 'sony-merge-v1', 'sony-merge-v2',
         ? 'Unsupported HDR capture source version.'
         : 'Unsupported merge version.'
     const f = await syntheticMerge([1, 1], { width: 24, height: 65 })
-    const root = await mkdtemp(join(tmpdir(), 'luma-retained-unsupported-'))
-    const previousPreview = process.env.LUMA_PREVIEW_BACKEND
-    const previousExport = process.env.LUMA_EXPORT_BACKEND
+    const root = await mkdtemp(join(tmpdir(), 'irodori-retained-unsupported-'))
+    const previousPreview = process.env.IRODORI_PREVIEW_BACKEND
+    const previousExport = process.env.IRODORI_EXPORT_BACKEND
     // This service gate uses actual CPU workers and JPEG encoding, with no GPU
     // or presentation claim. It exercises the production library admission path.
-    process.env.LUMA_PREVIEW_BACKEND = 'cpu'
-    process.env.LUMA_EXPORT_BACKEND = 'cpu'
+    process.env.IRODORI_PREVIEW_BACKEND = 'cpu'
+    process.env.IRODORI_EXPORT_BACKEND = 'cpu'
     const make = () => {
       const args: ConstructorParameters<typeof PhotoLibrary> = [root, new PreviewEngine(), () => {}]
       args[15] = new ExportProcess(
@@ -492,9 +492,9 @@ for (const retiredVersion of ['hdr-source-v1', 'sony-merge-v1', 'sony-merge-v2',
           photo: {
             ...f.sources[0].photo,
             id,
-            filename: `${id[0]}-Result.luma`,
+            filename: `${id[0]}-Result.luminance`,
             assetKind: 'derived',
-            format: 'LUMA HDR',
+            format: 'IRODORI HDR',
             bytes: f.result.asset.byteLength,
             importedAt: '2026-10-20T12:00:00.000Z',
           },
@@ -703,10 +703,10 @@ for (const retiredVersion of ['hdr-source-v1', 'sony-merge-v1', 'sony-merge-v2',
           await f.close()
           await rm(root, { recursive: true, force: true })
         } finally {
-          if (previousPreview === undefined) delete process.env.LUMA_PREVIEW_BACKEND
-          else process.env.LUMA_PREVIEW_BACKEND = previousPreview
-          if (previousExport === undefined) delete process.env.LUMA_EXPORT_BACKEND
-          else process.env.LUMA_EXPORT_BACKEND = previousExport
+          if (previousPreview === undefined) delete process.env.IRODORI_PREVIEW_BACKEND
+          else process.env.IRODORI_PREVIEW_BACKEND = previousPreview
+          if (previousExport === undefined) delete process.env.IRODORI_EXPORT_BACKEND
+          else process.env.IRODORI_EXPORT_BACKEND = previousExport
         }
       }
     }
@@ -945,7 +945,7 @@ test('revision changes and closing cancel pending native work without publishing
   }
 })
 test('actual progress emission timestamps survive child IPC without replacement by receipt time', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-merge-progress-clock-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-merge-progress-clock-'))
   const workerPath = join(root, 'progress-clock.cjs'),
     receiptPath = join(root, 'emitted.json')
   await writeFile(
@@ -1009,8 +1009,8 @@ process.on('message', message => {
 })
 
 test('worker progress counts validated reference-first sources and completed CPU rows', async () => {
-  const previousBackend = process.env.LUMA_MERGE_BACKEND
-  process.env.LUMA_MERGE_BACKEND = 'cpu'
+  const previousBackend = process.env.IRODORI_MERGE_BACKEND
+  process.env.IRODORI_MERGE_BACKEND = 'cpu'
   try {
     const f = await syntheticMerge([1, 1, 1], { reference: 2, width: 24, height: 65 })
     try {
@@ -1091,8 +1091,8 @@ test('worker progress counts validated reference-first sources and completed CPU
       await f.close()
     }
   } finally {
-    if (previousBackend === undefined) delete process.env.LUMA_MERGE_BACKEND
-    else process.env.LUMA_MERGE_BACKEND = previousBackend
+    if (previousBackend === undefined) delete process.env.IRODORI_MERGE_BACKEND
+    else process.env.IRODORI_MERGE_BACKEND = previousBackend
   }
 })
 test('damaged masters and masks fail validation before publication', async () => {
@@ -1149,7 +1149,7 @@ test('damaged masters and masks fail validation before publication', async () =>
 for (const boundary of ['staged', 'journaled', 'published', 'committed'] as const)
   test(`interrupted merge publication at ${boundary} recovers complete masters without source loss`, async () => {
     const f = await syntheticMerge([1, 1]),
-      root = await mkdtemp(join(tmpdir(), 'luma-merge-boundary-'))
+      root = await mkdtemp(join(tmpdir(), 'irodori-merge-boundary-'))
     let fail = true
     const make = () =>
       new PhotoLibrary(
@@ -1283,7 +1283,7 @@ for (const boundary of ['staged', 'journaled', 'published', 'committed'] as cons
 
 test('a committed merge journal with lost ACK and failed readback retains all publication bytes until exactly one recovery', async () => {
   const f = await syntheticMerge([1, 1], { width: 24, height: 65 })
-  const root = await mkdtemp(join(tmpdir(), 'luma-merge-journal-unknown-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-merge-journal-unknown-'))
   const owners: CatalogWriter[] = []
   const committed = new Int32Array(new SharedArrayBuffer(4))
   const names = ['linear.f32', 'manifest.json', 'motion.mask', 'preview.jpg', 'thumb.jpg']
@@ -1599,7 +1599,7 @@ test('read-only review diagnostics retain structured worker failure without reru
 
 test('available originals do not make unsupported or malformed HDR provenance reproducible', async () => {
   const f = await syntheticMerge([1, 1]),
-    root = await mkdtemp(join(tmpdir(), 'luma-merge-provenance-source-')),
+    root = await mkdtemp(join(tmpdir(), 'irodori-merge-provenance-source-')),
     id = 'f'.repeat(64),
     sourceBytes = Buffer.from('isolated source-existence fixture; never decoded')
   let library = new PhotoLibrary(root, new PreviewEngine(), () => {}),
@@ -1631,8 +1631,8 @@ test('available originals do not make unsupported or malformed HDR provenance re
         ...f.sources[0].photo,
         id,
         assetKind: 'derived',
-        filename: 'Provenance.luma',
-        format: 'LUMA HDR',
+        filename: 'Provenance.luminance',
+        format: 'IRODORI HDR',
       },
       metadata: structuredClone(f.sources[0].metadata),
     }

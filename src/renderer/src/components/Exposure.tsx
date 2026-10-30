@@ -21,7 +21,8 @@ export function Exposure({
       step={parameter.step}
       precision={2}
       resetKey={edits.state?.revision}
-      disabled={!edits.state || edits.saving || !previewReady}
+      disabled={!edits.state || !previewReady}
+      busy={edits.saving}
       onChange={(exposureEv) => void edits.change({ exposureEv })}
       onCommit={() => void edits.flush().catch(() => undefined)}
       onCancel={edits.cancel}

@@ -213,14 +213,14 @@ npm run verify -- --target lens-correction --target lens-correction-raw
 At an agreed comprehensive checkpoint:
 
 ```sh
-LUMA_PREVIEW_BASELINE=/absolute/path/baseline.json npm run check:all
+IRODORI_PREVIEW_BASELINE=/absolute/path/baseline.json npm run check:all
 ```
 
 The preview benchmark requires the uncorrected CPU and GPU paths to stay within 15% of the saved baseline and corrected GPU rendering to remain faster than corrected CPU rendering. It reports correction overhead separately and measures actual Electron presentation. `benchmark:preview` covers preview measurements only; `benchmark:all` retains all benchmark families. Missing baselines or required hardware produce incomplete verification. Run benchmarks without competing GPU tests.
 
-`LUMA_RAW_TEST_FILES` accepts a JSON array of absolute paths for additional GPU regression samples; `LUMA_RAW_BENCHMARK_FILE` selects one benchmark RAW. Keep private samples outside committed fixtures. Report hardware skips and unverified platforms explicitly.
+`IRODORI_RAW_TEST_FILES` accepts a JSON array of absolute paths for additional GPU regression samples; `IRODORI_RAW_BENCHMARK_FILE` selects one benchmark RAW. Keep private samples outside committed fixtures. Report hardware skips and unverified platforms explicitly.
 
-For visual changes or unresolved UI problems, start `npm run dev:mcp`, inspect the actual renderer with `luma_ui`, and run `npm run mcp:check` against that window. Follow [testing.md](../../../docs/testing.md) for isolated libraries, MCP setup, and process cleanup. Record commands, fixture coverage, pixel comparisons, performance results, and any remaining limitations in the contribution.
+For visual changes or unresolved UI problems, start `npm run dev:mcp`, inspect the actual renderer with `irodori_ui`, and run `npm run mcp:check` against that window. Follow [testing.md](../../../docs/testing.md) for isolated libraries, MCP setup, and process cleanup. Record commands, fixture coverage, pixel comparisons, performance results, and any remaining limitations in the contribution.
 
 ## Register another display adjustment
 

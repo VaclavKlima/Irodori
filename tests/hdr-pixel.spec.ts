@@ -42,7 +42,7 @@ function referenceP3Proof(rgb: number[], peak: number) {
 }
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'luma-hdr-pixel-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-hdr-pixel-'))
   const path = join(root, 'linear.f32')
   const width = 3,
     height = 130

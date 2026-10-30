@@ -8,6 +8,7 @@ import type { LensProfile, LensSettings, RadialTable } from '../../shared/lens'
 import { appliedCorrections } from '../../shared/lens'
 import type { LinearFrame } from './contracts'
 import { displayTransform } from '../gpu/raw-source'
+import { catmullRom } from '../../shared/reconstruction'
 
 export const LENS_RENDER_VERSION = 'camera-linear-lens-bicubic-1'
 export const CROP_POLICY = 'center-native-aspect-1'
@@ -91,10 +92,7 @@ export function correctionPlan(
   return { lut, width: width - 2 * left, height: height - 2 * top, left, top, applied }
 }
 /** Catmull-Rom bicubic kernel shared with WGSL; edge taps extend the border pixel. */
-export function cubic(x: number): number {
-  x = Math.abs(x)
-  return x < 1 ? (1.5 * x - 2.5) * x * x + 1 : x < 2 ? ((-0.5 * x + 2.5) * x - 4) * x + 2 : 0
-}
+export const cubic = catmullRom
 export function correctLinearCpu(frame: LinearFrame, plan: CorrectionPlan): WorkingFrame {
   const { width, height } = frame
   const cx = (width - 1) / 2,

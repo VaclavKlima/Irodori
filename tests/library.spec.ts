@@ -143,10 +143,10 @@ test('recovers orphan staging and unpublished originals while keeping committed 
       const path = reopened.imagePath(saved.previewUrl)
       expect(path).toBe(join(t.root, 'library', 'originals', saved.id, 'preview.jpg'))
       for (const url of [
-        'luma-photo://library/../../catalog.sqlite',
-        `luma-photo://library/${saved.id}/original`,
-        'luma-photo://review/no-session/no-candidate/thumb',
-        `luma-photo://library/${orphan}/preview`,
+        'irodori-photo://library/../../catalog.sqlite',
+        `irodori-photo://library/${saved.id}/original`,
+        'irodori-photo://review/no-session/no-candidate/thumb',
+        `irodori-photo://library/${orphan}/preview`,
       ])
         expect(reopened.imagePath(url)).toBeUndefined()
     } finally {
@@ -186,7 +186,7 @@ test('creates correctly oriented previews for JPEG, PNG and TIFF and rejects cor
 })
 
 test('cancellation keeps completed imports and prevents a second import from interleaving', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-cancel-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-cancel-'))
   let committed!: () => void
   const firstCommitted = new Promise<void>((resolve) => {
     committed = resolve
@@ -224,7 +224,7 @@ test('cancellation keeps completed imports and prevents a second import from int
 })
 
 test('delivers progress for the latest session when sources are replaced quickly', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-events-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-events-'))
   const events: string[] = []
   const service = new PhotoLibrary(join(root, 'library'), new PreviewEngine(), (event) => {
     if (event.sessionId) events.push(event.sessionId)
@@ -243,7 +243,7 @@ test('delivers progress for the latest session when sources are replaced quickly
 })
 
 test('keeps fixed task totals and chunked errors after staging and review are disposed', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-task-errors-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-task-errors-'))
   const processor: PreviewProcessor = {
     process: async (_path, output) => {
       await copyFile(photo, join(output, 'thumb.jpg'))
@@ -306,7 +306,7 @@ test('keeps fixed task totals and chunked errors after staging and review are di
 })
 
 test('locates the selected photo and its neighbors after new imports move it to another page', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-navigation-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-navigation-'))
   const processor: PreviewProcessor = {
     process: async (_path, output) => {
       await copyFile(photo, join(output, 'thumb.jpg'))

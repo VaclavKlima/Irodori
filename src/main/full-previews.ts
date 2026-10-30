@@ -9,14 +9,35 @@ import {
   hdrSourceVersion,
   HDR_ADJUSTMENT_VERSION,
   HDR_OUTPUT_VERSION,
+  SDR_TARGET,
   type DisplayTarget,
 } from '../shared/hdr'
+import {
+  validateWhiteBalanceSample,
+  type WhiteBalanceSample,
+  type PhotoWhiteBalanceProposal,
+} from '../shared/white-balance-picker'
 import { ADJUSTMENT_VERSION, neutralAdjustments, sameAdjustments } from '../shared/adjustments'
-import type { ProcessingOptions } from '../shared/lens'
+import {
+  cropGeometry,
+  identityCrop,
+  isUncropped,
+  validateCrop,
+  type CropSettings,
+  type PhotoCropContext,
+} from '../shared/crop'
+import type { CropAdmission } from '../shared/crop-resources'
+import { detailProofMemoryPlan, type DetailAdmission } from '../shared/detail-resources'
+import type { LensSettings, ProcessingOptions } from '../shared/lens'
+import { validatePatch } from '../shared/edits'
 import { CROP_POLICY, LENS_RENDER_VERSION } from './processing/lens-correction'
 import { rawDecoderDefinitions } from './processing/formats'
 import { cameraProfile, cameraProfiles } from './processing/cameras'
-import { frameByteLength, PREVIEW_ASSET_VERSION } from '../shared/preview-frame'
+import {
+  frameByteLength,
+  PREVIEW_ASSET_VERSION,
+  PREPARED_PROOF_VERSION,
+} from '../shared/preview-frame'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   mkdir,
@@ -37,6 +58,7 @@ import type {
   CpuMaskSourceLease,
 } from './native-cpu-controller'
 import type { CpuPreviewRequest } from '../shared/native-cpu-preview'
+import { validateCpuPreviewSourceRef } from '../shared/native-cpu-preview'
 import type { NativeHdrMaskRequest } from '../shared/native-hdr-mask'
 import { join } from 'node:path'
 import { createReadStream } from 'node:fs'
@@ -73,18 +95,35 @@ import {
   type HdrCacheKernelKind,
 } from '../renderer/src/preview/hdr-shader'
 import { HDR_RENDERING_TABLE_HASHES } from '../shared/hdr-rendering-tables'
+import { creativeColorActive, prepareCreativeColor } from '../shared/creative-color'
 import type { WorkScheduler } from './work-scheduler'
 import {
   validateWorkingAsset,
   workingSourceIdentity,
+  croppedWorkingIdentity,
   type WorkingAssetLease,
 } from './working-assets'
+import {
+  detailLineageKey,
+  resolveDetailSettings,
+  type DetailSourceLineage,
+} from './processing/detail-identity'
+import {
+  preparedWorkingIdentity,
+  validatePreparedPreviewLineage,
+  type PreparedPreviewLineage,
+} from './prepared-preview-lineage'
+import {
+  PREPARED_COMPARISON_VERSION,
+  validatePreparedPreviewSourceRef,
+  type PreparedPreviewSourceRef,
+} from '../shared/prepared-comparison'
 
 // Cache layout version. Source and output identities separately invalidate pixel variants.
 export const PREVIEW_VERSION = PREVIEW_ASSET_VERSION
 const hashPattern = /^[a-f0-9]{64}$/
 const tokenPattern = /^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/
-interface Entry extends FullPreviewResult {
+interface Entry extends FullPreviewResult, PreparedPreviewLineage {
   variant: string
   sourceKey?: string
   id: string
@@ -99,11 +138,34 @@ interface Request {
   id: string
   token: string
   abort: AbortController
+  sourceSpace?: boolean
+  unfiltered?: boolean
   entry?: Entry
   linearEntry?: Entry
   work?: Promise<DisplayPreview | null>
   first?: HdrFirstSurfacePreparation
   firstDecline?: string
+}
+interface ComparisonOwner {
+  id: string
+  abort: AbortController
+  after: Entry
+  before?: Entry
+  work?: Promise<DisplayPreview | null>
+}
+interface ComparisonContext {
+  after: PreparedPreviewSourceRef
+  expectedRevision: number
+  owner: ComparisonOwner
+}
+interface CropRequestOptions {
+  workingOnly: boolean
+  cachedOnly: boolean
+  regenerate: boolean
+  background: boolean
+  firstSurface?: HdrFirstSurfaceRequest
+  rendererReservation?: ManagedImageBytes
+  started: number
 }
 interface FirstSurfaceLease {
   offer: HdrFirstSurfaceOffer
@@ -122,6 +184,8 @@ interface FirstSurfaceConfiguration {
 
 /** One foreground consumer, with serialized disk changes and independent stream leases. */
 export class FullPreviews {
+  private comparisons = new Map<string, ComparisonOwner>()
+  private comparisonDrains = new Set<Promise<DisplayPreview | null>>()
   private prewarmOutcome?: import('../shared/preview-diagnostics').PreviewDiagnostics['prewarm']
   private prewarmPromise?: Promise<PreviewWarmResult | undefined>
   private prewarmStarted = 0
@@ -182,9 +246,12 @@ export class FullPreviews {
   private entries = new Map<string, Entry>()
   private background = new Set<Request>()
   private analyses = new Map<AbortController, string>()
+  private whiteBalancePicking = false
   private active?: Request
   private cpu?: NativeCpuController
   private firstConfiguration?: FirstSurfaceConfiguration
+  private cropAdmission?: (signal: AbortSignal) => Promise<CropAdmission>
+  private detailAdmission?: (signal: AbortSignal) => Promise<DetailAdmission>
   private firstSurfaces = new Map<string, FirstSurfaceLease>()
   private firstOwners = new Set<FirstSurfaceLease>()
   private firstPrograms = new Map<string, Readonly<Record<string, string>>>()
@@ -194,17 +261,31 @@ export class FullPreviews {
   installCpuController(controller: NativeCpuController) {
     this.cpu = controller
   }
+  installCropAdmission(admission: (signal: AbortSignal) => Promise<CropAdmission>) {
+    this.cropAdmission = admission
+  }
+  installDetailAdmission(admission: (signal: AbortSignal) => Promise<DetailAdmission>) {
+    this.detailAdmission = admission
+  }
   runCpuForeground<T>(work: () => Promise<T>, signal: AbortSignal): Promise<T> {
     return this.scheduler ? this.scheduler.detached(() => this.foreground(work, signal)) : work()
   }
   async acquireCpuWorkingSource(
     request: Pick<CpuPreviewRequest, 'source' | 'expectedSettingsRevision'>,
     signal: AbortSignal,
+    comparisonOf?: PreparedPreviewSourceRef,
   ): Promise<CpuWorkingLease> {
     const ref = request.source
+    if (comparisonOf) {
+      validatePreparedPreviewSourceRef(comparisonOf)
+      if (comparisonOf.photoId !== ref.photoId)
+        throw new Error('The comparison belongs to another photograph.')
+      comparisonOf = structuredClone(comparisonOf)
+    }
     const entry = this.entries.get(`${ref.photoId}-${ref.cacheId}`)
     if (
       !entry?.linear?.hdr ||
+      !entry.sourceKey ||
       entry.invalid ||
       this.closed ||
       this.blocked.has(ref.photoId) ||
@@ -214,11 +295,30 @@ export class FullPreviews {
       throw new Error('The prepared CPU source is unavailable.')
     // Pin the exact entry synchronously, independently of any active preview token.
     entry.pins++
+    const framingOwner =
+      this.active?.sourceSpace && (this.active.linearEntry === entry || this.active.entry === entry)
+        ? this.active
+        : undefined
     let file: Awaited<ReturnType<typeof open>> | undefined,
-      released = false
+      released = false,
+      comparisonParent: Entry | undefined
     const check = async (expectedSettingsRevision: number, activeSignal: AbortSignal) => {
       activeSignal.throwIfAborted()
       const options = await this.options?.(ref.photoId, activeSignal)
+      if (comparisonOf && options) {
+        const after = this.comparisonAfter(comparisonOf, options, comparisonParent)
+        comparisonParent = after
+        if (
+          entry.width !== after.width ||
+          entry.height !== after.height ||
+          JSON.stringify(entry.crop ?? null) !== JSON.stringify(after.crop ?? null)
+        )
+          throw new Error('The CPU comparison geometry changed.')
+      }
+      const selected =
+        options && comparisonOf
+          ? { ...options, noiseReduction: undefined, detailSharpening: undefined }
+          : options
       if (
         this.closed ||
         this.blocked.has(ref.photoId) ||
@@ -226,10 +326,28 @@ export class FullPreviews {
         !this.original(ref.photoId) ||
         options?.processing !== 'hdr-v1' ||
         options.revision !== expectedSettingsRevision ||
-        ![
-          workingSourceIdentity(ref.photoId, options, true),
-          workingSourceIdentity(ref.photoId, options, false),
-        ].includes(entry.sourceKey ?? '') ||
+        (!(
+          framingOwner &&
+          this.active === framingOwner &&
+          !framingOwner.abort.signal.aborted &&
+          [true, false].some(
+            (workingOnly) =>
+              preparedWorkingIdentity(
+                ref.photoId,
+                framingOwner.unfiltered
+                  ? { ...options, noiseReduction: undefined, detailSharpening: undefined }
+                  : options,
+                workingOnly,
+                entry,
+                true,
+              ) === entry.sourceKey,
+          )
+        ) &&
+          ![true, false].some(
+            (workingOnly) =>
+              preparedWorkingIdentity(ref.photoId, selected!, workingOnly, entry) ===
+              entry.sourceKey,
+          )) ||
         `${hdrSourceVersion(entry.linear!.hdr!.source)}-${entry.linear!.sha256}` !==
           ref.renderingIdentity
       )
@@ -278,8 +396,50 @@ export class FullPreviews {
     signal: AbortSignal,
     frozenPolicy?: Readonly<ResourcePolicySnapshot>,
   ): Promise<CpuMaskSourceLease> {
-    const lease = await this.acquireCpuWorkingSource(request, signal)
+    if (request.comparisonOf !== undefined) {
+      validateCpuPreviewSourceRef(request.comparisonOf)
+      if (
+        request.comparison !== 'before' ||
+        request.comparisonOf.photoId !== request.source.photoId
+      )
+        throw new Error('Invalid native Before mask lineage.')
+    }
+    const after = request.comparisonOf
+      ? await this.acquireCpuWorkingSource(
+          {
+            source: request.comparisonOf,
+            expectedSettingsRevision: request.expectedSettingsRevision,
+          },
+          signal,
+        )
+      : undefined
+    let lease: CpuWorkingLease | undefined
+    const release = async () => {
+      const results = await Promise.allSettled([lease?.release(), after?.release()]),
+        failures = results.flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : [],
+        )
+      if (failures.length)
+        throw new AggregateError(failures, 'Native mask source-pair release failed.')
+    }
     try {
+      const parent = request.comparisonOf,
+        before = await this.acquireCpuWorkingSource(
+          request,
+          signal,
+          parent
+            ? {
+                photoId: parent.photoId,
+                cacheId: parent.cacheId,
+                workingSha256: parent.workingSha256,
+              }
+            : undefined,
+        )
+      lease = before
+      const check = async (revision: number, activeSignal: AbortSignal) => {
+        await after?.check(revision, activeSignal)
+        await before.check(revision, activeSignal)
+      }
       const options = await this.options?.(request.source.photoId, signal)
       if (
         !options ||
@@ -293,16 +453,18 @@ export class FullPreviews {
         throw new Error('Native mask resource policy is unavailable.')
       const policy = structuredClone(frozenPolicy ?? (await this.firstConfiguration!.policy()))
       signal.throwIfAborted()
-      await lease.check(request.expectedSettingsRevision, signal)
+      await check(request.expectedSettingsRevision, signal)
       return {
-        ...lease,
+        ...before,
+        check,
+        release,
         parameters: structuredClone(parameters),
         policy: Object.freeze(policy),
         // Enable strip credit only with the future real worker-drain handshake.
         replacesDrainedJsScan: false,
       }
     } catch (error) {
-      await lease.release()
+      await release()
       throw error
     }
   }
@@ -351,6 +513,7 @@ export class FullPreviews {
         const metadata = JSON.parse(await readFile(join(path, 'entry.json'), 'utf8'))
         if (typeof metadata.variant !== 'string' || !metadata.variant)
           throw new Error('Unsupported preview cache entry.')
+        validatePreparedPreviewLineage(metadata, metadata.sourceKey, metadata)
         const workingOnly = metadata.format === 'hdr-working'
         if (workingOnly && !metadata.linear?.hdr) throw new Error('Missing HDR source descriptor.')
         const file = workingOnly
@@ -395,12 +558,15 @@ export class FullPreviews {
               hdr.sha256 !== metadata.linear.sha256
             )
               throw new Error('Inconsistent HDR descriptor.')
+          }
+          if (metadata.linear.hdr || metadata.detailSource) {
             const digest = createHash('sha256')
             for await (const chunk of createReadStream(join(path, 'linear.f32'), {
               highWaterMark: 1024 * 1024,
             }))
               digest.update(chunk)
-            if (digest.digest('hex') !== hdr.sha256) throw new Error('Damaged HDR working asset.')
+            if (digest.digest('hex') !== metadata.linear.sha256)
+              throw new Error('Damaged prepared working asset.')
           }
         }
         if (metadata.firstSurface) {
@@ -425,6 +591,12 @@ export class FullPreviews {
           }
         }
         this.entries.set(folder.name, {
+          crop: metadata.crop,
+          cropSettings: metadata.cropSettings,
+          baseSourceKey: metadata.baseSourceKey,
+          detailSource: metadata.detailSource,
+          detail: metadata.detail,
+          preparedProofVersion: metadata.preparedProofVersion,
           firstSurface: metadata.firstSurface,
           firstSurfaceDecline: metadata.firstSurfaceDecline,
           diagnostics: metadata.diagnostics,
@@ -475,6 +647,238 @@ export class FullPreviews {
         throw new Error('A floating-point preview is unavailable.')
       return preview
     })
+  }
+
+  private workingRef(entry: Entry): PreparedPreviewSourceRef | undefined {
+    return entry.linear && entry.sourceKey
+      ? { photoId: entry.id, cacheId: entry.revision, workingSha256: entry.linear.sha256 }
+      : undefined
+  }
+
+  private comparisonAfter(
+    ref: PreparedPreviewSourceRef,
+    options: ProcessingOptions,
+    captured?: Entry,
+  ): Entry {
+    const entry = captured ?? this.entries.get(`${ref.photoId}-${ref.cacheId}`)
+    if (
+      !entry?.linear ||
+      !entry.sourceKey ||
+      entry.invalid ||
+      entry.linear.sha256 !== ref.workingSha256 ||
+      preparedWorkingIdentity(ref.photoId, options, Boolean(entry.linear.hdr), entry) !==
+        entry.sourceKey
+    )
+      throw new Error('The comparison source revision or processing identity changed.')
+    return entry
+  }
+
+  /** An independently leased, revision-checked Before source on the same committed native grid. */
+  async requestComparison(
+    source: PreparedPreviewSourceRef,
+    token: string,
+    expectedRevision: number,
+  ): Promise<DisplayPreview> {
+    validatePreparedPreviewSourceRef(source)
+    if (
+      typeof token !== 'string' ||
+      !tokenPattern.test(token) ||
+      !Number.isSafeInteger(expectedRevision) ||
+      expectedRevision < 0 ||
+      this.closed ||
+      this.blocked.has(source.photoId) ||
+      !this.original(source.photoId) ||
+      this.active?.token === token ||
+      [...this.background].some((request) => request.token === token)
+    )
+      throw new Error('Invalid prepared comparison request.')
+    if (this.comparisons.size) throw new Error('A comparison source is already in use.')
+    const ref = structuredClone(source),
+      after = this.entries.get(`${ref.photoId}-${ref.cacheId}`)
+    if (!after?.linear || after.invalid || after.linear.sha256 !== ref.workingSha256)
+      throw new Error('The prepared comparison source is unavailable.')
+    after.pins++
+    const owner: ComparisonOwner = { id: ref.photoId, abort: new AbortController(), after }
+    this.comparisons.set(token, owner)
+    try {
+      const work = this.prepare(
+        ref.photoId,
+        token,
+        false,
+        false,
+        true,
+        true,
+        Boolean(after.linear.hdr),
+        false,
+        undefined,
+        undefined,
+        false,
+        undefined,
+        true,
+        { after: ref, expectedRevision, owner },
+      )
+      owner.work = work
+      this.comparisonDrains.add(work)
+      void work.finally(() => this.comparisonDrains.delete(work)).catch(() => undefined)
+      const frame = await work
+      owner.abort.signal.throwIfAborted()
+      if (!frame?.workingSource || !frame.linear || frame.settingsRevision !== expectedRevision)
+        throw new Error('The unfiltered comparison source is unavailable.')
+      const before = this.entries.get(`${ref.photoId}-${frame.workingSource.cacheId}`)
+      if (
+        !before?.linear ||
+        before.invalid ||
+        before.width !== after.width ||
+        before.height !== after.height ||
+        Boolean(before.linear.hdr) !== Boolean(after.linear.hdr) ||
+        JSON.stringify(before.crop ?? null) !== JSON.stringify(after.crop ?? null)
+      )
+        throw new Error('The comparison geometry or source domain changed.')
+      before.pins++
+      owner.before = before
+      const options = await this.options?.(ref.photoId, owner.abort.signal)
+      owner.abort.signal.throwIfAborted()
+      if (!options || options.revision !== expectedRevision)
+        throw new Error('The comparison settings revision changed.')
+      this.comparisonAfter(ref, options)
+      return {
+        ...frame,
+        comparisonOf: {
+          version: PREPARED_COMPARISON_VERSION,
+          after: ref,
+          settingsRevision: expectedRevision,
+        },
+      }
+    } catch (error) {
+      if (this.comparisons.get(token) === owner) await this.release(token)
+      throw error
+    }
+  }
+
+  private retireComparison(token: string, reason: string): ComparisonOwner | undefined {
+    const owner = this.comparisons.get(token)
+    if (!owner) return
+    this.comparisons.delete(token)
+    owner.abort.abort(new Error(reason))
+    owner.after.pins--
+    if (owner.before) owner.before.pins--
+    return owner
+  }
+
+  /** Read-only source lease for a crop draft; it never writes confirmed geometry. */
+  async requestCropSource(
+    id: string,
+    token: string,
+    expectedRevision: number,
+  ): Promise<DisplayPreview> {
+    const before = await this.confirmedCropOptions(id, expectedRevision)
+    try {
+      const frame = await this.prepare(
+        id,
+        token,
+        false,
+        false,
+        true,
+        false,
+        before.processing === 'hdr-v1',
+        false,
+        undefined,
+        undefined,
+        true,
+      )
+      await this.confirmedCropOptions(id, expectedRevision)
+      if (!frame?.linear || frame.settingsRevision !== expectedRevision)
+        throw new Error('Native crop geometry is unavailable.')
+      return { ...frame, sourceSpace: 'uncropped' }
+    } catch (error) {
+      await this.release(token)
+      throw error
+    }
+  }
+
+  private async confirmedCropOptions(
+    id: string,
+    expectedRevision: number,
+  ): Promise<ProcessingOptions> {
+    if (
+      !Number.isSafeInteger(expectedRevision) ||
+      expectedRevision < 0 ||
+      !hashPattern.test(id) ||
+      this.closed ||
+      this.blocked.has(id) ||
+      !this.original(id)
+    )
+      throw new Error('Invalid crop context request.')
+    const options = await this.options?.(id, new AbortController().signal)
+    if (
+      !options ||
+      options.revision !== expectedRevision ||
+      this.closed ||
+      this.blocked.has(id) ||
+      !this.original(id)
+    )
+      throw new Error('Crop context revision conflict. Reload the confirmed settings.')
+    return options
+  }
+
+  private async nativeCropSource(id: string, expectedRevision: number, sourceLens?: LensSettings) {
+    const before = await this.confirmedCropOptions(id, expectedRevision),
+      token = randomUUID(),
+      frame = await this.prepare(
+        id,
+        token,
+        false,
+        false,
+        true,
+        true,
+        before.processing === 'hdr-v1',
+        false,
+        undefined,
+        undefined,
+        true,
+        sourceLens,
+        true,
+      ),
+      after = await this.confirmedCropOptions(id, expectedRevision)
+    if (!frame?.linear) throw new Error('Native crop geometry is unavailable.')
+    return {
+      source: { width: frame.width, height: frame.height },
+      options: after,
+      renderingIdentity: frame.renderId,
+    }
+  }
+
+  /** Authoritative oriented/corrected native dimensions; catalog dimensions are never substituted. */
+  async getCropContext(id: string, expectedRevision: number): Promise<PhotoCropContext> {
+    const prepared = await this.nativeCropSource(id, expectedRevision),
+      source = prepared.source,
+      settings = structuredClone(prepared.options.crop ?? identityCrop)
+    return {
+      photoId: id,
+      revision: expectedRevision,
+      source,
+      settings,
+      geometry: cropGeometry(source, settings),
+      renderingIdentity: prepared.renderingIdentity,
+    }
+  }
+
+  /** Main-only preflight uses the proposed lens variant without publishing settings or history. */
+  async validateCropEdit(
+    id: string,
+    expectedRevision: number,
+    settings: CropSettings,
+    lens?: LensSettings,
+  ) {
+    validateCrop(settings)
+    if (lens) {
+      validatePatch({ lens })
+      if (Object.keys(lens).length !== 3) throw new Error('Incomplete crop lens settings.')
+    }
+    const crop = structuredClone(settings),
+      sourceLens = lens ? { ...lens } : undefined,
+      prepared = await this.nativeCropSource(id, expectedRevision, sourceLens)
+    return cropGeometry(prepared.source, crop)
   }
 
   async requestCached(id: string, token: string): Promise<FullPreview | null> {
@@ -530,6 +934,10 @@ export class FullPreviews {
     preferPrimary = false,
     firstSurface?: HdrFirstSurfaceRequest,
     rendererReservation?: ManagedImageBytes,
+    sourceSpace = false,
+    sourceLens?: LensSettings,
+    unfiltered = false,
+    comparison?: ComparisonContext,
   ): Promise<DisplayPreview | null> {
     if (
       this.closed ||
@@ -555,7 +963,13 @@ export class FullPreviews {
     }
     const started = performance.now()
     if (!background) this.diagnostics = { photoId: id, loadingStage: 'preparing', timings: {} }
-    const request: Request = { id, token, abort: new AbortController() }
+    const request: Request = {
+      id,
+      token,
+      abort: comparison?.owner.abort ?? new AbortController(),
+      sourceSpace,
+      unfiltered,
+    }
     if (background) this.background.add(request)
     else this.active = request
     const work = this.foreground(
@@ -570,9 +984,59 @@ export class FullPreviews {
                 throw new Error('This photo is unavailable.')
             }
             check()
-            const options = await this.options?.(id, request.abort.signal)
+            const resolved = structuredClone(await this.options?.(id, request.abort.signal))
+            if (comparison) {
+              if (!resolved || resolved.revision !== comparison.expectedRevision)
+                throw new Error('The comparison settings revision changed.')
+              const after = this.comparisonAfter(comparison.after, resolved),
+                admission = await this.spatialAdmission(
+                  'detail',
+                  { rendererReservation },
+                  request.abort.signal,
+                )
+              rendererReservation = admission.reservation
+              if (!workingOnly) {
+                const memory = detailProofMemoryPlan(after.crop?.source ?? after, admission, {
+                  hdr: Boolean(after.linear?.hdr),
+                  authoredHdr: Boolean(after.linear?.hdr?.source.display),
+                  preferGpu: false,
+                })
+                if (!memory.accepted)
+                  throw new Error('Comparison preview exceeds the frozen managed image budgets.')
+              }
+            }
+            const crop = resolved?.crop,
+              options = resolved
+                ? {
+                    ...resolved,
+                    crop: undefined,
+                    noiseReduction: unfiltered ? undefined : resolved.noiseReduction,
+                    detailSharpening: unfiltered ? undefined : resolved.detailSharpening,
+                    adjustments: comparison ? neutralAdjustments : resolved.adjustments,
+                    settings: sourceLens ? { ...sourceLens } : resolved.settings,
+                  }
+                : undefined
             if (workingOnly && options?.processing !== 'hdr-v1') return null
             if (workingOnly && preferPrimary && options?.metadata.hdrJpeg) return null
+            if (
+              options &&
+              (resolveDetailSettings(options).active ||
+                (crop && !sourceSpace && !isUncropped(crop)))
+            )
+              return await this.prepareSpatial(
+                request,
+                options,
+                sourceSpace ? identityCrop : (crop ?? identityCrop),
+                {
+                  workingOnly,
+                  cachedOnly,
+                  regenerate,
+                  background,
+                  firstSurface,
+                  rendererReservation,
+                  started,
+                },
+              )
             if (options) {
               options.prepareLinear = prepareLinear
               options.workingOnly = workingOnly
@@ -917,6 +1381,8 @@ export class FullPreviews {
                   : undefined,
               firstSurfaceDecline: request.firstDecline ?? entry.firstSurfaceDecline,
               adjustments: options?.adjustments ?? entry.adjustments,
+              workingSource: linearEntry ? this.workingRef(linearEntry) : undefined,
+              ...(linearEntry?.detailSource ? { requiresUnfilteredComparison: true as const } : {}),
               cpuSource: linearEntry?.linear?.hdr
                 ? {
                     photoId: id,
@@ -928,7 +1394,7 @@ export class FullPreviews {
               linear: linearEntry?.linear
                 ? {
                     ...linearEntry.linear,
-                    url: `luma-photo://library/${id}/linear/${PREVIEW_VERSION}/${linearEntry.revision}`,
+                    url: `irodori-photo://library/${id}/linear/${PREVIEW_VERSION}/${linearEntry.revision}`,
                   }
                 : undefined,
               settingsRevision: options?.revision ?? 0,
@@ -941,10 +1407,10 @@ export class FullPreviews {
               renderId,
               placeholderUrl: workingOnly
                 ? undefined
-                : `luma-photo://library/${id}/placeholder/${PREVIEW_VERSION}/${entry.revision}`,
+                : `irodori-photo://library/${id}/placeholder/${PREVIEW_VERSION}/${entry.revision}`,
               width: entry.width,
               height: entry.height,
-              url: `luma-photo://library/${id}/${workingOnly ? 'linear' : 'full'}/${PREVIEW_VERSION}/${entry.revision}`,
+              url: `irodori-photo://library/${id}/${workingOnly ? 'linear' : 'full'}/${PREVIEW_VERSION}/${entry.revision}`,
             } as DisplayPreview
           } catch (error) {
             if (this.active === request) {
@@ -966,6 +1432,507 @@ export class FullPreviews {
     )
     request.work = work
     return work
+  }
+
+  private async spatialAdmission(
+    stage: 'crop' | 'detail',
+    flags: Pick<CropRequestOptions, 'rendererReservation'>,
+    signal: AbortSignal,
+  ): Promise<DetailAdmission> {
+    signal.throwIfAborted()
+    const provider = stage === 'crop' ? this.cropAdmission : this.detailAdmission,
+      admission = provider
+        ? await provider(signal)
+        : flags.rendererReservation && this.firstConfiguration
+          ? {
+              policy: await this.firstConfiguration.policy(),
+              reservation: flags.rendererReservation,
+            }
+          : undefined
+    signal.throwIfAborted()
+    if (!admission)
+      throw new Error(
+        `${stage === 'crop' ? 'Crop' : 'Detail'} preview requires a current resource admission.`,
+      )
+    return structuredClone(admission)
+  }
+
+  /** Runs inside the existing serialized request, with the same deletion/cancellation owner. */
+  private async prepareSpatial(
+    request: Request,
+    options: ProcessingOptions,
+    settings: CropSettings,
+    flags: CropRequestOptions,
+  ): Promise<DisplayPreview | null> {
+    const { id, token, abort } = request,
+      signal = abort.signal,
+      hdrSource =
+        options.processing === 'hdr-v1' && (!options.metadata.hdrJpeg || flags.workingOnly),
+      upstreamKey = workingSourceIdentity(id, options, hdrSource),
+      detail = resolveDetailSettings(options),
+      selectedOptions = { ...options, crop: settings },
+      parameters = options.adjustments ?? neutralAdjustments,
+      check = () => {
+        signal.throwIfAborted()
+        if (this.closed || this.blocked.has(id) || !this.original(id))
+          throw new Error('This photo is unavailable.')
+      },
+      recent = () =>
+        [...this.entries.values()]
+          .filter((entry) => entry.id === id && !entry.invalid)
+          .sort((a, b) => b.usedAt - a.usedAt),
+      renditionKey = (key: string) =>
+        flags.workingOnly
+          ? `working-${key}`
+          : createHash('sha256')
+              .update(
+                JSON.stringify([
+                  detail.active ? 'detail-rendition-v1' : 'cropped-rendition-v1',
+                  PREPARED_PROOF_VERSION,
+                  key,
+                  parameters,
+                  ADJUSTMENT_VERSION,
+                  HDR_ADJUSTMENT_VERSION,
+                  HDR_OUTPUT_VERSION,
+                ]),
+              )
+              .digest('hex')
+    check()
+    if (flags.firstSurface)
+      request.firstDecline = detail.active
+        ? 'detail-view-requires-complete-working-source'
+        : 'cropped-view-requires-complete-working-source'
+    let source = recent().find(
+      (entry) =>
+        entry.linear &&
+        entry.sourceKey &&
+        preparedWorkingIdentity(id, selectedOptions, hdrSource, entry) === entry.sourceKey,
+    )
+    let sourceCacheHit = !!source
+    if (source && flags.regenerate) {
+      for (const entry of recent()) if (entry.sourceKey === source.sourceKey) entry.invalid = true
+      source = undefined
+      sourceCacheHit = false
+    }
+    if (flags.regenerate)
+      for (const entry of recent())
+        if (!entry.crop && entry.sourceKey === upstreamKey) entry.invalid = true
+    if (source) {
+      try {
+        if ((await stat(join(source.path, 'linear.f32'))).size !== source.linear!.byteLength)
+          throw new Error('Incomplete cropped source.')
+      } catch {
+        source.invalid = true
+        source = undefined
+        sourceCacheHit = false
+      }
+      check()
+    }
+    let base: Entry | undefined
+    if (!source) {
+      base = recent().find(
+        (entry) =>
+          !entry.crop &&
+          entry.linear &&
+          entry.sourceKey &&
+          preparedWorkingIdentity(id, selectedOptions, hdrSource, entry, true) === entry.sourceKey,
+      )
+      base ??= recent().find(
+        (entry) =>
+          !entry.crop && !entry.detailSource && entry.linear && entry.sourceKey === upstreamKey,
+      )
+      if (!base) {
+        if (flags.cachedOnly) return null
+        const baseOptions: ProcessingOptions = {
+          ...options,
+          crop: undefined,
+          noiseReduction: undefined,
+          detailSharpening: undefined,
+          firstSurface: undefined,
+          prepareLinear: true,
+          workingOnly: hdrSource,
+        }
+        let preparation: import('./preview-types').HdrRawPreparation | undefined
+        if (
+          hdrSource &&
+          options.metadata.hdrEligible &&
+          !options.workingAsset &&
+          !options.metadata.mergeMaster &&
+          !options.metadata.hdrJpeg &&
+          flags.rendererReservation &&
+          this.firstConfiguration &&
+          cameraProfile(options.metadata.make ?? '', options.metadata.model ?? '')?.gpu
+        ) {
+          preparation = {
+            originalSha256: id,
+            parentWorkingKey: upstreamKey,
+            rendererReservation: flags.rendererReservation,
+            policy: await this.firstConfiguration.policy(),
+          }
+          check()
+        }
+        base = await this.createPreparedEntry(
+          request,
+          upstreamKey,
+          `uncropped-source-${upstreamKey}`,
+          (directory) =>
+            this.processor.renderFull(
+              this.original(id)!,
+              directory,
+              signal,
+              baseOptions,
+              undefined,
+              preparation,
+            ),
+        )
+      }
+      if (detail.active && !base.detailSource) {
+        if (flags.cachedOnly) return null
+        if (!this.processor.prepareDetailPreview)
+          throw new Error('The detail preview worker is unavailable.')
+        const parent = base
+        parent.pins++
+        try {
+          check()
+          if (!parent.linear) throw new Error('Missing native detail source.')
+          const asset = {
+              ...structuredClone(parent.linear),
+              width: parent.width,
+              height: parent.height,
+              path: join(parent.path, 'linear.f32'),
+            },
+            detailSource: DetailSourceLineage = {
+              sourceIdentity: upstreamKey,
+              asset: {
+                width: asset.width,
+                height: asset.height,
+                sha256: asset.sha256,
+                ...(asset.hdr
+                  ? { source: asset.hdr.source, whiteBalance: asset.hdr.whiteBalance }
+                  : { transform: asset.transform }),
+              },
+              noiseReduction: detail.noiseReduction,
+              detailSharpening: detail.detailSharpening,
+            },
+            key = detailLineageKey(detailSource),
+            admission = await this.spatialAdmission('detail', flags, signal)
+          check()
+          base = await this.createPreparedEntry(
+            request,
+            key,
+            renditionKey(key),
+            (directory) =>
+              this.processor.prepareDetailPreview!(
+                this.original(id)!,
+                directory,
+                {
+                  ...admission,
+                  asset,
+                  sourceIdentity: upstreamKey,
+                  noiseReduction: detail.noiseReduction,
+                  detailSharpening: detail.detailSharpening,
+                  options: {
+                    ...options,
+                    processing: asset.hdr ? 'hdr-v1' : 'display-referred-v1',
+                    noiseReduction: undefined,
+                    detailSharpening: undefined,
+                    crop: undefined,
+                    firstSurface: undefined,
+                  },
+                  workingOnly: hdrSource,
+                  backend: (process.env.IRODORI_PREVIEW_BACKEND ?? 'auto') as
+                    'auto' | 'cpu' | 'gpu',
+                },
+                signal,
+              ),
+            { detailSource },
+          )
+          parent.usedAt = Date.now()
+        } finally {
+          parent.pins--
+        }
+      }
+      base.pins++
+      try {
+        check()
+        if (
+          !base.linear ||
+          (await stat(join(base.path, 'linear.f32'))).size !== base.linear.byteLength
+        )
+          throw new Error('Incomplete uncropped working source.')
+        const baseKey = base.sourceKey!,
+          geometry = cropGeometry(base, settings),
+          sourceKey = croppedWorkingIdentity(baseKey, geometry)
+        if (geometry.identity) source = base
+        else {
+          if (flags.cachedOnly) return null
+          if (!this.processor.prepareCropPreview)
+            throw new Error('The crop preview worker is unavailable.')
+          const admission = await this.spatialAdmission('crop', flags, signal)
+          check()
+          source = await this.createPreparedEntry(
+            request,
+            sourceKey,
+            renditionKey(sourceKey),
+            (directory) =>
+              this.processor.prepareCropPreview!(
+                this.original(id)!,
+                directory,
+                {
+                  ...admission,
+                  asset: {
+                    ...base!.linear!,
+                    width: base!.width,
+                    height: base!.height,
+                    path: join(base!.path, 'linear.f32'),
+                  },
+                  settings,
+                  options: { ...options, noiseReduction: undefined, detailSharpening: undefined },
+                  workingOnly: flags.workingOnly,
+                  backend: (process.env.IRODORI_PREVIEW_BACKEND ?? 'auto') as
+                    'auto' | 'cpu' | 'gpu',
+                },
+                signal,
+              ).then((frame) => ({ ...frame, detail: base!.detail })),
+            { baseSourceKey: baseKey, cropSettings: settings, detailSource: base.detailSource },
+          )
+        }
+        base.usedAt = Date.now()
+      } finally {
+        base.pins--
+      }
+    }
+    check()
+    if (!source?.linear || !source.sourceKey) throw new Error('Cropped working data unavailable.')
+    const sourceEntry = source,
+      linear = source.linear,
+      variant = renditionKey(source.sourceKey)
+    sourceEntry.pins++
+    request.linearEntry = sourceEntry
+    const matching = recent().find(
+      (entry) => entry.variant === variant && (flags.workingOnly || entry.format === 'rgba8-srgb'),
+    )
+    let entry =
+      matching ??
+      (flags.workingOnly ||
+      (sourceEntry.format === 'rgba8-srgb' &&
+        sourceEntry.preparedProofVersion === PREPARED_PROOF_VERSION &&
+        sameAdjustments(sourceEntry.adjustments ?? neutralAdjustments, parameters))
+        ? sourceEntry
+        : undefined)
+    const cacheHit = sourceCacheHit && !!entry
+    if (!entry) {
+      if (flags.cachedOnly) return null
+      entry = await this.createPreparedEntry(
+        request,
+        sourceEntry.sourceKey!,
+        variant,
+        async (directory) => {
+          const preparedOptions: ProcessingOptions = {
+            ...options,
+            noiseReduction: undefined,
+            detailSharpening: undefined,
+            crop: undefined,
+            firstSurface: undefined,
+            prepareLinear: false,
+            workingOnly: false,
+            workingAsset: {
+              ...linear,
+              width: sourceEntry.width,
+              height: sourceEntry.height,
+              path: join(sourceEntry.path, 'linear.f32'),
+            },
+          }
+          let backend: 'cpu' | 'gpu' | 'auto' = (process.env.IRODORI_PREVIEW_BACKEND ?? 'auto') as
+            'cpu' | 'gpu' | 'auto'
+          if (detail.active) {
+            const admission = await this.spatialAdmission('detail', flags, signal),
+              memory = detailProofMemoryPlan(sourceEntry, admission, {
+                hdr: Boolean(linear.hdr),
+                authoredHdr: Boolean(linear.hdr?.source.display),
+                preferGpu: backend !== 'cpu',
+              })
+            if (!memory.accepted)
+              throw new Error('Detail preview exceeds the frozen managed image budgets.')
+            backend = memory.backend
+            if (!this.processor.renderPreparedFull)
+              throw new Error('The prepared preview worker is unavailable.')
+          }
+          const frame = this.processor.renderPreparedFull
+            ? await this.processor.renderPreparedFull(directory, preparedOptions, signal, backend)
+            : await this.processor.renderFull(
+                this.original(id)!,
+                directory,
+                signal,
+                preparedOptions,
+              )
+          check()
+          if (
+            frame.width !== sourceEntry.width ||
+            frame.height !== sourceEntry.height ||
+            frame.format !== 'rgba8-srgb' ||
+            frame.settingsRevision !== options.revision ||
+            !sameAdjustments(frame.adjustments ?? neutralAdjustments, parameters)
+          )
+            throw new Error('The prepared source and rendered preview disagree.')
+          return {
+            ...frame,
+            detail: sourceEntry.detail,
+            crop: sourceEntry.crop,
+            renderId:
+              sourceEntry.crop || sourceEntry.detailSource
+                ? `${frame.renderId}-${sourceEntry.sourceKey}`
+                : frame.renderId,
+          }
+        },
+        {
+          ...(sourceEntry.crop
+            ? { baseSourceKey: sourceEntry.baseSourceKey, cropSettings: settings }
+            : {}),
+          detailSource: sourceEntry.detailSource,
+        },
+      )
+    }
+    check()
+    if (
+      !flags.workingOnly &&
+      ((await stat(join(entry.path, 'full.rgba'))).size !== entry.byteLength ||
+        (await stat(join(entry.path, 'placeholder.png'))).size !== entry.placeholderBytes)
+    ) {
+      entry.invalid = true
+      throw new Error('Incomplete cropped display frame. Retry this preview.')
+    }
+    if (flags.workingOnly && !linear.hdr) throw new Error('HDR crop source unavailable.')
+    entry.usedAt = sourceEntry.usedAt = Date.now()
+    entry.pins++
+    request.entry = entry
+    await this.prune()
+    check()
+    const renderingIdentity = linear.hdr
+        ? `${hdrSourceVersion(linear.hdr.source)}-${linear.sha256}`
+        : undefined,
+      renderId = flags.workingOnly ? renderingIdentity! : entry.renderId
+    if (!flags.background)
+      this.diagnostics = {
+        photoId: id,
+        revision: options.revision,
+        renderingIdentity: renderId,
+        preparationBackend: sourceEntry.diagnostics?.backend,
+        cacheHit,
+        loadingStage: 'prepared',
+        timings: {
+          ...sourceEntry.diagnostics?.timings,
+          preparationMs: performance.now() - flags.started,
+        },
+      }
+    return {
+      crop: sourceEntry.crop,
+      firstSurfaceDecline: request.firstDecline,
+      adjustments: parameters,
+      workingSource: this.workingRef(sourceEntry),
+      ...(sourceEntry.detailSource ? { requiresUnfilteredComparison: true as const } : {}),
+      settingsRevision: options.revision,
+      appliedCorrections: sourceEntry.appliedCorrections,
+      cpuSource: renderingIdentity
+        ? {
+            photoId: id,
+            cacheId: sourceEntry.revision,
+            workingSha256: linear.sha256,
+            renderingIdentity,
+          }
+        : undefined,
+      linear: {
+        ...linear,
+        url: `irodori-photo://library/${id}/linear/${PREVIEW_VERSION}/${sourceEntry.revision}`,
+      },
+      photoId: id,
+      requestId: token,
+      width: sourceEntry.width,
+      height: sourceEntry.height,
+      format: flags.workingOnly ? 'hdr-working' : 'rgba8-srgb',
+      byteLength: flags.workingOnly ? linear.byteLength : entry.byteLength,
+      sha256: flags.workingOnly ? linear.sha256 : entry.sha256,
+      renderId,
+      placeholderUrl: flags.workingOnly
+        ? undefined
+        : `irodori-photo://library/${id}/placeholder/${PREVIEW_VERSION}/${entry.revision}`,
+      url: `irodori-photo://library/${id}/${flags.workingOnly ? 'linear' : 'full'}/${PREVIEW_VERSION}/${entry.revision}`,
+    } as DisplayPreview
+  }
+
+  /** Publish spatial variants into the existing cache, with path-free recoverable lineage. */
+  private async createPreparedEntry(
+    request: Request,
+    sourceKey: string,
+    variant: string,
+    produce: (directory: string) => Promise<FullPreviewResult>,
+    lineage?: PreparedPreviewLineage,
+  ): Promise<Entry> {
+    const revision = randomUUID(),
+      temporary = join(this.directory, `.tmp-${revision}`),
+      path = join(this.directory, `${request.id}-${revision}`)
+    let published = false
+    try {
+      await mkdir(temporary)
+      const frame = await produce(temporary)
+      request.abort.signal.throwIfAborted()
+      const workingOnly = frame.format === 'hdr-working',
+        expected = workingOnly ? 0 : frameByteLength(frame.width, frame.height),
+        file = workingOnly ? { size: 0 } : await stat(join(temporary, 'full.rgba')),
+        placeholder = workingOnly ? { size: 0 } : await stat(join(temporary, 'placeholder.png'))
+      if (
+        !['rgba8-srgb', 'hdr-working'].includes(frame.format) ||
+        frame.byteLength !== expected ||
+        file.size !== expected ||
+        !hashPattern.test(frame.sha256) ||
+        placeholder.size !== frame.placeholderBytes ||
+        placeholder.size > 128 * 1024
+      )
+        throw new Error('The worker produced an invalid prepared preview.')
+      if (workingOnly && !frame.linear?.hdr) throw new Error('Missing prepared HDR working source.')
+      if (frame.linear) {
+        if (
+          frame.linear.byteLength !== frameByteLength(frame.width, frame.height) * 4 ||
+          frame.linear.byteLength > 512 * 1024 ** 2 ||
+          !hashPattern.test(frame.linear.sha256) ||
+          (await stat(join(temporary, 'linear.f32'))).size !== frame.linear.byteLength
+        )
+          throw new Error('Invalid prepared working file.')
+        if (frame.linear.hdr) {
+          const hdr = frame.linear.hdr
+          validateHdrSource(hdr.source)
+          if (
+            hdr.width !== frame.width ||
+            hdr.height !== frame.height ||
+            hdr.byteLength !== frame.linear.byteLength ||
+            hdr.sha256 !== frame.linear.sha256
+          )
+            throw new Error('Invalid prepared HDR descriptor.')
+        }
+      }
+      validatePreparedPreviewLineage(frame, sourceKey, lineage ?? {})
+      const bytes = file.size + placeholder.size + (frame.linear?.byteLength ?? 0),
+        metadata = { ...frame, ...lineage, sourceKey, variant, bytes }
+      await writeFile(join(temporary, 'entry.json'), JSON.stringify(metadata))
+      request.abort.signal.throwIfAborted()
+      await rename(temporary, path)
+      request.abort.signal.throwIfAborted()
+      const entry: Entry = {
+        ...metadata,
+        id: request.id,
+        revision,
+        path,
+        usedAt: Date.now(),
+        pins: 0,
+        invalid: false,
+      }
+      this.entries.set(`${request.id}-${revision}`, entry)
+      published = true
+      return entry
+    } finally {
+      await rm(temporary, { recursive: true, force: true })
+      if (!published) await rm(path, { recursive: true, force: true })
+    }
   }
 
   statistics(id: string, expectedRevision: number): Promise<PhotoStatistics> {
@@ -1018,6 +1985,8 @@ export class FullPreviews {
   }
 
   settingsChanged(id: string): void {
+    for (const [token, owner] of this.comparisons)
+      if (owner.id === id) this.retireComparison(token, 'Comparison settings revision changed.')
     for (const [job, photo] of this.analyses)
       if (photo === id) job.abort(new Error('Statistics revision conflict.'))
     for (const job of this.background)
@@ -1053,14 +2022,50 @@ export class FullPreviews {
     })
   }
 
+  async proposeWhiteBalance(
+    id: string,
+    expectedRevision: number,
+    sample: WhiteBalanceSample,
+  ): Promise<PhotoWhiteBalanceProposal> {
+    validateWhiteBalanceSample(sample)
+    const snapshot = { ...sample }
+    if (this.whiteBalancePicking)
+      throw new Error('A white-balance sample is already being prepared. Try again.')
+    this.whiteBalancePicking = true
+    try {
+      const result = await this.hdrAnalysis(
+        id,
+        expectedRevision,
+        'working-hdr',
+        SDR_TARGET,
+        (path, job, signal) => {
+          if (!this.processor.whiteBalanceSample)
+            throw new Error('The white-balance sample worker is unavailable.')
+          return this.processor.whiteBalanceSample(
+            path,
+            { asset: job.asset, sample: snapshot },
+            signal,
+          )
+        },
+        true,
+      )
+      return { ...result, sample: snapshot }
+    } finally {
+      this.whiteBalancePicking = false
+    }
+  }
+
   private hdrAnalysis<T>(
     id: string,
     expectedRevision: number,
     domain: HdrAnalysisDomain,
     target: DisplayTarget,
     work: (path: string, job: HdrStatisticsJob, signal: AbortSignal) => Promise<T>,
+    sourceSpace = false,
   ): Promise<T & { photoId: string; revision: number; renderingIdentity: string }> {
-    return this.foreground(() => this.analyzeHdr(id, expectedRevision, domain, target, work))
+    return this.foreground(() =>
+      this.analyzeHdr(id, expectedRevision, domain, target, work, sourceSpace),
+    )
   }
   private async analyzeHdr<T>(
     id: string,
@@ -1068,6 +2073,7 @@ export class FullPreviews {
     domain: HdrAnalysisDomain,
     target: DisplayTarget,
     work: (path: string, job: HdrStatisticsJob, signal: AbortSignal) => Promise<T>,
+    sourceSpace = false,
   ): Promise<T & { photoId: string; revision: number; renderingIdentity: string }> {
     const controller = new AbortController()
     const check = async () => {
@@ -1086,7 +2092,21 @@ export class FullPreviews {
       return options
     }
     await check()
-    const preview = await this.prepare(id, randomUUID(), false, false, true, true, true)
+    const preview = await this.prepare(
+      id,
+      randomUUID(),
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      undefined,
+      undefined,
+      sourceSpace,
+      undefined,
+      sourceSpace,
+    )
     if (!preview?.linear?.hdr || !preview.linear.url)
       throw new Error('HDR working data unavailable.')
     if (domain === 'output' && target.mode === 'sdr' && preview.linear.hdr.source.display)
@@ -1170,10 +2190,12 @@ export class FullPreviews {
       identity.image,
       identity.viewport,
     )
+    const creative = creativeColorActive(prepareCreativeColor(identity.parameters))
     const programKey = JSON.stringify([
       identity.target.mode,
       identity.target.colorSpace,
       identity.kernel,
+      ...(creative ? ['creative'] : []),
     ])
     let hashes = this.firstPrograms.get(programKey)
     if (!hashes) {
@@ -1182,7 +2204,7 @@ export class FullPreviews {
       hashes = Object.freeze({
         mip: digest(hdrMipShader),
         orientedMip: digest(hdrOrientedMipShader),
-        tiles: digest(hdrCacheKernel().shader),
+        tiles: digest(hdrCacheKernel('reference', creative).shader),
         presentation: digest(hdrShader),
         tables:
           HDR_RENDERING_TABLE_HASHES[
@@ -1335,7 +2357,7 @@ export class FullPreviews {
         format: 'rgba16float-le',
         byteLength: artifact.byteLength,
         sha256: artifact.sha256,
-        url: `luma-photo://library/${request.id}/first/${PREVIEW_VERSION}/${surfaceId}`,
+        url: `irodori-photo://library/${request.id}/first/${PREVIEW_VERSION}/${surfaceId}`,
       }
       let finish!: () => void
       const drained = new Promise<void>((resolve) => {
@@ -1421,12 +2443,23 @@ export class FullPreviews {
 
   async release(token?: string): Promise<void> {
     const firstDrained = this.retireFirstSurfaces(token)
+    const comparisons = (token === undefined ? [...this.comparisons.keys()] : [token])
+      .map((key) => this.retireComparison(key, 'Comparison source released.'))
+      .filter((owner) => owner !== undefined)
     if (token !== undefined && this.active?.token !== token) {
-      await firstDrained
+      await Promise.all([
+        firstDrained,
+        ...comparisons.map((owner) => owner.work?.catch(() => undefined)),
+      ])
+      if (comparisons.length) await this.enqueue(() => this.prune())
       return
     }
     this.detach(token === undefined)
-    await Promise.all([firstDrained, this.enqueue(() => this.prune())])
+    await Promise.all([
+      firstDrained,
+      ...comparisons.map((owner) => owner.work?.catch(() => undefined)),
+      this.enqueue(() => this.prune()),
+    ])
   }
 
   /** Main-only export reuse never starts a preview or consults mutable current edits. */
@@ -1434,23 +2467,28 @@ export class FullPreviews {
     id: string,
     options: ProcessingOptions,
     signal: AbortSignal,
+    rendition: import('./working-assets').WorkingAssetRendition = 'working',
   ): Promise<WorkingAssetLease | undefined> {
     signal.throwIfAborted()
     if (
       this.closed ||
       this.blocked.has(id) ||
       !this.original(id) ||
-      options.processing !== 'hdr-v1' ||
+      (rendition === 'primary' && options.processing === 'hdr-v1' && !options.metadata.hdrJpeg) ||
       options.metadata.mergeMaster
     )
       return
-    const identity = workingSourceIdentity(id, options)
+    const frozen = structuredClone(options),
+      hdrSource = rendition === 'working' && options.processing === 'hdr-v1'
     const entry = [...this.entries.values()]
       .filter(
         (candidate) =>
           candidate.id === id &&
-          candidate.sourceKey === identity &&
-          candidate.linear?.hdr &&
+          !candidate.crop &&
+          candidate.sourceKey &&
+          preparedWorkingIdentity(id, frozen, hdrSource, candidate, true) === candidate.sourceKey &&
+          candidate.linear &&
+          Boolean(candidate.linear.hdr) === hdrSource &&
           !candidate.invalid,
       )
       .sort((a, b) => b.usedAt - a.usedAt)[0]
@@ -1479,8 +2517,9 @@ export class FullPreviews {
       }
       entry.usedAt = Date.now()
       return {
-        identity,
+        identity: entry.sourceKey!,
         asset,
+        detailSource: entry.detailSource ? structuredClone(entry.detailSource) : undefined,
         backend: entry.diagnostics?.backend,
         fallback: entry.diagnostics?.fallback,
         release,
@@ -1505,7 +2544,7 @@ export class FullPreviews {
     | undefined {
     if (
       this.closed ||
-      url.protocol !== 'luma-photo:' ||
+      url.protocol !== 'irodori-photo:' ||
       url.hostname !== 'library' ||
       url.search ||
       url.hash ||
@@ -1576,6 +2615,9 @@ export class FullPreviews {
 
   async beginRemoval(id: string): Promise<void> {
     this.blocked.add(id)
+    const comparisons = [...this.comparisons]
+      .filter(([, owner]) => owner.id === id)
+      .map(([token]) => this.retireComparison(token, 'Photo removed.'))
     await this.cpu?.beforeRemoval(id)
     for (const [job, photo] of this.analyses)
       if (photo === id) job.abort(new Error('Photo removed.'))
@@ -1589,6 +2631,7 @@ export class FullPreviews {
         return owner.drained
       })
     await Promise.all(firstDrains)
+    await Promise.all(comparisons.map((owner) => owner?.work?.catch(() => undefined)))
     // A superseded worker may still be stopping while the next photo is queued.
     const running = this.running
     if (running?.id === id) {
@@ -1629,9 +2672,12 @@ export class FullPreviews {
   async close(): Promise<void> {
     for (const job of this.analyses.keys()) job.abort(new Error('Preview service closed.'))
     this.closed = true
+    for (const token of this.comparisons.keys())
+      this.retireComparison(token, 'Preview service closed.')
     await this.cpu?.close()
     for (const job of this.background) job.abort.abort(new Error('Preview closed.'))
     this.detach()
+    await Promise.allSettled(this.comparisonDrains)
     await this.tail
     await this.processor.close()
     await this.retireFirstSurfaces()

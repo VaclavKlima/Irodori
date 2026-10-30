@@ -145,7 +145,7 @@ export function Library({
     }
     const followTop = restored.current && latest.current.scrollTop <= 1 && !latest.current.focusId
     const read = async (offset: number) => ({
-      records: (await globalThis.window.luma.getGalleryChunk(offset, summary)).entries,
+      records: (await globalThis.window.irodori.getGalleryChunk(offset, summary)).entries,
     })
     controller.configure(`${summary.catalogRevision}:${summary.revision}`, summary.total, read)
     const layoutKey = `${summary.catalogRevision}:${summary.revision}:${rowHeight}:${size.height}`
@@ -161,7 +161,7 @@ export function Library({
       const index = await locateAnchor(
         anchor,
         async (id) =>
-          (await globalThis.window.luma.locateGalleryPhoto(id, 0, summary))?.index ?? null,
+          (await globalThis.window.irodori.locateGalleryPhoto(id, 0, summary))?.index ?? null,
         summary.total,
       )
       if (!live || ticket !== scrollRevision.current || !viewport.current) return
@@ -217,7 +217,7 @@ export function Library({
   useEffect(() => {
     if (!active || !summary || !focusId) return
     let live = true
-    void globalThis.window.luma.locateGalleryPhoto(focusId, 0, summary).then(
+    void globalThis.window.irodori.locateGalleryPhoto(focusId, 0, summary).then(
       (location) => {
         if (live) setFocusedIndex(location?.index ?? null)
       },
@@ -232,7 +232,7 @@ export function Library({
   useEffect(() => {
     if (!active || !reveal || !summary || revealedRequest.current === reveal.request) return
     const ticket = ++navigation.current
-    void globalThis.window.luma.locateGalleryPhoto(reveal.id, 0, summary).then(
+    void globalThis.window.irodori.locateGalleryPhoto(reveal.id, 0, summary).then(
       async (location) => {
         if (!location || ticket !== navigation.current || !viewport.current) return
         await controller.get(location.index)

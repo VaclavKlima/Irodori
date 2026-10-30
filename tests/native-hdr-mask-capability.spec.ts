@@ -48,12 +48,12 @@ function syntheticCapability() {
   // These deliberate hashes describe this CONTRACT fixture, not compiled math.
   // Actual Electron/full-photo parity and the real bundled helper are other gates.
   const arithmetic = {
-    version: 'native-hdr-mask-arithmetic-v2-electron-llvm',
+    version: 'native-hdr-mask-arithmetic-v3-electron-llvm',
     reference: { ...reference },
     substitution: {
       count: 1,
       before: 'double h_rad = atan2(Aab[2], Aab[1]);',
-      after: 'double h_rad = luma_electron_atan2::atan2(Aab[2], Aab[1]);',
+      after: 'double h_rad = irodori_electron_atan2::atan2(Aab[2], Aab[1]);',
     },
     isolation: 'namespace and C symbol renames only',
     maskCompilerFlags: ['-mno-fma', '-mno-avx', '-mno-sse4.2'],
@@ -72,14 +72,17 @@ function syntheticCapability() {
         'maskBridgeSha256',
         'maskHostSha256',
         'prepareSourceSha256',
+        'creativeHeaderSha256',
+        'creativeAbiSha256',
+        'creativeHostSha256',
       ].map((name) => [name, sha(`contract-fixture:${name}`)]),
     ),
   }
   return {
     version: 'native-cpu-capabilities-v1',
-    presentation: 'LUMACPU1',
+    presentation: 'IRODCPU3',
     mask: {
-      request: 'MASKCPU1',
+      request: 'MASKCPU3',
       output: 'MASKOUT1',
       terminal: 'MASKDONE',
       mode: '--mask-v1',
@@ -104,7 +107,7 @@ async function withCapability(
     allowExit(): Promise<void>
   }) => Promise<void>,
 ) {
-  const root = await mkdtemp(join(tmpdir(), 'luma-mask-capability-')),
+  const root = await mkdtemp(join(tmpdir(), 'irodori-mask-capability-')),
     directory = join(root, 'native-cpu-render/linux-x64'),
     config = join(root, 'fixture.json'),
     script = fileURLToPath(new URL('./native-hdr-mask-capability-child.mjs', import.meta.url))
@@ -112,8 +115,8 @@ async function withCapability(
   const wrapper = `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(script)} ${shellQuote(config)} "$@"\n`,
     encoded = JSON.stringify(capability),
     payload = mode === 'oversized-ignore-term' ? `${encoded}${' '.repeat(65537)}` : encoded
-  await writeFile(join(directory, 'luma-cpu-render'), wrapper, { mode: 0o700, flag: 'wx' })
-  await writeFile(join(directory, 'SHA256SUMS'), `${sha(wrapper)}  luma-cpu-render\n`, {
+  await writeFile(join(directory, 'irodori-cpu-render'), wrapper, { mode: 0o700, flag: 'wx' })
+  await writeFile(join(directory, 'SHA256SUMS'), `${sha(wrapper)}  irodori-cpu-render\n`, {
     mode: 0o600,
     flag: 'wx',
   })
@@ -203,7 +206,7 @@ test('correctly hashed retired or mismatched arithmetic receipts cannot authoriz
         arithmetic.nodeReference = '24.20.0'
         arithmetic.v8Reference = '13.6.233.17-node.53'
         value.mask.arithmetic.substitution.after =
-          'double h_rad = luma_v8_atan2::atan2(Aab[2], Aab[1]);'
+          'double h_rad = irodori_v8_atan2::atan2(Aab[2], Aab[1]);'
       },
     ],
     ...(['electron', 'v8', 'chromium', 'llvmLibcRevision'] as const).map(
@@ -221,6 +224,15 @@ test('correctly hashed retired or mismatched arithmetic receipts cannot authoriz
         value.mask.arithmetic.maskCompilerFlags = ['-mfma', '-mno-avx', '-mno-sse4.2']
       },
     ],
+    ...['creativeHeaderSha256', 'creativeAbiSha256', 'creativeHostSha256'].map(
+      (name) =>
+        [
+          `missing ${name}`,
+          (value: Capability) => {
+            delete (value.mask.arithmetic as unknown as Record<string, unknown>)[name]
+          },
+        ] as [string, (value: Capability) => void],
+    ),
     [
       'missing upstream source',
       (value) => {

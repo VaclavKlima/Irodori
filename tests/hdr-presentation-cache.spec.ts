@@ -60,6 +60,25 @@ function input(): HdrPresentationIdentityInput {
 function identity(name = 'photo') {
   return hdrPresentationIdentity({ ...input(), sourceIdentity: name })!
 }
+test('exact Before/Split presentations bind the original source while After identity stays reusable', () => {
+  const original = input(),
+    a = { identity: 'unfiltered-a', sha256: 'b'.repeat(64) },
+    b = { identity: 'unfiltered-b', sha256: 'c'.repeat(64) }
+  expect(hdrPresentationIdentity({ ...original, beforeSource: a })?.key).toBe(
+    hdrPresentationIdentity(original)?.key,
+  )
+  for (const comparison of ['before', 'split'] as const) {
+    const base = { ...original, comparison },
+      first = hdrPresentationIdentity({ ...base, beforeSource: a })!
+    expect(first.key).not.toBe(hdrPresentationIdentity(base)?.key)
+    expect(first.key).not.toBe(hdrPresentationIdentity({ ...base, beforeSource: b })?.key)
+    expect(first.key).not.toBe(
+      hdrPresentationIdentity({ ...base, beforeSource: { ...a, sha256: b.sha256 } })?.key,
+    )
+    expect(hdrPresentationIdentity({ ...base, beforeSource: { ...a, identity: '' } })).toBeNull()
+    expect(hdrPresentationIdentity({ ...base, beforeSource: { ...a, sha256: 'bad' } })).toBeNull()
+  }
+})
 function resources() {
   const destroyed: string[] = []
   const frame = (name: string): CompletedHdrPresentation<{ destroy: () => void }> => ({
@@ -91,6 +110,8 @@ test('exact presentation identity covers source, edits, output, framing and nati
     (v) => v.adjustments.shadows++,
     (v) => v.adjustments.whites++,
     (v) => v.adjustments.blacks++,
+    (v) => v.adjustments.saturation++,
+    (v) => v.adjustments.vibrance++,
     (v) => v.target.generation++,
     (v) => (v.target.requested = 'auto'),
     (v) => (v.target.mode = 'hdr'),

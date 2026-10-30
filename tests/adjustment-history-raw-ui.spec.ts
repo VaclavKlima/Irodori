@@ -1,12 +1,12 @@
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 
-test('toolbar history restores mixed light and lens edits across restart', async ({ luma }) => {
+test('toolbar history restores mixed light and lens edits across restart', async ({ irodori }) => {
   test.setTimeout(90000)
-  let { page } = luma
-  await importPhotos(luma.app, page, ['tests/fixtures/sony-zv1.ARW'])
+  let { page } = irodori
+  await importPhotos(irodori.app, page, ['tests/fixtures/sony-zv1.ARW'])
   await page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
-  const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
+  const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
   const enter = async (value: string) => {
     const field = page.getByRole('spinbutton', { name: 'Exposure value' })
     await expect(field).toBeEnabled({ timeout: 30000 })
@@ -16,7 +16,7 @@ test('toolbar history restores mixed light and lens edits across restart', async
   }
   const confirm = async (exposureEv: number, vignetting: boolean, contrast = 40) => {
     await expect
-      .poll(() => page.evaluate((id) => window.luma.getEdits(id), id))
+      .poll(() => page.evaluate((id) => window.irodori.getEdits(id), id))
       .toMatchObject({ settings: { exposureEv, contrast, lens: { vignetting } } })
     await expect(page.getByRole('spinbutton', { name: 'Exposure value' })).toHaveValue(
       exposureEv.toFixed(2),
@@ -31,13 +31,13 @@ test('toolbar history restores mixed light and lens edits across restart', async
   await contrast.fill('40')
   await contrast.press('Enter')
   await expect
-    .poll(() => page.evaluate((id) => window.luma.getEdits(id), id))
+    .poll(() => page.evaluate((id) => window.irodori.getEdits(id), id))
     .toMatchObject({ settings: { contrast: 40 } })
   await page.getByRole('checkbox', { name: 'Vignetting', exact: true }).uncheck()
   await confirm(0.5, false)
   await enter('-0.5')
   await confirm(-0.5, false)
-  ;({ page } = await luma.restart())
+  ;({ page } = await irodori.restart())
   await page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
   await confirm(-0.5, false)
   for (const [exposure, lens, contrast] of [

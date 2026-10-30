@@ -15,7 +15,7 @@ for (let index = 0; index < data.length; index++) data[index] = index % 251
 data.set([0x7f, 0x45, 0x4c, 0x46])
 
 async function scratch(work: (directory: string) => Promise<void>) {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-raw-executable-'))
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-raw-executable-'))
   try {
     await work(directory)
   } finally {
@@ -25,11 +25,11 @@ async function scratch(work: (directory: string) => Promise<void>) {
 
 async function bundle(runtime: string) {
   const directory = join(runtime, 'native-raw/linux-x64'),
-    executable = join(directory, 'luma-raw'),
+    executable = join(directory, 'irodori-raw'),
     sums = join(directory, 'SHA256SUMS'),
     manifest = join(directory, 'build-manifest.json')
   const proof = {
-    implementation: 'luma-owned-sony-arw2-rows-v1',
+    implementation: 'irodori-owned-sony-arw2-rows-v1',
     status: 'built-unverified',
     platform: 'linux',
     arch: 'x64',
@@ -40,7 +40,7 @@ async function bundle(runtime: string) {
   await mkdir(directory, { recursive: true })
   await writeFile(executable, data, { flag: 'wx', mode: 0o755 })
   await chmod(executable, 0o755)
-  await writeFile(sums, `${hash(data)}  luma-raw\n`, { flag: 'wx', mode: 0o600 })
+  await writeFile(sums, `${hash(data)}  irodori-raw\n`, { flag: 'wx', mode: 0o600 })
   await writeFile(manifest, JSON.stringify(proof), { flag: 'wx', mode: 0o600 })
   return { directory, executable, sums, manifest, proof }
 }
@@ -121,7 +121,7 @@ test.describe('Linux x64 trusted native RAW assets', () => {
       changed[65536] ^= 1
       await writeFile(fixture.executable, changed)
       unavailable(await prepareNativeRawExecutable(directory), /checksum mismatch/)
-      await writeFile(fixture.sums, `${hash(changed)}  luma-raw\n`)
+      await writeFile(fixture.sums, `${hash(changed)}  irodori-raw\n`)
       await writeFile(
         fixture.manifest,
         JSON.stringify({ ...fixture.proof, binarySha256: hash(changed) }),
@@ -144,10 +144,10 @@ test.describe('Linux x64 trusted native RAW assets', () => {
 
   for (const [name, text] of [
     ['wrong filename', `${hash(data)}  other-helper\n`],
-    ['wrong delimiter', `${hash(data)} luma-raw\n`],
-    ['multiple records', `${hash(data)}  luma-raw\n${hash(data)}  other\n`],
-    ['uppercase digest', `${'A'.repeat(64)}  luma-raw\n`],
-    ['missing terminal newline', `${hash(data)}  luma-raw`],
+    ['wrong delimiter', `${hash(data)} irodori-raw\n`],
+    ['multiple records', `${hash(data)}  irodori-raw\n${hash(data)}  other\n`],
+    ['uppercase digest', `${'A'.repeat(64)}  irodori-raw\n`],
+    ['missing terminal newline', `${hash(data)}  irodori-raw`],
   ] as const)
     test(`checksum ${name} cannot authorize the bundle`, async () => {
       await scratch(async (directory) => {
@@ -158,7 +158,7 @@ test.describe('Linux x64 trusted native RAW assets', () => {
     })
 
   for (const [key, wrong] of [
-    ['implementation', 'luma-parallel-sony-arw2-rows-v1'],
+    ['implementation', 'irodori-parallel-sony-arw2-rows-v1'],
     ['status', 'building'],
     ['platform', 'darwin'],
     ['arch', 'arm64'],
@@ -186,7 +186,7 @@ test.describe('Linux x64 trusted native RAW assets', () => {
     await scratch(async (directory) => {
       const fixture = await bundle(directory),
         wrong = '0'.repeat(64)
-      await writeFile(fixture.sums, `${wrong}  luma-raw\n`)
+      await writeFile(fixture.sums, `${wrong}  irodori-raw\n`)
       await writeFile(fixture.manifest, JSON.stringify({ ...fixture.proof, binarySha256: wrong }))
       unavailable(await prepareNativeRawExecutable(directory), /checksum mismatch/)
     })

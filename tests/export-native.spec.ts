@@ -121,9 +121,9 @@ test('Linux default Auto selects the native encoder and retains the supplied pri
   await mkdir(directory)
   const bundle = resolve('vendor/ultrahdr')
   const { sdr, half } = await tinyInput()
-  const previous = process.env.LUMA_EXPORT_ENCODER
+  const previous = process.env.IRODORI_EXPORT_ENCODER
   try {
-    delete process.env.LUMA_EXPORT_ENCODER
+    delete process.env.IRODORI_EXPORT_ENCODER
     await expect(verifyExportEncoder(bundle)).resolves.toBeUndefined()
     const result = await encodeExportHdr(half, 8, 8, sdr, 100, 1.01, directory, undefined, bundle)
     expect(result.backend).toBe('native')
@@ -131,8 +131,8 @@ test('Linux default Auto selects the native encoder and retains the supplied pri
     expect(result).not.toHaveProperty('fallback')
     expect(() => validatePrimary(result.output, sdr)).not.toThrow()
   } finally {
-    if (previous === undefined) delete process.env.LUMA_EXPORT_ENCODER
-    else process.env.LUMA_EXPORT_ENCODER = previous
+    if (previous === undefined) delete process.env.IRODORI_EXPORT_ENCODER
+    else process.env.IRODORI_EXPORT_ENCODER = previous
   }
 })
 
@@ -142,7 +142,7 @@ test('native checksums and allocation guards keep the platform Auto failure poli
   const bundle = join(directory, 'bundle')
   await cp(resolve('vendor/ultrahdr'), bundle, { recursive: true })
   await writeFile(
-    join(bundle, `native/${process.platform}-${process.arch}/luma-ultrahdr`),
+    join(bundle, `native/${process.platform}-${process.arch}/irodori-ultrahdr`),
     'corrupt',
   )
   await expect(nativeEncoderPath(bundle)).rejects.toThrow('checksum')
@@ -187,7 +187,7 @@ test('Linux native availability uses the unpacked executable and rejects missing
   const logicalBundle = join(directory, 'app.asar', 'ultrahdr')
   await cp(resolve('vendor/ultrahdr'), bundle, { recursive: true })
   const native = join(bundle, 'native', 'linux-x64')
-  const executable = join(native, 'luma-ultrahdr')
+  const executable = join(native, 'irodori-ultrahdr')
   expect(await nativeEncoderPath(logicalBundle)).toBe(executable)
   await expect(verifyExportEncoder(logicalBundle, 'auto')).resolves.toBeUndefined()
   await chmod(executable, 0o600)
@@ -218,13 +218,13 @@ test('Linux Auto propagates a checksummed native helper error without encoding a
   const bundle = join(directory, 'bundle')
   await cp(resolve('vendor/ultrahdr'), bundle, { recursive: true })
   const native = join(bundle, 'native', 'linux-x64')
-  const executable = join(native, 'luma-ultrahdr')
+  const executable = join(native, 'irodori-ultrahdr')
   const script = '#!/bin/sh\necho "Deliberate native fixture failure." >&2\nexit 17\n'
   await writeFile(executable, script)
   await chmod(executable, 0o755)
   await writeFile(
     join(native, 'SHA256SUMS'),
-    `${createHash('sha256').update(script).digest('hex')}  luma-ultrahdr\n`,
+    `${createHash('sha256').update(script).digest('hex')}  irodori-ultrahdr\n`,
   )
   await expect(verifyExportEncoder(bundle, 'auto')).resolves.toBeUndefined()
   const { sdr, half } = await tinyInput()

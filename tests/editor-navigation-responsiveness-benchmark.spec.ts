@@ -96,9 +96,9 @@ for (const layout of [
   test(
     `photo activation ${layout.name}: cold diagnostics, five warm pairs and rapid reversal`,
     foregroundTest(reason),
-    async ({ luma }, info) => {
+    async ({ irodori }, info) => {
       test.setTimeout(180000)
-      const { app, page } = luma
+      const { app, page } = irodori
       await requireEditorPreviewFeature(page, 'presentation-cache')
       const native = await app.browserWindow(page)
       const path = info.outputPath('editor-navigation-responsiveness.json')
@@ -163,13 +163,13 @@ for (const layout of [
         const workspaces = page.getByRole('navigation', { name: 'Workspaces' })
         await workspaces.getByRole('button', { name: 'Library', exact: true }).click()
         await importPhotos(app, page, files, false)
-        const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+        const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
         for (const [index, filename] of ['sony-zv1.ARW', 'DSC03243.ARW'].entries()) {
           const photo = photos.find((photo) => photo.filename === filename)!
           const edits = await page.evaluate(
             async ({ id, exposureEv }) => {
-              const previous = await window.luma.getEdits(id)
-              return window.luma.updateEdits(id, { exposureEv }, previous.revision)
+              const previous = await window.irodori.getEdits(id)
+              return window.irodori.updateEdits(id, { exposureEv }, previous.revision)
             },
             { id: photo.id, exposureEv: index === 0 ? 1 : -1 },
           )
@@ -179,11 +179,21 @@ for (const layout of [
             id: photo.id,
             filename,
             revision: edits.revision,
-            parameters: { exposureEv, contrast, highlights, shadows, whites, blacks, whiteBalance },
+            parameters: {
+              saturation: 0,
+              vibrance: 0,
+              exposureEv,
+              contrast,
+              highlights,
+              shadows,
+              whites,
+              blacks,
+              whiteBalance,
+            },
           })
           history.set(
             photo.id,
-            await page.evaluate((id) => window.luma.getEditHistory(id), photo.id),
+            await page.evaluate((id) => window.irodori.getEditHistory(id), photo.id),
           )
         }
         const toggle = page.getByTestId('console-toggle')
@@ -191,11 +201,11 @@ for (const layout of [
           await toggle.click()
         const maximizedConfiguration = layout.maximized
           ? await maximizeEditorOnMonitor(app, page, {
-              monitorLabel: process.env.LUMA_RESPONSIVENESS_MONITOR,
+              monitorLabel: process.env.IRODORI_RESPONSIVENESS_MONITOR,
             })
           : null
         if (editorDisplayPreference === 'sdr')
-          await page.evaluate(() => window.luma.setPreviewPreference('sdr'))
+          await page.evaluate(() => window.irodori.setPreviewPreference('sdr'))
         await focusPreviewWindow(app, page)
         environment = {
           measurementVersion: NAVIGATION_MEASUREMENT_VERSION,
@@ -224,7 +234,7 @@ for (const layout of [
               internal: display.internal,
             })),
           ),
-          target: await page.evaluate(() => window.luma.getDisplayState()),
+          target: await page.evaluate(() => window.irodori.getDisplayState()),
           expectedPreviewPolicy: editorTestPreviewPolicy,
           preparationCondition:
             'Fresh isolated library; RAWs imported and edited with Editor suspended. OS/driver caches uncontrolled. First cold activation enters Editor; second uses the native photo button.',
@@ -260,7 +270,7 @@ for (const layout of [
           if (!current.nativeReadyAt || !current.nativeSource)
             throw new Error('The actual native witness is missing its source identity.')
           target.sourceIdentity ??= current.nativeSource
-          const diagnostic = await page.evaluate(() => window.luma.getPreviewDiagnostics())
+          const diagnostic = await page.evaluate(() => window.irodori.getPreviewDiagnostics())
           const rendererStages = await page.getByTestId('main-preview').evaluate((canvas) => ({
             load: canvas.dataset.loadTimings ? JSON.parse(canvas.dataset.loadTimings) : null,
             frame: canvas.dataset.frameTimings ? JSON.parse(canvas.dataset.frameTimings) : null,
@@ -337,7 +347,7 @@ for (const layout of [
         observed = await observer.evaluate((value) => value.read())
         for (const target of targets)
           expect
-            .soft(await page.evaluate((id) => window.luma.getEditHistory(id), target.id))
+            .soft(await page.evaluate((id) => window.irodori.getEditHistory(id), target.id))
             .toEqual(history.get(target.id))
       } catch (error) {
         environment.failure = String(error)
@@ -353,7 +363,7 @@ for (const layout of [
           if (measurementStartedAt && !measurementDurationMs)
             measurementDurationMs = Date.now() - measurementStartedAt
           cachedStages = await cachedStageMetadata(
-            luma.userDataDir,
+            irodori.userDataDir,
             targets.map((target) => target.id),
           )
           if (process.platform === 'linux')

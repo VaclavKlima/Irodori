@@ -42,10 +42,10 @@ async function targetNames(page: Page) {
 }
 
 test('groups camera calendar dates, searches metadata, and treats collapsed stack members individually', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
-  const paths = await browseSources(luma.userDataDir, [
+  const { app, page } = irodori
+  const paths = await browseSources(irodori.userDataDir, [
     '2026:10:04 00:15:00',
     '2026:10:04 23:45:00',
     '2026:09:30 12:00:00',
@@ -53,11 +53,11 @@ test('groups camera calendar dates, searches metadata, and treats collapsed stac
   ])
   await importPhotos(app, page, paths)
   const ordered = (
-    await page.evaluate((query) => window.luma.getBrowseChunk(query), DEFAULT_BROWSE_QUERY)
+    await page.evaluate((query) => window.irodori.getBrowseChunk(query), DEFAULT_BROWSE_QUERY)
   ).photos
   const stack = await page.evaluate(
     async (ids) => {
-      return window.luma.groupPhotos(ids, ids[0], (await window.luma.listStacks()).revision)
+      return window.irodori.groupPhotos(ids, ids[0], (await window.irodori.listStacks()).revision)
     },
     ordered.slice(0, 2).map((p) => p.id),
   )
@@ -76,14 +76,14 @@ test('groups camera calendar dates, searches metadata, and treats collapsed stac
   await browserCard(page, ordered[1].id).click({ modifiers: ['Shift'] })
   await expect(browseCount(page)).toContainText('2 selected')
   await expect(page.getByTestId('preview-filename')).toHaveText(editorFilename!)
-  expect((await page.evaluate(() => window.luma.listStacks())).stacks[0].expanded).toBe(false)
+  expect((await page.evaluate(() => window.irodori.listStacks())).stacks[0].expanded).toBe(false)
   await page.getByRole('button', { name: 'Actions', exact: true }).click()
   await expect(
     page.getByRole('menuitem', { name: 'Set this photo as group cover' }),
   ).toHaveAttribute('aria-disabled', 'false')
   await page.getByRole('menuitem', { name: 'Set this photo as group cover' }).click()
   await expect
-    .poll(async () => (await page.evaluate(() => window.luma.listStacks())).stacks[0].coverId)
+    .poll(async () => (await page.evaluate(() => window.irodori.listStacks())).stacks[0].coverId)
     .toBe(ordered[1].id)
   await browserCard(page, ordered[0].id).click({ button: 'right' })
   await expect(
@@ -109,16 +109,16 @@ test('groups camera calendar dates, searches metadata, and treats collapsed stac
 })
 
 test('selects a complete unloaded section and keeps rendering, thumbnail loading and photo caching bounded', async ({
-  luma,
+  irodori,
 }) => {
   test.setTimeout(90_000)
-  await seedLargeBrowser(luma.app, luma.page, luma.userDataDir, 365)
-  const { app, page } = await luma.restart()
+  await seedLargeBrowser(irodori.app, irodori.page, irodori.userDataDir, 365)
+  const { app, page } = await irodori.restart()
   await minimumConsole(app, page)
   await browse(page, 365)
   const checkbox = page.getByRole('checkbox', { name: 'Select 4 October 2026', exact: true })
   const photos = (
-    await page.evaluate((query) => window.luma.getBrowseChunk(query), DEFAULT_BROWSE_QUERY)
+    await page.evaluate((query) => window.irodori.getBrowseChunk(query), DEFAULT_BROWSE_QUERY)
   ).photos
   await browserCard(page, photos[0].id).click()
   await expect(checkbox).not.toBeChecked()
@@ -159,16 +159,16 @@ test('selects a complete unloaded section and keeps rendering, thumbnail loading
     const cached = Number(await grid(page).getAttribute('data-cache-photos'))
     expect(cached).toBeGreaterThanOrEqual(mounted)
     expect(cached).toBeLessThanOrEqual(
-      (await page.evaluate(() => window.luma.getCollectionPolicy())).records,
+      (await page.evaluate(() => window.irodori.getCollectionPolicy())).records,
     )
     expect(Number(await grid(page).getAttribute('data-cache-chunks'))).toBeLessThanOrEqual(
-      Math.ceil((await page.evaluate(() => window.luma.getCollectionPolicy())).records / 60),
+      Math.ceil((await page.evaluate(() => window.irodori.getCollectionPolicy())).records / 60),
     )
   }
   await grid(page).focus()
   await page.keyboard.press('End')
   const last = (
-    await page.evaluate((query) => window.luma.getBrowseChunk(query, 360), DEFAULT_BROWSE_QUERY)
+    await page.evaluate((query) => window.irodori.getBrowseChunk(query, 360), DEFAULT_BROWSE_QUERY)
   ).photos.at(-1)!
   await expect(browserCard(page, last.id)).toHaveAttribute('data-focused', 'true')
   await page.keyboard.press('Space')
@@ -186,10 +186,10 @@ test('selects a complete unloaded section and keeps rendering, thumbnail loading
 })
 
 test('keyboard focus, Enter and double-click preserve shared selection and restore browser preferences and scrolling', async ({
-  luma,
+  irodori,
 }) => {
-  await seedLargeBrowser(luma.app, luma.page, luma.userDataDir, 75)
-  const { page } = await luma.restart()
+  await seedLargeBrowser(irodori.app, irodori.page, irodori.userDataDir, 75)
+  const { page } = await irodori.restart()
   await browse(page, 75)
   await search(page).fill('browse-photo')
   await expect(grid(page)).toHaveAttribute('data-search', 'browse-photo')
@@ -199,7 +199,7 @@ test('keyboard focus, Enter and double-click preserve shared selection and resto
   await page.getByRole('button', { name: 'Clear selection', exact: true }).click()
   await expect(browseCount(page)).toHaveText('75 matching · 0 selected')
   const ordered = await page.evaluate(() =>
-    window.luma.getBrowseSection({ search: 'browse-photo', grouping: 'month' }, '2026-10'),
+    window.irodori.getBrowseSection({ search: 'browse-photo', grouping: 'month' }, '2026-10'),
   )
   await grid(page).focus()
   await page.keyboard.press('Home')
@@ -213,7 +213,7 @@ test('keyboard focus, Enter and double-click preserve shared selection and resto
   const focusedId = ordered.at(-1)!.id
   await expect(browserCard(page, focusedId)).toHaveAttribute('data-focused', 'true')
   const focusedPhoto = await page.evaluate(
-    ({ query, id }) => window.luma.locateBrowsePhoto(query, id),
+    ({ query, id }) => window.irodori.locateBrowsePhoto(query, id),
     { query: { search: 'browse-photo', grouping: 'month' as const }, id: focusedId },
   )
   const scroll = await grid(page).evaluate((el) => el.scrollTop)
@@ -241,14 +241,14 @@ test('keyboard focus, Enter and double-click preserve shared selection and resto
 })
 
 test('queued range and section gestures retain their query and deletion waits before freezing every filename', async ({
-  luma,
+  irodori,
 }) => {
-  await seedLargeBrowser(luma.app, luma.page, luma.userDataDir, 75)
-  const { app, page } = await luma.restart()
+  await seedLargeBrowser(irodori.app, irodori.page, irodori.userDataDir, 75)
+  const { app, page } = await irodori.restart()
   const trash = await isolateTrash(app)
   await browse(page, 75)
   const references = await page.evaluate(
-    (query) => window.luma.getBrowseSection(query, '2026-10-04'),
+    (query) => window.irodori.getBrowseSection(query, '2026-10-04'),
     DEFAULT_BROWSE_QUERY,
   )
   await browserCard(page, references[0].id).click()
@@ -282,7 +282,7 @@ test('queued range and section gestures retain their query and deletion waits be
     )
     await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
     await expect
-      .poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total)
+      .poll(async () => (await page.evaluate(() => window.irodori.listPhotos())).total)
       .toBe(0)
     await expect(browseCount(page)).toHaveText('0 matching · 0 selected')
     expect((await readdir(trash)).map((name) => name.slice(0, 64)).sort()).toEqual(
@@ -295,9 +295,9 @@ test('queued range and section gestures retain their query and deletion waits be
 })
 
 test('a real background import refreshes browsing without replacing selection or the editor view at minimum console size', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
   await minimumConsole(app, page)
   const preview = page.getByTestId('preview-viewport')
@@ -312,12 +312,12 @@ test('a real background import refreshes browsing without replacing selection or
   }))
   const editorCanvas = await page.getByTestId('main-preview').elementHandle()
   const original = (
-    await page.evaluate((query) => window.luma.getBrowseChunk(query), DEFAULT_BROWSE_QUERY)
+    await page.evaluate((query) => window.irodori.getBrowseChunk(query), DEFAULT_BROWSE_QUERY)
   ).photos[0]
   await browse(page, 1)
   await browserCard(page, original.id).click()
   await expect(browseCount(page)).toHaveText('1 matching · 1 selected')
-  const incoming = await browseSources(luma.userDataDir, ['2026:10:04 12:30:00'], 'incoming')
+  const incoming = await browseSources(irodori.userDataDir, ['2026:10:04 12:30:00'], 'incoming')
   const sourceBytes = await readFile(incoming[0])
   await importPhotos(app, page, incoming, false)
   await expect(workspace(page, 'Library')).toHaveAttribute('aria-current', 'page')
@@ -357,15 +357,15 @@ test('a real background import refreshes browsing without replacing selection or
 })
 
 test('a completed background merge keeps browsing and shared selection until Open result explicitly opens Library', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, [
     'tests/fixtures/photos/alpine-lake.jpg',
     'tests/fixtures/photos/forest-light.jpg',
     'tests/fixtures/photos/mountain-ridge.jpg',
   ])
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   await page.getByTestId(`photo-card-${photos[0].id}`).click()
   await browse(page, 3)
   await browserCard(page, photos[1].id).click()
@@ -431,13 +431,13 @@ test('a completed background merge keeps browsing and shared selection until Ope
 })
 
 test('delayed summaries preserve newer scrolling and stale chunks cannot replace a newer search', async ({
-  luma,
+  irodori,
 }) => {
-  await seedLargeBrowser(luma.app, luma.page, luma.userDataDir, 75)
-  const { app, page } = await luma.restart()
+  await seedLargeBrowser(irodori.app, irodori.page, irodori.userDataDir, 75)
+  const { app, page } = await irodori.restart()
   await browse(page, 75)
   const references = await page.evaluate(
-    (query) => window.luma.getBrowseSection(query, '2026-10-04'),
+    (query) => window.irodori.getBrowseSection(query, '2026-10-04'),
     DEFAULT_BROWSE_QUERY,
   )
   const last = references.at(-1)!
@@ -510,7 +510,7 @@ test('delayed summaries preserve newer scrolling and stale chunks cannot replace
     await expect(grid(page).locator('[data-testid^="browse-photo-"]')).toHaveCount(1)
     await held.evaluate((control) => control.chunks[0].release())
     await page.evaluate(async (filename) => {
-      await window.luma.getBrowseSummary({ search: filename, grouping: 'date' })
+      await window.irodori.getBrowseSummary({ search: filename, grouping: 'date' })
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       )
@@ -527,12 +527,12 @@ test('delayed summaries preserve newer scrolling and stale chunks cannot replace
 })
 
 test('group folding preserves hidden selection, skips folded photos with the keyboard and retains independent grouping preferences', async ({
-  luma,
+  irodori,
 }) => {
-  await seedLargeBrowser(luma.app, luma.page, luma.userDataDir, 75)
-  const { app, page } = await luma.restart()
+  await seedLargeBrowser(irodori.app, irodori.page, irodori.userDataDir, 75)
+  const { app, page } = await irodori.restart()
   const neighbors = await browseSources(
-    luma.userDataDir,
+    irodori.userDataDir,
     ['2026:09:30 12:00:00', '2025:12:31 12:00:00', null],
     'fold-neighbor',
   )
@@ -541,11 +541,11 @@ test('group folding preserves hidden selection, skips folded photos with the key
   await page.getByRole('button', { name: 'Clear selection', exact: true }).click()
   await expect(browseCount(page)).toHaveText('78 matching · 0 selected')
   const sections = await page.evaluate(async (query) => {
-    const summary = await window.luma.getBrowseSummary(query)
+    const summary = await window.irodori.getBrowseSummary(query)
     return Promise.all(
       summary.sections.map(async (section) => ({
         ...section,
-        photos: await window.luma.getBrowseSection(query, section.key),
+        photos: await window.irodori.getBrowseSection(query, section.key),
       })),
     )
   }, DEFAULT_BROWSE_QUERY)
@@ -663,13 +663,16 @@ test('group folding preserves hidden selection, skips folded photos with the key
 })
 
 test('nearby expanded groups resolve across six source windows with a bounded cache and collapsing cancels pending End focus', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
-  const paths = await browseSources(luma.userDataDir, Array<string>(6).fill('2026:10:04 12:30:00'))
+  const { app, page } = irodori
+  const paths = await browseSources(
+    irodori.userDataDir,
+    Array<string>(6).fill('2026:10:04 12:30:00'),
+  )
   await importPhotos(app, page, paths)
   const genuine = (
-    await page.evaluate((query) => window.luma.getBrowseChunk(query), DEFAULT_BROWSE_QUERY)
+    await page.evaluate((query) => window.irodori.getBrowseChunk(query), DEFAULT_BROWSE_QUERY)
   ).photos
   const native = await app.browserWindow(page)
   await native.evaluate((window) => {
@@ -793,10 +796,10 @@ test('nearby expanded groups resolve across six source windows with a bounded ca
     const requested = await fixture.evaluate((control) => control.requests)
     for (const offset of [60, 120, 180, 240, 300, 360]) expect(requested).toContain(offset)
     expect(Number(await grid(page).getAttribute('data-cache-photos'))).toBeLessThanOrEqual(
-      (await page.evaluate(() => window.luma.getCollectionPolicy())).records,
+      (await page.evaluate(() => window.irodori.getCollectionPolicy())).records,
     )
     expect(Number(await grid(page).getAttribute('data-cache-chunks'))).toBeLessThanOrEqual(
-      Math.ceil((await page.evaluate(() => window.luma.getCollectionPolicy())).records / 60),
+      Math.ceil((await page.evaluate(() => window.irodori.getCollectionPolicy())).records / 60),
     )
 
     await page.getByRole('button', { name: 'Clear selection', exact: true }).click()
@@ -818,7 +821,7 @@ test('nearby expanded groups resolve across six source windows with a bounded ca
       for (const call of control.pending) call.release()
     })
     await page.evaluate(async () => {
-      await window.luma.getBrowseSummary({ search: 'pending-end', grouping: 'date' })
+      await window.irodori.getBrowseSummary({ search: 'pending-end', grouping: 'date' })
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       )

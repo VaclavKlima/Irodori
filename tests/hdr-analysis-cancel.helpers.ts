@@ -182,7 +182,7 @@ export async function installAnalysisHashGate(
         const requested = input instanceof Request ? input.url : String(input)
         if (
           nativeMask
-            ? /^luma-photo:\/\/library\/[a-f0-9]{64}\/mask\/[a-f0-9-]{36}$/.test(requested)
+            ? /^irodori-photo:\/\/library\/[a-f0-9]{64}\/mask\/[a-f0-9-]{36}$/.test(requested)
             : requested === url
         ) {
           state.reads++

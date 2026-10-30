@@ -2,6 +2,9 @@ import type { PhotoReference } from './contracts'
 import type { StackSummary } from './stacks'
 
 export const photoActionIds = [
+  'photo-copy-edits',
+  'photo-paste-edits',
+  'selection-paste-edits',
   'photo-export',
   'selection-export',
   'photo-cover',
@@ -49,7 +52,16 @@ export interface PhotoActionsContext {
 
 export type PhotoMenuSectionId = 'photo' | 'selection' | 'group' | 'library' | 'trash'
 export type PhotoMenuIcon =
-  'export' | 'cover' | 'remove' | 'merge' | 'group' | 'select' | 'ungroup' | 'trash'
+  | 'copy'
+  | 'paste'
+  | 'export'
+  | 'cover'
+  | 'remove'
+  | 'merge'
+  | 'group'
+  | 'select'
+  | 'ungroup'
+  | 'trash'
 export interface PhotoMenuAction {
   id: PhotoActionId
   scope: PhotoMenuSectionId
@@ -92,6 +104,16 @@ export function buildPhotoMenu(context: PhotoActionsContext, toolbar: boolean): 
     if (actions.length) sections.push({ id, heading, actions })
   }
   section('photo', `Photo · ${context.photo?.filename ?? ''}`, [
+    { id: 'photo-copy-edits', label: 'Copy edits', icon: 'copy' },
+    ...(!context.equivalent.photoSelection
+      ? [
+          {
+            id: 'photo-paste-edits' as const,
+            label: 'Paste edits to this photo…',
+            icon: 'paste' as const,
+          },
+        ]
+      : []),
     ...(!context.equivalent.photoSelection
       ? [{ id: 'photo-export' as const, label: 'Export this photo…', icon: 'export' as const }]
       : []),
@@ -99,6 +121,11 @@ export function buildPhotoMenu(context: PhotoActionsContext, toolbar: boolean): 
     { id: 'photo-remove', label: 'Remove this photo from group', icon: 'remove' },
   ])
   section('selection', `Selection · ${count} ${count === 1 ? 'photo' : 'photos'}`, [
+    {
+      id: 'selection-paste-edits',
+      label: count === 1 ? 'Paste edits…' : `Paste edits to ${count} selected photos…`,
+      icon: 'paste',
+    },
     { id: 'selection-export', label: 'Export selected photos…', icon: 'export' },
     { id: 'selection-hdr', label: 'Merge selected photos to HDR…', icon: 'merge' },
     { id: 'selection-noise', label: 'Stack selected photos for noise reduction…', icon: 'merge' },

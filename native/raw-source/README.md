@@ -10,12 +10,12 @@ binary require their own integration and parity verification.
 The sole command is:
 
 ```text
-luma-raw --owned-rows-v1 EXPECTED_MAIN_PID NONCE DEV INO LENGTH
+irodori-raw --owned-rows-v1 EXPECTED_MAIN_PID NONCE DEV INO LENGTH
 ```
 
 Main owns the actual child and holds the original source pin. It passes a fresh
 32-character lowercase hexadecimal nonce and canonical decimal fstat identity.
-FD0 carries exact `LUMA-RAW-START1 NONCE\n` followed by EOF; FD1 is the unchanged
+FD0 carries exact `IRODORI-RAW-START1 NONCE\n` followed by EOF; FD1 is the unchanged
 sensor header/payload/trailer; FD2 carries diagnostics; FD3 is the inherited
 read-only regular original; FD4 receives exact `ARMED NONCE\n` then closes.
 The expected main PID and Linux parent-death SIGKILL guard are checked before

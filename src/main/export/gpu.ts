@@ -1,5 +1,7 @@
 import { displayRenderingWgsl } from '../../shared/display-rendering-wgsl'
-import { hdrAdjustmentsWgsl } from '../../shared/hdr-adjustments-wgsl'
+import { hdrAdjustmentShader } from '../../shared/hdr-adjustments-wgsl'
+import { creativeColorActive, prepareCreativeColor } from '../../shared/creative-color'
+import { packCreativeColor, CREATIVE_COLOR_PARAMETER_BYTES } from '../../shared/creative-color-gpu'
 import { packAces, ACES_DATA_BYTES } from '../../shared/aces-data'
 import {
   prepareDisplayRendering,
@@ -10,12 +12,23 @@ import { SDR_TARGET } from '../../shared/hdr'
 import type { AdjustmentParameters } from '../../shared/adjustments'
 import { RawGpuRenderer } from '../gpu/raw-renderer'
 import { exportPrecisionData, exportPrecisionWgsl } from './precision-wgsl'
+import {
+  exportGpuAllocation,
+  EXPORT_GPU_LIMIT_BYTES,
+  ExportResourceError,
+} from '../../shared/export-resources'
 
 const inputMatrix =
   'mat3x3f(' + REC2020_TO_ACES.map((row) => 'vec3f(' + row.join(',') + ')').join(',') + ')'
 
 /** Two fixed renditions use the same reference shader, with per-invocation table selection. */
-export function exportShader(hdr: boolean, packed: boolean, workgroup = 64, deferred = false) {
+export function exportShader(
+  hdr: boolean,
+  packed: boolean,
+  workgroup = 64,
+  deferred = false,
+  creative = false,
+) {
   const precision = /fn acesMath\(index:u32\)->vec2f\s*\{[^}]+\}/
   if (!precision.test(displayRenderingWgsl))
     throw new Error('Reference ACES precision lookup is unavailable.')
@@ -34,13 +47,13 @@ export function exportShader(hdr: boolean, packed: boolean, workgroup = 64, defe
   return `
 var<private> acesOffset:i32;
 ${rendering}
-struct Params { values:array<vec4f,11> }
+struct Params { values:array<vec4f,12> }
 @group(0) @binding(0) var<uniform> u:Params;
 @group(0) @binding(1) var<storage,read> input:array<vec4f>;
 struct Result { peak:atomic<u32>, values:array<u32> }
 @group(0) @binding(2) var<storage,read_write> result:Result;
 ${deferred ? '@group(0) @binding(5) var<storage,read_write> working:array<f32>;' : ''}
-${hdrAdjustmentsWgsl}
+${hdrAdjustmentShader(creative)}
 ${hdr && packed ? `var<workgroup> peaks:array<f32,${workgroup}>;` : ''}
 fn exportTarget(jmh:vec3f,linear:f32)->vec3f {
  let toned=Y_to_J(tonescale_fwd(linear,aces_ts()),aces_input_params());
@@ -118,30 +131,56 @@ export async function createExportGpu(
   packed: boolean,
   workgroup = 64,
   deferredPixels = 0,
+  vramLimitBytes = EXPORT_GPU_LIMIT_BYTES,
 ) {
   if (process.versions.electron) throw new Error('GPU export requires the isolated Node worker.')
   if (![32, 64, 128, 256].includes(workgroup)) throw new Error('Invalid export workgroup size.')
   if (!Number.isSafeInteger(deferredPixels) || deferredPixels < 0)
     throw new Error('Invalid retained export dimensions.')
+  adjustments = structuredClone(adjustments)
+  whiteBalance = whiteBalance ? [...whiteBalance] : undefined
+  const color = prepareCreativeColor(adjustments),
+    creative = creativeColorActive(color)
+  const allocation = exportGpuAllocation(
+    capacity,
+    hdr,
+    packed,
+    creative,
+    deferredPixels,
+    vramLimitBytes,
+  )
+  if (!allocation.accepted)
+    throw new ExportResourceError('GPU export exceeds the frozen managed image budgets.')
   const gpu = new RawGpuRenderer(),
     resources: GPUBuffer[] = []
-  const close = () => {
-    for (const buffer of resources) buffer.destroy()
-    gpu.close()
-  }
+  let queue: GPUQueue | undefined,
+    pending: Promise<{ data: Buffer; headroom: number }> | undefined,
+    closing = false,
+    drained: Promise<void> | undefined
+  const close = () =>
+    (drained ??= (async () => {
+      closing = true
+      await pending?.catch(() => undefined)
+      await queue?.onSubmittedWorkDone().catch(() => undefined)
+      for (const buffer of resources) buffer.destroy()
+      gpu.close()
+    })())
   try {
     const { device, adapter } = await gpu.mergeDevice()
+    queue = device.queue
     const stride = packed ? (hdr ? 3 : 1) : hdr ? 6 : 3
     const buffer = (size: number, usage: number) => {
       if (size > device.limits.maxBufferSize || size > device.limits.maxStorageBufferBindingSize)
         throw new Error('Export tile exceeds the GPU allocation limit.')
       if (usage & GPUBufferUsage.UNIFORM && size > device.limits.maxUniformBufferBindingSize)
         throw new Error('Export uniforms exceed the GPU allocation limit.')
+      if (resources.reduce((sum, buffer) => sum + buffer.size, size) > allocation.limitBytes)
+        throw new ExportResourceError('GPU export exceeds the frozen managed image budgets.')
       const value = device.createBuffer({ size, usage })
       resources.push(value)
       return value
     }
-    const uniform = buffer(176, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST),
+    const uniform = buffer(192, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST),
       input = buffer(capacity * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
       output = buffer(
         4 + capacity * stride * 4,
@@ -154,6 +193,10 @@ export async function createExportGpu(
         GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       )
     device.queue.writeBuffer(math, 0, exportPrecisionData)
+    const colorData = creative
+      ? buffer(CREATIVE_COLOR_PARAMETER_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
+      : undefined
+    if (colorData) device.queue.writeBuffer(colorData, 0, packCreativeColor(color!))
     const workingBytes = deferredPixels * 20
     const hdrDeferred = !!(
       hdr &&
@@ -161,7 +204,7 @@ export async function createExportGpu(
       deferredPixels &&
       workingBytes <= device.limits.maxBufferSize &&
       workingBytes <= device.limits.maxStorageBufferBindingSize &&
-      resources.reduce((sum, b) => sum + b.size, workingBytes) <= 1024 ** 3
+      allocation.deferredBytes > 0
     )
     const working = hdrDeferred ? buffer(workingBytes, GPUBufferUsage.STORAGE) : undefined
     const sdrParameters = prepareDisplayRendering(SDR_TARGET),
@@ -171,19 +214,20 @@ export async function createExportGpu(
       throw new Error('Export ACES input parameters cannot be shared.')
     device.queue.writeBuffer(tables, 0, packAces(sdrParameters))
     device.queue.writeBuffer(tables, ACES_DATA_BYTES, packAces(hdrParameters))
-    const values = new Float32Array(44)
+    const values = new Float32Array(48)
     values.set(
       [adjustments.exposureEv, adjustments.contrast, adjustments.highlights, adjustments.shadows],
       8,
     )
     values.set([adjustments.whites, adjustments.blacks], 12)
+    values.set([adjustments.saturation, adjustments.vibrance], 44)
     if (whiteBalance) {
       values[19] = 1
       for (let row = 0; row < 3; row++)
         values.set(whiteBalance.slice(row * 3, row * 3 + 3), 20 + row * 4)
     }
     const module = device.createShaderModule({
-      code: exportShader(hdr, packed, workgroup, hdrDeferred),
+      code: exportShader(hdr, packed, workgroup, hdrDeferred, creative),
     })
     const errors = (await module.getCompilationInfo()).messages.filter((m) => m.type === 'error')
     if (errors.length) throw new Error(errors.map((e) => e.message).join('\n'))
@@ -200,7 +244,11 @@ export async function createExportGpu(
     ]
     const group = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
-      entries: [...commonEntries, { binding: 1, resource: { buffer: input } }],
+      entries: [
+        ...commonEntries,
+        { binding: 1, resource: { buffer: input } },
+        ...(colorData ? [{ binding: 12, resource: { buffer: colorData } }] : []),
+      ],
     })
     const hdrPipeline = hdrDeferred
       ? await device.createComputePipelineAsync({
@@ -255,20 +303,37 @@ export async function createExportGpu(
         staging.unmap()
       }
     }
+    const run = (
+      pixels: Float32Array<ArrayBuffer> | undefined,
+      offset: number,
+      count: number,
+      hdrPass = false,
+    ) => {
+      if (closing) return Promise.reject(new Error('The export GPU owner is closed.'))
+      if (pending) return Promise.reject(new Error('The export GPU owner is busy.'))
+      const work = dispatch(pixels, offset, count, hdrPass)
+      pending = work
+      void work
+        .finally(() => {
+          if (pending === work) pending = undefined
+        })
+        .catch(() => undefined)
+      return work
+    }
     return {
       adapter,
       hdrDeferred,
       peakBytes: resources.reduce((sum, b) => sum + b.size, 0),
       render(pixels: Float32Array<ArrayBuffer>, offset = 0) {
-        return dispatch(pixels, offset, pixels.length / 4)
+        return run(pixels, offset, pixels.length / 4)
       },
       finishHdr(offset: number, count: number) {
-        return dispatch(undefined, offset, count, true)
+        return run(undefined, offset, count, true)
       },
       close,
     }
   } catch (error) {
-    close()
+    await close()
     throw error
   }
 }

@@ -16,7 +16,7 @@ const ADDRESS_SPACE_LIMIT: u64 = 2 * 1024 * 1024 * 1024;
 const RAW_ALLOCATION_LIMIT: usize = 256 * 1024 * 1024;
 const HEADER_LIMIT: usize = 64 * 1024;
 const TRAILER_LIMIT: usize = 16 * 1024;
-const CONTRACT: &str = "luma-parallel-sony-arw2-rows-v1";
+const CONTRACT: &str = "irodori-parallel-sony-arw2-rows-v1";
 
 #[repr(C)]
 struct ResourceLimit {
@@ -35,21 +35,21 @@ extern "C" {
     ) -> *mut c_void;
     fn munmap(address: *mut c_void, length: usize) -> c_int;
     fn setrlimit(resource: c_int, limit: *const ResourceLimit) -> c_int;
-    fn luma_raw_create() -> *mut c_void;
-    fn luma_raw_destroy(handle: *mut c_void);
-    fn luma_raw_error(handle: *mut c_void) -> *const c_char;
-    fn luma_raw_metadata(handle: *mut c_void) -> *const c_char;
-    fn luma_raw_row_diagnostics(handle: *mut c_void) -> *const c_char;
-    fn luma_raw_configure_rows(handle: *mut c_void, mode: u32, threads: u32) -> c_int;
-    fn luma_raw_rows(handle: *mut c_void) -> *const u16;
-    fn luma_raw_row_width(handle: *mut c_void) -> usize;
-    fn luma_raw_row_count(handle: *mut c_void) -> usize;
-    fn luma_raw_row_stride(handle: *mut c_void) -> usize;
-    fn luma_raw_open(handle: *mut c_void, input: *const u8, length: usize) -> c_int;
-    fn luma_raw_unpack(handle: *mut c_void) -> c_int;
-    fn luma_raw_prepare_rows(handle: *mut c_void) -> c_int;
-    fn luma_raw_release_rows(handle: *mut c_void) -> c_int;
-    fn luma_raw_peak_rss_bytes() -> u64;
+    fn irodori_raw_create() -> *mut c_void;
+    fn irodori_raw_destroy(handle: *mut c_void);
+    fn irodori_raw_error(handle: *mut c_void) -> *const c_char;
+    fn irodori_raw_metadata(handle: *mut c_void) -> *const c_char;
+    fn irodori_raw_row_diagnostics(handle: *mut c_void) -> *const c_char;
+    fn irodori_raw_configure_rows(handle: *mut c_void, mode: u32, threads: u32) -> c_int;
+    fn irodori_raw_rows(handle: *mut c_void) -> *const u16;
+    fn irodori_raw_row_width(handle: *mut c_void) -> usize;
+    fn irodori_raw_row_count(handle: *mut c_void) -> usize;
+    fn irodori_raw_row_stride(handle: *mut c_void) -> usize;
+    fn irodori_raw_open(handle: *mut c_void, input: *const u8, length: usize) -> c_int;
+    fn irodori_raw_unpack(handle: *mut c_void) -> c_int;
+    fn irodori_raw_prepare_rows(handle: *mut c_void) -> c_int;
+    fn irodori_raw_release_rows(handle: *mut c_void) -> c_int;
+    fn irodori_raw_peak_rss_bytes() -> u64;
 }
 
 struct Input {
@@ -91,7 +91,7 @@ impl Decoder {
     fn new() -> Result<Self, Box<dyn std::error::Error>> {
         // SAFETY: the bridge returns a fresh opaque owner or null; no shared decoder exists.
         Ok(Self(
-            NonNull::new(unsafe { luma_raw_create() }).ok_or("RAW decoder allocation failed.")?,
+            NonNull::new(unsafe { irodori_raw_create() }).ok_or("RAW decoder allocation failed.")?,
         ))
     }
     fn check(&self, status: c_int) -> Result<(), Box<dyn std::error::Error>> {
@@ -99,12 +99,12 @@ impl Decoder {
             return Ok(());
         }
         // SAFETY: this live owner holds the bounded NUL-terminated bridge error string.
-        let message = unsafe { CStr::from_ptr(luma_raw_error(self.0.as_ptr())) }.to_str()?;
+        let message = unsafe { CStr::from_ptr(irodori_raw_error(self.0.as_ptr())) }.to_str()?;
         Err(message.to_owned().into())
     }
     fn metadata(&self) -> Result<String, Box<dyn std::error::Error>> {
         // SAFETY: the bridge owns this bounded NUL-terminated JSON until its next call.
-        let value = unsafe { CStr::from_ptr(luma_raw_metadata(self.0.as_ptr())) }.to_str()?;
+        let value = unsafe { CStr::from_ptr(irodori_raw_metadata(self.0.as_ptr())) }.to_str()?;
         if value.len() > 16 * 1024 || !value.starts_with('{') || !value.ends_with('}') {
             return Err("Invalid RAW metadata envelope.".into());
         }
@@ -115,7 +115,7 @@ impl Drop for Decoder {
     fn drop(&mut self) {
         // SAFETY: exactly one owner destroys this handle after all pixel borrows end.
         unsafe {
-            luma_raw_destroy(self.0.as_ptr());
+            irodori_raw_destroy(self.0.as_ptr());
         }
     }
 }
@@ -159,7 +159,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map(|value| value.into_string().map_err(|_| "Non-ASCII native RAW arguments."))
         .collect::<Result<_, _>>()?;
     if arguments.len() != 6 || arguments[0] != "--owned-rows-v1" {
-        return Err("Usage: luma-raw --owned-rows-v1 EXPECTED_MAIN_PID NONCE DEV INO LENGTH".into());
+        return Err("Usage: irodori-raw --owned-rows-v1 EXPECTED_MAIN_PID NONCE DEV INO LENGTH".into());
     }
     let expected_parent = c_int::try_from(decimal(&arguments[1])?)?;
     let nonce = &arguments[2];
@@ -200,11 +200,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let input_ms = input_started.elapsed().as_secs_f64() * 1000.0;
     let decoder = Decoder::new()?;
     // SAFETY: configure this fresh owner before open; no threads or borrows exist yet.
-    decoder.check(unsafe { luma_raw_configure_rows(decoder.0.as_ptr(), mode, row_threads) })?;
+    decoder.check(unsafe { irodori_raw_configure_rows(decoder.0.as_ptr(), mode, row_threads) })?;
     let open_started = Instant::now();
     // SAFETY: the read-only mapping outlives this decoder and every LibRaw call.
     decoder.check(unsafe {
-        luma_raw_open(
+        irodori_raw_open(
             decoder.0.as_ptr(),
             input.address.as_ptr().cast(),
             input.length,
@@ -214,24 +214,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let opened = decoder.metadata()?;
     let unpack_started = Instant::now();
     // SAFETY: opened live handle; the bridge permits exactly one unpack.
-    decoder.check(unsafe { luma_raw_unpack(decoder.0.as_ptr()) })?;
+    decoder.check(unsafe { irodori_raw_unpack(decoder.0.as_ptr()) })?;
     let unpack_ms = unpack_started.elapsed().as_secs_f64() * 1000.0;
     // SAFETY: bounded immutable JSON belongs to this owner; clone before any later bridge call.
-    let row_kernel = unsafe { CStr::from_ptr(luma_raw_row_diagnostics(decoder.0.as_ptr())) }.to_str()?.to_owned();
+    let row_kernel = unsafe { CStr::from_ptr(irodori_raw_row_diagnostics(decoder.0.as_ptr())) }.to_str()?.to_owned();
     if row_kernel.len() > 4096 || !row_kernel.starts_with('{') || !row_kernel.ends_with('}') {
         return Err("Invalid row-kernel diagnostics.".into());
     }
     let prepare_started = Instant::now();
     // SAFETY: the bridge validates initialized Bayer storage and retains it until release.
-    decoder.check(unsafe { luma_raw_prepare_rows(decoder.0.as_ptr()) })?;
+    decoder.check(unsafe { irodori_raw_prepare_rows(decoder.0.as_ptr()) })?;
     let unpacked = decoder.metadata()?;
     // SAFETY: live prepared handle; these immutable dimensions describe its borrowed rows.
     let (rows, width, height, stride) = unsafe {
         (
-            luma_raw_rows(decoder.0.as_ptr()),
-            luma_raw_row_width(decoder.0.as_ptr()),
-            luma_raw_row_count(decoder.0.as_ptr()),
-            luma_raw_row_stride(decoder.0.as_ptr()),
+            irodori_raw_rows(decoder.0.as_ptr()),
+            irodori_raw_row_width(decoder.0.as_ptr()),
+            irodori_raw_row_count(decoder.0.as_ptr()),
+            irodori_raw_row_stride(decoder.0.as_ptr()),
         )
     };
     let row_bytes = width.checked_mul(2).ok_or("RAW row length overflow.")?;
@@ -263,7 +263,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
     let header_started = Instant::now();
-    frame(&mut output, b"LUMARAW2", &header, HEADER_LIMIT)?;
+    frame(&mut output, b"IRODRAW2", &header, HEADER_LIMIT)?;
     let header_ms = header_started.elapsed().as_secs_f64() * 1000.0;
     let write_started = Instant::now();
     // SAFETY: the validated live LibRaw allocation remains initialized and immutable through
@@ -283,14 +283,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let write_ms = write_started.elapsed().as_secs_f64() * 1000.0;
     let recycle_started = Instant::now();
     // SAFETY: all borrowed slices and blocking writes ended before this release.
-    decoder.check(unsafe { luma_raw_release_rows(decoder.0.as_ptr()) })?;
+    decoder.check(unsafe { irodori_raw_release_rows(decoder.0.as_ptr()) })?;
     let recycle_ms = recycle_started.elapsed().as_secs_f64() * 1000.0;
     let thread_count = threads()?;
     if thread_count != 1 {
         return Err("The native RAW decoder retained row tasks after its join barrier.".into());
     }
     // SAFETY: getrusage wrapper returns observed self peak RSS in Linux bytes, or zero on error.
-    let peak_rss = unsafe { luma_raw_peak_rss_bytes() };
+    let peak_rss = unsafe { irodori_raw_peak_rss_bytes() };
     if peak_rss == 0 {
         return Err("Native RAW peak RSS observation failed.".into());
     }
@@ -298,7 +298,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let trailer = format!(
         "{{\"contract\":\"{CONTRACT}\",\"complete\":true,\"packedBytes\":{byte_length},\"rowsWritten\":{height},\"timings\":{{\"inputMapMs\":{input_ms},\"openMs\":{open_ms},\"unpackMs\":{unpack_ms},\"prepareLiveRowsMs\":{prepare_ms},\"headerWriteMs\":{header_ms},\"payloadWriteWithBackpressureMs\":{write_ms},\"recycleMs\":{recycle_ms},\"totalBeforeTrailerMs\":{total_ms}}},\"process\":{{\"threads\":{thread_count},\"peakRssBytes\":{peak_rss},\"addressSpaceLimitBytes\":{ADDRESS_SPACE_LIMIT},\"librawRawAllocationLimitBytes\":{RAW_ALLOCATION_LIMIT},\"packedLimitBytes\":{PACKED_LIMIT}}}}}"
     );
-    frame(&mut output, b"LUMAEND2", &trailer, TRAILER_LIMIT)?;
+    frame(&mut output, b"IRODEND2", &trailer, TRAILER_LIMIT)?;
     output.flush()?;
     Ok(())
 }

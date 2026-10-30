@@ -6,9 +6,9 @@ import { choose, expectImportComplete } from './import.helpers'
 import { isolateTrash } from './photo-actions.helpers'
 
 test('reviews a folder, excludes photos, copies originals, persists, and marks duplicates', async ({
-  luma,
+  irodori,
 }, testInfo) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const source = testInfo.outputPath('Výběr fotek')
   await mkdir(join(source, 'nested'), { recursive: true })
   const original = await readFile('tests/fixtures/photos/alpine-lake.jpg')
@@ -36,19 +36,19 @@ test('reviews a folder, excludes photos, copies originals, persists, and marks d
   await page.getByRole('button', { name: 'Import 1 photos', exact: true }).click()
   await expectImportComplete(page)
   await expect(page.getByTestId('preview-filename')).toHaveText('výlet.jpg')
-  const catalog = await page.evaluate(() => window.luma.listPhotos())
+  const catalog = await page.evaluate(() => window.irodori.listPhotos())
   expect(catalog.total).toBe(1)
   const stored = join(
-    luma.userDataDir,
+    irodori.userDataDir,
     'library',
     'originals',
     catalog.photos[0].id,
     'original.jpg',
   )
   expect(await readFile(stored)).toEqual(original)
-  expect(await readdir(join(luma.userDataDir, 'library', 'staging'))).toEqual([])
+  expect(await readdir(join(irodori.userDataDir, 'library', 'staging'))).toEqual([])
   await rm(source, { recursive: true })
-  const restarted = await luma.restart()
+  const restarted = await irodori.restart()
   await expect(restarted.page.getByTestId('preview-filename')).toHaveText('výlet.jpg')
   await expect
     .poll(() =>
@@ -66,15 +66,15 @@ test('reviews a folder, excludes photos, copies originals, persists, and marks d
   await expect(restarted.page.getByRole('checkbox', { name: 'Import renamed.jpg' })).toBeEnabled()
   await restarted.page.getByRole('button', { name: 'Import 1 photos', exact: true }).click()
   await expectImportComplete(restarted.page)
-  expect((await restarted.page.evaluate(() => window.luma.listPhotos())).total).toBe(1)
+  expect((await restarted.page.evaluate(() => window.irodori.listPhotos())).total).toBe(1)
   await restarted.page.getByTestId('task-progress').click()
   await expect(restarted.page.getByTestId('task-details')).toContainText('1 duplicate')
 })
 
 test('supports picker cancellation, nonrecursive folders, select all and keyboard dismissal', async ({
-  luma,
+  irodori,
 }, testInfo) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const source = testInfo.outputPath('folder')
   await mkdir(join(source, 'nested'), { recursive: true })
   await copyFile('tests/fixtures/photos/alpine-lake.jpg', join(source, 'one.jpg'))
@@ -94,15 +94,15 @@ test('supports picker cancellation, nonrecursive folders, select all and keyboar
   await expect(page.getByRole('checkbox', { name: 'Import one.jpg' })).toBeChecked()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(0)
-  expect(await readdir(join(luma.userDataDir, 'library', 'staging'))).toEqual([])
+  expect((await page.evaluate(() => window.irodori.listPhotos())).total).toBe(0)
+  expect(await readdir(join(irodori.userDataDir, 'library', 'staging'))).toEqual([])
 })
 
 test('reviews and browses a library across loaded and unloaded records', async ({
-  luma,
+  irodori,
 }, testInfo) => {
   test.setTimeout(90_000)
-  const { app, page } = luma
+  const { app, page } = irodori
   const source = testInfo.outputPath('large-folder')
   await mkdir(source)
   const bytes = await readFile('tests/fixtures/photos/alpine-lake.jpg')
@@ -132,7 +132,7 @@ test('reviews and browses a library across loaded and unloaded records', async (
   // Parallel preparation determines publication order. Browse the actual
   // catalog boundary while keeping the initially active photograph unchanged.
   const [firstPage, lastPage] = await page.evaluate(async () =>
-      Promise.all([window.luma.listPhotos(), window.luma.listPhotos(60)]),
+      Promise.all([window.irodori.listPhotos(), window.irodori.listPhotos(60)]),
     ),
     newest = firstPage.photos[0].filename,
     previous = firstPage.photos.at(-1)!.filename,
@@ -165,7 +165,9 @@ test('reviews and browses a library across loaded and unloaded records', async (
   await isolateTrash(app)
   await page.keyboard.press('Delete')
   await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
-  await expect.poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total).toBe(1)
+  await expect
+    .poll(async () => (await page.evaluate(() => window.irodori.listPhotos())).total)
+    .toBe(1)
   await expect(page.getByTestId('preview-filename')).toHaveText(oldest)
   await expect(page.getByRole('button', { name: `Select ${oldest}`, exact: true })).toBeVisible()
   await expect(page.getByRole('navigation', { name: /pages/ })).toHaveCount(0)

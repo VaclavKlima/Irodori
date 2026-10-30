@@ -62,7 +62,7 @@ export class CatalogWriter implements CatalogCommands {
     })
     this.worker = createWorker(workerPath, {
       workerData: { databasePath },
-      name: 'luma-catalog-writer',
+      name: 'irodori-catalog-writer',
     })
     this.worker.on('message', (message: CatalogResponse) => this.receive(message))
     this.worker.once('error', (error) => this.fail(error))

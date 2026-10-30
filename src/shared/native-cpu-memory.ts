@@ -12,6 +12,8 @@ export interface CpuMemoryRequest {
   readonly threads: 1 | 4 | 8
   readonly oldPairBytes: number
   readonly existingOwners: CpuManagedBytes
+  /** Two distinct attested source/sample domains, processed sequentially. */
+  readonly sourceCount?: 1 | 2
 }
 export interface CpuMemoryLimits {
   readonly ramBytes: number
@@ -40,7 +42,8 @@ export function nativeCpuMemory(request: CpuMemoryRequest, limits: CpuMemoryLimi
   ]
   if (
     dimensions.some((value) => !Number.isSafeInteger(value) || value < 1 || value > 32768) ||
-    ![1, 4, 8].includes(request.threads)
+    ![1, 4, 8].includes(request.threads) ||
+    (request.sourceCount !== undefined && ![1, 2].includes(request.sourceCount))
   )
     throw new Error('Invalid CPU presentation geometry.')
   const policy = Object.freeze({
@@ -98,7 +101,7 @@ export function nativeCpuMemory(request: CpuMemoryRequest, limits: CpuMemoryLimi
     nativeAndTransportAllowance: sum(1024 ** 2, request.threads * 512 * 1024, 6 * 64 * 1024),
     // Old/new source sets, main collector/file staging, renderer digest and
     // analysis handoff can overlap; keep six sets until the real phase proof.
-    samples: samplePair * 6,
+    samples: samplePair * 6 * (request.sourceCount ?? 1),
     // Sequential fetch + sequential WebCrypto digest + bitmap creation. This
     // upper allowance includes a possible host mirror; no concurrent plane loads.
     newPairConstruction: outputPixels * 16,

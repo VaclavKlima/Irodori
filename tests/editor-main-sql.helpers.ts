@@ -15,7 +15,7 @@ export async function observeMainSqlTiming(app: ElectronApplication, isolatedUse
     const sqlite = process.getBuiltinModule('node:sqlite')
     if (
       !path.isAbsolute(isolatedUserDataDir) ||
-      !path.basename(isolatedUserDataDir).startsWith('luma-e2e-') ||
+      !path.basename(isolatedUserDataDir).startsWith('irodori-e2e-') ||
       fs.realpathSync(isolatedUserDataDir) !== fs.realpathSync(app.getPath('userData'))
     )
       throw new Error('SQL observation requires the shared isolated fixture profile.')

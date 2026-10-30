@@ -93,7 +93,7 @@ function workAreaObservation(
 
 async function rendererGeometry(page: Page, diagnosticOnly: boolean) {
   return page.evaluate(async (diagnosticOnly) => {
-    if (diagnosticOnly && (!('hdrDiagnostic' in window) || 'luma' in window))
+    if (diagnosticOnly && (!('hdrDiagnostic' in window) || 'irodori' in window))
       throw new Error(
         'Diagnostic monitor placement requires the isolated HDR diagnostic without an application bridge.',
       )
@@ -151,7 +151,7 @@ async function rendererGeometry(page: Page, diagnosticOnly: boolean) {
       documentFocused: document.hasFocus(),
       visibility: document.visibilityState,
       documentFullscreen: document.fullscreenElement !== null,
-      display: diagnosticOnly ? null : await window.luma.getDisplayState(),
+      display: diagnosticOnly ? null : await window.irodori.getDisplayState(),
       displaySource: diagnosticOnly
         ? 'unavailable-in-isolated-hdr-diagnostic'
         : 'application-bridge',
@@ -218,18 +218,18 @@ export async function maximizeEditorOnMonitor(
   )
     throw new Error('This monitor-placement helper requires the native Linux Wayland session.')
   const timeoutMs = 15000
-  const label = options.monitorLabel ?? process.env.LUMA_RESPONSIVENESS_MONITOR ?? null
+  const label = options.monitorLabel ?? process.env.IRODORI_RESPONSIVENESS_MONITOR ?? null
   const requested = { label, selection: label ? 'matching label' : 'largest actual screen area' }
   const nativeWindow = await app.browserWindow(page)
   const isolation = await app.evaluate(({ app }) => ({
     userData: app.getPath('userData'),
-    uiMode: process.env.LUMA_TEST_UI_MODE,
+    uiMode: process.env.IRODORI_TEST_UI_MODE,
     argv: process.argv.filter((argument) => argument.startsWith('--user-data-dir=')),
   }))
   const profile = await realpath(isolation.userData)
   if (
     isolation.uiMode !== 'foreground' ||
-    !basename(profile).startsWith('luma-e2e-') ||
+    !basename(profile).startsWith('irodori-e2e-') ||
     !isolation.argv.some((argument) => argument === `--user-data-dir=${profile}`)
   )
     throw new Error(
@@ -346,7 +346,7 @@ export async function maximizeEditorOnMonitor(
     if (!sameScreen(current, target)) {
       phase = 'owned input daemon startup'
       await access('/dev/uinput', constants.W_OK)
-      const directory = await mkdtemp(join(tmpdir(), 'luma-wm-'))
+      const directory = await mkdtemp(join(tmpdir(), 'irodori-wm-'))
       daemonEvidence.directory = directory
       const socket = join(directory, 's')
       if (Buffer.byteLength(socket) >= 104)

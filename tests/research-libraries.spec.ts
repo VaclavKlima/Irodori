@@ -17,7 +17,7 @@ test.afterEach(async ({}, info) => attachResearchEvidence(info))
 
 const exec = promisify(execFile)
 const binary = (component: string) =>
-  process.env[`LUMA_RESEARCH_${component.toUpperCase().replaceAll('-', '_')}_BINARY`] ??
+  process.env[`IRODORI_RESEARCH_${component.toUpperCase().replaceAll('-', '_')}_BINARY`] ??
   resolve(`artifacts/research-build/${process.platform}-${process.arch}/${component}`)
 // eslint-disable-next-line no-empty-pattern -- Playwright requires a destructured fixture argument.
 test('equivalent single-thread LibRaw WASM/native camera-linear output and source preservation', async ({}, info) => {

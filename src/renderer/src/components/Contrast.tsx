@@ -20,7 +20,8 @@ export function Contrast({
       step={parameter.step}
       precision={0}
       resetKey={edits.state?.revision}
-      disabled={!edits.state || edits.saving || !previewReady}
+      disabled={!edits.state || !previewReady}
+      busy={edits.saving}
       onChange={(contrast) => void edits.change({ contrast })}
       onCommit={() => void edits.flush().catch(() => undefined)}
       onCancel={edits.cancel}

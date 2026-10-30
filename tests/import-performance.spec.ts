@@ -12,12 +12,12 @@ import { execFileSync } from 'node:child_process'
 // eslint-disable-next-line no-empty-pattern
 test('records three isolated import runs with separate copying and preparation timings', async ({}, info) => {
   test.setTimeout(240_000)
-  const phase = process.env.LUMA_IMPORT_BENCHMARK_PHASE ?? 'pipeline'
-  const cold = process.env.LUMA_IMPORT_BENCHMARK_COLD === '1'
+  const phase = process.env.IRODORI_IMPORT_BENCHMARK_PHASE ?? 'pipeline'
+  const cold = process.env.IRODORI_IMPORT_BENCHMARK_COLD === '1'
   if (cold && process.platform !== 'linux')
     throw new Error('Per-source cache eviction is only verified on Linux.')
-  const paths: string[] = process.env.LUMA_IMPORT_BENCHMARK_SOURCES
-    ? JSON.parse(process.env.LUMA_IMPORT_BENCHMARK_SOURCES)
+  const paths: string[] = process.env.IRODORI_IMPORT_BENCHMARK_SOURCES
+    ? JSON.parse(process.env.IRODORI_IMPORT_BENCHMARK_SOURCES)
     : [
         'tests/fixtures/photos/alpine-lake.jpg',
         'tests/fixtures/photos/mountain-ridge.jpg',
@@ -162,7 +162,7 @@ test('records three isolated import runs with separate copying and preparation t
         phase,
         sources,
         runs,
-        hardware: Boolean(process.env.LUMA_IMPORT_BENCHMARK_SOURCES),
+        hardware: Boolean(process.env.IRODORI_IMPORT_BENCHMARK_SOURCES),
         cachePolicy: cold ? 'POSIX_FADV_DONTNEED before every trial' : 'warm OS caches',
         limitations: [
           'No physical input or scanout measurement.',

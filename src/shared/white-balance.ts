@@ -1,5 +1,5 @@
-/** Luma v1: Kang 2002 locus, perpendicular CIE 1960 UCS tint (0.0001/unit). */
-export const WHITE_BALANCE_MODEL = 'luma-kang2002-ucs-1'
+/** Irodori v1: Kang 2002 locus, perpendicular CIE 1960 UCS tint (0.0001/unit). */
+export const WHITE_BALANCE_MODEL = 'irodori-kang2002-ucs-1'
 export type WhiteBalance = { mode: 'as-shot' } | { mode: 'custom'; kelvin: number; tint: number }
 export const asShot: WhiteBalance = { mode: 'as-shot' }
 export interface WhiteBalanceProfile {
@@ -70,7 +70,7 @@ export function locusUv(kelvin: number): number[] {
   const d = -2 * x + 12 * y + 3
   return [(4 * x) / d, (6 * y) / d]
 }
-function normal(kelvin: number): number[] {
+export function whiteBalanceNormal(kelvin: number): number[] {
   const a = locusUv(kelvin - 1),
     b = locusUv(kelvin + 1)
   const dx = b[0] - a[0],
@@ -81,7 +81,7 @@ function normal(kelvin: number): number[] {
 }
 export function illuminant(kelvin: number, tint: number): number[] {
   const uv = locusUv(kelvin),
-    n = normal(kelvin)
+    n = whiteBalanceNormal(kelvin)
   const u = uv[0] + n[0] * tint * 0.0001,
     v = uv[1] + n[1] * tint * 0.0001
   return [(3 * u) / (2 * v), 1, (4 - u - 10 * v) / (2 * v)]
@@ -125,7 +125,7 @@ export function estimateWhiteBalance(profile: WhiteBalanceProfile): {
     }
   }
   const p = locusUv(kelvin),
-    n = normal(kelvin)
+    n = whiteBalanceNormal(kelvin)
   return {
     kelvin,
     tint: Math.max(

@@ -186,7 +186,9 @@ class OutputDevice {
     }
   }
   staging(slot: number) {
-    return this.buffers.find((buffer) => buffer.label === `Luma merge output slot ${slot} staging`)!
+    return this.buffers.find(
+      (buffer) => buffer.label === `Irodori merge output slot ${slot} staging`,
+    )!
   }
   complete(slot: number) {
     // GPU commands remain ordered even when host map callbacks are delivered later.

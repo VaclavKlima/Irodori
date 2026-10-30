@@ -1,18 +1,18 @@
 # Merge this table into the trusted project's .codex/config.toml.
-# Replace cwd with the absolute path to your Luma checkout.
-[mcp_servers.luma_ui]
+# Replace cwd with the absolute path to your Irodori checkout.
+[mcp_servers.irodori_ui]
 command = "npm"
 args = ["run", "--silent", "mcp:ui"]
-cwd = "/absolute/path/to/Luma"
+cwd = "/absolute/path/to/Irodori"
 startup_timeout_sec = 30
 tool_timeout_sec = 60
 
-# Editing server for a normally running Luma instance; CDP is not required.
-[mcp_servers.luma_editor]
+# Editing server for a normally running Irodori instance; CDP is not required.
+[mcp_servers.irodori_editor]
 command = "npm"
 args = ["run", "--silent", "mcp:editor"]
-cwd = "/absolute/path/to/Luma"
+cwd = "/absolute/path/to/Irodori"
 startup_timeout_sec = 30
 tool_timeout_sec = 60
 # For isolated-profile testing, uncomment and set the same profile as Electron:
-# env = { LUMA_PROFILE = "/absolute/test/profile" }
+# env = { IRODORI_PROFILE = "/absolute/test/profile" }

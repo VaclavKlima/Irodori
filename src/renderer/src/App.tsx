@@ -1,8 +1,15 @@
 import { configureCollections } from './collections/controller'
 import { APP_NAME, APP_TAGLINE } from '../../shared/app-identity'
 import { useWorkspaceCheckpoint } from './hooks/useWorkspaceCheckpoint'
-import type { WorkspaceState } from '../../shared/workspace'
+import {
+  DEFAULT_INSPECTOR_SECTIONS,
+  DEFAULT_CREATIVE_COLOR_SELECTION,
+  type CreativeColorSelection,
+  type InspectorSections,
+  type WorkspaceState,
+} from '../../shared/workspace'
 import { MergeDialog } from './components/MergeDialog'
+import { PasteEditsDialog } from './components/PasteEditsDialog'
 import { ExportDialog } from './components/ExportDialog'
 import { ResourceSettingsDialog } from './components/ResourceSettingsDialog'
 import type { ResourceSettings } from '../../shared/resource-policy'
@@ -13,6 +20,8 @@ import { useDisplayState } from './hooks/useDisplayState'
 import type { PreviewPreference } from '../../shared/hdr-display'
 import { usePreviewTools } from './hooks/usePreviewTools'
 import { useEdits } from './hooks/useEdits'
+import { useWhiteBalancePicker } from './hooks/useWhiteBalancePicker'
+import { useCrop } from './hooks/useCrop'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Aperture,
@@ -47,6 +56,8 @@ import { PhotoContextMenu, type MenuInitialFocus } from './components/PhotoConte
 import { PhotoPreview } from './components/PhotoPreview'
 import { selectEditorPreviewPolicy } from '../../shared/editor-preview-policy'
 import styles from './App.module.css'
+import { imageResourceOwners } from './preview/image-resource-owners'
+import { rendererImageResources } from './preview/hdr-preview-resources'
 
 interface MenuState {
   x: number
@@ -63,11 +74,23 @@ interface MergeHandoff {
   opening: boolean
 }
 
-const loadResourceSettings = () => window.luma.getResourceSettings()
+const loadResourceSettings = () => window.irodori.getResourceSettings()
 const saveResourceSettings = (settings: ResourceSettings) =>
-  window.luma.setResourceSettings(settings)
+  window.irodori.setResourceSettings(settings)
 
 export function App() {
+  useEffect(
+    () =>
+      window.irodori.onImageResourceQuery(() => {
+        const fixed = rendererImageResources(),
+          live = imageResourceOwners.snapshot()
+        return {
+          ramBytes: fixed.ramBytes + live.ramBytes,
+          vramBytes: fixed.vramBytes + live.vramBytes,
+        }
+      }),
+    [],
+  )
   const recovery = useWorkspaceCheckpoint()
   const { checkpoint, patch: saveWorkspace } = recovery
   const [hydrated, setHydrated] = useState(false)
@@ -102,6 +125,7 @@ export function App() {
     setBrowserPhoto(photo)
   }, [])
   const [mergeTargets, setMergeTargets] = useState<{ ids: string[]; mode: MergeMode } | null>(null)
+  const [pasteTargets, setPasteTargets] = useState<string[] | null>(null)
   const [exportTargets, setExportTargets] = useState<string[] | null>(null)
   const [preparingExport, setPreparingExport] = useState(false)
   const [tasks, setTasks] = useState<BackgroundTask[]>([])
@@ -110,6 +134,26 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [error, setError] = useState('')
   const [consoleOpen, setConsoleOpen] = useState(false)
+  const [inspectorSections, setInspectorSections] = useState<InspectorSections>({
+    ...DEFAULT_INSPECTOR_SECTIONS,
+  })
+  const [creativeColorSelection, setCreativeColorSelection] = useState<CreativeColorSelection>({
+    ...DEFAULT_CREATIVE_COLOR_SELECTION,
+  })
+  const changeCreativeColorSelection = useCallback(
+    (creativeColor: CreativeColorSelection) => {
+      setCreativeColorSelection(creativeColor)
+      saveWorkspace({ creativeColor })
+    },
+    [saveWorkspace],
+  )
+  const changeInspectorSections = useCallback(
+    (inspector: InspectorSections) => {
+      setInspectorSections(inspector)
+      saveWorkspace({ inspector })
+    },
+    [saveWorkspace],
+  )
   const consoleToggleRef = useRef<HTMLButtonElement>(null)
   const importButtonRef = useRef<HTMLButtonElement>(null)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
@@ -132,6 +176,38 @@ export function App() {
   const displayTarget = useDisplayState()
   const previewTools = usePreviewTools(photo?.id)
   const [interactivePhoto, setInteractivePhoto] = useState<string | null>(null)
+  const crop = useCrop(
+    edits,
+    photo?.id,
+    workspace === 'editor' && !!photo && !mergeTargets && !importOpen && !settingsOpen,
+    !!photo && interactivePhoto === photo.id,
+    (id, crop, revision) => window.irodori.updateEdits(id, { crop }, revision),
+  )
+  const whiteBalancePicker = useWhiteBalancePicker(
+    edits,
+    photo?.id,
+    workspace === 'editor' && !!photo && !crop.active && !crop.pending,
+    !!photo && interactivePhoto === photo.id,
+  )
+  const startCrop = async () => {
+    if (!crop.supported || crop.pending) return
+    whiteBalancePicker.cancel()
+    previewTools.update({ mode: 'after' })
+    changeInspectorSections({ ...inspectorSections, crop: true })
+    await crop.start()
+  }
+  const cropTool = { ...crop, start: startCrop }
+  const presentationTools = crop.active
+    ? {
+        ...previewTools,
+        mode: 'after' as const,
+        hdrRanges: false,
+        hdrOverlay: 0,
+        shadows: false,
+        highlights: false,
+        hover: null,
+      }
+    : previewTools
   const [deleteTargets, setDeleteTargets] = useState<readonly PhotoReference[] | null>(null)
   const [contextMenu, setContextMenu] = useState<MenuState | null>(null)
   const contextMenuRef = useRef<MenuState | null>(null)
@@ -222,7 +298,7 @@ export function App() {
           Object.freeze({ id, filename }),
         ),
       )
-      const current = await window.luma.listTasks()
+      const current = await window.irodori.listTasks()
       if (ticket !== actionsGeneration.current) return
       setTasks(current)
       closeContextMenu(false)
@@ -304,7 +380,7 @@ export function App() {
     const generation = actionsGeneration.current
     const read = ++availabilityGeneration.current
     try {
-      const context = await window.luma.getPhotoActionsContext(
+      const context = await window.irodori.getPhotoActionsContext(
         menu.context.photo?.id ?? null,
         menu.context.selection.map((p) => p.id),
       )
@@ -332,7 +408,7 @@ export function App() {
   }, [closeContextMenu, updateMenu])
   useEffect(
     () =>
-      window.luma.onLibraryEvent((event) => {
+      window.irodori.onLibraryEvent((event) => {
         if (event.libraryChanged || event.tasksChanged || event.sessionId) {
           availabilityGeneration.current++
           void refreshMenu()
@@ -355,7 +431,7 @@ export function App() {
   const completedMerges = useRef<Set<string> | null>(null)
   const refreshTasks = useCallback(async () => {
     try {
-      const current = await window.luma.listTasks()
+      const current = await window.irodori.listTasks()
       setTasks(current)
       if (!current.length) setTasksOpen(false)
       const completed = current.filter(
@@ -404,7 +480,7 @@ export function App() {
   }, [openPhoto, finishMergeHandoff])
   const dismissTask = useCallback(
     async (id: string) => {
-      await window.luma.dismissTask(id)
+      await window.irodori.dismissTask(id)
       const handoff = mergeHandoffRef.current
       if (handoff?.taskId === id) finishMergeHandoff(handoff)
       await refreshTasks()
@@ -415,9 +491,9 @@ export function App() {
   useEffect(() => {
     let live = true
     void Promise.all([
-      window.luma.getWorkspaceState(),
-      window.luma.getCollectionPolicy(),
-      window.luma.getAppInfo(),
+      window.irodori.getWorkspaceState(),
+      window.irodori.getCollectionPolicy(),
+      window.irodori.getAppInfo(),
     ]).then(
       ([snapshot, policy, info]) => {
         if (!live) return
@@ -430,6 +506,8 @@ export function App() {
         workspaceRef.current = state?.mode ?? 'editor'
         setWorkspace(workspaceRef.current)
         setConsoleOpen(state?.consoleOpen ?? false)
+        setInspectorSections({ ...DEFAULT_INSPECTOR_SECTIONS, ...state?.inspector })
+        setCreativeColorSelection({ ...DEFAULT_CREATIVE_COLOR_SELECTION, ...state?.creativeColor })
         setEditorFocusId(state?.editorFocusId ?? null)
         focusBrowserPhoto(snapshot.libraryPhoto)
         setAppInfo(info)
@@ -447,7 +525,7 @@ export function App() {
   }, [checkpoint, hydrate, focusBrowserPhoto, refresh, refreshTasks])
   useEffect(() => {
     if (!hydrated) return
-    return window.luma.onLibraryEvent((event) => {
+    return window.irodori.onLibraryEvent((event) => {
       onEvent(event)
       if (event.tasksChanged) void refreshTasks()
     })
@@ -477,7 +555,7 @@ export function App() {
   ])
   useEffect(() => {
     if (!hydrated) return
-    return window.luma.onFlushWorkspace(async () => {
+    return window.irodori.onFlushWorkspace(async () => {
       const selection = await getSelection()
       checkpoint.selection(selection.map((p) => p.id))
       await checkpoint.flush()
@@ -490,6 +568,7 @@ export function App() {
         (task) =>
           task.kind !== 'merge' &&
           task.kind !== 'export' &&
+          task.kind !== 'edit-application' &&
           task.status === 'completed' &&
           task.finishedAt !== undefined,
       )
@@ -530,7 +609,7 @@ export function App() {
       workspaceRef.current === 'library' ? browserPhotoRef.current : library.getActivePhoto()
     const ids = targets.map((p) => p.id)
     const availability = availabilityGeneration.current
-    const context = await window.luma.getPhotoActionsContext(focused?.id ?? null, ids)
+    const context = await window.irodori.getPhotoActionsContext(focused?.id ?? null, ids)
     if (ticket !== actionsGeneration.current) return
     const currentFocus =
       workspaceRef.current === 'library' ? browserPhotoRef.current : library.getActivePhoto()
@@ -555,7 +634,7 @@ export function App() {
       const stack = menu.context.group?.stack
       if (action === 'group') {
         const ids = menu.context.selection.map((p) => p.id)
-        await window.luma.groupPhotos(
+        await window.irodori.groupPhotos(
           ids,
           menu.context.photo && ids.includes(menu.context.photo.id)
             ? menu.context.photo.id
@@ -563,7 +642,7 @@ export function App() {
           menu.context.galleryRevision,
         )
       } else if (action === 'scan') {
-        await window.luma.groupCaptureSequences()
+        await window.irodori.groupCaptureSequences()
         await refreshTasks()
         setTasksOpen(true)
       } else if (stack) {
@@ -574,13 +653,13 @@ export function App() {
             () => ticket === actionsGeneration.current,
           )
         } else {
-          await window.luma.getStackSnapshot(stack.id, stack.revision)
+          await window.irodori.getStackSnapshot(stack.id, stack.revision)
           if (ticket !== actionsGeneration.current) return
-          if (action === 'ungroup') await window.luma.ungroupStack(stack.id, stack.revision)
+          if (action === 'ungroup') await window.irodori.ungroupStack(stack.id, stack.revision)
           if (action === 'remove' && menu.context.photo)
-            await window.luma.removeFromStack(menu.context.photo.id, stack.revision)
+            await window.irodori.removeFromStack(menu.context.photo.id, stack.revision)
           if (action === 'cover' && menu.context.photo)
-            await window.luma.setStackCover(stack.id, menu.context.photo.id, stack.revision)
+            await window.irodori.setStackCover(stack.id, menu.context.photo.id, stack.revision)
         }
       }
       if (ticket !== actionsGeneration.current) return
@@ -605,7 +684,7 @@ export function App() {
     try {
       if (action === 'delete') await getSelection()
       if (ticket !== actionsGeneration.current) return
-      const snapshot = await window.luma.getStackSnapshot(stack.id, stack.revision)
+      const snapshot = await window.irodori.getStackSnapshot(stack.id, stack.revision)
       if (ticket !== actionsGeneration.current) return
       if (action === 'delete') {
         await confirmDeletion(snapshot.photos, ticket)
@@ -625,6 +704,15 @@ export function App() {
     if (!context || context.availability[id].kind !== 'applicable' || activeAction.current !== null)
       return
     switch (id) {
+      case 'photo-copy-edits':
+        if (context.photo) void requestEditTransfer('copy', context.photo.id)
+        break
+      case 'photo-paste-edits':
+        if (context.photo) void requestEditTransfer('paste', context.photo.id)
+        break
+      case 'selection-paste-edits':
+        void requestEditTransfer('paste')
+        break
       case 'photo-export':
         if (context.photo) void requestExport([context.photo.id])
         break
@@ -672,6 +760,21 @@ export function App() {
         break
     }
   }
+  async function requestEditTransfer(action: 'copy' | 'paste', photoId?: string) {
+    const ticket = beginAction()
+    if (ticket === null) return
+    try {
+      const selection = await getSelection()
+      if (ticket !== actionsGeneration.current) return
+      if (action === 'copy' && photoId) await window.irodori.copyEdits(photoId)
+      if (ticket !== actionsGeneration.current) return
+      const ids = photoId ? [photoId] : selection.map((photo) => photo.id)
+      closeContextMenu(action === 'copy')
+      if (action === 'paste' && ids.length) setPasteTargets(ids)
+    } catch (error) {
+      actionFailed(ticket, error)
+    }
+  }
   async function requestExport(ids?: string[]) {
     if (preparingExport) return
     setPreparingExport(true)
@@ -706,7 +809,7 @@ export function App() {
 
   async function openImport() {
     try {
-      const current = await window.luma.listTasks()
+      const current = await window.irodori.listTasks()
       setTasks(current)
       if (
         current.some(
@@ -888,7 +991,7 @@ export function App() {
           }
           hiddenActiveCover={library.hiddenActiveCover}
           onExpand={(stack) => {
-            void window.luma
+            void window.irodori
               .setStackExpanded(stack.id, !stack.expanded, stack.revision)
               .then(() => refresh())
               .catch((error) => {
@@ -917,7 +1020,7 @@ export function App() {
                 aria-label="Preview display mode"
                 value={displayTarget.requested}
                 onChange={(event) => {
-                  void window.luma
+                  void window.irodori
                     .setPreviewPreference(event.target.value as PreviewPreference)
                     .catch((error) => setError(String(error)))
                 }}
@@ -936,7 +1039,7 @@ export function App() {
             <div className={styles.previewActions}>
               <button
                 className={styles.iconButton}
-                disabled={edits.saving || !edits.state?.canUndo}
+                disabled={edits.saving || crop.active || crop.pending || !edits.state?.canUndo}
                 onClick={() => void edits.history('undo')}
                 aria-label="Undo"
                 title="Undo photo edit (Ctrl/Cmd+Z)"
@@ -945,7 +1048,7 @@ export function App() {
               </button>
               <button
                 className={styles.iconButton}
-                disabled={edits.saving || !edits.state?.canRedo}
+                disabled={edits.saving || crop.active || crop.pending || !edits.state?.canRedo}
                 onClick={() => void edits.history('redo')}
                 aria-label="Redo"
                 title="Redo photo edit (Ctrl/Cmd+Shift+Z)"
@@ -953,12 +1056,18 @@ export function App() {
                 <Redo2 size={15} />
               </button>
               <span className={styles.toolbarDivider} />
-              <button className={styles.iconButton} disabled aria-label="Crop photo">
+              <button
+                className={styles.iconButton}
+                disabled={!crop.supported || crop.pending}
+                aria-label="Crop photo"
+                aria-pressed={crop.active}
+                onClick={() => (crop.active ? crop.cancel() : void startCrop())}
+              >
                 <Crop size={15} />
               </button>
               <button
                 className={`${styles.iconButton} ${styles.beforeButton}`}
-                disabled={!photo || interactivePhoto !== photo.id}
+                disabled={crop.active || crop.pending || !photo || interactivePhoto !== photo.id}
                 aria-pressed={previewTools.mode === 'before'}
                 onClick={() =>
                   previewTools.update({ mode: previewTools.mode === 'before' ? 'after' : 'before' })
@@ -969,7 +1078,7 @@ export function App() {
               </button>
               <button
                 className={styles.iconButton}
-                disabled={!photo || interactivePhoto !== photo.id}
+                disabled={crop.active || crop.pending || !photo || interactivePhoto !== photo.id}
                 aria-label="Compare before and after"
                 aria-pressed={previewTools.mode === 'split'}
                 onClick={() =>
@@ -993,6 +1102,8 @@ export function App() {
             </p>
           )}
           <PhotoPreview
+            crop={cropTool}
+            whiteBalancePicker={whiteBalancePicker}
             previewPolicy={editorPreviewPolicy}
             hdrJpeg={edits.state?.hdrJpeg?.state === 'supported'}
             suspended={
@@ -1009,7 +1120,7 @@ export function App() {
             confirmedEdits={
               edits.confirmed && edits.state?.photoId === photo?.id ? edits.state : null
             }
-            tools={previewTools}
+            tools={presentationTools}
             gesturing={edits.gesturing}
             editingEpoch={edits.epoch}
             gestureCommit={edits.gestureCommit?.photoId === photo?.id ? edits.gestureCommit : null}
@@ -1032,11 +1143,23 @@ export function App() {
         </main>
 
         <Inspector
-          suspended={workspace !== 'editor'}
-          tools={previewTools}
+          crop={cropTool}
+          whiteBalancePicker={whiteBalancePicker}
+          sections={inspectorSections}
+          onSectionsChange={changeInspectorSections}
+          creativeColor={creativeColorSelection}
+          onCreativeColorChange={changeCreativeColorSelection}
+          suspended={workspace !== 'editor' || crop.active || crop.pending}
+          tools={presentationTools}
           photo={photo}
           edits={edits}
-          previewReady={workspace === 'editor' && !!photo && interactivePhoto === photo.id}
+          previewReady={
+            workspace === 'editor' &&
+            !crop.active &&
+            !crop.pending &&
+            !!photo &&
+            interactivePhoto === photo.id
+          }
         />
       </div>
 
@@ -1095,9 +1218,9 @@ export function App() {
           tasks={tasks}
           open={tasksOpen}
           onOpenChange={setTasksOpen}
-          onCancel={window.luma.cancelTask}
+          onCancel={window.irodori.cancelTask}
           onDismiss={dismissTask}
-          getErrors={window.luma.getTaskErrors}
+          getErrors={window.irodori.getTaskErrors}
         />
         <div className={styles.statusRight}>
           <button
@@ -1153,6 +1276,19 @@ export function App() {
             setMergeHandoffPhoto(handoff.automatic ? handoff.photoId : null)
             setMergeTargets(null)
             restoreFocus()
+            void refreshTasks()
+          }}
+        />
+      )}
+      {pasteTargets && (
+        <PasteEditsDialog
+          ids={pasteTargets}
+          onClose={() => {
+            setPasteTargets(null)
+            restoreFocus()
+          }}
+          onStarted={() => {
+            setTasksOpen(true)
             void refreshTasks()
           }}
         />

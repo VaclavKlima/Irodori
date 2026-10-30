@@ -2,7 +2,50 @@
 
 ## Status
 
-**Planned.** Temperature, Tint, and As Shot already exist for verified Sony RAW; the picker does not. [Shared requirements](README.md#shared-implementation-requirements) apply.
+**Implemented; acceptance in progress.** Bounded read-only proposals and explicit
+Apply share existing Temperature, Tint and As Shot history. Independent synthetic
+D50/D65, rejection, coordinate, real isolated-worker/service and synthetic UI-component
+checks pass. [Verification receipts](professional-editing-processing.md#inspector-implementation-evidence)
+keep those scopes distinct. Actual Sony photo, native pointer/visual and physical-neutral
+acceptance remain pending; this is not a claim of physical camera calibration.
+[Shared requirements](README.md#shared-implementation-requirements) apply.
+
+## Initial estimator decision
+
+The initial provider is `neutral-camera-roi-v1`, limited to supported single RAW
+captures with a white-balance profile and verified source limits. Imported HDR and
+composite masters remain unavailable. The sample uses the existing oriented,
+lens-corrected, As Shot linear asset before any custom white balance or creative
+edit. Normalized coordinates select `floor(position * dimension)`, with endpoint 1
+selecting the last pixel. A 7, 15 or 31 pixel square clips at image boundaries.
+At most two authenticated 64-row strips are read, copying at most 961 pixels.
+No rendered canvas pixels, additional RAW decode or full-image GPU readback is used
+when the working asset is prepared. Estimation is small CPU work in the isolated
+image worker; the accepted edit uses the ordinary GPU preview and CPU fallback.
+
+Before integration, freeze these initial bounds: at least 16 valid pixels and 75%
+coverage; alpha at least 0.99; every reconstructed camera channel at least 0.005 of
+sensor white and below 80% of its verified black-subtracted saturation threshold.
+The fourth CFA green threshold is included conservatively. Reconstruct the camera
+domain using the provider matrix, source normalization and As Shot gains exactly
+once. Prepared-source clipping checks are conservative estimates after demosaic,
+lens processing and highlight blending; they do not expose an exact per-site RAW
+validity mask. Native photographic acceptance must assess that limitation.
+
+Estimate medians of log R/G and B/G. Reject a 90th-percentile maximum channel
+deviation above 0.04 log units, and require the retained inliers to meet the same
+coverage/count bounds. Search the existing provider's 50 K grid and integer Tint
+near the CIE 1960 perpendicular projection, without clamping estimates into range.
+The maximum residual normalized camera-channel disagreement must be at most 1%.
+This assumes the selected surface is neutral; a uniformly colored surface cannot
+be identified as such from one sample alone. No automatic neutral or skin detection
+is claimed.
+
+The independent initial checks use the published
+[D50/D65 chromaticities](https://www.w3.org/TR/2026/CRD-css-color-4-20261022/#predefined)
+and synthetic camera responses. They verify recovery and rejection against these
+fixed limits; they are not measured photographs under two physical illuminants.
+That photographic criterion and real Sony source acceptance remain pending.
 
 ## Goal
 

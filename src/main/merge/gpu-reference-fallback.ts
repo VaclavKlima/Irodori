@@ -1,5 +1,5 @@
 import { GPU_REFERENCE_PREPARATION, MERGE_LIMITS } from '../../shared/merge'
-import { REC2020_LUMA, SRGB_TO_2020 } from '../../shared/hdr'
+import { REC2020_LUMINANCE, SRGB_TO_2020 } from '../../shared/hdr'
 import type { LinearFrame } from '../processing/contracts'
 import { radial, type CorrectionPlan } from '../processing/lens-correction'
 import type { CpuKernelMeasurement } from './cpu-kernels'
@@ -88,7 +88,7 @@ export interface GpuReferenceFallbackOptions {
   /** Internal lifecycle/corruption probes; never exposed through the app bridge. */
   hooks?: {
     checkpoint?: (event: GpuReferenceFallbackCheckpoint) => void | Promise<void>
-    /** Eight floats per pixel: RGB high, repair flag, RGB low, luma error bound. */
+    /** Eight floats per pixel: RGB high, repair flag, RGB low, luminance error bound. */
     readback?: (top: number, values: Float32Array<ArrayBuffer>) => void
   }
 }
@@ -245,9 +245,9 @@ fn transform(input:Color,hi:array<vec4f,3>,lo:array<vec4f,3>)->Color {
     invalid=invalid || !finite(high[c]) || !finite(low[c]) || !finite(bound);
     repair=repair || bound>2e-6+2e-5*max(0.,abs(result)-bound);
   }
-  let lumaError=2.*dot(working.errors,vec3f(${REC2020_LUMA.join(',')}))+u.tuning.y*(abs(value(working.pairs[0]))+abs(value(working.pairs[1]))+abs(value(working.pairs[2])))+1e-30;
-  invalid=invalid || !finite(lumaError);
-  output[pixel]=Output(vec4f(high,select(select(0.,1.,repair),2.,invalid)),vec4f(low,lumaError));
+  let luminanceError=2.*dot(working.errors,vec3f(${REC2020_LUMINANCE.join(',')}))+u.tuning.y*(abs(value(working.pairs[0]))+abs(value(working.pairs[1]))+abs(value(working.pairs[2])))+1e-30;
+  invalid=invalid || !finite(luminanceError);
+  output[pixel]=Output(vec4f(high,select(select(0.,1.,repair),2.,invalid)),vec4f(low,luminanceError));
 }
 `
 
@@ -392,7 +392,8 @@ export async function createGpuReferenceFallback(
     pendingChecks: Promise<void> | undefined,
     mapping = false,
     active:
-      Promise<{ rgba: Float32Array<ArrayBuffer>; luma: Float64Array<ArrayBuffer> }> | undefined,
+      | Promise<{ rgba: Float32Array<ArrayBuffer>; luminance: Float64Array<ArrayBuffer> }>
+      | undefined,
     closing: Promise<void> | undefined,
     closed = false,
     failure: { error: unknown } | undefined
@@ -481,7 +482,7 @@ export async function createGpuReferenceFallback(
       radius = Math.hypot(cx, cy),
       raw = new Float32Array(capacity * 8),
       rgba = new Float32Array(capacity * 4),
-      luma = new Float64Array(capacity),
+      luminance = new Float64Array(capacity),
       currentAlpha = new Uint8Array(capacity),
       upload = new Uint8Array(uploadBytes),
       uploadFloats = new Float32Array(upload.buffer)
@@ -547,7 +548,10 @@ export async function createGpuReferenceFallback(
         lut: buffer(LUT_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
         result: buffer(resultBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC),
         staging: buffer(resultBytes, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ),
-        module: device.createShaderModule({ code: shader, label: 'Luma GPU reference fallback' }),
+        module: device.createShaderModule({
+          code: shader,
+          label: 'Irodori GPU reference fallback',
+        }),
       }
     })
     await setup.checked
@@ -798,7 +802,7 @@ export async function createGpuReferenceFallback(
           blue = pixels[at + 2] + pixels[at + 6],
           light = Math.max(
             0,
-            red * REC2020_LUMA[0] + green * REC2020_LUMA[1] + blue * REC2020_LUMA[2],
+            red * REC2020_LUMINANCE[0] + green * REC2020_LUMINANCE[1] + blue * REC2020_LUMINANCE[2],
           )
         const threshold =
             currentAlpha[pixel] === 1 && Math.abs(light - MERGE_LIMITS.readNoise * 3) <= error,
@@ -810,7 +814,7 @@ export async function createGpuReferenceFallback(
           blue = exact[2]
           light = Math.max(
             0,
-            red * REC2020_LUMA[0] + green * REC2020_LUMA[1] + blue * REC2020_LUMA[2],
+            red * REC2020_LUMINANCE[0] + green * REC2020_LUMINANCE[1] + blue * REC2020_LUMINANCE[2],
           )
           metrics.scalarRepairs++
           metrics.thresholdRepairs += Number(threshold)
@@ -820,7 +824,7 @@ export async function createGpuReferenceFallback(
         rgba[out + 1] = green
         rgba[out + 2] = blue
         rgba[out + 3] = currentAlpha[pixel]
-        luma[pixel] = light
+        luminance[pixel] = light
         if (
           !Number.isFinite(rgba[out]) ||
           !Number.isFinite(rgba[out + 1]) ||
@@ -834,7 +838,7 @@ export async function createGpuReferenceFallback(
       metrics.outputBytes += count * 32
       metrics.runtimeMs = performance.now() - started
       check()
-      return { rgba: rgba.subarray(0, count * 4), luma: luma.subarray(0, count) }
+      return { rgba: rgba.subarray(0, count * 4), luminance: luminance.subarray(0, count) }
     }
     return {
       width,
@@ -844,7 +848,7 @@ export async function createGpuReferenceFallback(
       convert(
         top: number,
         rows: number,
-      ): Promise<{ rgba: Float32Array<ArrayBuffer>; luma: Float64Array<ArrayBuffer> }> {
+      ): Promise<{ rgba: Float32Array<ArrayBuffer>; luminance: Float64Array<ArrayBuffer> }> {
         try {
           check()
           if (

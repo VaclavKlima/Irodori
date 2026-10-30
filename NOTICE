@@ -1,4 +1,4 @@
-Irodori (formerly Luma)
+Irodori (formerly Irodori)
 Copyright 2026 Václav Klíma and contributors
 
 Irodori's original code and documentation are licensed under the Apache License,
@@ -16,7 +16,7 @@ third_party/libraw/ and native/raw-source/licenses/.
 
 The native math source includes LLVM libc under Apache-2.0 WITH LLVM-exception
 and retained Electron, Chromium, V8, and Sun Microsystems provenance notices;
-see native/luma-cpu-render/upstream/electron-llvm/.
+see native/irodori-cpu-render/upstream/electron-llvm/.
 
 The standalone merge preparation kernels retain their MIT license; see
 vendor/merge-kernels/LICENSE.

@@ -2,7 +2,7 @@
 
 These fifteen user-supplied Sony ZV-1A 12-bit compressed ARW photographs are
 unchanged copies from SD card `BA61-2D83/DCIM/100MSDCF`, retained in Git at the
-user's explicit request for repeatable Luma benchmarks on Linux and Mac. Their
+user's explicit request for repeatable Irodori benchmarks on Linux and Mac. Their
 combined size is 312,617,984 bytes (298.1 MiB). No source file is synthesized,
 repeated, resized, or metadata-stripped.
 
@@ -41,8 +41,8 @@ node scripts/research/sony-fixtures.mjs hdr -- node scripts/verify.mjs --foregro
 ```
 
 The wrapper resolves paths relative to the checkout, verifies all fifteen hashes
-before and after each invocation, and supplies `LUMA_MERGE_SONY_SEQUENCE`,
-`LUMA_MERGE_SONY_MODE` and the actual HDR `LUMA_MERGE_BRACKETS`. Existing test
+before and after each invocation, and supplies `IRODORI_MERGE_SONY_SEQUENCE`,
+`IRODORI_MERGE_SONY_MODE` and the actual HDR `IRODORI_MERGE_BRACKETS`. Existing test
 harnesses create isolated libraries and profiles. The wrapper preserves command
 exit status (including incomplete verification), records integrity evidence
 under ignored `artifacts/fixture-integrity/`, and does not alter production

@@ -47,7 +47,7 @@ test('photo-wide GPU content bins stay fixed across headroom, gamut and SDR proo
     usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
   })
   const uniform = device.createBuffer({
-    size: 176,
+    size: 192,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   })
   const tables = device.createBuffer({
@@ -101,7 +101,7 @@ test('photo-wide GPU content bins stay fixed across headroom, gamut and SDR proo
               headroom,
               peak: mode === 'hdr' ? (headroom ?? 1) : 1,
             }
-            const values = new Float32Array(44)
+            const values = new Float32Array(48)
             values[14] = 10
             values[31] = Number(authored)
             values[36] = count
@@ -165,7 +165,7 @@ test('GPU presentation converts primaries, clips channels and encodes once again
     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
   })
   const uniform = device.createBuffer({
-    size: 176,
+    size: 192,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   })
   const output = device.createBuffer({
@@ -226,7 +226,7 @@ test('GPU presentation converts primaries, clips channels and encodes once again
     ] as const)
       for (const peak of [1, 2, 4, 16])
         for (const encode of [false, true]) {
-          const values = new Float32Array(44)
+          const values = new Float32Array(48)
           values[15] = Number(encode)
           values[37] = peak
           values[38] = space
@@ -272,7 +272,7 @@ test('GPU presentation converts primaries, clips channels and encodes once again
 })
 
 test('streamed native GPU SDR proofs match CPU rendering with exact alpha and preserve working bytes', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-gpu-proof-')),
+  const root = await mkdtemp(join(tmpdir(), 'irodori-gpu-proof-')),
     gpu = new RawGpuRenderer()
   const width = 29,
     height = 130,

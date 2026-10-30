@@ -17,14 +17,14 @@ void check(uhdr_error_info_t result) {
 }
 
 extern "C" {
-void luma_release() {
+void irodori_release() {
   if (encoder) uhdr_release_encoder(encoder);
   if (decoder) uhdr_release_decoder(decoder);
   encoder = decoder = nullptr;
 }
-const char* luma_error() { return error.c_str(); }
-int luma_encode(void* half, unsigned width, unsigned height, void* jpeg, unsigned length, int quality, float headroom) {
-  luma_release();
+const char* irodori_error() { return error.c_str(); }
+int irodori_encode(void* half, unsigned width, unsigned height, void* jpeg, unsigned length, int quality, float headroom) {
+  irodori_release();
   error.clear();
   try {
     if (!half || !jpeg || !width || !height || width > 32768 || height > 32768 ||
@@ -48,16 +48,16 @@ int luma_encode(void* half, unsigned width, unsigned height, void* jpeg, unsigne
     check(uhdr_enc_set_quality(encoder, quality, UHDR_GAIN_MAP_IMG));
     check(uhdr_enc_set_preset(encoder, UHDR_USAGE_BEST_QUALITY));
     // Describe actual content headroom so a capable display applies the full map.
-    // This changes metadata, never the fixed Luma HDR rendition's pixel values.
+    // This changes metadata, never the fixed Irodori HDR rendition's pixel values.
     check(uhdr_enc_set_target_display_peak_brightness(encoder, 203.0f * headroom));
     check(uhdr_encode(encoder));
     return 1;
-  } catch (const std::exception& e) { error = e.what(); luma_release(); return 0; }
+  } catch (const std::exception& e) { error = e.what(); irodori_release(); return 0; }
 }
-void* luma_output() { auto p = encoder ? uhdr_get_encoded_stream(encoder) : nullptr; return p ? p->data : nullptr; }
-unsigned luma_size() { auto p = encoder ? uhdr_get_encoded_stream(encoder) : nullptr; return p ? p->data_sz : 0; }
-int luma_probe(void* jpeg, unsigned length, float boost) {
-  luma_release(); error.clear();
+void* irodori_output() { auto p = encoder ? uhdr_get_encoded_stream(encoder) : nullptr; return p ? p->data : nullptr; }
+unsigned irodori_size() { auto p = encoder ? uhdr_get_encoded_stream(encoder) : nullptr; return p ? p->data_sz : 0; }
+int irodori_probe(void* jpeg, unsigned length, float boost) {
+  irodori_release(); error.clear();
   try {
     decoder = uhdr_create_decoder();
     if (!decoder) throw std::bad_alloc();
@@ -68,9 +68,9 @@ int luma_probe(void* jpeg, unsigned length, float boost) {
     if (boost >= 1.0f) check(uhdr_dec_set_out_max_display_boost(decoder, boost));
     check(uhdr_dec_probe(decoder));
     return 1;
-  } catch (const std::exception& e) { error = e.what(); luma_release(); return 0; }
+  } catch (const std::exception& e) { error = e.what(); irodori_release(); return 0; }
 }
-void luma_info(float* out) {
+void irodori_info(float* out) {
   auto m = uhdr_dec_get_gainmap_metadata(decoder);
   if (!m) return;
   for (int c = 0; c < 3; c++) {
@@ -81,14 +81,14 @@ void luma_info(float* out) {
   out[18] = uhdr_dec_get_image_width(decoder); out[19] = uhdr_dec_get_image_height(decoder);
   out[20] = uhdr_dec_get_gainmap_width(decoder); out[21] = uhdr_dec_get_gainmap_height(decoder);
 }
-void* luma_map() { auto p = uhdr_dec_get_gainmap_image(decoder); return p ? p->data : nullptr; }
-unsigned luma_map_size() { auto p = uhdr_dec_get_gainmap_image(decoder); return p ? p->data_sz : 0; }
-int luma_decode() {
+void* irodori_map() { auto p = uhdr_dec_get_gainmap_image(decoder); return p ? p->data : nullptr; }
+unsigned irodori_map_size() { auto p = uhdr_dec_get_gainmap_image(decoder); return p ? p->data_sz : 0; }
+int irodori_decode() {
   try {
     check(uhdr_decode(decoder)); return 1;
   } catch (const std::exception& e) { error = e.what(); return 0; }
 }
-void* luma_pixels() { auto p = uhdr_get_decoded_image(decoder); return p ? p->planes[0] : nullptr; }
-unsigned luma_stride() { auto p = uhdr_get_decoded_image(decoder); return p ? p->stride[0] : 0; }
-int luma_gamut() { auto p = uhdr_get_decoded_image(decoder); return p ? p->cg : UHDR_CG_UNSPECIFIED; }
+void* irodori_pixels() { auto p = uhdr_get_decoded_image(decoder); return p ? p->planes[0] : nullptr; }
+unsigned irodori_stride() { auto p = uhdr_get_decoded_image(decoder); return p ? p->stride[0] : 0; }
+int irodori_gamut() { auto p = uhdr_get_decoded_image(decoder); return p ? p->cg : UHDR_CG_UNSPECIFIED; }
 }

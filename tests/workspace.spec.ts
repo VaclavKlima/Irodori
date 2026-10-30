@@ -1,6 +1,6 @@
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { readFile, realpath, writeFile } from 'node:fs/promises'
-import type { LumaApi, Photo } from '../src/shared/contracts'
+import type { IrodoriApi, Photo } from '../src/shared/contracts'
 import type { PreviewPresentation } from '../src/shared/preview-diagnostics'
 import { expect, test } from './electron.fixture'
 import { holdFullPreview } from './full-preview.helpers'
@@ -97,8 +97,10 @@ async function expectViewportSize(page: Page, width: number, height: number) {
   }).toPass({ timeout: 7500 })
 }
 
-test('starts the built desktop application with its isolated preload bridge', async ({ luma }) => {
-  const { app, page } = luma
+test('starts the built desktop application with its isolated preload bridge', async ({
+  irodori,
+}) => {
+  const { app, page } = irodori
   const packageInfo = JSON.parse(await readFile('package.json', 'utf8')) as { version: string }
   await expect(page).toHaveTitle('Irodori — Personal photo editing')
   await expect(page.getByText('Irodori', { exact: true })).toBeVisible()
@@ -129,17 +131,17 @@ test('starts the built desktop application with its isolated preload bridge', as
   expect(nativeInfo).toMatchObject({
     version: packageInfo.version,
     name: 'Irodori',
-    userData: await realpath(luma.userDataDir),
-    sessionData: await realpath(luma.userDataDir),
+    userData: await realpath(irodori.userDataDir),
+    sessionData: await realpath(irodori.userDataDir),
     noSandbox: false,
   })
   // Playwright owns an ephemeral debugging endpoint; the fixed MCP port is development-only.
   expect(nativeInfo.debugPort).not.toBe('9222')
   const bridge = await page.evaluate(async () => {
-    const luma = (window as unknown as { luma: LumaApi }).luma
+    const irodori = (window as unknown as { irodori: IrodoriApi }).irodori
     return {
-      info: await luma.getAppInfo(),
-      keys: Object.keys(luma),
+      info: await irodori.getAppInfo(),
+      keys: Object.keys(irodori),
       hasRequire: 'require' in window,
       hasProcess: 'process' in window,
     }
@@ -150,6 +152,7 @@ test('starts the built desktop application with its isolated preload bridge', as
       'getResourceSettings',
       'setResourceSettings',
       'getResourcePolicy',
+      'onImageResourceQuery',
       'getExportCapabilities',
       'getExportPreferences',
       'chooseExportDestination',
@@ -205,6 +208,8 @@ test('starts the built desktop application with its isolated preload bridge', as
       'onFlushEdits',
       'getPhotoStatistics',
       'getEdits',
+      'getCropContext',
+      'proposeWhiteBalance',
       'getPhotoPixel',
       'updateEdits',
       'getEditHistory',
@@ -216,6 +221,7 @@ test('starts the built desktop application with its isolated preload bridge', as
       'listPhotos',
       'requestHdrPreview',
       'requestEditingPreview',
+      'requestCropPreview',
       'requestFullPreview',
       'releaseFullPreview',
       'onHdrFirstSurface',
@@ -253,7 +259,7 @@ test('starts the built desktop application with its isolated preload bridge', as
   await expect(page.getByTestId('app-version')).toContainText(nativeInfo.version)
   await expect(page.getByTestId('empty-library')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Import photos', exact: true })).toBeEnabled()
-  expect(await page.evaluate(() => window.luma.listPhotos())).toEqual({ photos: [], total: 0 })
+  expect(await page.evaluate(() => window.irodori.listPhotos())).toEqual({ photos: [], total: 0 })
   await resizeWindow(app, page, 1100, 700)
   await activateButton(page.getByTestId('console-toggle'))
   await expectInsideWindow(page.getByTestId('empty-library'), 1100, 700)
@@ -266,8 +272,8 @@ test('starts the built desktop application with its isolated preload bridge', as
 test(
   'compact metadata handles missing fields, long names and merged photos while panels scroll independently',
   nativeCapture,
-  async ({ luma }, info) => {
-    const { app, page } = luma
+  async ({ irodori }, info) => {
+    const { app, page } = irodori
     const longCamera = 'Long camera name '.repeat(18),
       longLens = 'Long lens name '.repeat(22)
     const longFilename = `${'A photograph with a long descriptive filename '.repeat(4)}.jpg`
@@ -460,8 +466,8 @@ test(
     await page.reload()
     await expect(
       page.getByRole('button', { name: 'Lens corrections', exact: true }),
-    ).toHaveAttribute('aria-expanded', 'false')
-    await expect(page.getByTestId('lens-corrections')).toBeHidden()
+    ).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByTestId('lens-corrections')).toBeVisible()
   },
 )
 
@@ -474,8 +480,8 @@ for (const [width, height, canvasWidth, canvasHeight, consoleCanvasHeight] of [
   test(
     `keeps the workspace and console usable at ${width} × ${height}`,
     nativeCapture,
-    async ({ luma }, testInfo) => {
-      const { app, page } = luma
+    async ({ irodori }, testInfo) => {
+      const { app, page } = irodori
       await importPhotos(app, page)
       await resizeWindow(app, page, width, height)
       for (const id of ['photo-library', 'workspace', 'adjustments-panel', 'console-toggle']) {
@@ -527,8 +533,8 @@ for (const [width, height, canvasWidth, canvasHeight, consoleCanvasHeight] of [
   )
 }
 
-test('keeps loading, errors and keyboard retry inside the compact footer', async ({ luma }) => {
-  const { app, page } = luma
+test('keeps loading, errors and keyboard retry inside the compact footer', async ({ irodori }) => {
+  const { app, page } = irodori
   await resizeWindow(app, page, 1100, 700)
   await activateButton(page.getByTestId('console-toggle'))
   const gate = await holdFullPreview(app)
@@ -566,14 +572,14 @@ test('keeps loading, errors and keyboard retry inside the compact footer', async
 })
 
 test('display details describe only a matching presented frame and fit at minimum size', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
   await resizeWindow(app, page, 1100, 700)
   await activateButton(page.getByTestId('console-toggle'))
-  const { photos } = await page.evaluate(() => window.luma.listPhotos())
-  const target = await page.evaluate(() => window.luma.getDisplayState())
+  const { photos } = await page.evaluate(() => window.irodori.listPhotos())
+  const target = await page.evaluate(() => window.irodori.getDisplayState())
   const summary = page.getByLabel('Display details')
   await summary.press('Enter')
   const popover = summary.locator('..').locator(':scope > div')
@@ -645,10 +651,10 @@ test('display details describe only a matching presented frame and fit at minimu
 })
 
 test('supports visible keyboard focus, photo selection, and adjustment groups', async ({
-  luma,
+  irodori,
 }) => {
-  const { page } = luma
-  await importPhotos(luma.app, page)
+  const { page } = irodori
+  await importPhotos(irodori.app, page)
   // Parallel preparation can publish either fixture first; keyboard order follows the gallery.
   const photos = page.locator('[data-testid^="photo-card-"]')
   await expect(photos).toHaveCount(2)
@@ -682,8 +688,8 @@ test('supports visible keyboard focus, photo selection, and adjustment groups', 
   await expect(page.getByRole('slider', { name: 'Exposure', exact: true })).toBeVisible()
 })
 
-test('histogram shows compact preparation failures inside the section', async ({ luma }) => {
-  const held = await luma.app.evaluateHandle(({ ipcMain }) => {
+test('histogram shows compact preparation failures inside the section', async ({ irodori }) => {
+  const held = await irodori.app.evaluateHandle(({ ipcMain }) => {
     const handlers = (
       ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
     )._invokeHandlers
@@ -697,23 +703,23 @@ test('histogram shows compact preparation failures inside the section', async ({
       },
     }
   })
-  await expect(luma.page.locator('#histogram').getByRole('status')).toHaveText(
+  await expect(irodori.page.locator('#histogram').getByRole('status')).toHaveText(
     'Preparing histogram…',
   )
-  await importPhotos(luma.app, luma.page)
-  await expect(luma.page.locator('#histogram').getByRole('status')).toHaveText(
+  await importPhotos(irodori.app, irodori.page)
+  await expect(irodori.page.locator('#histogram').getByRole('status')).toHaveText(
     'Histogram unavailable',
   )
-  await expect(luma.page.locator('#histogram').getByRole('status')).toHaveAttribute(
+  await expect(irodori.page.locator('#histogram').getByRole('status')).toHaveAttribute(
     'title',
     'Live adjustments could not be prepared.',
   )
-  await expect(luma.page.getByRole('slider', { name: 'Histogram tonal value' })).toBeVisible()
-  await expect(luma.page.getByRole('button', { name: 'Inspect center pixel' })).toHaveCount(0)
-  await expect(luma.page.locator('#histogram details')).toHaveCount(0)
+  await expect(irodori.page.getByRole('slider', { name: 'Histogram tonal value' })).toBeVisible()
+  await expect(irodori.page.getByRole('button', { name: 'Inspect center pixel' })).toHaveCount(0)
+  await expect(irodori.page.locator('#histogram details')).toHaveCount(0)
   await held.evaluate((gate) => gate.restore())
   await held.dispose()
-  await luma.page.addInitScript(() => {
+  await irodori.page.addInitScript(() => {
     const NativeWorker = window.Worker
     window.Worker = class extends NativeWorker {
       constructor(url: string | URL, options?: WorkerOptions) {
@@ -736,11 +742,11 @@ test('histogram shows compact preparation failures inside the section', async ({
       }
     }
   })
-  await luma.page.reload()
-  await expect(luma.page.locator('#histogram').getByRole('status')).toHaveText(
+  await irodori.page.reload()
+  await expect(irodori.page.locator('#histogram').getByRole('status')).toHaveText(
     'Histogram unavailable',
   )
-  await expect(luma.page.locator('#histogram').getByRole('status')).toHaveAttribute(
+  await expect(irodori.page.locator('#histogram').getByRole('status')).toHaveAttribute(
     'title',
     'Analysis failed for test.',
   )

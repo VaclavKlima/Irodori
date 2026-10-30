@@ -124,23 +124,23 @@ test(
   foregroundTest(
     'Editing during export measures real foreground Electron presentations and requires a visible window.',
   ),
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(600000)
-    const { app, page } = luma
+    const { app, page } = irodori
     await (await app.browserWindow(page)).evaluate((window) => window.setContentSize(1100, 700))
     await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
     const canvas = page.getByTestId('main-preview')
     await expect(canvas).toHaveAttribute('data-quality', 'normal', { timeout: 60000 })
     await page.getByTestId('console-toggle').click()
-    const destination = join(luma.userDataDir, 'research-exports')
+    const destination = join(irodori.userDataDir, 'research-exports')
     await mkdir(destination)
     await app.evaluate(({ dialog }, path) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
     }, destination)
-    const grant = await page.evaluate(() => window.luma.chooseExportDestination())
+    const grant = await page.evaluate(() => window.irodori.chooseExportDestination())
     expect(grant).not.toBeNull()
     const result = await page.evaluate(async (destinationId) => {
-      const photoId = (await window.luma.listPhotos()).photos[0].id
+      const photoId = (await window.irodori.listPhotos()).photos[0].id
       const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!,
         device = canvas.getContext('webgpu')!.getConfiguration()!.device
       const slider =
@@ -166,9 +166,9 @@ test(
       const cases = []
       for (let repetition = 0; repetition < 3; repetition++)
         for (const background of [false, true]) {
-          const state = await window.luma.getEdits(photoId)
+          const state = await window.irodori.getEdits(photoId)
           if (state.settings.exposureEv !== 0)
-            await window.luma.updateEdits(photoId, { exposureEv: 0 }, state.revision)
+            await window.irodori.updateEdits(photoId, { exposureEv: 0 }, state.revision)
           await settled(0)
           const at = performance.now(),
             inputs: { serial: number; at: number }[] = [],
@@ -180,8 +180,8 @@ test(
             exportElapsedMs: number | undefined,
             inputsDuringExport = 0
           if (background) {
-            const prepared = await window.luma.prepareExport([photoId])
-            taskId = await window.luma.startExport({
+            const prepared = await window.irodori.prepareExport([photoId])
+            taskId = await window.irodori.startExport({
               preparationId: prepared.id,
               destinationId,
               action: 'maximum',
@@ -189,7 +189,7 @@ test(
           }
           const poll = setInterval(() => {
             if (taskId && !taskFinished)
-              void window.luma.listTasks().then((tasks) => {
+              void window.irodori.listTasks().then((tasks) => {
                 const task = tasks.find((t) => t.id === taskId)
                 if (task?.finishedAt) {
                   taskFinished = true
@@ -235,7 +235,7 @@ test(
               await new Promise((resolve) => setTimeout(resolve, 100))
             }
             const task = taskId
-              ? (await window.luma.listTasks()).find((t) => t.id === taskId)
+              ? (await window.irodori.listTasks()).find((t) => t.id === taskId)
               : undefined
             if (taskId && task?.status !== 'completed') throw new Error('Background export failed.')
             observer.disconnect()
@@ -248,9 +248,9 @@ test(
               exportElapsedMs,
               inputsDuringExport,
               taskStatus: task?.status,
-              results: taskId ? await window.luma.getExportResults(taskId) : undefined,
+              results: taskId ? await window.irodori.getExportResults(taskId) : undefined,
             })
-            if (taskId) await window.luma.dismissTask(taskId)
+            if (taskId) await window.irodori.dismissTask(taskId)
           } finally {
             observer.disconnect()
             clearInterval(poll)

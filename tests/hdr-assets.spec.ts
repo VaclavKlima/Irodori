@@ -35,7 +35,7 @@ import { rawDecoderDefinitions } from '../src/main/processing/formats'
 import { cameraProfiles } from '../src/main/processing/cameras'
 
 test('exact content statistics scan validated original working strips independently of monitor presentation', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-content-statistics-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-content-statistics-'))
   const pixels = new Float32Array([0.18, 0.18, 0.18, 1, 4, 4, 4, 1, 1, 0, 0, 0.5, 64, 64, 64, 0])
   const bytes = Buffer.from(pixels.buffer),
     asset = workingAsset(bytes, 4, 1),
@@ -77,7 +77,7 @@ test('exact content statistics scan validated original working strips independen
 })
 
 test('HDR streams reject interrupted writes, damaged hashes and nonfinite samples', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-hdr-assets-')),
+  const root = await mkdtemp(join(tmpdir(), 'irodori-hdr-assets-')),
     path = join(root, 'pixels')
   const data = new Float32Array([-0.1, 2, 16, 1, 0, 0.18, 1, 0]),
     bytes = Buffer.from(data.buffer)
@@ -186,7 +186,7 @@ test('HDR upload streams validate fragmented bytes and cancel incomplete or supe
 })
 
 test('workspace display generations and persistence never certify physical output', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-display-state-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-display-state-'))
   try {
     const state = new DisplayState(root, () => {})
     await state.open()
@@ -224,7 +224,7 @@ function workingAsset(bytes: Buffer, width: number, height: number): HdrWorkingA
   const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
   return {
     kind: 'hdr-working-v1',
-    url: 'luma-photo://library/test',
+    url: 'irodori-photo://library/test',
     width,
     height,
     byteLength: bytes.byteLength,
@@ -382,7 +382,7 @@ test('sensor blend invalidates only HDR RAW caches and preserves existing compos
 })
 
 test('ACES regenerates retired proofs and placeholders while reusing unchanged linear sources and alpha', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-aces-cache-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-aces-cache-'))
   const path = join(root, 'original.ARW'),
     id = 'c'.repeat(64)
   const originals = Buffer.from('unchanged original fixture')
@@ -515,7 +515,7 @@ test('ACES regenerates retired proofs and placeholders while reusing unchanged l
 })
 
 test('color-managed display-referred rasters bypass scene rendering at neutral settings', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-raster-rendering-')),
+  const root = await mkdtemp(join(tmpdir(), 'irodori-raster-rendering-')),
     engine = new PreviewEngine()
   try {
     const path = join(root, 'authored.png'),
@@ -539,7 +539,7 @@ test('color-managed display-referred rasters bypass scene rendering at neutral s
   }
 })
 test('current composite masters keep their exact bytes while proofs adopt ACES', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-master-cutover-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-master-cutover-'))
   try {
     const bytes = Buffer.from(new Float32Array([-0.02, 2, 4, 1, 0.18, 0.18, 0.18, 1]).buffer),
       asset = workingAsset(bytes, 2, 1)
@@ -591,7 +591,7 @@ test('current composite masters keep their exact bytes while proofs adopt ACES',
 })
 
 test('retired capture descriptors reject before master copies or proof writes', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-retired-master-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-retired-master-'))
   try {
     const bytes = Buffer.from(new Float32Array([-0.02, 2, 4, 1, 0.18, 0.18, 0.18, 1]).buffer),
       asset = workingAsset(bytes, 2, 1),
@@ -668,7 +668,7 @@ test('retired capture descriptors reject before master copies or proof writes', 
 
 for (const retiredVersion of ['sony-merge-v1', 'sony-merge-v2', 'sony-merge-v3'])
   test(`${retiredVersion} recipe rejects before cached master copies, proof writes or decoding`, async () => {
-    const root = await mkdtemp(join(tmpdir(), 'luma-retired-merge-recipe-'))
+    const root = await mkdtemp(join(tmpdir(), 'irodori-retired-merge-recipe-'))
     try {
       const bytes = Buffer.from(new Float32Array([0.18, 0.2, 0.22, 1, 2, 3, 4, 0.5]).buffer),
         asset = workingAsset(bytes, 2, 1),

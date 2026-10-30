@@ -1,7 +1,7 @@
 /** Actual Electron44.3.0/V815.2.124.19-electron.0 primitive receipt.
  * The LLVM mask seam passed these exact observed outputs independently.
  * This still does not replace full actual Electron mask/mip parity.
- * Source receipt is pinned in native/luma-cpu-render/upstream/electron-llvm/provenance/electron-primitives.json.
+ * Source receipt is pinned in native/irodori-cpu-render/upstream/electron-llvm/provenance/electron-primitives.json.
  * The older Node/D expectation remains in the retained research archive.
  */
 const controls: readonly (readonly [number, number, string])[] = [

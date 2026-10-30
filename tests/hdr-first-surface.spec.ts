@@ -156,7 +156,7 @@ const offer = (snapshot = request()): HdrFirstSurfaceOffer => {
     height,
     byteLength: width * height * 8,
     sha256: 'c'.repeat(64),
-    url: `luma-photo://library/${photoId}/first/${PREVIEW_ASSET_VERSION}/${surfaceId}`,
+    url: `irodori-photo://library/${photoId}/first/${PREVIEW_ASSET_VERSION}/${surfaceId}`,
   }
 }
 
@@ -190,6 +190,10 @@ test('received source, request, revision, target and backing extent cannot be re
       ...s,
       identity: { ...s.identity, parameters: { ...s.identity.parameters, exposureEv: 1 } },
     }),
+    ...(['saturation', 'vibrance'] as const).map((key) => (s: HdrFirstSurfaceOffer) => ({
+      ...s,
+      identity: { ...s.identity, parameters: { ...s.identity.parameters, [key]: 10 } },
+    })),
     (s: HdrFirstSurfaceOffer) => ({
       ...s,
       identity: { ...s.identity, target: { ...s.identity.target, generation: 4 } },

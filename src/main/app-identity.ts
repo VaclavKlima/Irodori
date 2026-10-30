@@ -8,10 +8,10 @@ type IdentityApp = Pick<App, 'getPath' | 'setPath' | 'setName'> & {
 }
 
 export function configureAppIdentity(app: IdentityApp): void {
-  // Keep the existing library and settings; explicit isolated profiles take priority.
+  // Explicit isolated profiles take priority over the normal product profile.
   const profile = app.commandLine.hasSwitch('user-data-dir')
     ? app.getPath('userData')
-    : join(app.getPath('appData'), 'Luma')
+    : join(app.getPath('appData'), APP_NAME)
   mkdirSync(profile, { recursive: true })
   app.setPath('userData', profile)
   app.setPath('sessionData', profile)

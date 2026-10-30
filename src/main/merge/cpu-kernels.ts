@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { REC2020_LUMA, SRGB_TO_2020 } from '../../shared/hdr'
+import { REC2020_LUMINANCE, SRGB_TO_2020 } from '../../shared/hdr'
 import { MERGE_LIMITS } from '../../shared/merge'
 import type { RawSource } from '../gpu/raw-source'
 import type { LinearFrame } from '../processing/contracts'
@@ -33,7 +33,7 @@ enum P {
   Radius,
   Input,
   Output,
-  Luma,
+  Luminance,
   Mask,
   Lut,
   Matrix,
@@ -67,14 +67,14 @@ export interface CpuKernelMeasurement {
 interface KernelExports {
   memory: WebAssembly.Memory
   __heap_base: WebAssembly.Global
-  luma_kernel_version(): number
-  luma_camera_strip(config: number, top: number, rows: number): number
-  luma_camera_validity_strip(config: number, top: number, rows: number): number
-  luma_fallback_geometry_strip(config: number, top: number, rows: number): number
-  luma_prepare_strip(config: number, top: number, rows: number): number
-  luma_reduce_strip(config: number, top: number, rows: number): number
-  luma_sensor_mask(config: number, top: number, rows: number): number
-  luma_repair_mask(config: number, top: number, rows: number): number
+  irodori_kernel_version(): number
+  irodori_camera_strip(config: number, top: number, rows: number): number
+  irodori_camera_validity_strip(config: number, top: number, rows: number): number
+  irodori_fallback_geometry_strip(config: number, top: number, rows: number): number
+  irodori_prepare_strip(config: number, top: number, rows: number): number
+  irodori_reduce_strip(config: number, top: number, rows: number): number
+  irodori_sensor_mask(config: number, top: number, rows: number): number
+  irodori_repair_mask(config: number, top: number, rows: number): number
 }
 let activeHeapBytes = 0,
   peakHeapBytes = 0,
@@ -88,7 +88,7 @@ export function getMergeKernelHeapBytes() {
 /** Missing, damaged and unsupported optional kernels retain the scalar implementation. */
 export async function readMergeKernel(directory: string): Promise<WebAssembly.Module | undefined> {
   try {
-    const bytes = await readFile(join(directory, 'luma-merge-kernels.wasm')),
+    const bytes = await readFile(join(directory, 'irodori-merge-kernels.wasm')),
       manifest = JSON.parse(await readFile(join(directory, 'manifest.json'), 'utf8')) as {
         version?: number
         sha256?: string
@@ -129,15 +129,15 @@ class Arena {
     if (
       !(e.memory instanceof WebAssembly.Memory) ||
       !(e.__heap_base instanceof WebAssembly.Global) ||
-      typeof e.luma_kernel_version !== 'function' ||
-      e.luma_kernel_version() !== KERNEL_ABI ||
-      typeof e.luma_camera_strip !== 'function' ||
-      typeof e.luma_camera_validity_strip !== 'function' ||
-      typeof e.luma_fallback_geometry_strip !== 'function' ||
-      typeof e.luma_prepare_strip !== 'function' ||
-      typeof e.luma_reduce_strip !== 'function' ||
-      typeof e.luma_sensor_mask !== 'function' ||
-      typeof e.luma_repair_mask !== 'function'
+      typeof e.irodori_kernel_version !== 'function' ||
+      e.irodori_kernel_version() !== KERNEL_ABI ||
+      typeof e.irodori_camera_strip !== 'function' ||
+      typeof e.irodori_camera_validity_strip !== 'function' ||
+      typeof e.irodori_fallback_geometry_strip !== 'function' ||
+      typeof e.irodori_prepare_strip !== 'function' ||
+      typeof e.irodori_reduce_strip !== 'function' ||
+      typeof e.irodori_sensor_mask !== 'function' ||
+      typeof e.irodori_repair_mask !== 'function'
     )
       throw new Error('Invalid merge CPU kernel.')
     this.cursor = Number(e.__heap_base.value)
@@ -212,7 +212,7 @@ class Arena {
 }
 
 async function arena(module?: WebAssembly.Module) {
-  if (!module && process.env.LUMA_MERGE_CPU_KERNEL === 'scalar') return
+  if (!module && process.env.IRODORI_MERGE_CPU_KERNEL === 'scalar') return
   try {
     const code = module ?? (await defaultModule())
     // The pinned module starts at 2 MiB. Check before instantiating, so even the
@@ -280,7 +280,7 @@ export interface AreaReductionSize {
   width: number
   height: number
 }
-type ReductionMode = 'camera' | 'luma'
+type ReductionMode = 'camera' | 'luminance'
 // Must match the reduction slot order in kernels/prepare.c.
 enum R {
   Width,
@@ -300,7 +300,7 @@ enum R {
   Sums,
   RowIds,
   Input,
-  Luma,
+  Luminance,
   EmitData,
   EmitMasks,
   EmitRows,
@@ -319,7 +319,7 @@ interface ReductionArena {
   sumsAt: number
   rowIdsAt: number
   inputAt: number
-  lumaAt: number
+  luminanceAt: number
   emitDataAt: number
   emitMasksAt: number
   emitRowsAt: number
@@ -397,7 +397,7 @@ function areaReducer(
     rowIds[slot] = -1
   }
   return {
-    add(top: number, pixels: Float32Array, luma?: Float64Array) {
+    add(top: number, pixels: Float32Array, luminance?: Float64Array) {
       const rows = pixels.length / 4 / width
       if (
         top !== next ||
@@ -405,7 +405,7 @@ function areaReducer(
         rows < 1 ||
         rows > 64 ||
         top + rows > height ||
-        (mode === 'luma' && luma?.length !== width * rows)
+        (mode === 'luminance' && luminance?.length !== width * rows)
       )
         throw new Error('Invalid area reduction strip.')
       owned?.memory.assertOpen()
@@ -416,14 +416,15 @@ function areaReducer(
         if (pixels.buffer !== memory.exports.memory.buffer || pixels.byteOffset !== owned.inputAt)
           memory.f32(owned.inputAt, pixels.length).set(pixels)
         if (
-          luma &&
-          (luma.buffer !== memory.exports.memory.buffer || luma.byteOffset !== owned.lumaAt)
+          luminance &&
+          (luminance.buffer !== memory.exports.memory.buffer ||
+            luminance.byteOffset !== owned.luminanceAt)
         )
-          memory.f64(owned.lumaAt, luma.length).set(luma)
+          memory.f64(owned.luminanceAt, luminance.length).set(luminance)
         if (measurement) measurement.copyMs += performance.now() - copying
         const processing = performance.now()
         try {
-          if (memory.exports.luma_reduce_strip(owned.configAt, top, rows))
+          if (memory.exports.irodori_reduce_strip(owned.configAt, top, rows))
             throw new Error('Merge area reduction kernel failed.')
           const config = memory.f64(owned.configAt, CONFIG_SLOTS),
             emitted = config[R.EmitCount],
@@ -473,11 +474,11 @@ function areaReducer(
               if (rowIds[slot] !== py) throw new Error('Area reduction row capacity exceeded.')
               totals[p] += weight
               for (let c = 0; c < channels; c++) {
-                const value = mode === 'camera' ? pixels[pixel * 4 + c] : luma![pixel],
+                const value = mode === 'camera' ? pixels[pixel * 4 + c] : luminance![pixel],
                   usable = mode === 'camera' ? valid & (1 << c) : valid
                 if (usable && value > MERGE_LIMITS.readNoise * 3) {
                   const at = c * rowPixels + p
-                  // A Float32 luma store after each update is part of the recipe.
+                  // A Float32 luminance store after each update is part of the recipe.
                   sums[at] += value * weight
                   counts[at] += weight
                 }
@@ -505,7 +506,7 @@ function planAreaReducer(
   reduced: AreaReductionSize | undefined,
   mode: ReductionMode,
   inputAt: number,
-  lumaAt: number,
+  luminanceAt: number,
   measurement: CpuKernelMeasurement,
   allocationMiss?: () => void,
 ) {
@@ -558,7 +559,7 @@ function planAreaReducer(
         sumsAt,
         rowIdsAt,
         inputAt,
-        lumaAt,
+        luminanceAt,
         emitDataAt,
         emitMasksAt,
         emitRowsAt,
@@ -589,7 +590,7 @@ function planAreaReducer(
           sumsAt,
           rowIdsAt,
           inputAt,
-          lumaAt,
+          luminanceAt,
           emitDataAt,
           emitMasksAt,
           emitRowsAt,
@@ -631,22 +632,22 @@ export async function createFallbackGeometryKernel(
     if (reduced)
       try {
         const inputAt = memory.allocate(g.capacity * 16),
-          lumaAt = memory.allocate(g.capacity * 8)
+          luminanceAt = memory.allocate(g.capacity * 8)
         if (!memory.canSeal()) throw new Error('Fallback geometry reduction allocation exceeded.')
         reduction = planAreaReducer(
           memory,
           g.width,
           g.height,
           reduced,
-          'luma',
+          'luminance',
           inputAt,
-          lumaAt,
+          luminanceAt,
           measurement,
           () => memory.restore(reductionCheckpoint),
         )
       } catch {
         memory.restore(reductionCheckpoint)
-        reduction = () => createAreaReducer(g.width, g.height, reduced, 'luma')
+        reduction = () => createAreaReducer(g.width, g.height, reduced, 'luminance')
       }
     memory.seal()
     const p = configure(memory, configAt, frame, plan)
@@ -686,7 +687,7 @@ export async function createFallbackGeometryKernel(
         const output = storage(top, rows),
           processing = performance.now()
         try {
-          if (memory.exports.luma_fallback_geometry_strip(configAt, top, rows))
+          if (memory.exports.irodori_fallback_geometry_strip(configAt, top, rows))
             throw new Error('Fallback geometry kernel failed.')
         } finally {
           measurement.processingMs += performance.now() - processing
@@ -760,7 +761,7 @@ function populateSensorMask(
     }
     measurement.copyMs += performance.now() - copying
     const processing = performance.now(),
-      status = memory.exports.luma_sensor_mask(configAt, top, rows)
+      status = memory.exports.irodori_sensor_mask(configAt, top, rows)
     measurement.processingMs += performance.now() - processing
     if (status) throw new Error('Merge sensor mask kernel failed.')
   }
@@ -859,7 +860,7 @@ export async function createMaskRepairKernel(
           .set(alpha.subarray(firstWord, lastWord))
         measurement.copyMs += performance.now() - copying
         const processing = performance.now(),
-          status = memory.exports.luma_repair_mask(configAt, top, rows)
+          status = memory.exports.irodori_repair_mask(configAt, top, rows)
         measurement.processingMs += performance.now() - processing
         if (status) throw new Error('Canonical mask repair kernel failed.')
         const count = p[P.ChangeCount]
@@ -964,7 +965,7 @@ export async function createCameraValidityKernel(
         )
           throw new Error('Invalid camera validity strip.')
         const processing = performance.now(),
-          status = memory.exports.luma_camera_validity_strip(configAt, top, rows)
+          status = memory.exports.irodori_camera_validity_strip(configAt, top, rows)
         measurement.processingMs += performance.now() - processing
         if (status) throw new Error('Camera validity kernel failed.')
         return memory.u8(outputAt, g.width * rows)
@@ -1057,7 +1058,7 @@ export async function createCameraKernel(
         memory.f32(inputAt, rgba.length).set(rgba)
         measurement.copyMs += performance.now() - copying
         const processing = performance.now(),
-          status = memory.exports.luma_camera_strip(configAt, top, rgba.length / 4 / g.width)
+          status = memory.exports.irodori_camera_strip(configAt, top, rgba.length / 4 / g.width)
         measurement.processingMs += performance.now() - processing
         if (status) throw new Error('Merge CPU camera kernel failed.')
         return memory.f32(outputAt, rgba.length)
@@ -1123,7 +1124,7 @@ export async function createPreparationKernel(
   const memory = await arena(module)
   if (!memory) return
   try {
-    const gainCacheEntries = Number(process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES ?? 32768)
+    const gainCacheEntries = Number(process.env.IRODORI_MERGE_GAIN_CACHE_ENTRIES ?? 32768)
     if (gainCacheEntries !== 2048 && gainCacheEntries !== 32768)
       throw new Error('Unsupported merge gain cache capacity.')
     if (
@@ -1147,7 +1148,7 @@ export async function createPreparationKernel(
     const configAt = memory.allocate(CONFIG_SLOTS * 8),
       inputAt = memory.allocate(inputPixels * 16),
       outputAt = memory.allocate(g.capacity * 16),
-      lumaAt = memory.allocate(g.capacity * 8),
+      luminanceAt = memory.allocate(g.capacity * 8),
       maskAt = memory.allocate(saturated.byteLength),
       lutAt = memory.allocate(plan.lut.byteLength),
       matrixAt = memory.allocate(24 * 8),
@@ -1159,16 +1160,16 @@ export async function createPreparationKernel(
         g.width,
         g.height,
         reduced,
-        'luma',
+        'luminance',
         outputAt,
-        lumaAt,
+        luminanceAt,
         measurement,
       )
     memory.seal()
     const p = configure(memory, configAt, frame, plan)
     p[P.Input] = inputAt
     p[P.Output] = outputAt
-    p[P.Luma] = lumaAt
+    p[P.Luminance] = luminanceAt
     p[P.Mask] = maskAt
     p[P.Lut] = lutAt
     p[P.Matrix] = matrixAt
@@ -1178,7 +1179,7 @@ export async function createPreparationKernel(
     p[P.GainCacheEntries] = gainCacheEntries
     memory.u8(maskAt, saturated.length).set(saturated)
     memory.f32(lutAt, plan.lut.length).set(plan.lut)
-    memory.f64(matrixAt, 24).set([...frame.matrix, ...SRGB_TO_2020, ...REC2020_LUMA])
+    memory.f64(matrixAt, 24).set([...frame.matrix, ...SRGB_TO_2020, ...REC2020_LUMINANCE])
     const normal = frame.normalization!
     memory
       .f64(gainsAt, 8)
@@ -1208,12 +1209,12 @@ export async function createPreparationKernel(
         p[P.RoiHeight] = region.height
         measurement.copyMs += performance.now() - copying
         const processing = performance.now(),
-          status = memory.exports.luma_prepare_strip(configAt, top, rows)
+          status = memory.exports.irodori_prepare_strip(configAt, top, rows)
         measurement.processingMs += performance.now() - processing
         if (status) throw new Error('Merge CPU preparation kernel failed.')
         return {
           pixels: memory.f32(outputAt, g.width * rows * 4),
-          luma: memory.f64(lumaAt, g.width * rows),
+          luminance: memory.f64(luminanceAt, g.width * rows),
         }
       },
     }

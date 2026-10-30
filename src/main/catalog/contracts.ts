@@ -19,9 +19,37 @@ export interface CatalogOperations {
     output: void
   }
   'edits.commit': {
-    input: { history: EditHistory; expectedRevision: number }
-    output: { history: EditHistory; lensChanged: boolean }
+    input: {
+      history: EditHistory
+      expectedRevision: number
+      application?: import('../edit-application-store').ApplicationCommit
+    }
+    output: {
+      history: EditHistory
+      lensChanged: boolean
+      geometryChanged: boolean
+      sourceChanged: boolean
+    }
   }
+  'edit-application.accept': {
+    input: {
+      manifest: import('../edit-application-store').EditApplicationManifest
+      task: BackgroundTask
+    }
+    output: void
+  }
+  'edit-application.result': {
+    input: {
+      commit: import('../edit-application-store').ApplicationCommit
+      result: Pick<
+        import('../../shared/edit-transfer').EditApplicationResult,
+        'outcome' | 'message' | 'resultingRevision'
+      >
+    }
+    output: void
+  }
+  'edit-application.task': { input: { task: BackgroundTask }; output: void }
+  'edit-application.dismiss': { input: { id: string }; output: void }
   'workspace.save': { input: WorkspaceChange; output: number }
   'stack.group': {
     input: { ids: string[]; coverId: string; revision: number }

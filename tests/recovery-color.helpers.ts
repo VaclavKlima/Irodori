@@ -13,7 +13,7 @@ interface RecoveryColorGpuState {
 type RecoveryColorWindow = Window & { recoveryColorGpu?: RecoveryColorGpuState }
 
 export async function initializeRecoveryColorGpu() {
-  if ('luma' in window)
+  if ('irodori' in window)
     throw new Error('Synthetic recovery patterns require the catalog-free diagnostic.')
   const adapter = await navigator.gpu?.requestAdapter({ powerPreference: 'high-performance' })
   if (!adapter || adapter.info.isFallbackAdapter)

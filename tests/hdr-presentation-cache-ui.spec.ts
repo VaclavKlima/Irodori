@@ -52,7 +52,7 @@ async function setup(app: ElectronApplication, page: Page) {
       ),
     )
     .toBe(true)
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   return {
     nativeWindow,
     raw: photos.find((photo) => photo.filename === 'sony-zv1.ARW')!,
@@ -237,7 +237,7 @@ async function observePaints(page: Page, count = 8) {
       await new Promise<void>((resolve) => setTimeout(resolve, 0))
       const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!,
         style = getComputedStyle(canvas),
-        diagnostics = await window.luma.getPreviewDiagnostics()
+        diagnostics = await window.irodori.getPreviewDiagnostics()
       samples.push({
         visible:
           canvas.getClientRects().length > 0 &&
@@ -366,7 +366,7 @@ async function assertExactConfirmedCapture(
           focused: document.hasFocus(),
           main: inspect('main-preview'),
           retained: inspect('retained-preview'),
-          diagnostics: await window.luma.getPreviewDiagnostics(),
+          diagnostics: await window.irodori.getPreviewDiagnostics(),
         }
       })
     let afterFailedCapture: Awaited<ReturnType<typeof state>> | undefined,
@@ -416,13 +416,13 @@ async function assertExactConfirmedCapture(
 test(
   'a warm exact edited HDR frame is visibly restored before native upload without enabling unfinished editing',
   foreground,
-  async ({ luma }, info) => {
-    await requireEditorPreviewFeature(luma.page, 'presentation-cache')
+  async ({ irodori }, info) => {
+    await requireEditorPreviewFeature(irodori.page, 'presentation-cache')
     test.setTimeout(120000)
-    const { app, page } = luma
+    const { app, page } = irodori
     const { raw } = await setup(app, page)
     const before = await capture(app, page)
-    const edits = await page.evaluate((id) => window.luma.getEdits(id), raw.id)
+    const edits = await page.evaluate((id) => window.irodori.getEdits(id), raw.id)
     const source = await page
       .getByTestId('main-preview')
       .getAttribute('data-requested-source-identity')
@@ -450,11 +450,11 @@ test(
       await expect
         .poll(
           async () =>
-            (await page.evaluate(() => window.luma.getPreviewDiagnostics())).presentation?.timings
-              .firstUsefulMs,
+            (await page.evaluate(() => window.irodori.getPreviewDiagnostics())).presentation
+              ?.timings.firstUsefulMs,
         )
         .toBeGreaterThan(0)
-      const diagnostics = await page.evaluate(() => window.luma.getPreviewDiagnostics())
+      const diagnostics = await page.evaluate(() => window.irodori.getPreviewDiagnostics())
       expect(diagnostics.presentation).toMatchObject({ photoId: raw.id, stage: 'loading' })
       expect(diagnostics.presentation!.timings.firstUsefulMs).toBeGreaterThan(0)
       expect(diagnostics.presentation!.timings.nativeEditingReadyMs).toBeUndefined()
@@ -484,8 +484,8 @@ test(
       await expect
         .poll(
           async () =>
-            (await page.evaluate(() => window.luma.getPreviewDiagnostics())).presentation?.timings
-              .nativeEditingReadyMs,
+            (await page.evaluate(() => window.irodori.getPreviewDiagnostics())).presentation
+              ?.timings.nativeEditingReadyMs,
         )
         .toBeGreaterThan(0)
     } finally {
@@ -498,10 +498,10 @@ test(
 test(
   'an unconfirmed edit revision cannot flash a cached or neutral frame, and committed or target changes miss exact reuse',
   foreground,
-  async ({ luma }) => {
-    await requireEditorPreviewFeature(luma.page, 'presentation-cache')
+  async ({ irodori }) => {
+    await requireEditorPreviewFeature(irodori.page, 'presentation-cache')
     test.setTimeout(120000)
-    const { app, page } = luma
+    const { app, page } = irodori
     const { raw } = await setup(app, page)
     await evictRawSource(page)
     const upload = await holdUploads(page),
@@ -523,9 +523,9 @@ test(
         timeout: 60000,
       })
       await selectRaster(page)
-      const previous = await page.evaluate((id) => window.luma.getEdits(id), raw.id)
+      const previous = await page.evaluate((id) => window.irodori.getEdits(id), raw.id)
       await page.evaluate(
-        ({ id, revision }) => window.luma.updateEdits(id, { exposureEv: 2 }, revision),
+        ({ id, revision }) => window.irodori.updateEdits(id, { exposureEv: 2 }, revision),
         { id: raw.id, revision: previous.revision },
       )
       await page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }).click()
@@ -551,10 +551,10 @@ test(
 test(
   'suspension requires a fresh edit confirmation after external changes and device loss retires previous-device surfaces',
   foreground,
-  async ({ luma }) => {
-    await requireEditorPreviewFeature(luma.page, 'presentation-cache')
+  async ({ irodori }) => {
+    await requireEditorPreviewFeature(irodori.page, 'presentation-cache')
     test.setTimeout(120000)
-    const { app, page } = luma
+    const { app, page } = irodori
     const { raw } = await setup(app, page)
     await evictRawSource(page)
     const gate = await holdUploads(page)
@@ -570,9 +570,9 @@ test(
       await expect(canvas).toHaveAttribute('data-suspended', 'true')
       await expect(canvas).not.toBeVisible()
       await gate.evaluate((value) => value.close())
-      const suspendedEdits = await page.evaluate((id) => window.luma.getEdits(id), raw.id)
+      const suspendedEdits = await page.evaluate((id) => window.irodori.getEdits(id), raw.id)
       await page.evaluate(
-        ({ id, revision }) => window.luma.updateEdits(id, { exposureEv: 2 }, revision),
+        ({ id, revision }) => window.irodori.updateEdits(id, { exposureEv: 2 }, revision),
         { id: raw.id, revision: suspendedEdits.revision },
       )
       resumedUpload = await holdUploads(page)
@@ -587,11 +587,11 @@ test(
       await expect
         .poll(
           async () =>
-            (await page.evaluate(() => window.luma.getPreviewDiagnostics())).presentation?.stage,
+            (await page.evaluate(() => window.irodori.getPreviewDiagnostics())).presentation?.stage,
         )
         .toBe('loading')
       expect(
-        (await page.evaluate(() => window.luma.getPreviewDiagnostics())).presentation?.timings
+        (await page.evaluate(() => window.irodori.getPreviewDiagnostics())).presentation?.timings
           .firstUsefulMs,
       ).toBeUndefined()
       await resumedEdits.evaluate((value) => value.release())
@@ -629,10 +629,10 @@ for (const resume of [false, true])
   test(
     `${resume ? 'same-photo Library resume' : 'a newly selected photo'} stays neutral when native source preparation finishes before edit confirmation`,
     foreground,
-    async ({ luma }, info) => {
-      await requireEditorPreviewFeature(luma.page, 'presentation-cache')
+    async ({ irodori }, info) => {
+      await requireEditorPreviewFeature(irodori.page, 'presentation-cache')
       test.setTimeout(120000)
-      const { app, page } = luma
+      const { app, page } = irodori
       const { raw } = await setup(app, page)
       const expected = await capture(app, page),
         expectedSource = await page
@@ -742,10 +742,10 @@ for (const resume of [false, true])
 test(
   'a late real null HDR response cannot start legacy fallback after a different RAW is presented',
   foreground,
-  async ({ luma }, info) => {
-    await requireEditorPreviewFeature(luma.page, 'presentation-cache')
+  async ({ irodori }, info) => {
+    await requireEditorPreviewFeature(irodori.page, 'presentation-cache')
     test.setTimeout(120000)
-    const { app, page } = luma
+    const { app, page } = irodori
     const { raw, raster } = await setup(app, page),
       gate = await holdReply(app, 'preview:hdr', raster.id)
     try {
@@ -759,11 +759,11 @@ test(
       await expect
         .poll(
           async () =>
-            (await page.evaluate(() => window.luma.getPreviewDiagnostics())).presentation?.stage,
+            (await page.evaluate(() => window.irodori.getPreviewDiagnostics())).presentation?.stage,
         )
         .toBe('presented')
       const before = await capture(app, page),
-        diagnostics = await page.evaluate(() => window.luma.getPreviewDiagnostics())
+        diagnostics = await page.evaluate(() => window.irodori.getPreviewDiagnostics())
       expect(diagnostics).toMatchObject({
         photoId: raw.id,
         loadingStage: 'prepared',
@@ -804,9 +804,9 @@ async function settledRaster(page: Page, photoId: string, wait = true) {
     await expect(canvas).toHaveAttribute('data-editing', 'ready')
     await expect(canvas).toHaveAttribute('data-exposure', '2')
     await expect(page.getByRole('spinbutton', { name: 'Exposure value' })).toHaveValue('2.00')
-    const committed = await page.evaluate((id) => window.luma.getEdits(id), photoId)
+    const committed = await page.evaluate((id) => window.irodori.getEdits(id), photoId)
     await expect
-      .poll(() => page.evaluate(() => window.luma.getPreviewDiagnostics()))
+      .poll(() => page.evaluate(() => window.irodori.getPreviewDiagnostics()))
       .toMatchObject({
         photoId,
         revision: committed.revision,
@@ -820,8 +820,8 @@ async function settledRaster(page: Page, photoId: string, wait = true) {
       viewport = document.querySelector<HTMLElement>('[data-testid="preview-viewport"]')!,
       bounds = canvas.getBoundingClientRect(),
       [diagnostics, edits] = await Promise.all([
-        window.luma.getPreviewDiagnostics(),
-        window.luma.getEdits(photoId),
+        window.irodori.getPreviewDiagnostics(),
+        window.irodori.getEdits(photoId),
       ])
     return {
       native: {
@@ -853,17 +853,17 @@ async function settledRaster(page: Page, photoId: string, wait = true) {
 test(
   'a completed Undo reply for the previous photo cannot replace current Inspector or visible pixels',
   foreground,
-  async ({ luma }, info) => {
-    await requireEditorPreviewFeature(luma.page, 'presentation-cache')
+  async ({ irodori }, info) => {
+    await requireEditorPreviewFeature(irodori.page, 'presentation-cache')
     test.setTimeout(120000)
-    const { app, page } = luma
+    const { app, page } = irodori
     const { raw, raster } = await setup(app, page)
     await selectRaster(page)
     const exposure = page.getByRole('spinbutton', { name: 'Exposure value' })
     await exposure.fill('2')
     await exposure.press('Enter')
     await expect
-      .poll(() => page.evaluate((id) => window.luma.getEdits(id), raster.id))
+      .poll(() => page.evaluate((id) => window.irodori.getEdits(id), raster.id))
       .toMatchObject({ settings: { exposureEv: 2 } })
     // Establish the complete Float32/WebGL raster path independently of the later Undo.
     const referenceState = await settledRaster(page, raster.id),
@@ -903,7 +903,7 @@ test(
       panX: 0,
       panY: 0,
     })
-    expect(referenceState.native.source).toContain(`luma-photo://library/${raster.id}/full/`)
+    expect(referenceState.native.source).toContain(`irodori-photo://library/${raster.id}/full/`)
     expect(referenceState.native.width).toBeGreaterThan(0)
     expect(referenceState.native.height).toBeGreaterThan(0)
     expect(referenceState.native.scale).toBeGreaterThan(0)
@@ -1104,16 +1104,16 @@ async function holdNormalOffscreenFence(page: Page) {
 test(
   'a resident-source normal draw preserves the real cached paint receipt until a target change',
   foreground,
-  async ({ luma }, info) => {
-    await requireEditorPreviewFeature(luma.page, 'presentation-cache')
+  async ({ irodori }, info) => {
+    await requireEditorPreviewFeature(irodori.page, 'presentation-cache')
     test.setTimeout(120000)
-    const { app, page } = luma,
+    const { app, page } = irodori,
       { raw } = await setup(app, page)
     const before = await capture(app, page),
       source = await page
         .getByTestId('main-preview')
         .getAttribute('data-presented-source-identity'),
-      edits = await page.evaluate((id) => window.luma.getEdits(id), raw.id)
+      edits = await page.evaluate((id) => window.irodori.getEdits(id), raw.id)
     expect(source).toBeTruthy()
     await selectRaster(page)
     const gate = await holdNormalOffscreenFence(page)
@@ -1155,7 +1155,7 @@ test(
 
       // A real target generation change retires the same receipt while the
       // unrelated completed normal render is still held before its canvas write.
-      changed = await page.evaluate(() => window.luma.setPreviewPreference('sdr'))
+      changed = await page.evaluate(() => window.irodori.setPreviewPreference('sdr'))
       expect(changed.generation).toBeGreaterThan(painted.target)
       await expect(canvas).toHaveAttribute('data-cached-display-ready', 'false')
       await expect(canvas).not.toBeVisible()
@@ -1309,7 +1309,7 @@ async function holdCurrentNormalRecovery(page: Page) {
     }
     GPUCommandEncoder.prototype.copyTextureToBuffer = function (...args) {
       original.copy.apply(this, args)
-      if (args[1].buffer.label !== 'luma-hdr-recovery-readback') return
+      if (args[1].buffer.label !== 'irodori-hdr-recovery-readback') return
       const canvas = main(),
         texture = args[0].texture
       if (records.length >= 16) throw new Error('Recovery half observation exceeded its bound.')
@@ -1495,10 +1495,10 @@ async function holdCurrentNormalRecovery(page: Page) {
 test(
   'an exact restored canvas survives a held real normal recovery map and the next edit performs a new blit',
   foreground,
-  async ({ luma }, info) => {
-    await requireEditorPreviewFeature(luma.page, 'presentation-cache')
+  async ({ irodori }, info) => {
+    await requireEditorPreviewFeature(irodori.page, 'presentation-cache')
     test.setTimeout(120000)
-    const { app, page } = luma
+    const { app, page } = irodori
     let gate: Awaited<ReturnType<typeof holdCurrentNormalRecovery>> | undefined
     let observer: Awaited<ReturnType<typeof observePhotoActivation>> | undefined
     let seed, held, ready, edited, drained, navigation
@@ -1511,8 +1511,8 @@ test(
       seed = await gate.evaluate((control) => control.seed())
       const canvas = page.getByTestId('main-preview'),
         before = await capture(app, page),
-        edits = await page.evaluate((id) => window.luma.getEdits(id), raw.id),
-        history = await page.evaluate((id) => window.luma.getEditHistory(id), raw.id)
+        edits = await page.evaluate((id) => window.irodori.getEdits(id), raw.id),
+        history = await page.evaluate((id) => window.irodori.getEditHistory(id), raw.id)
       await selectRaster(page)
       observer = await observePhotoActivation(page)
       const { exposureEv, contrast, highlights, shadows, whites, blacks, whiteBalance } =
@@ -1559,7 +1559,9 @@ test(
       expect(restored.size).toEqual(before.size)
       expect(restored.pixels).toEqual(before.pixels)
       expect((await gate.evaluate((control) => control.state())).writes).toBe(1)
-      expect(await page.evaluate((id) => window.luma.getEditHistory(id), raw.id)).toEqual(history)
+      expect(await page.evaluate((id) => window.irodori.getEditHistory(id), raw.id)).toEqual(
+        history,
+      )
       await expect
         .poll(() => observer!.evaluate((control) => control.status().current?.firstUsefulKind))
         .toBe('cached-exact')

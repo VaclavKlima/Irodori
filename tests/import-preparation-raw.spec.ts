@@ -9,7 +9,7 @@ import { PreviewProcess } from '../src/main/preview-process'
 
 test('RAW deferred fallback retains complete metadata, white balance, orientation and asset sizes', async () => {
   test.setTimeout(60_000)
-  const root = await mkdtemp(join(tmpdir(), 'luma-import-raw-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-import-raw-'))
   const engine = new PreviewEngine(async () => {
     throw new Error('Embedded JPEG unavailable')
   })
@@ -45,7 +45,7 @@ test('RAW deferred fallback retains complete metadata, white balance, orientatio
   }
 })
 test('two independent preparation workers keep ExifTool warm and produce identical RAW contracts', async () => {
-  const roots = await Promise.all([0, 1].map(() => mkdtemp(join(tmpdir(), 'luma-preparation-'))))
+  const roots = await Promise.all([0, 1].map(() => mkdtemp(join(tmpdir(), 'irodori-preparation-'))))
   const first = new PreviewProcess(resolve('out/main/preview-worker.js')),
     second = first.createWorker()
   try {

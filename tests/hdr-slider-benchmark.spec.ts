@@ -30,10 +30,10 @@ test.use({ hdrDisplay: true })
 test(
   'all eight HDR sliders at Fit and 100% measure completed GPU frames and matching histograms under burst input',
   foregroundTest(foregroundReason),
-  async ({ luma }, info) => {
-    test.skip(process.env.LUMA_PREVIEW_BENCHMARK !== '1', 'Select target hdr-slider-benchmark.')
+  async ({ irodori }, info) => {
+    test.skip(process.env.IRODORI_PREVIEW_BENCHMARK !== '1', 'Select target hdr-slider-benchmark.')
     test.setTimeout(180000)
-    const { app, page } = luma
+    const { app, page } = irodori
     await (await app.browserWindow(page)).evaluate((window) => window.setContentSize(1440, 900))
     await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
     const canvas = page.getByTestId('main-preview')
@@ -82,7 +82,7 @@ test(
             check()
           })
         const measurements: SliderMeasurement[] = []
-        const id = (await window.luma.listPhotos()).photos[0].id
+        const id = (await window.irodori.listPhotos()).photos[0].id
         Object.assign(window, {
           hdrSliderBenchmark: { measurements, policy: { interactivePolicy } },
         })
@@ -205,7 +205,7 @@ test(
               policyFailures,
             })
             // New input continues every animation frame while the GPU is busy.
-            const history = await window.luma.getEditHistory(id)
+            const history = await window.irodori.getEditHistory(id)
             const times = new Map<number, number>()
             const inputs = new Map<number, number>()
             const serialTimes = new Map<number, number>()
@@ -346,7 +346,7 @@ test(
             await device.queue.onSubmittedWorkDone()
             await frame()
             const refinementMs = performance.now() - release
-            const saved = await window.luma.getEditHistory(id)
+            const saved = await window.irodori.getEditHistory(id)
             if (saved.snapshots.length !== history.snapshots.length + 1)
               throw new Error(`Expected one history entry for continuous ${zoom} ${label}`)
             measurements.push({

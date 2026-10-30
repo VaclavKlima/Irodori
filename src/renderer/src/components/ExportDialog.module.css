@@ -139,6 +139,14 @@
 .quality {
   padding: 2px 0;
 }
+.form .checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.checkbox input {
+  margin: 0;
+}
 .body [role='alert'],
 .body .error {
   color: #edb3b3;

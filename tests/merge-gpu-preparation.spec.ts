@@ -358,10 +358,10 @@ async function scalarEvidence(
   reducedWidth = 11,
   reducedHeight = 7,
 ) {
-  const previous = process.env.LUMA_MERGE_CPU_KERNEL
+  const previous = process.env.IRODORI_MERGE_CPU_KERNEL
   let writer: Awaited<ReturnType<typeof cameraRegistrationWriter>> | undefined
   try {
-    process.env.LUMA_MERGE_CPU_KERNEL = 'scalar'
+    process.env.IRODORI_MERGE_CPU_KERNEL = 'scalar'
     writer = await cameraRegistrationWriter(
       directory,
       index,
@@ -376,8 +376,8 @@ async function scalarEvidence(
     try {
       await writer?.close()
     } finally {
-      if (previous === undefined) delete process.env.LUMA_MERGE_CPU_KERNEL
-      else process.env.LUMA_MERGE_CPU_KERNEL = previous
+      if (previous === undefined) delete process.env.IRODORI_MERGE_CPU_KERNEL
+      else process.env.IRODORI_MERGE_CPU_KERNEL = previous
     }
   }
 }
@@ -533,7 +533,7 @@ for (const corrected of [false, true])
       test.setTimeout(120000)
       const context = await hardware(),
         tracked = trackedDevice(context.device),
-        directory = await mkdtemp(join(tmpdir(), 'luma-gpu-camera-synthetic-')),
+        directory = await mkdtemp(join(tmpdir(), 'irodori-gpu-camera-synthetic-')),
         data = input(flip, corrected),
         before = hash(nativeBytes(data.rgba)),
         sensorBefore = hash(new Uint8Array(data.raw.pixels.buffer)),
@@ -593,7 +593,7 @@ for (const corrected of [false, true])
 test('GPU camera threshold guards retain strict Float32 validity on both adjacent sides of read noise', async () => {
   const context = await hardware(),
     tracked = trackedDevice(context.device),
-    directory = await mkdtemp(join(tmpdir(), 'luma-gpu-camera-threshold-')),
+    directory = await mkdtemp(join(tmpdir(), 'irodori-gpu-camera-threshold-')),
     data = input(0, false, true),
     expected = reference(data, data.width, data.height)
   let writer: Writer | undefined
@@ -627,7 +627,7 @@ test('GPU camera threshold guards retain strict Float32 validity on both adjacen
 test('GPU camera projection repairs ill-conditioned channels without weakening sample tolerance', async () => {
   const context = await hardware(),
     tracked = trackedDevice(context.device),
-    directory = await mkdtemp(join(tmpdir(), 'luma-gpu-camera-condition-')),
+    directory = await mkdtemp(join(tmpdir(), 'irodori-gpu-camera-condition-')),
     data = input(5, true)
   data.raw.matrix = [1, 1, 0, 0, 1, 1.0005, 0, 0, 0, 0, 1, 0]
   const matrix = cameraMatrix(data.raw)
@@ -679,7 +679,7 @@ for (const phase of ['allocated', 'uploaded', 'submitted', 'readback', 'before-w
   test(`GPU camera cancellation at ${phase} removes partial evidence before complete same-path CPU recovery`, async () => {
     const context = await hardware(),
       tracked = trackedDevice(context.device),
-      directory = await mkdtemp(join(tmpdir(), `luma-gpu-camera-cancel-${phase}-`)),
+      directory = await mkdtemp(join(tmpdir(), `irodori-gpu-camera-cancel-${phase}-`)),
       data = input(7, true),
       before = hash(nativeBytes(data.rgba)),
       abort = new AbortController(),
@@ -732,7 +732,7 @@ for (const fault of [
         failedMap: fault === 'map rejection',
         truncatedReadback: fault === 'truncated readback',
       }),
-      directory = await mkdtemp(join(tmpdir(), 'luma-gpu-camera-readback-')),
+      directory = await mkdtemp(join(tmpdir(), 'irodori-gpu-camera-readback-')),
       data = input(0, false),
       before = hash(nativeBytes(data.rgba))
     let writer: Writer | undefined,
@@ -774,7 +774,7 @@ for (const fault of [
 test('GPU camera device loss after submitted work drains resources and permits complete scalar evidence recovery', async () => {
   const context = await hardware(),
     tracked = trackedDevice(context.device),
-    directory = await mkdtemp(join(tmpdir(), 'luma-gpu-camera-device-loss-')),
+    directory = await mkdtemp(join(tmpdir(), 'irodori-gpu-camera-device-loss-')),
     data = input(7, true),
     before = hash(nativeBytes(data.rgba))
   let writer: Writer | undefined, lost: GPUDeviceLostInfo | undefined
@@ -806,7 +806,7 @@ test('GPU camera device loss after submitted work drains resources and permits c
 test('GPU camera invalid and concurrent writes preserve the admitted operation and complete evidence', async () => {
   const context = await hardware(),
     tracked = trackedDevice(context.device),
-    directory = await mkdtemp(join(tmpdir(), 'luma-gpu-camera-concurrent-')),
+    directory = await mkdtemp(join(tmpdir(), 'irodori-gpu-camera-concurrent-')),
     data = input(0, false),
     entered = deferred<void>(),
     resume = deferred<void>()
@@ -848,7 +848,7 @@ test('GPU camera invalid and concurrent writes preserve the admitted operation a
 test('closing an active GPU camera writer waits for submitted work before releasing buffers and partial evidence', async () => {
   const context = await hardware(),
     tracked = trackedDevice(context.device),
-    directory = await mkdtemp(join(tmpdir(), 'luma-gpu-camera-close-')),
+    directory = await mkdtemp(join(tmpdir(), 'irodori-gpu-camera-close-')),
     data = input(0, false),
     entered = deferred<void>(),
     resume = deferred<void>()
@@ -888,7 +888,7 @@ test('closing an active GPU camera writer waits for submitted work before releas
 
 test('GPU camera preflight rejects memory and device limits before allocations and pre-cancelled work touches no output', async () => {
   const context = await hardware(),
-    directory = await mkdtemp(join(tmpdir(), 'luma-gpu-camera-limits-')),
+    directory = await mkdtemp(join(tmpdir(), 'irodori-gpu-camera-limits-')),
     data = input(0, false)
   try {
     const tracked = trackedDevice(context.device),
@@ -937,7 +937,7 @@ test('GPU camera preflight rejects memory and device limits before allocations a
 test('partially allocated GPU camera setup releases resources and leaves the CPU evidence destination available', async () => {
   const context = await hardware(),
     tracked = trackedDevice(context.device, { failAllocationAt: 3 }),
-    directory = await mkdtemp(join(tmpdir(), 'luma-gpu-camera-allocation-')),
+    directory = await mkdtemp(join(tmpdir(), 'irodori-gpu-camera-allocation-')),
     data = input(7, true)
   try {
     const baseline = await scalarEvidence(directory, 99, data)
@@ -967,7 +967,7 @@ async function fileIdentity(path: string) {
 
 test('real HDR source preparation replays complete CPU camera evidence after a late GPU readback failure and preserves cancellation', async () => {
   test.setTimeout(240000)
-  const root = await mkdtemp(join(tmpdir(), 'luma-gpu-camera-native-recovery-')),
+  const root = await mkdtemp(join(tmpdir(), 'irodori-gpu-camera-native-recovery-')),
     inspector = new PreviewEngine(),
     fixtureRoot = resolve('tests/fixtures/research-sony'),
     manifest = JSON.parse(await readFile(join(fixtureRoot, 'manifest.json'), 'utf8')) as {
@@ -1130,7 +1130,7 @@ test('real HDR source preparation replays complete CPU camera evidence after a l
         controller = new AbortController(),
         reason = new Error(`Cancelled ${backend} source during final owned working-file close.`),
         originalOpen = filesystem.open,
-        previousBackend = process.env.LUMA_MERGE_BACKEND,
+        previousBackend = process.env.IRODORI_MERGE_BACKEND,
         ownedNames = [
           'source-0.f32',
           'source-0.camera.f32',
@@ -1143,7 +1143,7 @@ test('real HDR source preparation replays complete CPU camera evidence after a l
         filesAtClose: string[] = []
       await mkdir(directory)
       try {
-        process.env.LUMA_MERGE_BACKEND = backend
+        process.env.IRODORI_MERGE_BACKEND = backend
         // This file runs sequentially. Intercept only one test-owned exclusive
         // output handle; every other builtin open retains its original behavior.
         filesystem.open = async (...args: Parameters<typeof filesystem.open>) => {
@@ -1177,8 +1177,8 @@ test('real HDR source preparation replays complete CPU camera evidence after a l
       } finally {
         filesystem.open = originalOpen
         syncBuiltinESMExports()
-        if (previousBackend === undefined) delete process.env.LUMA_MERGE_BACKEND
-        else process.env.LUMA_MERGE_BACKEND = previousBackend
+        if (previousBackend === undefined) delete process.env.IRODORI_MERGE_BACKEND
+        else process.env.IRODORI_MERGE_BACKEND = previousBackend
       }
       expect(interceptedOpens).toBe(1)
       expect(completedCloses).toBe(1)

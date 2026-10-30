@@ -237,7 +237,7 @@ for (const invalid of [
     ).rejects.toThrow(invalid.error)
     expect(h.entries).toEqual([])
     expect(h.WindowStub.prototype.show).toBe(originalShow)
-    expect(h.context.__lumaTestUiMode).toBeUndefined()
+    expect(h.context.__irodoriTestUiMode).toBeUndefined()
     expect([...h.files]).toEqual([])
     expect(h.app.listenerCount('browser-window-created')).toBe(0)
     expect(h.activation).toEqual([])
@@ -405,8 +405,8 @@ function presentationHarness(marker?: string) {
   }
   new Script(presentationSource).runInNewContext({
     exports: exported,
-    process: { env: { LUMA_TEST_UI_MODE: 'background' } },
-    __lumaTestUiMode: marker,
+    process: { env: { IRODORI_TEST_UI_MODE: 'background' } },
+    __irodoriTestUiMode: marker,
     require: (name: string) => {
       if (name === 'electron') return { BrowserWindow: WindowStub }
       throw new Error(`Unexpected window dependency: ${name}`)

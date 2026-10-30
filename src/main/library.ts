@@ -1,3 +1,9 @@
+import { EditTransfers } from './edit-transfer'
+import {
+  EditApplicationReadStore,
+  EditApplicationStore,
+  type ApplicationCommit,
+} from './edit-application-store'
 import { totalmem, cpus } from 'node:os'
 import { collectionPolicy, CollectionChangedError } from '../shared/collections'
 import { WorkspaceStore } from './workspace'
@@ -9,6 +15,7 @@ import { verifyExportEncoder } from './export/encoder'
 import {
   EXPORT_CODEC_VERSION,
   EXPORT_RENDERING_VERSION,
+  exportResizeCapabilities,
   validateExportPhotoIds,
 } from '../shared/export'
 import type { WorkspaceChange } from '../shared/workspace'
@@ -30,14 +37,22 @@ import {
   type MergeSettings,
   type MergeSource,
 } from '../shared/merge'
-import { srgbTransform } from '../shared/adjustments'
+import { srgbTransform, snapshotAdjustments } from '../shared/adjustments'
 import type { HdrAnalysisRequest, HdrPhotoStatistics } from '../shared/hdr-statistics'
 import type { HdrPhotoPixel } from '../shared/hdr-pixel'
+import {
+  validateWhiteBalanceSample,
+  type WhiteBalanceSample,
+  type PhotoWhiteBalanceProposal,
+} from '../shared/white-balance-picker'
 import type { PhotoStatistics } from '../shared/statistics'
 import { SDR_TARGET, validateHdrSource, type DisplayTarget } from '../shared/hdr'
+import { isUncropped } from '../shared/crop'
 import {
   SETTINGS_VERSION,
   validatePatch,
+  mergeEditPatch,
+  editCapabilities,
   type EditState,
   type EditPatch,
   type EditHistory,
@@ -59,6 +74,11 @@ import { basename, extname, join, relative, resolve, sep } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { CatalogWriter, CatalogWriterFailure } from './catalog/writer'
 import { CatalogMutations } from './catalog/domain'
+import {
+  CATALOG_VERSION,
+  migrateEditingHistory,
+  supportsEditingSettings,
+} from './catalog/editing-migration'
 import type { CatalogCommand, CatalogOperation, CatalogOutput } from './catalog/contracts'
 import { RemovalStore } from './removal-store'
 import { copyOriginal } from './copy-original'
@@ -199,6 +219,7 @@ export class PhotoLibrary {
   private importSuppression = new Map<string, Set<string>>()
   readonly fullPreviews: FullPreviews
   readonly merges: MergeReviews
+  editTransfers!: EditTransfers
   exports!: ExportJobs
   private db!: DatabaseSync
   private catalog?: CatalogWriter
@@ -427,9 +448,9 @@ export class PhotoLibrary {
     const fresh =
       version.user_version === 0 &&
       !this.db.prepare("SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' LIMIT 1").get()
-    if (!fresh && version.user_version !== 17)
+    if (!fresh && ![17, 18, 19, 20, CATALOG_VERSION].includes(version.user_version))
       throw new Error(
-        version.user_version > 17
+        version.user_version > CATALOG_VERSION
           ? 'This library requires a newer version of Irodori.'
           : 'This catalog format is unsupported. Its files were preserved; reimport originals into a fresh library.',
       )
@@ -464,14 +485,14 @@ export class PhotoLibrary {
             ...history.snapshots.map((snapshot: { settings: unknown }) => snapshot?.settings),
           ].some(
             (settings) =>
-              !settings ||
-              settings.version !== SETTINGS_VERSION ||
-              !['hdr-v1', 'display-referred-v1'].includes(settings.processing),
+              !supportsEditingSettings(settings, version.user_version) ||
+              (version.user_version === CATALOG_VERSION && settings.version !== SETTINGS_VERSION),
           )
         )
           throw new Error('This edit history format is unsupported. Its files were preserved.')
       }
       new ExportReadStore(this.db).preferences()
+      new EditApplicationReadStore(this.db).validateExisting()
     }
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;')
     await mkdir(join(this.root, 'originals'), { recursive: true })
@@ -494,7 +515,11 @@ export class PhotoLibrary {
         this.browse.initialize()
         this.workspace.initialize()
         new ExportReadStore(this.db).initialize()
-      } else this.cameraRecognition.prepare()
+      } else {
+        if ([17, 18, 19, 20].includes(version.user_version)) migrateEditingHistory(this.db)
+        this.cameraRecognition.prepare()
+      }
+      new EditApplicationReadStore(this.db).initialize()
       for (const row of this.db.prepare('SELECT id, data FROM processing').all() as {
         id: string
         data: string
@@ -502,7 +527,8 @@ export class PhotoLibrary {
         const data = JSON.parse(row.data) as ProcessingOptions
         bootstrap.seedEdits(row.id, data, new Date().toISOString())
       }
-      if (fresh) this.db.exec('PRAGMA user_version = 17')
+      if (fresh || [17, 18, 19, 20].includes(version.user_version))
+        this.db.exec(`PRAGMA user_version = ${CATALOG_VERSION}`)
       this.db.exec('COMMIT')
     } catch (error) {
       this.db.exec('ROLLBACK')
@@ -512,6 +538,21 @@ export class PhotoLibrary {
     this.db.exec('PRAGMA query_only = ON;')
     this.catalog = this.createCatalogWriter(join(this.root, 'catalog.sqlite'))
     await this.catalog.open()
+    this.editTransfers = new EditTransfers(
+      new EditApplicationStore(this.db, this.catalog),
+      this.scheduler,
+      async (id) => {
+        const options = await this.processingOptions(id),
+          photo = this.find(id)
+        if (!photo || this.closed) throw new Error('This photo is unavailable.')
+        return { photo, state: this.editState(this.readEdits(id)), metadata: options.metadata }
+      },
+      (id, patch, revision, application) =>
+        this.updateConfirmedEdits(id, patch, revision, application),
+      (photoIds) => this.flushEditorEdits({ kind: 'photos', photoIds }),
+      () => this.changed(),
+    )
+    await this.editTransfers.recover()
     this.removals = new RemovalStore(this.root, this.db, this.trash, this.catalog)
     await this.removals.recover()
     const retained = await recoverMerges(this.root, this.db, (manifest) =>
@@ -580,8 +621,17 @@ export class PhotoLibrary {
       () => this.changed(),
       this.exportRenderer,
       undefined,
-      (source, signal) =>
-        this.fullPreviews.acquireWorkingAsset(source.photo.id, source.processing, signal),
+      (source, signal, rendition) =>
+        this.fullPreviews.acquireWorkingAsset(
+          source.photo.id,
+          source.processing,
+          signal,
+          rendition,
+        ),
+      async (signal) => {
+        if (!this.cropAdmission) throw new Error('Crop export resource admission is unavailable.')
+        return this.cropAdmission(signal)
+      },
     )
     await this.exports.recover()
     await rm(join(this.root, 'merge-reviews'), { recursive: true, force: true })
@@ -633,16 +683,11 @@ export class PhotoLibrary {
           }
         : undefined,
       processing: edits.settings.processing,
+      crop: edits.settings.crop,
+      noiseReduction: edits.settings.noiseReduction,
+      detailSharpening: edits.settings.detailSharpening,
       settings: edits.settings.lens,
-      adjustments: {
-        whiteBalance: edits.settings.whiteBalance,
-        exposureEv: edits.settings.exposureEv,
-        contrast: edits.settings.contrast,
-        highlights: edits.settings.highlights,
-        shadows: edits.settings.shadows,
-        whites: edits.settings.whites,
-        blacks: edits.settings.blacks,
-      },
+      adjustments: snapshotAdjustments(edits.settings),
       revision: edits.revision,
     }
   }
@@ -758,6 +803,7 @@ export class PhotoLibrary {
   }
 
   displayTarget?: () => DisplayTarget
+  cropAdmission?: (signal: AbortSignal) => Promise<import('../shared/crop-resources').CropAdmission>
   flushEditorEdits: (scope: EditFlushScope) => Promise<void> = async () => {}
   getPhotoStatistics(id: string, expectedRevision: number): Promise<PhotoStatistics>
   getPhotoStatistics(
@@ -779,6 +825,27 @@ export class PhotoLibrary {
     return this.withHdrTarget(id, request, (target) =>
       this.fullPreviews.hdrStatistics(id, expectedRevision, request.domain, target),
     )
+  }
+
+  async proposeWhiteBalance(
+    id: string,
+    expectedRevision: number,
+    sample: WhiteBalanceSample,
+  ): Promise<PhotoWhiteBalanceProposal> {
+    validateWhiteBalanceSample(sample)
+    const snapshot = { ...sample }
+    const state = await this.getEdits(id)
+    if (!Number.isSafeInteger(expectedRevision) || state.revision !== expectedRevision)
+      throw new Error('White-balance sample revision conflict. Reload the confirmed settings.')
+    if (!state.whiteBalanceProfile || state.referenceWhiteBalance || state.hdrJpeg)
+      throw new Error(
+        'Neutral white-balance picking requires a supported single RAW capture with verified source limits.',
+      )
+    return this.fullPreviews.proposeWhiteBalance(id, expectedRevision, snapshot)
+  }
+
+  getCropContext(id: string, expectedRevision: number) {
+    return this.fullPreviews.getCropContext(id, expectedRevision)
   }
 
   getPhotoPixel(
@@ -849,11 +916,15 @@ export class PhotoLibrary {
     }
   }
 
-  private async publishEdit(history: EditHistory, expectedRevision: number): Promise<EditState> {
+  private async publishEdit(
+    history: EditHistory,
+    expectedRevision: number,
+    application?: ApplicationCommit,
+  ): Promise<EditState> {
     this.assertRecovered()
     const confirmed = await this.write({
       operation: 'edits.commit',
-      payload: { history, expectedRevision },
+      payload: { history, expectedRevision, application },
     })
     if (!this.closed) this.fullPreviews.settingsChanged(confirmed.history.photoId)
     if (!this.closed)
@@ -862,11 +933,46 @@ export class PhotoLibrary {
         lensChanged: confirmed.lensChanged
           ? { photoId: confirmed.history.photoId, revision: confirmed.history.revision }
           : undefined,
+        geometryChanged: confirmed.geometryChanged
+          ? { photoId: confirmed.history.photoId, revision: confirmed.history.revision }
+          : undefined,
+        sourceChanged: confirmed.sourceChanged
+          ? { photoId: confirmed.history.photoId, revision: confirmed.history.revision }
+          : undefined,
       })
     return this.editState(confirmed.history)
   }
 
-  async updateEdits(id: string, patch: EditPatch, expectedRevision: number): Promise<EditState> {
+  getEditCapabilities() {
+    return structuredClone(editCapabilities)
+  }
+
+  getEditClipboard() {
+    return this.editTransfers.getClipboard()
+  }
+  copyEdits(id: string) {
+    this.assertRecovered(true)
+    return this.editTransfers.copy(id)
+  }
+  preparePasteEdits(request: import('../shared/edit-transfer').PasteEditsRequest) {
+    this.assertRecovered(true)
+    return this.editTransfers.prepare(request)
+  }
+  startPasteEdits(id: string) {
+    this.assertRecovered(true)
+    return this.editTransfers.start(id)
+  }
+
+  updateEdits(id: string, patch: EditPatch, expectedRevision: number): Promise<EditState> {
+    return this.updateConfirmedEdits(id, patch, expectedRevision)
+  }
+  private async updateConfirmedEdits(
+    id: string,
+    patch: EditPatch,
+    expectedRevision: number,
+    application?: ApplicationCommit,
+  ): Promise<EditState> {
+    patch = structuredClone(patch)
     validatePatch(patch)
     if (patch.lens && this.find(id)?.assetKind === 'derived')
       throw new Error('Lens corrections are fixed in merged masters.')
@@ -885,14 +991,25 @@ export class PhotoLibrary {
         throw new Error('This correction is unavailable.')
     if (patch.whiteBalance?.mode === 'custom' && !data.metadata.whiteBalance)
       throw new Error('White balance is unavailable for this camera.')
-    const settings = {
-      ...history.settings,
-      ...patch,
-      lens: { ...history.settings.lens, ...patch.lens },
-    }
+    const settings = mergeEditPatch(history.settings, patch)
     if (JSON.stringify(settings) === JSON.stringify(history.settings)) {
+      if (application)
+        await this.scheduler.mutate(() =>
+          this.write({
+            operation: 'edit-application.result',
+            payload: {
+              commit: application,
+              result: { outcome: 'unchanged', resultingRevision: history.revision },
+            },
+          }),
+        )
       return this.editState(history)
     }
+    if (
+      patch.crop ||
+      (patch.lens && (settings.crop.aspectRatio !== null || !isUncropped(settings.crop)))
+    )
+      await this.fullPreviews.validateCropEdit(id, expectedRevision, settings.crop, settings.lens)
     history.settings = settings
     history.snapshots = history.snapshots.slice(0, history.cursor + 1)
     history.snapshots.push({ settings, createdAt: new Date().toISOString() })
@@ -900,7 +1017,7 @@ export class PhotoLibrary {
     return this.scheduler.run('interactive', () =>
       this.scheduler.mutate(async () => {
         if (!this.find(id)) throw new Error('This photo is unavailable.')
-        return this.publishEdit(history, expectedRevision)
+        return this.publishEdit(history, expectedRevision, application)
       }),
     )
   }
@@ -957,6 +1074,7 @@ export class PhotoLibrary {
       hdr: 'iso-21496-1' as const,
       codec: EXPORT_CODEC_VERSION,
       rendering: EXPORT_RENDERING_VERSION,
+      resize: structuredClone(exportResizeCapabilities),
       hdrAvailable: !unavailable,
       hdrUnavailableReason: unavailable,
     }
@@ -1021,7 +1139,16 @@ export class PhotoLibrary {
     const { photo, selection, group } = context
     const selected = selection.map((p) => p.id)
     const groupIds = group?.photos.map((p) => p.id) ?? []
+    const canPaste = !!this.getEditClipboard()
+    const pasteBlocker =
+      recovery ??
+      (this.editTransfers?.hasActive()
+        ? 'Finish or cancel the current edit application first.'
+        : undefined)
     context.availability = {
+      'photo-copy-edits': actionAvailability(!!photo, recovery),
+      'photo-paste-edits': actionAvailability(!!photo && canPaste, pasteBlocker),
+      'selection-paste-edits': actionAvailability(selection.length > 0 && canPaste, pasteBlocker),
       'photo-export': actionAvailability(!!photo, recovery),
       'selection-export': actionAvailability(selection.length > 0, recovery),
       'photo-cover': actionAvailability(!!group && photo?.id !== group.stack.coverId, organization),
@@ -1216,7 +1343,7 @@ export class PhotoLibrary {
   listTasks(): BackgroundTask[] {
     return [...this.tasks.values()]
       .map((task) => structuredClone(task.snapshot))
-      .concat(this.exports?.list() ?? [])
+      .concat(this.exports?.list() ?? [], this.editTransfers?.list() ?? [])
   }
 
   deletePhotos(ids: string[]): string | null {
@@ -1366,6 +1493,7 @@ export class PhotoLibrary {
   hasActiveTask(includeExports = true): boolean {
     return (
       (includeExports && !!this.exports?.hasActive()) ||
+      !!this.editTransfers?.hasActive() ||
       !!this.session?.accepting ||
       [...this.tasks.values()].some(({ snapshot }) =>
         ['running', 'cancelling'].includes(snapshot.status),
@@ -1375,6 +1503,7 @@ export class PhotoLibrary {
 
   taskErrors(id: string, offset = 0): TaskErrorPage {
     this.validateOffset(offset)
+    if (this.editTransfers?.has(id)) return this.editTransfers.store.errors(id, offset)
     if (this.exports?.has(id)) return this.exports.errors(id, offset)
     const task = this.tasks.get(id)
     if (!task) throw new Error('This task has been dismissed.')
@@ -1387,6 +1516,7 @@ export class PhotoLibrary {
   }
 
   async cancelTask(id: string): Promise<void> {
+    if (this.editTransfers?.has(id)) return this.editTransfers.cancel(id)
     if (this.exports?.has(id)) return this.exports.cancel(id)
     const task = this.tasks.get(id)
     if (!task) throw new Error('This task has been dismissed.')
@@ -1408,6 +1538,11 @@ export class PhotoLibrary {
   }
 
   async dismissTask(id: string): Promise<void> {
+    if (this.editTransfers?.has(id)) {
+      await this.editTransfers.store.dismiss(id)
+      if (!this.closed) this.emit({ tasksChanged: true })
+      return
+    }
     if (this.exports?.has(id)) return this.exports.dismiss(id)
     const task = this.tasks.get(id)
     if (!task) return
@@ -1527,7 +1662,7 @@ export class PhotoLibrary {
           candidate.thumbnailState = value.state
           candidate.thumbnailMessage = value.error
           if (value.state === 'ready')
-            candidate.thumbnailUrl = `luma-photo://review/${session.id}/${id}/thumb`
+            candidate.thumbnailUrl = `irodori-photo://review/${session.id}/${id}/thumb`
           this.changed(session)
         }),
       }
@@ -1838,7 +1973,7 @@ export class PhotoLibrary {
 
   private markRecognized(s: Session, c: Candidate, id?: string): void {
     const photo = id ? this.liveCameraOriginal(id) : undefined
-    if (c.sourcePhotoId && !photo && c.thumbnailUrl?.startsWith('luma-photo://library/')) {
+    if (c.sourcePhotoId && !photo && c.thumbnailUrl?.startsWith('irodori-photo://library/')) {
       c.thumbnailUrl = undefined
       c.thumbnailState = 'idle'
     }
@@ -2438,8 +2573,8 @@ export class PhotoLibrary {
                 format: extname(c.path).slice(1).toUpperCase(),
                 bytes: c.bytes,
                 importedAt: new Date().toISOString(),
-                thumbnailUrl: `luma-photo://library/${staged.hash}/thumb`,
-                previewUrl: `luma-photo://library/${staged.hash}/preview`,
+                thumbnailUrl: `irodori-photo://library/${staged.hash}/thumb`,
+                previewUrl: `irodori-photo://library/${staged.hash}/preview`,
                 previewSource: preview.source,
               }
               await rename(staged.directory, finalDir)
@@ -2586,7 +2721,7 @@ export class PhotoLibrary {
     if (this.closed) return
     const parsed = new URL(url)
     if (
-      parsed.protocol !== 'luma-photo:' ||
+      parsed.protocol !== 'irodori-photo:' ||
       parsed.search ||
       parsed.hash ||
       parsed.port ||
@@ -2775,14 +2910,14 @@ export class PhotoLibrary {
             const photo: Photo = {
               id: photoId,
               assetKind: 'derived',
-              filename: `${basename(reference.photo.filename, extname(reference.photo.filename))}-${review.settings.mode === 'hdr' ? 'HDR' : 'Stack'}.luma`,
-              format: 'LUMA HDR',
+              filename: `${basename(reference.photo.filename, extname(reference.photo.filename))}-${review.settings.mode === 'hdr' ? 'HDR' : 'Stack'}.irodori`,
+              format: 'IRODORI HDR',
               bytes: result.asset.byteLength,
               width: result.asset.width,
               height: result.asset.height,
               importedAt: new Date().toISOString(),
-              thumbnailUrl: `luma-photo://library/${photoId}/thumb`,
-              previewUrl: `luma-photo://library/${photoId}/preview`,
+              thumbnailUrl: `irodori-photo://library/${photoId}/thumb`,
+              previewUrl: `irodori-photo://library/${photoId}/preview`,
               previewSource: 'decoded',
               camera: reference.photo.camera,
               lens: reference.photo.lens,
@@ -2953,6 +3088,7 @@ export class PhotoLibrary {
   private async performClose(): Promise<void> {
     if (this.closed) return
     this.closed = true
+    this.editTransfers?.stopAdmission()
     this.activities.clear()
     this.merges.stopAdmission()
     if (this.notification) clearTimeout(this.notification)
@@ -2964,6 +3100,7 @@ export class PhotoLibrary {
           await this.cancelTask(id)
       }
       if (this.session) await this.dispose(this.session.id)
+      await this.editTransfers?.close()
       await this.closeCaptureProcessor()
       await this.metadataProcessor.close()
       await this.directoryVisibility.close()

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 
-const cargo = process.env.LUMA_RESEARCH_CARGO || 'cargo'
+const cargo = process.env.IRODORI_RESEARCH_CARGO || 'cargo'
 const root = resolve(import.meta.dirname, '../..'),
   output = join(root, 'artifacts/research-rust')
 mkdirSync(output, { recursive: true })
@@ -20,7 +20,7 @@ execFileSync(cargo, args, { cwd: root, stdio: 'inherit' })
 const binary = join(
   output,
   'release',
-  `luma-pipeline-research${process.platform === 'win32' ? '.exe' : ''}`,
+  `irodori-pipeline-research${process.platform === 'win32' ? '.exe' : ''}`,
 )
 const hash = (path) => createHash('sha256').update(readFileSync(path)).digest('hex')
 const rustc = cargo.includes('/') ? join(dirname(cargo), 'rustc') : 'rustc'

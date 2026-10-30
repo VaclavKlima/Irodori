@@ -26,6 +26,8 @@ export async function receiveNativeHdrMask(
     result.comparison !== request.comparison ||
     result.domain !== request.domain ||
     JSON.stringify(result.source) !== JSON.stringify(request.source) ||
+    JSON.stringify(result.comparisonOf ?? null) !== JSON.stringify(request.comparisonOf ?? null) ||
+    request.source.workingSha256 !== asset.sha256 ||
     !sameAdjustments(result.parameters, request.parameters) ||
     !uuid.test(result.maskId) ||
     !sha.test(result.sha256) ||
@@ -46,7 +48,7 @@ export async function receiveNativeHdrMask(
     'outputVersion',
   ] as const)
     if (result.target[key] !== request.target[key]) throw new Error('Native mask target changed.')
-  const expectedUrl = `luma-photo://library/${request.source.photoId}/mask/${result.maskId}`
+  const expectedUrl = `irodori-photo://library/${request.source.photoId}/mask/${result.maskId}`
   if (result.url !== expectedUrl) throw new Error('Invalid native mask capability.')
   signal.throwIfAborted()
   const response = await fetch(result.url, { signal })

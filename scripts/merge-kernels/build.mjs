@@ -6,7 +6,7 @@ import { resolve, join } from 'node:path'
 const root = resolve(import.meta.dirname, '../..'),
   source = 'src/main/merge/kernels/prepare.c',
   directory = join(root, 'vendor/merge-kernels'),
-  compiler = process.env.LUMA_EMCC || 'emcc',
+  compiler = process.env.IRODORI_EMCC || 'emcc',
   compilerVersion = execFileSync(compiler, ['--version'], { encoding: 'utf8' }).split('\n')[0]
 if (!/^emcc .* 4\.0\.20\b/.test(compilerVersion))
   throw new Error(`Emscripten 4.0.20 is required; found ${compilerVersion}.`)
@@ -28,17 +28,17 @@ const flags = [
   '--no-entry',
   '-Wl,--export-memory',
   '-Wl,--export=__heap_base',
-  '-Wl,--export=luma_kernel_version',
-  '-Wl,--export=luma_camera_strip',
-  '-Wl,--export=luma_camera_validity_strip',
-  '-Wl,--export=luma_fallback_geometry_strip',
-  '-Wl,--export=luma_prepare_strip',
-  '-Wl,--export=luma_reduce_strip',
-  '-Wl,--export=luma_sensor_mask',
-  '-Wl,--export=luma_repair_mask',
+  '-Wl,--export=irodori_kernel_version',
+  '-Wl,--export=irodori_camera_strip',
+  '-Wl,--export=irodori_camera_validity_strip',
+  '-Wl,--export=irodori_fallback_geometry_strip',
+  '-Wl,--export=irodori_prepare_strip',
+  '-Wl,--export=irodori_reduce_strip',
+  '-Wl,--export=irodori_sensor_mask',
+  '-Wl,--export=irodori_repair_mask',
 ]
 await mkdir(directory, { recursive: true })
-const output = join(directory, 'luma-merge-kernels.wasm')
+const output = join(directory, 'irodori-merge-kernels.wasm')
 execFileSync(compiler, [...flags, source, '-o', output], { cwd: root, stdio: 'inherit' })
 const bytes = await readFile(output),
   module = await WebAssembly.compile(bytes),

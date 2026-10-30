@@ -64,7 +64,7 @@ test('Linux full-size Sony native and WASM codecs reconstruct identical frozen i
       platform: process.platform,
       arch: process.arch,
       node: process.version,
-      previewBackend: process.env.LUMA_PREVIEW_BACKEND ?? 'auto',
+      previewBackend: process.env.IRODORI_PREVIEW_BACKEND ?? 'auto',
     },
     memoryLimitations:
       'Native peak RSS and WASM linear-heap capacity retain their separate existing 2 GiB limits. Decoder copies and this test process are not a combined application-memory measurement.',
@@ -89,8 +89,8 @@ test('Linux full-size Sony native and WASM codecs reconstruct identical frozen i
         'package-lock.json',
         'out/main/preview-worker.js',
         join(bundle, 'SHA256SUMS'),
-        join(bundle, 'luma-ultrahdr.mjs'),
-        join(bundle, 'luma-ultrahdr.wasm'),
+        join(bundle, 'irodori-ultrahdr.mjs'),
+        join(bundle, 'irodori-ultrahdr.wasm'),
         executable!,
         join(dirname(executable!), 'SHA256SUMS'),
       ].map(fileEvidence),
@@ -165,14 +165,14 @@ test('Linux full-size Sony native and WASM codecs reconstruct identical frozen i
     })
 
     report.phase = 'rendition'
-    const previousBackend = process.env.LUMA_EXPORT_BACKEND
+    const previousBackend = process.env.IRODORI_EXPORT_BACKEND
     let rendition: Awaited<ReturnType<typeof exportRenditions>>
     try {
-      process.env.LUMA_EXPORT_BACKEND = 'gpu'
+      process.env.IRODORI_EXPORT_BACKEND = 'gpu'
       rendition = await exportRenditions(job)
     } finally {
-      if (previousBackend === undefined) delete process.env.LUMA_EXPORT_BACKEND
-      else process.env.LUMA_EXPORT_BACKEND = previousBackend
+      if (previousBackend === undefined) delete process.env.IRODORI_EXPORT_BACKEND
+      else process.env.IRODORI_EXPORT_BACKEND = previousBackend
     }
     expect(rendition.diagnostics.renderer).toBe('gpu')
     expect(rendition.diagnostics.rendererFallback).toBeUndefined()

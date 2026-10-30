@@ -8,6 +8,7 @@ export interface HdrRecoverySnapshot {
   serial: number
   presentationSerial: number
   sourceIdentity: string
+  beforeSourceIdentity?: string
   epoch: number
   settingsRevision: number | null
   target: {
@@ -144,7 +145,7 @@ export class HdrRecovery {
       this.extent = extent
     }
     const buffer = (this.buffer ??= device.createBuffer({
-      label: 'luma-hdr-recovery-readback',
+      label: 'irodori-hdr-recovery-readback',
       size,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     }))

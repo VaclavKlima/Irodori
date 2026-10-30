@@ -9,6 +9,7 @@ import type { EditState } from '../../../shared/edits'
 import { SDR_TARGET, type DisplayTarget } from '../../../shared/hdr'
 import type { HdrAnalysisDomain, HdrStatistics } from '../../../shared/hdr-statistics'
 import { NATIVE_HDR_MASK_VERSION } from '../../../shared/native-hdr-mask'
+import type { CpuPreviewSourceRef } from '../../../shared/native-cpu-preview'
 import {
   NativeMaskRelay,
   type NativeMaskDraft,
@@ -18,6 +19,7 @@ import type { ClippingMask } from './usePreviewAnalysis'
 export interface NativeMaskContext {
   readonly confirmed: EditState | null
   readonly comparison: 'before' | 'after'
+  readonly comparisonOf?: CpuPreviewSourceRef
   readonly presentationSerial: number
   readonly reserve: ReserveNativeMask
 }
@@ -83,6 +85,7 @@ export function useHdrAnalysis(
   const confirmed = nativeContext?.confirmed
   const reserveNativeMask = nativeContext?.reserve
   const comparison = nativeContext?.comparison
+  const comparisonOf = nativeContext?.comparisonOf
   const nativeEligible = !!(
     frame?.cpuSource &&
     frame.hdr &&
@@ -108,13 +111,14 @@ export function useHdrAnalysis(
           nativeEligible,
           confirmed?.revision,
           nativeContext?.comparison,
+          comparisonOf,
           nativeContext?.presentationSerial,
         ]
       : null,
   ])
   useEffect(() => {
     let current = true
-    void window.luma.getCpuPreviewBackend().then(
+    void window.irodori.getCpuPreviewBackend().then(
       (value) => {
         if (current) setBackend(value)
       },
@@ -141,7 +145,7 @@ export function useHdrAnalysis(
     const operationGeneration = generation
     const ownedRelay =
       backend === 'native' && reserveNativeMask
-        ? new NativeMaskRelay(instance, window.luma, frame, reserveNativeMask)
+        ? new NativeMaskRelay(instance, window.irodori, frame, reserveNativeMask)
         : undefined
     const unsubscribe = observeHdrSample(frame.hdr.sha256, (sample, draftSample) =>
       instance.postMessage({ sample, draftSample }),
@@ -236,6 +240,7 @@ export function useHdrAnalysis(
             requestId: crypto.randomUUID(),
             sessionId: sessionId.current,
             source: frame.cpuSource,
+            ...(comparisonOf ? { comparisonOf } : {}),
             generation: current,
             expectedSettingsRevision: confirmed.revision,
             comparison: comparison!,
@@ -274,6 +279,7 @@ export function useHdrAnalysis(
     nativeEligible,
     confirmed,
     comparison,
+    comparisonOf,
   ])
   const workerFailure = unavailable?.frame === frame ? unavailable : undefined
   const currentFailure =

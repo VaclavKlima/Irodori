@@ -230,7 +230,7 @@ async function progressiveScan(paths: string[], root: string): Promise<Progressi
 
 test('measures reconstructed legacy and progressive review discovery, thumbnails, and page visits', async ({}, info) => {
   test.setTimeout(90_000)
-  const root = await mkdtemp(join(tmpdir(), 'luma-review-performance-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-review-performance-'))
   const evidence: {
     scope: string
     provenance: Record<string, unknown>
@@ -275,7 +275,7 @@ test('measures reconstructed legacy and progressive review discovery, thumbnails
       const path = join(source, `${String(index).padStart(3, '0')}.jpg`)
       await writeFile(
         path,
-        Buffer.concat([fixture, Buffer.from(`\nLuma review sample ${index}\n`)]),
+        Buffer.concat([fixture, Buffer.from(`\nLuminance review sample ${index}\n`)]),
       )
       // Keep the RAW first in the chronological review without touching its fixture.
       const modified = new Date(rawModified - (index + 1) * 60_000)

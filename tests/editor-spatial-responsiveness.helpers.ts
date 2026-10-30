@@ -221,7 +221,7 @@ export async function warmSpatialPath(
             `Display target changed during spatial warmup: ${JSON.stringify({
               expectedGeneration: targetGeneration,
               completedGeneration,
-              target: await window.luma.getDisplayState(),
+              target: await window.irodori.getDisplayState(),
             })}`,
           )
       }
@@ -369,11 +369,11 @@ export async function sustainedSpatialInput(
               Math.abs(a[key as keyof Omit<View, 'fit'>] - b[key as keyof Omit<View, 'fit'>]) <
               1e-6,
           )
-        const photo = (await window.luma.listPhotos()).photos.find(
+        const photo = (await window.irodori.listPhotos()).photos.find(
           (photo) => photo.filename === 'sony-zv1.ARW',
         )!
-        const historyBefore = await window.luma.getEditHistory(photo.id)
-        const editsBefore = await window.luma.getEdits(photo.id)
+        const historyBefore = await window.irodori.getEditHistory(photo.id)
+        const editsBefore = await window.irodori.getEdits(photo.id)
         const readAnalysis = () => {
           const curve = histogram.querySelector<SVGSVGElement>('svg[role="slider"]')
           return {
@@ -523,7 +523,7 @@ export async function sustainedSpatialInput(
             analysisObservations.push({ ...readAnalysis(), reason })
           else omittedAnalysisObservations++
         }
-        const offDisplay = window.luma.onDisplayState((target) => {
+        const offDisplay = window.irodori.onDisplayState((target) => {
           const snapshot = {
             at: performance.now(),
             generation: target.generation,
@@ -873,8 +873,8 @@ export async function sustainedSpatialInput(
           offDisplay()
           pacer?.stop()
         }
-        const historyAfter = await window.luma.getEditHistory(photo.id)
-        const editsAfter = await window.luma.getEdits(photo.id)
+        const historyAfter = await window.irodori.getEditHistory(photo.id)
+        const editsAfter = await window.irodori.getEdits(photo.id)
         const changedPresentations: typeof presentations = [],
           duplicatePresentations: typeof presentations = []
         const changedInputs = new Set<number>()

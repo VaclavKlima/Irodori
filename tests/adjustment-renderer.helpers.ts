@@ -8,10 +8,10 @@ import { HDR_CACHE_MAX_TILES } from '../src/renderer/src/preview/hdr-render-cach
 export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | 'raw')[]) {
   for (const fixture of fixtures)
     test(`${fixture} ${fixture === 'raw' ? 'WebGPU' : 'WebGL'} combined adjustments match CPU, reuses the working texture and coalesces fallback changes`, async ({
-      luma,
+      irodori,
     }, info) => {
       test.setTimeout(fixture === 'raw' ? 240000 : 120000)
-      const { page } = luma
+      const { page } = irodori
       let source =
         fixture === 'raw' ? 'tests/fixtures/sony-zv1.ARW' : 'tests/fixtures/photos/alpine-lake.jpg'
       if (fixture === 'synthetic') {
@@ -26,10 +26,10 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
           .png()
           .toFile(source)
       }
-      await importPhotos(luma.app, page, [source])
+      await importPhotos(irodori.app, page, [source])
       const preview = page.getByTestId('main-preview')
       await expect(preview).toHaveAttribute('data-editing', 'ready', { timeout: 40000 })
-      const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
+      const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
       if (fixture === 'raw') {
         await page.getByLabel('Preview display mode').selectOption('sdr')
         await expect(preview).toHaveAttribute('data-backend', 'webgpu-hdr')
@@ -47,13 +47,14 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
       })
       await page.evaluate(compiled.outputFiles[0].text)
       await page.evaluate(async (id) => {
-        const result = await window.luma.requestEditingPreview(id, crypto.randomUUID())
+        const result = await window.irodori.requestEditingPreview(id, crypto.randomUUID())
         const bytes = await (await fetch(result.linear!.url!)).arrayBuffer()
         const target = window as unknown as { highlightsTest: unknown }
         const state = {
           frame: result,
           data: new Float32Array(bytes),
           uploads: 0,
+          uploadStacks: [] as string[],
           readback: undefined as
             { data: Uint8ClampedArray; width: number; height: number; serial: string } | undefined,
         }
@@ -119,10 +120,16 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
           const upload = WebGL2RenderingContext.prototype.texImage2D
           WebGL2RenderingContext.prototype.texImage2D = function (...args: unknown[]) {
             state.uploads++
+            state.uploadStacks.push(
+              `${args
+                .slice(0, 9)
+                .map((v) => (typeof v === 'number' ? v : typeof v))
+                .join(',')}\n${new Error().stack}`,
+            )
             return Reflect.apply(upload, this, args)
           }
         }
-        await window.luma.releaseFullPreview(result.requestId)
+        await window.irodori.releaseFullPreview(result.requestId)
       }, id)
       await page.getByRole('combobox', { name: 'Preview zoom' }).selectOption('1')
       const compare = () =>
@@ -132,6 +139,7 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
               data: Float32Array
               frame: import('../src/shared/contracts').FullPreview
               uploads: number
+              uploadStacks: string[]
               readback?: { data: Uint8ClampedArray; width: number; height: number; serial: string }
             }
             highlightsReference: typeof import('../src/shared/adjustments') &
@@ -142,6 +150,8 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
           const viewport = canvas.parentElement!
           const box = viewport.getBoundingClientRect()
           const parameters = {
+            saturation: Number(canvas.dataset.saturation),
+            vibrance: Number(canvas.dataset.vibrance),
             whiteBalance: JSON.parse(canvas.dataset.whiteBalance!),
             shadows: Number(canvas.dataset.shadows),
             whites: Number(canvas.dataset.whites),
@@ -153,7 +163,7 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
           const gl = canvas.dataset.backend === 'webgl2' ? canvas.getContext('webgl2') : null
           const hdrTarget =
             canvas.dataset.backend === 'webgpu-hdr'
-              ? await window.luma.getDisplayState()
+              ? await window.irodori.getDisplayState()
               : test.highlightsReference.SDR_TARGET
           let max = 0
           const samples: unknown[] = []
@@ -241,6 +251,7 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
           return {
             max,
             uploads: test.highlightsTest.uploads,
+            uploadStacks: test.highlightsTest.uploadStacks,
             samples,
             parameters,
             target: hdrTarget,
@@ -284,8 +295,8 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
       }
       if (fixture === 'raw') {
         await page.evaluate(async (id) => {
-          const state = await window.luma.getEdits(id)
-          await window.luma.updateEdits(id, { shadows: 100 }, state.revision)
+          const state = await window.irodori.getEdits(id)
+          await window.irodori.updateEdits(id, { shadows: 100 }, state.revision)
         }, id)
         await expect(preview).toHaveAttribute('data-shadows', '100')
         await agree(1)
@@ -294,14 +305,14 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
         for (const [index, p3] of [true, false, true, false].entries()) {
           const target = await page.evaluate(
             async ({ p3, unconfigured }) => {
-              const state = await window.luma.getDisplayState()
+              const state = await window.irodori.getDisplayState()
               // Source reloads unconfigure the reused canvas before its next presentation.
               if (unconfigured)
                 document
                   .querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
                   .getContext('webgpu')!
                   .unconfigure()
-              return window.luma.reportDisplayCapabilities({ ...state.capabilities!, p3 })
+              return window.irodori.reportDisplayCapabilities({ ...state.capabilities!, p3 })
             },
             { p3, unconfigured: index >= 2 },
           )
@@ -309,7 +320,19 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
           await agree(1)
         }
       }
-      for (const [exposureEv, contrast, highlights, shadows = 0, whites = 0, blacks = 0] of [
+      for (const [
+        exposureEv,
+        contrast,
+        highlights,
+        shadows = 0,
+        whites = 0,
+        blacks = 0,
+        saturation = 0,
+        vibrance = 0,
+      ] of [
+        [0, 0, 0, 0, 0, 0, -100, 100],
+        [0, 0, 0, 0, 0, 0, 100, 100],
+        [0.75, 35, -65, 80, -40, 25, 35, -60],
         [0, 0, 0, -100, 0, 0],
         [0, 0, 0, 100, 0, 0],
         [0, 0, 0, 0, -100, 0],
@@ -330,9 +353,20 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
         [0, 0, 0],
       ]) {
         await page.evaluate(
-          async ({ id, exposureEv, contrast, highlights, shadows, whites, blacks, fixture }) => {
-            const state = await window.luma.getEdits(id)
-            await window.luma.updateEdits(
+          async ({
+            id,
+            exposureEv,
+            contrast,
+            highlights,
+            shadows,
+            whites,
+            blacks,
+            saturation,
+            vibrance,
+            fixture,
+          }) => {
+            const state = await window.irodori.getEdits(id)
+            await window.irodori.updateEdits(
               id,
               {
                 shadows,
@@ -341,6 +375,8 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
                 exposureEv,
                 contrast,
                 highlights,
+                saturation,
+                vibrance,
                 whiteBalance:
                   fixture === 'raw' && exposureEv !== 0
                     ? { mode: 'custom', kelvin: 8000, tint: 25 }
@@ -349,7 +385,18 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
               state.revision,
             )
           },
-          { shadows, whites, blacks, id, exposureEv, contrast, highlights, fixture },
+          {
+            shadows,
+            whites,
+            blacks,
+            saturation,
+            vibrance,
+            id,
+            exposureEv,
+            contrast,
+            highlights,
+            fixture,
+          },
         )
         await expect(preview).toHaveAttribute('data-shadows', String(shadows))
         await expect(preview).toHaveAttribute('data-whites', String(whites))
@@ -357,11 +404,13 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
         await expect(preview).toHaveAttribute('data-contrast', String(contrast))
         await expect(preview).toHaveAttribute('data-highlights', String(highlights))
         await expect(preview).toHaveAttribute('data-exposure', String(exposureEv))
+        await expect(preview).toHaveAttribute('data-saturation', String(saturation))
+        await expect(preview).toHaveAttribute('data-vibrance', String(vibrance))
         await agree(1)
       }
       await page.evaluate(async (id) => {
-        const state = await window.luma.getEdits(id)
-        await window.luma.updateEdits(id, { exposureEv: 1 }, state.revision)
+        const state = await window.irodori.getEdits(id)
+        await window.irodori.updateEdits(id, { exposureEv: 1 }, state.revision)
       }, id)
       await expect(preview).toHaveAttribute('data-exposure', '1')
       await preview.focus()
@@ -372,7 +421,8 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
       await expect(preview).toHaveAttribute('data-comparison', 'split')
       await agree(1)
       await preview.press('y')
-      expect((await compare()).uploads).toBe(0)
+      const uploadEvidence = await compare()
+      expect(uploadEvidence.uploads, JSON.stringify(uploadEvidence.uploadStacks)).toBe(0)
       if (fixture === 'raw') {
         await expect(preview).toHaveAttribute('data-source-uploads', '1')
         const cachedTiles = Number(await preview.getAttribute('data-cached-tiles'))
@@ -402,8 +452,8 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
       // Deliberately queue updates without waiting for the CPU worker's previous bitmap.
       await page.evaluate(async (id) => {
         for (const highlights of [-100, 100, -50, 80, 25]) {
-          const state = await window.luma.getEdits(id)
-          await window.luma.updateEdits(
+          const state = await window.irodori.getEdits(id)
+          await window.irodori.updateEdits(
             id,
             {
               highlights,
@@ -411,6 +461,8 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
               shadows: -highlights,
               whites: highlights,
               blacks: -highlights,
+              saturation: highlights,
+              vibrance: -highlights,
             },
             state.revision,
           )

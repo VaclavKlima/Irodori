@@ -86,11 +86,11 @@ for (const candidate of ['cpp', 'rust'] as const)
       candidate === 'cpp' ? buildNative('pointwise', info.outputPath('build')) : undefined
     const binary =
       built?.binary ??
-      process.env.LUMA_RESEARCH_RUST_BINARY ??
-      resolve('artifacts/research-rust/release/luma-pipeline-research')
+      process.env.IRODORI_RESEARCH_RUST_BINARY ??
+      resolve('artifacts/research-rust/release/irodori-pipeline-research')
     test.skip(
       !existsSync(binary),
-      'Rust/Rayon is not built. Install Rust, build the isolated Cargo manifest, and supply LUMA_RESEARCH_RUST_BINARY. Architecture comparison remains incomplete.',
+      'Rust/Rayon is not built. Install Rust, build the isolated Cargo manifest, and supply IRODORI_RESEARCH_RUST_BINARY. Architecture comparison remains incomplete.',
     )
     const w = workloads(undefined, imageSpec(1024, 768)),
       freshLaunches: unknown[] = []

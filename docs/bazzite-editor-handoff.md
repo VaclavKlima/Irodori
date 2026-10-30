@@ -23,7 +23,7 @@ acceptance remains a separate task; Bazzite evidence does not certify it.
 
 ## Repository and checkpoint
 
-- Repository: `https://github.com/VaclavKlima/Luma.git`.
+- Repository: `https://github.com/VaclavKlima/Irodori.git`.
 - Working branch: `perf/editor-responsiveness`; use its latest handoff commit.
 - Production base: `bef6a6146ad6ab451e5abeac7dcf9b9b77fd4f4d`.
 - Mac handoff implementation candidate: `06f68ba`, adding final-input feedback
@@ -32,13 +32,13 @@ acceptance remains a separate task; Bazzite evidence does not certify it.
   reply gate; at that historical checkpoint it had type/lint checks but no native
   rerun. The latest Linux verification and source proof are linked below.
 - At this historical checkpoint, both selectors were opt-in:
-  `VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` and
-  `VITE_LUMA_HDR_PRESENTATION_CACHE=1`. Its comparisons set matching build/run
+  `VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32` and
+  `VITE_IRODORI_HDR_PRESENTATION_CACHE=1`. Its comparisons set matching build/run
   values, used unset precision as the canonical reference and held cache
   selection fixed. Those retired selectors no longer configure an ordinary
   current build; reproduce these commands only against their frozen source.
 
-Read `AGENTS.md`, `README.md`, `Luma.md`,
+Read `AGENTS.md`, `README.md`, `Irodori.md`,
 [editor responsiveness](editor-responsiveness.md),
 [display rendering](display-rendering.md), and
 [the Linux editor checklist](mac-workability.md#everyday-editor-continuation).
@@ -47,7 +47,7 @@ working objective is preserved below.
 
 ## Objective for the new goal
 
-Make Luma feel immediate during everyday photo editing on the available Bazzite
+Make Irodori feel immediate during everyday photo editing on the available Bazzite
 machine, without perceptible preview-quality degradation. Continue the existing
 implementation and research rather than restarting from scratch. Preserve Mac
 results as separate historical evidence; establish new Linux evidence.
@@ -190,12 +190,12 @@ On Linux, use a short absolute `TMPDIR`; the deeply nested clone's artifact path
 can exceed Chromium's Unix `SingletonSocket` path limit before the test runs.
 
 ```sh
-mkdir -p /tmp/luma-editor-tests
-export TMPDIR=/tmp/luma-editor-tests
+mkdir -p /tmp/irodori-editor-tests
+export TMPDIR=/tmp/irodori-editor-tests
 npm run verify -- --target edit-gesture-commit --target hdr-gesture-handoff --target hdr-presentation-cache --target hdr-readback --target write-hdr-strip
-VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 npm run build
-VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 LUMA_TEST_UI_MODE=foreground npx playwright test --project=raw-gpu tests/interactive-preview-lifecycle.spec.ts --grep 'the last local input receives Float32 feedback' --workers=1
-VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 LUMA_TEST_UI_MODE=foreground LUMA_PREVIEW_BENCHMARK=1 LUMA_RESPONSIVENESS_PROFILE=linux-native-dpr1 LUMA_RESPONSIVENESS_LAYOUTS=1440x900 LUMA_RESPONSIVENESS_FREQUENCIES=60 LUMA_RESPONSIVENESS_DISPLAY=sdr LUMA_RESPONSIVENESS_SLIDERS=Exposure npx playwright test --project=benchmark tests/editor-responsiveness-benchmark.spec.ts --workers=1
+VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32 VITE_IRODORI_HDR_PRESENTATION_CACHE=1 npm run build
+VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32 VITE_IRODORI_HDR_PRESENTATION_CACHE=1 IRODORI_TEST_UI_MODE=foreground npx playwright test --project=raw-gpu tests/interactive-preview-lifecycle.spec.ts --grep 'the last local input receives Float32 feedback' --workers=1
+VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32 VITE_IRODORI_HDR_PRESENTATION_CACHE=1 IRODORI_TEST_UI_MODE=foreground IRODORI_PREVIEW_BENCHMARK=1 IRODORI_RESPONSIVENESS_PROFILE=linux-native-dpr1 IRODORI_RESPONSIVENESS_LAYOUTS=1440x900 IRODORI_RESPONSIVENESS_FREQUENCIES=60 IRODORI_RESPONSIVENESS_DISPLAY=sdr IRODORI_RESPONSIVENESS_SLIDERS=Exposure npx playwright test --project=benchmark tests/editor-responsiveness-benchmark.spec.ts --workers=1
 ```
 
 Filtered direct Playwright runs reuse the prepared build; rebuild whenever source
@@ -268,9 +268,9 @@ remains byte-identical source. The
 [source proof](../artifacts/bazzite-editor/composite-policy-source-proof.json)
 records these identities; per-comparison evidence retains actual arithmetic
 policy and shader hashes. Both
-`VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` and
-`VITE_LUMA_HDR_PRESENTATION_CACHE=1` remain explicit opt-ins, disabled by default.
-At that checkpoint, `VITE_LUMA_HDR_TILE_BATCH=128` was a separate scheduling
+`VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32` and
+`VITE_IRODORI_HDR_PRESENTATION_CACHE=1` remain explicit opt-ins, disabled by default.
+At that checkpoint, `VITE_IRODORI_HDR_TILE_BATCH=128` was a separate scheduling
 candidate. The later [current results](editor-responsiveness.md#bazzite-current-results-october-19-2026)
 record the 512/final candidate; the production default remains 32/separate.
 

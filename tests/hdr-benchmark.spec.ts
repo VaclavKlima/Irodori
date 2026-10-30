@@ -13,21 +13,27 @@ for (const adjustment of ['exposure'] as const)
   test(
     `benchmarks warmed HDR ${adjustment} gestures through the actual editor`,
     foregroundTest(foregroundReason),
-    async ({ luma }, info) => {
-      test.skip(process.env.LUMA_PREVIEW_BENCHMARK !== '1', 'Run npm run benchmark:hdr.')
+    async ({ irodori }, info) => {
+      test.skip(process.env.IRODORI_PREVIEW_BENCHMARK !== '1', 'Run npm run benchmark:hdr.')
       test.setTimeout(180000)
-      luma.page.on('console', (message) => {
+      irodori.page.on('console', (message) => {
         if (message.type() === 'warning') console.log(message.text())
       })
-      await importPhotos(luma.app, luma.page, ['tests/fixtures/sony-zv1.ARW'], false)
-      await expect(luma.page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
-        timeout: 45000,
-      })
+      await importPhotos(irodori.app, irodori.page, ['tests/fixtures/sony-zv1.ARW'], false)
+      await expect(irodori.page.getByTestId('main-preview')).toHaveAttribute(
+        'data-editing',
+        'ready',
+        {
+          timeout: 45000,
+        },
+      )
       await expect(
-        luma.page.getByRole('button', { name: 'Canvas channel clipping', exact: true }),
+        irodori.page.getByRole('button', { name: 'Canvas channel clipping', exact: true }),
       ).toBeVisible({ timeout: 45000 })
-      await luma.page.getByRole('button', { name: 'Canvas channel clipping', exact: true }).click()
-      const result = await luma.page.evaluate(async (adjustment) => {
+      await irodori.page
+        .getByRole('button', { name: 'Canvas channel clipping', exact: true })
+        .click()
+      const result = await irodori.page.evaluate(async (adjustment) => {
         const label = Array.from(document.querySelectorAll('label')).find(
           (label) => label.textContent === adjustment[0].toUpperCase() + adjustment.slice(1),
         )!
@@ -86,35 +92,36 @@ for (const adjustment of ['exposure'] as const)
 test(
   'benchmarks cold HDR selection and cached revisits at native resolution',
   foregroundTest(foregroundReason),
-  async ({ luma }, info) => {
-    test.skip(process.env.LUMA_PREVIEW_BENCHMARK !== '1', 'Run npm run benchmark:hdr.')
+  async ({ irodori }, info) => {
+    test.skip(process.env.IRODORI_PREVIEW_BENCHMARK !== '1', 'Run npm run benchmark:hdr.')
     test.setTimeout(180000)
     await importPhotos(
-      luma.app,
-      luma.page,
+      irodori.app,
+      irodori.page,
       ['tests/fixtures/photos/alpine-lake.jpg', 'tests/fixtures/sony-zv1.ARW'],
       false,
     )
-    const photos = (await luma.page.evaluate(() => window.luma.listPhotos())).photos
+    const photos = (await irodori.page.evaluate(() => window.irodori.listPhotos())).photos
     const raw = photos.find((photo) => photo.filename.endsWith('.ARW'))!
     const raster = photos.find((photo) => photo.id !== raw.id)!
     const cold: number[] = [],
       cached: number[] = [],
       evidence: unknown[] = []
-    let page = luma.page
+    let page = irodori.page
     const select = async () => {
       await page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }).click()
       await expect
         .poll(
           async () =>
-            (await page.evaluate(() => window.luma.getPreviewDiagnostics())).presentation?.photoId,
+            (await page.evaluate(() => window.irodori.getPreviewDiagnostics())).presentation
+              ?.photoId,
         )
         .toBe(raster.id)
       await page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }).click()
       await expect
         .poll(
           async () => {
-            const diagnostics = await page.evaluate(() => window.luma.getPreviewDiagnostics())
+            const diagnostics = await page.evaluate(() => window.irodori.getPreviewDiagnostics())
             return diagnostics.presentation?.photoId === raw.id
               ? diagnostics.presentation.stage
               : undefined
@@ -122,7 +129,7 @@ test(
           { timeout: 45000 },
         )
         .toBe('presented')
-      const diagnostics = await page.evaluate(() => window.luma.getPreviewDiagnostics())
+      const diagnostics = await page.evaluate(() => window.irodori.getPreviewDiagnostics())
       expect(diagnostics.presentation?.backend).toBe('webgpu-hdr')
       evidence.push(diagnostics)
       return diagnostics.presentation!.timings.selectionToPresentedMs
@@ -130,7 +137,7 @@ test(
     for (let run = 0; run < 3; run++) {
       if (run) {
         // The fixture closes Electron before removing only its isolated disposable cache.
-        page = (await luma.restart(true)).page
+        page = (await irodori.restart(true)).page
       }
       cold.push(await select())
       for (let visit = 0; visit < 6; visit++) cached.push(await select())

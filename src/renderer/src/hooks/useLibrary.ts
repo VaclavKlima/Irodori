@@ -90,12 +90,12 @@ export function useLibrary(onError: (error: string) => void, onActivePhotoChange
             selectionTicket = selectionRevision.current
           try {
             const previous = current.current
-            const summary = await window.luma.getGallerySummary([...previous.selected.keys()])
+            const summary = await window.irodori.getGallerySummary([...previous.selected.keys()])
             const id = previous.activeId ?? importedDuringRefresh.current
-            const located = id ? await window.luma.locateGalleryPhoto(id, 0, summary) : null
+            const located = id ? await window.irodori.locateGalleryPhoto(id, 0, summary) : null
             const first =
               !located && !initialized.current && summary.total
-                ? await window.luma.getGalleryChunk(0, summary)
+                ? await window.irodori.getGalleryChunk(0, summary)
                 : null
             if (ticket !== request.current || selectionTicket !== selectionRevision.current) {
               refreshDirty.current = true
@@ -212,7 +212,7 @@ export function useLibrary(onError: (error: string) => void, onActivePhotoChange
         let selected: Map<string, PhotoReference>
         let anchor = previous.anchor
         if (modifiers.shift && anchor) {
-          const range = await window.luma.getGalleryRange(anchor, photo.id)
+          const range = await window.irodori.getGalleryRange(anchor, photo.id)
           selected = new Map(modifiers.toggle ? current.current.selected : [])
           for (const item of range) selected.set(item.id, item)
         } else {
@@ -271,7 +271,7 @@ export function useLibrary(onError: (error: string) => void, onActivePhotoChange
         const id = current.current.activeId
         if (!id) return
         const ticket = request.current
-        const result = await window.luma.locateGalleryPhoto(id, delta)
+        const result = await window.irodori.locateGalleryPhoto(id, delta)
         if (!result) return
         const photo = result.photo
         updateSelection(
@@ -297,7 +297,7 @@ export function useLibrary(onError: (error: string) => void, onActivePhotoChange
       enqueueSelection(async (since) => {
         if (!isCurrent()) return
         const ticket = request.current
-        const result = await window.luma.locateGalleryPhoto(id).catch((error) => {
+        const result = await window.irodori.locateGalleryPhoto(id).catch((error) => {
           if (isCurrent()) throw error
           return null
         })
@@ -333,7 +333,7 @@ export function useLibrary(onError: (error: string) => void, onActivePhotoChange
       enqueueSelection(async (since) => {
         if (!isCurrent()) return
         try {
-          const snapshot = await window.luma.getStackSnapshot(stackId, expectedRevision)
+          const snapshot = await window.irodori.getStackSnapshot(stackId, expectedRevision)
           if (!isCurrent()) return
           const selected = new Map(
             snapshot.photos.map(({ id, filename }) => [id, { id, filename }]),
@@ -354,7 +354,7 @@ export function useLibrary(onError: (error: string) => void, onActivePhotoChange
         let anchor = previous.anchor
         let selected: Map<string, PhotoReference>
         if (modifiers.shift && anchor) {
-          const range = await window.luma.getBrowseRange(acceptedQuery, anchor, photo.id)
+          const range = await window.irodori.getBrowseRange(acceptedQuery, anchor, photo.id)
           selected = new Map(modifiers.toggle ? current.current.selected : [])
           for (const item of range) selected.set(item.id, item)
         } else {
@@ -380,7 +380,7 @@ export function useLibrary(onError: (error: string) => void, onActivePhotoChange
     (key: string, query: BrowseQuery, checked: boolean) => {
       const acceptedQuery = { ...query }
       return enqueueSelection(async (since) => {
-        const references = await window.luma.getBrowseSection(acceptedQuery, key)
+        const references = await window.irodori.getBrowseSection(acceptedQuery, key)
         const selected = new Map(current.current.selected)
         for (const photo of references) {
           if (checked) selected.set(photo.id, photo)

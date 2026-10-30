@@ -1,9 +1,10 @@
-import { hdrRenderingWgsl, hdrPresentationWgsl } from './hdr-shader'
+import { hdrRenderingShader, hdrPresentationWgsl } from './hdr-shader'
 import { hdrStatistics, type HdrStatistics } from '../../../shared/hdr-statistics'
 import type { DisplayTarget, HdrWorkingAsset } from '../../../shared/hdr'
 
 export const HDR_HISTOGRAM_WORDS = 256 + 512 * 3 + 9
-export const hdrHistogramShader = `${hdrRenderingWgsl}
+export function hdrHistogramShaderFor(creative = false): string {
+  return `${hdrRenderingShader(creative)}
 ${hdrPresentationWgsl}
 @group(0) @binding(6) var<storage,read_write> histogram:array<atomic<u32>>;
 @compute @workgroup_size(64) fn sampleHistogram(@builtin(global_invocation_id) p:vec3u) {
@@ -21,7 +22,7 @@ ${hdrPresentationWgsl}
   var working=pixel.rgb;
   if(u.values[4].x!=1.) { working=adjusted(working); }
   let rgb=outputRgb(working);
-  let y=dot(rgb,luma);
+  let y=dot(rgb,irodori);
   let base=1792u;
   atomicAdd(&histogram[base],1u);
   if(y==0.) { atomicAdd(&histogram[base+1u],1u); }
@@ -45,6 +46,8 @@ ${hdrPresentationWgsl}
     atomicAdd(&histogram[256u+c*512u+bin],1u);
   }
 }`
+}
+export const hdrHistogramShader = hdrHistogramShaderFor()
 export function readHdrHistogram(
   data: Uint32Array,
   target: DisplayTarget,

@@ -2,9 +2,9 @@ import { expect, test } from './electron.fixture'
 import { mockImportReview } from './import-review-ui.helpers'
 
 test('lists genuine device summaries, retains entries on failure, and polls without overlapping requests', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 1)
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -44,9 +44,9 @@ test('lists genuine device summaries, retains entries on failure, and polls with
 })
 
 test('restarts explicitly after disconnection and disposes review on device, mode, or tab changes', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 1)
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -89,9 +89,9 @@ test('restarts explicitly after disconnection and disposes review on device, mod
 })
 
 test('keeps device controls within 1100 × 700 with console open and supports tab keys', async ({
-  luma,
+  irodori,
 }, testInfo) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 1)
   try {
     const browserWindow = await app.browserWindow(page)
@@ -139,9 +139,9 @@ test('keeps device controls within 1100 × 700 with console open and supports ta
 })
 
 test('restores tab focus after held review disposal for keyboard and pointer navigation', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 1)
   const files = page.getByRole('tab', { name: 'Files and folders' })
   const device = page.getByRole('tab', { name: 'Import from device' })

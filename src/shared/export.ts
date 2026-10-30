@@ -1,6 +1,24 @@
+import { MAX_FRAME_BYTES } from './preview-frame'
+
 export const EXPORT_VERSION = 1 as const
-export const EXPORT_RENDERING_VERSION = 'jpeg-linear-lanczos3-v4-gpu'
+export const EXPORT_RENDERING_VERSION = 'jpeg-linear-lanczos3-v5-enlargement'
 export const EXPORT_CODEC_VERSION = 'libultrahdr-2.0.2-iso-native-v1'
+export const EXPORT_RESIZE_VERSION = 'linear-lanczos3-pixel-centers-replicate-v1'
+export const EXPORT_MAX_DIMENSION = 32768
+export const EXPORT_MAX_PIXELS = MAX_FRAME_BYTES / 16
+export const exportResizeCapabilities = {
+  methods: ['lanczos3'],
+  defaultMethod: 'lanczos3',
+  defaultAllowEnlargement: false,
+  maxDimension: EXPORT_MAX_DIMENSION,
+  maxPixels: EXPORT_MAX_PIXELS,
+  version: EXPORT_RESIZE_VERSION,
+} as const
+
+interface ResizeChoice {
+  allowEnlargement?: boolean
+  method?: 'lanczos3'
+}
 
 export interface ExportOptions {
   version: 1
@@ -8,8 +26,8 @@ export interface ExportOptions {
   quality: number
   size:
     | { mode: 'original' }
-    | { mode: 'longest'; edge: number }
-    | { mode: 'fit'; width: number; height: number }
+    | ({ mode: 'longest'; edge: number } & ResizeChoice)
+    | ({ mode: 'fit'; width: number; height: number } & ResizeChoice)
   names: { mode: 'original'; suffix: string } | { mode: 'sequence'; prefix: string }
   metadata: 'camera-copyright' | 'copyright' | 'none'
   existing: 'rename' | 'skip'
@@ -44,6 +62,7 @@ export interface ExportCapabilities {
   hdr: 'iso-21496-1'
   codec: typeof EXPORT_CODEC_VERSION
   rendering: typeof EXPORT_RENDERING_VERSION
+  resize: typeof exportResizeCapabilities
   hdrAvailable: boolean
   hdrUnavailableReason?: string
 }
@@ -96,7 +115,7 @@ function keys(value: unknown, allowed: string[]): asserts value is Record<string
     throw new Error('Invalid export settings.')
 }
 const dimension = (value: unknown) =>
-  Number.isSafeInteger(value) && Number(value) >= 1 && Number(value) <= 32768
+  Number.isSafeInteger(value) && Number(value) >= 1 && Number(value) <= EXPORT_MAX_DIMENSION
 function namePart(value: unknown, empty: boolean): value is string {
   return (
     typeof value === 'string' &&
@@ -119,17 +138,7 @@ export function validateExportOptions(value: unknown): ExportOptions {
     !['rename', 'skip'].includes(String(value.existing))
   )
     throw new Error('Invalid export settings.')
-  keys(value.size, ['mode', 'edge', 'width', 'height'])
-  const size = value.size
-  if (size.mode === 'original') keys(size, ['mode'])
-  else if (size.mode === 'longest') {
-    keys(size, ['mode', 'edge'])
-    if (!dimension(size.edge)) throw new Error('Longest edge must be an integer from 1 to 32768.')
-  } else if (size.mode === 'fit') {
-    keys(size, ['mode', 'width', 'height'])
-    if (!dimension(size.width) || !dimension(size.height))
-      throw new Error('Width and height must be integers from 1 to 32768.')
-  } else throw new Error('Invalid export size.')
+  validateSize(value.size)
   keys(value.names, ['mode', 'suffix', 'prefix'])
   if (value.names.mode === 'original') {
     keys(value.names, ['mode', 'suffix'])
@@ -142,18 +151,43 @@ export function validateExportOptions(value: unknown): ExportOptions {
   } else throw new Error('Invalid export naming.')
   return structuredClone(value) as unknown as ExportOptions
 }
+function validateSize(size: unknown): asserts size is ExportOptions['size'] {
+  keys(size, ['mode', 'edge', 'width', 'height', 'allowEnlargement', 'method'])
+  if (size.mode === 'original') keys(size, ['mode'])
+  else if (size.mode === 'longest') {
+    keys(size, ['mode', 'edge', 'allowEnlargement', 'method'])
+    if (!dimension(size.edge)) throw new Error('Longest edge must be an integer from 1 to 32768.')
+  } else if (size.mode === 'fit') {
+    keys(size, ['mode', 'width', 'height', 'allowEnlargement', 'method'])
+    if (!dimension(size.width) || !dimension(size.height))
+      throw new Error('Width and height must be integers from 1 to 32768.')
+  } else throw new Error('Invalid export size.')
+  if (
+    ('allowEnlargement' in size && typeof size.allowEnlargement !== 'boolean') ||
+    ('method' in size && size.method !== 'lanczos3')
+  )
+    throw new Error('Choose Lanczos3 and a valid enlargement option.')
+}
+export function exportAllowsEnlargement(size: ExportOptions['size']): boolean {
+  return size.mode !== 'original' && size.allowEnlargement === true
+}
 export function exportGeometry(width: number, height: number, size: ExportOptions['size']) {
   if (!dimension(width) || !dimension(height)) throw new Error('Unsupported export dimensions.')
+  validateSize(size)
+  const limit = exportAllowsEnlargement(size) ? Infinity : 1
   const scale =
     size.mode === 'original'
       ? 1
       : size.mode === 'longest'
-        ? Math.min(1, size.edge / Math.max(width, height))
-        : Math.min(1, size.width / width, size.height / height)
-  return {
+        ? Math.min(limit, size.edge / Math.max(width, height))
+        : Math.min(limit, size.width / width, size.height / height)
+  const geometry = {
     width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale)),
   }
+  if (geometry.width * geometry.height > EXPORT_MAX_PIXELS)
+    throw new Error('Export exceeds the floating-point image limit. Choose smaller dimensions.')
+  return geometry
 }
 export function exportFilename(filename: string, names: ExportOptions['names'], index: number) {
   const stem =

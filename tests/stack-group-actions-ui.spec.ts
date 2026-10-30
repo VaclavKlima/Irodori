@@ -19,9 +19,9 @@ import {
 } from './stack-group-actions.helpers'
 
 test('photo, selection and group targets stay distinct across unrelated groups without changing the anchor', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, groupSources)
   const photos = await allGroupPhotos(page)
   const stack = await createGroup(
@@ -58,7 +58,10 @@ test('photo, selection and group targets stay distinct across unrelated groups w
   await menu
     .getByRole('menuitem', { name: 'Move entire group to Trash (3 photos)…', exact: true })
     .click()
-  const snapshot = await page.evaluate((s) => window.luma.getStackSnapshot(s.id, s.revision), stack)
+  const snapshot = await page.evaluate(
+    (s) => window.irodori.getStackSnapshot(s.id, s.revision),
+    stack,
+  )
   await expect.poll(() => groupDeletionNames(page)).toEqual(snapshot.photos.map((p) => p.filename))
   await expect(page.getByTestId('preview-filename')).toHaveText(photos[0].filename)
   await expect(page.getByTestId('selection-count')).toHaveText('2 selected')
@@ -86,17 +89,20 @@ test('photo, selection and group targets stay distinct across unrelated groups w
 })
 
 test('collapsed and unloaded members disclose a complete frozen group; menu scrolling and keyboard work at minimum console size', async ({
-  luma,
+  irodori,
 }, info) => {
   test.setTimeout(90000)
-  const { app, page } = luma
-  const paths = await numberedGroupSources(luma.userDataDir, 69)
+  const { app, page } = irodori
+  const paths = await numberedGroupSources(irodori.userDataDir, 69)
   const bytes = await Promise.all(paths.map((path) => readFile(path)))
   await importPhotos(app, page, paths)
   const photos = await allGroupPhotos(page)
   const ids = photos.slice(0, 65).map((p) => p.id)
   let stack = await createGroup(page, ids)
-  const ordered = await page.evaluate((s) => window.luma.getStackSnapshot(s.id, s.revision), stack)
+  const ordered = await page.evaluate(
+    (s) => window.irodori.getStackSnapshot(s.id, s.revision),
+    stack,
+  )
   const trash = await isolateTrash(app)
   const cover = page.getByTestId(`photo-card-${stack.coverId}`)
   await cover.click({ button: 'right' })
@@ -106,7 +112,7 @@ test('collapsed and unloaded members disclose a complete frozen group; menu scro
   await expect.poll(() => groupDeletionNames(page)).toEqual(ordered.photos.map((p) => p.filename))
   await expect(page.getByTestId('selection-count')).toHaveText('1 selected')
   await page.keyboard.press('Escape')
-  stack = await page.evaluate((s) => window.luma.setStackExpanded(s.id, true, s.revision), stack)
+  stack = await page.evaluate((s) => window.irodori.setStackExpanded(s.id, true, s.revision), stack)
   await revealEditorPhoto(page, photos[66].id)
   await page.getByTestId(`photo-card-${photos[66].id}`).click()
   const member = ordered.photos[60]
@@ -177,29 +183,31 @@ test('collapsed and unloaded members disclose a complete frozen group; menu scro
   await expect(page.getByTestId('preview-filename')).toHaveText(member.filename)
   await page.evaluate(
     async ({ stack, ids, extra }) => {
-      await window.luma.ungroupStack(stack.id, stack.revision)
-      await window.luma.groupPhotos(
+      await window.irodori.ungroupStack(stack.id, stack.revision)
+      await window.irodori.groupPhotos(
         [...ids, extra],
         stack.coverId,
-        (await window.luma.listStacks()).revision,
+        (await window.irodori.listStacks()).revision,
       )
     },
     { stack, ids, extra: photos[65].id },
   )
   await expect.poll(() => groupDeletionNames(page)).toEqual(ordered.photos.map((p) => p.filename))
   await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
-  await expect.poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total).toBe(4)
+  await expect
+    .poll(async () => (await page.evaluate(() => window.irodori.listPhotos())).total)
+    .toBe(4)
   expect((await readdir(trash)).map((name) => name.slice(0, 64)).sort()).toEqual([...ids].sort())
   for (const [i, path] of paths.entries()) expect(await readFile(path)).toEqual(bytes[i])
-  expect((await page.evaluate(() => window.luma.listStacks())).stacks).toEqual([])
-  const restarted = await luma.restart()
-  expect((await restarted.page.evaluate(() => window.luma.listPhotos())).total).toBe(4)
+  expect((await page.evaluate(() => window.irodori.listStacks())).stacks).toEqual([])
+  const restarted = await irodori.restart()
+  expect((await restarted.page.evaluate(() => window.irodori.listPhotos())).total).toBe(4)
 })
 
 test('both group merge modes freeze current original IDs in persisted order and leave selection, active photo and anchor intact', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, groupSources)
   const photos = await allGroupPhotos(page)
   const stack = await createGroup(
@@ -213,7 +221,7 @@ test('both group merge modes freeze current original IDs in persisted order and 
     await page.getByTestId(`photo-card-${photos[4].id}`).click()
     await page.getByTestId(`photo-card-${photos[0].id}`).click({ modifiers: ['ControlOrMeta'] })
     const expected = (
-      await page.evaluate((s) => window.luma.getStackSnapshot(s.id, s.revision), stack)
+      await page.evaluate((s) => window.irodori.getStackSnapshot(s.id, s.revision), stack)
     ).photos
       .filter((p) => p.assetKind !== 'derived')
       .map((p) => p.id)
@@ -254,8 +262,8 @@ test('both group merge modes freeze current original IDs in persisted order and 
   }
 })
 
-test('group merge bounds and known unsupported originals are hidden', async ({ luma }) => {
-  const { app, page } = luma
+test('group merge bounds and known unsupported originals are hidden', async ({ irodori }) => {
+  const { app, page } = irodori
   await importPhotos(app, page, groupSources.slice(0, 3))
   const photos = await allGroupPhotos(page)
   await createGroup(
@@ -299,9 +307,9 @@ test('group merge bounds and known unsupported originals are hidden', async ({ l
 
 for (const action of ['delete', 'hdr', 'noise', 'select', 'ungroup'] as const) {
   test(`stale or unavailable group ${action} closes the menu and performs no operation`, async ({
-    luma,
+    irodori,
   }) => {
-    const { app, page } = luma
+    const { app, page } = irodori
     await importPhotos(app, page, groupSources.slice(0, 3))
     const photos = await allGroupPhotos(page)
     let stack = await createGroup(
@@ -325,10 +333,11 @@ for (const action of ['delete', 'hdr', 'noise', 'select', 'ungroup'] as const) {
         await page.getByTestId(`photo-card-${photos[0].id}`).click({ button: 'right' })
         await expect(page.getByRole('menuitem', { name: actionName, exact: true })).toBeVisible()
         const refresh = await holdGroupOperation(app, 'photo-actions:context')
-        if (missing) await page.evaluate((s) => window.luma.ungroupStack(s.id, s.revision), stack)
+        if (missing)
+          await page.evaluate((s) => window.irodori.ungroupStack(s.id, s.revision), stack)
         else
           stack = await page.evaluate(
-            (s) => window.luma.setStackExpanded(s.id, true, s.revision),
+            (s) => window.irodori.setStackExpanded(s.id, true, s.revision),
             stack,
           )
         await page.getByRole('menuitem', { name: actionName, exact: true }).click()
@@ -341,9 +350,9 @@ for (const action of ['delete', 'hdr', 'noise', 'select', 'ungroup'] as const) {
         await refresh.dispose()
         await expect(page.getByTestId('selection-count')).toHaveText('1 selected')
         await expect(page.getByTestId('preview-filename')).toHaveText(photos[0].filename)
-        expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(3)
+        expect((await page.evaluate(() => window.irodori.listPhotos())).total).toBe(3)
         expect(
-          (await page.evaluate(() => window.luma.listTasks())).some(
+          (await page.evaluate(() => window.irodori.listTasks())).some(
             (t) => t.kind === 'delete' || t.kind === 'merge',
           ),
         ).toBe(false)
@@ -363,9 +372,9 @@ for (const action of ['delete', 'hdr', 'noise', 'select', 'ungroup'] as const) {
 }
 
 test('delayed, failed, superseded and dismissed menu snapshots never present partial counts or reopen old menus', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, groupSources)
   const photos = await allGroupPhotos(page)
   await createGroup(
@@ -379,8 +388,8 @@ test('delayed, failed, superseded and dismissed menu snapshots never present par
   const first = page.getByTestId(`photo-card-${photos[0].id}`)
   const second = page.getByTestId(`photo-card-${photos[3].id}`)
   await page.evaluate(async () => {
-    for (const task of await window.luma.listTasks())
-      if (task.status === 'completed') await window.luma.dismissTask(task.id)
+    for (const task of await window.irodori.listTasks())
+      if (task.status === 'completed') await window.irodori.dismissTask(task.id)
   })
   const hold = await holdGroupOperation(app, 'photo-actions:context')
   try {
@@ -453,9 +462,9 @@ test('delayed, failed, superseded and dismissed menu snapshots never present par
 })
 
 test('delayed group actions ignore repeated activation and discard cancelled or superseded responses', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, groupSources)
   const photos = await allGroupPhotos(page)
   await createGroup(
@@ -513,9 +522,9 @@ test('delayed group actions ignore repeated activation and discard cancelled or 
 })
 
 test('group deletion awaits pending range work and Select group prunes photographs deleted during snapshot resolution', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, groupSources)
   const photos = await allGroupPhotos(page)
   await createGroup(
@@ -551,11 +560,11 @@ test('group deletion awaits pending range work and Select group prunes photograp
   try {
     await page.getByRole('menuitem', { name: 'Select entire group', exact: true }).click()
     await expect.poll(() => hold.evaluate((h) => h.calls.length)).toBe(1)
-    const task = await page.evaluate((id) => window.luma.deletePhotos([id]), photos[1].id)
+    const task = await page.evaluate((id) => window.irodori.deletePhotos([id]), photos[1].id)
     await expect
       .poll(() =>
         page.evaluate(
-          async (id) => (await window.luma.listTasks()).find((t) => t.id === id)?.status,
+          async (id) => (await window.irodori.listTasks()).find((t) => t.id === id)?.status,
           task,
         ),
       )
@@ -571,9 +580,9 @@ test('group deletion awaits pending range work and Select group prunes photograp
 })
 
 test('direct group deletion and merge stay available during accepted background import while organization stays restricted', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, groupSources.slice(0, 3))
   const photos = await allGroupPhotos(page)
   await createGroup(
@@ -609,7 +618,7 @@ test('direct group deletion and merge stay available during accepted background 
     await expect
       .poll(() =>
         page.evaluate(
-          async () => (await window.luma.listTasks()).find((t) => t.kind === 'delete')?.status,
+          async () => (await window.irodori.listTasks()).find((t) => t.kind === 'delete')?.status,
         ),
       )
       .toBe('completed')
@@ -617,16 +626,16 @@ test('direct group deletion and merge stay available during accepted background 
       photos.map((p) => p.id).sort(),
     )
   } finally {
-    await page.evaluate((id) => window.luma.cancelTask(id), id)
+    await page.evaluate((id) => window.irodori.cancelTask(id), id)
     await fixture.evaluate((f) => f.restore())
     await fixture.dispose()
   }
 })
 
 test('typed preload and editing MCP return identical complete snapshots and reject stale, missing and omitted revisions', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, groupSources.slice(0, 3))
   const photos = await allGroupPhotos(page)
   const stack = await createGroup(
@@ -636,12 +645,14 @@ test('typed preload and editing MCP return identical complete snapshots and reje
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [resolve('scripts/editor-mcp.mjs')],
-    env: { ...(process.env as Record<string, string>), LUMA_PROFILE: luma.userDataDir },
+    env: { ...(process.env as Record<string, string>), IRODORI_PROFILE: irodori.userDataDir },
   })
-  const client = new Client({ name: 'luma-group-actions-test', version: '1' })
+  const client = new Client({ name: 'irodori-group-actions-test', version: '1' })
   try {
     await client.connect(transport)
-    const tool = (await client.listTools()).tools.find((t) => t.name === 'luma_get_stack_snapshot')!
+    const tool = (await client.listTools()).tools.find(
+      (t) => t.name === 'irodori_get_stack_snapshot',
+    )!
     expect(tool.inputSchema.required).toEqual(['stackId', 'expectedRevision'])
     const result = await client.callTool({
       name: tool.name,
@@ -649,7 +660,7 @@ test('typed preload and editing MCP return identical complete snapshots and reje
     })
     expect(result.isError).not.toBe(true)
     expect(result.structuredContent).toEqual(
-      await page.evaluate((s) => window.luma.getStackSnapshot(s.id, s.revision), stack),
+      await page.evaluate((s) => window.irodori.getStackSnapshot(s.id, s.revision), stack),
     )
     for (const args of [
       { stackId: stack.id },
@@ -658,7 +669,7 @@ test('typed preload and editing MCP return identical complete snapshots and reje
     ]) {
       expect((await client.callTool({ name: tool.name, arguments: args })).isError).toBe(true)
     }
-    await page.evaluate((s) => window.luma.setStackExpanded(s.id, true, s.revision), stack)
+    await page.evaluate((s) => window.irodori.setStackExpanded(s.id, true, s.revision), stack)
     expect(
       (
         await client.callTool({

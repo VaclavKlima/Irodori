@@ -1,5 +1,5 @@
 // Bounded native sensor transport. The owner also requires EOF and actual child close.
-export const nativeRawPipeContract = 'luma-parallel-sony-arw2-rows-v1'
+export const nativeRawPipeContract = 'irodori-parallel-sony-arw2-rows-v1'
 export const nativeRawPipeLimits = {
   inputBytes: 512 * 1024 ** 2,
   packedBytes: 128 * 1024 ** 2,
@@ -310,7 +310,7 @@ export class NativeRawPipeReader {
   private advance() {
     if (this.stage === 'header-prefix' || this.stage === 'trailer-prefix') {
       const isHeader = this.stage === 'header-prefix'
-      const expected = isHeader ? 'LUMARAW2' : 'LUMAEND2'
+      const expected = isHeader ? 'IRODRAW2' : 'IRODEND2'
       if (this.destination.toString('latin1', 0, 8) !== expected)
         throw new Error(`Invalid native RAW ${this.stage} magic.`)
       const length = this.destination.readUInt32LE(8)

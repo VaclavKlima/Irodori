@@ -219,7 +219,7 @@ test('runtime checksums reject changed code and bounded allocations fail explici
   const info = test.info()
   const path = info.outputPath('codec')
   await cp(resolve('vendor/ultrahdr'), path, { recursive: true })
-  await writeFile(join(path, 'luma-ultrahdr.wasm'), 'damaged')
+  await writeFile(join(path, 'irodori-ultrahdr.wasm'), 'damaged')
   await expect(loadUltraHdr(path)).rejects.toThrow('checksum')
   const codec = await loadUltraHdr()
   expect(() => codec.encode(new Uint8Array(8), 32768, 32768, new Uint8Array(0), 90)).toThrow(
@@ -227,7 +227,7 @@ test('runtime checksums reject changed code and bounded allocations fail explici
   )
   expect(halfFloat(100 / 203)).toBeGreaterThan(0)
   const module = new WebAssembly.Module(
-    await readFile(resolve('vendor/ultrahdr/luma-ultrahdr.wasm')),
+    await readFile(resolve('vendor/ultrahdr/irodori-ultrahdr.wasm')),
   )
   expect(WebAssembly.Module.imports(module).some((i) => /pthread|thread_create/.test(i.name))).toBe(
     false,

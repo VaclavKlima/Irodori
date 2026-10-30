@@ -201,17 +201,17 @@ async function runOperation(page: Page, prepared: PreparedOperation): Promise<Op
     const seenExportProgress = new Set<string>()
     try {
       if (prepared.workload === 'import') {
-        await window.luma.importSelected(prepared.sessionId!)
+        await window.irodori.importSelected(prepared.sessionId!)
         taskId = prepared.sessionId!
       } else if (prepared.workload === 'merge' || prepared.workload === 'merge-hdr') {
-        const review = await window.luma.createMergeReview(
+        const review = await window.irodori.createMergeReview(
           prepared.sourceIds,
           prepared.workload === 'merge-hdr' ? 'hdr' : 'noise',
         )
         let previewSettled = false,
           previewFailed = false,
           previewFailure: unknown
-        const previewWork = window.luma.requestMergePreview(review.id, review.revision).then(
+        const previewWork = window.irodori.requestMergePreview(review.id, review.revision).then(
           () => {
             previewSettled = true
           },
@@ -225,7 +225,7 @@ async function runOperation(page: Page, prepared: PreparedOperation): Promise<Op
         let lastWorkerSequence = 0
         try {
           do {
-            const diagnostics = await window.luma.getMergeDiagnostics(review.id, review.revision)
+            const diagnostics = await window.irodori.getMergeDiagnostics(review.id, review.revision)
             const progress = diagnostics.workerProgress
             if (progress && progress.sequence > lastWorkerSequence) {
               lastWorkerSequence = progress.sequence
@@ -252,7 +252,7 @@ async function runOperation(page: Page, prepared: PreparedOperation): Promise<Op
             })
             if (!previewSettled) {
               if (performance.now() > previewDeadline) {
-                await window.luma.disposeMergeReview(review.id)
+                await window.irodori.disposeMergeReview(review.id)
                 throw new Error('Merge preview did not finish within three minutes.')
               }
               await new Promise<void>((accept) => setTimeout(accept, 50))
@@ -263,10 +263,13 @@ async function runOperation(page: Page, prepared: PreparedOperation): Promise<Op
         }
         if (previewFailed) throw previewFailure
         result.previewReadyAtEpochMs = now()
-        result.mergeDiagnostics = await window.luma.getMergeDiagnostics(review.id, review.revision)
-        taskId = await window.luma.startMerge(review.id, review.revision)
+        result.mergeDiagnostics = await window.irodori.getMergeDiagnostics(
+          review.id,
+          review.revision,
+        )
+        taskId = await window.irodori.startMerge(review.id, review.revision)
       } else {
-        taskId = await window.luma.startExport({
+        taskId = await window.irodori.startExport({
           preparationId: prepared.exportPreparation!.id,
           destinationId: prepared.destinationId!,
           action: 'maximum',
@@ -276,7 +279,7 @@ async function runOperation(page: Page, prepared: PreparedOperation): Promise<Op
       const deadline = performance.now() + 180000
       while (performance.now() < deadline) {
         const requestStartedAtEpochMs = now()
-        const task = (await window.luma.listTasks()).find((task) => task.id === taskId)
+        const task = (await window.irodori.listTasks()).find((task) => task.id === taskId)
         const responseAtEpochMs = now()
         if (!task) throw new Error(`Accepted ${prepared.workload} task disappeared.`)
         result.task = task
@@ -323,9 +326,9 @@ async function runOperation(page: Page, prepared: PreparedOperation): Promise<Op
         })
         if (task.finishedAt !== undefined) {
           result.finishedAtEpochMs = task.finishedAt
-          result.taskErrors = await window.luma.getTaskErrors(taskId)
+          result.taskErrors = await window.irodori.getTaskErrors(taskId)
           if (prepared.workload.startsWith('export'))
-            result.exportResults = await window.luma.getExportResults(taskId)
+            result.exportResults = await window.irodori.getExportResults(taskId)
           break
         }
         // Observation polling does not throttle source copying or processing.
@@ -336,8 +339,8 @@ async function runOperation(page: Page, prepared: PreparedOperation): Promise<Op
     } catch (error) {
       result.error = String(error)
       if (taskId) {
-        result.task = (await window.luma.listTasks()).find((task) => task.id === taskId)
-        result.taskErrors = await window.luma.getTaskErrors(taskId).catch(() => undefined)
+        result.task = (await window.irodori.listTasks()).find((task) => task.id === taskId)
+        result.taskErrors = await window.irodori.getTaskErrors(taskId).catch(() => undefined)
       }
     }
     result.settledAtEpochMs = now()
@@ -825,7 +828,7 @@ const allSliders: WorkabilitySlider[] = [
   'Temperature',
   'Tint',
 ]
-const selectedSliders = process.env.LUMA_RESPONSIVENESS_SLIDERS?.split(',').map((value) =>
+const selectedSliders = process.env.IRODORI_RESPONSIVENESS_SLIDERS?.split(',').map((value) =>
   value.trim(),
 )
 if (
@@ -833,24 +836,24 @@ if (
   (selectedSliders.some((value) => !allSliders.includes(value as WorkabilitySlider)) ||
     new Set(selectedSliders).size !== selectedSliders.length)
 )
-  throw new Error('LUMA_RESPONSIVENESS_SLIDERS must contain distinct known slider labels.')
+  throw new Error('IRODORI_RESPONSIVENESS_SLIDERS must contain distinct known slider labels.')
 const sliders = (selectedSliders ?? ['Exposure']) as WorkabilitySlider[]
 const matrixPartial = sliders.length !== allSliders.length
 const precision = hdrTestPolicy.interactivePolicy
 
 const interferenceLayout =
-  process.env.LUMA_INTERFERENCE_LAYOUT ??
+  process.env.IRODORI_INTERFERENCE_LAYOUT ??
   (editorDisplayProfile === 'linux-native-dpr1' ? 'native-maximized' : '1440x900')
 if (!['native-maximized', '1440x900'].includes(interferenceLayout))
-  throw new Error('LUMA_INTERFERENCE_LAYOUT must be native-maximized or 1440x900.')
+  throw new Error('IRODORI_INTERFERENCE_LAYOUT must be native-maximized or 1440x900.')
 const workloads: Workload[] = ['import', 'export-individual', 'export-batch', 'merge', 'merge-hdr']
 const caseTitle = (workload: Workload, label: WorkabilitySlider) =>
   `${workload} ${label}: three matched responsive editing trials at 60Hz, ${interferenceLayout} Fit`
 for (const workload of workloads)
   for (const label of sliders)
-    test(caseTitle(workload, label), foregroundTest(reason), async ({ luma }, info) => {
+    test(caseTitle(workload, label), foregroundTest(reason), async ({ irodori }, info) => {
       test.setTimeout(1200000)
-      const { app, page } = luma,
+      const { app, page } = irodori,
         mergeWorkload = workload === 'merge' || workload === 'merge-hdr',
         manifest = JSON.parse(
           await readFile('tests/fixtures/research-sony/manifest.json', 'utf8'),
@@ -904,10 +907,10 @@ for (const workload of workloads)
           .poll(
             () =>
               page.evaluate(async () => ({
-                names: (await window.luma.listPhotos()).photos
+                names: (await window.irodori.listPhotos()).photos
                   .map((photo) => photo.filename)
                   .sort(),
-                running: (await window.luma.listTasks()).some(
+                running: (await window.irodori.listTasks()).some(
                   (task) => task.status === 'running' || task.status === 'cancelling',
                 ),
               })),
@@ -918,7 +921,7 @@ for (const workload of workloads)
             running: false,
           })
       }
-      const photos = (await page.evaluate(() => window.luma.listPhotos())).photos,
+      const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos,
         editorId = photos.find((photo) => photo.filename === 'sony-zv1.ARW')!.id,
         sourceIds = originals.map(
           (source) => photos.find((photo) => photo.filename === source.name)?.id,
@@ -927,7 +930,7 @@ for (const workload of workloads)
       const retained = new Set(photos.map((photo) => photo.id))
       let destinationId: string | undefined, currentPreparation: PreparedOperation | undefined
       if (workload.startsWith('export')) {
-        const capability = await page.evaluate(() => window.luma.getExportCapabilities())
+        const capability = await page.evaluate(() => window.irodori.getExportCapabilities())
         test.skip(
           !capability.hdrAvailable,
           capability.hdrUnavailableReason ?? 'HDR export unavailable.',
@@ -935,12 +938,12 @@ for (const workload of workloads)
         await app.evaluate(({ dialog }, path) => {
           dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
         }, destination)
-        destinationId = (await page.evaluate(() => window.luma.chooseExportDestination()))!.id
+        destinationId = (await page.evaluate(() => window.irodori.chooseExportDestination()))!.id
       }
       const maximizedConfiguration =
         interferenceLayout === 'native-maximized'
           ? await maximizeEditorOnMonitor(app, page, {
-              monitorLabel: process.env.LUMA_RESPONSIVENESS_MONITOR,
+              monitorLabel: process.env.IRODORI_RESPONSIVENESS_MONITOR,
             })
           : null
       const environment = {
@@ -1042,9 +1045,9 @@ for (const workload of workloads)
           : 'Gesture first; start the operation while the gesture is active.',
         requestedMergeBackends: mergeWorkload
           ? await app.evaluate(() => ({
-              merge: process.env.LUMA_MERGE_BACKEND ?? 'auto',
-              camera: process.env.LUMA_MERGE_CAMERA_PREPARATION ?? 'cpu',
-              reference: process.env.LUMA_MERGE_REFERENCE_PREPARATION ?? 'cpu',
+              merge: process.env.IRODORI_MERGE_BACKEND ?? 'auto',
+              camera: process.env.IRODORI_MERGE_CAMERA_PREPARATION ?? 'cpu',
+              reference: process.env.IRODORI_MERGE_REFERENCE_PREPARATION ?? 'cpu',
             }))
           : undefined,
         exportSources:
@@ -1087,7 +1090,7 @@ for (const workload of workloads)
               ['fixture', original.path],
               [
                 'managed',
-                join(luma.userDataDir, 'library/originals', original.sha256, 'original.arw'),
+                join(irodori.userDataDir, 'library/originals', original.sha256, 'original.arw'),
               ],
             ] as const) {
               if (kind === 'managed' && !managed) continue
@@ -1119,8 +1122,8 @@ for (const workload of workloads)
           // producer starts; its later identical reset must be a no-op.
           await page.evaluate(
             async ({ id, parameters }) => {
-              const state = await window.luma.getEdits(id)
-              await window.luma.updateEdits(id, parameters, state.revision)
+              const state = await window.irodori.getEdits(id)
+              await window.irodori.updateEdits(id, parameters, state.revision)
             },
             { id: editorId, parameters: neutralAdjustments },
           )
@@ -1141,8 +1144,8 @@ for (const workload of workloads)
             .toEqual(neutralAdjustments)
         } else {
           await page.evaluate(async (id) => {
-            const state = await window.luma.getEdits(id)
-            await window.luma.updateEdits(id, { exposureEv: 0 }, state.revision)
+            const state = await window.irodori.getEdits(id)
+            await window.irodori.updateEdits(id, { exposureEv: 0 }, state.revision)
           }, editorId)
         }
         await expect(page.getByTestId('main-preview')).toHaveAttribute('data-exposure', '0', {
@@ -1161,13 +1164,13 @@ for (const workload of workloads)
             },
             originals.map((source) => source.path),
           )
-          const sessionId = await page.evaluate(() => window.luma.chooseSource('files', false))
+          const sessionId = await page.evaluate(() => window.irodori.chooseSource('files', false))
           if (!sessionId) throw new Error('The import chooser did not create a review.')
           await expect
             .poll(
               () =>
                 page.evaluate(async (id) => {
-                  const review = await window.luma.getReviewSummary(id)
+                  const review = await window.irodori.getReviewSummary(id)
                   return {
                     phase: review.phase,
                     pending: Boolean(review.verificationPending),
@@ -1190,7 +1193,7 @@ for (const workload of workloads)
           workload,
           sourceIds: ids,
           destinationId,
-          exportPreparation: await page.evaluate((ids) => window.luma.prepareExport(ids), ids),
+          exportPreparation: await page.evaluate((ids) => window.irodori.prepareExport(ids), ids),
         }
         return currentPreparation
       }
@@ -1199,32 +1202,35 @@ for (const workload of workloads)
           await verifyHdrOriginals('after', true)
         if (operation?.task?.resultPhotoId) {
           const provenance = await page.evaluate(
-            (id) => window.luma.getMergeProvenance(id),
+            (id) => window.irodori.getMergeProvenance(id),
             operation.task.resultPhotoId,
           )
           await verifyMaster(
-            join(luma.userDataDir, 'library/originals', operation.task.resultPhotoId),
+            join(irodori.userDataDir, 'library/originals', operation.task.resultPhotoId),
             provenance.manifest,
           )
           Object.assign(operation, {
             publishedMaster: { asset: provenance.manifest.asset, verified: true },
           })
         }
-        for (const task of await page.evaluate(() => window.luma.listTasks()))
+        for (const task of await page.evaluate(() => window.irodori.listTasks()))
           if (task.status === 'running' || task.status === 'cancelling')
-            await page.evaluate((id) => window.luma.cancelTask(id), task.id)
-        const review = await page.evaluate(() => window.luma.getActiveMergeReview())
-        if (review) await page.evaluate((id) => window.luma.disposeMergeReview(id), review.id)
+            await page.evaluate((id) => window.irodori.cancelTask(id), task.id)
+        const review = await page.evaluate(() => window.irodori.getActiveMergeReview())
+        if (review) await page.evaluate((id) => window.irodori.disposeMergeReview(id), review.id)
         if (currentPreparation?.exportPreparation)
           await page.evaluate(
-            (id) => window.luma.disposeExportPreparation(id),
+            (id) => window.irodori.disposeExportPreparation(id),
             currentPreparation.exportPreparation.id,
           )
         if (currentPreparation?.sessionId)
-          await page.evaluate((id) => window.luma.disposeImport(id), currentPreparation.sessionId)
+          await page.evaluate(
+            (id) => window.irodori.disposeImport(id),
+            currentPreparation.sessionId,
+          )
         currentPreparation = undefined
         if (operation?.task?.resultPhotoId) {
-          const result = (await page.evaluate(() => window.luma.listPhotos())).photos.find(
+          const result = (await page.evaluate(() => window.irodori.listPhotos())).photos.find(
             (photo) => photo.id === operation.task!.resultPhotoId,
           )
           if (result)
@@ -1233,12 +1239,12 @@ for (const workload of workloads)
             })
         }
         await restoreEditor()
-        const added = (await page.evaluate(() => window.luma.listPhotos())).photos.filter(
+        const added = (await page.evaluate(() => window.irodori.listPhotos())).photos.filter(
           (photo) => !retained.has(photo.id),
         )
         if (added.length) {
           const id = await page.evaluate(
-            (ids) => window.luma.deletePhotos(ids),
+            (ids) => window.irodori.deletePhotos(ids),
             added.map((photo) => photo.id),
           )
           if (!id) throw new Error('Imported/result records did not enter isolated Trash.')
@@ -1247,7 +1253,7 @@ for (const workload of workloads)
               () =>
                 page.evaluate(
                   async (id) =>
-                    (await window.luma.listTasks()).find((task) => task.id === id)?.status,
+                    (await window.irodori.listTasks()).find((task) => task.id === id)?.status,
                   id,
                 ),
               { timeout: 60000 },
@@ -1255,7 +1261,7 @@ for (const workload of workloads)
             .toBe('completed')
         }
         await expect
-          .poll(() => page.evaluate(async () => (await window.luma.listPhotos()).total))
+          .poll(() => page.evaluate(async () => (await window.irodori.listPhotos()).total))
           .toBe(retained.size)
         if (operation?.exportResults)
           for (const file of operation.exportResults.results)
@@ -1273,9 +1279,9 @@ for (const workload of workloads)
               })
               await rm(output)
             }
-        for (const task of await page.evaluate(() => window.luma.listTasks()))
+        for (const task of await page.evaluate(() => window.irodori.listTasks()))
           if (task.finishedAt !== undefined)
-            await page.evaluate((id) => window.luma.dismissTask(id), task.id)
+            await page.evaluate((id) => window.irodori.dismissTask(id), task.id)
         // This is the isolated adapter's directory, never the operating system Trash.
         await rm(trash, { recursive: true, force: true })
         await mkdir(trash, { recursive: true })
@@ -1290,7 +1296,7 @@ for (const workload of workloads)
         trials.push(trial)
         try {
           await restoreEditor()
-          trial.idleEditor = await editorTrial(page, label, app, luma.userDataDir)
+          trial.idleEditor = await editorTrial(page, label, app, irodori.userDataDir)
           await save()
           trial.idleTask = await runOperation(page, await prepare())
           await save()
@@ -1325,7 +1331,7 @@ for (const workload of workloads)
               { timeout: 180000 },
             )
             mergePauseObserver = await observeMergePauses(app)
-            editingWork = editorTrial(page, label, app, luma.userDataDir)
+            editingWork = editorTrial(page, label, app, irodori.userDataDir)
           } else if (workload.startsWith('export')) {
             operationWork = runOperation(page, prepared)
             await page.waitForFunction(
@@ -1354,9 +1360,9 @@ for (const workload of workloads)
               workload,
               { timeout: 180000 },
             )
-            editingWork = editorTrial(page, label, app, luma.userDataDir)
+            editingWork = editorTrial(page, label, app, irodori.userDataDir)
           } else {
-            editingWork = editorTrial(page, label, app, luma.userDataDir)
+            editingWork = editorTrial(page, label, app, irodori.userDataDir)
             await page.waitForFunction(
               () =>
                 document.querySelector<HTMLElement>('[data-testid="main-preview"]')?.dataset

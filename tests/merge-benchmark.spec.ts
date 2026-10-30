@@ -26,8 +26,8 @@ for (const count of [2, 9, 32])
     test.setTimeout(20 * 60 * 1000)
     const scratch = info.outputPath('scratch')
     await mkdir(scratch, { recursive: true })
-    const width = process.env.LUMA_MERGE_BENCHMARK_NATIVE === '1' ? 5496 : 1024,
-      height = process.env.LUMA_MERGE_BENCHMARK_NATIVE === '1' ? 3672 : 683,
+    const width = process.env.IRODORI_MERGE_BENCHMARK_NATIVE === '1' ? 5496 : 1024,
+      height = process.env.IRODORI_MERGE_BENCHMARK_NATIVE === '1' ? 3672 : 683,
       f = await syntheticMerge(Array(count).fill(1), {
         width,
         height,
@@ -82,7 +82,7 @@ for (const count of [2, 3, 5, 9])
     const libraries = info.outputPath('libraries')
     await mkdir(libraries, { recursive: true })
     for (let iteration = 0; iteration < 3; iteration++) {
-      const root = await mkdtemp(join(libraries, 'luma-merge-cold-')),
+      const root = await mkdtemp(join(libraries, 'irodori-merge-cold-')),
         library = new PhotoLibrary(
           root,
           new PreviewEngine(),
@@ -210,10 +210,13 @@ for (const count of [2, 3, 5, 9])
 // merge clock; RAW sensor decoding remains inside each cold worker run.
 for (const count of [2, 3, 5, 9])
   test(`three cold ${count}-source distinct Sony runs include durable publication`, async ({}, info) => {
-    test.skip(!process.env.LUMA_MERGE_SONY_SEQUENCE, 'Supply distinct Sony originals explicitly.')
+    test.skip(
+      !process.env.IRODORI_MERGE_SONY_SEQUENCE,
+      'Supply distinct Sony originals explicitly.',
+    )
     test.setTimeout(20 * 60 * 1000)
-    const paths = JSON.parse(process.env.LUMA_MERGE_SONY_SEQUENCE!) as string[],
-      mode = (process.env.LUMA_MERGE_SONY_MODE ?? 'noise') as MergeMode
+    const paths = JSON.parse(process.env.IRODORI_MERGE_SONY_SEQUENCE!) as string[],
+      mode = (process.env.IRODORI_MERGE_SONY_MODE ?? 'noise') as MergeMode
     expect(['noise', 'hdr']).toContain(mode)
     expect(paths.length).toBeGreaterThanOrEqual(count)
     const selected = Array.from(
@@ -240,7 +243,7 @@ for (const count of [2, 3, 5, 9])
     const libraries = info.outputPath('libraries')
     await mkdir(libraries, { recursive: true })
     for (let iteration = 0; iteration < 3; iteration++) {
-      const root = await mkdtemp(join(libraries, 'luma-merge-distinct-')),
+      const root = await mkdtemp(join(libraries, 'irodori-merge-distinct-')),
         library = new PhotoLibrary(
           root,
           new PreviewEngine(),

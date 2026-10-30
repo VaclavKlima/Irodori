@@ -85,7 +85,7 @@ test('Trash deduplicates by set but group merges retain different source order a
   expect(commands(c).map((a) => a.id)).not.toContain('group-noise')
   c.equivalent.mergeInputs = false
   c.equivalent.groupSelection = false
-  c.group!.photos.push({ ...c.photo!, id: 'result', assetKind: 'derived', format: 'LUMA HDR' })
+  c.group!.photos.push({ ...c.photo!, id: 'result', assetKind: 'derived', format: 'IRODORI HDR' })
   c.group!.stack.count = 3
   expect(
     commands(c)
@@ -119,6 +119,7 @@ test('distinct temporary reasons appear once and irrelevant toolbar operations s
       action.id.endsWith('trash') ||
         action.id.endsWith('hdr') ||
         action.id.endsWith('noise') ||
-        action.id.endsWith('export'),
+        action.id.endsWith('export') ||
+        action.id.endsWith('paste-edits'),
     )
 })

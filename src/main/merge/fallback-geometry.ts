@@ -173,7 +173,7 @@ export async function createFallbackGeometryProvider(
     ),
     reduction =
       kernel?.reduction ??
-      (reduced ? createAreaReducer(g.width, g.height, reduced, 'luma') : undefined)
+      (reduced ? createAreaReducer(g.width, g.height, reduced, 'luminance') : undefined)
   let accelerated = kernel,
     staging: { geometry: Uint32Array<ArrayBuffer>; alpha: Uint8Array<ArrayBuffer> } | undefined,
     closed = false

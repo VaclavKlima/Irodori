@@ -1,5 +1,5 @@
 import { hdrRangesWgsl } from './hdr-ranges'
-import { hdrAdjustmentsWgsl } from '../../../shared/hdr-adjustments-wgsl'
+import { hdrAdjustmentShader } from '../../../shared/hdr-adjustments-wgsl'
 import { displayRenderingWgsl, displayEncodingWgsl } from '../../../shared/display-rendering-wgsl'
 import { REC2020_TO_P3, REC2020_TO_SRGB } from '../../../shared/hdr'
 import { acesWgsl } from '../../../shared/aces-wgsl'
@@ -22,23 +22,26 @@ fn presentationRgb(rgb:vec3f)->vec3f {
   return clamp(canvasRgb(rgb),vec3f(0.),vec3f(u.values[9].y));
 }`
 
-export const hdrRenderingWgsl = `
-struct Params { values: array<vec4f, 11> }
+export function hdrRenderingShader(creative = false): string {
+  return `
+struct Params { values: array<vec4f, 12> }
 @group(0) @binding(0) var<uniform> u: Params;
 @group(0) @binding(1) var pixels: texture_2d<f32>;
 ${displayRenderingWgsl}
-${hdrAdjustmentsWgsl}
+${hdrAdjustmentShader(creative)}
 fn outputRgb(rgb: vec3f) -> vec3f {
   if(u.values[7].w>0.) { return max(rgb,vec3f(0.)); }
   return renderDisplayRgb(rgb,u.values[3].z);
 }
 fn encoded(v:vec3f)->vec3f {return encodeDisplayRgb(v);}
 `
+}
+export const hdrRenderingWgsl = hdrRenderingShader()
 
 export type HdrCacheKernelKind = 'linear64'
 
 /** The accepted invocation mapping and its matching host dispatch stay together. */
-export function hdrCacheKernel(precision: AcesPreviewPolicy = 'reference') {
+export function hdrCacheKernel(precision: AcesPreviewPolicy = 'reference', creative = false) {
   const math =
     precision === 'reference'
       ? acesWgsl
@@ -46,7 +49,7 @@ export function hdrCacheKernel(precision: AcesPreviewPolicy = 'reference') {
         ? acesSdrPreviewWgsl
         : acesPreviewWgsl
   const shader = `
-${hdrRenderingWgsl.replace(acesWgsl, math)}
+${hdrRenderingShader(creative).replace(acesWgsl, math)}
 @group(0) @binding(3) var cached: texture_storage_2d_array<rgba32float,write>;
 @group(0) @binding(5) var<storage,read> jobs:array<vec4u>;
 @compute @workgroup_size(64) fn renderTile(@builtin(global_invocation_id) p:vec3u) {
@@ -72,7 +75,7 @@ ${hdrRenderingWgsl.replace(acesWgsl, math)}
 
 // Pan/zoom presentation deliberately contains no ACES evaluation.
 export const hdrShader = `
-struct Params { values: array<vec4f, 11> }
+struct Params { values: array<vec4f, 12> }
 @group(0) @binding(0) var<uniform> u:Params;
 @group(0) @binding(2) var<storage,read> lookup:array<i32>;
 @group(0) @binding(3) var cached:texture_2d_array<f32>;

@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test'
-import { hdrCachePlan, HdrRenderCache } from '../src/renderer/src/preview/hdr-render-cache'
+import {
+  hdrCachePlan,
+  hdrCacheJobRuns,
+  HdrRenderCache,
+} from '../src/renderer/src/preview/hdr-render-cache'
 import { hdrShader } from '../src/renderer/src/preview/hdr-shader'
 import { HdrGpuTimings, type HdrGpuFrameTimings } from '../src/renderer/src/preview/hdr-gpu-timings'
 
@@ -75,6 +79,43 @@ test('neutral comparison shares tiles and bounded batches cover every visible ti
     if (neutral.lookup[index] >= 0 && neutral.lookup[index + plan.columns * plan.rows] >= 0)
       expect(neutral.lookup[index]).toBe(neutral.lookup[index + plan.columns * plan.rows])
   }
+})
+test('separate Before sources retain distinct neutral tiles and cannot replace the resident After', () => {
+  const source = { width: 16, height: 16 },
+    plan = {
+      ...hdrCachePlan(source, source, source, view, 'split', 0.5, 16),
+      beforeSourceIdentity: 'unfiltered-a',
+    },
+    cache = new HdrRenderCache(8),
+    first = [...cache.batches(plan, true)][0]
+  expect(first.renderedTiles).toBe(2)
+  expect(first.lookup[0]).not.toBe(first.lookup[1])
+  expect([...first.jobs].filter((_, i) => i % 4 === 3).sort()).toEqual([1, 3])
+  const afterSlot = first.lookup[0],
+    changed = [...cache.batches({ ...plan, beforeSourceIdentity: 'unfiltered-b' }, true)][0]
+  expect(changed.renderedTiles).toBe(1)
+  expect(changed.lookup[0]).toBe(afterSlot)
+  expect(changed.jobs[3]).toBe(3)
+  expect(cache.has(plan, true)).toBe(true)
+  cache.setEdits('new-point-edit')
+  const edited = [...cache.batches({ ...plan, beforeSourceIdentity: 'unfiltered-b' }, false)][0]
+  expect(edited.renderedTiles).toBe(1)
+  expect(edited.jobs[3]).toBe(0)
+  expect(edited.lookup[1]).toBe(changed.lookup[1])
+})
+test('cache job runs bind one source per bounded dispatch and preserve ordinary job order', () => {
+  const jobs = new Uint32Array([0, 1, 3, 3, 3, 0, 1].flatMap((flags, i) => [i, 0, i, flags])),
+    runs = [...hdrCacheJobRuns(jobs, 2)]
+  expect(runs.map((run) => [run.start, run.jobs.length / 4, run.beforeSource])).toEqual([
+    [0, 2, false],
+    [8, 2, true],
+    [16, 1, true],
+    [20, 2, false],
+  ])
+  expect(runs.flatMap((run) => [...run.jobs])).toEqual([...jobs])
+  expect([...hdrCacheJobRuns(new Uint32Array([0, 0, 0, 0, 0, 0, 1, 1]), 32)]).toHaveLength(1)
+  expect(() => [...hdrCacheJobRuns(jobs, 0)]).toThrow('batch')
+  expect(() => [...hdrCacheJobRuns(jobs.subarray(1), 2)]).toThrow('batch')
 })
 test('mips, edge halos, split endpoints and off-image views keep lookups bounded', () => {
   for (const scale of [0.1, 0.51, 0.99, 1, 8, 32])

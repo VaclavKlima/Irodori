@@ -18,14 +18,14 @@ import type { WorkScheduler } from '../src/main/work-scheduler'
 
 test('real ZV-1A twelve-frame burst is positive evidence and nine shutter-varied single shots are negative', async () => {
   const directory = resolve(
-    process.env.LUMA_CAPTURE_FIXTURES ?? 'artifacts/fixtures/sony-2026-10-04',
+    process.env.IRODORI_CAPTURE_FIXTURES ?? 'artifacts/fixtures/sony-2026-10-04',
   )
   test.skip(
     !(await access(join(directory, 'DSC03246.ARW')).then(
       () => true,
       () => false,
     )),
-    'Private supplied camera fixtures are unavailable; set LUMA_CAPTURE_FIXTURES. BRK is not verified.',
+    'Private supplied camera fixtures are unavailable; set IRODORI_CAPTURE_FIXTURES. BRK is not verified.',
   )
   const worker = new PreviewProcess(resolve('out/main/preview-worker.js'))
   const burst: { id: string; metadata: CaptureMetadata }[] = [],
@@ -56,7 +56,7 @@ test('real ZV-1A twelve-frame burst is positive evidence and nine shutter-varied
 })
 
 test('successful shuffled imports reconcile cached sequences across batches and preserve manual overrides on scans', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-capture-import-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-capture-import-'))
   const fixture = resolve('tests/fixtures/photos/alpine-lake.jpg')
   const processor: PreviewProcessor = {
     process: async (path, output) => {
@@ -233,7 +233,7 @@ test('committed capture batches retain one owned worker, preserve fresh metadata
       manifest.files.find((entry) => entry.name === name)!,
     ),
     paths = sources.map((entry) => join(fixtureRoot, entry.path)),
-    root = await mkdtemp(join(tmpdir(), 'luma-capture-session-')),
+    root = await mkdtemp(join(tmpdir(), 'irodori-capture-session-')),
     worker = new PreviewProcess(resolve('out/main/preview-worker.js')),
     state = worker as unknown as { child?: { pid?: number }; captureSession: boolean },
     signal = new AbortController().signal

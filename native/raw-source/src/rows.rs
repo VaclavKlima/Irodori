@@ -139,7 +139,7 @@ fn decode(input: &[u8], output: &mut [u16], width: usize, height: usize, order: 
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn luma_rows_decode(input: *const u8, input_length: usize,
+pub unsafe extern "C" fn irodori_rows_decode(input: *const u8, input_length: usize,
     width: usize, height: usize, order: u32, curve: *const u16, curve_length: usize,
     output: *mut u16, output_length: usize, threads: u32, report: *mut RowsReport) -> i32 {
     if report.is_null() { return -1; }

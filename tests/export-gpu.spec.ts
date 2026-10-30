@@ -236,9 +236,9 @@ test('native-size streaming avoids scratch renditions and a failed second tile r
         if (++calls === 2) throw new Error('Injected device loss')
         return real.render(pixels)
       },
-      close: () => {
+      close: async () => {
         closed = true
-        real.close()
+        await real.close()
       },
     }
   })

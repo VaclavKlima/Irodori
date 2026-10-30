@@ -81,7 +81,7 @@ for (const stem of stems)
     const fixture = manifest!.sequences.find((s) => s.files[0] === `${stem}.ARW`)!
     expect(fixture).toBeDefined()
     const files = fixture.files.map((name) => manifest!.files.find((f) => f.name === name)!),
-      root = await mkdtemp(join(tmpdir(), 'luma-brk-native-')),
+      root = await mkdtemp(join(tmpdir(), 'irodori-brk-native-')),
       workerPath = resolve('out/main/preview-worker.js'),
       make = () =>
         new PhotoLibrary(
@@ -124,7 +124,7 @@ for (const stem of stems)
           info.outputPath('failure.json'),
           JSON.stringify(library.getMergeDiagnostics(review.id, review.revision), null, 2),
         )
-        if (process.env.LUMA_TEST_TRACE === '1')
+        if (process.env.IRODORI_TEST_TRACE === '1')
           await cp(
             join(root, 'merge-reviews', review.id, 'prepared'),
             info.outputPath('prepared-failure'),
@@ -210,10 +210,10 @@ for (const stem of stems)
         .update(await readFile(join(output, 'linear.f32')))
         .digest('hex')
       if (stem === 'DSC03268') {
-        const previous = process.env.LUMA_MERGE_BACKEND,
+        const previous = process.env.IRODORI_MERGE_BACKEND,
           cpuOutput = join(root, 'cpu-comparison')
         try {
-          process.env.LUMA_MERGE_BACKEND = 'cpu'
+          process.env.IRODORI_MERGE_BACKEND = 'cpu'
           const cpu = await runMerge({
             directory: join(root, 'merge-reviews', review.id, 'prepared'),
             sources: review.sources,
@@ -303,8 +303,8 @@ for (const stem of stems)
             await readFile(join(output, 'motion.mask')),
           )
         } finally {
-          if (previous === undefined) delete process.env.LUMA_MERGE_BACKEND
-          else process.env.LUMA_MERGE_BACKEND = previous
+          if (previous === undefined) delete process.env.IRODORI_MERGE_BACKEND
+          else process.env.IRODORI_MERGE_BACKEND = previous
         }
       }
       await writeFile(
@@ -354,7 +354,7 @@ test('BRK source-specific correction tables and common crop agree on CPU/GPU, in
   test.skip(!manifest, 'Private BRK manifest unavailable; camera acceptance is incomplete.')
   const fixture = manifest!.sequences.find((s) => s.files[0] === 'DSC02040.ARW')!,
     files = fixture.files.map((name) => manifest!.files.find((f) => f.name === name)!),
-    directory = await mkdtemp(join(tmpdir(), 'luma-brk-agreement-')),
+    directory = await mkdtemp(join(tmpdir(), 'irodori-brk-agreement-')),
     engine = new PreviewEngine(),
     gpu = new RawGpuRenderer(),
     sources: MergeSource[] = []

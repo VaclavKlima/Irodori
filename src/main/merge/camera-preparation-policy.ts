@@ -25,7 +25,7 @@ export function cameraPreparationPolicy(recipe?: MergeRecipe): CameraPreparation
       throw new Error('Unsupported source camera preparation policy.')
     return recipe.cameraPreparation
   }
-  return process.env.LUMA_MERGE_CAMERA_PREPARATION === 'gpu' ? GPU_CAMERA_PREPARATION : undefined
+  return process.env.IRODORI_MERGE_CAMERA_PREPARATION === 'gpu' ? GPU_CAMERA_PREPARATION : undefined
 }
 
 export function referencePreparationPolicy(
@@ -39,7 +39,7 @@ export function referencePreparationPolicy(
       throw new Error('Unsupported reference fallback preparation policy.')
     return recipe.referenceFallbackPreparation
   }
-  return process.env.LUMA_MERGE_REFERENCE_PREPARATION === 'gpu'
+  return process.env.IRODORI_MERGE_REFERENCE_PREPARATION === 'gpu'
     ? GPU_REFERENCE_PREPARATION
     : undefined
 }

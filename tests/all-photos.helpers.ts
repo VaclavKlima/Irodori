@@ -25,7 +25,7 @@ export async function browseSources(
     })
       .withExif({
         IFD0: {
-          Make: 'Luma fixture',
+          Make: 'Irodori fixture',
           Model: 'Browse camera',
           ImageDescription: `Browser fixture ${index}`,
         },
@@ -49,7 +49,7 @@ export async function seedLargeBrowser(
 ) {
   const paths = await browseSources(root, Array<string>(count).fill('2026:10:04 12:30:00'))
   await importPhotos(app, page, paths.slice(0, 1))
-  const first = (await page.evaluate(() => window.luma.listPhotos())).photos[0]
+  const first = (await page.evaluate(() => window.irodori.listPhotos())).photos[0]
   const inputs = await Promise.all(
     paths.slice(1).map(async (path) => {
       const bytes = await readFile(path)
@@ -86,8 +86,8 @@ export async function seedLargeBrowser(
             id: input.id,
             filename: input.filename,
             bytes: bytes.length,
-            thumbnailUrl: `luma-photo://library/${input.id}/thumb`,
-            previewUrl: `luma-photo://library/${input.id}/preview`,
+            thumbnailUrl: `irodori-photo://library/${input.id}/thumb`,
+            previewUrl: `irodori-photo://library/${input.id}/preview`,
           }
           db.prepare(
             'INSERT INTO photos (id, imported_at, photo, processing_identity) VALUES (?, ?, ?, ?)',

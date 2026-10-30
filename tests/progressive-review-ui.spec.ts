@@ -4,9 +4,9 @@ import { expect, test } from './electron.fixture'
 import { mockImportReview } from './import-review-ui.helpers'
 
 test('keeps discovery selectable and serializes rapid choices against late review snapshots', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app)
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -49,9 +49,9 @@ test('keeps discovery selectable and serializes rapid choices against late revie
 })
 
 test('applies bulk choices to future discovery rows and flushes queued choices before accepting', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 1)
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -93,9 +93,9 @@ test('applies bulk choices to future discovery rows and flushes queued choices b
 })
 
 test('requests visible thumbnails before lookahead and scrolls before thumbnail completion', async ({
-  luma,
+  irodori,
 }, testInfo) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app)
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -155,9 +155,9 @@ test('requests visible thumbnails before lookahead and scrolls before thumbnail 
 })
 
 test('preserves checkbox focus and choices when discovery prepends; other controls retain focus', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma,
+  const { app, page } = irodori,
     control = await mockImportReview(app, 60)
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()

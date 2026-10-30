@@ -31,8 +31,8 @@ async function hardwareRender(gpu: RawGpuRenderer, source: RawSource) {
 }
 
 // Additional local samples are read in place; photographs are never added to fixtures.
-const rawSamples: string[] = process.env.LUMA_RAW_TEST_FILES
-  ? JSON.parse(process.env.LUMA_RAW_TEST_FILES)
+const rawSamples: string[] = process.env.IRODORI_RAW_TEST_FILES
+  ? JSON.parse(process.env.IRODORI_RAW_TEST_FILES)
   : ['tests/fixtures/sony-zv1.ARW']
 
 for (const sample of rawSamples) {
@@ -322,7 +322,16 @@ test('native GPU exposure, contrast and highlights agree with the exported linea
     const neutral = await gpu.render(
       source,
       undefined,
-      { shadows: 0, whites: 0, blacks: 0, exposureEv: 0, contrast: 0, highlights: 0 },
+      {
+        saturation: 0,
+        vibrance: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        exposureEv: 0,
+        contrast: 0,
+        highlights: 0,
+      },
       true,
     )
     expect(neutral.working).toBeDefined()
@@ -331,6 +340,8 @@ test('native GPU exposure, contrast and highlights agree with the exported linea
       for (const contrast of [-100, -35, 0, 40, 100])
         for (const highlights of [-100, 0, 100]) {
           const actual = await gpu.render(source, undefined, {
+            saturation: 0,
+            vibrance: 0,
             shadows: 0,
             whites: 0,
             blacks: 0,
@@ -340,7 +351,16 @@ test('native GPU exposure, contrast and highlights agree with the exported linea
           })
           const expected = renderAdjustments(
             neutral.working!.data,
-            { shadows: 0, whites: 0, blacks: 0, exposureEv: ev, contrast, highlights },
+            {
+              saturation: 0,
+              vibrance: 0,
+              shadows: 0,
+              whites: 0,
+              blacks: 0,
+              exposureEv: ev,
+              contrast,
+              highlights,
+            },
             neutral.working!.transform,
           )
           let max = 0
@@ -353,8 +373,26 @@ test('native GPU exposure, contrast and highlights agree with the exported linea
       ...(['shadows', 'whites', 'blacks'] as const).flatMap((key) =>
         [-100, 100].map((value) => ({ ...neutralAdjustments, [key]: value })),
       ),
-      { exposureEv: 0.75, contrast: 35, highlights: -65, shadows: 100, whites: -80, blacks: 65 },
-      { exposureEv: -0.5, contrast: -35, highlights: 40, shadows: -100, whites: 80, blacks: -65 },
+      {
+        saturation: 0,
+        vibrance: 0,
+        exposureEv: 0.75,
+        contrast: 35,
+        highlights: -65,
+        shadows: 100,
+        whites: -80,
+        blacks: 65,
+      },
+      {
+        saturation: 0,
+        vibrance: 0,
+        exposureEv: -0.5,
+        contrast: -35,
+        highlights: 40,
+        shadows: -100,
+        whites: 80,
+        blacks: -65,
+      },
     ]) {
       const actual = await gpu.render(source, undefined, adjustments)
       const expected = renderAdjustments(
@@ -386,20 +424,92 @@ test('Sony RAW native highlights and combined exposure/contrast match CPU conver
     const neutral = await gpu.render(
       source,
       undefined,
-      { shadows: 0, whites: 0, blacks: 0, exposureEv: 0, contrast: 0, highlights: 0 },
+      {
+        saturation: 0,
+        vibrance: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        exposureEv: 0,
+        contrast: 0,
+        highlights: 0,
+      },
       true,
     )
     for (const adjustments of [
       ...(['shadows', 'whites', 'blacks'] as const).flatMap((key) =>
         [-100, 100].map((value) => ({ ...neutralAdjustments, [key]: value })),
       ),
-      { exposureEv: 0.75, contrast: 35, highlights: -65, shadows: 80, whites: -40, blacks: 25 },
-      { exposureEv: -0.5, contrast: -35, highlights: 40, shadows: -80, whites: 60, blacks: -30 },
-      { shadows: 0, whites: 0, blacks: 0, exposureEv: 0, contrast: -100, highlights: 0 },
-      { shadows: 0, whites: 0, blacks: 0, exposureEv: -1.25, contrast: 100, highlights: 0 },
-      { shadows: 0, whites: 0, blacks: 0, exposureEv: 0, contrast: 0, highlights: -100 },
-      { shadows: 0, whites: 0, blacks: 0, exposureEv: 0.75, contrast: 35, highlights: 100 },
-      { shadows: 0, whites: 0, blacks: 0, exposureEv: 1.25, contrast: -40, highlights: -65 },
+      {
+        saturation: 0,
+        vibrance: 0,
+        exposureEv: 0.75,
+        contrast: 35,
+        highlights: -65,
+        shadows: 80,
+        whites: -40,
+        blacks: 25,
+      },
+      {
+        saturation: 0,
+        vibrance: 0,
+        exposureEv: -0.5,
+        contrast: -35,
+        highlights: 40,
+        shadows: -80,
+        whites: 60,
+        blacks: -30,
+      },
+      {
+        saturation: 0,
+        vibrance: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        exposureEv: 0,
+        contrast: -100,
+        highlights: 0,
+      },
+      {
+        saturation: 0,
+        vibrance: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        exposureEv: -1.25,
+        contrast: 100,
+        highlights: 0,
+      },
+      {
+        saturation: 0,
+        vibrance: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        exposureEv: 0,
+        contrast: 0,
+        highlights: -100,
+      },
+      {
+        saturation: 0,
+        vibrance: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        exposureEv: 0.75,
+        contrast: 35,
+        highlights: 100,
+      },
+      {
+        saturation: 0,
+        vibrance: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        exposureEv: 1.25,
+        contrast: -40,
+        highlights: -65,
+      },
     ]) {
       const actual = await gpu.render(source, undefined, adjustments)
       const expected = renderAdjustments(

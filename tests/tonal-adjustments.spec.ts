@@ -142,7 +142,16 @@ test('combined curve order uses normalized luminance and preserves alpha', () =>
     expect([
       ...renderAdjustments(
         input,
-        { exposureEv: 0.5, contrast: 35, highlights: -65, shadows: 80, whites: -40, blacks },
+        {
+          saturation: 0,
+          vibrance: 0,
+          exposureEv: 0.5,
+          contrast: 35,
+          highlights: -65,
+          shadows: 80,
+          whites: -40,
+          blacks,
+        },
         transform,
       ),
     ]).toEqual(expected)

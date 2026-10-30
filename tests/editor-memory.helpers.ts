@@ -167,7 +167,7 @@ export async function sampleEditorMemory(app: ElectronApplication, phase: string
             role = 'preview-worker'
             roleSource = 'owned process worker entry'
             previewWorkerAncestor = pid
-          } else if (/(?:^|\/)luma-cpu-render$/.test(arguments_[0] ?? '')) {
+          } else if (/(?:^|\/)irodori-cpu-render$/.test(arguments_[0] ?? '')) {
             role = 'native-cpu-render'
             roleSource = 'owned native CPU executable'
           } else if (!roles.has(pid) && pid !== rootPid) {

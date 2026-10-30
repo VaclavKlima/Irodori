@@ -3,13 +3,13 @@ import { randomUUID } from 'node:crypto'
 import { resolve, join } from 'node:path'
 import { suites, workersFor, type Group } from './scripts/verification-plan'
 
-const runDirectory = (process.env.LUMA_VERIFICATION_DIR ??= resolve(
+const runDirectory = (process.env.IRODORI_VERIFICATION_DIR ??= resolve(
   'artifacts/verification',
   `playwright-${Date.now()}-${randomUUID()}`,
 ))
-const output = join(runDirectory, process.env.LUMA_TEST_GROUP ?? 'playwright')
+const output = join(runDirectory, process.env.IRODORI_TEST_GROUP ?? 'playwright')
 const groups: Group[] = ['node', 'service', 'electron', 'raw-gpu']
-if (process.env.LUMA_PREVIEW_BENCHMARK === '1') groups.splice(0, groups.length, 'benchmark')
+if (process.env.IRODORI_PREVIEW_BENCHMARK === '1') groups.splice(0, groups.length, 'benchmark')
 
 export default defineConfig({
   testDir: './tests',

@@ -407,7 +407,7 @@ export async function gpuCameraRegistrationWriter(
       masks: buffer(maskBytes(capacity), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
       result: buffer(capacity * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC),
       staging: buffer(capacity * 16, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ),
-      module: device.createShaderModule({ code: shader, label: 'Luma GPU camera evidence' }),
+      module: device.createShaderModule({ code: shader, label: 'Irodori GPU camera evidence' }),
     }))
     await setup.checked
     staging = setup.value.staging

@@ -22,7 +22,7 @@ writeFileSync(join(root,'native-pid.txt'),String(process.pid))
 const stubborn=mode==='held-stream'&&!existsSync(join(root,'release.txt'))
 if(stubborn)process.on('SIGTERM',()=>{})
 writeSync(4,'ARMED '+nonce+'\\n');closeSync(4)
-const expected=Buffer.from('LUMA-RAW-START1 '+nonce+'\\n'), token=Buffer.alloc(expected.length)
+const expected=Buffer.from('IRODORI-RAW-START1 '+nonce+'\\n'), token=Buffer.alloc(expected.length)
 let filled=0
 while(filled<token.length){const n=readSync(0,token,filled,token.length-filled,null);assert(n>0);filled+=n}
 assert(token.equals(expected));assert.equal(readSync(0,Buffer.alloc(1),0,1,null),0)

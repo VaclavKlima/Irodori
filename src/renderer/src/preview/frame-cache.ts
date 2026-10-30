@@ -24,6 +24,9 @@ export class BitmapCache {
   private reserved = 0
   private entries = new Map<string, Entry>()
   constructor(private budget = 256 * 1024 * 1024) {}
+  get bytes(): number {
+    return this.reserved + [...this.entries.values()].reduce((sum, entry) => sum + entry.bytes, 0)
+  }
   private prune() {
     let bytes =
       this.reserved + [...this.entries.values()].reduce((sum, entry) => sum + entry.bytes, 0)
@@ -88,6 +91,7 @@ export class BitmapCache {
   }
 }
 const frames = new BitmapCache()
+export const presentationBitmapBytes = () => frames.bytes
 export const retainPresentationBitmap = (bitmap: ImageBitmap) => frames.retain(bitmap)
 export const reservePresentationBitmaps = (bytes: number) => frames.reserve(bytes)
 export function cachedFrame(preview: FullPreview): FrameLease | null {
@@ -95,23 +99,29 @@ export function cachedFrame(preview: FullPreview): FrameLease | null {
 }
 export async function loadFrame(preview: FullPreview, signal: AbortSignal): Promise<FrameLease> {
   validate(preview)
-  const response = await fetch(preview.url, { signal, cache: 'no-store' })
-  if (!response.ok || Number(response.headers.get('content-length')) !== preview.byteLength)
-    throw new Error('The cached preview is incomplete.')
-  const bytes = await response.arrayBuffer()
-  if (bytes.byteLength !== preview.byteLength) throw new Error('The cached preview is incomplete.')
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
-  const hash = Array.from(new Uint8Array(digest), (v) => v.toString(16).padStart(2, '0')).join('')
-  if (hash !== preview.sha256) throw new Error('The cached preview is damaged.')
-  signal.throwIfAborted()
-  const bitmap = await createImageBitmap(
-    new ImageData(new Uint8ClampedArray(bytes), preview.width, preview.height, {
-      colorSpace: 'srgb',
-    }),
-  )
-  if (signal.aborted) {
-    bitmap.close()
+  const release = frames.reserve(preview.byteLength * 2)
+  try {
+    const response = await fetch(preview.url, { signal, cache: 'no-store' })
+    if (!response.ok || Number(response.headers.get('content-length')) !== preview.byteLength)
+      throw new Error('The cached preview is incomplete.')
+    const bytes = await response.arrayBuffer()
+    if (bytes.byteLength !== preview.byteLength)
+      throw new Error('The cached preview is incomplete.')
+    const digest = await crypto.subtle.digest('SHA-256', bytes)
+    const hash = Array.from(new Uint8Array(digest), (v) => v.toString(16).padStart(2, '0')).join('')
+    if (hash !== preview.sha256) throw new Error('The cached preview is damaged.')
     signal.throwIfAborted()
+    const bitmap = await createImageBitmap(
+      new ImageData(new Uint8ClampedArray(bytes), preview.width, preview.height, {
+        colorSpace: 'srgb',
+      }),
+    )
+    if (signal.aborted) {
+      bitmap.close()
+      signal.throwIfAborted()
+    }
+    return frames.insert(preview, bitmap)
+  } finally {
+    release()
   }
-  return frames.insert(preview, bitmap)
 }

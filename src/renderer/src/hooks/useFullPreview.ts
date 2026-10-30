@@ -16,6 +16,7 @@ import {
 } from '../preview/hdr-preview-resources'
 
 interface State {
+  cropRevision?: number
   preview: DisplayPreview | null
   pixels: ImageBitmap | null
   placeholder: FullPreview | null
@@ -36,6 +37,7 @@ export function useFullPreview(
   mode: 'sdr' | 'hdr' = 'hdr',
   firstSurface?: HdrFirstSurfaceRequest,
   ordinaryRaster = false,
+  cropRevision?: number,
 ) {
   const { begin } = useForegroundActivity(photoId, undefined, enabled)
   const latestRevision = useRef(0)
@@ -74,13 +76,13 @@ export function useFullPreview(
   const [revision, setRevision] = useState(0)
   useEffect(
     () =>
-      window.luma.onLibraryEvent((event) => {
-        if (event.editsChanged && event.lensChanged)
+      window.irodori.onLibraryEvent((event) => {
+        if (event.editsChanged && (event.lensChanged || event.sourceChanged))
           hdrForgetCompletedPhoto(event.editsChanged.photoId)
         if (event.editsChanged && event.editsChanged.photoId === photoId) {
           latestRevision.current = event.editsChanged.revision
           setRevision(event.editsChanged.revision)
-          if (event.lensChanged) setState(empty)
+          if (event.lensChanged || event.geometryChanged || event.sourceChanged) setState(empty)
         }
       }),
     [photoId],
@@ -93,8 +95,8 @@ export function useFullPreview(
   }>({ id: '' })
   // Optional display authorization can change without restarting an admitted source job.
   const sourceCycle = useMemo(
-    () => ({ photoId, enabled, attempt, revision, mode }),
-    [photoId, enabled, attempt, revision, mode],
+    () => ({ photoId, enabled, attempt, revision, mode, cropRevision }),
+    [photoId, enabled, attempt, revision, mode, cropRevision],
   )
   const [admission, setAdmission] = useState<{
     cycle: typeof sourceCycle
@@ -121,7 +123,7 @@ export function useFullPreview(
         // drain; its scheduling delay is included, rather than claiming GPU elapsed time.
         const ownerWaitFinishedAt = ordinaryRaster ? undefined : performance.now()
         if (cancelled) return
-        const target = await window.luma.getDisplayState()
+        const target = await window.irodori.getDisplayState()
         if (!cancelled)
           setAdmission({
             cycle: sourceCycle,
@@ -150,10 +152,12 @@ export function useFullPreview(
     let frame: FrameLease | undefined
     let offered: HdrFirstSurfaceOffer | undefined
     activeRequest.current = { photoId, requestId }
-    const unsubscribe = window.luma.onHdrFirstSurface((offer) => {
+    const unsubscribe = window.irodori.onHdrFirstSurface((offer) => {
       if (offer.photoId !== photoId || offer.requestId !== requestId) return
       if (cancelled || !isFirstSurfaceCurrent(offer)) {
-        void window.luma.releaseHdrFirstSurface(requestId, offer.surfaceId).catch(() => undefined)
+        void window.irodori
+          .releaseHdrFirstSurface(requestId, offer.surfaceId)
+          .catch(() => undefined)
         return
       }
       offered = offer
@@ -169,9 +173,12 @@ export function useFullPreview(
         // Freeze once: a later confirmation cannot upgrade or restart this job.
         const snapshot = latestFirstSurface.current,
           completedSource = hdrHasCompletedPhoto(photoId),
-          rendererReservation = hdrFirstSurfaceExistingOwners()
+          rendererReservation = hdrFirstSurfaceExistingOwners(
+            admission.ordinaryRaster ? undefined : photoId,
+          )
         let surfaceRequest: HdrFirstSurfaceRequest | undefined
         if (
+          cropRevision === undefined &&
           !admission.ordinaryRaster &&
           !completedSource &&
           snapshot &&
@@ -191,20 +198,30 @@ export function useFullPreview(
         activeRequest.current = { photoId, requestId, firstSurface: surfaceRequest }
         // The existing state publication and bridge invocation follow in this same turn.
         setActiveRequestIdentity({ id: requestId, startedAt: performance.now() })
-        let preview: DisplayPreview | null = await window.luma.requestHdrPreview(
-          photoId,
-          requestId,
-          regenerate,
-          mode,
-          surfaceRequest,
-          rendererReservation,
+        let preview: DisplayPreview | null =
+          cropRevision !== undefined
+            ? await window.irodori.requestCropPreview(photoId, requestId, cropRevision)
+            : await window.irodori.requestHdrPreview(
+                photoId,
+                requestId,
+                regenerate,
+                mode,
+                surfaceRequest,
+                rendererReservation,
+              )
+        if (cancelled) return
+        if (cropRevision === undefined && !preview && !regenerate)
+          preview = await window.irodori.requestCachedFullPreview(photoId, requestId)
+        if (cancelled) return
+        if (cropRevision === undefined && !preview)
+          preview = await window.irodori.requestFullPreview(photoId, requestId, regenerate)
+        if (cancelled) return
+        if (
+          !preview ||
+          (preview.sourceSpace === 'uncropped') !== (cropRevision !== undefined) ||
+          (cropRevision !== undefined && preview.settingsRevision !== cropRevision)
         )
-        if (cancelled) return
-        if (!preview && !regenerate)
-          preview = await window.luma.requestCachedFullPreview(photoId, requestId)
-        if (cancelled) return
-        if (!preview) preview = await window.luma.requestFullPreview(photoId, requestId, regenerate)
-        if (cancelled) return
+          throw new Error('The preview source does not match the requested framing.')
         if ((preview.settingsRevision ?? 0) < latestRevision.current) return
         if (preview.photoId !== photoId || preview.requestId !== requestId)
           throw new Error('The preview response does not match this photo.')
@@ -212,6 +229,7 @@ export function useFullPreview(
           displayedLease.current?.release()
           displayedLease.current = null
           setState((previous) => ({
+            cropRevision,
             preview,
             pixels: null,
             placeholder: null,
@@ -226,7 +244,11 @@ export function useFullPreview(
         frame = cachedFrame(preview) ?? undefined
         if (!frame) {
           // The placeholder and frame share the exact rendering revision.
-          setState((previous) => (previous.pixels ? previous : { ...empty, placeholder: preview }))
+          setState((previous) =>
+            previous.pixels && previous.cropRevision === cropRevision
+              ? previous
+              : { ...empty, cropRevision, placeholder: preview },
+          )
           frame = await loadFrame(preview, abort.signal)
         }
         if (cancelled || (preview.settingsRevision ?? 0) < latestRevision.current) {
@@ -236,13 +258,14 @@ export function useFullPreview(
         displayedLease.current?.release()
         displayedLease.current = frame
         setState({
+          cropRevision,
           preview,
           pixels: frame.bitmap,
           placeholder: null,
           error: null,
           firstSurface: null,
         })
-        performance.measure('luma.full-preview.load', {
+        performance.measure('irodori.full-preview.load', {
           start: started,
           detail: { photoId, renderId: preview.renderId },
         })
@@ -252,12 +275,13 @@ export function useFullPreview(
         if (!cancelled && revision >= latestRevision.current) {
           setState((state) => ({
             ...state,
+            cropRevision,
             preview: null,
             pixels: null,
             firstSurface: null,
             error: error instanceof Error ? error.message : String(error),
           }))
-          void window.luma.releaseFullPreview(requestId).catch(() => undefined)
+          void window.irodori.releaseFullPreview(requestId).catch(() => undefined)
         }
       } finally {
         releaseActivity()
@@ -270,9 +294,11 @@ export function useFullPreview(
       releaseActivity()
       abort.abort()
       if (frame && frame !== displayedLease.current) frame.release()
-      void window.luma.releaseFullPreview(requestId).catch(() => undefined)
+      void window.irodori.releaseFullPreview(requestId).catch(() => undefined)
       if (offered)
-        void window.luma.releaseHdrFirstSurface(requestId, offered.surfaceId).catch(() => undefined)
+        void window.irodori
+          .releaseHdrFirstSurface(requestId, offered.surfaceId)
+          .catch(() => undefined)
     }
   }, [
     photoId,
@@ -284,6 +310,7 @@ export function useFullPreview(
     admission,
     sourceCycle,
     isFirstSurfaceCurrent,
+    cropRevision,
   ])
 
   const retry = useCallback(() => {
@@ -303,7 +330,7 @@ export function useFullPreview(
     [],
   )
   return {
-    ...state,
+    ...(state.cropRevision === cropRevision ? state : empty),
     requestId: activeRequestIdentity.id,
     requestStartedAt: activeRequestIdentity.startedAt,
     admissionTimings: admission?.cycle === sourceCycle ? admission.timings : undefined,

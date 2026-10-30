@@ -8,9 +8,9 @@ test.use({ hdrDisplay: true })
 test(
   'HDR interaction reuses rendered tiles, invalidates edits and targets, and preserves native detail',
   foregroundTest('HDR release glide requires native window focus and pointer-lock interaction.'),
-  async ({ luma }) => {
+  async ({ irodori }) => {
     test.setTimeout(120000)
-    const { app, page } = luma
+    const { app, page } = irodori
     await (await app.browserWindow(page)).evaluate((window) => window.setContentSize(1100, 700))
     await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
     const canvas = page.getByTestId('main-preview'),
@@ -120,7 +120,7 @@ test(
       .toBeGreaterThan(burst.scale)
     expect(await native.evaluate((window) => window.webContents.getZoomFactor())).toBe(1)
     await drawView('1')
-    const source = (await page.evaluate(() => window.luma.getPreviewDiagnostics()))
+    const source = (await page.evaluate(() => window.irodori.getPreviewDiagnostics()))
       .renderingIdentity
     await page.getByTestId('console-toggle').click()
     await expect(viewport).toHaveAttribute('data-scale', '1')
@@ -128,12 +128,12 @@ test(
     await page.getByRole('spinbutton', { name: 'Exposure value' }).press('Enter')
     await expect(canvas).toHaveAttribute('data-exposure', '1')
     expect((await completed()).rendered).toBeGreaterThan(after.rendered)
-    expect((await page.evaluate(() => window.luma.getPreviewDiagnostics())).renderingIdentity).toBe(
-      source,
-    )
+    expect(
+      (await page.evaluate(() => window.irodori.getPreviewDiagnostics())).renderingIdentity,
+    ).toBe(source)
     await page.getByRole('combobox', { name: 'Preview display mode' }).selectOption('sdr')
     await expect
-      .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+      .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
       .toMatchObject({ mode: 'sdr', peak: 1 })
     await expect(canvas).toHaveAttribute('data-editing', 'ready')
     await expect(viewport).toHaveAttribute('data-scale', '1')

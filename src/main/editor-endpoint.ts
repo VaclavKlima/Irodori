@@ -67,8 +67,10 @@ export async function startEditorEndpoint(
         galleryRevision,
         x,
         y,
+        sample,
         exportRequest,
         preparationId,
+        pasteRequest,
       } = JSON.parse(body) as {
         domain?: import('../shared/hdr-statistics').HdrAnalysisDomain
         target?: 'sdr' | 'current'
@@ -96,187 +98,218 @@ export async function startEditorEndpoint(
         galleryRevision: import('../shared/stacks').GalleryRevision
         x: number
         y: number
+        sample: import('../shared/white-balance-picker').WhiteBalanceSample
+        pasteRequest: import('../shared/edit-transfer').PasteEditsRequest
         exportRequest: import('../shared/export').ExportStart
         preparationId: string
       }
       if (
         body.length > 16384 &&
         ![
-          'luma_get_browse_summary',
-          'luma_get_gallery_summary',
-          'luma_get_photo_actions_context',
-          'luma_prepare_export',
+          'irodori_get_browse_summary',
+          'irodori_get_gallery_summary',
+          'irodori_get_photo_actions_context',
+          'irodori_prepare_export',
+          'irodori_prepare_paste_edits',
         ].includes(operation)
       )
         throw new Error('Editor request is too large.')
       let result: unknown
       switch (operation) {
-        case 'luma_get_export_capabilities':
+        case 'irodori_get_edit_capabilities':
+          result = library.getEditCapabilities()
+          break
+        case 'irodori_get_export_capabilities':
           result = await library.getExportCapabilities()
           break
-        case 'luma_get_export_preferences':
+        case 'irodori_get_export_preferences':
           result = await library.getExportPreferences()
           break
-        case 'luma_prepare_export':
+        case 'irodori_prepare_export':
           result = await library.prepareExport(ids)
           break
-        case 'luma_dispose_export_preparation':
+        case 'irodori_dispose_export_preparation':
           library.exports.dispose(preparationId)
           result = { disposed: true }
           break
-        case 'luma_start_export':
+        case 'irodori_start_export':
           result = { taskId: await library.startExport(exportRequest) }
           break
-        case 'luma_get_export_results':
+        case 'irodori_get_export_results':
           result = library.exports.results(taskId, offset)
           break
-        case 'luma_get_photo_actions_context':
+        case 'irodori_get_photo_actions_context':
           result = library.getPhotoActionsContext(photoId, selectedIds!)
           break
-        case 'luma_get_browse_summary':
+        case 'irodori_get_browse_summary':
           result = library.getBrowseSummary(query, selectedIds)
           break
-        case 'luma_get_browse_chunk':
+        case 'irodori_get_browse_chunk':
           result = library.getBrowseChunk(query, offset, expectedRevision)
           break
-        case 'luma_locate_browse_photo':
+        case 'irodori_locate_browse_photo':
           result = { location: library.locateBrowsePhoto(query, photoId, expectedRevision) }
           break
-        case 'luma_get_browse_range':
+        case 'irodori_get_browse_range':
           result = { photos: library.getBrowseRange(query, fromId, toId) }
           break
-        case 'luma_get_browse_section':
+        case 'irodori_get_browse_section':
           result = { photos: library.getBrowseSection(query, sectionKey) }
           break
-        case 'luma_list_stacks':
+        case 'irodori_list_stacks':
           result = library.listStacks()
           break
-        case 'luma_get_photo_stack':
+        case 'irodori_get_photo_stack':
           result = { stack: library.getPhotoStack(photoId) }
           break
-        case 'luma_get_stack_members':
+        case 'irodori_get_stack_members':
           result = library.getStackMembers(stackId, offset)
           break
-        case 'luma_get_stack_snapshot':
+        case 'irodori_get_stack_snapshot':
           result = library.getStackSnapshot(stackId, expectedRevision)
           break
-        case 'luma_group_photos':
+        case 'irodori_group_photos':
           result = await library.groupPhotos(ids, coverId, expectedRevision)
           break
-        case 'luma_ungroup_stack':
+        case 'irodori_ungroup_stack':
           await library.ungroupStack(stackId, expectedRevision)
           result = { ungrouped: true }
           break
-        case 'luma_remove_from_stack':
+        case 'irodori_remove_from_stack':
           result = { stack: await library.removeFromStack(photoId, expectedRevision) }
           break
-        case 'luma_set_stack_cover':
+        case 'irodori_set_stack_cover':
           result = await library.setStackCover(stackId, photoId, expectedRevision)
           break
-        case 'luma_set_stack_expanded':
+        case 'irodori_set_stack_expanded':
           result = await library.setStackExpanded(stackId, expanded, expectedRevision)
           break
-        case 'luma_get_gallery_summary':
+        case 'irodori_get_gallery_summary':
           result = library.getGallerySummary(selectedIds)
           break
-        case 'luma_get_gallery_chunk':
+        case 'irodori_get_gallery_chunk':
           result = library.getGalleryChunk(offset ?? 0, galleryRevision)
           break
-        case 'luma_list_gallery':
+        case 'irodori_list_gallery':
           result = library.listGallery(offset)
           break
-        case 'luma_locate_gallery_photo':
+        case 'irodori_locate_gallery_photo':
           result = { location: library.locateGalleryPhoto(photoId, direction) }
           break
-        case 'luma_get_gallery_range':
+        case 'irodori_get_gallery_range':
           result = { photos: library.getGalleryRange(fromId, toId) }
           break
-        case 'luma_group_capture_sequences':
+        case 'irodori_group_capture_sequences':
           result = { taskId: library.groupCaptureSequences() }
           break
-        case 'luma_get_active_merge_review':
+        case 'irodori_get_active_merge_review':
           result = { review: library.getActiveMergeReview() }
           break
-        case 'luma_get_merge_diagnostics':
+        case 'irodori_get_merge_diagnostics':
           result = library.getMergeDiagnostics(reviewId, expectedRevision)
           break
-        case 'luma_create_merge_review':
+        case 'irodori_create_merge_review':
           result = await library.createMergeReview(ids, mode)
           break
-        case 'luma_update_merge_review':
+        case 'irodori_update_merge_review':
           result = await library.updateMergeReview(reviewId, expectedRevision, settings)
           break
-        case 'luma_request_merge_preview':
+        case 'irodori_request_merge_preview':
           result = await library.requestMergePreview(reviewId, expectedRevision)
           break
-        case 'luma_start_merge':
+        case 'irodori_start_merge':
           result = { taskId: library.startMerge(reviewId, expectedRevision) }
           break
-        case 'luma_dispose_merge_review':
+        case 'irodori_dispose_merge_review':
           await library.disposeMergeReview(reviewId)
           result = { disposed: true }
           break
-        case 'luma_get_merge_provenance':
+        case 'irodori_get_merge_provenance':
           result = await library.getMergeProvenance(photoId)
           break
-        case 'luma_list_tasks':
+        case 'irodori_list_tasks':
           result = { tasks: library.listTasks() }
           break
-        case 'luma_get_task_errors':
+        case 'irodori_get_task_errors':
           result = library.taskErrors(taskId, offset)
           break
-        case 'luma_cancel_task':
+        case 'irodori_cancel_task':
           await library.cancelTask(taskId)
           result = { task: library.listTasks().find((task) => task.id === taskId) }
           break
-        case 'luma_dismiss_task':
+        case 'irodori_dismiss_task':
           await library.dismissTask(taskId)
           result = { dismissed: true }
           break
-        case 'luma_get_preview_diagnostics':
+        case 'irodori_get_preview_diagnostics':
           result = {
             ...library.fullPreviews.getDiagnostics(),
             presentation: display?.get().presentation,
           }
           break
-        case 'luma_get_display_state':
+        case 'irodori_get_display_state':
           if (!display) throw new Error('Display state unavailable.')
           result = display.get()
           break
-        case 'luma_set_preview_preference':
+        case 'irodori_set_preview_preference':
           if (!display || !preference) throw new Error('Display preference unavailable.')
           result = await display.set(preference)
           break
-        case 'luma_list_photos':
+        case 'irodori_list_photos':
           result = library.list(offset)
           break
-        case 'luma_get_photo_statistics':
+        case 'irodori_get_photo_statistics':
           result = await library.getPhotoStatistics(
             photoId,
             expectedRevision,
             domain === undefined ? undefined : { domain, target, targetGeneration },
           )
           break
-        case 'luma_get_edits':
+        case 'irodori_get_edits':
           result = await library.getEdits(photoId)
           break
-        case 'luma_get_photo_pixel':
+        case 'irodori_get_crop_context':
+          result = await library.getCropContext(photoId, expectedRevision)
+          break
+        case 'irodori_propose_white_balance':
+          result = await library.proposeWhiteBalance(photoId, expectedRevision, sample)
+          break
+        case 'irodori_get_photo_pixel':
           result = await library.getPhotoPixel(photoId, expectedRevision, x, y, {
             domain: domain!,
             target,
             targetGeneration,
           })
           break
-        case 'luma_get_edit_history':
+        case 'irodori_get_edit_clipboard':
+          result = { clipboard: library.getEditClipboard() }
+          break
+        case 'irodori_copy_edits':
+          result = await library.copyEdits(photoId)
+          break
+        case 'irodori_prepare_paste_edits':
+          result = await library.preparePasteEdits(pasteRequest)
+          break
+        case 'irodori_dispose_paste_preparation':
+          library.editTransfers.dispose(preparationId)
+          result = { disposed: true }
+          break
+        case 'irodori_start_paste_edits':
+          result = { taskId: await library.startPasteEdits(preparationId) }
+          break
+        case 'irodori_get_edit_application_results':
+          result = library.editTransfers.store.results(taskId, offset)
+          break
+        case 'irodori_get_edit_history':
           result = await library.getEditHistory(photoId)
           break
-        case 'luma_update_edits':
+        case 'irodori_update_edits':
           result = await library.updateEdits(photoId, patch, expectedRevision)
           break
-        case 'luma_undo_edit':
+        case 'irodori_undo_edit':
           result = await library.undoEdit(photoId, expectedRevision)
           break
-        case 'luma_redo_edit':
+        case 'irodori_redo_edit':
           result = await library.redoEdit(photoId, expectedRevision)
           break
         default:

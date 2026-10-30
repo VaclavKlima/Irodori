@@ -57,7 +57,7 @@ test('existing RAW imports load processing metadata lazily and persist independe
 
 test('decodes the real Sony ZV-1 RAW when embedded preview extraction fails', async () => {
   test.setTimeout(60_000)
-  const root = await mkdtemp(join(tmpdir(), 'luma-raw-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-raw-'))
   const engine = new PreviewEngine(async () => {
     throw new Error('Embedded preview unavailable')
   })

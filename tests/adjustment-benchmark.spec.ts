@@ -20,25 +20,31 @@ for (const adjustment of [
   test(
     `benchmarks warmed RAW ${adjustment} gestures through the actual editor`,
     foregroundTest(foregroundReason),
-    async ({ luma }, info) => {
+    async ({ irodori }, info) => {
       test.skip(
-        process.env.LUMA_PREVIEW_BENCHMARK !== '1',
+        process.env.IRODORI_PREVIEW_BENCHMARK !== '1',
         'Run npm run benchmark:adjustments -- <name> or benchmark:all.',
       )
       test.setTimeout(90000)
-      await importPhotos(luma.app, luma.page, ['tests/fixtures/sony-zv1.ARW'])
-      await expect(luma.page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
-        timeout: 30000,
-      })
+      await importPhotos(irodori.app, irodori.page, ['tests/fixtures/sony-zv1.ARW'])
+      await expect(irodori.page.getByTestId('main-preview')).toHaveAttribute(
+        'data-editing',
+        'ready',
+        {
+          timeout: 30000,
+        },
+      )
       if (adjustment === 'temperature') {
-        await expect(luma.page.getByRole('spinbutton', { name: 'Temperature value' })).toBeEnabled()
-        await luma.page.getByRole('button', { name: 'Shadow clipping', exact: true }).click()
-        await luma.page.getByRole('button', { name: 'Highlight clipping', exact: true }).click()
         await expect(
-          luma.page.getByRole('slider', { name: 'Histogram tonal value' }),
+          irodori.page.getByRole('spinbutton', { name: 'Temperature value' }),
+        ).toBeEnabled()
+        await irodori.page.getByRole('button', { name: 'Shadow clipping', exact: true }).click()
+        await irodori.page.getByRole('button', { name: 'Highlight clipping', exact: true }).click()
+        await expect(
+          irodori.page.getByRole('slider', { name: 'Histogram tonal value' }),
         ).toHaveAttribute('aria-valuetext', /Value/)
       }
-      const result = await luma.page.evaluate(async (adjustment) => {
+      const result = await irodori.page.evaluate(async (adjustment) => {
         const label = Array.from(document.querySelectorAll('label')).find(
           (label) => label.textContent === adjustment[0].toUpperCase() + adjustment.slice(1),
         )!

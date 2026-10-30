@@ -33,7 +33,7 @@ const matchesReference = (value) =>
   Object.keys(value).length === 4 &&
   Object.entries(maskReference).every(([key, expected]) => value[key] === expected)
 const maskCompilerFlags = ['-mno-fma', '-mno-avx', '-mno-sse4.2']
-const maskUpstream = 'native/luma-cpu-render/upstream/electron-llvm'
+const maskUpstream = 'native/irodori-cpu-render/upstream/electron-llvm'
 const sourceInventory = JSON.parse(readFileSync(join(root, maskUpstream, 'sources.json'), 'utf8'))
 if (
   sourceInventory.version !== 'electron-mask-llvm-sources-v1' ||
@@ -52,21 +52,24 @@ if (
 )
   throw new Error('Expected the exact bounded Electron LLVM source inventory.')
 const sources = [
-  'native/luma-cpu-render/Cargo.toml',
-  'native/luma-cpu-render/Cargo.lock',
-  'native/luma-cpu-render/build.rs',
-  'native/luma-cpu-render/generate_math.py',
-  'native/luma-cpu-render/bridge.h',
-  'native/luma-cpu-render/bridge.cpp',
-  'native/luma-cpu-render/src/main.rs',
-  'native/luma-cpu-render/src/mask.rs',
-  'native/luma-cpu-render/prepare-mask.py',
-  'native/luma-cpu-render/mask-bridge.cpp',
-  'native/luma-cpu-render/electron-atan2.h',
-  'native/luma-cpu-render/MASK-MATH.md',
+  'native/irodori-cpu-render/Cargo.toml',
+  'native/irodori-cpu-render/Cargo.lock',
+  'native/irodori-cpu-render/build.rs',
+  'native/irodori-cpu-render/generate_math.py',
+  'native/irodori-cpu-render/bridge.h',
+  'native/irodori-cpu-render/bridge.cpp',
+  'native/irodori-cpu-render/creative-color.h',
+  'native/irodori-cpu-render/creative-color-params.h',
+  'native/irodori-cpu-render/src/creative.rs',
+  'native/irodori-cpu-render/src/main.rs',
+  'native/irodori-cpu-render/src/mask.rs',
+  'native/irodori-cpu-render/prepare-mask.py',
+  'native/irodori-cpu-render/mask-bridge.cpp',
+  'native/irodori-cpu-render/electron-atan2.h',
+  'native/irodori-cpu-render/MASK-MATH.md',
   `${maskUpstream}/sources.json`,
   ...sourceInventory.files.map(({ path }) => `${maskUpstream}/${path}`),
-  'native/luma-cpu-render/README.md',
+  'native/irodori-cpu-render/README.md',
   'scripts/research/build-native-cpu-render.mjs',
   'scripts/native-cpu-render/build-linux.mjs',
   'third_party/aces-core/LICENSE',
@@ -76,6 +79,13 @@ const sources = [
   'src/shared/aces-core.ts',
   'src/shared/hdr-display.ts',
   'src/shared/adjustments.ts',
+  'src/shared/color-model.ts',
+  'src/shared/color-intensity.ts',
+  'src/shared/color-mixer.ts',
+  'src/shared/color-grading.ts',
+  'src/shared/creative-color.ts',
+  'src/shared/creative-color-lab.ts',
+  'src/shared/native-color-protocol.ts',
   'src/shared/white-balance.ts',
   'src/renderer/src/preview/hdr-ranges.ts',
   'src/renderer/src/preview/hdr-presentation-worker.ts',
@@ -128,10 +138,10 @@ function run(command, args) {
     throw error
   }
 }
-const cargo = process.env.LUMA_CPU_RENDER_CARGO ?? 'cargo'
+const cargo = process.env.IRODORI_CPU_RENDER_CARGO ?? 'cargo'
 manifest.toolchain = {
   cargo: run(cargo, ['--version']),
-  rustc: run(process.env.LUMA_CPU_RENDER_RUSTC ?? 'rustc', ['--version']),
+  rustc: run(process.env.IRODORI_CPU_RENDER_RUSTC ?? 'rustc', ['--version']),
   cxx: run(process.env.CXX ?? 'c++', ['--version']),
   python: run(process.env.PYTHON ?? 'python3', ['--version']),
 }
@@ -141,16 +151,16 @@ run(cargo, [
   '--offline',
   '--release',
   '--manifest-path',
-  'native/luma-cpu-render/Cargo.toml',
+  'native/irodori-cpu-render/Cargo.toml',
   '--target-dir',
   join(working, 'target'),
 ])
-const executable = join(working, 'luma-cpu-render')
-copyFileSync(join(working, 'target/release/luma-cpu-render'), executable)
+const executable = join(working, 'irodori-cpu-render')
+copyFileSync(join(working, 'target/release/irodori-cpu-render'), executable)
 chmodSync(executable, 0o755)
 manifest.executable = { path: executable, sha256: digest(executable) }
 const buildDirectories = readdirSync(join(working, 'target/release/build'), { withFileTypes: true })
-  .filter((entry) => entry.isDirectory() && entry.name.startsWith('luma-cpu-render-'))
+  .filter((entry) => entry.isDirectory() && entry.name.startsWith('irodori-cpu-render-'))
   .map((entry) => join(working, 'target/release/build', entry.name, 'out'))
   .filter((path) => existsSync(join(path, 'capabilities.json')))
 if (buildDirectories.length !== 1)
@@ -168,18 +178,23 @@ const capabilities = JSON.parse(readFileSync(join(working, 'capabilities.json'),
 const arithmetic = capabilities.mask?.arithmetic
 if (
   capabilities.version !== 'native-cpu-capabilities-v1' ||
-  capabilities.presentation !== 'LUMACPU1' ||
-  capabilities.mask?.request !== 'MASKCPU1' ||
+  capabilities.presentation !== 'IRODCPU3' ||
+  capabilities.mask?.request !== 'MASKCPU3' ||
   capabilities.mask.output !== 'MASKOUT1' ||
   capabilities.mask.terminal !== 'MASKDONE' ||
   capabilities.mask.mode !== '--mask-v1' ||
   !/^[a-f0-9]{64}$/.test(capabilities.mask.arithmeticSha256) ||
   digest(join(working, 'mask-arithmetic.json')) !== capabilities.mask.arithmeticSha256 ||
-  arithmetic?.version !== 'native-hdr-mask-arithmetic-v2-electron-llvm' ||
+  arithmetic?.version !== 'native-hdr-mask-arithmetic-v3-electron-llvm' ||
   !matchesReference(arithmetic.reference) ||
   JSON.stringify(arithmetic.maskCompilerFlags) !== JSON.stringify(maskCompilerFlags) ||
   arithmetic.upstreamManifestSha256 !== manifest.sources[`${maskUpstream}/sources.json`] ||
-  arithmetic.llvmShimSha256 !== manifest.sources['native/luma-cpu-render/electron-atan2.h'] ||
+  arithmetic.llvmShimSha256 !== manifest.sources['native/irodori-cpu-render/electron-atan2.h'] ||
+  arithmetic.creativeHeaderSha256 !==
+    manifest.sources['native/irodori-cpu-render/creative-color.h'] ||
+  arithmetic.creativeAbiSha256 !==
+    manifest.sources['native/irodori-cpu-render/creative-color-params.h'] ||
+  arithmetic.creativeHostSha256 !== manifest.sources['native/irodori-cpu-render/src/creative.rs'] ||
   Object.keys(arithmetic.upstreamSourcePins ?? {}).length !== sourceInventory.files.length ||
   sourceInventory.files.some(
     ({ path, sha256 }) =>
@@ -206,5 +221,5 @@ manifest.nativeMask = {
 }
 manifest.status = 'built-unverified'
 save()
-writeFileSync(join(working, 'SHA256SUMS'), `${manifest.executable.sha256}  luma-cpu-render\n`)
+writeFileSync(join(working, 'SHA256SUMS'), `${manifest.executable.sha256}  irodori-cpu-render\n`)
 console.log(JSON.stringify({ directory: working, ...manifest.executable, status: manifest.status }))

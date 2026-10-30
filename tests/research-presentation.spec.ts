@@ -23,9 +23,9 @@ for (const [width, height, consoleOpen] of [
     test(
       `research sharp/draft ${frequency} Hz at ${width}x${height}, Console ${consoleOpen ? 'open' : 'closed'}`,
       foregroundTest(reason),
-      async ({ luma }, info) => {
+      async ({ irodori }, info) => {
         test.setTimeout(900000)
-        const { app, page } = luma
+        const { app, page } = irodori
         await (
           await app.browserWindow(page)
         ).evaluate((window, size) => window.setContentSize(size[0], size[1]), [width, height])
@@ -35,8 +35,8 @@ for (const [width, height, consoleOpen] of [
         })
         if (consoleOpen) await page.getByTestId('console-toggle').click()
         const state = await page.evaluate(async () => {
-          const id = (await window.luma.listPhotos()).photos[0].id
-          return window.luma.getEdits(id)
+          const id = (await window.irodori.listPhotos()).photos[0].id
+          return window.irodori.getEdits(id)
         })
         const parameters = Array.from({ length: 240 }, (_, i) => {
           const adjustments = { ...neutralAdjustments }
@@ -77,7 +77,7 @@ for (const [width, height, consoleOpen] of [
           bundle: true,
           write: false,
           format: 'iife',
-          globalName: 'LumaPipelineResearch',
+          globalName: 'IrodoriPipelineResearch',
           platform: 'browser',
           target: 'chrome146',
           logLevel: 'silent',
@@ -96,9 +96,9 @@ for (const [width, height, consoleOpen] of [
           async (options) => {
             const research = (
               window as unknown as {
-                LumaPipelineResearch: { runPresentationStudy: typeof runPresentationStudy }
+                IrodoriPipelineResearch: { runPresentationStudy: typeof runPresentationStudy }
               }
-            ).LumaPipelineResearch
+            ).IrodoriPipelineResearch
             return research.runPresentationStudy(options)
           },
           { photoId: state.photoId, parameters, inputFrames: 240, repetitions: 3, frequency },
@@ -137,9 +137,9 @@ for (let launch = 1; launch <= 5; launch++)
   test(
     `research fresh isolated application ${launch}: fixture selection through useful normal presentation`,
     foregroundTest(reason),
-    async ({ luma }, info) => {
+    async ({ irodori }, info) => {
       test.setTimeout(120000)
-      const { app, page } = luma
+      const { app, page } = irodori
       const before = await page.evaluate(() => ({
         rendererNavigationEpoch: performance.timeOrigin,
         sinceRendererNavigationMs: performance.now(),
@@ -185,9 +185,9 @@ for (let launch = 1; launch <= 5; launch++)
     },
   )
 test('research shared-texture capability inventory preserves the sandbox and typed bridge', async ({
-  luma,
+  irodori,
 }, info) => {
-  const result = await luma.app.evaluate(({ sharedTexture, BrowserWindow }) => ({
+  const result = await irodori.app.evaluate(({ sharedTexture, BrowserWindow }) => ({
     importAvailable: typeof sharedTexture?.importSharedTexture === 'function',
     sendAvailable: typeof sharedTexture?.sendSharedTexture === 'function',
     windows: BrowserWindow.getAllWindows().map((w) => {

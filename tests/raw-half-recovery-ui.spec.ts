@@ -90,14 +90,14 @@ async function prepare(app: ElectronApplication, page: Page, withRaster = false)
   await installRawHalfRecoveryProbe(page)
   const workspaces = page.getByRole('navigation', { name: 'Workspaces' })
   await workspaces.getByRole('button', { name: 'Library', exact: true }).click()
-  await page.evaluate(() => window.luma.setPreviewPreference('sdr'))
+  await page.evaluate(() => window.irodori.setPreviewPreference('sdr'))
   await importPhotos(app, page, withRaster ? [raster, fixture] : [fixture], false)
-  const raw = (await page.evaluate(() => window.luma.listPhotos())).photos.find(
+  const raw = (await page.evaluate(() => window.irodori.listPhotos())).photos.find(
     (photo) => photo.filename === 'sony-zv1.ARW',
   )!
-  const state = await page.evaluate((id) => window.luma.getEdits(id), raw.id)
+  const state = await page.evaluate((id) => window.irodori.getEdits(id), raw.id)
   await page.evaluate(
-    ({ id, parameters, revision }) => window.luma.updateEdits(id, parameters, revision),
+    ({ id, parameters, revision }) => window.irodori.updateEdits(id, parameters, revision),
     { id: raw.id, parameters, revision: state.revision },
   )
   await workspaces.getByRole('button', { name: 'Editor', exact: true }).click()
@@ -127,8 +127,8 @@ async function prepare(app: ElectronApplication, page: Page, withRaster = false)
   return {
     raw,
     native,
-    history: await page.evaluate((id) => window.luma.getEditHistory(id), raw.id),
-    edits: await page.evaluate((id) => window.luma.getEdits(id), raw.id),
+    history: await page.evaluate((id) => window.irodori.getEditHistory(id), raw.id),
+    edits: await page.evaluate((id) => window.irodori.getEdits(id), raw.id),
   }
 }
 
@@ -152,15 +152,17 @@ async function save(
         normalEditingAndExportBounds: 'Unchanged.',
         scope: 'Isolated normal application, real decoded Sony source; no timing acceptance.',
         profileIsolation: userDataDir,
-        display: await page.evaluate(() => window.luma.getDisplayState()).catch(() => null),
+        display: await page.evaluate(() => window.irodori.getDisplayState()).catch(() => null),
         photoId,
         detail,
         state,
         history: photoId
-          ? await page.evaluate((id) => window.luma.getEditHistory(id), photoId).catch(() => null)
+          ? await page
+              .evaluate((id) => window.irodori.getEditHistory(id), photoId)
+              .catch(() => null)
           : null,
         diagnostics: await page
-          .evaluate(() => window.luma.getPreviewDiagnostics())
+          .evaluate(() => window.irodori.getPreviewDiagnostics())
           .catch(() => null),
       },
       null,
@@ -218,9 +220,9 @@ for (const mode of ['sdr', 'hdr'] as const)
   test(
     `${mode.toUpperCase()} P3 real-photo raw-half recovery uses proposed one-code emergency policy after actual device loss`,
     foreground,
-    async ({ luma }, info) => {
+    async ({ irodori }, info) => {
       test.setTimeout(300_000)
-      const { app, page, userDataDir } = luma,
+      const { app, page, userDataDir } = irodori,
         detail: unknown[] = []
       let id: string | undefined
       try {
@@ -232,9 +234,9 @@ for (const mode of ['sdr', 'hdr'] as const)
         ).toBe(originalSha256)
         await page.getByRole('combobox', { name: 'Preview display mode' }).selectOption(mode)
         await expect
-          .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+          .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
           .toMatchObject({ mode, colorSpace: 'display-p3' })
-        const target = await page.evaluate(() => window.luma.getDisplayState())
+        const target = await page.evaluate(() => window.irodori.getDisplayState())
         if (mode === 'hdr') expect(target.headroom).toBeGreaterThan(1)
         const beforeZoom = await normal(page)
         await recoveryProbeAction(page, 'armOracle')
@@ -331,7 +333,7 @@ for (const mode of ['sdr', 'hdr'] as const)
           String(parameters.exposureEv),
         )
         await expectedEdits(page)
-        expect(await page.evaluate((id) => window.luma.getEditHistory(id), id)).toEqual(
+        expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(
           prepared.history,
         )
         expect((await recoveryProbeState(page)).errors).toEqual([])
@@ -345,9 +347,9 @@ for (const mode of ['sdr', 'hdr'] as const)
 test(
   'photo departure skips discarded recovery materialization while same-photo suspension preserves it',
   foreground,
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(300_000)
-    const { app, page, userDataDir } = luma,
+    const { app, page, userDataDir } = irodori,
       detail: unknown[] = []
     let id: string | undefined
     try {
@@ -409,7 +411,7 @@ test(
         .getByRole('button', { name: 'Editor', exact: true })
         .click()
       await normal(page)
-      expect(await page.evaluate((id) => window.luma.getEditHistory(id), id)).toEqual(
+      expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(
         prepared.history,
       )
       expect((await recoveryProbeState(page)).errors).toEqual([])
@@ -423,9 +425,9 @@ test(
 test(
   'held raw-half readback reversal and photo switch cannot publish stale recovery pixels',
   foreground,
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(300_000)
-    const { app, page, userDataDir } = luma,
+    const { app, page, userDataDir } = irodori,
       detail: unknown[] = []
     let id: string | undefined
     try {
@@ -486,7 +488,7 @@ test(
       })
       await save(page, info, userDataDir, id, detail)
       expect(nativeMaximumDifference).toBeLessThanOrEqual(1)
-      expect(await page.evaluate((id) => window.luma.getEditHistory(id), id)).toEqual(
+      expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(
         prepared.history,
       )
       await page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }).click()
@@ -505,9 +507,9 @@ test(
 test(
   'photo departure cancels only the real pending recovery map and drains its submitted fence before the next HDR owner',
   foreground,
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(300_000)
-    const { app, page, userDataDir } = luma,
+    const { app, page, userDataDir } = irodori,
       detail: unknown[] = []
     let id: string | undefined
     try {
@@ -574,7 +576,7 @@ test(
       expect(after.pendingDeparture?.nextHdrSubmittedAt).toBeGreaterThanOrEqual(pending.destroyedAt)
       expect(after.pendingDeparture?.stalePublication).toBe(false)
       expect(after.errors).toEqual([])
-      expect(await page.evaluate((id) => window.luma.getEditHistory(id), id)).toEqual(
+      expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(
         prepared.history,
       )
       detail.push({ returned, returnedOwner, after })

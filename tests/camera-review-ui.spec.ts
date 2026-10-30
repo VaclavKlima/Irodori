@@ -4,9 +4,9 @@ import { test } from './electron.fixture'
 import { mockImportReview } from './import-review-ui.helpers'
 
 test('defaults to Fast, retains policy across device changes and restarts, and resets in a new dialog', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 3, [0])
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -40,9 +40,9 @@ test('defaults to Fast, retains policy across device changes and restarts, and r
 })
 
 test('awaits queued selections, preserves the scroll anchor and focus, disables acceptance during Full checking', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 125, [0, 61])
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -88,9 +88,9 @@ test('awaits queued selections, preserves the scroll anchor and focus, disables 
 })
 
 test('late snapshots cannot restore a superseded verification policy and Cancel stays usable', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 3, [0])
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -122,9 +122,9 @@ test('late snapshots cannot restore a superseded verification policy and Cancel 
 })
 
 test('verification controls and footer fit 1100 × 700 with the console open', async ({
-  luma,
+  irodori,
 }, testInfo) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 65, [0])
   try {
     await (

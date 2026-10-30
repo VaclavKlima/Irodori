@@ -30,6 +30,8 @@ import {
   hdrShader,
 } from '../../renderer/src/preview/hdr-shader'
 import { prepareHdrPipelines } from '../../renderer/src/preview/hdr-pipelines'
+import { prepareCreativeColor, creativeColorActive } from '../../shared/creative-color'
+import { packCreativeColor, CREATIVE_COLOR_PARAMETER_BYTES } from '../../shared/creative-color-gpu'
 import {
   FirstSurfaceConsumerError,
   FirstSurfaceGpuError,
@@ -94,7 +96,7 @@ export function prepareFirstSurfaceOrientationPipeline(
       ],
     })
     const pipeline = await device.createComputePipelineAsync({
-      label: 'Luma first oriented source mip',
+      label: 'Irodori first oriented source mip',
       layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
       compute: {
         module: device.createShaderModule({ code: hdrOrientedMipShader }),
@@ -206,6 +208,9 @@ export async function renderFirstSurface(
       message: 'First surface dimensions do not match the borrowed corrected source.',
     }
   const { device } = borrow
+  const colour = prepareCreativeColor(request.parameters),
+    creative = creativeColorActive(colour),
+    colourBytes = creative ? CREATIVE_COLOR_PARAMETER_BYTES : 0
   const image = request.image
   const view = Object.freeze({ fit: true, scale: fitScale(image, request.viewport), x: 0, y: 0 })
   const canvasWidth = Math.max(1, Math.round(request.viewport.width * request.dpr))
@@ -264,18 +269,20 @@ export async function renderFirstSurface(
     mips: sum(mipOwners.map((owner) => owner.bytes)),
     surface: surfaceBytes,
     staging: stagingBytes,
-    uniform: 176,
+    uniform: 192,
     lookup: checked(plan.columns * plan.rows * 8, 'lookup bytes'),
     tables: ACES_DATA_BYTES,
     orientation: borrow.flip === 0 ? 0 : 16,
+    ...(creative ? { creative: colourBytes } : {}),
   }
   const fixedGpuBytes = sum(Object.values(fixedOwners))
   const fixedHostBytes = sum([
     stagingBytes,
     surfaceBytes * 2,
-    ACES_DATA_BYTES * 5 + 176 * 3 + fixedOwners.lookup * 4,
+    ACES_DATA_BYTES * 5 + 192 * 3 + fixedOwners.lookup * 4,
     checked(plan.tiles.length * 256, 'tile metadata allowance'),
     fixedOwners.orientation * 2,
+    colourBytes * 3,
   ])
   const sharedOwners = Object.freeze({
     nativeSource: bytes(borrow.baseEstimatedRamBytes, borrow.baseEstimatedGpuBytes),
@@ -340,7 +347,7 @@ export async function renderFirstSurface(
       message: 'First surface overlap exceeds the frozen managed image budgets.',
       peakBytes,
     }
-  for (const size of [stagingBytes, owners.jobs, owners.lookup, ACES_DATA_BYTES, 176])
+  for (const size of [stagingBytes, owners.jobs, owners.lookup, ACES_DATA_BYTES, 192])
     if (size > device.limits.maxBufferSize)
       return {
         status: 'declined',
@@ -401,7 +408,10 @@ export async function renderFirstSurface(
       openScopes++
     }
     const compilation = performance.now()
-    const prepared = prepareHdrPipelines(device, { interactive: false })
+    const prepared = prepareHdrPipelines(device, {
+      interactive: false,
+      ...(creative ? { creative: true } : {}),
+    })
     const [programs, orientedProgram] = await Promise.all([
       prepared.pipelines,
       borrow.flip === 0 ? undefined : prepareFirstSurfaceOrientationPipeline(device),
@@ -420,7 +430,7 @@ export async function renderFirstSurface(
     timings.tablesMs = performance.now() - tablesAt
     signal.throwIfAborted()
     const uniform = buffer(
-      176,
+      192,
       GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       'first viewport params',
     )
@@ -442,6 +452,14 @@ export async function renderFirstSurface(
     const orientationUniform = orientedProgram
       ? buffer(16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, 'first viewport orientation')
       : undefined
+    const colourBuffer = creative
+      ? buffer(
+          colourBytes,
+          GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          'first viewport creative color',
+        )
+      : undefined
+    if (colourBuffer) device.queue.writeBuffer(colourBuffer, 0, packCreativeColor(colour!))
     if (orientationUniform)
       device.queue.writeBuffer(orientationUniform, 0, new Uint32Array([borrow.flip, 0, 0, 0]))
     const cached = own(
@@ -502,7 +520,7 @@ export async function renderFirstSurface(
       selected = destination
     }
     // Same uniform slots and selected-mip dimensions as settled HdrPresenter.render.
-    const values = new Float32Array(44)
+    const values = new Float32Array(48)
     values.set([
       request.viewport.width,
       request.viewport.height,
@@ -536,6 +554,8 @@ export async function renderFirstSurface(
     values[40] = plan.level
     values[42] = Number(request.target.headroom !== null)
     values[43] = request.target.headroom ?? 1
+    values[44] = request.parameters.saturation
+    values[45] = request.parameters.vibrance
     device.queue.writeBuffer(uniform, 0, values)
     device.queue.writeBuffer(tables, 0, packed)
     const cacheGroup = device.createBindGroup({
@@ -546,6 +566,7 @@ export async function renderFirstSurface(
         { binding: 3, resource: cached.createView({ dimension: '2d-array' }) },
         { binding: 4, resource: { buffer: tables } },
         { binding: 5, resource: { buffer: jobs } },
+        ...(colourBuffer ? [{ binding: 12, resource: { buffer: colourBuffer } }] : []),
       ],
     })
     const presentationGroup = device.createBindGroup({
@@ -562,6 +583,7 @@ export async function renderFirstSurface(
     cache.setEdits(JSON.stringify(request.parameters))
     const neutral =
       !wb &&
+      !creative &&
       [
         request.parameters.exposureEv,
         request.parameters.contrast,
@@ -569,8 +591,10 @@ export async function renderFirstSurface(
         request.parameters.shadows,
         request.parameters.whites,
         request.parameters.blacks,
+        request.parameters.saturation,
+        request.parameters.vibrance,
       ].every((value) => value === 0)
-    const kernel = hdrCacheKernel()
+    const kernel = hdrCacheKernel('reference', creative)
     let first = true,
       batches = 0
     for (const batch of cache.batches(plan, neutral)) {

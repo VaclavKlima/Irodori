@@ -226,6 +226,17 @@ export class HdrSourceCache<Resource extends HdrSourceResource> {
       )
     )
   }
+  /** Free the next source's slot before native preparation freezes existing ownership. */
+  preparePhoto(photoId: string): void {
+    if (!hash(photoId)) throw new Error('Invalid source cache photo hint.')
+    if (this.hasCompletedPhoto(photoId)) return
+    // Admission would evict this idle LRU source after upload anyway. Releasing it
+    // now avoids charging two cached pyramids alongside a third RAW preparation.
+    // Retired or submitted owners stay charged until their real fences settle.
+    while (this.owned.size >= HDR_SOURCE_CACHE_ENTRIES) {
+      if (!this.evictOldestUnpinned()) break
+    }
+  }
   /** Source-changing edits forget the hint without evicting or releasing any owner. */
   forgetPhoto(photoId: string): void {
     for (const entry of this.entries) if (entry.photoId === photoId) entry.photoId = undefined
@@ -244,6 +255,13 @@ export class HdrSourceCache<Resource extends HdrSourceResource> {
       vramBytes += entry.identity.textureBytes
     }
     return Object.freeze({ ramBytes, vramBytes, entries })
+  }
+  /** Retiring entries still own immutable samples until their final submission settles. */
+  ownsSampleBuffer(buffer: ArrayBufferLike): boolean {
+    for (const entry of this.owned)
+      if (entry.samples.sample.buffer === buffer || entry.samples.draft.buffer === buffer)
+        return true
+    return false
   }
   acquire(
     device: object,

@@ -18,11 +18,11 @@ const sources = [
 ].map((n) => `tests/fixtures/photos/${n}.jpg`)
 
 test('separate keyboard expansion preserves active photo and selection; organization persists at minimum console size', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, sources)
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   const card = (i: number) => page.getByTestId(`photo-card-${photos[i].id}`)
   await card(0).click()
   await card(2).click({ modifiers: ['Shift'] })
@@ -31,7 +31,7 @@ test('separate keyboard expansion preserves active photo and selection; organiza
   await expect(page.getByTestId('selection-count')).toHaveText('3 selected')
   await expect(page.getByText('2 selected in collapsed stacks', { exact: true })).toBeVisible()
   await expect(page.getByTestId('preview-filename')).toHaveText(photos[2].filename)
-  expect((await page.evaluate(() => window.luma.listGallery())).total).toBe(3)
+  expect((await page.evaluate(() => window.irodori.listGallery())).total).toBe(3)
   const expand = page.getByRole('button', {
     name: `Expand stack for ${photos[2].filename}, 3 photos`,
     exact: true,
@@ -71,9 +71,9 @@ test('separate keyboard expansion preserves active photo and selection; organiza
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(700)
   await page.screenshot({ path: info.outputPath('stacks-minimum-console.png') })
   await page.getByRole('menuitem', { name: 'Remove this photo from group', exact: true }).click()
-  expect((await page.evaluate(() => window.luma.listStacks())).stacks[0].count).toBe(2)
-  expect((await page.evaluate((id) => window.luma.getEdits(id), photos[0].id)).revision).toBe(0)
-  const restarted = await luma.restart()
+  expect((await page.evaluate(() => window.irodori.listStacks())).stacks[0].count).toBe(2)
+  expect((await page.evaluate((id) => window.irodori.getEdits(id), photos[0].id)).revision).toBe(0)
+  const restarted = await irodori.restart()
   await expect(
     restarted.page.getByRole('button', {
       name: `Collapse stack for ${photos[0].filename}, 2 photos`,
@@ -82,17 +82,19 @@ test('separate keyboard expansion preserves active photo and selection; organiza
   await restarted.page.getByTestId(`photo-card-${photos[0].id}`).click({ button: 'right' })
   await restarted.page.getByRole('menuitem', { name: 'Ungroup photos', exact: true }).click()
   await expect
-    .poll(async () => (await restarted.page.evaluate(() => window.luma.listStacks())).stacks.length)
+    .poll(
+      async () => (await restarted.page.evaluate(() => window.irodori.listStacks())).stacks.length,
+    )
     .toBe(0)
-  expect((await restarted.page.evaluate(() => window.luma.listPhotos())).total).toBe(5)
+  expect((await restarted.page.evaluate(() => window.irodori.listPhotos())).total).toBe(5)
 })
 
 test('Continuous scrolling keeps expanded members contiguous, hidden anchors map to covers, and deletion awaits a pending range', async ({
-  luma,
+  irodori,
 }) => {
   test.setTimeout(90000)
-  const { app, page } = luma
-  const directory = join(luma.userDataDir, 'sources')
+  const { app, page } = irodori
+  const directory = join(irodori.userDataDir, 'sources')
   await mkdir(directory)
   const paths: string[] = []
   for (let i = 0; i < 63; i++) {
@@ -108,13 +110,13 @@ test('Continuous scrolling keeps expanded members contiguous, hidden anchors map
     paths.push(path)
   }
   await importPhotos(app, page, paths)
-  const flat = (await page.evaluate(() => window.luma.listPhotos())).photos
-  const rest = (await page.evaluate(() => window.luma.listPhotos(60))).photos
+  const flat = (await page.evaluate(() => window.irodori.listPhotos())).photos
+  const rest = (await page.evaluate(() => window.irodori.listPhotos(60))).photos
   const ids = [flat[59].id, rest[0].id, rest[1].id]
   await page.evaluate(async (ids) => {
-    const { revision } = await window.luma.listStacks()
-    const stack = await window.luma.groupPhotos(ids, ids[0], revision)
-    await window.luma.setStackExpanded(stack.id, true, stack.revision)
+    const { revision } = await window.irodori.listStacks()
+    const stack = await window.irodori.groupPhotos(ids, ids[0], revision)
+    await window.irodori.setStackExpanded(stack.id, true, stack.revision)
   }, ids)
   await revealEditorPhoto(page, flat[59].id)
   await expect(
@@ -124,12 +126,12 @@ test('Continuous scrolling keeps expanded members contiguous, hidden anchors map
   await expect(page.getByTestId(`photo-card-${rest[1].id}`).locator('..')).toHaveAttribute(
     'data-stack-id',
   )
-  const second = await page.evaluate(() => window.luma.listGallery(60))
+  const second = await page.evaluate(() => window.irodori.listGallery(60))
   expect(second.entries.slice(0, 2).map((e) => e.photo.id)).toEqual([rest[1].id, rest[0].id])
   await page.getByTestId(`photo-card-${rest[1].id}`).click()
   await page.evaluate(async () => {
-    const stack = (await window.luma.listStacks()).stacks[0]
-    await window.luma.setStackExpanded(stack.id, false, stack.revision)
+    const stack = (await window.irodori.listStacks()).stacks[0]
+    await window.irodori.setStackExpanded(stack.id, false, stack.revision)
   })
   await expect(page.getByText('1 selected in collapsed stacks', { exact: true })).toBeVisible()
   await revealEditorPhoto(page, rest[2].id)
@@ -160,19 +162,19 @@ test('Continuous scrolling keeps expanded members contiguous, hidden anchors map
   await hold.evaluate((h) => h.release())
   await expect(page.getByRole('dialog')).toContainText('Move 63 photos to Trash?')
   await page.keyboard.press('Escape')
-  expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(63)
+  expect((await page.evaluate(() => window.irodori.listPhotos())).total).toBe(63)
 })
 
 test('Select group names hidden targets; cover deletion deletes only the explicitly selected cover', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, sources.slice(0, 3))
   await isolateTrash(app)
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   const ids = photos.map((p) => p.id)
   await page.evaluate(async (ids) => {
-    await window.luma.groupPhotos(ids, ids[0], (await window.luma.listStacks()).revision)
+    await window.irodori.groupPhotos(ids, ids[0], (await window.irodori.listStacks()).revision)
   }, ids)
   await page.getByTestId(`photo-card-${ids[0]}`).click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Select entire group', exact: true }).click()
@@ -184,24 +186,26 @@ test('Select group names hidden targets; cover deletion deletes only the explici
   await page.keyboard.press('Delete')
   await expect(page.getByRole('dialog')).toContainText('Move photo to Trash?')
   await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
-  await expect.poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total).toBe(2)
+  await expect
+    .poll(async () => (await page.evaluate(() => window.irodori.listPhotos())).total)
+    .toBe(2)
   await expect(page.getByTestId('preview-filename')).toHaveText(photos[2].filename)
-  expect((await page.evaluate(() => window.luma.listStacks())).stacks[0]).toMatchObject({
+  expect((await page.evaluate(() => window.irodori.listStacks())).stacks[0]).toMatchObject({
     count: 2,
     coverId: ids[2],
   })
 })
 
 test('editing MCP uses the same revision-checked stack and gallery service as UI', async ({
-  luma,
+  irodori,
 }) => {
-  await importPhotos(luma.app, luma.page, sources.slice(0, 3))
+  await importPhotos(irodori.app, irodori.page, sources.slice(0, 3))
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [resolve('scripts/editor-mcp.mjs')],
-    env: { ...(process.env as Record<string, string>), LUMA_PROFILE: luma.userDataDir },
+    env: { ...(process.env as Record<string, string>), IRODORI_PROFILE: irodori.userDataDir },
   })
-  const client = new Client({ name: 'luma-stack-test', version: '1' })
+  const client = new Client({ name: 'irodori-stack-test', version: '1' })
   try {
     await client.connect(transport)
     const call = async (name: string, args = {}) => {
@@ -209,48 +213,54 @@ test('editing MCP uses the same revision-checked stack and gallery service as UI
       expect(r.isError).not.toBe(true)
       return r.structuredContent as Record<string, unknown>
     }
-    const ids = (await luma.page.evaluate(() => window.luma.listPhotos())).photos.map((p) => p.id)
-    const overview = await call('luma_list_stacks')
-    const stack = await call('luma_group_photos', {
+    const ids = (await irodori.page.evaluate(() => window.irodori.listPhotos())).photos.map(
+      (p) => p.id,
+    )
+    const overview = await call('irodori_list_stacks')
+    const stack = await call('irodori_group_photos', {
       ids,
       coverId: ids[0],
       expectedRevision: overview.revision,
     })
-    expect(await call('luma_list_gallery')).toMatchObject({ total: 1, storedTotal: 3 })
-    expect(await call('luma_get_photo_stack', { photoId: ids[1] })).toMatchObject({
+    expect(await call('irodori_list_gallery')).toMatchObject({ total: 1, storedTotal: 3 })
+    expect(await call('irodori_get_photo_stack', { photoId: ids[1] })).toMatchObject({
       stack: { id: stack.id },
     })
     expect(
       (
         await client.callTool({
-          name: 'luma_set_stack_cover',
+          name: 'irodori_set_stack_cover',
           arguments: { stackId: stack.id, photoId: ids[1] },
         })
       ).isError,
     ).toBe(true)
-    const expanded = await call('luma_set_stack_expanded', {
+    const expanded = await call('irodori_set_stack_expanded', {
       stackId: stack.id,
       expanded: true,
       expectedRevision: stack.revision,
     })
-    expect(await call('luma_get_stack_members', { stackId: stack.id })).toMatchObject({ total: 3 })
-    expect(await call('luma_locate_gallery_photo', { photoId: ids[1] })).toMatchObject({
+    expect(await call('irodori_get_stack_members', { stackId: stack.id })).toMatchObject({
+      total: 3,
+    })
+    expect(await call('irodori_locate_gallery_photo', { photoId: ids[1] })).toMatchObject({
       location: { photo: { id: ids[1] } },
     })
-    const cover = await call('luma_set_stack_cover', {
+    const cover = await call('irodori_set_stack_cover', {
       stackId: stack.id,
       photoId: ids[1],
       expectedRevision: expanded.revision,
     })
-    const removed = await call('luma_remove_from_stack', {
+    const removed = await call('irodori_remove_from_stack', {
       photoId: ids[2],
       expectedRevision: cover.revision,
     })
     const summary = removed.stack as { revision: number }
-    await call('luma_ungroup_stack', { stackId: stack.id, expectedRevision: summary.revision })
-    await call('luma_group_capture_sequences')
-    await expect(luma.page.getByTestId('task-progress')).toContainText('Capture grouping complete')
-    expect(await call('luma_list_stacks')).toMatchObject({ stacks: [] })
+    await call('irodori_ungroup_stack', { stackId: stack.id, expectedRevision: summary.revision })
+    await call('irodori_group_capture_sequences')
+    await expect(irodori.page.getByTestId('task-progress')).toContainText(
+      'Capture grouping complete',
+    )
+    expect(await call('irodori_list_stacks')).toMatchObject({ stacks: [] })
   } finally {
     await client.close()
     await transport.close()

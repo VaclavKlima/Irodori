@@ -1,8 +1,14 @@
 import { CollectionChangedError } from '../shared/collections'
 import { MergeError, type MergeFailure } from '../shared/merge'
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppInfo, LibraryEvent, LumaApi } from '../shared/contracts'
+import type { AppInfo, LibraryEvent, IrodoriApi } from '../shared/contracts'
 import { BrowseCatalogChangedError } from '../shared/browse'
+
+async function editTransferResult<T>(response: Promise<{ result: T; error?: string }>): Promise<T> {
+  const value = await response
+  if (value.error) throw new Error(value.error)
+  return value.result
+}
 
 async function browseResult<T>(response: Promise<{ result: T; stale?: boolean }>): Promise<T> {
   const value = await response
@@ -20,10 +26,24 @@ async function mergeResult<T>(response: Promise<{ result: T; error?: MergeFailur
   if (value.error) throw new MergeError(value.error)
   return value.result
 }
-const api: LumaApi = {
+const api: IrodoriApi = {
   getResourceSettings: () => ipcRenderer.invoke('resources:get-settings'),
   setResourceSettings: (value) => ipcRenderer.invoke('resources:set-settings', value),
   getResourcePolicy: (adapter) => ipcRenderer.invoke('resources:get-policy', adapter),
+  onImageResourceQuery: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, token: string) => {
+      void Promise.resolve()
+        .then(listener)
+        .then(
+          (bytes) => ipcRenderer.send('resources:image-reply', token, bytes),
+          (error) => ipcRenderer.send('resources:image-reply', token, undefined, String(error)),
+        )
+    }
+    ipcRenderer.on('resources:image-query', handler)
+    return () => {
+      ipcRenderer.removeListener('resources:image-query', handler)
+    }
+  },
   getExportCapabilities: () => ipcRenderer.invoke('export:capabilities'),
   getExportPreferences: () => ipcRenderer.invoke('export:preferences'),
   chooseExportDestination: () => ipcRenderer.invoke('export:choose-destination'),
@@ -113,6 +133,14 @@ const api: LumaApi = {
       ipcRenderer.removeListener('display:refresh', handler)
     }
   },
+  getEditClipboard: () => ipcRenderer.invoke('edits:clipboard'),
+  copyEdits: (id) => editTransferResult(ipcRenderer.invoke('edits:copy', id)),
+  preparePasteEdits: (request) =>
+    editTransferResult(ipcRenderer.invoke('edits:paste-prepare', request)),
+  disposePastePreparation: (id) => ipcRenderer.invoke('edits:paste-dispose', id),
+  startPasteEdits: (id) => editTransferResult(ipcRenderer.invoke('edits:paste-start', id)),
+  getEditApplicationResults: (id, offset = 0) =>
+    ipcRenderer.invoke('edits:paste-results', id, offset),
   onFlushEdits: (listener) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
@@ -139,6 +167,17 @@ const api: LumaApi = {
     return result.statistics
   },
   getEdits: (id) => ipcRenderer.invoke('edits:get', id),
+  getEditCapabilities: () => ipcRenderer.invoke('edits:capabilities'),
+  getCropContext: async (id, revision) => {
+    const result = await ipcRenderer.invoke('crop:context', id, revision)
+    if (result.error) throw new Error(result.error)
+    return result.context
+  },
+  proposeWhiteBalance: async (id, revision, sample) => {
+    const result = await ipcRenderer.invoke('white-balance:propose', id, revision, sample)
+    if (result.error) throw new Error(result.error)
+    return result.proposal
+  },
   getPhotoPixel: async (id, revision, x, y, request) => {
     const result = await ipcRenderer.invoke('pixel:get', id, revision, x, y, request)
     if (result.error) throw new Error(result.error)
@@ -174,6 +213,16 @@ const api: LumaApi = {
   },
   requestEditingPreview: async (id, token) => {
     const result = await ipcRenderer.invoke('preview:editing', id, token)
+    if (result.error) throw new Error(result.error)
+    return result.preview
+  },
+  requestComparisonPreview: async (after, token, revision) => {
+    const result = await ipcRenderer.invoke('preview:comparison', after, token, revision)
+    if (result.error) throw new Error(result.error)
+    return result.preview
+  },
+  requestCropPreview: async (id, token, revision) => {
+    const result = await ipcRenderer.invoke('preview:crop-source', id, token, revision)
     if (result.error) throw new Error(result.error)
     return result.preview
   },
@@ -242,4 +291,4 @@ const api: LumaApi = {
   },
 }
 
-contextBridge.exposeInMainWorld('luma', Object.freeze(api))
+contextBridge.exposeInMainWorld('irodori', Object.freeze(api))

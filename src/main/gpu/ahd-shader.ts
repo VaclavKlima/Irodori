@@ -7,6 +7,8 @@ import {
   blacksModule,
 } from '../../shared/adjustments'
 import { sensorBlendWgsl } from './sensor-blend'
+import { colorIntensityWgsl } from '../../shared/color-intensity'
+import { creativeColorWgsl } from '../../shared/creative-color-gpu'
 // AHD stages adapted from LibRaw 0.22.1 (CDDL-1.0).
 // Copyright 2019-2025 LibRaw LLC; dcraw portions Copyright 1997-2018 Dave Coffin.
 // See third_party/libraw/ for license, attribution, and the upstream source reference.
@@ -17,6 +19,7 @@ ${highlightsModule.wgsl}
 ${shadowsModule.wgsl}
 ${whitesModule.wgsl}
 ${blacksModule.wgsl}
+${colorIntensityWgsl('srgb')}
 ${sensorBlendWgsl}
 struct Params {
   size: vec4u, // active width, height, stored width, flip
@@ -29,6 +32,7 @@ struct Params {
   tonalEndpoints: vec4f, // shadows, whites, blacks, custom white balance
   wb0: vec4f, wb1: vec4f, wb2: vec4f,
   blendSaturation: vec4f, blendWhite: vec4f,
+  colorIntensity: vec4f,
 }
 @group(0) @binding(0) var<uniform> p: Params;
 @group(0) @binding(1) var<storage, read> raw: array<u32>;
@@ -152,7 +156,9 @@ fn border(q:vec2i) -> vec3i {
   if(any(id.xy>=p.size.xy)) { return; }
   var input=textureLoad(linearInput,vec2i(id.xy),0).xyz;
   if(p.tonalEndpoints.w != 0.0) { input=vec3f(dot(p.wb0.xyz,input),dot(p.wb1.xyz,input),dot(p.wb2.xyz,input)); }
-  let rgb=vec3u(clamp(applyBlacks(applyWhites(applyShadows(applyHighlights(applyContrast(applyExposure(input,p.adjustments.x),p.adjustments.y,p.adjustments.z),p.adjustments.w,p.adjustments.z),p.tonalEndpoints.x,p.adjustments.z),p.tonalEndpoints.y,p.adjustments.z),p.tonalEndpoints.z,p.adjustments.z)*65535.0,vec3f(0),vec3f(65535)));
+  var adjusted=applyBlacks(applyWhites(applyShadows(applyHighlights(applyContrast(applyExposure(input,p.adjustments.x),p.adjustments.y,p.adjustments.z),p.adjustments.w,p.adjustments.z),p.tonalEndpoints.x,p.adjustments.z),p.tonalEndpoints.y,p.adjustments.z),p.tonalEndpoints.z,p.adjustments.z);
+  if(any(p.colorIntensity.xy!=vec2f(0.))) { adjusted=applyColorIntensity(adjusted/p.adjustments.z,p.colorIntensity.xy)*p.adjustments.z; }
+  let rgb=vec3u(clamp(adjusted*65535.0,vec3f(0),vec3f(65535)));
   var q=id.xy; var width=p.size.x;
   if ((p.size.w & 1u)!=0u) { q.x=p.size.x-1u-q.x; }
   if ((p.size.w & 2u)!=0u) { q.y=p.size.y-1u-q.y; }
@@ -160,3 +166,14 @@ fn border(q:vec2i) -> vec3i {
   output[q.y*width+q.x]=curve[rgb.x] | (curve[rgb.y]<<8u) | (curve[rgb.z]<<16u) | 4278190080u;
 }
 `
+
+/** A legacy SDR proof edits normalized nonnegative sRGB; sensor/HDR stages stay unchanged. */
+export function ahdDisplayShader(creative = false): string {
+  if (!creative) return ahdShader
+  return ahdShader
+    .replace(colorIntensityWgsl('srgb'), creativeColorWgsl('srgb', 12))
+    .replace(
+      'if(any(p.colorIntensity.xy!=vec2f(0.))) { adjusted=applyColorIntensity(adjusted/p.adjustments.z,p.colorIntensity.xy)*p.adjustments.z; }',
+      'adjusted=applyCreativeColor(max(adjusted/p.adjustments.z,vec3f(0.)))*p.adjustments.z;',
+    )
+}

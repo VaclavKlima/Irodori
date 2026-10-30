@@ -20,7 +20,7 @@ for (let index = 0; index < data.length; index++) data[index] = index % 251
 data.set([0x7f, 0x45, 0x4c, 0x46])
 
 async function scratch(work: (directory: string) => Promise<void>) {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-cpu-executable-'))
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-cpu-executable-'))
   try {
     await work(directory)
   } finally {
@@ -29,12 +29,12 @@ async function scratch(work: (directory: string) => Promise<void>) {
 }
 async function bundle(runtime: string) {
   const directory = join(runtime, 'native-cpu-render/linux-x64'),
-    executable = join(directory, 'luma-cpu-render'),
+    executable = join(directory, 'irodori-cpu-render'),
     manifest = join(directory, 'SHA256SUMS')
   await mkdir(directory, { recursive: true })
   await writeFile(executable, data, { flag: 'wx', mode: 0o755 })
   await chmod(executable, 0o755)
-  await writeFile(manifest, `${hash(data)}  luma-cpu-render\n`, { flag: 'wx', mode: 0o600 })
+  await writeFile(manifest, `${hash(data)}  irodori-cpu-render\n`, { flag: 'wx', mode: 0o600 })
   return { directory, executable, manifest }
 }
 
@@ -84,13 +84,13 @@ for (const missing of ['manifest', 'executable'] as const)
 
 const invalidManifests = [
   ['wrong filename', `${hash(data)}  other-renderer\n`, 'checksum manifest'],
-  ['wrong delimiter', `${hash(data)} luma-cpu-render\n`, 'checksum manifest'],
+  ['wrong delimiter', `${hash(data)} irodori-cpu-render\n`, 'checksum manifest'],
   [
     'multiple records',
-    `${hash(data)}  luma-cpu-render\n${hash(data)}  other\n`,
+    `${hash(data)}  irodori-cpu-render\n${hash(data)}  other\n`,
     'checksum manifest',
   ],
-  ['uppercase digest', `${'A'.repeat(64)}  luma-cpu-render\n`, 'checksum manifest'],
+  ['uppercase digest', `${'A'.repeat(64)}  irodori-cpu-render\n`, 'checksum manifest'],
   ['empty file', '', 'invalid file'],
   ['oversized file', 'x'.repeat(257), 'invalid file'],
 ] as const

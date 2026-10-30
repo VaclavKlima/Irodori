@@ -14,7 +14,8 @@ export function Shadows({ edits, previewReady }: { edits: EditController; previe
       step={parameter.step}
       precision={0}
       resetKey={edits.state?.revision}
-      disabled={!edits.state || edits.saving || !previewReady}
+      disabled={!edits.state || !previewReady}
+      busy={edits.saving}
       onChange={(shadows) => void edits.change({ shadows })}
       onCommit={() => void edits.flush().catch(() => undefined)}
       onCancel={edits.cancel}

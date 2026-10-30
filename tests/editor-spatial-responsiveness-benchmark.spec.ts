@@ -57,14 +57,16 @@ requiresForeground(test, reason)
 test.use({ hdrDisplay: true })
 const allGestures: SpatialGesture[] = ['pan', 'zoom', 'zoom-fit-native', 'drag']
 // A filtered diagnostic retains its samples but cannot establish full spatial acceptance.
-const selected = process.env.LUMA_RESPONSIVENESS_GESTURES?.split(',').map((value) => value.trim())
+const selected = process.env.IRODORI_RESPONSIVENESS_GESTURES?.split(',').map((value) =>
+  value.trim(),
+)
 if (
   selected &&
   (selected.some((value) => !allGestures.includes(value as SpatialGesture)) ||
     new Set(selected).size !== selected.length)
 )
   throw new Error(
-    'LUMA_RESPONSIVENESS_GESTURES must contain distinct pan, zoom, zoom-fit-native or drag labels.',
+    'IRODORI_RESPONSIVENESS_GESTURES must contain distinct pan, zoom, zoom-fit-native or drag labels.',
   )
 const gestures = (selected ?? allGestures) as SpatialGesture[]
 const matrixPartial = gestures.length !== allGestures.length
@@ -78,9 +80,9 @@ for (const layout of [
     test(
       `spatial responsiveness ${layout.name} ${frequency}Hz: warm pan, zoom and native drag`,
       foregroundTest(reason),
-      async ({ luma }, info) => {
+      async ({ irodori }, info) => {
         test.setTimeout(300000)
-        const { app, page } = luma
+        const { app, page } = irodori
         const native = await app.browserWindow(page)
         const canvas = page.getByTestId('main-preview')
         const viewport = page.getByTestId('preview-viewport')
@@ -143,11 +145,11 @@ for (const layout of [
             await toggle.click()
           const maximizedConfiguration = layout.maximized
             ? await maximizeEditorOnMonitor(app, page, {
-                monitorLabel: process.env.LUMA_RESPONSIVENESS_MONITOR,
+                monitorLabel: process.env.IRODORI_RESPONSIVENESS_MONITOR,
               })
             : null
           if (editorDisplayPreference === 'sdr')
-            await page.evaluate(() => window.luma.setPreviewPreference('sdr'))
+            await page.evaluate(() => window.irodori.setPreviewPreference('sdr'))
           await focusPreviewWindow(app, page)
           const displayConfirmation = await confirmSpatialDisplay(app, page)
           environment = {
@@ -172,7 +174,7 @@ for (const layout of [
                 internal: display.internal,
               })),
             ),
-            target: await page.evaluate(() => window.luma.getDisplayState()),
+            target: await page.evaluate(() => window.irodori.getDisplayState()),
             profileIsolation: 'electron.fixture temporary profile',
             startingView:
               'Pan/drag at 100%; zoom 100–122%; zoom-fit-native repeatedly crosses Fit→100% around an off-center pointer anchor.',

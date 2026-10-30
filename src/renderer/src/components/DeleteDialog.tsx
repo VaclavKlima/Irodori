@@ -29,7 +29,7 @@ export function DeleteDialog({
     if (pending) return
     setPending(true)
     try {
-      await window.luma.deletePhotos(photos.map((photo) => photo.id))
+      await window.irodori.deletePhotos(photos.map((photo) => photo.id))
       dialog.current?.close()
       onStarted()
     } catch (error) {

@@ -1,6 +1,7 @@
 import { open } from 'node:fs/promises'
 
 function weights(input: number, output: number) {
+  if (input === output) return Array.from({ length: output }, (_, index) => [{ index, weight: 1 }])
   const scale = Math.max(1, input / output)
   const sinc = (v: number) => (Math.abs(v) < 1e-12 ? 1 : Math.sin(Math.PI * v) / (Math.PI * v))
   return Array.from({ length: output }, (_, i) => {
@@ -28,12 +29,31 @@ export async function resizeLinear(
   row: (data: Float32Array, y: number) => void,
 ) {
   const file = await open(path, 'r')
-  const horizontal = weights(width, outWidth),
-    vertical = weights(height, outHeight)
-  const cache = new Map<number, Float32Array>()
   try {
     if ((await file.stat()).size !== width * height * channels * 4)
       throw new Error('Incomplete export rendition.')
+    const readRow = async (index: number) => {
+      const bytes = Buffer.alloc(width * channels * 4)
+      let read = 0
+      while (read < bytes.byteLength) {
+        const part = await file.read(
+          bytes,
+          read,
+          bytes.byteLength - read,
+          index * bytes.byteLength + read,
+        )
+        if (!part.bytesRead) throw new Error('Incomplete export row.')
+        read += part.bytesRead
+      }
+      return new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4)
+    }
+    if (width === outWidth && height === outHeight) {
+      for (let y = 0; y < height; y++) row(await readRow(y), y)
+      return
+    }
+    const horizontal = weights(width, outWidth),
+      vertical = weights(height, outHeight),
+      cache = new Map<number, Float32Array>()
     for (let y = 0; y < outHeight; y++) {
       const needed = new Set(vertical[y].map((w) => w.index))
       for (const key of cache.keys()) if (!needed.has(key)) cache.delete(key)
@@ -41,19 +61,7 @@ export async function resizeLinear(
       for (const { index, weight } of vertical[y]) {
         let data = cache.get(index)
         if (!data) {
-          const bytes = Buffer.alloc(width * channels * 4)
-          let read = 0
-          while (read < bytes.byteLength) {
-            const part = await file.read(
-              bytes,
-              read,
-              bytes.byteLength - read,
-              index * bytes.byteLength + read,
-            )
-            if (!part.bytesRead) throw new Error('Incomplete export row.')
-            read += part.bytesRead
-          }
-          const source = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4)
+          const source = await readRow(index)
           data = new Float32Array(outWidth * channels)
           for (let x = 0; x < outWidth; x++)
             for (const tap of horizontal[x])

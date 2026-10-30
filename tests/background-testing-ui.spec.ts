@@ -5,10 +5,10 @@ import { testUiMode } from '../scripts/test-ui-mode.mjs'
 import { readFile } from 'node:fs/promises'
 
 test('isolated launch policy retains real rendering, security, DOM keyboard focus and native captures', async ({
-  luma,
+  irodori,
 }, info) => {
   const background = testUiMode() === 'background'
-  const { app, page } = luma
+  const { app, page } = irodori
   const state = await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0]
     window.setContentSize(1100, 700)
@@ -74,14 +74,14 @@ test('isolated launch policy retains real rendering, security, DOM keyboard focu
 })
 
 test('normal restart, abrupt exit and explicit quit retain the requested window policy', async ({
-  luma,
+  irodori,
 }, info) => {
-  await luma.page.getByTestId('console-toggle').click()
-  let current = await luma.restart()
+  await irodori.page.getByTestId('console-toggle').click()
+  let current = await irodori.restart()
   await expect(current.page.getByTestId('console-panel')).toBeVisible()
-  current = await luma.crashAndRestart()
+  current = await irodori.crashAndRestart()
   await expect(current.page.getByTestId('console-panel')).toBeVisible()
-  await luma.expectQuit(async () => {
+  await irodori.expectQuit(async () => {
     await current.app.evaluate(({ app }) => {
       setImmediate(() => app.quit())
     })
@@ -98,11 +98,11 @@ test('normal restart, abrupt exit and explicit quit retain the requested window 
 })
 
 test('orderly shutdown destroys the renderer before final quit and restores flushed workspace state', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page)
-  const chosen = (await page.evaluate(() => window.luma.listPhotos())).photos[0]
+  const chosen = (await page.evaluate(() => window.irodori.listPhotos())).photos[0]
   await page.getByTestId(`photo-card-${chosen.id}`).click()
   await page.getByTestId('console-toggle').click()
   const evidenceFile = info.outputPath('orderly-shutdown.json')
@@ -152,7 +152,7 @@ test('orderly shutdown destroys the renderer before final quit and restores flus
       quit()
     }
   }, evidenceFile)
-  const restarted = await luma.restart()
+  const restarted = await irodori.restart()
   expect(JSON.parse(await readFile(evidenceFile, 'utf8'))).toEqual({
     quitCalls: 2,
     windowCount: 0,
@@ -163,6 +163,6 @@ test('orderly shutdown destroys the renderer before final quit and restores flus
   await expect(restarted.page.getByTestId('console-panel')).toBeVisible()
   await expect(restarted.page.getByTestId('preview-filename')).toHaveText(chosen.filename)
   expect(
-    (await restarted.page.evaluate(() => window.luma.getWorkspaceState())).state,
+    (await restarted.page.evaluate(() => window.irodori.getWorkspaceState())).state,
   ).toMatchObject({ activeId: chosen.id, consoleOpen: true })
 })

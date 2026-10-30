@@ -70,12 +70,12 @@ export async function cameraOracle(
     height = raw.flip & 4 ? plan.width : plan.height
   if (rgba.length !== width * height * 4) throw new Error('Invalid research native oracle size.')
   const started = performance.now(),
-    previousKernel = process.env.LUMA_MERGE_CPU_KERNEL
+    previousKernel = process.env.IRODORI_MERGE_CPU_KERNEL
   let writer: Awaited<ReturnType<typeof cameraRegistrationWriter>> | undefined
   let oracle: CameraRegistration
   try {
     // Keep the experimental GPU comparison independent of the optional WASM candidate.
-    process.env.LUMA_MERGE_CPU_KERNEL = 'scalar'
+    process.env.IRODORI_MERGE_CPU_KERNEL = 'scalar'
     writer = await cameraRegistrationWriter(
       directory,
       index,
@@ -95,8 +95,8 @@ export async function cameraOracle(
     try {
       await writer?.close()
     } finally {
-      if (previousKernel === undefined) delete process.env.LUMA_MERGE_CPU_KERNEL
-      else process.env.LUMA_MERGE_CPU_KERNEL = previousKernel
+      if (previousKernel === undefined) delete process.env.IRODORI_MERGE_CPU_KERNEL
+      else process.env.IRODORI_MERGE_CPU_KERNEL = previousKernel
     }
   }
   const oracleWallMs = performance.now() - started,

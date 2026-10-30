@@ -1,6 +1,7 @@
 import type { AdjustmentParameters } from '../../../shared/adjustments'
 import type { DisplayTarget } from '../../../shared/hdr'
 import type { Size, View } from './geometry'
+import { creativeColorIdentity } from '../../../shared/creative-color'
 
 export const HDR_PRESENTATION_CACHE_BUDGET = 96 * 1024 ** 2
 const identityVersion = 'hdr-exact-presentation-v1'
@@ -10,6 +11,8 @@ export interface HdrPresentationIdentityInput {
   confirmed: boolean
   sourceIdentity: string
   sourceSha256: string
+  /** Only Before/Split depend on this independently validated source. */
+  beforeSource?: { readonly identity: string; readonly sha256: string }
   renderingPolicy: string
   settingsRevision: number
   adjustments: AdjustmentParameters
@@ -48,6 +51,8 @@ export function hdrPresentationIdentity(
     adjustments.shadows,
     adjustments.whites,
     adjustments.blacks,
+    adjustments.saturation,
+    adjustments.vibrance,
     target.peak,
     ...(target.headroom === null ? [] : [target.headroom]),
     ...(whiteBalance.mode === 'custom' ? [whiteBalance.kelvin, whiteBalance.tint] : []),
@@ -63,6 +68,11 @@ export function hdrPresentationIdentity(
     input.confirmed !== true ||
     !input.sourceIdentity ||
     !/^[a-f0-9]{64}$/.test(input.sourceSha256) ||
+    (input.beforeSource !== undefined &&
+      (!input.beforeSource ||
+        typeof input.beforeSource.identity !== 'string' ||
+        !input.beforeSource.identity ||
+        !/^[a-f0-9]{64}$/.test(input.beforeSource.sha256))) ||
     !input.renderingPolicy ||
     !Number.isSafeInteger(input.settingsRevision) ||
     input.settingsRevision < 0 ||
@@ -90,6 +100,12 @@ export function hdrPresentationIdentity(
   const height = Math.max(1, Math.round(viewport.height * dpr))
   const byteLength = width * height * 8
   if (!Number.isSafeInteger(byteLength) || byteLength <= 0) return null
+  let colour: readonly number[] | undefined
+  try {
+    colour = creativeColorIdentity(adjustments)
+  } catch {
+    return null
+  }
   return Object.freeze({
     key: JSON.stringify([
       identityVersion,
@@ -104,6 +120,8 @@ export function hdrPresentationIdentity(
       adjustments.shadows,
       adjustments.whites,
       adjustments.blacks,
+      adjustments.saturation,
+      adjustments.vibrance,
       target.outputVersion,
       target.generation,
       target.requested,
@@ -125,6 +143,10 @@ export function hdrPresentationIdentity(
       dpr,
       width,
       height,
+      ...(colour ? [colour] : []),
+      ...(input.comparison !== 'after' && input.beforeSource
+        ? [['before-source-v1', input.beforeSource.identity, input.beforeSource.sha256]]
+        : []),
     ]),
     width,
     height,

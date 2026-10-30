@@ -58,14 +58,14 @@ export async function foregroundImport(
   await expect(page.getByRole('dialog')).toHaveCount(0)
   const id = await page.evaluate(
     async () =>
-      (await window.luma.listTasks()).find((t) => t.kind === 'import' && t.status === 'running')!
+      (await window.irodori.listTasks()).find((t) => t.kind === 'import' && t.status === 'running')!
         .id,
   )
   await expect
     .poll(() =>
       page.evaluate(
         async (id) =>
-          (await window.luma.listTasks()).find((t) => t.id === id)?.transfer?.bytes ?? 0,
+          (await window.irodori.listTasks()).find((t) => t.id === id)?.transfer?.bytes ?? 0,
         id,
       ),
     )
@@ -74,16 +74,16 @@ export async function foregroundImport(
 }
 
 export async function benchmarkImport(app: ElectronApplication, page: Page, info: TestInfo) {
-  if (process.env.LUMA_BENCHMARK_IMPORT_ACTIVE !== '1') return undefined
+  if (process.env.IRODORI_BENCHMARK_IMPORT_ACTIVE !== '1') return undefined
   return foregroundImport(app, page, info, true)
 }
 export async function finishBenchmarkImport(page: Page, id?: string) {
   if (!id) return
   expect(
     await page.evaluate(
-      async (id) => (await window.luma.listTasks()).find((t) => t.id === id)?.status,
+      async (id) => (await window.irodori.listTasks()).find((t) => t.id === id)?.status,
       id,
     ),
   ).toBe('running')
-  await page.evaluate((id) => window.luma.cancelTask(id), id)
+  await page.evaluate((id) => window.irodori.cancelTask(id), id)
 }

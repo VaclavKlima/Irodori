@@ -46,7 +46,7 @@ export async function cameraSetup(
     inspect?: typeof inspectImportSource
   } = {},
 ) {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'luma-camera-')))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'irodori-camera-')))
   const card = join(root, 'card')
   await mkdir(card)
   await mkdir(join(root, 'trash'))

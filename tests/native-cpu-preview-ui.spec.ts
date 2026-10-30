@@ -48,15 +48,15 @@ async function prepare(app: ElectronApplication, page: Page, withRaster = false)
       .digest('hex'),
   ).toBe(originalSha256)
   await requireTrustedNativeBridge(page)
-  await page.evaluate(() => window.luma.setPreviewPreference('sdr'))
+  await page.evaluate(() => window.irodori.setPreviewPreference('sdr'))
   await importPhotos(app, page, withRaster ? [raster, fixture] : [fixture], false, 'keyboard')
-  const raw = (await page.evaluate(() => window.luma.listPhotos())).photos.find(
+  const raw = (await page.evaluate(() => window.irodori.listPhotos())).photos.find(
     (p) => p.filename === 'sony-zv1.ARW',
   )!
   expect(raw.id).toBe(originalSha256)
-  const initial = await page.evaluate((id) => window.luma.getEdits(id), raw.id)
+  const initial = await page.evaluate((id) => window.irodori.getEdits(id), raw.id)
   await page.evaluate(
-    ({ id, revision, parameters }) => window.luma.updateEdits(id, parameters, revision),
+    ({ id, revision, parameters }) => window.irodori.updateEdits(id, parameters, revision),
     { id: raw.id, revision: initial.revision, parameters },
   )
   await activateButton(page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }))
@@ -75,7 +75,7 @@ async function prepare(app: ElectronApplication, page: Page, withRaster = false)
       name === 'whiteBalance' ? JSON.stringify(value) : String(value),
     )
   }
-  const appInfo = await page.evaluate(() => window.luma.getAppInfo())
+  const appInfo = await page.evaluate(() => window.irodori.getAppInfo())
   if (!selectEditorPreviewPolicy(appInfo.platform).presentationCache)
     await expect(page.getByTestId('main-preview')).toHaveAttribute(
       'data-presentation-cache',
@@ -104,11 +104,11 @@ async function prepare(app: ElectronApplication, page: Page, withRaster = false)
   let prepared
   try {
     prepared = await page.evaluate(
-      ({ id, requestId }) => window.luma.requestHdrPreview(id, requestId, false, 'hdr'),
+      ({ id, requestId }) => window.irodori.requestHdrPreview(id, requestId, false, 'hdr'),
       { id: raw.id, requestId },
     )
   } finally {
-    await page.evaluate((id) => window.luma.releaseFullPreview(id), requestId)
+    await page.evaluate((id) => window.irodori.releaseFullPreview(id), requestId)
   }
   if (!prepared?.linear?.hdr) throw new Error('The real corrected Sony working source is missing.')
   expect(prepared.appliedCorrections).toEqual({
@@ -124,9 +124,9 @@ async function prepare(app: ElectronApplication, page: Page, withRaster = false)
       width: prepared.linear.hdr.width,
       height: prepared.linear.hdr.height,
     },
-    edits: await page.evaluate((id) => window.luma.getEdits(id), raw.id),
-    history: await page.evaluate((id) => window.luma.getEditHistory(id), raw.id),
-    lens: await page.evaluate((id) => window.luma.getLensSettings(id), raw.id),
+    edits: await page.evaluate((id) => window.irodori.getEdits(id), raw.id),
+    history: await page.evaluate((id) => window.irodori.getEditHistory(id), raw.id),
+    lens: await page.evaluate((id) => window.irodori.getLensSettings(id), raw.id),
   }
 }
 
@@ -168,13 +168,13 @@ async function lastNormal(
 }
 
 async function unchanged(page: Page, prepared: Awaited<ReturnType<typeof prepare>>) {
-  expect(await page.evaluate((id) => window.luma.getEdits(id), prepared.raw.id)).toEqual(
+  expect(await page.evaluate((id) => window.irodori.getEdits(id), prepared.raw.id)).toEqual(
     prepared.edits,
   )
-  expect(await page.evaluate((id) => window.luma.getEditHistory(id), prepared.raw.id)).toEqual(
+  expect(await page.evaluate((id) => window.irodori.getEditHistory(id), prepared.raw.id)).toEqual(
     prepared.history,
   )
-  expect(await page.evaluate((id) => window.luma.getLensSettings(id), prepared.raw.id)).toEqual(
+  expect(await page.evaluate((id) => window.irodori.getLensSettings(id), prepared.raw.id)).toEqual(
     prepared.lens,
   )
   for (const [name, value] of Object.entries(parameters)) {
@@ -256,7 +256,7 @@ async function finish(
           frontend,
           native: state,
           published,
-          diagnostics: await page.evaluate(() => window.luma.getPreviewDiagnostics()),
+          diagnostics: await page.evaluate(() => window.irodori.getPreviewDiagnostics()),
         },
         null,
         2,
@@ -269,7 +269,9 @@ async function finish(
       const pair = pairs.get(publication.pairId)
       expect(pair, 'Every visible CPU pair must come from a real main response.').toBeDefined()
       expect(publication.renderingIdentity).toBe(pair!.source.renderingIdentity)
-      expect(publication.source).toContain(`luma-photo://library/${pair!.source.photoId}/linear/`)
+      expect(publication.source).toContain(
+        `irodori-photo://library/${pair!.source.photoId}/linear/`,
+      )
       expect(publication.source).toContain(pair!.source.workingSha256)
       expect(publication.revision).toBe(pair!.settingsRevision)
       expect(publication.quality).toBe(pair!.quality)
@@ -288,9 +290,9 @@ async function finish(
 }
 
 test('real Sony loss publishes trusted native draft then normal, preserving enabled edits, comparison and analysis', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma,
+  const { app, page } = irodori,
     prepared = await prepare(app, page)
   const plot = page.locator('#histogram svg[role="slider"]')
   await expect(plot).toHaveAttribute('data-animating', 'false')
@@ -433,9 +435,9 @@ test('real Sony loss publishes trusted native draft then normal, preserving enab
 })
 
 test('a completed old native reply cannot publish across rapid revision and photo cancellation', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma,
+  const { app, page } = irodori,
     prepared = await prepare(app, page, true)
   const replies = await observeNativeCpuReplies(app),
     publications = await observeCpuPublications(page)
@@ -445,7 +447,7 @@ test('a completed old native reply cannot publish across rapid revision and phot
     await expectCpuPair(page, await lastNormal(replies, prepared.raw.id, prepared.edits.revision))
     await replies.evaluate((c) => c.arm('normal'))
     const first = await page.evaluate(
-      ({ id, revision }) => window.luma.updateEdits(id, { exposureEv: 1.5 }, revision),
+      ({ id, revision }) => window.irodori.updateEdits(id, { exposureEv: 1.5 }, revision),
       { id: prepared.raw.id, revision: prepared.edits.revision },
     )
     await expect
@@ -453,10 +455,10 @@ test('a completed old native reply cannot publish across rapid revision and phot
       .toBe(true)
     const old = (await replies.evaluate((c) => c.state())).held!
     const final = await page.evaluate(
-      ({ id, revision }) => window.luma.updateEdits(id, { exposureEv: 1.75 }, revision),
+      ({ id, revision }) => window.irodori.updateEdits(id, { exposureEv: 1.75 }, revision),
       { id: prepared.raw.id, revision: first.revision },
     )
-    const history = await page.evaluate((id) => window.luma.getEditHistory(id), prepared.raw.id)
+    const history = await page.evaluate((id) => window.irodori.getEditHistory(id), prepared.raw.id)
     await activateButton(page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }))
     await expect(page.getByTestId('main-preview')).toHaveAttribute('aria-label', 'alpine-lake.jpg')
     const marker = (await publications.evaluate((c) => c.state())).publications.length
@@ -477,7 +479,7 @@ test('a completed old native reply cannot publish across rapid revision and phot
         .slice(marker)
         .some((p) => p.pairId === old.pairId),
     ).toBe(false)
-    expect(await page.evaluate((id) => window.luma.getEditHistory(id), prepared.raw.id)).toEqual(
+    expect(await page.evaluate((id) => window.irodori.getEditHistory(id), prepared.raw.id)).toEqual(
       history,
     )
     expect(final.settings).toEqual({ ...prepared.edits.settings, exposureEv: 1.75 })
@@ -488,11 +490,11 @@ test('a completed old native reply cannot publish across rapid revision and phot
 })
 
 test('saved Settings leave the active native owner frozen and apply to its next source session', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await page.evaluate(() =>
-    window.luma.setResourceSettings({ version: 1, ramMiB: 4096, vramMiB: 2048 }),
+    window.irodori.setResourceSettings({ version: 1, ramMiB: 4096, vramMiB: 2048 }),
   )
   const prepared = await prepare(app, page, true)
   const replies = await observeNativeCpuReplies(app),
@@ -503,10 +505,10 @@ test('saved Settings leave the active native owner frozen and apply to its next 
     const active = await lastNormal(replies, prepared.raw.id, prepared.edits.revision)
     await expectCpuPair(page, active)
     const saved = await page.evaluate(() =>
-      window.luma.setResourceSettings({ version: 1, ramMiB: 2048, vramMiB: 1024 }),
+      window.irodori.setResourceSettings({ version: 1, ramMiB: 2048, vramMiB: 1024 }),
     )
     const edited = await page.evaluate(
-      ({ id, revision }) => window.luma.updateEdits(id, { exposureEv: 1.5 }, revision),
+      ({ id, revision }) => window.irodori.updateEdits(id, { exposureEv: 1.5 }, revision),
       { id: prepared.raw.id, revision: prepared.edits.revision },
     )
     const sameOwner = await lastNormal(replies, prepared.raw.id, edited.revision)
@@ -547,14 +549,14 @@ test('saved Settings leave the active native owner frozen and apply to its next 
 })
 
 async function memoryLimitedPreview(
-  luma: { app: ElectronApplication; page: Page },
+  irodori: { app: ElectronApplication; page: Page },
   info: TestInfo,
   checkNativePixels: boolean,
 ) {
-  const { app, page } = luma
+  const { app, page } = irodori
   await (await app.browserWindow(page)).evaluate((window) => window.setContentSize(1100, 700))
   await page.evaluate(() =>
-    window.luma.setResourceSettings({ version: 1, ramMiB: 4096, vramMiB: 2048 }),
+    window.irodori.setResourceSettings({ version: 1, ramMiB: 4096, vramMiB: 2048 }),
   )
   // Prepare the genuine sensor source under sufficient limits, then reuse its cache.
   const prepared = await prepare(app, page, true)
@@ -563,7 +565,7 @@ async function memoryLimitedPreview(
   let loss: Loss | undefined
   try {
     await page.evaluate(() =>
-      window.luma.setResourceSettings({ version: 1, ramMiB: 640, vramMiB: 1024 }),
+      window.irodori.setResourceSettings({ version: 1, ramMiB: 640, vramMiB: 1024 }),
     )
     await activateButton(page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }))
     await expect(page.getByTestId('main-preview')).toHaveAttribute('aria-label', 'alpine-lake.jpg')
@@ -605,7 +607,7 @@ async function memoryLimitedPreview(
     await expect(page.getByTestId('main-preview')).toHaveAttribute('data-full-blocked', 'true')
     await unchanged(page, prepared)
     const edit = await page.evaluate(
-      ({ id, revision }) => window.luma.updateEdits(id, { exposureEv: 1.5 }, revision),
+      ({ id, revision }) => window.irodori.updateEdits(id, { exposureEv: 1.5 }, revision),
       { id: prepared.raw.id, revision: prepared.edits.revision },
     )
     await expect
@@ -625,10 +627,10 @@ async function memoryLimitedPreview(
     await expect(page.getByTestId('main-preview')).toHaveAttribute('data-exposure', '1.5')
     await expect(limited).toBeVisible()
     await page.evaluate(() =>
-      window.luma.setResourceSettings({ version: 1, ramMiB: 2048, vramMiB: 2048 }),
+      window.irodori.setResourceSettings({ version: 1, ramMiB: 2048, vramMiB: 2048 }),
     )
     const final = await page.evaluate(
-      ({ id, revision }) => window.luma.updateEdits(id, { exposureEv: 1.75 }, revision),
+      ({ id, revision }) => window.irodori.updateEdits(id, { exposureEv: 1.75 }, revision),
       { id: prepared.raw.id, revision: edit.revision },
     )
     await expect
@@ -673,7 +675,7 @@ async function memoryLimitedPreview(
     ).toBe(false)
     await expect(page.getByTestId('main-preview')).toHaveAttribute('data-full-blocked', 'true')
     await expect(limited).toBeVisible()
-    const history = await page.evaluate((id) => window.luma.getEditHistory(id), prepared.raw.id)
+    const history = await page.evaluate((id) => window.irodori.getEditHistory(id), prepared.raw.id)
     await activateButton(page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }))
     await expect(page.getByTestId('main-preview')).toHaveAttribute('aria-label', 'alpine-lake.jpg')
     await activateButton(page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }))
@@ -683,7 +685,7 @@ async function memoryLimitedPreview(
     expect(next.policy.revision).toBeGreaterThan(draft.policy.revision)
     await expect(page.getByTestId('main-preview')).not.toHaveAttribute('data-full-blocked', 'true')
     await expect(limited).not.toBeVisible()
-    expect(await page.evaluate((id) => window.luma.getEditHistory(id), prepared.raw.id)).toEqual(
+    expect(await page.evaluate((id) => window.irodori.getEditHistory(id), prepared.raw.id)).toEqual(
       history,
     )
     expect(next.parameters).toEqual({ ...parameters, exposureEv: 1.75 })
@@ -694,9 +696,9 @@ async function memoryLimitedPreview(
 }
 
 test('native memory denial keeps draft edits usable and freezes limits until the next owner', async ({
-  luma,
+  irodori,
 }, info) => {
-  await memoryLimitedPreview(luma, info, false)
+  await memoryLimitedPreview(irodori, info, false)
 })
 
 test(
@@ -704,15 +706,15 @@ test(
   foregroundTest(
     'The complete memory lifecycle includes a native 100% redraw after resizing; this Wayland hidden window does not deliver the required compositor frame, including under hidden-safe capture.',
   ),
-  async ({ luma }, info) => {
-    await memoryLimitedPreview(luma, info, true)
+  async ({ irodori }, info) => {
+    await memoryLimitedPreview(irodori, info, true)
   },
 )
 
 test('a completed real CPU bitmap receiver drains before the next photo allocates its GPU source', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma,
+  const { app, page } = irodori,
     prepared = await prepare(app, page, true)
   const replies = await observeNativeCpuReplies(app),
     publications = await observeCpuPublications(page),
@@ -802,10 +804,10 @@ test('a completed real CPU bitmap receiver drains before the next photo allocate
 })
 
 test('records genuine native CPU gesture analysis and full clipping consumer baseline without desktop focus', async ({
-  luma,
+  irodori,
 }, info) => {
   test.setTimeout(300000)
-  const { app, page } = luma,
+  const { app, page } = irodori,
     prepared = await prepare(app, page)
   const replies = await observeNativeCpuReplies(app),
     publications = await observeCpuPublications(page),
@@ -840,7 +842,7 @@ test('records genuine native CPU gesture analysis and full clipping consumer bas
     expect(
       gesture.histogramDom.some((record) => record.phase === 'gesture' && record.samples === 8192),
     ).toBe(true)
-    expect(await page.evaluate((id) => window.luma.getEditHistory(id), prepared.raw.id)).toEqual(
+    expect(await page.evaluate((id) => window.irodori.getEditHistory(id), prepared.raw.id)).toEqual(
       prepared.history,
     )
     await analysis.evaluate((control) => control.mark('restore'))

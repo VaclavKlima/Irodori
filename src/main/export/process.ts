@@ -6,6 +6,9 @@ import type { ExportRenderJob, ExportRenderResult } from './types'
 import { prepareExportWorkingSource } from './preparation'
 import type { ExportWorkerProgress } from '../../shared/export'
 import { acceptExportWorkerProgress, exportProgressOwner } from './progress'
+import { validateExportCropPolicy } from './crop-policy'
+import { validateExportDetailPolicy } from './detail-policy'
+import { validateExportResizePolicy } from './resize-policy'
 
 /** Decoder and encoder never retain their WASM heaps in the same process. */
 export class ExportProcess {
@@ -18,6 +21,10 @@ export class ExportProcess {
     signal: AbortSignal,
     onProgress?: (progress: ExportWorkerProgress) => void,
   ): Promise<ExportRenderResult> {
+    job = structuredClone(job)
+    validateExportCropPolicy(job)
+    validateExportDetailPolicy(job)
+    validateExportResizePolicy(job)
     const started = performance.now()
     let sourceMs = 0,
       sourceBackend: string | undefined,
@@ -31,6 +38,9 @@ export class ExportProcess {
         try {
           return await decoder.renderFull(source.path, directory, signal, {
             ...source.processing,
+            crop: undefined,
+            noiseReduction: undefined,
+            detailSharpening: undefined,
             workingOnly: true,
           })
         } finally {
@@ -168,7 +178,9 @@ export class ExportProcess {
           if (result.diagnostics) {
             result.diagnostics.sourceBackend = sourceBackend
             result.diagnostics.sourceFallback = sourceFallback
-            result.diagnostics.sourcePreparation = sourcePreparation
+            result.diagnostics.sourcePreparation = source.hdr
+              ? sourcePreparation
+              : (result.diagnostics.sourcePreparation ?? sourcePreparation)
             result.diagnostics.stages.sourcePreparationMs = sourceMs
             result.diagnostics.stages.processMs = performance.now() - started
           }

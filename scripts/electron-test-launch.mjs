@@ -47,7 +47,7 @@ export async function launchTestElectron({
   delete launchEnv.ELECTRON_RENDERER_URL
   delete launchEnv.FORCE_COLOR
   delete launchEnv.NODE_OPTIONS
-  launchEnv.LUMA_TEST_UI_MODE = mode
+  launchEnv.IRODORI_TEST_UI_MODE = mode
   const app = await electron.launch({
     args: [packageDirectory, `--user-data-dir=${profile}`, ...args],
     env: launchEnv,
@@ -59,7 +59,7 @@ export async function launchTestElectron({
   try {
     const observed = await app.evaluate(({ app }) => ({
       profile: app.getPath('userData'),
-      mode: globalThis.__lumaTestUiMode,
+      mode: globalThis.__irodoriTestUiMode,
     }))
     if ((await realpath(observed.profile)) !== profile || observed.mode !== mode)
       throw new Error('The isolated Electron startup policy was not installed.')

@@ -2,7 +2,15 @@
 
 ## Status
 
-**Planned.** Individual color-range controls are not implemented. [Shared requirements](README.md#shared-implementation-requirements) apply.
+**Functional implementation; photographic/performance acceptance pending.** Independent scalar, native C++, WebGPU
+and hidden WebGL references pass for the original eight-range model in the
+[processing record](color-mixer-grading-processing.md). GPU/CPU preview/export and
+shipping native adapters have focused coverage. Settings 10/catalog 20 migrate
+complete neutral groups through existing histories. Inspector controls, partial
+typed API/MCP patches, section reset, shared history and small-raster frozen export
+have hidden/service evidence. Full HDR application, real-photo, native visual/input
+and source-matched performance acceptance remain unfinished.
+[Shared requirements](README.md#shared-implementation-requirements) apply.
 
 ## Goal
 
@@ -14,7 +22,12 @@ Select a named color range, adjust its Hue/Saturation/Luminance controls, and in
 
 ## Controls
 
-Start with named red, orange, yellow, green, aqua, blue, purple, and magenta ranges. Use `AdjustmentInput` with neutral zero for each dimension. Define hue units, control ranges, and actual range boundaries in the research record; UI colors supplement text labels. An optional affected-area overlay is transient and must also be keyboard accessible.
+Use named red, orange, yellow, green, aqua, blue, purple, and magenta ranges with
+`AdjustmentInput` and neutral zero. Each dimension has integer amounts −100…+100;
+Hue maps to a maximum ±30 Lab degrees and Luminance to a maximum ±1 EV. The
+[processing record](color-mixer-grading-processing.md) defines selection anchors,
+overlap and neutral protection. UI colors supplement text labels. An optional
+affected-area overlay is transient and must also be keyboard accessible.
 
 ## Processing approach
 

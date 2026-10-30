@@ -35,7 +35,7 @@ interface Capture {
   pixels: Buffer
   width: number
   height: number
-  target: Awaited<ReturnType<Window['luma']['getDisplayState']>>
+  target: Awaited<ReturnType<Window['irodori']['getDisplayState']>>
   policy: {
     family: string | null
     arithmetic: string | null
@@ -170,7 +170,7 @@ async function settled(page: Page, quality = 'normal', policy = 'reference') {
       ),
     )
     .toBe(true)
-  const target = await page.evaluate(() => window.luma.getDisplayState())
+  const target = await page.evaluate(() => window.irodori.getDisplayState())
   const interactive = quality === 'interactive'
   await expect(canvas).toHaveAttribute('data-target-generation', String(target.generation))
   await expect(canvas).toHaveAttribute(
@@ -215,17 +215,17 @@ async function numeric(page: Page, name: string, value: number) {
   } as const
   const key = keys[name as keyof typeof keys]
   if (!key) throw new Error(`Unsupported numeric setup control: ${name}`)
-  const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
+  const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
   await expect
-    .poll(async () => (await page.evaluate((id) => window.luma.getEdits(id), id)).settings[key])
+    .poll(async () => (await page.evaluate((id) => window.irodori.getEdits(id), id)).settings[key])
     .toBe(value)
   await expect(canvas).toHaveAttribute(`data-${name.toLowerCase()}`, String(value))
   await expect(canvas).toHaveAttribute('data-gesturing', 'false')
   await settled(page)
   await expect
     .poll(async () => {
-      const state = await page.evaluate((id) => window.luma.getEdits(id), id)
-      const history = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+      const state = await page.evaluate((id) => window.irodori.getEdits(id), id)
+      const history = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
       return (
         history.revision === state.revision &&
         history.settings[key] === value &&
@@ -238,7 +238,7 @@ async function numeric(page: Page, name: string, value: number) {
 async function displayMode(page: Page, mode: 'hdr' | 'sdr') {
   await page.getByRole('combobox', { name: 'Preview display mode' }).selectOption(mode)
   await expect
-    .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+    .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
     .toMatchObject({ mode })
   await settled(page)
 }
@@ -288,7 +288,7 @@ async function capture(app: ElectronApplication, page: Page, path: string): Prom
     pixels: decoded.data,
     width: decoded.info.width,
     height: decoded.info.height,
-    target: await page.evaluate(() => window.luma.getDisplayState()),
+    target: await page.evaluate(() => window.irodori.getDisplayState()),
     policy: await page.getByTestId('main-preview').evaluate((canvas) => ({
       family: canvas.getAttribute('data-presented-policy'),
       arithmetic: canvas.getAttribute('data-presented-arithmetic-policy'),
@@ -318,8 +318,8 @@ function imageDifference(reference: Capture, candidate: Capture) {
   }
 }
 
-test.beforeEach(async ({ luma }) => {
-  await requireEditorPreviewFeature(luma.page, 'interactive')
+test.beforeEach(async ({ irodori }) => {
+  await requireEditorPreviewFeature(irodori.page, 'interactive')
 })
 
 for (const srgbOnly of [false, true])
@@ -328,9 +328,9 @@ for (const srgbOnly of [false, true])
     foregroundTest(
       'Native foreground pointer capture and composited HDR/SDR preview comparisons require the real desktop.',
     ),
-    async ({ luma }, info) => {
+    async ({ irodori }, info) => {
       test.setTimeout(180000)
-      const { app, page } = luma
+      const { app, page } = irodori
       const evidence: unknown[] = []
       const expectedPhases: Array<{
         phase: string
@@ -359,7 +359,7 @@ for (const srgbOnly of [false, true])
           ['Exposure', 1.75],
         ] as const)
           await numeric(page, label, value)
-        const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
+        const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
         const canonical = new Map<string, Capture>()
         for (const [name, mode, showRanges, compare] of [
           ['hdr', 'hdr', false, 'after'],
@@ -401,13 +401,13 @@ for (const srgbOnly of [false, true])
               policy: await canvas.getAttribute('data-presented-policy'),
             })
           }
-          const target = await page.evaluate(() => window.luma.getDisplayState())
+          const target = await page.evaluate(() => window.irodori.getDisplayState())
           const targetHash =
             mode === 'hdr'
               ? hdrHash
               : sha(new Uint8Array(packAces(prepareDisplayRendering(target)).buffer))
           const hashes = showRanges && mode === 'sdr' ? [targetHash, hdrHash] : [targetHash]
-          const history = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+          const history = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
           expect(history.settings.exposureEv).toBe(1.5)
           const describeHistory = (value: typeof history) => ({
             revision: value.revision,
@@ -495,7 +495,7 @@ for (const srgbOnly of [false, true])
           await expect(canvas).toHaveAttribute('data-source-uploads', '1')
           await expect
             .poll(async () => {
-              const actual = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+              const actual = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
               historyEvidence.after = describeHistory(actual)
               return actual.snapshots.length
             })

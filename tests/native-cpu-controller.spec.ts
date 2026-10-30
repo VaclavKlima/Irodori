@@ -6,6 +6,7 @@ import type { CpuPreviewPair } from '../src/shared/native-cpu-preview'
 import { WorkScheduler } from '../src/main/work-scheduler'
 import { NativeCpuCancelled } from '../src/main/native-cpu-controller'
 import { neutralAdjustments } from '../src/shared/adjustments'
+import colorReference from './fixtures/color-intensity-reference.json' with { type: 'json' }
 import {
   controllerFixture,
   cpuOracle,
@@ -249,6 +250,16 @@ test('real Rust pairs and source samples match the unchanged CPU oracle while on
         headroom: null,
       },
       { parameters: { ...neutralAdjustments, exposureEv: 1.25 }, hdrRanges: true, headroom: 1.5 },
+      {
+        parameters: { ...neutralAdjustments, saturation: 65, vibrance: 80 },
+        hdrRanges: false,
+        headroom: null,
+      },
+      {
+        parameters: { ...neutralAdjustments, saturation: -100, vibrance: 100 },
+        hdrRanges: false,
+        headroom: null,
+      },
     ]
     for (const input of cases) {
       const request = t.request(source, input),
@@ -312,6 +323,45 @@ test('real Rust pairs and source samples match the unchanged CPU oracle while on
     expect(source.handles.size).toBe(0)
     expect(source.releases).toBe(1)
     expect(await scratchNames(t.directory)).toEqual([])
+  } finally {
+    await t.close()
+  }
+})
+
+test('real native color pairs retain exact CPU bytes through signed HDR extremes and both color endpoints', async () => {
+  const t = await controllerFixture()
+  try {
+    const vectors = colorReference.vectors.filter(
+      (v) => v.primaries === 'rec2020' && v.saturation === 0 && v.vibrance === 0,
+    )
+    const pixels = new Float32Array(vectors.flatMap((v, i) => [...v.input, [0, 0.25, 1][i % 3]]))
+    const source = await t.source('signed-cie-color-corpus', vectors.length, 1, pixels)
+    let previous: CpuPreviewPair | undefined
+    for (const [saturation, vibrance] of [
+      [0, 0],
+      [-100, 100],
+      [100, 100],
+      [0, 100],
+      [0, -100],
+      [-50, 100],
+      [50, -100],
+    ]) {
+      const request = t.request(source, {
+        parameters: { ...neutralAdjustments, saturation, vibrance },
+      })
+      const pair = await t.controller.render(request)
+      const expected = cpuOracle(source, request)
+      for (const plane of ['after', 'before'] as const)
+        expect(
+          await readPlane(t.controller, pair[plane].url),
+          JSON.stringify({ saturation, vibrance, plane }),
+        ).toEqual(expected[plane])
+      await t.controller.acknowledge(request.sessionId, pair.pairId, previous?.pairId ?? null)
+      previous = pair
+    }
+    expect(source.acquisitions).toBe(1)
+    expect(t.policyCalls()).toBe(1)
+    expect(sha(await readFile(source.path))).toBe(source.asset.sha256)
   } finally {
     await t.close()
   }
@@ -487,7 +537,7 @@ test('a synthetic child with complete valid output and nonzero real close cannot
     expect(await scratchNames(t.directory)).toEqual([])
     expect(
       t.controller.acquire(
-        new URL(`luma-photo://library/${source.ref.photoId}/cpu/${randomUUID()}/after`),
+        new URL(`irodori-photo://library/${source.ref.photoId}/cpu/${randomUUID()}/after`),
       ),
     ).toBeUndefined()
     await t.controller.close()
@@ -628,7 +678,7 @@ test('a source invalidated after manifest rename is rechecked and never enters t
     expect(await scratchNames(t.directory)).toEqual([])
     expect(
       t.controller.acquire(
-        new URL(`luma-photo://library/${source.ref.photoId}/cpu/${randomUUID()}/after`),
+        new URL(`irodori-photo://library/${source.ref.photoId}/cpu/${randomUUID()}/after`),
       ),
     ).toBeUndefined()
     await t.controller.close()

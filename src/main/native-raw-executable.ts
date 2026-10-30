@@ -8,7 +8,7 @@ export type NativeRawExecutable =
   | { status: 'unavailable'; reason: string; validationMs: number }
 
 const BINARY_LIMIT = 128 * 1024 ** 2
-const IMPLEMENTATION = 'luma-owned-sony-arw2-rows-v1'
+const IMPLEMENTATION = 'irodori-owned-sony-arw2-rows-v1'
 
 async function checkedFile(path: string, maximum: number) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
@@ -74,9 +74,9 @@ export async function prepareNativeRawExecutable(
       trustedRuntimeRoot.replace(/\/app\.asar(?=\/|$)/, '/app.asar.unpacked'),
       'native-raw/linux-x64',
     )
-    const path = join(root, 'luma-raw')
+    const path = join(root, 'irodori-raw')
     const sums = await smallFile(join(root, 'SHA256SUMS'), 256)
-    const match = /^([a-f0-9]{64}) {2}luma-raw\n$/.exec(sums.toString('utf8'))
+    const match = /^([a-f0-9]{64}) {2}irodori-raw\n$/.exec(sums.toString('utf8'))
     if (!match) throw new Error('Invalid bundled native RAW checksum manifest.')
     const sha256 = match[1]
     const manifest = JSON.parse(

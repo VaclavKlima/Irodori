@@ -30,15 +30,15 @@ interface RunningApplication {
   evidenceFile: string
 }
 
-export const test = base.extend<{ luma: DesktopSession; hdrDisplay: boolean }>({
+export const test = base.extend<{ irodori: DesktopSession; hdrDisplay: boolean }>({
   hdrDisplay: [false, { option: true }],
-  luma: async ({ hdrDisplay }, use, testInfo) => {
+  irodori: async ({ hdrDisplay }, use, testInfo) => {
     testInfo.skip(
       testUiMode() === 'background' && testInfo.tags.includes('@foreground'),
       testInfo.annotations.find((annotation) => annotation.type === 'requires-foreground')
         ?.description ?? 'Requires native desktop interaction; rerun with --foreground.',
     )
-    const userDataDir = await mkdtemp(join(tmpdir(), 'luma-e2e-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'irodori-e2e-'))
     const applications: RunningApplication[] = []
     const errors: string[] = []
     const processOutput: string[] = []
@@ -79,7 +79,7 @@ export const test = base.extend<{ luma: DesktopSession; hdrDisplay: boolean }>({
       delete env.ELECTRON_RUN_AS_NODE
       delete env.ELECTRON_RENDERER_URL
       delete env.FORCE_COLOR
-      env.LUMA_HDR_TEST = hdrDisplay ? '1' : '0'
+      env.IRODORI_HDR_TEST = hdrDisplay ? '1' : '0'
 
       const { app, child, evidenceFile } = await launchTestElectron({
         userDataDir,
@@ -126,7 +126,7 @@ export const test = base.extend<{ luma: DesktopSession; hdrDisplay: boolean }>({
       expect(await realpath(await app.evaluate(({ app }) => app.getPath('userData')))).toBe(
         await realpath(userDataDir),
       )
-      if (process.env.LUMA_TEST_TRACE === '1') {
+      if (process.env.IRODORI_TEST_TRACE === '1') {
         await app.context().tracing.start({ screenshots: true, snapshots: true, sources: true })
         running.tracing = true
       }
@@ -206,7 +206,7 @@ export const test = base.extend<{ luma: DesktopSession; hdrDisplay: boolean }>({
       }
       failed = failed || errors.length > 0
       for (const running of applications) {
-        if (failed && process.env.LUMA_TEST_TRACE === '1') {
+        if (failed && process.env.IRODORI_TEST_TRACE === '1') {
           await testInfo
             .attach('Electron trace', { path: running.tracePath, contentType: 'application/zip' })
             .catch(() => undefined)

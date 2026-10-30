@@ -10,7 +10,7 @@ import { setupMergePreview } from './merge-preview.helpers'
 
 async function acceptMergeHandoff(app: ElectronApplication, page: Page) {
   await setupMergePreview(app, page, 800, 600)
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   const control = await app.evaluateHandle(({ ipcMain, BrowserWindow }) => {
     const handlers = (
       ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
@@ -84,9 +84,9 @@ async function acceptMergeHandoff(app: ElectronApplication, page: Page) {
 }
 
 test('accepted merge keeps its source suspended through publication and asynchronous result selection', async ({
-  luma,
+  irodori,
 }) => {
-  const { page, app } = luma
+  const { page, app } = irodori
   const { photos, control } = await acceptMergeHandoff(app, page)
   try {
     await control.evaluate((c, id) => c.holdResult(id), photos[0].id)
@@ -105,9 +105,9 @@ test('accepted merge keeps its source suspended through publication and asynchro
 })
 
 test('editing while an automatic merge result lookup is pending preserves the edited source', async ({
-  luma,
+  irodori,
 }) => {
-  const { page, app } = luma
+  const { page, app } = irodori
   const { photos, control } = await acceptMergeHandoff(app, page)
   try {
     await control.evaluate((c, id) => c.holdResult(id), photos[0].id)
@@ -120,7 +120,7 @@ test('editing while an automatic merge result lookup is pending preserves the ed
     await field.fill('0.50')
     await field.press('Enter')
     await expect
-      .poll(() => page.evaluate((id) => window.luma.getEdits(id), photos[1].id))
+      .poll(() => page.evaluate((id) => window.irodori.getEdits(id), photos[1].id))
       .toMatchObject({
         settings: { exposureEv: 0.5 },
       })
@@ -144,8 +144,8 @@ test('editing while an automatic merge result lookup is pending preserves the ed
 })
 
 for (const status of ['failed', 'cancelled'] as const) {
-  test(`accepted merge ${status} resumes its unchanged source`, async ({ luma }) => {
-    const { page, app } = luma
+  test(`accepted merge ${status} resumes its unchanged source`, async ({ irodori }) => {
+    const { page, app } = irodori
     const { photos, control } = await acceptMergeHandoff(app, page)
     await control.evaluate((c, status) => c.update(status), status)
     await expect(page.getByTestId('main-preview')).toHaveAttribute('data-suspended', 'false')
@@ -157,9 +157,9 @@ for (const status of ['failed', 'cancelled'] as const) {
 
 for (const intent of ['navigation', 'adjustment'] as const) {
   test(`explicit ${intent} resumes editing and supersedes an accepted merge's automatic result selection`, async ({
-    luma,
+    irodori,
   }) => {
-    const { page, app } = luma
+    const { page, app } = irodori
     const { photos, control } = await acceptMergeHandoff(app, page)
     if (intent === 'navigation') {
       await page.getByTestId(`photo-card-${photos[0].id}`).click()
@@ -177,7 +177,7 @@ for (const intent of ['navigation', 'adjustment'] as const) {
       await field.fill('0.50')
       await field.press('Enter')
       await expect
-        .poll(() => page.evaluate((id) => window.luma.getEdits(id), active.id))
+        .poll(() => page.evaluate((id) => window.irodori.getEdits(id), active.id))
         .toMatchObject({
           settings: { exposureEv: 0.5 },
         })
@@ -203,9 +203,9 @@ for (const intent of ['navigation', 'adjustment'] as const) {
 }
 
 test('shared Actions menu hides inapplicable merges and preserves pending right-click selection', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await page.getByRole('button', { name: 'Actions', exact: true }).click()
   await expect(page.getByRole('menuitem')).toHaveCount(0)
   await expect(page.getByRole('menu')).toContainText('No photo actions available.')
@@ -214,7 +214,7 @@ test('shared Actions menu hides inapplicable merges and preserves pending right-
     'tests/fixtures/photos/alpine-lake.jpg',
     'tests/fixtures/photos/forest-light.jpg',
   ])
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   await page.getByTestId(`photo-card-${photos[0].id}`).click()
   const hold = await app.evaluateHandle(({ ipcMain }) => {
     const handlers = (
@@ -265,10 +265,10 @@ test('shared Actions menu hides inapplicable merges and preserves pending right-
 })
 
 test('completed merges select and reveal the result across unloaded gallery rows without replaying on refresh or reload', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
-  const directory = join(luma.userDataDir, 'sources')
+  const { app, page } = irodori
+  const directory = join(irodori.userDataDir, 'sources')
   await mkdir(directory)
   const paths: string[] = []
   for (let i = 0; i < 63; i++) {
@@ -284,7 +284,7 @@ test('completed merges select and reveal the result across unloaded gallery rows
     paths.push(path)
   }
   await importPhotos(app, page, paths)
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   await page.getByTestId(`photo-card-${photos[0].id}`).click()
   await page.getByTestId(`photo-card-${photos[1].id}`).click({ modifiers: ['Shift'] })
   await page.getByTestId('console-toggle').click()
@@ -360,7 +360,9 @@ test('completed merges select and reveal the result across unloaded gallery rows
   await expect(result).not.toBeInViewport()
 
   await expect
-    .poll(async () => (await page.evaluate(() => window.luma.getWorkspaceState())).state?.activeId)
+    .poll(
+      async () => (await page.evaluate(() => window.irodori.getWorkspaceState())).state?.activeId,
+    )
     .toBe(photos[49].id)
   await page.reload()
   await expect(page.getByTestId('task-progress')).toContainText(task.title)

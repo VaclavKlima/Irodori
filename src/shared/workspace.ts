@@ -1,8 +1,31 @@
 import type { BrowsePhoto, BrowseQuery, BrowseGrouping } from './browse'
 import type { CollectionAnchor } from './collections'
 import type { Photo, PhotoReference } from './contracts'
+import type { ColorRangeId } from './color-mixer'
+import type { GradingToneId } from './color-grading'
 
 export const WORKSPACE_VERSION = 1
+export const DEFAULT_INSPECTOR_SECTIONS = {
+  histogram: true,
+  light: true,
+  color: true,
+  colorMixer: false,
+  colorGrading: false,
+  detail: false,
+  crop: false,
+  lens: false,
+  metadata: true,
+}
+export type InspectorSectionId = keyof typeof DEFAULT_INSPECTOR_SECTIONS
+export type InspectorSections = Record<InspectorSectionId, boolean>
+export interface CreativeColorSelection {
+  range: ColorRangeId
+  tone: GradingToneId
+}
+export const DEFAULT_CREATIVE_COLOR_SELECTION: CreativeColorSelection = {
+  range: 'red',
+  tone: 'midtones',
+}
 export interface PreviewViewState {
   photoId: string
   fit: boolean
@@ -22,6 +45,8 @@ export interface WorkspaceState {
   editorAnchor: CollectionAnchor | null
   libraryAnchor: CollectionAnchor | null
   consoleOpen: boolean
+  inspector: InspectorSections
+  creativeColor: CreativeColorSelection
   preview: PreviewViewState | null
 }
 export interface WorkspaceSnapshot {
@@ -47,5 +72,7 @@ export const DEFAULT_WORKSPACE: WorkspaceState = {
   editorAnchor: null,
   libraryAnchor: null,
   consoleOpen: false,
+  inspector: DEFAULT_INSPECTOR_SECTIONS,
+  creativeColor: DEFAULT_CREATIVE_COLOR_SELECTION,
   preview: null,
 }

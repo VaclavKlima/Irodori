@@ -181,14 +181,14 @@ void check(int result) {
 }
 
 extern "C" {
-void* luma_raw_create() {
+void* irodori_raw_create() {
   try { return new Handle(); } catch (...) { return nullptr; }
 }
-void luma_raw_destroy(void* value) { delete static_cast<Handle*>(value); }
-const char* luma_raw_error(void* value) { return static_cast<Handle*>(value)->error.c_str(); }
-const char* luma_raw_metadata(void* value) { return static_cast<Handle*>(value)->json.c_str(); }
-const char* luma_raw_row_diagnostics(void* value) { return static_cast<Handle*>(value)->rowJson.c_str(); }
-int luma_raw_configure_rows(void* value, unsigned mode, unsigned threads) {
+void irodori_raw_destroy(void* value) { delete static_cast<Handle*>(value); }
+const char* irodori_raw_error(void* value) { return static_cast<Handle*>(value)->error.c_str(); }
+const char* irodori_raw_metadata(void* value) { return static_cast<Handle*>(value)->json.c_str(); }
+const char* irodori_raw_row_diagnostics(void* value) { return static_cast<Handle*>(value)->rowJson.c_str(); }
+int irodori_raw_configure_rows(void* value, unsigned mode, unsigned threads) {
   auto* handle = static_cast<Handle*>(value);
   return guarded(handle, [&] {
     if (handle->opened || mode > 1 || (threads != 1 && threads != 2 && threads != 4 && threads != 8) ||
@@ -197,11 +197,11 @@ int luma_raw_configure_rows(void* value, unsigned mode, unsigned threads) {
     handle->rowThreads = threads;
   });
 }
-const uint16_t* luma_raw_rows(void* value) { return static_cast<Handle*>(value)->rows; }
-size_t luma_raw_row_width(void* value) { return static_cast<Handle*>(value)->rowWidth; }
-size_t luma_raw_row_count(void* value) { return static_cast<Handle*>(value)->rowCount; }
-size_t luma_raw_row_stride(void* value) { return static_cast<Handle*>(value)->rowStride; }
-int luma_raw_open(void* value, const uint8_t* input, size_t length) {
+const uint16_t* irodori_raw_rows(void* value) { return static_cast<Handle*>(value)->rows; }
+size_t irodori_raw_row_width(void* value) { return static_cast<Handle*>(value)->rowWidth; }
+size_t irodori_raw_row_count(void* value) { return static_cast<Handle*>(value)->rowCount; }
+size_t irodori_raw_row_stride(void* value) { return static_cast<Handle*>(value)->rowStride; }
+int irodori_raw_open(void* value, const uint8_t* input, size_t length) {
   auto* handle = static_cast<Handle*>(value);
   return guarded(handle, [&] {
     if (handle->opened || !input || !length || length > maximumInput)
@@ -222,7 +222,7 @@ int luma_raw_open(void* value, const uint8_t* input, size_t length) {
     handle->json = metadata(handle->raw);
   });
 }
-int luma_raw_unpack(void* value) {
+int irodori_raw_unpack(void* value) {
   auto* handle = static_cast<Handle*>(value);
   return guarded(handle, [&] {
     if (!handle->opened || handle->unpacked) throw std::runtime_error("Invalid unpack order.");
@@ -233,7 +233,7 @@ int luma_raw_unpack(void* value) {
     handle->unpacked = true;
   });
 }
-int luma_raw_prepare_rows(void* value) {
+int irodori_raw_prepare_rows(void* value) {
   auto* handle = static_cast<Handle*>(value);
   return guarded(handle, [&] {
     if (!handle->unpacked || handle->borrowed || handle->released)
@@ -255,7 +255,7 @@ int luma_raw_prepare_rows(void* value) {
     handle->borrowed = true;
   });
 }
-int luma_raw_release_rows(void* value) {
+int irodori_raw_release_rows(void* value) {
   auto* handle = static_cast<Handle*>(value);
   return guarded(handle, [&] {
     if (!handle->borrowed || handle->released)
@@ -266,14 +266,14 @@ int luma_raw_release_rows(void* value) {
     handle->released = true;
   });
 }
-uint64_t luma_raw_peak_rss_bytes() {
+uint64_t irodori_raw_peak_rss_bytes() {
   rusage usage{};
   return getrusage(RUSAGE_SELF, &usage) ? 0 : uint64_t(usage.ru_maxrss) * 1024;
 }
 
 // Called only from the exact patched sony_arw2_load_raw entry, inside normal unpack().
 // 0 preserves the upstream body, 1 means all rows completed, -1 rejects partial output.
-int luma_parallel_sony_arw2(void* owner) {
+int irodori_parallel_sony_arw2(void* owner) {
   auto* handle = activeRows;
   if (!handle || owner != static_cast<LibRaw*>(&handle->raw)) return 0;
   const auto started = std::chrono::steady_clock::now();
@@ -310,8 +310,8 @@ int luma_parallel_sony_arw2(void* owner) {
       throw std::runtime_error("Overlapping row-kernel borrows.");
     const auto descriptorMs = std::chrono::duration<double, std::milli>(
       std::chrono::steady_clock::now() - started).count();
-    LumaRowsReport report{};
-    const int result = luma_rows_decode(input, size_t(count), s.raw_width, s.height,
+    IrodoriRowsReport report{};
+    const int result = irodori_rows_decode(input, size_t(count), s.raw_width, s.height,
       unsigned(order), curve, 65536, output, size_t(count), handle->rowThreads, &report);
     std::ostringstream json;
     json << std::setprecision(std::numeric_limits<double>::max_digits10)

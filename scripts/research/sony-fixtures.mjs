@@ -71,9 +71,9 @@ try {
         stdio: 'inherit',
         env: {
           ...process.env,
-          LUMA_MERGE_BRACKETS: JSON.stringify(brackets),
-          LUMA_MERGE_SONY_SEQUENCE: JSON.stringify(sequence),
-          LUMA_MERGE_SONY_MODE: mode,
+          IRODORI_MERGE_BRACKETS: JSON.stringify(brackets),
+          IRODORI_MERGE_SONY_SEQUENCE: JSON.stringify(sequence),
+          IRODORI_MERGE_SONY_MODE: mode,
         },
       }),
       interrupt = () => child.kill('SIGINT'),

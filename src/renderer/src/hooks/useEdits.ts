@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { validatePatch, type EditState } from '../../../shared/edits'
+import {
+  validatePatch,
+  mergeEditPatch,
+  type EditState,
+  type EditPatch,
+} from '../../../shared/edits'
+import { spatialControlsKey } from '../../../shared/detail-controls'
+import { neutralNoiseReduction, neutralDetailSharpening } from '../../../shared/spatial-detail'
 import { useForegroundActivity } from './useForegroundActivity'
 import {
   EditGestureCommits,
@@ -11,9 +18,11 @@ import { EditFlushes } from './edit-flush'
 import {
   neutralAdjustments,
   sameAdjustments,
+  snapshotAdjustments,
   type AdjustmentParameters,
 } from '../../../shared/adjustments'
-type AdjustmentPatch = Partial<AdjustmentParameters>
+type AdjustmentPatch = Partial<AdjustmentParameters> &
+  Pick<EditPatch, 'noiseReduction' | 'detailSharpening'>
 
 export function useEdits(photoId: string | undefined, enabled = true) {
   const { begin, pulse } = useForegroundActivity(photoId, undefined, enabled)
@@ -38,6 +47,14 @@ export function useEdits(photoId: string | undefined, enabled = true) {
   const busy = useRef(false)
   const pending = useRef<Promise<void>>(Promise.resolve())
   const flushes = useRef(new EditFlushes())
+  const historyGuards = useRef(new Set<symbol>())
+  const suspendHistory = useCallback(() => {
+    const owner = Symbol('transient editing tool')
+    historyGuards.current.add(owner)
+    return () => {
+      historyGuards.current.delete(owner)
+    }
+  }, [])
   useEffect(() => {
     if (draft || saving) return begin()
   }, [draft, saving, begin])
@@ -74,22 +91,22 @@ export function useEdits(photoId: string | undefined, enabled = true) {
         if (!busy.current) setDraft(null)
         return pending.current
       }
-      if (sameAdjustments(edit.state.settings, { ...edit.state.settings, ...edit.patch })) {
+      const settings = mergeEditPatch(edit.state.settings, edit.patch),
+        sourceChanged = spatialControlsKey(settings) !== spatialControlsKey(edit.state.settings)
+      if (sameAdjustments(edit.state.settings, settings) && !sourceChanged) {
         setDraft(null)
         return pending.current
       }
-      const commit = trackCommit
-        ? commits.current.begin(edit.scope, edit.state, edit.fromEpoch, {
-            ...edit.state.settings,
-            ...edit.patch,
-          })
-        : null
+      const commit =
+        trackCommit && !sourceChanged
+          ? commits.current.begin(edit.scope, edit.state, edit.fromEpoch, settings)
+          : null
       syncGestureCommit()
       busy.current = true
       setSaving(true)
       const work = (async () => {
         try {
-          const next = await window.luma.updateEdits(
+          const next = await window.irodori.updateEdits(
             edit.state.photoId,
             edit.patch,
             edit.state.revision,
@@ -115,7 +132,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
           ) {
             setError(String(error))
             setDraft(null)
-            const recovered = await window.luma.getEdits(edit.state.photoId)
+            const recovered = await window.irodori.getEdits(edit.state.photoId)
             if (
               current.current?.photoId === edit.state.photoId &&
               commits.current.isActive(edit.scope) &&
@@ -145,7 +162,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     const refresh = () => {
       if (!photoId || !enabled) return
       const request = ++requested
-      void window.luma
+      void window.irodori
         .getEdits(photoId)
         .then((next) => {
           if (!active || request !== requested) return
@@ -167,7 +184,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
         })
     }
     refresh()
-    const unsubscribe = window.luma.onLibraryEvent((event) => {
+    const unsubscribe = window.irodori.onLibraryEvent((event) => {
       const changed = event.editsChanged
       if (enabled && changed && changed.photoId === photoId) {
         tracker.observeRevision(changed.photoId, changed.revision)
@@ -185,11 +202,15 @@ export function useEdits(photoId: string | undefined, enabled = true) {
   }, [photoId, enabled, accept, flushGesture, confirmationScope, syncGestureCommit])
   useEffect(
     () =>
-      window.luma.onFlushEdits((scope) =>
+      window.irodori.onFlushEdits((scope) =>
         flushes.current.flush(
           scope,
           gesture.current?.state.photoId ?? current.current?.photoId,
-          flush,
+          async () => {
+            if (historyGuards.current.size)
+              throw new Error('Finish or cancel the crop before continuing.')
+            await flush()
+          },
         ),
       ),
     [flush],
@@ -227,7 +248,18 @@ export function useEdits(photoId: string | undefined, enabled = true) {
         fromEpoch: epochRef.current,
         scope: confirmationScope,
       }
-      gesture.current.patch = { ...gesture.current.patch, ...patch }
+      const priorPatch = gesture.current.patch
+      gesture.current.patch = { ...priorPatch, ...patch }
+      if (patch.noiseReduction)
+        gesture.current.patch.noiseReduction = {
+          ...priorPatch.noiseReduction,
+          ...patch.noiseReduction,
+        }
+      if (patch.detailSharpening)
+        gesture.current.patch.detailSharpening = {
+          ...priorPatch.detailSharpening,
+          ...patch.detailSharpening,
+        }
       setDraft(gesture.current.patch)
     } catch (error) {
       if (commits.current.isActive(confirmationScope) && current.current?.photoId === photo)
@@ -248,7 +280,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
           !(direction === 'undo' ? confirmed.canUndo : confirmed.canRedo)
         )
           return
-        const next = await window.luma[direction === 'undo' ? 'undoEdit' : 'redoEdit'](
+        const next = await window.irodori[direction === 'undo' ? 'undoEdit' : 'redoEdit'](
           confirmed.photoId,
           confirmed.revision,
         )
@@ -265,6 +297,8 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     const key = (event: KeyboardEvent) => {
       if (
         !enabled ||
+        event.defaultPrevented ||
+        historyGuards.current.size > 0 ||
         (!event.ctrlKey && !event.metaKey) ||
         event.altKey ||
         (event.target as HTMLElement).closest(
@@ -284,6 +318,11 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     return () => window.removeEventListener('keydown', key)
   }, [history, enabled])
   const visible = state?.photoId === photoId ? state : null
+  const authored = useMemo(
+    () => (visible && draft ? mergeEditPatch(visible.settings, draft) : visible?.settings),
+    [visible, draft],
+  )
+  const adjustments = useMemo(() => snapshotAdjustments(authored ?? neutralAdjustments), [authored])
   return {
     state: visible,
     confirmed: enabled && !!visible && confirmedScope === confirmationScope,
@@ -293,17 +332,10 @@ export function useEdits(photoId: string | undefined, enabled = true) {
       gestureCommit.commit.photoId === photoId
         ? gestureCommit.commit
         : null,
-    adjustments: {
-      whiteBalance:
-        draft?.whiteBalance ?? visible?.settings.whiteBalance ?? neutralAdjustments.whiteBalance,
-      exposureEv:
-        draft?.exposureEv ?? visible?.settings.exposureEv ?? neutralAdjustments.exposureEv,
-      highlights:
-        draft?.highlights ?? visible?.settings.highlights ?? neutralAdjustments.highlights,
-      shadows: draft?.shadows ?? visible?.settings.shadows ?? neutralAdjustments.shadows,
-      whites: draft?.whites ?? visible?.settings.whites ?? neutralAdjustments.whites,
-      blacks: draft?.blacks ?? visible?.settings.blacks ?? neutralAdjustments.blacks,
-      contrast: draft?.contrast ?? visible?.settings.contrast ?? neutralAdjustments.contrast,
+    adjustments,
+    spatial: {
+      noiseReduction: authored?.noiseReduction ?? neutralNoiseReduction,
+      detailSharpening: authored?.detailSharpening ?? neutralDetailSharpening,
     },
     error,
     saving,
@@ -313,6 +345,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     cancel,
     flush,
     history,
+    suspendHistory,
   }
 }
 export type EditController = ReturnType<typeof useEdits>

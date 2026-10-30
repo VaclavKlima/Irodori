@@ -26,7 +26,7 @@ Retain coalesced bounded interactive sampling, with exact committed scans on dem
 
 ## API/MCP implications
 
-Version or extend `luma_get_photo_statistics` with an explicit domain and target request. Return photo ID, expected/current revision, rendering identity, analysis version, units/reference, bin edges, sample/visible counts, exactness, percentiles, and separate clipping/gamut counts or unavailable reasons. Preserve the existing SDR response for existing clients; never change `dynamicRange: 'sdr'` semantics silently. Bound result size and reject stale generations.
+Version or extend `irodori_get_photo_statistics` with an explicit domain and target request. Return photo ID, expected/current revision, rendering identity, analysis version, units/reference, bin edges, sample/visible counts, exactness, percentiles, and separate clipping/gamut counts or unavailable reasons. Preserve the existing SDR response for existing clients; never change `dynamicRange: 'sdr'` semantics silently. Bound result size and reject stale generations.
 
 ## Persistence
 

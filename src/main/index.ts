@@ -36,6 +36,7 @@ import { ImportDevices } from './import-devices'
 import { createAppWindow, showAppWindow } from './window-presentation'
 import { closeServices } from './shutdown'
 import { ResourceService } from './resource-service'
+import { queryImageResources } from './image-resource-query'
 import {
   NativeCpuController,
   NativeCpuMemoryLimit,
@@ -70,7 +71,7 @@ if (process.platform === 'linux' && process.env.WAYLAND_DISPLAY) {
   app.commandLine.appendSwitch('enable-features', [...new Set([...features, 'Vulkan'])].join(','))
   app.commandLine.appendSwitch('enable-unsafe-webgpu')
 }
-if (process.env.LUMA_HDR_TEST === '1') app.commandLine.removeSwitch('force-color-profile')
+if (process.env.IRODORI_HDR_TEST === '1') app.commandLine.removeSwitch('force-color-profile')
 let displayState: DisplayState
 
 let mainWindow: BrowserWindow | null = null
@@ -82,6 +83,57 @@ let quitting = false
 let picking = false
 let quitPending = false
 let closingRenderer: Electron.WebContents | undefined
+
+async function cropAdmission(
+  signal: AbortSignal,
+): Promise<import('../shared/crop-resources').CropAdmission> {
+  signal.throwIfAborted()
+  const contents = mainWindow?.webContents
+  if (!contents || contents.isDestroyed())
+    throw new Error('The editor resource inventory is unavailable.')
+  const lifetime = new AbortController(),
+    active = AbortSignal.any([signal, lifetime.signal])
+  try {
+    const [policy, reservation] = await Promise.all([
+      resourceService!.getPolicy(null),
+      queryImageResources(
+        {
+          send: (token) => contents.send('resources:image-query', token),
+          subscribe: (reply) => {
+            const handler = (
+              event: Electron.IpcMainEvent,
+              token: string,
+              bytes: unknown,
+              error?: string,
+            ) => {
+              if (
+                event.sender !== contents ||
+                contents.isDestroyed() ||
+                event.senderFrame !== contents.mainFrame
+              )
+                return
+              reply(token, bytes, error)
+            }
+            const gone = () => lifetime.abort(new Error('The editor resource owner closed.'))
+            ipcMain.on('resources:image-reply', handler)
+            contents.once('destroyed', gone)
+            contents.once('render-process-gone', gone)
+            return () => {
+              ipcMain.removeListener('resources:image-reply', handler)
+              contents.removeListener('destroyed', gone)
+              contents.removeListener('render-process-gone', gone)
+            }
+          },
+        },
+        active,
+      ),
+    ])
+    active.throwIfAborted()
+    return { policy, reservation }
+  } finally {
+    lifetime.abort()
+  }
+}
 
 async function flushEditorEdits(scope: import('../shared/edits').EditFlushScope) {
   const window = mainWindow
@@ -220,7 +272,7 @@ async function requestQuit(): Promise<void> {
 
 protocol.registerSchemesAsPrivileged([
   {
-    scheme: 'luma-photo',
+    scheme: 'irodori-photo',
     privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
   },
 ])
@@ -522,6 +574,9 @@ app
         mainWindow.webContents.send('preview:first-surface', offer)
       },
     })
+    library.fullPreviews.installCropAdmission(cropAdmission)
+    library.fullPreviews.installDetailAdmission(cropAdmission)
+    library.cropAdmission = cropAdmission
     library.displayTarget = () => displayState.get()
     library.flushEditorEdits = flushEditorEdits
     await library.open()
@@ -533,8 +588,8 @@ app
       root: join(app.getPath('userData'), 'library/cache/cpu-presentations'),
       executable: () => nativeCpuExecutable(),
       policy: () => resourceService!.getPolicy(null),
-      acquireSource: (request, signal) =>
-        library!.fullPreviews.acquireCpuWorkingSource(request, signal),
+      acquireSource: (request, signal, comparisonOf) =>
+        library!.fullPreviews.acquireCpuWorkingSource(request, signal, comparisonOf),
       foreground: (work, signal) => library!.fullPreviews.runCpuForeground(work, signal),
       mask: maskCapability
         ? {
@@ -544,7 +599,7 @@ app
             checkTarget: (request) => {
               const current = displayState.get()
               const fallback =
-                nativeCpu?.hasCpuPresentationSource(request.source) ||
+                nativeCpu?.hasCpuPresentationSource(request.source, request.comparisonOf) ||
                 (current.presentation?.photoId === request.source.photoId &&
                   current.presentation.stage === 'presented' &&
                   current.presentation.backend === 'canvas2d-hdr-sdr')
@@ -654,7 +709,7 @@ app
       return nativeCpu!.release(sessionId, pairId)
     })
     editorEndpoint = await startEditorEndpoint(app.getPath('userData'), library, displayState)
-    protocol.handle('luma-photo', async (request) => {
+    protocol.handle('irodori-photo', async (request) => {
       if (request.method !== 'GET') return new Response(null, { status: 404 })
       const asset: PreviewAssetStreamLease | undefined =
         nativeCpu?.acquire(new URL(request.url)) ??
@@ -721,9 +776,53 @@ app
       trusted(event)
       library!.reportForegroundActivity(value)
     })
+    handleLibraryRequest('edits:clipboard', (event) => {
+      trusted(event)
+      return library!.getEditClipboard()
+    })
+    handleLibraryRequest('edits:copy', (event, id) => {
+      trusted(event)
+      return library!.copyEdits(id).then(
+        (result) => ({ result }),
+        (error) => ({ error: String(error) }),
+      )
+    })
+    handleLibraryRequest('edits:paste-prepare', (event, request) => {
+      trusted(event)
+      return library!.preparePasteEdits(request).then(
+        (result) => ({ result }),
+        (error) => ({ error: String(error) }),
+      )
+    })
+    handleLibraryRequest('edits:paste-dispose', (event, id) => {
+      trusted(event)
+      return library!.editTransfers.dispose(id)
+    })
+    handleLibraryRequest('edits:paste-start', (event, id) => {
+      trusted(event)
+      return library!.startPasteEdits(id).then(
+        (result) => ({ result }),
+        (error) => ({ error: String(error) }),
+      )
+    })
+    handleLibraryRequest('edits:paste-results', (event, id, offset) => {
+      trusted(event)
+      return library!.editTransfers.store.results(id, offset)
+    })
     handleLibraryRequest('edits:get', (event, id) => {
       trusted(event)
       return library!.getEdits(id)
+    })
+    handleLibraryRequest('edits:capabilities', (event) => {
+      trusted(event)
+      return library!.getEditCapabilities()
+    })
+    handleLibraryRequest('white-balance:propose', (event, id, revision, sample) => {
+      trusted(event)
+      return library!.proposeWhiteBalance(id, revision, sample).then(
+        (proposal) => ({ proposal }),
+        (error) => ({ error: String(error) }),
+      )
     })
     handleLibraryRequest('pixel:get', (event, id, revision, x, y, request) => {
       trusted(event)
@@ -787,11 +886,32 @@ app
       trusted(event)
       return library!.fullPreviews.releaseFirstSurface(requestId, surfaceId)
     })
+    handleLibraryRequest('crop:context', (event, id, revision) => {
+      trusted(event)
+      return library!.getCropContext(id, revision).then(
+        (context) => ({ context }),
+        (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
+      )
+    })
     handleLibraryRequest('preview:editing', (event, id, token) => {
       trusted(event)
       return library!.fullPreviews.requestEditing(id, token).then(
         (preview) => ({ preview }),
         (error: unknown) => ({ error: String(error) }),
+      )
+    })
+    handleLibraryRequest('preview:comparison', (event, after, token, revision) => {
+      trusted(event)
+      return library!.fullPreviews.requestComparison(after, token, revision).then(
+        (preview) => ({ preview }),
+        (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
+      )
+    })
+    handleLibraryRequest('preview:crop-source', (event, id, token, revision) => {
+      trusted(event)
+      return library!.fullPreviews.requestCropSource(id, token, revision).then(
+        (preview) => ({ preview }),
+        (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
       )
     })
     handleLibraryRequest('preview:cached', (event, id: string, token: string) => {

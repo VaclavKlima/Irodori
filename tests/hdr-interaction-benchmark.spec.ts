@@ -15,13 +15,13 @@ test.use({ hdrDisplay: true })
 test(
   'benchmarks warmed HDR pan and zoom through GPU completion',
   foregroundTest(foregroundReason),
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.skip(
-      process.env.LUMA_PREVIEW_BENCHMARK !== '1',
+      process.env.IRODORI_PREVIEW_BENCHMARK !== '1',
       'Select target hdr-interaction-benchmark.',
     )
     test.setTimeout(180000)
-    const { app, page } = luma
+    const { app, page } = irodori
     const native = await app.browserWindow(page)
     await native.evaluate((window) => window.setContentSize(1440, 900))
     await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
@@ -144,13 +144,13 @@ test(
 test(
   'benchmarks HDR mouse dragging with burst input through GPU completion',
   foregroundTest(foregroundReason),
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.skip(
-      process.env.LUMA_PREVIEW_BENCHMARK !== '1',
+      process.env.IRODORI_PREVIEW_BENCHMARK !== '1',
       'Select target hdr-interaction-benchmark.',
     )
     test.setTimeout(120000)
-    const { app, page } = luma
+    const { app, page } = irodori
     await (await app.browserWindow(page)).evaluate((window) => window.setContentSize(1440, 900))
     await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
     const canvas = page.getByTestId('main-preview'),
@@ -313,13 +313,13 @@ test(
 test(
   'benchmarks uninterrupted HDR navigation on warm and cold tiles through GPU completion',
   foregroundTest(foregroundReason),
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.skip(
-      process.env.LUMA_PREVIEW_BENCHMARK !== '1',
+      process.env.IRODORI_PREVIEW_BENCHMARK !== '1',
       'Select target hdr-interaction-benchmark.',
     )
     test.setTimeout(180000)
-    const { app, page } = luma
+    const { app, page } = irodori
     await (await app.browserWindow(page)).evaluate((window) => window.setContentSize(1440, 900))
     await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
     const canvas = page.getByTestId('main-preview'),

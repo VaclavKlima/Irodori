@@ -87,7 +87,7 @@ export function ImportDialog({
   const refreshDevices = useCallback(() => {
     if (deviceRequest.current || !deviceTabVisible.current) return
     setRefreshingDevices(true)
-    const request = window.luma.listImportDevices().then(
+    const request = window.irodori.listImportDevices().then(
       (value) => {
         if (deviceTabVisible.current) {
           setDevices(value)
@@ -124,7 +124,7 @@ export function ImportDialog({
       if (!id || (operationsPending.current && !refreshingOperation.current)) return
       const epoch = reviewEpoch.current
       try {
-        const value = await window.luma.getReviewSummary(id)
+        const value = await window.irodori.getReviewSummary(id)
         if (
           epoch !== reviewEpoch.current ||
           (operationsPending.current && !refreshingOperation.current) ||
@@ -146,7 +146,7 @@ export function ImportDialog({
   useEffect(() => {
     if (!sessionId || pending) return
     void reviewRefresh.request()
-    return window.luma.onLibraryEvent((event) => {
+    return window.irodori.onLibraryEvent((event) => {
       if (event.sessionId === sessionId) void reviewRefresh.request()
     })
   }, [sessionId, pending, refreshVersion, reviewRefresh])
@@ -184,8 +184,8 @@ export function ImportDialog({
     await selectionQueue.current
     resetReview()
     if (previous) {
-      await window.luma.cancelImport(previous)
-      await window.luma.disposeImport(previous)
+      await window.irodori.cancelImport(previous)
+      await window.irodori.disposeImport(previous)
     }
   }
 
@@ -197,7 +197,7 @@ export function ImportDialog({
   function choose(kind: 'files' | 'folder') {
     void action(async () => {
       await selectionQueue.current
-      const id = await window.luma.chooseSource(kind, recursive)
+      const id = await window.irodori.chooseSource(kind, recursive)
       if (id) {
         resetReview()
         openReview(id)
@@ -211,7 +211,7 @@ export function ImportDialog({
     void action(async () => {
       try {
         await selectionQueue.current
-        const next = await window.luma.chooseDevice(id, entire, onlyMissing, verificationMode)
+        const next = await window.irodori.chooseDevice(id, entire, onlyMissing, verificationMode)
         resetReview()
         setDeviceId(id)
         openReview(next)
@@ -237,7 +237,7 @@ export function ImportDialog({
     restoreMissingFocus.current = document.activeElement === missingOption.current
     void action(async () => {
       await selectionQueue.current
-      await window.luma.setImportOnlyMissing(id, enabled)
+      await window.irodori.setImportOnlyMissing(id, enabled)
       setOnlyMissing(enabled)
       await refreshOperation()
     })
@@ -254,7 +254,7 @@ export function ImportDialog({
     restoreVerificationFocus.current = document.activeElement === verificationOption.current
     void action(async () => {
       await selectionQueue.current
-      await window.luma.setImportVerificationMode(id, mode)
+      await window.irodori.setImportVerificationMode(id, mode)
       setVerificationMode(mode)
       await refreshOperation()
     })
@@ -300,7 +300,7 @@ export function ImportDialog({
     setReview((current) => (current ? applySelection(current, [change]) : current))
     selectionQueue.current = selectionQueue.current.then(async () => {
       try {
-        await window.luma.selectCandidates(id, ids, selected)
+        await window.irodori.selectCandidates(id, ids, selected)
       } catch (failure) {
         selectionError.current = true
         if (activeSession.current === id) setError(String(failure))
@@ -656,7 +656,7 @@ export function ImportDialog({
                   throw new Error(
                     'Selection could not be saved. Restart the review before importing.',
                   )
-                await window.luma.importSelected(id)
+                await window.irodori.importSelected(id)
                 activeSession.current = null
                 dialog.current?.close()
                 onStarted(id)

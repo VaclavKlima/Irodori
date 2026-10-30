@@ -10,8 +10,13 @@ import type {
   CpuPreviewPair,
   CpuPreviewPlane,
   CpuPreviewSourceRef,
+  CpuPreviewSamples,
 } from '../../../shared/native-cpu-preview'
-import { NATIVE_CPU_PREVIEW_VERSION } from '../../../shared/native-cpu-preview'
+import {
+  NATIVE_CPU_PREVIEW_VERSION,
+  validateCpuPreviewSourceRef,
+} from '../../../shared/native-cpu-preview'
+import { checkedHdrComparison } from './hdr-comparison-source'
 import {
   nativeCpuMemory,
   nativeCpuExistingOwners,
@@ -20,6 +25,7 @@ import {
 
 export interface CpuClientInput {
   readonly frame: WorkingFrame
+  readonly beforeFrame?: WorkingFrame
   readonly generation: number
   readonly settingsRevision: number
   readonly parameters: AdjustmentParameters
@@ -36,6 +42,8 @@ export interface CpuClientReply {
   neutral: ImageBitmap
   sample: Float32Array<ArrayBuffer>
   draftSample: Float32Array<ArrayBuffer>
+  beforeSample?: Float32Array<ArrayBuffer>
+  beforeDraftSample?: Float32Array<ArrayBuffer>
   native: CpuPreviewPair
   target?: DisplayTarget
 }
@@ -47,6 +55,10 @@ function sameSource(a: CpuPreviewSourceRef, b: CpuPreviewSourceRef) {
     a.renderingIdentity === b.renderingIdentity
   )
 }
+const sameOptionalSource = (a?: CpuPreviewSourceRef, b?: CpuPreviewSourceRef) =>
+  a && b ? sameSource(a, b) : a === b
+const sourceCount = (input: CpuClientInput): 1 | 2 =>
+  input.beforeFrame?.hdr?.sha256 && input.beforeFrame.hdr.sha256 !== input.frame.hdr?.sha256 ? 2 : 1
 async function checkedBytes(
   url: string,
   byteLength: number,
@@ -78,12 +90,37 @@ async function bitmap(plane: CpuPreviewPlane, signal: AbortSignal) {
   }
   return image
 }
+async function checkedSamples(plane: CpuPreviewSamples, pixels: number, signal: AbortSignal) {
+  const sampleCount = Math.min(65536, pixels),
+    draftCount = Math.min(8192, pixels)
+  if (
+    plane.format !== 'rgba-f32le-straight' ||
+    plane.sampleCount !== sampleCount ||
+    plane.draftCount !== draftCount ||
+    plane.byteLength !== (sampleCount + draftCount) * 16
+  )
+    throw new Error('Native CPU source samples have incorrect dimensions.')
+  const bytes = await checkedBytes(plane.url, plane.byteLength, plane.sha256, signal),
+    all = new Float32Array(bytes)
+  for (let i = 0; i < all.length; i += 4)
+    if (
+      ![all[i], all[i + 1], all[i + 2], all[i + 3]].every(Number.isFinite) ||
+      all[i + 3] < 0 ||
+      all[i + 3] > 1
+    )
+      throw new Error('Invalid native CPU source sample.')
+  return {
+    sample: new Float32Array(bytes, 0, sampleCount * 4),
+    draftSample: new Float32Array(bytes, sampleCount * 16, draftCount * 4),
+  }
+}
 
 /** One latest request and one receiver pipeline. Native errors are terminal for
  * this owner; there is no automatic JS recovery after native selection. */
 export class NativeCpuClient {
   private sessionId = crypto.randomUUID()
   private source?: CpuPreviewSourceRef
+  private beforeSource?: CpuPreviewSourceRef
   private pending?: CpuClientInput
   private current?: { abort: AbortController; requestId: string; suppressCancel: boolean }
   private work?: Promise<void>
@@ -130,7 +167,8 @@ export class NativeCpuClient {
       !pair ||
       pair.quality !== 'normal' ||
       !input ||
-      !sameMaskFrame(input.frame, frame) ||
+      (!sameMaskFrame(input.frame, frame) &&
+        !(input.beforeFrame && pair.beforeSource && sameMaskFrame(input.beforeFrame, frame))) ||
       this.maskReservation.active ||
       !this.canDraw(input)
     )
@@ -179,6 +217,9 @@ export class NativeCpuClient {
     this.pending = structuredClone({
       ...input,
       frame: { ...input.frame, data: new Float32Array(0) },
+      beforeFrame: input.beforeFrame
+        ? { ...input.beforeFrame, data: new Float32Array(0) }
+        : undefined,
     })
     this.current?.abort.abort(new Error('CPU renderer input superseded.'))
     this.start()
@@ -210,13 +251,28 @@ export class NativeCpuClient {
         const source = input.frame.cpuSource
         if (!source || !input.frame.hdr || source.workingSha256 !== input.frame.hdr.sha256)
           throw new Error('CPU source has no trusted prepared-cache reference.')
-        if (this.source && !sameSource(this.source, source)) {
+        validateCpuPreviewSourceRef(source)
+        const beforeSource = input.beforeFrame?.cpuSource
+        if (input.beforeFrame) {
+          checkedHdrComparison(input.frame, input.beforeFrame)
+          validateCpuPreviewSourceRef(beforeSource)
+          if (
+            beforeSource.workingSha256 !== input.beforeFrame.hdr!.sha256 ||
+            beforeSource.photoId !== source.photoId
+          )
+            throw new Error('CPU comparison has no matching prepared-cache reference.')
+        }
+        if (
+          this.source &&
+          (!sameSource(this.source, source) || !sameOptionalSource(this.beforeSource, beforeSource))
+        ) {
           await this.bridge.releaseCpuPreview(this.sessionId, null)
           this.sessionId = crypto.randomUUID()
           this.displayed = undefined
           this.limitation?.(false)
         }
         this.source = source
+        this.beforeSource = beforeSource
         const qualities =
           Math.max(input.frame.width, input.frame.height) > 1024
             ? (['draft', 'normal'] as const)
@@ -249,6 +305,7 @@ export class NativeCpuClient {
               requestId: active.requestId,
               sessionId: this.sessionId,
               source,
+              ...(beforeSource ? { beforeSource } : {}),
               generation: input.generation,
               expectedSettingsRevision: input.settingsRevision,
               parameters: input.parameters,
@@ -295,6 +352,8 @@ export class NativeCpuClient {
               pair.generation !== input.generation ||
               pair.settingsRevision !== input.settingsRevision ||
               !sameSource(pair.source, source) ||
+              !sameOptionalSource(pair.beforeSource, beforeSource) ||
+              !!pair.beforeSamples !== (sourceCount(input) === 2) ||
               JSON.stringify(pair.parameters) !== JSON.stringify(input.parameters) ||
               pair.hdrRanges !== input.hdrRanges ||
               pair.headroom !== (input.target?.headroom ?? null) ||
@@ -303,11 +362,12 @@ export class NativeCpuClient {
               (this.displayed && pair.policy.revision !== this.displayed.policy.revision)
             )
               throw new Error('Native CPU response metadata is stale or mismatched.')
-            const base = `luma-photo://library/${source.photoId}/cpu/${pair.pairId}`
+            const base = `irodori-photo://library/${source.photoId}/cpu/${pair.pairId}`
             if (
               pair.after.url !== `${base}/after` ||
               pair.before.url !== `${base}/before` ||
-              pair.samples.url !== `${base}/samples`
+              pair.samples.url !== `${base}/samples` ||
+              (pair.beforeSamples && pair.beforeSamples.url !== `${base}/before-samples`)
             )
               throw new Error('Native CPU response capability URLs do not match their pair.')
             const scale =
@@ -326,29 +386,10 @@ export class NativeCpuClient {
             after = await bitmap(pair.after, active.abort.signal)
             before = await bitmap(pair.before, active.abort.signal)
             const n = input.frame.width * input.frame.height,
-              sampleCount = Math.min(65536, n),
-              draftCount = Math.min(8192, n)
-            if (
-              pair.samples.format !== 'rgba-f32le-straight' ||
-              pair.samples.sampleCount !== sampleCount ||
-              pair.samples.draftCount !== draftCount ||
-              pair.samples.byteLength !== (sampleCount + draftCount) * 16
-            )
-              throw new Error('Native CPU source samples have incorrect dimensions.')
-            const bytes = await checkedBytes(
-              pair.samples.url,
-              pair.samples.byteLength,
-              pair.samples.sha256,
-              active.abort.signal,
-            )
-            const all = new Float32Array(bytes)
-            for (let i = 0; i < all.length; i += 4)
-              if (
-                ![all[i], all[i + 1], all[i + 2], all[i + 3]].every(Number.isFinite) ||
-                all[i + 3] < 0 ||
-                all[i + 3] > 1
-              )
-                throw new Error('Invalid native CPU source sample.')
+              samples = await checkedSamples(pair.samples, n, active.abort.signal),
+              originalSamples = pair.beforeSamples
+                ? await checkedSamples(pair.beforeSamples, n, active.abort.signal)
+                : undefined
             active.abort.signal.throwIfAborted()
             this.constructing = undefined
             active.suppressCancel = true
@@ -361,8 +402,10 @@ export class NativeCpuClient {
               draft: pair.quality === 'draft',
               bitmap: after,
               neutral: before,
-              sample: new Float32Array(bytes, 0, sampleCount * 4),
-              draftSample: new Float32Array(bytes, sampleCount * 16, draftCount * 4),
+              sample: samples.sample,
+              draftSample: samples.draftSample,
+              beforeSample: originalSamples?.sample,
+              beforeDraftSample: originalSamples?.draftSample,
               native: pair,
               target: input.target,
             })
@@ -416,6 +459,7 @@ export class NativeCpuClient {
           ? this.displayed.after.byteLength + this.displayed.before.byteLength
           : 0,
         existingOwners: this.existingOwners(input, width, height),
+        sourceCount: sourceCount(input),
       },
       {
         ramBytes: pair.policy.ram.effectiveBytes,
@@ -437,6 +481,7 @@ export class NativeCpuClient {
       pair.quality === 'draft' &&
       !!source &&
       sameSource(pair.source, source) &&
+      sameOptionalSource(pair.beforeSource, input.beforeFrame?.cpuSource) &&
       pair.generation === input.generation &&
       pair.settingsRevision === input.settingsRevision &&
       JSON.stringify(pair.parameters) === JSON.stringify(input.parameters) &&
@@ -450,11 +495,18 @@ export class NativeCpuClient {
       !!this.constructing &&
       !!this.displayed &&
       !!source &&
-      sameSource(this.displayed.source, source)
+      sameSource(this.displayed.source, source) &&
+      sameOptionalSource(this.displayed.beforeSource, input.beforeFrame?.cpuSource)
     )
   }
   canDraw(input: CpuClientInput) {
     if (!this.displayed) return false
+    if (
+      !input.frame.cpuSource ||
+      !sameSource(this.displayed.source, input.frame.cpuSource) ||
+      !sameOptionalSource(this.displayed.beforeSource, input.beforeFrame?.cpuSource)
+    )
+      return false
     try {
       if (this.constructing) {
         this.admit(input, {
@@ -483,6 +535,7 @@ export class NativeCpuClient {
           threads: pair.diagnostics.threads,
           oldPairBytes: 0,
           existingOwners: this.existingOwners(input, width, height),
+          sourceCount: sourceCount(input),
         },
         {
           ramBytes: pair.policy.ram.effectiveBytes,

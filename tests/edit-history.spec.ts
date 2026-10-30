@@ -11,7 +11,7 @@ import type { EditHistory, EditPatch } from '../src/shared/edits'
 import type { Photo } from '../src/shared/contracts'
 const id = 'a'.repeat(64)
 test('current history preserves lens choices and revisions, commits atomically, rejects conflicts, branches redo and cleans deletion', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-edits-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-edits-'))
   const metadata = processingMetadata({
     'IFD0:Make': 'SONY',
     'IFD0:Model': 'ZV-1',
@@ -57,7 +57,7 @@ test('current history preserves lens choices and revisions, commits atomically, 
         shadows: 0,
         whites: 0,
         blacks: 0,
-        version: 7,
+        version: 11,
         processing: 'hdr-v1',
         whiteBalance: { mode: 'as-shot' },
         exposureEv: 0,
@@ -148,7 +148,7 @@ const combinedPatch: EditPatch = {
 type HistoryAction = 'update' | 'undo' | 'redo'
 
 async function historyFixture(beforeTrash?: () => Promise<void>) {
-  const root = await mkdtemp(join(tmpdir(), 'luma-history-race-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-history-race-'))
   await mkdir(join(root, 'trash'))
   const events: number[] = [],
     invalidations: string[] = []

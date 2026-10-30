@@ -9,7 +9,7 @@
     {
       "name": "landscape",
       "defaultWorkingPath": "artifacts/bazzite-native-20261019/sony-maximized-p3-reference-fixture/source.f32",
-      "workingPathEnvironment": "LUMA_MASK_PARITY_LANDSCAPE_SOURCE",
+      "workingPathEnvironment": "IRODORI_MASK_PARITY_LANDSCAPE_SOURCE",
       "originalPath": "tests/fixtures/sony-zv1.ARW",
       "originalSha256": "14c9d2912584a3ccc5cf10f554fbe495fc960c36758a14d7d858b36ac5ca88e2",
       "asset": {
@@ -276,7 +276,7 @@
           "provider": "sony-zv1-white-balance",
           "version": "1",
           "identity": "sony-zv1-white-balance-1-sony-zv1-family-1",
-          "model": "luma-kang2002-ucs-1",
+          "model": "irodori-kang2002-ucs-1",
           "asShotGains": [2528, 1024, 1756],
           "xyzToCamera": [
             0.828000009059906, -0.2987000048160553, -0.07029999792575836, -0.3531000018119812,
@@ -352,7 +352,7 @@
           "provider": "sony-zv1-white-balance",
           "version": "1",
           "identity": "sony-zv1-white-balance-1-sony-zv1-family-1",
-          "model": "luma-kang2002-ucs-1",
+          "model": "irodori-kang2002-ucs-1",
           "asShotGains": [2528, 1024, 1756],
           "xyzToCamera": [
             0.828000009059906, -0.2987000048160553, -0.07029999792575836, -0.3531000018119812,
@@ -386,7 +386,7 @@
     {
       "name": "portrait",
       "defaultWorkingPath": "artifacts/bazzite-native-20261019/native-mask-research/fixture-preparation/portrait-working-20261020-a/working/linear.f32",
-      "workingPathEnvironment": "LUMA_MASK_PARITY_PORTRAIT_SOURCE",
+      "workingPathEnvironment": "IRODORI_MASK_PARITY_PORTRAIT_SOURCE",
       "originalPath": "tests/fixtures/research-sony/originals/DSC03243.ARW",
       "originalSha256": "93880fc72a77553efd7a4f9b1f6d2462d0175cee94ae37f330903f70f78581ee",
       "asset": {
@@ -769,7 +769,7 @@
           "provider": "sony-zv1-white-balance",
           "version": "1",
           "identity": "sony-zv1-white-balance-1-sony-zv1-family-1",
-          "model": "luma-kang2002-ucs-1",
+          "model": "irodori-kang2002-ucs-1",
           "asShotGains": [2324, 1024, 2068],
           "xyzToCamera": [
             0.828000009059906, -0.2987000048160553, -0.07029999792575836, -0.3531000018119812,
@@ -845,7 +845,7 @@
           "provider": "sony-zv1-white-balance",
           "version": "1",
           "identity": "sony-zv1-white-balance-1-sony-zv1-family-1",
-          "model": "luma-kang2002-ucs-1",
+          "model": "irodori-kang2002-ucs-1",
           "asShotGains": [2324, 1024, 2068],
           "xyzToCamera": [
             0.828000009059906, -0.2987000048160553, -0.07029999792575836, -0.3531000018119812,

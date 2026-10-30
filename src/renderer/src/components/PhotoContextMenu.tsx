@@ -2,6 +2,8 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import {
   ArrowUpFromLine,
   CheckSquare,
+  Copy,
+  ClipboardPaste,
   Image,
   Layers,
   ScanLine,
@@ -17,6 +19,8 @@ import {
 import styles from './PhotoActions.module.css'
 
 const icons = {
+  copy: Copy,
+  paste: ClipboardPaste,
   export: ArrowUpFromLine,
   cover: Image,
   remove: Unlink,

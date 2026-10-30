@@ -2,7 +2,24 @@
 
 ## Status
 
-**Planned.** Detail sharpening and output sharpening are separate future stages. [Shared requirements](README.md#shared-implementation-requirements) apply.
+**Public detail controls implemented; output sharpening remains in Goal 2.**
+Detail provides Amount 0…100, Radius 0.5…3.0 native source pixels in 0.1 steps and
+Threshold 0…100 through shared numeric/slider inputs. Amount zero bypasses while
+retaining the authored radius and threshold. Settings 11/catalog 21 and the typed
+edit/MCP API share transactional history, revision checks and Undo/Redo. Source
+preparation updates on commit; downstream point-color edits reuse the result.
+
+The [detail decision record](detail-processing.md) fixes protected luminance
+high-pass, noise protection, halo limits and denoise-before-sharpen ordering before
+geometry/manual WB. CPU/GPU kernels, bounded source adapters and preview/export
+leases retain independent small-fixture evidence. Focused public application
+checks cover UI/MCP, original Before/Split pixels, keyboard gestures, cancellation,
+minimum Console-open layout and restart. A tiny actual JPEG export freezes saved
+detail controls across foreground retry and later edits. Real RAW/HDR/gain-map/
+merge application, native input/visual, photographic and full-size performance
+acceptance remain pending. Final-output-size proof and output sharpening are
+separate unfinished Goal 2 features.
+[Shared requirements](README.md#shared-implementation-requirements) apply.
 
 ## Goal
 

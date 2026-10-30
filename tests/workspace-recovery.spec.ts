@@ -1,11 +1,15 @@
 import { expect, test } from '@playwright/test'
-import { DEFAULT_WORKSPACE } from '../src/shared/workspace'
+import {
+  DEFAULT_INSPECTOR_SECTIONS,
+  DEFAULT_WORKSPACE,
+  type WorkspaceState,
+} from '../src/shared/workspace'
 import { stackFixture, finishTask } from './stack.helpers'
 
 test('current workspace checkpoints persist idempotently without advancing catalog or stack browsing revisions', async () => {
   const t = await stackFixture(3)
   try {
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
+    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 21 })
     const before = t.library.getGallerySummary()
     expect(t.library.getWorkspaceState()).toMatchObject({
       checkpoint: 0,
@@ -102,6 +106,91 @@ test('deleted references are pruned and removed list anchors recover through a c
     })
     expect(snapshot.selected.map((p) => p.id)).toEqual([ids[3]])
     expect(t.library.listTasks()).toEqual([])
+  } finally {
+    await t.close()
+  }
+})
+
+test('legacy workspace disclosures default safely and new checkpoints validate and preserve inspector state independently of photo edits', async () => {
+  const t = await stackFixture(2)
+  try {
+    const legacy: Partial<WorkspaceState> = { ...DEFAULT_WORKSPACE, activeId: t.photos[0].id }
+    delete legacy.inspector
+    delete legacy.creativeColor
+    t.db.prepare('INSERT INTO workspace_state VALUES (1, 8, ?)').run(JSON.stringify(legacy))
+    expect(t.library.getWorkspaceState().state?.inspector).toEqual(DEFAULT_INSPECTOR_SECTIONS)
+    const before = t.library.getGallerySummary()
+    // Earlier inspector checkpoints have no Crop disclosure; add its default on read/save.
+    const earlier = {
+      ...DEFAULT_WORKSPACE,
+      inspector: { histogram: false, light: true, color: true, lens: false, metadata: true },
+    }
+    t.db
+      .prepare('UPDATE workspace_state SET data = ? WHERE singleton = 1')
+      .run(JSON.stringify(earlier))
+    expect(t.library.getWorkspaceState().state?.inspector).toEqual({
+      ...DEFAULT_INSPECTOR_SECTIONS,
+      histogram: false,
+    })
+    await t.library.saveWorkspaceState({ state: { consoleOpen: false } })
+    expect(t.library.getWorkspaceState().state?.inspector).toEqual({
+      ...DEFAULT_INSPECTOR_SECTIONS,
+      histogram: false,
+    })
+    t.db
+      .prepare('UPDATE workspace_state SET data = ? WHERE singleton = 1')
+      .run(JSON.stringify(legacy))
+    const sections = {
+      ...DEFAULT_INSPECTOR_SECTIONS,
+      histogram: false,
+      light: false,
+      color: true,
+      crop: false,
+      lens: true,
+      metadata: false,
+    }
+    await t.library.saveWorkspaceState({ state: { consoleOpen: true } })
+    expect(t.library.getWorkspaceState().state?.inspector).toEqual(DEFAULT_INSPECTOR_SECTIONS)
+    await t.library.saveWorkspaceState({ state: { inspector: sections } })
+    await t.library.saveWorkspaceState({
+      state: { creativeColor: { range: 'aqua', tone: 'highlights' } },
+    })
+    expect(t.library.getGallerySummary()).toEqual(before)
+    const saved = t.library.getWorkspaceState()
+    await t.restart()
+    expect(t.library.getWorkspaceState()).toEqual(saved)
+    expect(saved.state?.inspector).toEqual(sections)
+    expect(saved.state?.creativeColor).toEqual({ range: 'aqua', tone: 'highlights' })
+    for (const invalid of [
+      null,
+      [],
+      {},
+      { range: 'cyan', tone: 'shadows' },
+      { range: 'red', tone: 'global' },
+      { range: 'red', tone: 'shadows', unknown: true },
+    ]) {
+      await expect(
+        t.library.saveWorkspaceState({
+          state: { creativeColor: invalid as WorkspaceState['creativeColor'] },
+        }),
+      ).rejects.toThrow('Invalid workspace state')
+      expect(t.library.getWorkspaceState()).toEqual(saved)
+    }
+    for (const invalid of [
+      null,
+      [],
+      {},
+      { ...sections, color: 1 },
+      { ...sections, unknown: true },
+    ]) {
+      await expect(
+        t.library.saveWorkspaceState({
+          state: { inspector: invalid as unknown as WorkspaceState['inspector'] },
+          selection: { added: [t.photos[1].id], removed: [] },
+        }),
+      ).rejects.toThrow('Invalid workspace state')
+      expect(t.library.getWorkspaceState()).toEqual(saved)
+    }
   } finally {
     await t.close()
   }

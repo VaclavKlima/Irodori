@@ -1,4 +1,8 @@
-import type { Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
+import { activateButton } from './button.helpers'
+import { creativeColorCapabilities } from '../src/shared/creative-color-controls'
+import { neutralColorMixer } from '../src/shared/color-mixer'
+import { neutralColorGrading } from '../src/shared/color-grading'
 import {
   createEditorInputPacer,
   summarizeFirstVisibleInputResponses,
@@ -6,19 +10,204 @@ import {
 } from './editor-input-pacing.helpers'
 
 export type WorkabilitySlider =
-  'Exposure' | 'Contrast' | 'Highlights' | 'Shadows' | 'Whites' | 'Blacks' | 'Temperature' | 'Tint'
+  | 'Exposure'
+  | 'Contrast'
+  | 'Highlights'
+  | 'Shadows'
+  | 'Whites'
+  | 'Blacks'
+  | 'Temperature'
+  | 'Tint'
+  | 'Saturation'
+  | 'Vibrance'
+  | 'Blue HSL Hue'
+  | 'Blue HSL Saturation'
+  | 'Blue HSL Luminance'
+  | 'Midtones Grading Hue'
+  | 'Midtones Grading Saturation'
+  | 'Midtones Grading Luminance'
+  | 'Grading Blending'
+  | 'Grading Balance'
 
-// Legacy callers retain native-rAF pacing. The new goal opts into an explicit
-// versioned 120 Hz timer load and records native presentation cadence separately.
+type CreativeAmount = 'hue' | 'saturation' | 'luminance'
+const mixerControl = (parameter: CreativeAmount) => ({
+  section: 'Color Mixer',
+  bodyId: 'color-mixer-controls',
+  group: 'Color mixer range',
+  selection: 'Blue',
+  inputLabel: parameter[0].toUpperCase() + parameter.slice(1),
+  path: ['colorMixer', 'ranges', 'blue', parameter],
+  limits: creativeColorCapabilities.colorMixer.parameters[parameter],
+})
+const gradingControl = (parameter: CreativeAmount | 'blending' | 'balance') => ({
+  section: 'Color Grading',
+  bodyId: 'color-grading-controls',
+  group: 'Color grading tone',
+  selection: 'Midtones',
+  inputLabel: parameter[0].toUpperCase() + parameter.slice(1),
+  path:
+    parameter === 'blending' || parameter === 'balance'
+      ? ['colorGrading', parameter]
+      : ['colorGrading', 'tones', 'midtones', parameter],
+  limits: creativeColorCapabilities.colorGrading.parameters[parameter],
+})
+const creativeControls: Partial<
+  Record<WorkabilitySlider, ReturnType<typeof mixerControl> | ReturnType<typeof gradingControl>>
+> = {
+  'Blue HSL Hue': mixerControl('hue'),
+  'Blue HSL Saturation': mixerControl('saturation'),
+  'Blue HSL Luminance': mixerControl('luminance'),
+  'Midtones Grading Hue': gradingControl('hue'),
+  'Midtones Grading Saturation': gradingControl('saturation'),
+  'Midtones Grading Luminance': gradingControl('luminance'),
+  'Grading Blending': gradingControl('blending'),
+  'Grading Balance': gradingControl('balance'),
+}
+
+export interface SustainedEditorInputOptions {
+  label: WorkabilitySlider
+  zoom: 'fit' | '100%'
+  frequency: 60 | 120
+  pacing?: EditorInputPacingMode
+  /** Explicit fixture identity; older benchmark callers keep their original input. */
+  photoId?: string
+}
+
+/** Control selection, committed baseline and zoom are untimed preparation. */
+export async function prepareSustainedEditorInput(
+  page: Page,
+  options: SustainedEditorInputOptions,
+) {
+  const creative = creativeControls[options.label] ?? null
+  if (options.label === 'Saturation' || options.label === 'Vibrance') {
+    const section = page.getByRole('button', { name: 'Color', exact: true })
+    if ((await section.getAttribute('aria-expanded')) !== 'true') await activateButton(section)
+  }
+  if (creative) {
+    const section = page.getByRole('button', { name: creative.section, exact: true })
+    if ((await section.getAttribute('aria-expanded')) !== 'true') await activateButton(section)
+    const selection = page
+      .getByRole('group', { name: creative.group, exact: true })
+      .getByRole('button', { name: creative.selection, exact: true })
+    if ((await selection.getAttribute('aria-pressed')) !== 'true') await activateButton(selection)
+    await expect(selection).toHaveAttribute('aria-pressed', 'true')
+    const slider = page.locator(`#${creative.bodyId}`).getByRole('slider', {
+      name: creative.inputLabel,
+      exact: true,
+    })
+    await expect(slider).toBeEnabled()
+    await slider.scrollIntoViewIfNeeded()
+    await expect(slider).toHaveAttribute('min', String(creative.limits.min))
+    await expect(slider).toHaveAttribute('max', String(creative.limits.max))
+    await expect(slider).toHaveAttribute('step', String(creative.limits.step))
+  }
+  return page.evaluate(
+    async ({ options, creative, neutralMixer, neutralGrade }) => {
+      const { zoom } = options
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
+      const device = canvas.getContext('webgpu')!.getConfiguration()!.device
+      const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve))
+      const presentedParameters = () => JSON.parse(canvas.dataset.displayedAnalysisKey ?? '[]')[0]
+      const creativeParameters = (parameters: Record<string, unknown> | undefined) =>
+        JSON.stringify([parameters?.colorMixer, parameters?.colorGrading])
+      const wait = async (predicate: () => boolean, description: string) => {
+        const deadline = performance.now() + 10000
+        while (!predicate()) {
+          if (performance.now() > deadline) throw new Error(description)
+          await frame()
+        }
+      }
+      const photo = (await window.irodori.listPhotos()).photos.find((entry) =>
+        options.photoId ? entry.id === options.photoId : entry.filename === 'sony-zv1.ARW',
+      )
+      if (!photo) throw new Error('The sustained-input fixture is not in the isolated library.')
+      const photoId = photo.id
+      const state = await window.irodori.getEdits(photoId)
+      const baselineMixer =
+        creative?.section === 'Color Mixer'
+          ? {
+              ...neutralMixer,
+              ranges: { ...neutralMixer.ranges, blue: { hue: 8, saturation: 12, luminance: 4 } },
+            }
+          : neutralMixer
+      const baselineGrade =
+        creative?.section === 'Color Grading'
+          ? {
+              ...neutralGrade,
+              tones: {
+                shadows: { hue: 220, saturation: 18, luminance: -6 },
+                midtones: { hue: 35, saturation: 24, luminance: 4 },
+                highlights: { hue: 50, saturation: 12, luminance: 6 },
+              },
+            }
+          : neutralGrade
+      const committed = await window.irodori.updateEdits(
+        photoId,
+        {
+          exposureEv: 0,
+          contrast: 0,
+          highlights: 0,
+          shadows: 0,
+          whites: 0,
+          blacks: 0,
+          saturation: 0,
+          vibrance: 0,
+          colorMixer: baselineMixer,
+          colorGrading: baselineGrade,
+          whiteBalance: { mode: 'as-shot' },
+        },
+        state.revision,
+      )
+      await wait(
+        () =>
+          [
+            'exposure',
+            'contrast',
+            'highlights',
+            'shadows',
+            'whites',
+            'blacks',
+            'saturation',
+            'vibrance',
+          ].every((key) => Number(canvas.dataset[key]) === 0) &&
+          JSON.parse(canvas.dataset.whiteBalance!).mode === 'as-shot' &&
+          creativeParameters(presentedParameters()) ===
+            creativeParameters({ colorMixer: baselineMixer, colorGrading: baselineGrade }) &&
+          canvas.dataset.quality === 'normal' &&
+          Number(canvas.dataset.presentedSettingsRevision) === committed.revision &&
+          canvas.dataset.completedEditSerial === canvas.dataset.requestedSerial &&
+          canvas.dataset.presentedSourceIdentity === canvas.dataset.requestedSourceIdentity,
+        'Neutral editor state did not converge before sustained input.',
+      )
+      const historyBefore = await window.irodori.getEditHistory(photoId)
+      canvas.focus()
+      canvas.dispatchEvent(
+        new KeyboardEvent('keydown', { key: zoom === 'fit' ? '0' : '1', bubbles: true }),
+      )
+      await frame()
+      await device.queue.onSubmittedWorkDone()
+      await frame()
+      return {
+        photoId,
+        settingsRevision: committed.revision,
+        historySnapshotCount: historyBefore.snapshots.length,
+        baselineMixer,
+        baselineGrade,
+      }
+    },
+    { options, creative, neutralMixer: neutralColorMixer, neutralGrade: neutralColorGrading },
+  )
+}
+
+// Legacy callers retain native-rAF pacing. The professional goal opts into an
+// explicit versioned 120 Hz timer load and records native cadence separately.
 export async function sustainedEditorInput(
   page: Page,
-  options: {
-    label: WorkabilitySlider
-    zoom: 'fit' | '100%'
-    frequency: 60 | 120
-    pacing?: EditorInputPacingMode
-  },
+  options: SustainedEditorInputOptions,
+  preparedInput?: Awaited<ReturnType<typeof prepareSustainedEditorInput>>,
 ) {
+  const creative = creativeControls[options.label] ?? null
+  const prepared = preparedInput ?? (await prepareSustainedEditorInput(page, options))
   const pacer = options.pacing
     ? await page.evaluateHandle(createEditorInputPacer, {
         mode: options.pacing,
@@ -27,23 +216,38 @@ export async function sustainedEditorInput(
     : null
   try {
     const trial = await page.evaluate(
-      async ({ options, pacer }) => {
+      async ({ options, pacer, creative, prepared }) => {
         const { label, zoom, frequency } = options
         const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
         const histogram = document.getElementById('histogram')!
-        const device = canvas.getContext('webgpu')!.getConfiguration()!.device
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
-        const heading = Array.from(document.querySelectorAll('label')).find(
-          (element) => element.textContent === label,
+        const controlRoot = creative ? document.getElementById(creative.bodyId)! : document
+        const heading = Array.from(controlRoot.querySelectorAll('label')).find(
+          (element) => element.textContent === (creative?.inputLabel ?? label),
         )!
         const slider = document.getElementById(heading.htmlFor) as HTMLInputElement
         const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve))
+        const nestedValue = (parameters: unknown) => {
+          let value = parameters
+          for (const key of creative!.path)
+            value =
+              value && typeof value === 'object'
+                ? (value as Record<string, unknown>)[key]
+                : undefined
+          return typeof value === 'number' ? value : Number.NaN
+        }
+        // This key is published from the completed production render after its final blit fence.
+        const presentedParameters = () => JSON.parse(canvas.dataset.displayedAnalysisKey ?? '[]')[0]
+        const creativeParameters = (parameters: Record<string, unknown> | undefined) =>
+          JSON.stringify([parameters?.colorMixer, parameters?.colorGrading])
         const readValue = () =>
-          label === 'Temperature'
-            ? (JSON.parse(canvas.dataset.whiteBalance!).kelvin as number)
-            : label === 'Tint'
-              ? (JSON.parse(canvas.dataset.whiteBalance!).tint as number)
-              : Number(canvas.dataset[label.toLowerCase()])
+          creative
+            ? nestedValue(presentedParameters())
+            : label === 'Temperature'
+              ? (JSON.parse(canvas.dataset.whiteBalance!).kelvin as number)
+              : label === 'Tint'
+                ? (JSON.parse(canvas.dataset.whiteBalance!).tint as number)
+                : Number(canvas.dataset[label.toLowerCase()])
         const wait = async (predicate: () => boolean, description: string) => {
           const deadline = performance.now() + 10000
           while (!predicate()) {
@@ -51,45 +255,12 @@ export async function sustainedEditorInput(
             await frame()
           }
         }
-        const photoId = (await window.luma.listPhotos()).photos.find(
-          (photo) => photo.filename === 'sony-zv1.ARW',
-        )!.id
-        const state = await window.luma.getEdits(photoId)
-        await window.luma.updateEdits(
-          photoId,
-          {
-            exposureEv: 0,
-            contrast: 0,
-            highlights: 0,
-            shadows: 0,
-            whites: 0,
-            blacks: 0,
-            whiteBalance: { mode: 'as-shot' },
-          },
-          state.revision,
-        )
-        await wait(
-          () =>
-            ['exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'].every(
-              (key) => Number(canvas.dataset[key]) === 0,
-            ) &&
-            JSON.parse(canvas.dataset.whiteBalance!).mode === 'as-shot' &&
-            canvas.dataset.quality === 'normal',
-          'Neutral editor state did not converge before sustained input.',
-        )
-        const historyBefore = await window.luma.getEditHistory(photoId)
-        canvas.focus()
-        canvas.dispatchEvent(
-          new KeyboardEvent('keydown', { key: zoom === 'fit' ? '0' : '1', bubbles: true }),
-        )
-        await frame()
-        await device.queue.onSubmittedWorkDone()
-        await frame()
+        const { photoId, baselineMixer, baselineGrade } = prepared
         const expectedSourceIdentity = canvas.dataset.presentedSourceIdentity
         const baselineEpoch = Number(canvas.dataset.presentedEpoch)
         const baselineSourceMatched =
           !!expectedSourceIdentity &&
-          expectedSourceIdentity.startsWith(`luma-photo://library/${photoId}/`) &&
+          expectedSourceIdentity.startsWith(`irodori-photo://library/${photoId}/`) &&
           Number.isFinite(baselineEpoch)
 
         const memoryGeometry = { width: canvas.width, height: canvas.height }
@@ -163,6 +334,7 @@ export async function sustainedEditorInput(
           sourceIdentity: string
           epoch: number | null
           intent: string
+          creativeParameters?: string
         }[] = []
         type GpuObservation = {
           inputSerial: number
@@ -212,6 +384,7 @@ export async function sustainedEditorInput(
           inputsBehindAtPresentation?: number
           intentLagAtPresentationMs?: number
           gpu?: GpuObservation
+          creativeParameters?: string
         }[] = []
         const publicationIdentities: {
           editSerial: number
@@ -270,7 +443,8 @@ export async function sustainedEditorInput(
             identity.sourceIdentity === request?.sourceIdentity &&
             identity.epoch === request?.epoch &&
             identity.intent === request?.intent &&
-            readValue() === input.value
+            readValue() === input.value &&
+            (!creative || creativeParameters(presentedParameters()) === request?.creativeParameters)
           publicationIdentities.push({ ...identity, matched })
           if (!matched) {
             attributionFailures++
@@ -295,6 +469,7 @@ export async function sustainedEditorInput(
             requestSourceIdentity: request?.sourceIdentity,
             requestEpoch: request?.epoch,
             requestIntent: request?.intent,
+            ...(creative ? { creativeParameters: creativeParameters(presentedParameters()) } : {}),
             inputToRequestMs: request?.inputToRequestMs,
             requestToPublicationObservedMs:
               request?.at === null || request?.at === undefined
@@ -326,7 +501,9 @@ export async function sustainedEditorInput(
                 completed.postRafSourceIdentity !== identity.sourceIdentity ||
                 completed.postRafEpoch !== identity.epoch ||
                 completed.postRafIntent !== identity.intent ||
-                readValue() !== input.value
+                readValue() !== input.value ||
+                (creative &&
+                  creativeParameters(presentedParameters()) !== request?.creativeParameters)
               ) {
                 attributionFailures++
                 publicationIdentities.push({
@@ -392,8 +569,9 @@ export async function sustainedEditorInput(
               epoch = Number(canvas.dataset.requestedEpoch),
               editSerial = Number(canvas.dataset.requestedSerial),
               requested = JSON.parse(canvas.dataset.requestedParameters!)
-            const value =
-              label === 'Temperature'
+            const value = creative
+              ? nestedValue(requested)
+              : label === 'Temperature'
                 ? requested.whiteBalance.kelvin
                 : label === 'Tint'
                   ? requested.whiteBalance.tint
@@ -421,6 +599,7 @@ export async function sustainedEditorInput(
                   sourceIdentity: canvas.dataset.requestedSourceIdentity ?? '',
                   epoch: Number.isFinite(epoch) ? epoch : null,
                   intent: canvas.dataset.requestIntent ?? 'unknown',
+                  ...(creative ? { creativeParameters: creativeParameters(requested) } : {}),
                 }
                 requests.push(request)
                 requestBySerial.set(editSerial, request)
@@ -466,8 +645,13 @@ export async function sustainedEditorInput(
             const tick = pacer ? await pacer.next() : null
             let raf = tick ? tick.raf : await frame()
             while (!tick && (raf ?? 0) + 0.1 < deadline) raf = await frame()
-            const value =
-              label === 'Temperature'
+            const value = creative
+              ? creative.limits.min === 0
+                ? creative.limits.max === 359.9
+                  ? Number((serial * 1.5).toFixed(1))
+                  : serial % 101
+                : (serial % 201) - 100
+              : label === 'Temperature'
                 ? 4000 + serial * 50
                 : label === 'Tint'
                   ? (serial % 201) - 100
@@ -538,7 +722,7 @@ export async function sustainedEditorInput(
           histogramObserver.disconnect()
           pacer?.stop()
         }
-        const historyAfter = await window.luma.getEditHistory(photoId)
+        const historyAfter = await window.irodori.getEditHistory(photoId)
         const requestedInputSerials = new Set(requests.map((request) => request.inputSerial))
         const presentedInputSerials = new Set(
           presentations.map((presentation) => presentation.serial),
@@ -637,6 +821,23 @@ export async function sustainedEditorInput(
         )
         return {
           label,
+          control: creative
+            ? {
+                section: creative.section,
+                selection: creative.selection,
+                parameterPath: creative.path,
+                authoredLimits: creative.limits,
+                actualLimits: {
+                  min: Number(slider.min),
+                  max: Number(slider.max),
+                  step: Number(slider.step),
+                },
+                baseline: { colorMixer: baselineMixer, colorGrading: baselineGrade },
+                persistedValue: nestedValue(historyAfter.settings),
+                presentedParameterSource: 'completed displayedAnalysisKey[0]',
+                requestedParameterSource: 'requestedParameters',
+              }
+            : null,
           zoom,
           allocatedRamBytes: invalidMemoryObservations ? Number.NaN : peakAllocatedRamBytes,
           allocatedGpuBytes: invalidMemoryObservations ? Number.NaN : peakAllocatedGpuBytes,
@@ -791,7 +992,7 @@ export async function sustainedEditorInput(
           loaders,
           hidden,
           sidebarMovement: Math.max(...heights) - Math.min(...heights),
-          historyEntriesAdded: historyAfter.snapshots.length - historyBefore.snapshots.length,
+          historyEntriesAdded: historyAfter.snapshots.length - prepared.historySnapshotCount,
           sourceUploads: Number(canvas.dataset.sourceUploads),
           tileKernel: canvas.dataset.tileKernel ?? 'unknown',
           tileBatch: Number(canvas.dataset.tileBatch),
@@ -799,7 +1000,12 @@ export async function sustainedEditorInput(
           error,
         }
       },
-      { options, pacer },
+      {
+        options,
+        pacer,
+        creative,
+        prepared,
+      },
     )
     return {
       ...trial,

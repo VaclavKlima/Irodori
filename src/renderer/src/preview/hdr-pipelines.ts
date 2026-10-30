@@ -6,10 +6,12 @@ import {
   type AcesInteractivePreviewPolicy,
 } from '../../../shared/aces-preview-wgsl'
 import { hdrShader, hdrMipShader, hdrCacheKernel } from './hdr-shader'
-import { hdrHistogramShader } from './hdr-histogram'
+import { hdrHistogramShaderFor } from './hdr-histogram'
+import { CREATIVE_COLOR_VERSION } from '../../../shared/creative-color'
 
 export interface HdrPipelineProfile {
   readonly interactive: boolean
+  readonly creative?: boolean
 }
 export interface HdrPipelines {
   readonly mipLayout: GPUBindGroupLayout
@@ -39,12 +41,16 @@ export class HdrPipelineCache {
     private compile: (
       device: GPUDevice,
       profile: HdrPipelineProfile,
+      base?: HdrPipelines,
     ) => Promise<HdrPipelines> = compileHdrPipelines,
   ) {}
 
   acquire(device: GPUDevice, profile: HdrPipelineProfile): HdrPipelinePreparation {
     if (this.lost.has(device)) throw new Error('HDR pipeline device was lost.')
-    const selected = Object.freeze({ interactive: profile.interactive })
+    const selected = Object.freeze({
+      interactive: profile.interactive,
+      ...(profile.creative ? { creative: true } : {}),
+    })
     const key = JSON.stringify([
       selected.interactive
         ? [
@@ -53,6 +59,7 @@ export class HdrPipelineCache {
             ACES_HDR_INTERACTIVE_PREVIEW_VERSION,
           ]
         : 'reference',
+      ...(selected.creative ? [CREATIVE_COLOR_VERSION] : []),
     ])
     let entries = this.devices.get(device)
     if (!entries) {
@@ -70,7 +77,12 @@ export class HdrPipelineCache {
     const entry: PipelineEntry = {
       ready: false,
       pending: Promise.resolve()
-        .then(() => this.compile(device, selected))
+        .then(async () => {
+          const base = selected.creative
+            ? await this.acquire(device, { interactive: selected.interactive }).pipelines
+            : undefined
+          return this.compile(device, selected, base)
+        })
         .then((pipelines) => {
           if (this.lost.has(device)) throw new Error('HDR pipeline device was lost.')
           entry.ready = true
@@ -133,36 +145,44 @@ export function presentationBlit(device: GPUDevice): Promise<GPURenderPipeline> 
   return pending
 }
 
-async function compileHdrPipelines(device: GPUDevice, profile: HdrPipelineProfile) {
-  const mipLayout = device.createBindGroupLayout({
-    entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.COMPUTE,
-        texture: { sampleType: 'unfilterable-float' },
-      },
-      {
-        binding: 1,
-        visibility: GPUShaderStage.COMPUTE,
-        storageTexture: { access: 'write-only', format: 'rgba32float' },
-      },
-    ],
-  })
-  const layout = device.createBindGroupLayout({
-    entries: [
-      { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-      {
-        binding: 3,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: 'unfilterable-float', viewDimension: '2d-array' },
-      },
-      {
-        binding: 2,
-        visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: 'read-only-storage' },
-      },
-    ],
-  })
+async function compileHdrPipelines(
+  device: GPUDevice,
+  profile: HdrPipelineProfile,
+  base?: HdrPipelines,
+) {
+  const mipLayout =
+    base?.mipLayout ??
+    device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.COMPUTE,
+          texture: { sampleType: 'unfilterable-float' },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { access: 'write-only', format: 'rgba32float' },
+        },
+      ],
+    })
+  const layout =
+    base?.layout ??
+    device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: 'unfilterable-float', viewDimension: '2d-array' },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage' },
+        },
+      ],
+    })
   const cacheLayout = device.createBindGroupLayout({
     entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
@@ -182,30 +202,46 @@ async function compileHdrPipelines(device: GPUDevice, profile: HdrPipelineProfil
       },
       { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+      ...(profile.creative
+        ? [
+            {
+              binding: 12,
+              visibility: GPUShaderStage.COMPUTE,
+              buffer: { type: 'read-only-storage' as const },
+            },
+          ]
+        : []),
     ],
   })
   // Queue every independent compiler before awaiting any result. Promise.all
   // observes each rejection, including a synchronous shader/layout failure.
-  const mip = Promise.resolve().then(() =>
-    device.createComputePipelineAsync({
-      label: 'Luma HDR source mip',
-      layout: device.createPipelineLayout({ bindGroupLayouts: [mipLayout] }),
-      compute: { module: device.createShaderModule({ code: hdrMipShader }), entryPoint: 'down' },
-    }),
-  )
-  const presentation = Promise.resolve().then(() => {
-    const module = device.createShaderModule({ code: hdrShader })
-    return device.createRenderPipelineAsync({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-      vertex: { module, entryPoint: 'vs' },
-      fragment: { module, entryPoint: 'fs', targets: [{ format: 'rgba16float' }] },
-    })
-  })
+  const mip = base
+    ? Promise.resolve(base.mip)
+    : Promise.resolve().then(() =>
+        device.createComputePipelineAsync({
+          label: 'Irodori HDR source mip',
+          layout: device.createPipelineLayout({ bindGroupLayouts: [mipLayout] }),
+          compute: {
+            module: device.createShaderModule({ code: hdrMipShader }),
+            entryPoint: 'down',
+          },
+        }),
+      )
+  const presentation = base
+    ? Promise.resolve(base.presentation)
+    : Promise.resolve().then(() => {
+        const module = device.createShaderModule({ code: hdrShader })
+        return device.createRenderPipelineAsync({
+          layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
+          vertex: { module, entryPoint: 'vs' },
+          fragment: { module, entryPoint: 'fs', targets: [{ format: 'rgba16float' }] },
+        })
+      })
   const histogram = Promise.resolve().then(() =>
     device.createComputePipelineAsync({
       layout: 'auto',
       compute: {
-        module: device.createShaderModule({ code: hdrHistogramShader }),
+        module: device.createShaderModule({ code: hdrHistogramShaderFor(profile.creative) }),
         entryPoint: 'sampleHistogram',
       },
     }),
@@ -214,7 +250,9 @@ async function compileHdrPipelines(device: GPUDevice, profile: HdrPipelineProfil
     device.createComputePipelineAsync({
       layout: device.createPipelineLayout({ bindGroupLayouts: [cacheLayout] }),
       compute: {
-        module: device.createShaderModule({ code: hdrCacheKernel().shader }),
+        module: device.createShaderModule({
+          code: hdrCacheKernel('reference', profile.creative).shader,
+        }),
         entryPoint: 'renderTile',
       },
     }),
@@ -227,7 +265,9 @@ async function compileHdrPipelines(device: GPUDevice, profile: HdrPipelineProfil
       device.createComputePipelineAsync({
         layout: device.createPipelineLayout({ bindGroupLayouts: [cacheLayout] }),
         compute: {
-          module: device.createShaderModule({ code: hdrCacheKernel(policy).shader }),
+          module: device.createShaderModule({
+            code: hdrCacheKernel(policy, profile.creative).shader,
+          }),
           entryPoint: 'renderTile',
         },
       }),

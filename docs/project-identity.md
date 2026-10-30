@@ -1,11 +1,62 @@
-# Public naming research
+# Project identity
 
-**Decision: Irodori, with the tagline Personal photo editing.** Selected by the
-owner on 2026-10-28. Application branding is integrated on `main`, and the
-existing GitHub repository has been renamed to `VaclavKlima/Irodori`. The local
-checkout folder remains named Luma for session continuity. The existing
-photo-editor overlap and incomplete registry checks remain documented below.
-The selection does not establish name clearance.
+**Irodori — Personal photo editing.** The project owner selected this name and
+requested complete adoption across the application on 2026-10-28. The existing
+GitHub repository is `VaclavKlima/Irodori`. Original source and documentation use
+Apache-2.0, subject to the [documented exceptions](licensing.md).
+
+## Application and developer interfaces
+
+Use Irodori for the product name and profile directory, `irodori` for package,
+bridge and MCP names, and `IRODORI_` / `VITE_IRODORI_` for application environment
+variables. The photograph scheme is `irodori-photo`. Native helpers, source
+folders and bundled runtime files use the same name. Numeric native protocol
+layouts stay unchanged; their fixed-width headers use the `IROD` abbreviation.
+
+The product direction is [Irodori.md](../Irodori.md). The authoritative editing
+plan remains [professional editing](features/professional-editing.md); naming does
+not complete its unfinished photographic, platform or performance acceptance.
+
+## Existing installations
+
+The normal profile is `~/.config/Irodori` on Linux. Explicit isolated test profiles
+always take priority. A one-time profile migration preserves originals and edits,
+updates application-owned references and uses the new directory. Retain migration
+evidence outside version control. Native helpers and renderer/worker bundles must
+be rebuilt and checked together after interface renaming.
+
+The checkout is `/var/home/KolegaDragan/Development/Irodori`. The existing Git
+history and uncommitted editing work are retained. Package/bridge/MCP names,
+source folders, native/WASM entry points, application environment variables and
+managed URL references now use the current namespace.
+
+The migration command accepts explicit absolute paths and records a database
+backup, sidecar backups and an original-file identity inventory before changing
+application-owned references:
+
+```sh
+node scripts/migrate-profile.mjs --from /absolute/previous-profile --to /absolute/Irodori --evidence /absolute/migration-evidence
+```
+
+Close the application before migration. The command refuses an existing target,
+a live profile or a cross-filesystem move. It preserves arbitrary user metadata,
+originals, durable masters and edit history. Retired disposable caches stay in the
+evidence directory. The workstation migration preserved all 195 originals and
+identical edit-history and processing rows; it did not import into or launch
+automated tests against the user library.
+
+## Local verification — 2026-10-28
+
+The [adoption evidence](../artifacts/irodori-rename/20261028T171959Z/summary.md)
+records the source snapshot, native/WASM rebuilds, profile preservation and
+focused verification. Tests use isolated hidden profiles and small generated
+images. This does not complete RAW/HDR photographic, native input, performance
+or packaged-release acceptance. The macOS codec retains identical executable
+code and has a verified ad-hoc signature structure; execution on macOS remains
+unverified in this Linux session.
+
+The research below is retained as a dated record. Selection and technical
+adoption do not establish trademark or registry clearance.
 
 ## Naming brief
 
@@ -22,23 +73,6 @@ names that imply an unrelated AI-generation service, camera-only capture,
 professional complexity, or a single editing operation. Compare recognizable
 use in photography and software before recommending public adoption.
 
-## Assessment of Luma
-
-Luma was the previous working name. It is short, readable, and connected to image
-brightness. Research found it crowded in the exact creative-software area this
-application would enter:
-
-| Observed use            | Source and implication                                                                                                                                                                                                                                                                                                                                                                    |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Luma AI                 | Its [first-party image-editing description](https://lumalabs.ai/learning-hub/luma-image-capabilities-ai-image-editing-animation-workflows) covers image modification and creative workflows. The shared Luma name and editing/agent vocabulary create a substantial discoverability and association concern.                                                                              |
-| LumaFusion / Luma Touch | The [publisher's App Store listing](https://apps.apple.com/us/app/lumafusion/id1062022008) identifies established video-editing software. It is an adjacent creative market, not evidence that Luma is an unused product name.                                                                                                                                                            |
-| LumaBooth / LumaShare   | The [vendor site](https://www.lumabooth.com/) identifies camera and photo-booth software. This adds photographic-software overlap even though its workflow differs.                                                                                                                                                                                                                       |
-| LUMA AI trademark lead  | An [official USPTO office action dated 2025-10-01](https://tmng-al.uspto.gov/resting2/api/casedoc/cms/case/98899654/office-action/OfficeAction7848575.pdf) reproduces LUMA AI registration 7792979, serial 98703191, including image-related software in classes 009 and 042. This is a concrete screening lead, not a determination of infringement or a verified current-status search. |
-| Exact domains           | Registry RDAP returned domain objects for `luma.com`, `luma.app`, and `luma.photo`. All are registered. The existing `VaclavKlima/Luma` repository belongs to this project.                                                                                                                                                                                                               |
-
-The conclusion about discoverability is an inference from these observed uses.
-The term's relationship to luminance does not establish trademark freedom.
-
 ## Selected name: Irodori
 
 **Status: selected by the owner.** The chosen presentation is **Irodori**, with
@@ -49,8 +83,8 @@ application name.
 coloring, an arrangement of colors, or figuratively adding interest and charm.
 The [Shogakukan dictionary entry](https://kotobank.jp/word/%E5%BD%A9%E3%82%8A-436757)
 supports those meanings. That connection suits photographic editing. The name
-has seven letters and four syllables, so it takes longer to say than Luma or
-Figma, but it gives this proposal a real meaning without an invented blend.
+has seven letters and four syllables, giving it a real meaning without an
+invented blend.
 
 **Existing photo-editor use:** [irodori - Color Pop Editor](https://apps.apple.com/us/app/irodori-color-pop-editor/id6776964361)
 is already listed in the App Store by Ryogo Owashi. It edits photographs with
@@ -64,76 +98,11 @@ reported. Irodori Desk and Irodori Edit were considered as possible extensions;
 neither is part of the selected presentation. A generic suffix would not itself
 establish that the existing photo-editor overlap is resolved.
 
-An authenticated GitHub search for `user:VaclavKlima Irodori in:name` returned no
-repositories on 2026-10-28. This does not reserve the destination. Irodori has not
+Before adoption, an authenticated GitHub search for
+`user:VaclavKlima Irodori in:name` returned no repositories on 2026-10-28. The
+existing project has since been renamed to `VaclavKlima/Irodori`. Irodori has not
 received the domain or trademark checks documented for the earlier candidates
 below. The existing photo-editor overlap remains a public-brand concern.
-
-## Repository and compatibility
-
-**Completed on 2026-10-28: the existing repository is now
-[`VaclavKlima/Irodori`](https://github.com/VaclavKlima/Irodori), with the description
-Personal photo editing.** Its GitHub repository ID remains `1373470999`; no new
-repository was created. History and collaboration records remain together.
-[GitHub's rename documentation](https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository)
-describes redirects for normal repository URLs and Git operations. GitHub Pages
-URLs and uses of a repository as a published Action need separate handling.
-
-The shared `origin` URL is now `git@github.com:VaclavKlima/Irodori.git` in both
-linked worktrees. A lookup through the old `VaclavKlima/Luma` name resolves to
-Irodori. The primary checkout directory remains named Luma so the paused session
-can resume at its existing path. No local directory was moved. GitHub reported
-no Pages site before the rename; external integrations beyond the verified
-repository lookup and Git remote remain unverified.
-
-The app display name, tagline, package metadata, interface text, and main
-documentation adopt Irodori. The existing `Luma` profile directory remains the
-default, and an explicit `--user-data-dir` retains priority. Both Electron
-`userData` and `sessionData` are pinned before startup; photographs, histories,
-settings, and the editor endpoint continue to use the same location. This uses
-Electron's documented [application paths](https://www.electronjs.org/docs/latest/api/app#appgetpathname)
-and [path overrides before readiness](https://www.electronjs.org/docs/latest/api/app#appsetpathname-path).
-
-The `window.luma` bridge, `luma-photo` scheme, MCP `luma_*` tools, `LUMA_*`
-configuration variables, native binary names, rendering identities, historical
-evidence, and `Luma.md` product-direction path remain stable compatibility
-identifiers. They do not require a data migration for this branding change.
-
-### Local verification — 2026-10-28
-
-`npm run verify -- --target app-identity` passed **669 tests in 32.10 seconds**,
-including the runner's fast Node coverage, type checking, lint, and formatting.
-The three identity cases verify preserved original/settings bytes at the legacy
-profile path, explicit temporary-profile priority, and creation of a fresh
-profile. Evidence is retained under
-`artifacts/verification/2026-10-28T16-46-15.017Z-check-AVWKGT/summary.md`.
-
-Four naming-document checks passed in 78 ms: Markdown formatting, local links,
-the retained 18 domain records, and the five earlier scoped repository results.
-Evidence is retained under
-`artifacts/verification/project-naming-20261028T164820279Z-2/summary.md`.
-
-Post-integration workspace verification passed the same 669 fast tests, static
-checks, and application build. Five Electron cases initially failed because the
-primary checkout's prebuilt CPU helper belonged to the paused session's newer
-processing code. That evidence is retained in
-`artifacts/verification/2026-10-28T16-57-31.488Z-check-bmiNBz/summary.md`.
-
-A matching helper was built in the isolated worktree without replacing the
-paused session's helper. The failed startup case then passed in 1.05 seconds;
-the other four failed workspace cases passed in 30.3 seconds. Evidence is
-retained under `artifacts/verification/branding-ui-NkMIZP/` and
-`artifacts/verification/branding-workspace-E2zWeU/`. The five native Wayland
-capture cases remain deferred; visual acceptance, packaged application naming,
-and a particular client MCP connection remain unverified. A helper build and
-these UI cases do not establish new numerical or performance acceptance.
-
-The paused session's unfinished work was restored locally and left unstaged.
-All 358 source paths were accounted for: 345 stayed byte-identical and 13
-overlaps received only the naming/licensing adaptations. Three conflicts were
-resolved without discarding catalog migration or editing test targets. The
-restored checkout passed type checking. Only the completed naming/licensing
-commits are included in the push; unfinished editing changes remain local.
 
 ## Earlier Flash comparison
 
@@ -162,25 +131,22 @@ registry returned a structured HTTP 404 response. It does not mean the name is
 available for registration: registry reservations, premium pricing, registrar
 rules and later registrations were not tested.
 
-| Name      | `.com`     | `.app`     | `.photo`   | Existing exact name under `VaclavKlima`  |
-| --------- | ---------- | ---------- | ---------- | ---------------------------------------- |
-| Luma      | Registered | Registered | Registered | Existing project                         |
-| Flashroll | Registered | Registered | No record  | Not found in authenticated scoped search |
-| Flashleaf | Registered | No record  | No record  | Not found in authenticated scoped search |
-| Flashlane | Registered | No record  | No record  | Not found in authenticated scoped search |
-| Flashroom | Registered | Registered | No record  | Not found in authenticated scoped search |
-| Flashpad  | Registered | Registered | No record  | Not found in authenticated scoped search |
+| Name      | `.com`     | `.app`     | `.photo`  | Existing exact name under `VaclavKlima`  |
+| --------- | ---------- | ---------- | --------- | ---------------------------------------- |
+| Flashroll | Registered | Registered | No record | Not found in authenticated scoped search |
+| Flashleaf | Registered | No record  | No record | Not found in authenticated scoped search |
+| Flashlane | Registered | No record  | No record | Not found in authenticated scoped search |
+| Flashroom | Registered | Registered | No record | Not found in authenticated scoped search |
+| Flashpad  | Registered | Registered | No record | Not found in authenticated scoped search |
 
 Registry endpoints were selected from the [IANA RDAP bootstrap](https://data.iana.org/rdap/dns.json):
 [Verisign `.com`](https://rdap.verisign.com/com/v1/domain/flashroll.com),
 [Google Registry `.app`](https://pubapi.registry.google/rdap/domain/flashleaf.app),
 and [the `.photo` registry](https://rdap.nic.photo/domain/flashleaf.photo).
-The complete 18-query snapshot for the previous working name and Flash comparison is
+The registry query snapshot for the earlier comparison is
 retained under ignored `artifacts/project-setup-20261028/domains/`.
 
-Website behavior was recorded separately. `luma.com` returned HTTP 200 and
-`luma.app` redirected to `luma.com/app`; `luma.photo` had a TLS-name failure.
-`flashroll.app` failed DNS resolution in both the initial lookup and the
+Website behavior was recorded separately. `flashroll.app` failed DNS resolution in both the initial lookup and the
 authorized retry despite its registry record. `flashlane.com` returned HTTP
 200; the Flashleaf sale-page redirect returned 403. These responses establish
 neither ownership by this project nor the absence of a registered domain.
@@ -199,26 +165,15 @@ The intended screening territories are **the Czech Republic, the EU, and the
 US**, with software and image-related goods/services as the focus. Exact-name
 indexed searches are only a preliminary supplement to registry searches.
 
-| Official channel                                                                                                     | What was established                                                                                                                                    | Remaining limitation                                                                                                                                                                                                          |
-| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [USPTO Trademark Search](https://trademarksearch.uspto.gov/) and indexed official documents                          | The concrete LUMA AI lead above was found. Indexed exact-name searches for Flashroll, Flashleaf and Flashlane did not return matching official records. | The interactive search could not be read reliably. No current-status, complete exact/similar-name, phonetic or goods/services clearance was completed for the replacements. An indexed non-result is not a registry no-match. |
-| [EU TMview](https://www.tmdn.org/tmview/)                                                                            | The official application was reached.                                                                                                                   | It returned no readable result data. EU exact/similar-name searches remain incomplete.                                                                                                                                        |
-| [Czech Industrial Property Office](https://upv.gov.cz/en/information-sources/national-databases/trademark-databases) | Its database guidance and official search entry were inspected.                                                                                         | The search entry redirected to an inaccessible application. No Czech registry result set was obtained. The office itself notes limitations in imported data and translations.                                                 |
-| [WIPO Global Brand Database](https://branddb.wipo.int/)                                                              | The official entry was reached.                                                                                                                         | A verification challenge prevented obtaining results. No claim is made about international registrations or their territorial effects.                                                                                        |
+| Official channel                                                                                                     | What was established                                                                                         | Remaining limitation                                                                                                                                                                                                          |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [USPTO Trademark Search](https://trademarksearch.uspto.gov/) and indexed official documents                          | Indexed exact-name searches for Flashroll, Flashleaf and Flashlane did not return matching official records. | The interactive search could not be read reliably. No current-status, complete exact/similar-name, phonetic or goods/services clearance was completed for the replacements. An indexed non-result is not a registry no-match. |
+| [EU TMview](https://www.tmdn.org/tmview/)                                                                            | The official application was reached.                                                                        | It returned no readable result data. EU exact/similar-name searches remain incomplete.                                                                                                                                        |
+| [Czech Industrial Property Office](https://upv.gov.cz/en/information-sources/national-databases/trademark-databases) | Its database guidance and official search entry were inspected.                                              | The search entry redirected to an inaccessible application. No Czech registry result set was obtained. The office itself notes limitations in imported data and translations.                                                 |
+| [WIPO Global Brand Database](https://branddb.wipo.int/)                                                              | The official entry was reached.                                                                              | A verification challenge prevented obtaining results. No claim is made about international registrations or their territorial effects.                                                                                        |
 
 Before final public branding, inspect live exact and similar marks, their current
 status, owners, jurisdictions and actual goods/services; review phonetic and
 spelling variants as well. A domain lookup, a company-name record or a matching
 class number alone cannot decide whether a name can be used. This report does
 not establish legal clearance or trademark registrability.
-
-## Remaining work and completion boundary
-
-The owner selected Irodori and the tagline Personal photo editing. The
-implementation changes application branding while retaining the existing
-library location and compatibility identifiers. Backlog #22 remains open for
-the documented registry gaps; the name decision and integration are settled.
-
-The repository rename is complete. Local-directory renaming remains deferred
-while the existing session depends on that path. Its unfinished editing work
-is preserved locally and must not be discarded when the session resumes.

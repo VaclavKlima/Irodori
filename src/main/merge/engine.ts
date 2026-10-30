@@ -761,7 +761,7 @@ async function runMergeInternal(
     if (analytic) {
       common = analytic
       measurements.coverage = { backend: 'cpu' }
-    } else if (process.env.LUMA_MERGE_BACKEND !== 'cpu') {
+    } else if (process.env.IRODORI_MERGE_BACKEND !== 'cpu') {
       try {
         const checked = await coverageGpu(gpu, width, height, transforms, checkpoint)
         common = checked
@@ -814,7 +814,7 @@ async function runMergeInternal(
   const accumulationStart = performance.now()
   send({ phase: 'Combining linear samples', completed: 0, total: height })
   let usedGpu = false
-  if (process.env.LUMA_MERGE_BACKEND !== 'cpu') {
+  if (process.env.IRODORI_MERGE_BACKEND !== 'cpu') {
     try {
       // Commit GPU motion only after every batch and validation scope succeeds.
       // A partial device failure must not contaminate the independent CPU fallback.
@@ -1037,13 +1037,13 @@ async function runMergeInternal(
       ? await open(join(output, 'reference.rgba'), 'wx')
       : undefined,
     nativeOverlay = job.comparisons ? await open(join(output, 'overlay.rgba'), 'wx') : undefined
-  const outputSlots = job.comparisons && process.env.LUMA_MERGE_OUTPUT_SLOTS !== '1' ? 2 : 1
+  const outputSlots = job.comparisons && process.env.IRODORI_MERGE_OUTPUT_SLOTS !== '1' ? 2 : 1
   let converter: Awaited<ReturnType<typeof gpuOutput>> | undefined
   if (usedGpu) {
     try {
       converter = await gpuOutput(gpu, Math.max(crop.width * 64, tw * th), {
         slots: outputSlots,
-        timestamps: process.env.LUMA_MERGE_GPU_TIMESTAMPS === '1',
+        timestamps: process.env.IRODORI_MERGE_GPU_TIMESTAMPS === '1',
       })
       measurements.output = { backend: 'gpu', conversion: converter.timings, work: outputWork }
       measurements.peak.gpuBytes = Math.max(measurements.peak.gpuBytes, converter.peakBytes)

@@ -1,6 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Photo, PhotoReference } from '../shared/contracts'
-import { type WorkspaceState, type WorkspaceSnapshot } from '../shared/workspace'
+import {
+  DEFAULT_WORKSPACE,
+  DEFAULT_INSPECTOR_SECTIONS,
+  type WorkspaceState,
+  type WorkspaceSnapshot,
+} from '../shared/workspace'
 import type { BrowseStore } from './browse'
 import type { CollectionAnchor } from '../shared/collections'
 
@@ -71,7 +76,14 @@ export class WorkspaceStore {
     const row = this.db
       .prepare('SELECT checkpoint, data FROM workspace_state WHERE singleton = 1')
       .get() as { checkpoint: number; data: string } | undefined
-    const state = row ? this.prune(JSON.parse(row.data)) : null
+    const saved = row ? JSON.parse(row.data) : undefined
+    const state = saved
+      ? this.prune({
+          ...DEFAULT_WORKSPACE,
+          ...saved,
+          inspector: { ...DEFAULT_INSPECTOR_SECTIONS, ...saved.inspector },
+        })
+      : null
     const selected = this.db
       .prepare(
         "SELECT p.id, json_extract(p.photo, '$.filename') AS filename FROM workspace_selection s JOIN photos p ON s.photo_id = p.id ORDER BY s.rowid",

@@ -43,8 +43,8 @@ async function bracket() {
 }
 
 async function selectSources(page: Page, ids: string[]) {
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
-  for (const stack of (await page.evaluate(() => window.luma.listStacks())).stacks) {
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
+  for (const stack of (await page.evaluate(() => window.irodori.listStacks())).stacks) {
     if (stack.expanded) continue
     const cover = photos.find((photo) => photo.id === stack.coverId)!
     await page
@@ -80,7 +80,7 @@ async function workflow(page: Page) {
             await frame()
           }
         },
-        known = new Set((await window.luma.listTasks()).map((task) => task.id)),
+        known = new Set((await window.irodori.listTasks()).map((task) => task.id)),
         started = performance.now()
       ;(command as HTMLElement).click()
       await wait(() => {
@@ -128,10 +128,10 @@ async function workflow(page: Page) {
         )!,
         accepted = performance.now()
       accept.click()
-      let task: Awaited<ReturnType<typeof window.luma.listTasks>>[number] | undefined
+      let task: Awaited<ReturnType<typeof window.irodori.listTasks>>[number] | undefined
       const deadline = performance.now() + 180000
       while (!task?.finishedAt) {
-        task = (await window.luma.listTasks()).find(
+        task = (await window.irodori.listTasks()).find(
           (task) => task.kind === 'merge' && !known.has(task.id),
         )
         if (performance.now() > deadline) throw new Error('Publication and cleanup did not finish.')
@@ -190,11 +190,11 @@ for (const restartControl of [false, true])
       ? 'three-RAW HDR visible workflow after application restart'
       : 'five fresh-preparation three-RAW HDR visible workflows',
     foregroundTest(reason),
-    async ({ luma }, info) => {
+    async ({ irodori }, info) => {
       test.setTimeout(900000)
       const sources = await bracket(),
         ids = sources.map((source) => source.sha256),
-        requested = process.env.LUMA_MERGE_WORKFLOW_RUNS,
+        requested = process.env.IRODORI_MERGE_WORKFLOW_RUNS,
         runs = restartControl ? 1 : requested ? Number(requested) : 5,
         samples = [],
         evidence = info.outputPath('merge-workflow.json'),
@@ -208,13 +208,13 @@ for (const restartControl of [false, true])
         }
       expect([3, 5]).toContain(restartControl ? 5 : runs)
       await importPhotos(
-        luma.app,
-        luma.page,
+        irodori.app,
+        irodori.page,
         sources.map((source) => source.path),
         false,
       )
-      let { app, page } = luma
-      if (restartControl) ({ app, page } = await luma.restart(true))
+      let { app, page } = irodori
+      if (restartControl) ({ app, page } = await irodori.restart(true))
       await (
         await app.browserWindow(page)
       ).evaluate((window) => {
@@ -237,7 +237,7 @@ for (const restartControl of [false, true])
           samples.push({ iteration, ...sample })
           // Diagnostics and integrity reads never interrupt the workflow clock.
           const { manifest, reproducible } = await page.evaluate(
-            (id) => window.luma.getMergeProvenance(id),
+            (id) => window.irodori.getMergeProvenance(id),
             sample.task.resultPhotoId!,
           )
           Object.assign(samples.at(-1)!, { manifest })
@@ -254,14 +254,14 @@ for (const restartControl of [false, true])
             true,
           )
           expect(manifest.recipe.measurements!.referenceFallback?.reused).toBe(false)
-          if (process.env.LUMA_MERGE_CAMERA_PREPARATION === 'gpu') {
+          if (process.env.IRODORI_MERGE_CAMERA_PREPARATION === 'gpu') {
             expect(manifest.recipe.cameraPreparation).toBe(GPU_CAMERA_PREPARATION)
             for (const source of manifest.recipe.measurements!.preparation) {
               expect(source.work?.cameraPreparation?.backend).toBe('gpu')
               expect(source.work?.cameraPreparation?.fallback).toBeUndefined()
             }
           }
-          if (process.env.LUMA_MERGE_REFERENCE_PREPARATION === 'gpu') {
+          if (process.env.IRODORI_MERGE_REFERENCE_PREPARATION === 'gpu') {
             expect(manifest.recipe.referenceFallbackPreparation).toBe(GPU_REFERENCE_PREPARATION)
             const fallback = manifest.recipe.measurements!.referenceFallback
             expect(fallback?.backend).toBe('gpu')
@@ -278,11 +278,11 @@ for (const restartControl of [false, true])
           expect(sample.task.mergeMeasurements!.peak.wasmBytes).toBeLessThanOrEqual(512 * 1024 ** 2)
           expect(manifest.asset.byteLength).toBe(manifest.asset.width * manifest.asset.height * 16)
           await verifyMaster(
-            join(luma.userDataDir, 'library/originals', sample.task.resultPhotoId!),
+            join(irodori.userDataDir, 'library/originals', sample.task.resultPhotoId!),
             manifest,
           )
-          expect(await readdir(join(luma.userDataDir, 'library/merge-reviews'))).toEqual([])
-          expect(await readdir(join(luma.userDataDir, 'library/merge-publications'))).toEqual([])
+          expect(await readdir(join(irodori.userDataDir, 'library/merge-reviews'))).toEqual([])
+          expect(await readdir(join(irodori.userDataDir, 'library/merge-publications'))).toEqual([])
         }
       } finally {
         const sorted = samples.map((sample) => sample.completeOperationMs).sort((a, b) => a - b),
@@ -300,8 +300,8 @@ for (const restartControl of [false, true])
             excludesImportStartupAndHumanReview: true,
             freshPreparationPerOperation: true,
             requestedMergeBackends: {
-              camera: process.env.LUMA_MERGE_CAMERA_PREPARATION ?? 'cpu',
-              reference: process.env.LUMA_MERGE_REFERENCE_PREPARATION ?? 'cpu',
+              camera: process.env.IRODORI_MERGE_CAMERA_PREPARATION ?? 'cpu',
+              reference: process.env.IRODORI_MERGE_REFERENCE_PREPARATION ?? 'cpu',
             },
             isolatedLibrary: true,
             filesystemAndDriverCaches: 'uncontrolled',
@@ -327,7 +327,7 @@ for (const restartControl of [false, true])
           })
           expect(
             await identity(
-              join(luma.userDataDir, 'library/originals', original.sha256, 'original.arw'),
+              join(irodori.userDataDir, 'library/originals', original.sha256, 'original.arw'),
             ),
           ).toEqual({ sha256: original.sha256, bytes: original.bytes })
         }

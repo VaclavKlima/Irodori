@@ -10,14 +10,16 @@ import { librawDecoder } from '../src/main/processing/decoders/libraw'
 // eslint-disable-next-line no-empty-pattern -- Playwright requires destructured fixtures.
 test('read-only supplied Sony brackets pass common preparation and measured exposure validation', async ({}, info) => {
   test.skip(
-    !process.env.LUMA_MERGE_BRACKETS,
-    'Set LUMA_MERGE_BRACKETS to a JSON array of read-only Sony paths.',
+    !process.env.IRODORI_MERGE_BRACKETS,
+    'Set IRODORI_MERGE_BRACKETS to a JSON array of read-only Sony paths.',
   )
   test.setTimeout(20 * 60 * 1000)
-  const paths = JSON.parse(process.env.LUMA_MERGE_BRACKETS!) as string[],
-    directory = await mkdtemp(join(tmpdir(), 'luma-sony-merge-')),
+  const paths = JSON.parse(process.env.IRODORI_MERGE_BRACKETS!) as string[],
+    directory = await mkdtemp(join(tmpdir(), 'irodori-sony-merge-')),
     engine = new PreviewEngine()
-  const evidence = resolve(process.env.LUMA_VERIFICATION_DIR ?? 'artifacts/verification/merge-sony')
+  const evidence = resolve(
+    process.env.IRODORI_VERIFICATION_DIR ?? 'artifacts/verification/merge-sony',
+  )
   await mkdir(evidence, { recursive: true })
   try {
     const sources: MergeSource[] = []
@@ -82,7 +84,7 @@ test('read-only supplied Sony brackets pass common preparation and measured expo
     )
   } catch (error) {
     await writeFile(join(evidence, 'failure.json'), JSON.stringify(mergeFailure(error), null, 2))
-    if (process.env.LUMA_TEST_TRACE === '1')
+    if (process.env.IRODORI_TEST_TRACE === '1')
       await cp(directory, join(evidence, 'scratch'), { recursive: true })
     throw error
   } finally {

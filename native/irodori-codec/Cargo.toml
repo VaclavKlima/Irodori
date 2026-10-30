@@ -1,0 +1,11 @@
+[package]
+name = "irodori-codec"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Isolated Linux HDR JPEG codec host for Irodori's pinned native codec"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"

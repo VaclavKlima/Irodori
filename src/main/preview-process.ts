@@ -8,7 +8,14 @@ import type {
   PreviewWarmResult,
   HdrRawPreparation,
   NativeRawMainMessage,
+  WhiteBalanceSampleJob,
+  PreviewAnalysisFrame,
 } from './preview-types'
+import type { SampledWhiteBalanceProposal } from '../shared/white-balance-picker'
+import type { CropPreparationJob, CropPreparationResult } from './processing/crop-preparation'
+import type { CropPreviewJob } from './processing/crop-preview'
+import type { DetailPreparationJob, DetailPreparationResult } from './processing/detail-preparation'
+import type { DetailPreviewJob } from './processing/detail-preview'
 import type { HdrCacheKernelKind } from '../renderer/src/preview/hdr-shader'
 import type { HdrPixel } from '../shared/hdr-pixel'
 import type { ProcessingMetadata, ProcessingOptions } from '../shared/lens'
@@ -293,7 +300,7 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     // Preserve GPU shader compilation across nearby requests. CPU RAW processing has a
     // much larger WASM high-water mark; reclaim that process after its completed render.
     this.scheduleIdle()
-    if (process.env.LUMA_PREVIEW_DIAGNOSTICS) console.info('Full preview', result.diagnostics)
+    if (process.env.IRODORI_PREVIEW_DIAGNOSTICS) console.info('Full preview', result.diagnostics)
     return result
   }
 
@@ -337,6 +344,117 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     if (!this.busy && this.child?.connected) this.child.send({ type: 'release' }, () => {})
   }
 
+  async whiteBalanceSample(
+    path: string,
+    job: WhiteBalanceSampleJob,
+    signal: AbortSignal,
+  ): Promise<SampledWhiteBalanceProposal> {
+    this.assertIdle(await this.waitForWarmup(signal))
+    return this.run<SampledWhiteBalanceProposal>(
+      'white-balance-sample',
+      path,
+      '',
+      signal,
+      undefined,
+      {
+        width: job.asset.width,
+        height: job.asset.height,
+        sha256: job.asset.sha256,
+        whiteBalance: job,
+      },
+    ).finally(() => this.scheduleIdle())
+  }
+
+  /** Main-owned managed paths and admission only; never exposed as a renderer operation. */
+  async renderPreparedFull(
+    output: string,
+    options: ProcessingOptions,
+    signal: AbortSignal,
+    backend: 'cpu' | 'gpu' | 'auto',
+  ): Promise<FullPreviewResult> {
+    const frozen = structuredClone(options)
+    if (!frozen.workingAsset) throw new Error('Missing prepared preview source.')
+    this.assertIdle(await this.waitForWarmup(signal))
+    return this.run<FullPreviewResult>(
+      'prepared-full',
+      frozen.workingAsset.path,
+      output,
+      signal,
+      frozen,
+      {
+        width: frozen.workingAsset.width,
+        height: frozen.workingAsset.height,
+        sha256: frozen.workingAsset.sha256,
+        preparedBackend: backend,
+      },
+    ).finally(() => this.scheduleIdle())
+  }
+
+  /** Main-owned managed paths and admission only; never exposed as a renderer operation. */
+  async prepareCropPreview(
+    path: string,
+    output: string,
+    job: CropPreviewJob,
+    signal: AbortSignal,
+  ): Promise<FullPreviewResult> {
+    this.assertIdle(await this.waitForWarmup(signal))
+    return this.run<FullPreviewResult>('crop-preview', path, output, signal, undefined, {
+      width: job.asset.width,
+      height: job.asset.height,
+      sha256: job.asset.sha256,
+      cropPreview: structuredClone(job),
+    }).finally(() => this.scheduleIdle())
+  }
+
+  /** Main-owned managed paths and admission only; never exposed as a renderer operation. */
+  async prepareCrop(
+    path: string,
+    output: string,
+    job: CropPreparationJob,
+    signal: AbortSignal,
+  ): Promise<CropPreparationResult> {
+    this.assertIdle(await this.waitForWarmup(signal))
+    return this.run<CropPreparationResult>('crop-working', path, output, signal, undefined, {
+      width: job.asset.width,
+      height: job.asset.height,
+      sha256: job.asset.sha256,
+      crop: structuredClone(job),
+    }).finally(() => this.scheduleIdle())
+  }
+
+  /** Derived pixels use main-owned paths; no arbitrary-path renderer bridge is added. */
+  async prepareDetail(
+    path: string,
+    output: string,
+    job: DetailPreparationJob,
+    signal: AbortSignal,
+  ): Promise<DetailPreparationResult> {
+    const frozen = structuredClone(job)
+    this.assertIdle(await this.waitForWarmup(signal))
+    return this.run<DetailPreparationResult>('detail-working', path, output, signal, undefined, {
+      width: frozen.asset.width,
+      height: frozen.asset.height,
+      sha256: frozen.asset.sha256,
+      detail: frozen,
+    }).finally(() => this.scheduleIdle())
+  }
+
+  async prepareDetailPreview(
+    path: string,
+    output: string,
+    job: DetailPreviewJob,
+    signal: AbortSignal,
+  ): Promise<FullPreviewResult> {
+    const frozen = structuredClone(job)
+    this.assertIdle(await this.waitForWarmup(signal))
+    return this.run<FullPreviewResult>('detail-preview', path, output, signal, undefined, {
+      width: frozen.asset.width,
+      height: frozen.asset.height,
+      sha256: frozen.asset.sha256,
+      detailPreview: frozen,
+    }).finally(() => this.scheduleIdle())
+  }
+
   private assertIdle(lifecycle = this.lifecycle) {
     if (lifecycle !== this.lifecycle) throw new Error('Preview generation cancelled.')
     if (this.busy || this.captureSession) throw new Error('The preview worker is busy.')
@@ -348,7 +466,7 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     output: string,
     signal: AbortSignal,
     options?: ProcessingOptions,
-    frame?: { width: number; height: number; sha256: string; hdr?: HdrStatisticsJob },
+    frame?: PreviewAnalysisFrame,
     pixel?: HdrPixelJob,
     importMode?: 'embedded' | 'fallback',
     importSeed?: PreviewResult,
@@ -435,7 +553,7 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
             return
           }
           if (value.type === 'stage') {
-            if (process.env.LUMA_PREVIEW_DIAGNOSTICS) console.info('Preview stage', value.stage)
+            if (process.env.IRODORI_PREVIEW_DIAGNOSTICS) console.info('Preview stage', value.stage)
             return
           }
           if (value.type === 'first-surface') {

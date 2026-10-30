@@ -41,8 +41,8 @@ export function ExportDialog({
     state.mounted = true
     dialog.current?.showModal()
     state.loading ??= Promise.all([
-      window.luma.prepareExport(ids),
-      window.luma.getExportPreferences(),
+      window.irodori.prepareExport(ids),
+      window.irodori.getExportPreferences(),
     ])
     void state.loading
       .then(([prepared, preferences]) => {
@@ -61,7 +61,7 @@ export function ExportDialog({
       queueMicrotask(() => {
         if (!state.mounted)
           void state.loading
-            ?.then(([prepared]) => window.luma.disposeExportPreparation(prepared.id))
+            ?.then(([prepared]) => window.irodori.disposeExportPreparation(prepared.id))
             .catch(() => {})
       })
     }
@@ -81,7 +81,7 @@ export function ExportDialog({
     setBusy(true)
     setError('')
     try {
-      const value = await window.luma.chooseExportDestination()
+      const value = await window.irodori.chooseExportDestination()
       if (value) setDestination(value)
     } catch (error) {
       setError(String(error))
@@ -96,11 +96,11 @@ export function ExportDialog({
     try {
       let folder = destination
       if (!folder?.available) {
-        folder = await window.luma.chooseExportDestination()
+        folder = await window.irodori.chooseExportDestination()
         if (!folder) return
         setDestination(folder)
       }
-      await window.luma.startExport({
+      await window.irodori.startExport({
         preparationId: preparation.id,
         destinationId: folder.id,
         action,
@@ -109,13 +109,17 @@ export function ExportDialog({
       onStarted()
     } catch (error) {
       setError(String(error))
-      const preferences = await window.luma.getExportPreferences().catch(() => null)
+      const preferences = await window.irodori.getExportPreferences().catch(() => null)
       if (preferences?.destination?.id === destination?.id) setDestination(preferences!.destination)
     } finally {
       setBusy(false)
     }
   }
   const size = (value: ExportOptions['size']) => setOptions((o) => ({ ...o, size: value }))
+  const resizeChoice = {
+    method: 'lanczos3' as const,
+    allowEnlargement: options.size.mode !== 'original' && !!options.size.allowEnlargement,
+  }
   return (
     <dialog
       ref={dialog}
@@ -251,8 +255,8 @@ export function ExportDialog({
                     event.target.value === 'original'
                       ? { mode: 'original' }
                       : event.target.value === 'longest'
-                        ? { mode: 'longest', edge: 2560 }
-                        : { mode: 'fit', width: 2560, height: 2560 },
+                        ? { mode: 'longest', edge: 2560, ...resizeChoice }
+                        : { mode: 'fit', width: 2560, height: 2560, ...resizeChoice },
                   )
                 }
               >
@@ -272,7 +276,13 @@ export function ExportDialog({
                   required
                   disabled={busy}
                   value={Number.isFinite(options.size.edge) ? options.size.edge : ''}
-                  onChange={(event) => size({ mode: 'longest', edge: event.target.valueAsNumber })}
+                  onChange={(event) => {
+                    const edge = event.target.valueAsNumber
+                    setOptions((o) => ({
+                      ...o,
+                      size: o.size.mode === 'longest' ? { ...o.size, edge } : o.size,
+                    }))
+                  }}
                 />
               </label>
             )}
@@ -305,9 +315,30 @@ export function ExportDialog({
                 ))}
               </div>
             )}
-            <p>
-              Aspect ratio is preserved. Photos are never enlarged. Both HDR renditions use
-              identical dimensions.
+            {options.size.mode !== 'original' && (
+              <label className={styles.checkbox}>
+                <input
+                  type="checkbox"
+                  checked={!!options.size.allowEnlargement}
+                  disabled={busy}
+                  aria-describedby="export-size-help"
+                  onChange={(event) => {
+                    const allowEnlargement = event.target.checked
+                    setOptions((o) => ({
+                      ...o,
+                      size:
+                        o.size.mode === 'original'
+                          ? o.size
+                          : { ...o.size, allowEnlargement, method: 'lanczos3' },
+                    }))
+                  }}
+                />
+                Allow enlargement
+              </label>
+            )}
+            <p id="export-size-help">
+              Aspect ratio is preserved. Resizing uses Lanczos3. Both HDR renditions use identical
+              dimensions.
             </p>
             <label>
               Names

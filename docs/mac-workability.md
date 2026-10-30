@@ -40,8 +40,8 @@ GPU merge handoff below.
 
 At this October 18 Mac checkpoint, the versioned Float32 gesture preview and
 exact retained presentation cache were opt-in through
-`VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` and
-`VITE_LUMA_HDR_PRESENTATION_CACHE=1`. The recorded eight-slider, Fit/100%,
+`VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32` and
+`VITE_IRODORI_HDR_PRESENTATION_CACHE=1`. The recorded eight-slider, Fit/100%,
 1440 × 900, DPR 2, 60 Hz candidate cohort passed its original 48-trial assertions.
 The later first-visible audit retains three maximum-latency misses of
 107.8–109.1 ms after including the final gesture input's first response. The
@@ -243,7 +243,7 @@ frozen implementation. The earlier handoffs below remain historical evidence.
 
 | Task                           | Owner                   | Dependencies                     | Adopted result / decision                                                                                                                                                          | Commit    |
 | ------------------------------ | ----------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| N0 — Matching Luma clocks      | Coordinator             | `81bec53`, committed HDR bracket | Native decode/draw/fence/post-paint review; immediate acceptance; uninterrupted final editor clock. Baseline, five-run series and restart controls retained.                       | `9c2db16` |
+| N0 — Matching Irodori clocks   | Coordinator             | `81bec53`, committed HDR bracket | Native decode/draw/fence/post-paint review; immediate acceptance; uninterrupted final editor clock. Baseline, five-run series and restart controls retained.                       | `9c2db16` |
 | N1 — Critical-path attribution | Coordinator             | N0                               | Bounded worker-relative spans, alignment submission/admission/completion, separate main publication and verification/sync/cleanup durations.                                       | `9c2db16` |
 | N2 — Fallback scheduling       | Coordinator             | N1                               | Reference-first source order retained; early alignment precedes unchanged fallback. Actual fallback/alignment overlap is 1.66–1.70 s in the final service replay.                  | `9c2db16` |
 | N3 — Ordered reductions        | CPU agent               | N1–N2                            | Exact Float64 camera sums and per-update Float32 fallback sums; two live rows, arena preflight and transactional scalar replay.                                                    | `9c2db16` |
@@ -475,7 +475,7 @@ gains are smaller and vary with other stages. Production adopts 32768 tagged
 entries (384 KiB, 360 KiB above the control) and two bounded output slots for
 native comparisons. The 128 MiB kernel arena cap, GPU bounds, algorithms and
 exact arithmetic remain unchanged. Non-comparison output retains one slot.
-`LUMA_MERGE_GAIN_CACHE_ENTRIES=2048` and `LUMA_MERGE_OUTPUT_SLOTS=1` select controls.
+`IRODORI_MERGE_GAIN_CACHE_ENTRIES=2048` and `IRODORI_MERGE_OUTPUT_SLOTS=1` select controls.
 AC power and a full battery were confirmed; macOS thermal telemetry was unavailable.
 
 Final default correctness/lifecycle verification selects `merge-cpu-kernels`,
@@ -782,7 +782,7 @@ Fixture manifest SHA-256:
 The committed Sony originals retain their existing attribution and repository
 testing authorization. Checks run before and after merge measurements.
 
-Baseline checkout: `/private/tmp/luma-mac-baseline-3c5fcb1`, with an isolated build
+Baseline checkout: `/private/tmp/irodori-mac-baseline-3c5fcb1`, with an isolated build
 and test profiles and the same installed dependencies. Its evidence is archived under
 `artifacts/verification/mac-workability-baseline/`, including fixture-integrity
 checks and copied regression tests. Filesystem/driver caches are uncontrolled. No candidate result
@@ -916,7 +916,7 @@ inputs with about 51 ms p95 latency; the 1440 × 900 Fit completed 40–41 with
 
 The 32-tile comparison and exact rerun retained correctness, source reuse,
 allocation and cancellation behavior while improving presentation progress by
-about 18–22%. It is now the default; `VITE_LUMA_HDR_TILE_BATCH=8` retains the
+about 18–22%. It is now the default; `VITE_IRODORI_HDR_TILE_BATCH=8` retains the
 internal comparison. First comparison: **280 passed, two failed in 79.13 s**,
 `artifacts/verification/2026-10-16T16-56-37.592Z-benchmark-8axxVA/summary.md`;
 exact rerun:
@@ -1356,13 +1356,13 @@ is measured; no acceptance threshold is revised by this plan.
 Primary sources reviewed on October 17, 2026 provide context with different inputs,
 machines and completion boundaries:
 
-| Source                                                                                                                                                                                                                                               | Reported behavior or timing                                                                                                     | Comparison limit                                                                                                                                                                                                                                                   |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [Capture One HDR overview](https://support.captureone.com/hc/en-us/articles/4410014730257-HDR-merging-overview)                                                                                                                                      | The vendor gives 10 seconds to five minutes depending on hardware, source count and resolution; Auto Align adds time.           | A broad support range, without a matched M4 Pro benchmark or fixed quality settings.                                                                                                                                                                               |
-| [Capture One worked interior example](https://www.captureone.com/blog/hdr-101-interior-christophe-benard-capture-one)                                                                                                                                | Three full-resolution Sony A7R IV exposures produced an HDR DNG in 30 seconds, with Auto Align on and Auto Adjust off.          | Vendor-published practitioner example; hardware and repeated-run variation are unspecified. Different source resolution from Luma's fixtures.                                                                                                                      |
-| [Puget Bench for Lightroom Classic comparison](https://www.pugetsystems.com/pugetbench/results/compare/Puget%20Bench%20for%20Lightroom%20Classic/20/CPU/Intel%20Core%20i7-8700K%20CPU%20%40%203.70GHz/AMD%20Ryzen%205%207600X%206-Core%20Processor/) | The legacy 42 MP ARW HDR metric is 11.51 seconds for Ryzen 5 7600X and 17.68 seconds for Core i7-8700K.                         | Aggregated public desktop results, not M4 Pro. The displayed comparison does not establish source count, merge settings or Luma's durable completion boundary.                                                                                                     |
-| [Adobe Lightroom desktop HDR workflow](https://helpx.adobe.com/lightroom/desktop/edit-photos/hdr-panorama.html)                                                                                                                                      | Lightroom presents an adjustable preview before generating the final merged HDR DNG.                                            | A workflow definition, not a numerical performance claim. Preview and final generation need separate clocks.                                                                                                                                                       |
-| [Burst Photo pull request 38](https://github.com/martin-marek/hdr-plus-swift/pull/38)                                                                                                                                                                | The author reports 3.23 seconds for alignment and merging of seven bracketed 20.3 MP images on a seven-GPU-core M1 MacBook Air. | A component result from a different algorithm; conversion, loading and saving are outside the reported stage. Its GPU completion boundary is not established as equivalent to Luma's completed-work fences. Context for research, not a complete-operation target. |
+| Source                                                                                                                                                                                                                                               | Reported behavior or timing                                                                                                     | Comparison limit                                                                                                                                                                                                                                                      |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Capture One HDR overview](https://support.captureone.com/hc/en-us/articles/4410014730257-HDR-merging-overview)                                                                                                                                      | The vendor gives 10 seconds to five minutes depending on hardware, source count and resolution; Auto Align adds time.           | A broad support range, without a matched M4 Pro benchmark or fixed quality settings.                                                                                                                                                                                  |
+| [Capture One worked interior example](https://www.captureone.com/blog/hdr-101-interior-christophe-benard-capture-one)                                                                                                                                | Three full-resolution Sony A7R IV exposures produced an HDR DNG in 30 seconds, with Auto Align on and Auto Adjust off.          | Vendor-published practitioner example; hardware and repeated-run variation are unspecified. Different source resolution from Irodori's fixtures.                                                                                                                      |
+| [Puget Bench for Lightroom Classic comparison](https://www.pugetsystems.com/pugetbench/results/compare/Puget%20Bench%20for%20Lightroom%20Classic/20/CPU/Intel%20Core%20i7-8700K%20CPU%20%40%203.70GHz/AMD%20Ryzen%205%207600X%206-Core%20Processor/) | The legacy 42 MP ARW HDR metric is 11.51 seconds for Ryzen 5 7600X and 17.68 seconds for Core i7-8700K.                         | Aggregated public desktop results, not M4 Pro. The displayed comparison does not establish source count, merge settings or Irodori's durable completion boundary.                                                                                                     |
+| [Adobe Lightroom desktop HDR workflow](https://helpx.adobe.com/lightroom/desktop/edit-photos/hdr-panorama.html)                                                                                                                                      | Lightroom presents an adjustable preview before generating the final merged HDR DNG.                                            | A workflow definition, not a numerical performance claim. Preview and final generation need separate clocks.                                                                                                                                                          |
+| [Burst Photo pull request 38](https://github.com/martin-marek/hdr-plus-swift/pull/38)                                                                                                                                                                | The author reports 3.23 seconds for alignment and merging of seven bracketed 20.3 MP images on a seven-GPU-core M1 MacBook Air. | A component result from a different algorithm; conversion, loading and saving are outside the reported stage. Its GPU completion boundary is not established as equivalent to Irodori's completed-work fences. Context for research, not a complete-operation target. |
 
 The user selected Adobe Lightroom as the practical reference and authorized
 measurement with the same images. Lightroom desktop 9.3 (build
@@ -1389,7 +1389,7 @@ has a 12.869 s agent review pause, during which hidden work could occur; it is
 excluded from the primary uninterrupted summary. The five preview observations
 have a 6.810 s median. The restart control is recorded
 separately; application startup, source browsing and OS-cache flushing are outside
-its clock. Runs are sequential, not randomized or interleaved with fresh Luma
+its clock. Runs are sequential, not randomized or interleaved with fresh Irodori
 measurements. OS, disk, driver and application caches are uncontrolled. AC power
 and a full battery were confirmed. These are measured samples, not a population
 p95 or proof of performance across cameras.
@@ -1402,12 +1402,12 @@ A 100 ms filesystem observer independently records the complete-size DNG appeari
 for the five fresh-folder samples. UI observations are upper bounds and include
 action transport; native accessibility calls can block during processing.
 Neither local-file availability nor UI completion certifies internal `fsync` or
-power-loss durability. The original five-second Luma clock remains a separate,
+power-loss durability. The original five-second Irodori clock remains a separate,
 stricter managed-publication measurement.
 
 Each Lightroom result is a 25,233,408-byte DNG 1.7 with 16-bit floating-point RGB
 and JPEG XL compression, encoded at 3648 × 5472. The application displays a
-3607 × 5410 crop for the inspected result. Luma retains a 3654 × 5450 Float32 RGBA
+3607 × 5410 crop for the inspected result. Irodori retains a 3654 × 5450 Float32 RGBA
 master of 318,628,800 bytes plus full native comparison images, checksums, durable
 publication and cleanup. Different crops, rendering, precision, compression and
 validation prevent an equal-quality or identical-work claim. The DNG opens at
@@ -1423,16 +1423,16 @@ also passes. Generated evidence remains outside Git:
 original integrity is recorded under
 `artifacts/fixture-integrity/2026-10-17T10-59-13.584Z-35528.json`.
 The six timed results completed; the setup run is excluded from timing claims.
-No Luma code or automated threshold changed during this research.
+No Irodori code or automated threshold changed during this research.
 
 The proposed Mac product target is **about 10 seconds typical, at most 12 seconds
 for the complete three-RAW HDR workflow**, with **7–8 seconds to a usable
 review**. Lightroom preview resolution is not established by these observations;
 this is a proposed user-visible goal, not proof of native-detail equivalence.
 These rounded planning goals come from the local Lightroom samples,
-including its first merge after restart. Confirm them against new Luma measurements
+including its first merge after restart. Confirm them against new Irodori measurements
 using the same visible clocks and a quality review before registering a competitive
-acceptance gate. Keep Luma's managed durability and numerical gates as additional
+acceptance gate. Keep Irodori's managed durability and numerical gates as additional
 requirements. First aim for a **15-second engineering checkpoint** after the exact
 scheduling/reduction work; this is an intermediate milestone, not competitive
 acceptance or a promised result. Five seconds remains an unmet stretch goal and
@@ -1446,12 +1446,12 @@ The existing sharp-editor latency, progress and refinement goals stay unchanged.
 
 Measure first usable review, native review ready on screen, acceptance to completed
 result, and uninterrupted complete operation separately. Human review time stays
-outside processing time. Luma currently prepares the full native master and all
+outside processing time. Irodori currently prepares the full native master and all
 three comparison images before returning its review; its dialog also waits for
 those images to decode before enabling Merge. The strict processing benchmark
 excludes Electron image decoding and presentation, so that clock cannot be compared
 directly to an application's visible preview. An externally observed competitor
-completion does not prove an internal durable-sync guarantee. Keep Luma's verified
+completion does not prove an internal durable-sync guarantee. Keep Irodori's verified
 durable-publication clock as an additional result.
 
 ### Work order and experiment decisions
@@ -1467,7 +1467,7 @@ disjoint areas; shared preparation hooks integrate sequentially.
 
 | Task                                  | Owner                              | Depends on                              | Experiment and decision evidence                                                                                                                                                                                                                                                                                     |
 | ------------------------------------- | ---------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| N0 — Comparable application baseline  | Coordinator                        | Existing frozen Mac results             | Lightroom: four uninterrupted fresh-folder runs, one interrupted control and one restart control complete. Add equivalent Luma UI clocks and cross-application native-quality review; retain service durability separately. Noise needs a genuine temporal merger, with cold/warm modes separated.                   |
+| N0 — Comparable application baseline  | Coordinator                        | Existing frozen Mac results             | Lightroom: four uninterrupted fresh-folder runs, one interrupted control and one restart control complete. Add equivalent Irodori UI clocks and cross-application native-quality review; retain service durability separately. Noise needs a genuine temporal merger, with cold/warm modes separated.                |
 | N1 — Critical-path attribution        | Coordinator                        | N0                                      | Add bounded timeline spans for source preparation, alignment submission/completion, fallback, output and publication substeps. Establish which intervals are exposed on the critical path; keep parallel sums, device execution and map wait separate.                                                               |
 | N2 — Fallback scheduling              | Coordinator                        | N1                                      | Submit unchanged source preparation and existing early alignment requests before preparing the reference's highlight-safe fallback. Test whether the existing two lanes can hide currently exposed HDR alignment work during fallback. Keep worker counts, source order, fallback pixels and output order unchanged. |
 | N3 — Exact ordered reductions         | CPU preparation agent              | N1; integrate after N2                  | Move camera-channel and CPU-fallback area accumulation into the maintained WASM source. Preserve y/x/contribution/channel order, Float64 sums and every Float32 store. Account for reduction tables/state inside the 128 MiB aggregate arena bound; unsupported capacities retain scalar recovery.                   |
@@ -1543,7 +1543,7 @@ git fetch origin main
 git switch --detach 0a70599669c884fc70d2e2afe5f9a6527df44dbb
 # Reproduce the exact Mac implementation even after main gains further features.
 git rev-parse HEAD
-git diff --exit-code 0a70599669c884fc70d2e2afe5f9a6527df44dbb HEAD -- . ':(exclude)docs/**' ':(exclude)README.md' ':(exclude)Luma.md'
+git diff --exit-code 0a70599669c884fc70d2e2afe5f9a6527df44dbb HEAD -- . ':(exclude)docs/**' ':(exclude)README.md' ':(exclude)Irodori.md'
 node scripts/research/sony-fixtures.mjs check
 npm run verify -- --target display-rendering-reference --target hdr-render-cache-gpu --target hdr-math-gpu
 npm run verify -- --target merge-cpu-kernels --target merge-gpu-output --target brk-merge --target capture-metadata --target merge-engine --target merge-io --target merge-gpu
@@ -1551,9 +1551,9 @@ npm run verify -- --target research-merge-gpu
 npm run verify -- --target edit-history --target merge-library --target import-pipeline --target stack-group-actions
 node scripts/research/sony-fixtures.mjs hdr -- npm run verify -- --foreground --target adjustment-engine-raw --target adjustment-renderer-raw-ui --target full-previews-raw --target gpu-preview --target lens-correction-raw --target white-balance-raw --target hdr-content-ui --target hdr-editor-ui
 npm run verify -- --foreground --target hdr-slider-benchmark --target hdr-interaction-benchmark
-VITE_LUMA_HDR_TILE_BATCH=8 npm run verify -- --foreground --target mac-workability-batching
+VITE_IRODORI_HDR_TILE_BATCH=8 npm run verify -- --foreground --target mac-workability-batching
 npm run verify -- --foreground --target mac-workability-batching
-VITE_LUMA_HDR_KERNEL=grid8 npm run verify -- --foreground --target mac-workability-batching
+VITE_IRODORI_HDR_KERNEL=grid8 npm run verify -- --foreground --target mac-workability-batching
 npm run verify -- --foreground --target mac-workability-benchmark
 node scripts/research/sony-fixtures.mjs noise -- npm run verify -- --foreground --target mac-workability-interference
 npm run verify -- --target export-context --target export-rendering --target export-gpu
@@ -1563,7 +1563,7 @@ npm run verify -- --target merge-three-raw-benchmark
 node scripts/research/sony-fixtures.mjs hdr -- npm run verify -- --target merge-raw
 node scripts/research/sony-fixtures.mjs hdr -- npm run verify -- --foreground --target merge-raw-ui
 # Select a saved, same-configuration pre-change baseline, never candidate output.
-LUMA_PREVIEW_BASELINE=/absolute/path/to/saved-baseline.json npm run benchmark:preview -- --foreground
+IRODORI_PREVIEW_BASELINE=/absolute/path/to/saved-baseline.json npm run benchmark:preview -- --foreground
 ```
 
 For the October 18 GPU handoff, first record Node/runtime versions, the actual
@@ -1574,11 +1574,11 @@ sample. Missing hardware or display support remains incomplete verification.
 
 ```sh
 npm run verify -- --target merge-cpu-kernels --target merge-engine --target merge-io --target merge-library --target merge-ui --target merge-gpu --target merge-gpu-preparation --target merge-gpu-reference
-LUMA_MERGE_GPU_PREPARATION_STAGE=camera npm run verify -- --target merge-gpu-preparation-native
-LUMA_MERGE_GPU_PREPARATION_STAGE=reference npm run verify -- --target merge-gpu-preparation-native
-LUMA_MERGE_CAMERA_PREPARATION=cpu LUMA_MERGE_REFERENCE_PREPARATION=cpu npm run verify -- --foreground --target merge-workflow-benchmark
-LUMA_MERGE_CAMERA_PREPARATION=cpu LUMA_MERGE_REFERENCE_PREPARATION=gpu npm run verify -- --foreground --target merge-workflow-benchmark
-LUMA_MERGE_CAMERA_PREPARATION=cpu LUMA_MERGE_REFERENCE_PREPARATION=gpu node scripts/research/sony-fixtures.mjs noise -- npm run verify -- --foreground --target mac-workability-interference
+IRODORI_MERGE_GPU_PREPARATION_STAGE=camera npm run verify -- --target merge-gpu-preparation-native
+IRODORI_MERGE_GPU_PREPARATION_STAGE=reference npm run verify -- --target merge-gpu-preparation-native
+IRODORI_MERGE_CAMERA_PREPARATION=cpu IRODORI_MERGE_REFERENCE_PREPARATION=cpu npm run verify -- --foreground --target merge-workflow-benchmark
+IRODORI_MERGE_CAMERA_PREPARATION=cpu IRODORI_MERGE_REFERENCE_PREPARATION=gpu npm run verify -- --foreground --target merge-workflow-benchmark
+IRODORI_MERGE_CAMERA_PREPARATION=cpu IRODORI_MERGE_REFERENCE_PREPARATION=gpu node scripts/research/sony-fixtures.mjs noise -- npm run verify -- --foreground --target mac-workability-interference
 ```
 
 The native cohorts retain three CPU/candidate pairs, including every slowest
@@ -1588,14 +1588,14 @@ restart control, with native review draw/post-paint, publication/cleanup and fin
 editor presentation. Preserve the 10-second median, 12-second maximum, separate
 15-second checkpoint, five-second service stretch and 33 ms interaction gates.
 Only test combined camera/reference selection after both independent paths pass;
-use `LUMA_MERGE_GPU_PREPARATION_STAGE=both` for its complete native proof before
+use `IRODORI_MERGE_GPU_PREPARATION_STAGE=both` for its complete native proof before
 any combined performance/default decision. Do not adopt a default based on resident
 kernel timing, a CPU-recovered sample, or a median with a worse retained tail.
 
 For the October 17 kernels, create Linux scalar-control evidence at `a06e74c`
 in an isolated checkout before measuring the candidate, retaining the three full
 samples and preparation manifests for both modes. Supply that saved report via
-`LUMA_MERGE_THREE_RAW_BASELINE`. Compare scalar/optional-WASM preparation,
+`IRODORI_MERGE_THREE_RAW_BASELINE`. Compare scalar/optional-WASM preparation,
 2048/32768 gain-cache entries and one/two output slots with matched diagnostic
 settings and source identities. Record three fresh-worker operations per mode;
 keep the five-second and 15-second gates separate. Optional GPU timestamps need
@@ -1657,16 +1657,16 @@ or insufficient achieved 60/120 Hz cadence remains incomplete verification.
 node scripts/research/sony-fixtures.mjs check
 npm run verify -- --target hdr-presentation-cache --target hdr-readback --target write-hdr-strip
 npm run verify -- --foreground --target interactive-preview-quality --target interactive-preview-ui --target interactive-preview-lifecycle --target hdr-presentation-cache-ui
-env -u VITE_LUMA_HDR_INTERACTIVE_PRECISION -u VITE_LUMA_HDR_PRESENTATION_CACHE npm run verify -- --foreground --target editor-responsiveness-benchmark
-VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 npm run verify -- --foreground --target editor-responsiveness-benchmark
-VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 npm run verify -- --foreground --target editor-navigation-responsiveness-benchmark
-VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 npm run verify -- --foreground --target editor-spatial-responsiveness-benchmark
-VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 node scripts/research/sony-fixtures.mjs noise -- npm run verify -- --foreground --target editor-responsiveness-interference
+env -u VITE_IRODORI_HDR_INTERACTIVE_PRECISION -u VITE_IRODORI_HDR_PRESENTATION_CACHE npm run verify -- --foreground --target editor-responsiveness-benchmark
+VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32 VITE_IRODORI_HDR_PRESENTATION_CACHE=1 npm run verify -- --foreground --target editor-responsiveness-benchmark
+VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32 VITE_IRODORI_HDR_PRESENTATION_CACHE=1 npm run verify -- --foreground --target editor-navigation-responsiveness-benchmark
+VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32 VITE_IRODORI_HDR_PRESENTATION_CACHE=1 npm run verify -- --foreground --target editor-spatial-responsiveness-benchmark
+VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32 VITE_IRODORI_HDR_PRESENTATION_CACHE=1 node scripts/research/sony-fixtures.mjs noise -- npm run verify -- --foreground --target editor-responsiveness-interference
 ```
 
 The interference target defaults to a bounded Exposure diagnostic. Its full
 eight-slider run requires the strict selector
-`LUMA_RESPONSIVENESS_SLIDERS=Exposure,Contrast,Highlights,Shadows,Whites,Blacks,Temperature,Tint`.
+`IRODORI_RESPONSIVENESS_SLIDERS=Exposure,Contrast,Highlights,Shadows,Whites,Blacks,Temperature,Tint`.
 Any selected slider/gesture/layout subset is partial evidence. Exercise
 1100 × 700 with Console open, 1440 × 900 and native fullscreen, Fit/100%,
 pointer-centered Fit-to-native zoom, native drag, rapid switching and all four

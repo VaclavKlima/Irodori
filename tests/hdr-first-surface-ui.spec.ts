@@ -166,7 +166,7 @@ async function observeFirstSurface(page: Page) {
       })
     }
     GPUQueue.prototype.onSubmittedWorkDone = wrapped
-    const unsubscribe = window.luma.onHdrFirstSurface((offer) => {
+    const unsubscribe = window.irodori.onHdrFirstSurface((offer) => {
       if (offers.length < 16) offers.push(structuredClone(offer))
       else omitted++
     })
@@ -476,7 +476,7 @@ async function observeNormalHalfPlane(
           if (
             blit &&
             source.texture === blit.source &&
-            destination.buffer.label === 'luma-hdr-recovery-readback'
+            destination.buffer.label === 'irodori-hdr-recovery-readback'
           ) {
             try {
               const size = Array.isArray(extent)
@@ -649,17 +649,17 @@ async function prepare(app: ElectronApplication, page: Page, fixture: RawFixture
       .getByRole('navigation', { name: 'Workspaces' })
       .getByRole('button', { name: 'Library', exact: true }),
   )
-  await page.evaluate(() => window.luma.setPreviewPreference('sdr'))
+  await page.evaluate(() => window.irodori.setPreviewPreference('sdr'))
   await importPhotos(app, page, [raw], false, 'keyboard')
-  const photo = (await page.evaluate(() => window.luma.listPhotos())).photos.find(
+  const photo = (await page.evaluate(() => window.irodori.listPhotos())).photos.find(
     (photo) => photo.id === photoId,
   )
   expect(photo?.filename).toBe(filename)
   if (fixture.catalogImage)
     expect({ width: photo?.width, height: photo?.height }).toEqual(fixture.catalogImage)
   const edits = await page.evaluate(async (id) => {
-    const before = await window.luma.getEdits(id)
-    return window.luma.updateEdits(id, { exposureEv: 1.25 }, before.revision)
+    const before = await window.irodori.getEdits(id)
+    return window.irodori.updateEdits(id, { exposureEv: 1.25 }, before.revision)
   }, photoId)
   expect(edits.revision).toBeGreaterThan(0)
   return edits
@@ -743,20 +743,20 @@ for (const fixture of firstSurfaceFixtures) {
             : 'Wayland requires a visible compositor-managed window to verify the native ultrawide backing size.',
         )
       : {},
-    async ({ luma }, info) => {
-      const { app, page, userDataDir } = luma,
+    async ({ irodori }, info) => {
+      const { app, page, userDataDir } = irodori,
         edits = await prepare(app, page, fixture)
       let actualHdrTarget: DisplayTarget | undefined
       if (fixture.wide) {
         const saved = await page.evaluate(
-          (vramMiB) => window.luma.setResourceSettings({ version: 1, ramMiB: null, vramMiB }),
+          (vramMiB) => window.irodori.setResourceSettings({ version: 1, ramMiB: null, vramMiB }),
           fixture.wide.vramMiB,
         )
         expect(saved.settings.vramMiB).toBe(fixture.wide.vramMiB)
         const maximized = await maximizeEditorOnMonitor(app, page, {
           monitorLabel: fixture.actualHdr
             ? 'Microstep 34"'
-            : process.env.LUMA_RESPONSIVENESS_MONITOR,
+            : process.env.IRODORI_RESPONSIVENESS_MONITOR,
         })
         await expect
           .poll(() => page.evaluate(() => [innerWidth, innerHeight]))
@@ -764,13 +764,13 @@ for (const fixture of firstSurfaceFixtures) {
         if (fixture.actualHdr) {
           // Select Auto only after actual monitor placement. Repeated public
           // observations must agree before the first real source request is admitted.
-          const requested = await page.evaluate(() => window.luma.setPreviewPreference('auto'))
+          const requested = await page.evaluate(() => window.irodori.setPreviewPreference('auto'))
           let previous = ''
           try {
             await expect
               .poll(
                 async () => {
-                  const target = await page.evaluate(() => window.luma.getDisplayState())
+                  const target = await page.evaluate(() => window.irodori.getDisplayState())
                   actualHdrTarget = target
                   const current = JSON.stringify([
                     target.generation,
@@ -1075,9 +1075,9 @@ for (const fixture of firstSurfaceFixtures) {
 }
 
 test('a real display-target generation change invalidates a fenced first surface before full delivery', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await prepare(app, page)
   const replies = await holdFullReply(app),
     observation = await observeFirstSurface(page)
@@ -1088,7 +1088,7 @@ test('a real display-target generation change invalidates a fenced first surface
     const offered = (await observation.evaluate((c) => c.state())).offers[0]
     expect(offered).toBeDefined()
     // Re-selecting SDR changes the actual target generation without inventing a display event.
-    const changed = await page.evaluate(() => window.luma.setPreviewPreference('sdr'))
+    const changed = await page.evaluate(() => window.irodori.setPreviewPreference('sdr'))
     expect(changed.generation).toBeGreaterThan(offered.identity.target.generation)
     await expect
       .poll(() =>
@@ -1278,7 +1278,7 @@ async function holdFirstSurfaceDigest(page: Page) {
       releaseHeld = undefined
       resolve?.()
     }
-    const unsubscribe = window.luma.onHdrFirstSurface((offer) => {
+    const unsubscribe = window.irodori.onHdrFirstSurface((offer) => {
       if (offer.photoId !== photoId) return
       if (offers.length < 16) offers.push(structuredClone(offer))
       else omitted++
@@ -1384,14 +1384,14 @@ async function holdFirstSurfaceDigest(page: Page) {
 }
 
 test('a held genuine first-surface digest drains before a photo switch can start new HDR owners', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma,
+  const { app, page } = irodori,
     edits = await prepare(app, page)
   await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'], false, 'keyboard')
   await expect
     .poll(async () =>
-      (await page.evaluate(() => window.luma.listPhotos())).photos.some(
+      (await page.evaluate(() => window.irodori.listPhotos())).photos.some(
         (photo) => photo.filename === 'alpine-lake.jpg',
       ),
     )
@@ -1514,7 +1514,7 @@ async function prepareResidentRaw(app: ElectronApplication, page: Page) {
   await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'], false, 'keyboard')
   await expect
     .poll(async () =>
-      (await page.evaluate(() => window.luma.listPhotos())).photos.some(
+      (await page.evaluate(() => window.irodori.listPhotos())).photos.some(
         (photo) => photo.filename === 'alpine-lake.jpg',
       ),
     )
@@ -1533,7 +1533,7 @@ async function prepareResidentRaw(app: ElectronApplication, page: Page) {
   await activateButton(page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }))
   await expect(canvas).toHaveAttribute('aria-label', 'alpine-lake.jpg')
   await expect(canvas).toHaveAttribute('data-editing', 'ready')
-  const history = await page.evaluate((id) => window.luma.getEditHistory(id), photoId)
+  const history = await page.evaluate((id) => window.irodori.getEditHistory(id), photoId)
 
   return { edits, seededSource, seededRequestId, history }
 }
@@ -1563,7 +1563,7 @@ async function observeWarmSource(page: Page) {
     }
     const observer = new MutationObserver(inspect)
     observer.observe(document.body, { subtree: true, childList: true, attributes: true })
-    const unsubscribe = window.luma.onHdrFirstSurface((offer) => {
+    const unsubscribe = window.irodori.onHdrFirstSurface((offer) => {
       if (offers.length < 16) offers.push(structuredClone(offer))
       else omitted++
     })
@@ -1618,9 +1618,9 @@ async function observeWarmSource(page: Page) {
 }
 
 test('a verified resident RAW source omits optional first-surface work and reuses exact source history', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma,
+  const { app, page } = irodori,
     { edits, seededSource, seededRequestId, history } = await prepareResidentRaw(app, page),
     main = await observeHdrRequests(app),
     receiver = await observeWarmSource(page)
@@ -1660,7 +1660,7 @@ test('a verified resident RAW source omits optional first-surface work and reuse
     expect(renderer.firstFetches).toEqual([])
     expect(renderer.digests).toEqual([])
     expect(renderer.stalePublication).toBe(false)
-    expect(await page.evaluate((id) => window.luma.getEditHistory(id), photoId)).toEqual(history)
+    expect(await page.evaluate((id) => window.irodori.getEditHistory(id), photoId)).toEqual(history)
   } finally {
     let renderer, privileged
     try {
@@ -1682,9 +1682,9 @@ test('a verified resident RAW source omits optional first-surface work and reuse
 })
 
 test('a cancelled completed warm RAW reply cannot replace the next photo or its later current owner', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma,
+  const { app, page } = irodori,
     { edits, seededSource, seededRequestId, history } = await prepareResidentRaw(app, page),
     main = await observeHdrRequests(app),
     replies = await holdFullReply(app),
@@ -1722,7 +1722,7 @@ test('a cancelled completed warm RAW reply cannot replace the next photo or its 
       .poll(async () => (await replies.evaluate((control) => control.state())).delivered)
       .toContain(oldRequestId)
     // A genuine renderer/main round trip follows the old IPC reply's delivery.
-    await page.evaluate(() => window.luma.getDisplayState())
+    await page.evaluate(() => window.irodori.getDisplayState())
     await expect(canvas).toHaveAttribute('aria-label', 'alpine-lake.jpg')
     await expect(canvas).toHaveAttribute('data-preview-request-id', rasterRequestId!)
     await expect(canvas).toHaveAttribute('data-editing', 'ready')
@@ -1771,7 +1771,7 @@ test('a cancelled completed warm RAW reply cannot replace the next photo or its 
     expect(renderer.firstFetches).toEqual([])
     expect(renderer.digests.filter((digest) => digest.filename === landscape.filename)).toEqual([])
     expect(renderer.stalePublication).toBe(false)
-    expect(await page.evaluate((id) => window.luma.getEditHistory(id), photoId)).toEqual(history)
+    expect(await page.evaluate((id) => window.irodori.getEditHistory(id), photoId)).toEqual(history)
   } finally {
     // Release held genuine IPC replies before awaiting either observer's real work.
     let completed, renderer, privileged

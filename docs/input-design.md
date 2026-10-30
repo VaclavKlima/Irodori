@@ -8,9 +8,11 @@ Photo command menus follow the separate authoritative [menu design standard](men
 
 Use `AdjustmentInput` for new numeric slider controls. It presents a label and borderless editable value above a full-width slider, with an optional unit. Number steppers are hidden; clicking or tabbing into the value allows direct entry. Preserve its shared CSS Module styling instead of adding per-adjustment field styling or inline sizes.
 
-Supply the label, current draft value, limits, step, display precision, optional unit, disabled state, and change/commit/cancel callbacks. Change `resetKey` when confirmed state replaces the gesture, such as a new edit revision. Key the owner by photo ID so text from one photograph cannot carry into another. Other new input types should use the same visual conventions with semantics appropriate to their control type.
+Supply the label, current draft value, limits, step, display precision, optional unit, disabled state, temporary busy state, and change/commit/cancel callbacks. Change `resetKey` when confirmed state replaces the gesture, such as a new edit revision. Key the owner by photo ID so text from one photograph cannot carry into another. Other new input types should use the same visual conventions with semantics appropriate to their control type.
 
 Valid changes preview continuously. A drag or repeated slider-key gesture commits once on release; numeric typing commits on Enter or blur. Escape and pointer cancellation restore the starting state. Do not rewrite partial numeric text while the user types. Invalid or out-of-range values never persist; leaving invalid entry restores the confirmed value. Format the number to its configured precision outside active typing. Numeric fields retain normal text-editing shortcuts.
+
+A pending save uses `busy`, rather than native `disabled`: numeric values become read-only and sliders expose `aria-disabled` while keeping their DOM focus. Busy inputs reject typing, stepping, pointer changes and additional commits/cancellation; rejected gestures are not queued for later. Tab navigation and normal text selection/copy remain available. Preserve the focused element when saving completes, without automatically refocusing a control the user has left. Reserve `disabled` for genuine unavailability, such as no supported photo or an unavailable preview.
 
 ## Ownership and history
 

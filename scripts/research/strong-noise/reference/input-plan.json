@@ -1,0 +1,269 @@
+{
+  "recordVersion": 1,
+  "state": "Draft inputs only; independent generator has not been executed. Root review and explicit approval required.",
+  "referenceKind": "Original CC0-1.0 direct-patch Decimal80 mathematical oracle; no application/candidate imports and no estimator implementation.",
+  "inputPolicy": "Generate recipe scalars in Decimal, round to binary32 before reference evaluation; retain exact little-endian binary32 words including signed zero. Provided feature variances are explicit frozen inputs, not estimates or sensor calibration.",
+  "primaries": ["srgb", "rec2020"],
+  "controls": [
+    [0, 0],
+    [1, 0],
+    [0, 1],
+    [1, 1],
+    [25, 0],
+    [0, 25],
+    [25, 25],
+    [50, 0],
+    [0, 50],
+    [50, 50],
+    [75, 0],
+    [0, 75],
+    [75, 75],
+    [100, 0],
+    [0, 100],
+    [100, 100],
+    [1, 100],
+    [100, 1],
+    [2, 2],
+    [49, 49],
+    [51, 51],
+    [25, 75],
+    [75, 25]
+  ],
+  "widthPairs": [
+    ["0.024", "0.024"],
+    ["0.024", "0.04"]
+  ],
+  "math": {
+    "precision": 80,
+    "searchRadius": 3,
+    "patchRadius": 1,
+    "spatialSigma": "2",
+    "reference": "0.18",
+    "guidanceL": "0.08",
+    "guidanceC": "0.12",
+    "bandwidth": "hOwn=hOwnMax*(amountOwn/100)^2",
+    "correctedDistances": "E_L=max(D_L-B_L,0); E_C=max(D_C-B_A-B_B,0), in both exponent terms",
+    "bias": "Alpha-normalized sum of variance_i+variance_j per feature and corresponding 3x3 tap; zero when global clamped source coordinates are identical.",
+    "blend": "m(s)=min(1,(s/50)^2) multiplies each normalized own feature delta BEFORE stable inverse; bypass multiplication when m=1; disabled component bypass.",
+    "self": "Original spatial/neighbor-alpha self rule unchanged; no self-max replacement.",
+    "reconstruction": "Original stable inverse-coordinate differences around entering Y and its fixed hypot(Y,.18) opponent scale; RGB reconstruction preserves alpha and exact no-change copies.",
+    "gentleness": "BeforeRGBinverse: |proposal|<=m*(R*(1+2^-24)+2^-150) for R>0, exactzero forR0; this is onlymandatoryFloat32 E quantization in Decimal80, notRGB/qualitytolerance relaxation.",
+    "aggregation": "Estimate every actualvalid3x3patchtarget underW(c,d)*alpha(v), v=clamp(c+d+r), independentlynormalize thenroundeachE directlynearest-even tobinary32. Averagepublishedestimateswithalpha(c) over actualcentersc=p-r, then ownblend once. No flattening, outsidecenterclamp, selfcap or intermediateDecimalEaveraging.",
+    "stagePublication": "Each center has27 scalarwords: rowmajorr=-1..1, axesL/A/B. Invalid/transparenttargets andalpha0centers publish+0. Skip hiddenRGB beforeallfeaturearithmetic. Selfd0 guarantees inneralpha(c)*alpha(t)>0; outerincludesalpha(p)>0.",
+    "frozenVariance": "Each declared variance literal is parsed to IEEE Float64, then converted exactlytoDecimal80, so oracle/prototype receive identicalcoefficient words. No estimator implemented here."
+  },
+  "cases": [
+    {
+      "id": "signed-zero-identity",
+      "width": 3,
+      "height": 2,
+      "recipe": "signed-zero",
+      "frozenVariance": ["0.0036", "0.0064", "0.01"],
+      "points": [
+        [0, 0],
+        [2, 1],
+        [1, 1]
+      ]
+    },
+    {
+      "id": "flat-gray",
+      "width": 3,
+      "height": 3,
+      "recipe": "flat",
+      "frozenVariance": ["0.0036", "0.0064", "0.01"],
+      "points": [
+        [0, 0],
+        [1, 1],
+        [2, 2]
+      ]
+    },
+    {
+      "id": "noise-like-low",
+      "width": 7,
+      "height": 5,
+      "recipe": "pattern-low",
+      "frozenVariance": ["0.000144", "0.0001", "0.000225"],
+      "points": [
+        [0, 0],
+        [3, 2],
+        [6, 4]
+      ]
+    },
+    {
+      "id": "signed-hdr",
+      "width": 7,
+      "height": 5,
+      "recipe": "signed-hdr",
+      "frozenVariance": ["0.0036", "0.0064", "0.01"],
+      "points": [
+        [0, 0],
+        [3, 2],
+        [6, 4]
+      ]
+    },
+    {
+      "id": "hidden-zero-a",
+      "width": 7,
+      "height": 5,
+      "recipe": "hidden-a",
+      "frozenVariance": ["0.0036", "0.0064", "0.01"],
+      "points": [
+        [0, 0],
+        [1, 2],
+        [3, 2],
+        [6, 4]
+      ]
+    },
+    {
+      "id": "hidden-zero-b",
+      "width": 7,
+      "height": 5,
+      "recipe": "hidden-b",
+      "frozenVariance": ["0.0036", "0.0064", "0.01"],
+      "points": [
+        [0, 0],
+        [1, 2],
+        [3, 2],
+        [6, 4]
+      ]
+    },
+    {
+      "id": "partial-alpha",
+      "width": 7,
+      "height": 5,
+      "recipe": "partial-alpha",
+      "frozenVariance": ["0.0036", "0.0064", "0.01"],
+      "points": [
+        [0, 0],
+        [3, 2],
+        [6, 4]
+      ]
+    },
+    {
+      "id": "one-pixel",
+      "width": 1,
+      "height": 1,
+      "recipe": "one-pixel-hdr",
+      "frozenVariance": ["0.01", "0.0064", "0.0036"],
+      "points": [[0, 0]]
+    },
+    {
+      "id": "one-axis",
+      "width": 1,
+      "height": 7,
+      "recipe": "one-axis",
+      "frozenVariance": ["0.0036", "0.0064", "0.01"],
+      "points": [
+        [0, 0],
+        [0, 3],
+        [0, 6]
+      ]
+    },
+    {
+      "id": "clamped-bias",
+      "width": 2,
+      "height": 2,
+      "recipe": "clamped",
+      "frozenVariance": ["0.01", "0.0036", "0.0064"],
+      "points": [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1]
+      ]
+    },
+    {
+      "id": "clamped-zero-variance",
+      "width": 2,
+      "height": 2,
+      "recipe": "clamped",
+      "frozenVariance": ["0", "0", "0"],
+      "points": [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1]
+      ]
+    },
+    {
+      "id": "partial-alpha-common-scale",
+      "width": 7,
+      "height": 5,
+      "recipe": "partial-alpha",
+      "frozenVariance": ["0.0036", "0.0064", "0.01"],
+      "points": [
+        [0, 0],
+        [3, 2],
+        [6, 4]
+      ],
+      "alphaScale": "8.271806125530276748714086921E-25"
+    },
+    {
+      "id": "opaque-tiny-alpha",
+      "width": 7,
+      "height": 5,
+      "recipe": "pattern-low",
+      "frozenVariance": ["0.000144", "0.0001", "0.000225"],
+      "points": [
+        [0, 0],
+        [3, 2],
+        [6, 4]
+      ],
+      "alphaScale": "7.888609052210118054117285653E-31"
+    },
+    {
+      "id": "opaque-subnormal-alpha",
+      "width": 7,
+      "height": 5,
+      "recipe": "pattern-low",
+      "frozenVariance": ["0.000144", "0.0001", "0.000225"],
+      "points": [
+        [0, 0],
+        [3, 2],
+        [6, 4]
+      ],
+      "alphaScale": "1.401298464324817070923729583E-45"
+    },
+    {
+      "id": "one-horizontal-axis",
+      "width": 7,
+      "height": 1,
+      "recipe": "one-axis",
+      "frozenVariance": ["0.0036", "0.0064", "0.01"],
+      "points": [
+        [0, 0],
+        [3, 0],
+        [6, 0]
+      ]
+    }
+  ],
+  "pairChecks": [
+    {
+      "left": "hidden-zero-a",
+      "right": "hidden-zero-b",
+      "requirement": "Equal reference RGB at every corresponding positive-alpha target; transparent targets retain each input's own exact words."
+    },
+    {
+      "left": "partial-alpha",
+      "right": "partial-alpha-common-scale",
+      "requirement": "Identical RGB/featureproposals/stagewords atallpositivealphaowners under exactpower2scale; ownalphawords scaleexactly andzeroalphaowners keeptheirownwords."
+    },
+    {
+      "left": "noise-like-low",
+      "right": "opaque-tiny-alpha",
+      "requirement": "Identical RGB/proposals/stagewords under common exactpower2scale; GPUmayrequire declaredCPU precisionrecovery, never epsilon."
+    },
+    {
+      "left": "noise-like-low",
+      "right": "opaque-subnormal-alpha",
+      "requirement": "Identical RGB/proposals/stagewords for exactfullopacity\u2192minimumsubnormalalpha scaling inFloat64/Decimal80; GPUFTZ mustreport equivalentCPUrecovery."
+    }
+  ],
+  "limits": {
+    "float64Reference": "2e-12 + 2e-11 * abs(reference), unchanged current oracle gate; not executed here.",
+    "float32CpuGpu": "2e-6 + 2e-5 * abs(reference), alpha exact; no new gate selection here.",
+    "quality": "These small mathematical vectors cannot accept denoising quality, estimator calibration, real photography, resource use, or performance."
+  },
+  "stageChecks": "For every referencedcenter requireall27words exactnearest-even publication. Additional candidateplane check: alpha0centers andinvalid/transparenttargets exactly+0. RGBpre-finalf32 compares2e-12+2e-11absreference; finalfloat32CPU/GPUgateunchanged.",
+  "roundingVectors": "Independentbeforegenerationunitvectors: signed0, half-minsubnormal tieeven,1.5minsubnormaltieeven, maxsubnormal/minnormalmidpoint,1+2^-24tieeven,1+3*2^-24tieeven, andsignmirrors. No stageword tolerance."
+}

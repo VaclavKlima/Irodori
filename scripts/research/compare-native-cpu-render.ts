@@ -28,6 +28,11 @@ import {
 import { REC2020_TO_ACES, DISPLAY_RENDERING_VERSION } from '../../src/shared/display-rendering'
 import { WHITE_BALANCE_MODEL, type WhiteBalanceProfile } from '../../src/shared/white-balance'
 import { hdrRangeColor } from '../../src/renderer/src/preview/hdr-ranges'
+import {
+  nativeColorValues,
+  NATIVE_CPU_REQUEST_BYTES,
+  NATIVE_CPU_COLOR_OFFSET,
+} from '../../src/shared/native-color-protocol'
 
 const [
   rootArgument,
@@ -261,9 +266,9 @@ function requestFor(value: Case, generation: number) {
     (Number(value.ranges) << 2) |
     (Number(sameAdjustments(parameters, neutralAdjustments)) << 3) |
     (Number(value.headroom !== null) << 4)
-  const request = Buffer.alloc(400)
-  request.write('LUMACPU1')
-  request.writeUInt32LE(1, 8)
+  const request = Buffer.alloc(NATIVE_CPU_REQUEST_BYTES)
+  request.write('IRODCPU3')
+  request.writeUInt32LE(3, 8)
   request.writeUInt32LE(flags, 12)
   for (const [at, n] of [
     [16, source.width],
@@ -301,6 +306,11 @@ function requestFor(value: Case, generation: number) {
   ].forEach((v, i) => request.writeDoubleLE(v, 272 + i * 8))
   ;(wb ?? [1, 0, 0, 0, 1, 0, 0, 0, 1]).forEach((v, i) => request.writeDoubleLE(v, 320 + i * 8))
   request.writeDoubleLE(value.headroom ?? 0, 392)
+  request.writeDoubleLE(parameters.saturation, 400)
+  request.writeDoubleLE(parameters.vibrance, 408)
+  nativeColorValues(parameters).forEach((v, i) =>
+    request.writeDoubleLE(v, NATIVE_CPU_COLOR_OFFSET + i * 8),
+  )
   return { request, width, height, wb }
 }
 const magic = (text: string) => Buffer.from(text)
@@ -329,9 +339,11 @@ async function oracle(
   const neutral = sameAdjustments(value.parameters, neutralAdjustments)
   const started = performance.now()
   try {
+    const length = Buffer.alloc(4)
+    length.writeUInt32LE(request.byteLength)
     await writeAll(
       destination,
-      Buffer.concat([magic('LUMARGB1'), Buffer.from([144, 1, 0, 0]), request, Buffer.alloc(4)]),
+      Buffer.concat([magic('IRODRGB1'), length, request, Buffer.alloc(4)]),
     )
     for (let row = 0; row < value.source.height; row += 64) {
       const rows = Math.min(64, value.source.height - row),
@@ -390,7 +402,7 @@ async function oracle(
       computeMs += performance.now() - computeStarted
       if (nextRow === first) continue
       const header = Buffer.alloc(24)
-      header.write('LUMAROW1')
+      header.write('IRODROW1')
       header.writeUInt32LE(first, 8)
       header.writeUInt32LE(nextRow - first, 12)
       header.writeUInt32LE(after.length, 16)
@@ -402,7 +414,7 @@ async function oracle(
       JSON.stringify({ implementation: 'unchanged-shared-js-functions', computeMs, readMs }),
     )
     const header = Buffer.alloc(12)
-    header.write('LUMAEND1')
+    header.write('IRODEND1')
     header.writeUInt32LE(trailer.length, 8)
     await writeAll(destination, header)
     await writeAll(destination, trailer)
@@ -494,12 +506,12 @@ async function compare(
       [actual, count],
       [expected, 0],
     ] as const) {
-      const header = await exact(file, 416)
+      const header = await exact(file, NATIVE_CPU_REQUEST_BYTES + 16)
       if (
-        header.subarray(0, 8).toString() !== 'LUMARGB1' ||
-        header.readUInt32LE(8) !== 400 ||
-        !header.subarray(12, 412).equals(request) ||
-        header.readUInt32LE(412) !== workers
+        header.subarray(0, 8).toString() !== 'IRODRGB1' ||
+        header.readUInt32LE(8) !== NATIVE_CPU_REQUEST_BYTES ||
+        !header.subarray(12, NATIVE_CPU_REQUEST_BYTES + 12).equals(request) ||
+        header.readUInt32LE(NATIVE_CPU_REQUEST_BYTES + 12) !== workers
       )
         throw new Error('Response request identity or protocol header mismatch.')
     }
@@ -508,7 +520,7 @@ async function compare(
         b = await exact(expected, 24)
       if (
         !a.equals(b) ||
-        a.subarray(0, 8).toString() !== 'LUMAROW1' ||
+        a.subarray(0, 8).toString() !== 'IRODROW1' ||
         a.readUInt32LE(8) !== row ||
         !a.readUInt32LE(12) ||
         a.readUInt32LE(12) > 64 ||
@@ -554,7 +566,7 @@ async function compare(
     for (const file of [actual, expected]) {
       const header = await exact(file, 12),
         length = header.readUInt32LE(8)
-      if (header.subarray(0, 8).toString() !== 'LUMAEND1' || !length || length > 65536)
+      if (header.subarray(0, 8).toString() !== 'IRODEND1' || !length || length > 65536)
         throw new Error('Missing bounded completion trailer.')
       trailers.push(JSON.parse((await exact(file, length)).toString()))
       const tail = Buffer.alloc(1)

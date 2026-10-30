@@ -39,12 +39,14 @@ const edited = {
   shadows: 40,
   whites: 20,
   blacks: -25,
+  saturation: 40,
+  vibrance: 65,
 }
 function actualMath() {
-  const value = process.env.LUMA_NATIVE_HDR_MASK_TEST_ARITHMETIC_SHA256
+  const value = process.env.IRODORI_NATIVE_HDR_MASK_TEST_ARITHMETIC_SHA256
   if (!value || !/^[a-f0-9]{64}$/.test(value))
     throw new Error(
-      'Set LUMA_NATIVE_HDR_MASK_TEST_ARITHMETIC_SHA256 to the actual built helper capability; exact native math coverage is mandatory.',
+      'Set IRODORI_NATIVE_HDR_MASK_TEST_ARITHMETIC_SHA256 to the actual built helper capability; exact native math coverage is mandatory.',
     )
   return value
 }
@@ -154,7 +156,7 @@ test('the actual helper rejects a different nonzero arithmetic identity before s
       owner!.release()
       await t.controller.releaseMask(request.sessionId, output.maskId)
     }
-    expect(encoded!.subarray(384).toString('hex')).toBe(arithmeticSha256)
+    expect(encoded!.subarray(384, 416).toString('hex')).toBe(arithmeticSha256)
     encoded![384] ^= 1
     const requestPath = join(t.control, 'wrong-mask-math.bin')
     await writeFile(requestPath, encoded!, { flag: 'wx', mode: 0o600 })

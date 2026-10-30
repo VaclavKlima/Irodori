@@ -111,7 +111,7 @@ function numericCameraFrame(height = 17) {
 }
 
 test('camera registration reuses strips without changing native evidence, masks or area reduction', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-camera-strip-'))
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-camera-strip-'))
   try {
     let index = 0
     for (const profile of [unavailableProfile, numericLensProfile])
@@ -519,7 +519,7 @@ test('CPU vignette cache preserves uncached Float64 sampling with distortion, CA
 })
 
 async function cameraEvidence(mode: 'photograph' | 'flat' | 'stripes' | 'clipping' | 'parallax') {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-camera-registration-')),
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-camera-registration-')),
     width = 512,
     height = 384,
     count = width * height,
@@ -889,7 +889,7 @@ test('aperture variation requires one evidenced BRK prefix in HDR mode', async (
 
 test('reviews freeze current capture facts under source leases and preserve them through revisions', async () => {
   const f = await syntheticMerge([0.5, 1]),
-    root = await mkdtemp(join(tmpdir(), 'luma-brk-review-')),
+    root = await mkdtemp(join(tmpdir(), 'irodori-brk-review-')),
     frames = bracketFrames(2)
   f.sources.forEach((s, i) => {
     s.metadata.model = 'ZV-1A'

@@ -1,4 +1,4 @@
-import type { BrowserWindow, Event, MouseInputEvent, WebContents } from 'electron'
+import type { BrowserWindow, Event, Input, MouseInputEvent, WebContents } from 'electron'
 
 type DisplayRefreshContents = WebContents & {
   setEmbedder?: (embedder: WebContents) => void
@@ -31,12 +31,17 @@ export function refreshWaylandDisplay(window: BrowserWindow): void {
 export class WaylandDisplayRefresh {
   private contents: WebContents
   private buttons = new Set<NonNullable<MouseInputEvent['button']>>()
+  private control = false
+  private pointerControl = false
 
   constructor(private window: BrowserWindow) {
     this.contents = window.webContents
     // Observe presses before the renderer can request pointer lock. WasHidden
     // releases that lock even when native focus is immediately restored.
     this.contents.on('before-mouse-event', this.mouse)
+    // WasHidden also clears the renderer's physical-Control evidence, making
+    // mouse-wheel zoom switch to touchpad sensitivity while the key stays down.
+    this.contents.on('before-input-event', this.keyboard)
     this.contents.on('blur', this.blur)
     this.contents.on('did-start-navigation', this.navigation)
     this.contents.on('render-process-gone', this.reset)
@@ -46,16 +51,31 @@ export class WaylandDisplayRefresh {
   }
 
   private mouse = (_event: Event, mouse: MouseInputEvent) => {
+    // Recover a modifier already held when entering this view. Wheel events can
+    // encode touchpad pinch, so they cannot establish physical Control.
+    if (mouse.type !== 'mouseWheel' && mouse.modifiers)
+      this.pointerControl = mouse.modifiers.some(
+        (modifier) => modifier === 'control' || modifier === 'ctrl',
+      )
     if (!mouse.button) return
     if (mouse.type === 'mouseDown') this.buttons.add(mouse.button)
     if (mouse.type === 'mouseUp') this.buttons.delete(mouse.button)
   }
 
-  private reset = () => this.buttons.clear()
+  private keyboard = (_event: Event, input: Input) => {
+    this.control = input.control
+    this.pointerControl = false
+  }
+
+  private reset = () => {
+    this.buttons.clear()
+    this.control = false
+    this.pointerControl = false
+  }
 
   private blur = () => {
     // View blur alone does not establish that the owner was deactivated.
-    // Keep held presses until release or actual window focus loss.
+    // Keep held presses and Control until release or actual window focus loss.
     if (this.window.isDestroyed() || !this.window.isFocused()) this.reset()
   }
 
@@ -64,12 +84,14 @@ export class WaylandDisplayRefresh {
   }
 
   refresh(): void {
-    if (!this.buttons.size) refreshWaylandDisplay(this.window)
+    if (!this.buttons.size && !this.control && !this.pointerControl)
+      refreshWaylandDisplay(this.window)
   }
 
   dispose(): void {
     this.reset()
     this.contents.off('before-mouse-event', this.mouse)
+    this.contents.off('before-input-event', this.keyboard)
     this.contents.off('blur', this.blur)
     this.contents.off('did-start-navigation', this.navigation)
     this.contents.off('render-process-gone', this.reset)

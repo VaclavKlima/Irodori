@@ -33,6 +33,8 @@ const requestedInteractiveFence = editorTestPreviewPolicy.interactiveFence
 const usesNativeCpuRenderer = process.platform === 'linux' && process.arch === 'x64'
 type NativeCpuReplies = Awaited<ReturnType<typeof observeNativeCpuReplies>>
 const parameters: AdjustmentParameters = {
+  saturation: 0,
+  vibrance: 0,
   exposureEv: 1.25,
   contrast: 45,
   highlights: -55,
@@ -86,8 +88,8 @@ interface FaultController {
 type FaultWindow = Window & { interactiveLifecycle: FaultController }
 
 test.use({ hdrDisplay: true })
-test.beforeEach(async ({ luma }) => {
-  await requireEditorPreviewFeature(luma.page, 'interactive')
+test.beforeEach(async ({ irodori }) => {
+  await requireEditorPreviewFeature(irodori.page, 'interactive')
 })
 const foreground = foregroundTest(
   'Native pointer capture, interrupted HDR GPU presentation and compositor captures require foreground interaction.',
@@ -553,14 +555,14 @@ async function setup(app: ElectronApplication, page: Page, withRaster = false) {
   await (await app.browserWindow(page)).evaluate((window) => window.setContentSize(1100, 700))
   const workspaces = page.getByRole('navigation', { name: 'Workspaces' })
   await workspaces.getByRole('button', { name: 'Library', exact: true }).click()
-  await page.evaluate(() => window.luma.setPreviewPreference('sdr'))
+  await page.evaluate(() => window.irodori.setPreviewPreference('sdr'))
   await importPhotos(app, page, withRaster ? [raster, fixture] : [fixture], false)
-  const raw = (await page.evaluate(() => window.luma.listPhotos())).photos.find(
+  const raw = (await page.evaluate(() => window.irodori.listPhotos())).photos.find(
     (photo) => photo.filename === 'sony-zv1.ARW',
   )!
-  const before = await page.evaluate((id) => window.luma.getEdits(id), raw.id)
+  const before = await page.evaluate((id) => window.irodori.getEdits(id), raw.id)
   await page.evaluate(
-    ({ id, revision, parameters }) => window.luma.updateEdits(id, parameters, revision),
+    ({ id, revision, parameters }) => window.irodori.updateEdits(id, parameters, revision),
     { id: raw.id, revision: before.revision, parameters },
   )
   await workspaces.getByRole('button', { name: 'Editor', exact: true }).click()
@@ -569,7 +571,7 @@ async function setup(app: ElectronApplication, page: Page, withRaster = false) {
   const requestId = randomUUID()
   try {
     const source = await page.evaluate(
-      ({ id, requestId }) => window.luma.requestHdrPreview(id, requestId, false, 'hdr'),
+      ({ id, requestId }) => window.irodori.requestHdrPreview(id, requestId, false, 'hdr'),
       { id: raw.id, requestId },
     )
     if (!source?.linear?.hdr) throw new Error('The existing HDR preview omitted its native source.')
@@ -581,10 +583,10 @@ async function setup(app: ElectronApplication, page: Page, withRaster = false) {
     return {
       raw,
       source,
-      history: await page.evaluate((id) => window.luma.getEditHistory(id), raw.id),
+      history: await page.evaluate((id) => window.irodori.getEditHistory(id), raw.id),
     }
   } finally {
-    await page.evaluate((requestId) => window.luma.releaseFullPreview(requestId), requestId)
+    await page.evaluate((requestId) => window.irodori.releaseFullPreview(requestId), requestId)
   }
 }
 
@@ -605,7 +607,7 @@ async function beginGesture(page: Page) {
   await expect(canvas).toHaveAttribute('data-presented-policy', ACES_INTERACTIVE_PREVIEW_VERSION)
   await expect(canvas).toHaveAttribute('data-tile-batch', requestedTileBatch)
   await expect(canvas).toHaveAttribute('data-interactive-fence', requestedInteractiveFence)
-  const target = await page.evaluate(() => window.luma.getDisplayState())
+  const target = await page.evaluate(() => window.irodori.getDisplayState())
   await expect(canvas).toHaveAttribute(
     'data-presented-arithmetic-policy',
     selectInteractivePreviewPolicy('f32', target.mode),
@@ -800,7 +802,7 @@ async function cpuProof(page: Page, id: string, sourceIdentity: string, exposure
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'canvas2d-hdr-sdr')
   await page.getByLabel('Preview zoom', { exact: true }).selectOption('1')
   await exact(page, exposure)
-  const state = await page.evaluate((id) => window.luma.getEdits(id), id)
+  const state = await page.evaluate((id) => window.irodori.getEdits(id), id)
   const samples = await page.getByTestId('main-preview').evaluate((element) => {
     const canvas = element as HTMLCanvasElement,
       context = canvas.getContext('2d')!,
@@ -827,7 +829,7 @@ async function cpuProof(page: Page, id: string, sourceIdentity: string, exposure
   for (const sample of samples) {
     const pixel = await page.evaluate(
       ({ id, revision, x, y }) =>
-        window.luma.getPhotoPixel(id, revision, x, y, { domain: 'output', target: 'sdr' }),
+        window.irodori.getPhotoPixel(id, revision, x, y, { domain: 'output', target: 'sdr' }),
       { id, revision: state.revision, x: sample.x, y: sample.y },
     )
     expect(pixel.renderingIdentity).toBe(sourceIdentity)
@@ -863,7 +865,7 @@ async function assertNativeCpuPublication(
   expect(requests).toHaveLength(1)
   const request = requests[0]
   if (!request) throw new Error('The displayed CPU pair has no observed real request.')
-  const current = await page.evaluate((id) => window.luma.getEdits(id), prepared.raw.id)
+  const current = await page.evaluate((id) => window.irodori.getEdits(id), prepared.raw.id)
   const hdr = prepared.source.linear?.hdr
   if (!hdr || !prepared.source.cpuSource)
     throw new Error('The corrected source has no trusted native CPU identity.')
@@ -931,7 +933,9 @@ async function evidence(
 ) {
   await gate(page, 'release').catch(() => undefined)
   const observed = await observation(page).catch(() => undefined),
-    displayState = await page.evaluate(() => window.luma.getDisplayState()).catch(() => undefined),
+    displayState = await page
+      .evaluate(() => window.irodori.getDisplayState())
+      .catch(() => undefined),
     canvasState = await page
       .getByTestId('main-preview')
       .evaluate((element) => {
@@ -1014,9 +1018,9 @@ async function evidence(
 test(
   'a native interactive-pipeline rejection recovers complete corrected CPU pixels without changing history',
   foreground,
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(180000)
-    const { app, page, userDataDir } = luma
+    const { app, page, userDataDir } = irodori
     let id: string | undefined, native: NativeCpuReplies | undefined
     const detail: unknown[] = []
     try {
@@ -1032,7 +1036,7 @@ test(
       expect(observed.rejection).toMatchObject({ name: 'GPUPipelineError', reason: 'validation' })
       expect(observed.interactiveDispatches).toBe(0)
       detail.push(await cpuProof(page, id, prepared.source.renderId, parameters.exposureEv))
-      expect(await page.evaluate((id) => window.luma.getEditHistory(id), id)).toEqual(
+      expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(
         prepared.history,
       )
       if (usesNativeCpuRenderer)
@@ -1056,9 +1060,9 @@ test(
 test(
   'the last local input receives Float32 feedback before its own reply and canonical refinement after confirmation',
   foreground,
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(180000)
-    const { app, page, userDataDir } = luma
+    const { app, page, userDataDir } = irodori
     let id: string | undefined,
       reply: Awaited<ReturnType<typeof holdLocalCommitReply>> | undefined,
       trace: Awaited<ReturnType<typeof traceLocalCommit>> | undefined
@@ -1134,7 +1138,7 @@ test(
           settingsRevision: element.getAttribute('data-presented-settings-revision'),
         })),
         fastPixels = await capture(app, page, info.outputPath('final-input-feedback.png'))
-      expect(feedback.source).toContain(`luma-photo://library/${id}/`)
+      expect(feedback.source).toContain(`irodori-photo://library/${id}/`)
       expect(feedback.epoch).toBeDefined()
       expect(feedback.serial).toBeDefined()
       expect(feedback.settingsRevision).toBeNull()
@@ -1143,7 +1147,7 @@ test(
         policy: ACES_INTERACTIVE_PREVIEW_VERSION,
         arithmeticPolicy: selectInteractivePreviewPolicy(
           'f32',
-          (await page.evaluate(() => window.luma.getDisplayState())).mode,
+          (await page.evaluate(() => window.irodori.getDisplayState())).mode,
         ),
         exposure: '1.75',
       })
@@ -1166,7 +1170,7 @@ test(
         String(committed.revision),
       )
       const final = await observation(page),
-        history = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+        history = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
       expect(final.canonicalDispatches).toBeGreaterThan(pending.canonicalDispatches)
       expect(history.snapshots).toHaveLength(prepared.history.snapshots.length + 1)
       expect(history.snapshots.slice(0, -1)).toEqual(prepared.history.snapshots)
@@ -1209,9 +1213,9 @@ test(
 test(
   'device loss before staged CPU capture preserves the last published recovery image and committed edit',
   foreground,
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(180000)
-    const { app, page, userDataDir } = luma
+    const { app, page, userDataDir } = irodori
     let id: string | undefined
     const detail: unknown[] = []
     try {
@@ -1261,7 +1265,7 @@ test(
       await expect.poll(async () => (await observation(page)).retentionStageLive).toBe(0)
       await page.mouse.up()
       detail.push(before, held, await cpuProof(page, id, prepared.source.renderId, 1.75))
-      const history = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+      const history = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
       expect(history.settings).toEqual({ ...prepared.history.settings, exposureEv: 1.75 })
       expect(history.snapshots).toHaveLength(prepared.history.snapshots.length + 1)
       expect(history.snapshots.slice(0, -1)).toEqual(prepared.history.snapshots)
@@ -1276,9 +1280,9 @@ test(
 test(
   'device loss during an actual Float32 gesture drains completion and recovers its single committed edit on CPU',
   foreground,
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(180000)
-    const { app, page, userDataDir } = luma
+    const { app, page, userDataDir } = irodori
     let id: string | undefined, native: NativeCpuReplies | undefined
     const detail: unknown[] = []
     try {
@@ -1308,11 +1312,11 @@ test(
       await expect
         .poll(
           async () =>
-            (await page.evaluate((id) => window.luma.getEditHistory(id), id!)).snapshots.length,
+            (await page.evaluate((id) => window.irodori.getEditHistory(id), id!)).snapshots.length,
         )
         .toBe(prepared.history.snapshots.length + 1)
       detail.push(await cpuProof(page, id, prepared.source.renderId, 1.75))
-      const history = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+      const history = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
       expect(history.settings).toEqual({ ...prepared.history.settings, exposureEv: 1.75 })
       expect(history.snapshots.slice(0, -1)).toEqual(prepared.history.snapshots)
       const observed = await observation(page)
@@ -1346,9 +1350,9 @@ test(
 test(
   'cancelling and switching photographs while completed Float32 work is held cannot publish stale pixels or poison exact refinement',
   foreground,
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(180000)
-    const { app, page, userDataDir } = luma
+    const { app, page, userDataDir } = irodori
     let id: string | undefined
     const detail: unknown[] = []
     try {
@@ -1365,7 +1369,7 @@ test(
       await gate(page, 'release')
       await page.mouse.up()
       await exact(page)
-      expect(await page.evaluate((id) => window.luma.getEditHistory(id), id)).toEqual(
+      expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(
         prepared.history,
       )
       expect(
@@ -1374,10 +1378,13 @@ test(
       await page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }).click()
       await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
       const rasterReference = await capture(app, page, info.outputPath('raster-canonical.png')),
-        rasterPhoto = (await page.evaluate(() => window.luma.listPhotos())).photos.find(
+        rasterPhoto = (await page.evaluate(() => window.irodori.listPhotos())).photos.find(
           (photo) => photo.filename === 'alpine-lake.jpg',
         )!,
-        rasterHistory = await page.evaluate((id) => window.luma.getEditHistory(id), rasterPhoto.id)
+        rasterHistory = await page.evaluate(
+          (id) => window.irodori.getEditHistory(id),
+          rasterPhoto.id,
+        )
       await page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }).click()
       await exact(page)
       const nextSlider = await beginGesture(page)
@@ -1428,21 +1435,21 @@ test(
       expect(afterRelease.retentionStageLive).toBe(0)
       expect(afterRelease.retentionStageCleared).toBeGreaterThan(0)
       expect(afterRelease.retentionStageInvalidAttributes).toBe(0)
-      expect(await page.evaluate((id) => window.luma.getEditHistory(id), rasterPhoto.id)).toEqual(
-        rasterHistory,
-      )
+      expect(
+        await page.evaluate((id) => window.irodori.getEditHistory(id), rasterPhoto.id),
+      ).toEqual(rasterHistory)
       await expect
         .poll(
           async () =>
-            (await page.evaluate((id) => window.luma.getEditHistory(id), id!)).snapshots.length,
+            (await page.evaluate((id) => window.irodori.getEditHistory(id), id!)).snapshots.length,
         )
         .toBe(prepared.history.snapshots.length + 1)
       await page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }).click()
       await exact(page, 1.75)
-      const history = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+      const history = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
       expect(history.settings).toEqual({ ...prepared.history.settings, exposureEv: 1.75 })
       expect(history.snapshots.slice(0, -1)).toEqual(prepared.history.snapshots)
-      detail.push(history, await page.evaluate(() => window.luma.getPreviewDiagnostics()))
+      detail.push(history, await page.evaluate(() => window.irodori.getPreviewDiagnostics()))
     } finally {
       await page.mouse.up().catch(() => undefined)
       await evidence(page, info, userDataDir, id, detail)
@@ -1453,9 +1460,9 @@ test(
 test(
   'a late staging completion rejection after a photo switch releases its private canvas without replacing the new photo or recovery image',
   foreground,
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(180000)
-    const { app, page, userDataDir } = luma
+    const { app, page, userDataDir } = irodori
     let id: string | undefined
     const detail: unknown[] = []
     try {
@@ -1475,10 +1482,10 @@ test(
       await expect(canvas).toHaveAttribute('data-editing', 'ready')
       const pixels = await capture(app, page, info.outputPath('raster-before-rejection.png')),
         retained = await retainedSnapshot(page),
-        photo = (await page.evaluate(() => window.luma.listPhotos())).photos.find(
+        photo = (await page.evaluate(() => window.irodori.listPhotos())).photos.find(
           (value) => value.filename === 'alpine-lake.jpg',
         )!,
-        history = await page.evaluate((id) => window.luma.getEditHistory(id), photo.id)
+        history = await page.evaluate((id) => window.irodori.getEditHistory(id), photo.id)
       await gate(page, 'release')
       await expect.poll(async () => (await observation(page)).retentionStageLive).toBe(0)
       const completed = await observation(page)
@@ -1493,7 +1500,9 @@ test(
       expect(
         difference(pixels, await capture(app, page, info.outputPath('raster-after-rejection.png'))),
       ).toBeLessThanOrEqual(1)
-      expect(await page.evaluate((id) => window.luma.getEditHistory(id), photo.id)).toEqual(history)
+      expect(await page.evaluate((id) => window.irodori.getEditHistory(id), photo.id)).toEqual(
+        history,
+      )
       detail.push({ held, completed, history })
     } finally {
       await page.mouse.up().catch(() => undefined)

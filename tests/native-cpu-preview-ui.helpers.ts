@@ -175,7 +175,7 @@ export async function observeCpuPublications(page: Page) {
 
 export async function requireTrustedNativeBridge(page: Page) {
   const result = await page.evaluate(async () => {
-    const api = window.luma as typeof window.luma &
+    const api = window.irodori as typeof window.irodori &
       Partial<import('../src/shared/native-cpu-preview').NativeCpuPreviewBridge>
     const available = [
       'getCpuPreviewBackend',
@@ -204,7 +204,7 @@ export async function expectCpuPair(page: Page, pair: CpuPreviewPair) {
   await expect(canvas).toHaveAttribute('data-quality', pair.quality)
   await expect(canvas).toHaveAttribute('data-cpu-rendering-identity', pair.source.renderingIdentity)
   const frameIdentity = await canvas.getAttribute('data-presented-source-identity')
-  expect(frameIdentity).toContain(`luma-photo://library/${pair.source.photoId}/linear/`)
+  expect(frameIdentity).toContain(`irodori-photo://library/${pair.source.photoId}/linear/`)
   expect(frameIdentity).toContain(pair.source.workingSha256)
   await expect(canvas).toHaveAttribute(
     'data-presented-settings-revision',
@@ -258,10 +258,16 @@ export async function canonicalAfterPixels(page: Page, pair: CpuPreviewPair) {
   for (const sample of samples) {
     const reference = await page.evaluate(
       ({ pair, sample }) =>
-        window.luma.getPhotoPixel(pair.source.photoId, pair.settingsRevision, sample.x, sample.y, {
-          domain: 'output',
-          target: 'sdr',
-        }),
+        window.irodori.getPhotoPixel(
+          pair.source.photoId,
+          pair.settingsRevision,
+          sample.x,
+          sample.y,
+          {
+            domain: 'output',
+            target: 'sdr',
+          },
+        ),
       { pair, sample },
     )
     expect(reference.renderingIdentity).toBe(pair.source.renderingIdentity)

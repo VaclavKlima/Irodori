@@ -5,7 +5,7 @@ import { NativeRawPipeReader, type NativeRawPipeHeader } from '../src/main/nativ
 // Original SHA: 93880fc72a77553efd7a4f9b1f6d2462d0175cee94ae37f330903f70f78581ee.
 // Sensor payload is not copied here; framing tests below use explicit synthetic bytes.
 const realSonyHeader: NativeRawPipeHeader = {
-  contract: 'luma-parallel-sony-arw2-rows-v1',
+  contract: 'irodori-parallel-sony-arw2-rows-v1',
   protocol: 'u16le-live-rows-v2',
   rowKernel: {
     status: 'rust-complete',
@@ -155,7 +155,7 @@ function fixture() {
   const words = [0, 1, 255, 256, 32767, 32768, 65535, 0x1234]
   for (let at = 0; at < 96; at++) payload.writeUInt16LE(words[at % words.length], at * 2)
   const completion = {
-    contract: 'luma-parallel-sony-arw2-rows-v1',
+    contract: 'irodori-parallel-sony-arw2-rows-v1',
     complete: true,
     packedBytes: 192,
     rowsWritten: 3,
@@ -177,8 +177,8 @@ function fixture() {
       packedLimitBytes: 134217728,
     },
   }
-  const headerBytes = frame('LUMARAW2', header),
-    trailerBytes = frame('LUMAEND2', completion)
+  const headerBytes = frame('IRODRAW2', header),
+    trailerBytes = frame('IRODEND2', completion)
   return {
     header,
     payload,
@@ -203,7 +203,7 @@ function parse(packet: Buffer, widths: number[]) {
 
 test('a retained real Sony metadata/header oracle is accepted while missing sensor bytes remain unpublished', () => {
   const reader = new NativeRawPipeReader(performance.now())
-  reader.push(frame('LUMARAW2', realSonyHeader))
+  reader.push(frame('IRODRAW2', realSonyHeader))
   expect(reader.diagnostics()).toMatchObject({ stage: 'payload', declaredPackedBytes: 40421376 })
   expect(() => reader.finish()).toThrow(/Truncated native RAW pipe/)
 })
@@ -259,7 +259,7 @@ test('bad magic, oversized header declarations and invalid UTF8 reject before a 
     oversized = Buffer.alloc(12),
     invalidUtf8 = Buffer.from(input.headerBytes)
   badMagic[0] ^= 1
-  oversized.write('LUMARAW2', 0, 8, 'ascii')
+  oversized.write('IRODRAW2', 0, 8, 'ascii')
   oversized.writeUInt32LE(65537, 8)
   invalidUtf8[12] = 0xff
   for (const bytes of [badMagic, oversized, invalidUtf8]) {
@@ -305,7 +305,7 @@ for (const defect of [
         break
     }
     const reader = new NativeRawPipeReader(performance.now())
-    expect(() => reader.push(frame('LUMARAW2', header))).toThrow()
+    expect(() => reader.push(frame('IRODRAW2', header))).toThrow()
     expect(() => reader.finish()).toThrow()
   })
 
@@ -347,6 +347,6 @@ for (const defect of [
     const reader = new NativeRawPipeReader(performance.now())
     reader.push(input.headerBytes)
     reader.push(input.payload)
-    expect(() => reader.push(frame('LUMAEND2', completion))).toThrow()
+    expect(() => reader.push(frame('IRODEND2', completion))).toThrow()
     expect(() => reader.finish()).toThrow()
   })

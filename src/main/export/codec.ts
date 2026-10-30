@@ -10,7 +10,7 @@ interface Wasm {
   _malloc(bytes: number): number
   _free(pointer: number): void
   UTF8ToString(pointer: number): string
-  _luma_encode(
+  _irodori_encode(
     half: number,
     width: number,
     height: number,
@@ -19,18 +19,18 @@ interface Wasm {
     quality: number,
     headroom: number,
   ): number
-  _luma_output(): number
-  _luma_size(): number
-  _luma_error(): number
-  _luma_release(): void
-  _luma_probe(jpeg: number, size: number, boost: number): number
-  _luma_info(out: number): void
-  _luma_map(): number
-  _luma_map_size(): number
-  _luma_decode(): number
-  _luma_pixels(): number
-  _luma_stride(): number
-  _luma_gamut(): number
+  _irodori_output(): number
+  _irodori_size(): number
+  _irodori_error(): number
+  _irodori_release(): void
+  _irodori_probe(jpeg: number, size: number, boost: number): number
+  _irodori_info(out: number): void
+  _irodori_map(): number
+  _irodori_map_size(): number
+  _irodori_decode(): number
+  _irodori_pixels(): number
+  _irodori_stride(): number
+  _irodori_gamut(): number
 }
 export async function verifyUltraHdrBundle(
   directory = [
@@ -47,7 +47,7 @@ export async function verifyUltraHdrBundle(
   for (const line of entries) {
     const [expected, name] = line.split(/\s+/)
     if (
-      !['luma-ultrahdr.mjs', 'luma-ultrahdr.wasm'].includes(name) ||
+      !['irodori-ultrahdr.mjs', 'irodori-ultrahdr.wasm'].includes(name) ||
       !/^[a-f0-9]{64}$/.test(expected) ||
       createHash('sha256')
         .update(await readFile(join(directory, name)))
@@ -62,10 +62,10 @@ export async function loadUltraHdr(directory?: string) {
     throw new Error('The HDR JPEG encoder requires the isolated Node worker.')
   directory = await verifyUltraHdrBundle(directory)
   const module = await import(
-    /* @vite-ignore */ pathToFileURL(join(directory, 'luma-ultrahdr.mjs')).href
+    /* @vite-ignore */ pathToFileURL(join(directory, 'irodori-ultrahdr.mjs')).href
   )
   const wasm: Wasm = await module.default({
-    wasmBinary: await readFile(join(directory, 'luma-ultrahdr.wasm')),
+    wasmBinary: await readFile(join(directory, 'irodori-ultrahdr.wasm')),
   })
   const allocate = (bytes: Uint8Array) => {
     const p = wasm._malloc(bytes.byteLength)
@@ -77,7 +77,7 @@ export async function loadUltraHdr(directory?: string) {
     return p
   }
   const check = (ok: number) => {
-    if (!ok) throw new Error(wasm.UTF8ToString(wasm._luma_error()) || 'HDR JPEG encoder failed.')
+    if (!ok) throw new Error(wasm.UTF8ToString(wasm._irodori_error()) || 'HDR JPEG encoder failed.')
   }
   return {
     memory: () => wasm.HEAPU8.buffer.byteLength,
@@ -88,6 +88,7 @@ export async function loadUltraHdr(directory?: string) {
       jpeg: Uint8Array,
       quality: number,
       headroom = 10,
+      maximumOutputBytes?: number,
     ) {
       const pixels = width * height
       if (
@@ -108,13 +109,20 @@ export async function loadUltraHdr(directory?: string) {
       try {
         hp = allocate(half)
         jp = allocate(jpeg)
-        check(wasm._luma_encode(hp, width, height, jp, jpeg.byteLength, quality, headroom))
-        const start = wasm._luma_output(),
-          length = wasm._luma_size()
+        check(wasm._irodori_encode(hp, width, height, jp, jpeg.byteLength, quality, headroom))
+        const start = wasm._irodori_output(),
+          length = wasm._irodori_size()
         if (!start || !length) throw new Error('HDR JPEG encoder returned no image.')
+        if (
+          maximumOutputBytes !== undefined &&
+          (!Number.isSafeInteger(maximumOutputBytes) ||
+            maximumOutputBytes < 1 ||
+            length > maximumOutputBytes)
+        )
+          throw new Error('The HDR JPEG exceeded its admitted output storage.')
         return Buffer.from(wasm.HEAPU8.slice(start, start + length))
       } finally {
-        wasm._luma_release()
+        wasm._irodori_release()
         if (hp) wasm._free(hp)
         if (jp) wasm._free(jp)
       }
@@ -126,13 +134,13 @@ export async function loadUltraHdr(directory?: string) {
         meta = 0
       try {
         jp = allocate(jpeg)
-        check(wasm._luma_probe(jp, jpeg.byteLength, decodeBoost ?? 0))
+        check(wasm._irodori_probe(jp, jpeg.byteLength, decodeBoost ?? 0))
         meta = wasm._malloc(22 * 4)
         if (!meta) throw new Error('HDR JPEG metadata allocation failed.')
-        wasm._luma_info(meta)
+        wasm._irodori_info(meta)
         const info = Array.from(wasm.HEAPF32.slice(meta / 4, meta / 4 + 22))
-        const start = wasm._luma_map(),
-          size = wasm._luma_map_size()
+        const start = wasm._irodori_map(),
+          size = wasm._irodori_map_size()
         const map = Buffer.from(wasm.HEAPU8.slice(start, start + size))
         let pixels: Uint16Array | undefined
         let stride: number | undefined
@@ -141,22 +149,22 @@ export async function loadUltraHdr(directory?: string) {
           const count = info[18] * info[19]
           if (!Number.isSafeInteger(count) || count < 1 || count * 16 > 512 * 1024 ** 2)
             throw new Error('HDR JPEG exceeds the floating-point image limit.')
-          check(wasm._luma_decode())
-          stride = wasm._luma_stride()
-          gamut = wasm._luma_gamut()
+          check(wasm._irodori_decode())
+          stride = wasm._irodori_stride()
+          gamut = wasm._irodori_gamut()
           if (
             !Number.isSafeInteger(stride) ||
             stride < info[18] ||
             stride * info[19] * 8 > 512 * 1024 ** 2
           )
             throw new Error('Invalid HDR JPEG decoder stride.')
-          const p = wasm._luma_pixels()
+          const p = wasm._irodori_pixels()
           const bytes = wasm.HEAPU8.slice(p, p + stride * info[19] * 8)
           pixels = new Uint16Array(bytes.buffer)
         }
         return { info, map, pixels, stride, gamut }
       } finally {
-        wasm._luma_release()
+        wasm._irodori_release()
         if (jp) wasm._free(jp)
         if (meta) wasm._free(meta)
       }

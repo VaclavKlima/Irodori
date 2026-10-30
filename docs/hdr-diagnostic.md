@@ -26,7 +26,7 @@ The launcher builds the app and creates a temporary profile. Closing the diagnos
 
 Available configurations: `default`, `wayland`, `wayland-vulkan`, `wayland-native-vulkan`, `wayland-angle-vulkan`, `wayland-angle-blit`, `wayland-gl-interop`, and `x11-vulkan`. Nondefault configurations are Linux-only. Their exact flags and effective feature switches are recorded. The experimental application uses the Wayland Vulkan candidate; the other configurations remain diagnostic alternatives.
 
-Playwright's Electron loader normally forces `--force-color-profile=srgb` and replaces requested feature flags with its screenshot feature. The separate diagnostic main entry removes the forced profile and restores the requested feature flags before Chromium initialization. Both overrides would invalidate HDR capability evidence. The normal application applies its own narrow capability configuration and removes the forced sRGB profile only for the isolated HDR test harness. Playwright owns ephemeral debugging ports during this isolated diagnostic, not Luma's production launch or fixed development MCP port.
+Playwright's Electron loader normally forces `--force-color-profile=srgb` and replaces requested feature flags with its screenshot feature. The separate diagnostic main entry removes the forced profile and restores the requested feature flags before Chromium initialization. Both overrides would invalidate HDR capability evidence. The normal application applies its own narrow capability configuration and removes the forced sRGB profile only for the isolated HDR test harness. Playwright owns ephemeral debugging ports during this isolated diagnostic, not Irodori's production launch or fixed development MCP port.
 
 ## Patch and capability contract
 

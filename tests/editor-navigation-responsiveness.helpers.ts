@@ -95,7 +95,7 @@ export async function observePhotoActivation(page: Page) {
       // Existing public events provide the immutable source/display identity. Never fetch pixels.
       const firstOffers = new Map<string, HdrFirstSurfaceOffer>()
       let omittedFirstOffers = 0
-      const stopFirstSurface = window.luma.onHdrFirstSurface((offer) => {
+      const stopFirstSurface = window.irodori.onHdrFirstSurface((offer) => {
         if (firstOffers.has(offer.surfaceId)) return
         firstOffers.set(offer.surfaceId, structuredClone(offer))
         if (firstOffers.size > 64) {
@@ -103,9 +103,9 @@ export async function observePhotoActivation(page: Page) {
           omittedFirstOffers++
         }
       })
-      const stopTarget = window.luma.onDisplayState(acceptTarget)
+      const stopTarget = window.irodori.onDisplayState(acceptTarget)
       try {
-        acceptTarget(await window.luma.getDisplayState())
+        acceptTarget(await window.irodori.getDisplayState())
       } catch (error) {
         stopTarget()
         stopFirstSurface()
@@ -242,7 +242,7 @@ export async function observePhotoActivation(page: Page) {
         JSON.stringify(a.whiteBalance ?? { mode: 'as-shot' }) ===
           JSON.stringify(b.whiteBalance ?? { mode: 'as-shot' })
       const sourceMatches = (source: string | undefined, target: Target) =>
-        !!source?.startsWith(`luma-photo://library/${target.id}/`) &&
+        !!source?.startsWith(`irodori-photo://library/${target.id}/`) &&
         (!target.sourceIdentity || source === target.sourceIdentity)
       const nativeWitnessValid = (value: Snapshot) => {
         const policy = value.resourcePolicy

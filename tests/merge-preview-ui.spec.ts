@@ -5,36 +5,36 @@ import { focusPreviewWindow, verifyLockedPan, verifyPanGlide } from './preview-p
 import { holdPreviewFrame, verifyPreviewWheel } from './preview-wheel.helpers'
 
 test('scroll pans without zooming and mixed gesture bursts present once in merge review', async ({
-  luma,
+  irodori,
 }) => {
-  const { viewport, zoom } = await setup(luma.app, luma.page)
-  await verifyPreviewWheel(luma.page, viewport, zoom)
+  const { viewport, zoom } = await setup(irodori.app, irodori.page)
+  await verifyPreviewWheel(irodori.page, viewport, zoom)
 })
 
 test(
   'mouse panning hides and locks the cursor without dismissing merge on Escape',
   foregroundTest('Pointer lock and native window focus require a foreground window.'),
-  async ({ luma }) => {
-    const { viewport, zoom } = await setup(luma.app, luma.page)
-    await verifyLockedPan(luma.app, luma.page, viewport, zoom)
-    await expect(luma.page.getByRole('dialog')).toBeVisible()
+  async ({ irodori }) => {
+    const { viewport, zoom } = await setup(irodori.app, irodori.page)
+    await verifyLockedPan(irodori.app, irodori.page, viewport, zoom)
+    await expect(irodori.page.getByRole('dialog')).toBeVisible()
   },
 )
 
 test(
   'merge release glide shares bounds, reduced motion and interruption cleanup',
   foregroundTest('Mouse release glide verifies native focus and pointer-lock interaction.'),
-  async ({ luma }) => {
-    const { viewport, zoom } = await setup(luma.app, luma.page)
-    await verifyPanGlide(luma.app, luma.page, viewport, zoom)
-    await expect(luma.page.getByRole('dialog')).toBeVisible()
+  async ({ irodori }) => {
+    const { viewport, zoom } = await setup(irodori.app, irodori.page)
+    await verifyPanGlide(irodori.app, irodori.page, viewport, zoom)
+    await expect(irodori.page.getByRole('dialog')).toBeVisible()
   },
 )
 
 test('native pixel scale, pointer anchoring, bounded drag and scoped zoom shortcuts', async ({
-  luma,
+  irodori,
 }) => {
-  const { page, app } = luma,
+  const { page, app } = irodori,
     { viewport, zoom, view } = await setup(app, page)
   const box = (await viewport.boundingBox())!
   expect((await view()).scale).toBeCloseTo(Math.min(1, box.width / 1600, box.height / 1000), 5)
@@ -65,7 +65,7 @@ test('native pixel scale, pointer anchoring, bounded drag and scoped zoom shortc
   await page.keyboard.up('Control')
   await expect.poll(async () => (await view()).scale).toBeGreaterThan(1)
   const after = await view()
-  expect(after.scale).toBeCloseTo(1.1, 5)
+  expect(after.scale).toBeCloseTo(1.1 ** (140 / 120), 5)
   const anchor = await viewport.evaluate((el) => ({
     x: Number(el.dataset.anchorX),
     y: Number(el.dataset.anchorY),
@@ -114,9 +114,9 @@ test('native pixel scale, pointer anchoring, bounded drag and scoped zoom shortc
 })
 
 test('comparison, overlay and native revisions retain zoom and normalized framing', async ({
-  luma,
+  irodori,
 }) => {
-  const { page, app } = luma,
+  const { page, app } = irodori,
     { control, viewport, zoom, view } = await setup(app, page)
   await zoom.selectOption('1')
   await viewport.focus()
@@ -186,9 +186,9 @@ test('comparison, overlay and native revisions retain zoom and normalized framin
 })
 
 test('stale native replies cannot enable Merge, and failed or invalid frames retry through a new revision', async ({
-  luma,
+  irodori,
 }) => {
-  const { page, app } = luma,
+  const { page, app } = irodori,
     { control, viewport, view, open } = await setup(app, page, 1600, 1000, true)
   await control.evaluate((c) => c.hold(1))
   await page.getByRole('checkbox', { name: 'Auto Crop', exact: true }).uncheck()
@@ -226,8 +226,8 @@ test('stale native replies cannot enable Merge, and failed or invalid frames ret
 test(
   'pointer capture cleans up on cancellation, blur, loading and resize; fields and panels keep their controls',
   foregroundTest('Pointer-lock cancellation and native focus require a foreground window.'),
-  async ({ luma }) => {
-    const { page, app } = luma,
+  async ({ irodori }) => {
+    const { page, app } = irodori,
       { control, viewport, zoom, view, native } = await setup(app, page, 1600, 1000, false, 24)
     await focusPreviewWindow(app, page)
     await zoom.selectOption('1')
@@ -295,9 +295,9 @@ for (const [width, height] of [
   [900, 1800],
 ]) {
   test(`Fit uses actual decoded ${width} × ${height} pixels without upscaling`, async ({
-    luma,
+    irodori,
   }) => {
-    const { page, app } = luma,
+    const { page, app } = irodori,
       { viewport, view, native } = await setup(app, page, width, height)
     const box = (await viewport.boundingBox())!,
       fit = Math.min(1, box.width / width, box.height / height)
@@ -320,9 +320,9 @@ for (const [width, height] of [
 
 for (const fallback of [false, true]) {
   test(`native pixels, overlay alignment and 800% grid survive pan and resize (${fallback ? 'Canvas2D' : 'WebGL2'})`, async ({
-    luma,
+    irodori,
   }) => {
-    const { app, page } = luma
+    const { app, page } = irodori
     if (fallback)
       await page.evaluate(() => {
         const getContext = HTMLCanvasElement.prototype.getContext
@@ -403,9 +403,9 @@ for (const fallback of [false, true]) {
 }
 
 test('a burst of anchored wheel events draws once and closing merge restores the main photo view', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const { viewport, zoom } = await setup(app, page)
   const main = page.getByTestId('main-preview')
   await expect(main).toHaveAttribute('data-suspended', 'true')
@@ -488,9 +488,9 @@ test('a burst of anchored wheel events draws once and closing merge restores the
 })
 
 test('context loss validates a replacement software surface without regenerating the master', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const { control, viewport, zoom, view } = await setup(app, page)
   await zoom.selectOption('8')
   await viewport.focus()

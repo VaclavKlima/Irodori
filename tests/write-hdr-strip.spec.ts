@@ -13,7 +13,7 @@ function deferred<T>() {
 }
 
 test('HDR strip writes preserve source view offsets and surrounding file bytes', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-hdr-strip-')),
+  const root = await mkdtemp(join(tmpdir(), 'irodori-hdr-strip-')),
     path = join(root, 'linear.bin'),
     backing = Uint8Array.from([91, 92, 0, 255, 127, 128, 1, 254, 93, 94]),
     original = backing.slice(),

@@ -58,8 +58,8 @@ node scripts/research/build-rust.mjs
 mkdir -p artifacts/research-build
 curl --fail --location https://www.libraw.org/data/LibRaw-0.22.1.tar.gz --output artifacts/research-build/LibRaw-0.22.1.tar.gz
 curl --fail --location https://codeload.github.com/opencv/opencv/tar.gz/refs/tags/4.13.0 --output artifacts/research-build/opencv-4.13.0.tar.gz
-LUMA_RESEARCH_PINNED_SOURCES=1 node scripts/research/build-native.mjs libraw
-LUMA_RESEARCH_PINNED_SOURCES=1 node scripts/research/build-native.mjs opencv
+IRODORI_RESEARCH_PINNED_SOURCES=1 node scripts/research/build-native.mjs libraw
+IRODORI_RESEARCH_PINNED_SOURCES=1 node scripts/research/build-native.mjs opencv
 
 mkdir -p artifacts/ultrahdr-native-build
 curl --fail --location https://codeload.github.com/google/libultrahdr/tar.gz/refs/tags/v2.0.2 --output artifacts/ultrahdr-native-build/source.tar.gz
@@ -67,11 +67,11 @@ curl --fail --location https://codeload.github.com/libjpeg-turbo/libjpeg-turbo/t
 node scripts/research/build-native.mjs hdr-1
 ```
 
-The builder checks the pinned archive hashes before extraction and writes manifests beside the binaries. Cargo uses the committed lockfile. `LUMA_RESEARCH_CARGO` selects a Cargo executable if needed. Explicit helper overrides are `LUMA_RESEARCH_RUST_BINARY`, `LUMA_RESEARCH_LIBRAW_BINARY`, `LUMA_RESEARCH_OPENCV_BINARY` and `LUMA_RESEARCH_HDR_1_BINARY`.
+The builder checks the pinned archive hashes before extraction and writes manifests beside the binaries. Cargo uses the committed lockfile. `IRODORI_RESEARCH_CARGO` selects a Cargo executable if needed. Explicit helper overrides are `IRODORI_RESEARCH_RUST_BINARY`, `IRODORI_RESEARCH_LIBRAW_BINARY`, `IRODORI_RESEARCH_OPENCV_BINARY` and `IRODORI_RESEARCH_HDR_1_BINARY`.
 
 The host continuation used Node 26.7.0/npm 11.19.0 for setup, bundled Node 24.20.0 for the main npm verification commands and processing workers; direct focused Playwright and the final RAW/UI/export invocation used host Node 26.7.0, GCC 16.2.1, Rust 1.99.0, CMake 4.4.4 and NASM 3.02. Missing tools were installed through the existing Homebrew setup; dependency changes are recorded in ignored evidence. The Linux research HDR compile now explicitly supplies `<cstdint>` through compiler flags, without changing the production bridge. OpenCV's actual parallel framework was pthreads; optional CPU dispatch remains important to numerical equivalence.
 
-Without `LUMA_RESEARCH_PINNED_SOURCES=1`, the builder prefers pkg-config packages and records their versions. They must match WASM LibRaw 0.22.1 / OpenCV 4.13.0; a mismatch is rejected with instructions to use pinned sources. The commands above force the verified archives. The pinned fallback OpenCV disables independent LAPACK, Carotene, KleidiCV, IPP and OpenCL paths. Inspect its build manifest for additional Linux parallel backends. Begin with one compute thread; count internal library/runtime threads as well as the explicit worker budget.
+Without `IRODORI_RESEARCH_PINNED_SOURCES=1`, the builder prefers pkg-config packages and records their versions. They must match WASM LibRaw 0.22.1 / OpenCV 4.13.0; a mismatch is rejected with instructions to use pinned sources. The commands above force the verified archives. The pinned fallback OpenCV disables independent LAPACK, Carotene, KleidiCV, IPP and OpenCL paths. Inspect its build manifest for additional Linux parallel backends. Begin with one compute thread; count internal library/runtime threads as well as the explicit worker budget.
 
 Do not run `build:export-native` on Linux: that existing production build supports macOS arm64. The research `hdr-1` helper builds the same unchanged bridge on Linux, with a research-only copy of the codec capped at one thread. `hdr-2` and `hdr-4` are available for a subsequent bounded-thread study. They do not activate native encoding in the application. A full Linux native-export candidate still needs an isolated worker adapter, dimensions/HDR reconstruction/fallback/cancellation checks and end-to-end measurements before any production proposal.
 
@@ -112,7 +112,7 @@ The initial Linux pacing restarted the delay after each native frame and deliver
 
 `research-background` measures 30 real original-size quality-100 exports, three heterogeneous batches, and three 240-input foreground runs with/without export. On Linux it measures the existing WASM encoder baseline. Synthetic CPU service concurrency trials and repeated-fixture calibration remain separate from this real export evidence.
 
-Read each invocation's `summary.md` first. Rerun failed cases using its exact case command before broadening coverage. Keep the original failed evidence. Never run a full/all checkpoint automatically; it requires a separately agreed checkpoint. No traces by default; use `LUMA_TEST_TRACE=1` only for diagnostic reruns.
+Read each invocation's `summary.md` first. Rerun failed cases using its exact case command before broadening coverage. Keep the original failed evidence. Never run a full/all checkpoint automatically; it requires a separately agreed checkpoint. No traces by default; use `IRODORI_TEST_TRACE=1` only for diagnostic reruns.
 
 ## Real sequences and existing performance gates
 
@@ -129,7 +129,7 @@ node scripts/research/sony-fixtures.mjs hdr -- node scripts/verify.mjs --target 
 node scripts/research/sony-fixtures.mjs hdr -- node scripts/verify.mjs --foreground --target merge-raw-ui
 ```
 
-The existing `merge-benchmark` target accepts `LUMA_MERGE_SONY_SEQUENCE` as a JSON array of distinct Sony original paths and `LUMA_MERGE_SONY_MODE=noise` or `hdr`. It runs three cold repetitions at 2/3/5/9 sources. `LUMA_MERGE_BRACKETS` supplies the separate RAW merge correctness/UI fixtures. Inspect the relevant test's selection and requirements first:
+The existing `merge-benchmark` target accepts `IRODORI_MERGE_SONY_SEQUENCE` as a JSON array of distinct Sony original paths and `IRODORI_MERGE_SONY_MODE=noise` or `hdr`. It runs three cold repetitions at 2/3/5/9 sources. `IRODORI_MERGE_BRACKETS` supplies the separate RAW merge correctness/UI fixtures. Inspect the relevant test's selection and requirements first:
 
 ```sh
 npm run verify -- --plan --target merge-benchmark
@@ -140,7 +140,7 @@ npm run verify -- --foreground --target merge-raw-ui
 
 Set the environment variables in the local session before those commands; the portable wrapper supplies them automatically. Both current sequences are available in the repository. Larger controlled HDR brackets and a distinct 32-source sequence remain unavailable, and their required coverage stays incomplete. Keep synthetic scaling, repeated fixtures and actual heterogeneous sequences in separate tables. Overlap of preparation/encoding and foreground editing during real merges remain additional work; do not infer them from the pointwise scheduler proof.
 
-The uncorrected-preview 15% gate requires an existing saved baseline on the same machine/configuration. Use `LUMA_PREVIEW_BASELINE=/absolute/path/to/saved-baseline.json` with `npm run benchmark:preview -- --foreground` only when that baseline exists. Preserve every existing gate and failure. Do not create a baseline from the candidate and claim a regression pass. The prior Mac preview evidence already contains a GPU-versus-legacy-PNG failure; it is not erased by this research.
+The uncorrected-preview 15% gate requires an existing saved baseline on the same machine/configuration. Use `IRODORI_PREVIEW_BASELINE=/absolute/path/to/saved-baseline.json` with `npm run benchmark:preview -- --foreground` only when that baseline exists. Preserve every existing gate and failure. Do not create a baseline from the candidate and claim a regression pass. The prior Mac preview evidence already contains a GPU-versus-legacy-PNG failure; it is not erased by this research.
 
 ## Remaining research and deliverable
 
@@ -154,10 +154,10 @@ The isolated paired `research-wgpu` target now compares pinned wgpu 30.0.1 with 
 
 ```sh
 node scripts/research/build-wgpu.mjs
-LUMA_RESEARCH_GPU_ADAPTER='Radeon RX 7900 XTX' npm run verify -- --target research-wgpu
+IRODORI_RESEARCH_GPU_ADAPTER='Radeon RX 7900 XTX' npm run verify -- --target research-wgpu
 ```
 
-On Mac, supply the actual shared Apple adapter name instead. Keep Cargo.lock; `LUMA_RESEARCH_WGPU_BINARY` can select an explicit helper. Both Linux backends agreed on every compared original-pixel neutral Float32 RGB value but reproduced a shared exact CPU-reference failure (maximum error/tolerance ratio 1.04022004675). Preserve that failure and the unchanged tolerance. Similar large-batch timings and this narrow parity do not approve a backend migration.
+On Mac, supply the actual shared Apple adapter name instead. Keep Cargo.lock; `IRODORI_RESEARCH_WGPU_BINARY` can select an explicit helper. Both Linux backends agreed on every compared original-pixel neutral Float32 RGB value but reproduced a shared exact CPU-reference failure (maximum error/tolerance ratio 1.04022004675). Preserve that failure and the unchanged tolerance. Similar large-batch timings and this narrow parity do not approve a backend migration.
 
 Update [performance-research.md](performance-research.md) with Linux results, command selections, counts/durations, evidence paths, source/build/backend identities, retained failures and unmeasured requirements. Keep artifacts out of Git and arrange their local transfer/archive separately if results must be compared across machines. Continue the draft PR with a reviewable commit and concise evidence summary.
 

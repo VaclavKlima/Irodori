@@ -7,9 +7,9 @@ import { join } from 'node:path'
 import { mkdir, readdir } from 'node:fs/promises'
 
 test('local editing retains activity heartbeats while copying advances, publication waits and idle/reload/cancellation release it', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await (
     await app.browserWindow(page)
   ).evaluate((window) => {
@@ -34,9 +34,9 @@ test('local editing retains activity heartbeats while copying advances, publicat
   const held = await page.evaluate(async (id) => {
     // Local edits leave copying/preparation admitted while publication waits.
     await new Promise((resolve) => setTimeout(resolve, 150))
-    const before = (await window.luma.listTasks()).find((t) => t.id === id)!
+    const before = (await window.irodori.listTasks()).find((t) => t.id === id)!
     await new Promise((resolve) => setTimeout(resolve, 1200))
-    return { before, after: (await window.luma.listTasks()).find((t) => t.id === id)! }
+    return { before, after: (await window.irodori.listTasks()).find((t) => t.id === id)! }
   }, id)
   expect(held.after.transfer!.bytes).toBeGreaterThan(held.before.transfer!.bytes)
   expect(held.after.progress!.total).toBe(held.before.progress!.total)
@@ -64,7 +64,7 @@ test('local editing retains activity heartbeats while copying advances, publicat
     .poll(() =>
       page.evaluate(
         async (id) =>
-          (await window.luma.listTasks()).find((t) => t.id === id)?.transfer?.bytes ?? 0,
+          (await window.irodori.listTasks()).find((t) => t.id === id)?.transfer?.bytes ?? 0,
         id,
       ),
     )
@@ -83,21 +83,21 @@ test('local editing retains activity heartbeats while copying advances, publicat
       ),
     )
     .toBe(true)
-  await page.evaluate((id) => window.luma.cancelTask(id), id)
+  await page.evaluate((id) => window.irodori.cancelTask(id), id)
   expect(
     await page.evaluate(
-      async (id) => (await window.luma.listTasks()).find((t) => t.id === id)?.status,
+      async (id) => (await window.irodori.listTasks()).find((t) => t.id === id)?.status,
       id,
     ),
   ).toBe('cancelled')
-  expect(await readdir(join(luma.userDataDir, 'library', 'staging'))).toEqual([])
+  expect(await readdir(join(irodori.userDataDir, 'library', 'staging'))).toEqual([])
 })
 test('confirmed deletion takes the status bar while accepted import waits and remains independently cancellable', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page)
-  const trash = join(luma.userDataDir, 'isolated-trash')
+  const trash = join(irodori.userDataDir, 'isolated-trash')
   await mkdir(trash)
   await app.evaluate(({ shell }, trash) => {
     const fs = process.getBuiltinModule('fs') as typeof import('node:fs')
@@ -123,12 +123,12 @@ test('confirmed deletion takes the status bar while accepted import waits and re
   await expect
     .poll(() =>
       page.evaluate(async () => {
-        const task = (await window.luma.listTasks()).find((t) => t.kind === 'delete')!
-        return { status: task.status, errors: await window.luma.getTaskErrors(task.id) }
+        const task = (await window.irodori.listTasks()).find((t) => t.kind === 'delete')!
+        return { status: task.status, errors: await window.irodori.getTaskErrors(task.id) }
       }),
     )
     .toEqual({ status: 'completed', errors: { total: 0, errors: [] } })
   expect(await readdir(trash)).toHaveLength(1)
-  await page.evaluate((id) => window.luma.cancelTask(id), id)
-  expect(await readdir(join(luma.userDataDir, 'library', 'staging'))).toEqual([])
+  await page.evaluate((id) => window.irodori.cancelTask(id), id)
+  expect(await readdir(join(irodori.userDataDir, 'library', 'staging'))).toEqual([])
 })

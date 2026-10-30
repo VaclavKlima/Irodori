@@ -3,9 +3,9 @@ import { expect, test } from './electron.fixture'
 import { expectMissingOptionErrors, mockImportReview } from './import-review-ui.helpers'
 
 test('shows known photographs before transfer and accepts exactly the selected missing candidates', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 3, [0])
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -45,9 +45,9 @@ test('shows known photographs before transfer and accepts exactly the selected m
 })
 
 test('bulk selection spans loaded and unloaded records and future discoveries while excluding known originals', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 61, [0, 60, 64, 65])
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -96,9 +96,9 @@ test('bulk selection spans loaded and unloaded records and future discoveries wh
 })
 
 test('toggling the option restores prior choices and preserves optimistic selection after mode revisions', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 4, [0, 2])
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -147,9 +147,9 @@ test('toggling the option restores prior choices and preserves optimistic select
 })
 
 test('waits for selection and mode responses and rejects duplicate activation before accepting', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 3, [0])
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -193,9 +193,9 @@ test('waits for selection and mode responses and rejects duplicate activation be
 })
 
 test('retains the device preference through restart and broader search while file imports stay independent', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 3, [0])
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -230,9 +230,9 @@ test('retains the device preference through restart and broader search while fil
 })
 
 test('reports a failed option change, keeps prior targets, and recovers on retry and disconnection', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(app, 3, [0])
   const errors = await expectMissingOptionErrors(app)
   try {
@@ -270,9 +270,9 @@ test('reports a failed option change, keeps prior targets, and recovers on retry
 })
 
 test('keeps all-known review usable at 1100 × 700 with the console and keyboard focus restoration', async ({
-  luma,
+  irodori,
 }, testInfo) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const control = await mockImportReview(
     app,
     65,

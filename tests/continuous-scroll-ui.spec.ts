@@ -4,17 +4,17 @@ import { revealEditorPhoto, scrollCollection } from './collection-ui.helpers'
 import { mockImportReview } from './import-review-ui.helpers'
 
 test('Editor scrolls across unloaded rows, keeps selection and preview, and keyboard focus stays independent', async ({
-  luma,
+  irodori,
 }) => {
-  await seedLargeBrowser(luma.app, luma.page, luma.userDataDir, 185)
-  const { page } = await luma.restart()
+  await seedLargeBrowser(irodori.app, irodori.page, irodori.userDataDir, 185)
+  const { page } = await irodori.restart()
   const scroll = page.getByTestId('editor-photo-scroll')
-  const summary = await page.evaluate(() => window.luma.getGallerySummary())
+  const summary = await page.evaluate(() => window.irodori.getGallerySummary())
   const first = (
-    await page.evaluate((revision) => window.luma.getGalleryChunk(0, revision), summary)
+    await page.evaluate((revision) => window.irodori.getGalleryChunk(0, revision), summary)
   ).entries[0].photo
   const last = (
-    await page.evaluate((revision) => window.luma.getGalleryChunk(180, revision), summary)
+    await page.evaluate((revision) => window.irodori.getGalleryChunk(180, revision), summary)
   ).entries.at(-1)!.photo
   await revealEditorPhoto(page, first.id)
   await page.getByTestId(`photo-card-${first.id}`).click()
@@ -34,14 +34,14 @@ test('Editor scrolls across unloaded rows, keeps selection and preview, and keyb
   await page.keyboard.press('Shift+End')
   await expect(page.getByTestId('selection-count')).toHaveText('185 selected')
   await expect(page.getByTestId('preview-filename')).toHaveText(last.filename)
-  const policy = await page.evaluate(() => window.luma.getCollectionPolicy())
+  const policy = await page.evaluate(() => window.irodori.getCollectionPolicy())
   expect(Number(await scroll.getAttribute('data-cache-photos'))).toBeLessThanOrEqual(policy.records)
   await expect(page.getByRole('navigation', { name: /pages/ })).toHaveCount(0)
 })
 test('import review has a full native scrollbar and preserves ID choices and an inset through discovery prepends', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma,
+  const { app, page } = irodori,
     control = await mockImportReview(app, 185)
   try {
     await page.getByRole('button', { name: 'Import photos', exact: true }).click()
@@ -87,9 +87,9 @@ test('import review has a full native scrollbar and preserves ID choices and an 
   }
 })
 test('more than 60 fully readable task errors scroll independently and retain position when reopened', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await app.evaluate(({ ipcMain, BrowserWindow }) => {
     const task = {
       id: 'errors-fixture',

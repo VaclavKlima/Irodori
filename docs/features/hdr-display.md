@@ -18,7 +18,7 @@ Provide Auto, HDR when available, and SDR preview choices; report active mode, k
 
 ## Processing approach
 
-Start with a synthetic-pattern feasibility spike. Chromium documents WebGPU canvas `rgba16float` with `toneMapping: { mode: 'extended' }` for output above SDR white; standard mode restricts the range. This is a candidate path, not proof of Luma compatibility. [Chromium HDR presentation documentation](https://developer.chrome.com/blog/new-in-webgpu-129).
+Start with a synthetic-pattern feasibility spike. Chromium documents WebGPU canvas `rgba16float` with `toneMapping: { mode: 'extended' }` for output above SDR white; standard mode restricts the range. This is a candidate path, not proof of Irodori compatibility. [Chromium HDR presentation documentation](https://developer.chrome.com/blog/new-in-webgpu-129).
 
 Test the exact bundled Electron/Chromium runtime, GPU backend, compositor, OS HDR setting, and display. Compare alternative presentation paths only when necessary and record why. Detect available capabilities and distinguish API availability from verified end-to-end output. Research reliable headroom queries and behavior when the OS provides no absolute brightness calibration.
 

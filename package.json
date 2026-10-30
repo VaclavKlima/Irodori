@@ -12,7 +12,7 @@
   },
   "scripts": {
     "setup:electron": "install-electron",
-    "dev": "electron-vite dev",
+    "dev": "node scripts/dev-mcp.mjs",
     "dev:mcp": "node scripts/dev-mcp.mjs",
     "build": "electron-vite build",
     "start": "electron-vite preview",

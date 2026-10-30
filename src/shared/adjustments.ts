@@ -14,8 +14,17 @@ import { highlightsModule } from './highlights'
 export { highlightsModule } from './highlights'
 import { contrastModule } from './contrast'
 export { contrastModule } from './contrast'
+import { applyColorIntensity, colorIntensityModule } from './color-intensity'
+import {
+  applyCreativeColor,
+  prepareCreativeColor,
+  sameCreativeColor,
+  CREATIVE_COLOR_VERSION,
+  type CreativeColorSettings,
+} from './creative-color'
+export { colorIntensityModule } from './color-intensity'
 
-export interface AdjustmentParameters {
+export interface AdjustmentParameters extends CreativeColorSettings {
   whiteBalance?: WhiteBalance
   exposureEv: number
   contrast: number
@@ -23,6 +32,8 @@ export interface AdjustmentParameters {
   shadows: number
   whites: number
   blacks: number
+  saturation: number
+  vibrance: number
 }
 export const neutralAdjustments: Readonly<AdjustmentParameters> = {
   whiteBalance: { mode: 'as-shot' },
@@ -32,6 +43,31 @@ export const neutralAdjustments: Readonly<AdjustmentParameters> = {
   shadows: 0,
   whites: 0,
   blacks: 0,
+  saturation: 0,
+  vibrance: 0,
+}
+
+/** Copy only processing controls; a draft may replace complete adjustment groups. */
+export function snapshotAdjustments(
+  source: AdjustmentParameters,
+  patch?: Partial<AdjustmentParameters>,
+): AdjustmentParameters {
+  const whiteBalance = patch?.whiteBalance ?? source.whiteBalance,
+    colorMixer = patch?.colorMixer ?? source.colorMixer,
+    colorGrading = patch?.colorGrading ?? source.colorGrading
+  return {
+    whiteBalance: whiteBalance && { ...whiteBalance },
+    exposureEv: patch?.exposureEv ?? source.exposureEv,
+    contrast: patch?.contrast ?? source.contrast,
+    highlights: patch?.highlights ?? source.highlights,
+    shadows: patch?.shadows ?? source.shadows,
+    whites: patch?.whites ?? source.whites,
+    blacks: patch?.blacks ?? source.blacks,
+    saturation: patch?.saturation ?? source.saturation,
+    vibrance: patch?.vibrance ?? source.vibrance,
+    ...(colorMixer === undefined ? {} : { colorMixer: structuredClone(colorMixer) }),
+    ...(colorGrading === undefined ? {} : { colorGrading: structuredClone(colorGrading) }),
+  }
 }
 export function sameAdjustments(
   a: AdjustmentParameters | undefined,
@@ -45,7 +81,10 @@ export function sameAdjustments(
     a?.highlights === b.highlights &&
     a?.shadows === b.shadows &&
     a?.whites === b.whites &&
-    a?.blacks === b.blacks
+    a?.blacks === b.blacks &&
+    a?.saturation === b.saturation &&
+    a?.vibrance === b.vibrance &&
+    sameCreativeColor(a, b)
   )
 }
 /** Display conversion is intentionally SDR; working pixels remain unclipped. */
@@ -64,7 +103,7 @@ export const exposureModule = {
   glsl: 'vec3 applyExposure(vec3 rgb, float exposureEv) { return rgb * exp2(exposureEv); }',
   wgsl: 'fn applyExposure(rgb: vec3f, exposureEv: f32) -> vec3f { return rgb * exp2(exposureEv); }',
 } as const
-// Processing order is explicit in every backend: Exposure → Contrast → Highlights → Shadows → Whites → Blacks → SDR.
+// Every backend applies Light, then color intensity, before its output transform.
 export const adjustmentModules = [
   exposureModule,
   contrastModule,
@@ -72,10 +111,12 @@ export const adjustmentModules = [
   shadowsModule,
   whitesModule,
   blacksModule,
+  colorIntensityModule,
 ] as const
 export const ADJUSTMENT_VERSION =
   `white-balance-${WHITE_BALANCE_MODEL}_` +
-  adjustmentModules.map((module) => `${module.id}-${module.version}`).join('_')
+  adjustmentModules.map((module) => `${module.id}-${module.version}`).join('_') +
+  `_${CREATIVE_COLOR_VERSION}`
 export const srgbTransform: DisplayTransform = {
   white: 1,
   threshold: 0.0031308,
@@ -102,6 +143,9 @@ export function renderAdjustments(
   const wb = whiteBalanceMatrix(parameters.whiteBalance, transform.whiteBalance)
   const gain = 2 ** exposureEv
   const strength = 2 ** (contrast / 100)
+  const creative = prepareCreativeColor(parameters),
+    creativeActive = Boolean(creative?.mixer.active || creative?.grading.active),
+    colorActive = creativeActive || parameters.saturation !== 0 || parameters.vibrance !== 0
   for (let i = 0; i < data.length; i += 4) {
     const r0 = data[i],
       g0 = data[i + 1],
@@ -115,7 +159,10 @@ export function renderAdjustments(
       highlights === 0 &&
       shadows === 0 &&
       whites === 0 &&
-      blacks === 0
+      blacks === 0 &&
+      parameters.saturation === 0 &&
+      parameters.vibrance === 0 &&
+      !creativeActive
     ) {
       // Keep the existing neutral/exposure conversion exactly, including RAW quantization.
       for (let c = 0; c < 3; c++) output[i + c] = displayValue(data[i + c], exposureEv, transform)
@@ -144,9 +191,29 @@ export function renderAdjustments(
           pedestal = 0.04 * (blacks / 100) * Math.max(1 - blackY / 0.18, 0) ** 3 * transform.white
         else if (blackY > 0) scale *= blacksModule.cpu(blackY, blacks) / blackY
       }
-      output[i] = displayValue(r * scale + pedestal, 0, transform)
-      output[i + 1] = displayValue(g * scale + pedestal, 0, transform)
-      output[i + 2] = displayValue(b * scale + pedestal, 0, transform)
+      let colored: readonly [number, number, number] = [
+        r * scale + pedestal,
+        g * scale + pedestal,
+        b * scale + pedestal,
+      ]
+      if (colorActive) {
+        const input: readonly [number, number, number] = [
+            colored[0] / transform.white,
+            colored[1] / transform.white,
+            colored[2] / transform.white,
+          ],
+          normalized = creative
+            ? applyCreativeColor(input, creative, 'srgb')
+            : applyColorIntensity(input, parameters, 'srgb')
+        colored = [
+          normalized[0] * transform.white,
+          normalized[1] * transform.white,
+          normalized[2] * transform.white,
+        ]
+      }
+      output[i] = displayValue(colored[0], 0, transform)
+      output[i + 1] = displayValue(colored[1], 0, transform)
+      output[i + 2] = displayValue(colored[2], 0, transform)
     }
     output[i + 3] = Math.round(data[i + 3] * 255)
   }

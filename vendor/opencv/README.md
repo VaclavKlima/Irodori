@@ -1,6 +1,6 @@
-# Luma OpenCV alignment runtime
+# Irodori OpenCV alignment runtime
 
-This directory contains OpenCV **4.13.0**, compiled to a local Node-only WebAssembly module with Emscripten **4.0.20**. Luma verifies `SHA256SUMS` before loading either executable file. The production build copies this directory beside the merge worker. There is no system OpenCV dependency or runtime download.
+This directory contains OpenCV **4.13.0**, compiled to a local Node-only WebAssembly module with Emscripten **4.0.20**. Irodori verifies `SHA256SUMS` before loading either executable file. The production build copies this directory beside the merge worker. There is no system OpenCV dependency or runtime download.
 
 The C ABI in `scripts/opencv/bridge.cpp` exposes spatially capped ORB descriptors, reciprocal ratio-tested Hamming matches, RANSAC similarity/homography fitting, and `findTransformECCWithMask`. The wrapper catches OpenCV exceptions, owns allocations through RAII, uses one thread and SIMD, and limits each WASM instance to 256 MiB (two alignment workers total at most 512 MiB). TypeScript releases all call buffers even on failure. Foreground preview priority and cancellation remain managed by the separate merge process.
 
@@ -18,4 +18,4 @@ podman run --rm --userns=keep-id \
 
 The script downloads the pinned upstream source archive, verifies SHA-256 `1d40ca017ea51c533cf9fd5cbde5b5fe7ae248291ddf2af99d4c17cf8e13017d`, builds only the required libraries, links the checked-in C ABI and rewrites the artifact checksums. Build intermediates live in ignored `artifacts/opencv-build`. Compiler options, exports and memory limits are checked in. Use `scripts/opencv/link.sh` inside the same container for bridge-only rebuilds. Keep the source version, runtime files and checksums together when updating.
 
-OpenCV is distributed under Apache-2.0; see `LICENSE`. Additional notices for linked code are in `licenses/`. The wrapper is Luma source code. Upstream references: [WASM build instructions](https://docs.opencv.org/4.13.0/d4/da1/tutorial_js_setup.html), [masked ECC API](https://docs.opencv.org/4.13.0/dc/d6b/group__video__track.html).
+OpenCV is distributed under Apache-2.0; see `LICENSE`. Additional notices for linked code are in `licenses/`. The wrapper is Irodori source code. Upstream references: [WASM build instructions](https://docs.opencv.org/4.13.0/d4/da1/tutorial_js_setup.html), [masked ECC API](https://docs.opencv.org/4.13.0/dc/d6b/group__video__track.html).

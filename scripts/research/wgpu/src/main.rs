@@ -1,4 +1,4 @@
-//! Isolated exact renderTile calibration. This binary is never loaded by Luma.
+//! Isolated exact renderTile calibration. This binary is never loaded by Irodori.
 use serde_json::json;
 use std::{
     borrow::Cow,

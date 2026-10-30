@@ -297,7 +297,7 @@ test('containment rejects sibling prefixes, traversal and nested mounted filesys
 })
 
 test('photo roots prefer case-insensitive DCIM, preserve empty folders, then recognize general photo folders', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-device-roots-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-device-roots-'))
   try {
     await mkdir(join(root, 'dcIm', '100SONY'), { recursive: true })
     await mkdir(join(root, 'Photos'))
@@ -320,7 +320,7 @@ test('photo roots prefer case-insensitive DCIM, preserve empty folders, then rec
 })
 
 test('photo roots exclude symlinks and mounted DCIM folders and choose separately for each volume', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-device-volume-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-device-volume-'))
   try {
     const first = join(root, 'first'),
       second = join(root, 'second'),

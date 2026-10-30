@@ -1,5 +1,6 @@
 import type { HdrAnalysisRequest, HdrPhotoStatistics } from './hdr-statistics'
 import type { HdrPhotoPixel } from './hdr-pixel'
+import type { WhiteBalanceSample, PhotoWhiteBalanceProposal } from './white-balance-picker'
 import type { PhotoStatistics } from './statistics'
 import type { AdjustmentParameters } from './adjustments'
 import type { DisplayTransform } from './adjustments'
@@ -20,7 +21,7 @@ export interface ForegroundActivity {
   reviewId?: string
 }
 
-export interface LumaApi extends NativeCpuPreviewBridge, NativeHdrMaskBridge {
+export interface IrodoriApi extends NativeCpuPreviewBridge, NativeHdrMaskBridge {
   getResourceSettings(): Promise<import('./resource-policy').ResourceSettingsView>
   setResourceSettings(
     value: import('./resource-policy').ResourceSettings,
@@ -28,6 +29,11 @@ export interface LumaApi extends NativeCpuPreviewBridge, NativeHdrMaskBridge {
   getResourcePolicy(
     adapter: import('./resource-policy').ResourceAdapterIdentity | null,
   ): Promise<import('./resource-policy').ResourcePolicySnapshot>
+  onImageResourceQuery(
+    listener: () =>
+      | import('./resource-policy').ManagedImageBytes
+      | Promise<import('./resource-policy').ManagedImageBytes>,
+  ): () => void
   getExportCapabilities(): Promise<import('./export').ExportCapabilities>
   getExportPreferences(): Promise<import('./export').ExportPreferences>
   chooseExportDestination(): Promise<import('./export').ExportDestination | null>
@@ -134,6 +140,16 @@ export interface LumaApi extends NativeCpuPreviewBridge, NativeHdrMaskBridge {
     request: HdrAnalysisRequest,
   ): Promise<HdrPhotoStatistics>
   getEdits(photoId: string): Promise<EditState>
+  getEditCapabilities(): Promise<import('./edits').EditCapabilities>
+  getCropContext(
+    photoId: string,
+    expectedRevision: number,
+  ): Promise<import('./crop').PhotoCropContext>
+  proposeWhiteBalance(
+    photoId: string,
+    expectedRevision: number,
+    sample: WhiteBalanceSample,
+  ): Promise<PhotoWhiteBalanceProposal>
   getPhotoPixel(
     photoId: string,
     expectedRevision: number,
@@ -141,6 +157,17 @@ export interface LumaApi extends NativeCpuPreviewBridge, NativeHdrMaskBridge {
     y: number,
     request: HdrAnalysisRequest,
   ): Promise<HdrPhotoPixel>
+  getEditClipboard(): Promise<import('./edit-transfer').EditClipboard | null>
+  copyEdits(photoId: string): Promise<import('./edit-transfer').EditClipboard>
+  preparePasteEdits(
+    request: import('./edit-transfer').PasteEditsRequest,
+  ): Promise<import('./edit-transfer').EditPastePreparation>
+  disposePastePreparation(id: string): Promise<void>
+  startPasteEdits(preparationId: string): Promise<string>
+  getEditApplicationResults(
+    id: string,
+    offset?: number,
+  ): Promise<import('./edit-transfer').EditApplicationPage>
   updateEdits(photoId: string, patch: EditPatch, expectedRevision: number): Promise<EditState>
   getEditHistory(photoId: string): Promise<EditHistory>
   undoEdit(photoId: string, expectedRevision: number): Promise<EditState>
@@ -182,6 +209,16 @@ export interface LumaApi extends NativeCpuPreviewBridge, NativeHdrMaskBridge {
   ): () => void
   releaseHdrFirstSurface(requestId: string, surfaceId: string): Promise<void>
   requestEditingPreview(photoId: string, requestId: string): Promise<FullPreview>
+  requestComparisonPreview(
+    after: import('./prepared-comparison').PreparedPreviewSourceRef,
+    requestId: string,
+    expectedRevision: number,
+  ): Promise<DisplayPreview>
+  requestCropPreview(
+    photoId: string,
+    requestId: string,
+    expectedRevision: number,
+  ): Promise<DisplayPreview>
   requestFullPreview(photoId: string, requestId: string, regenerate?: boolean): Promise<FullPreview>
   requestCachedFullPreview(photoId: string, requestId: string): Promise<FullPreview | null>
   releaseFullPreview(requestId: string): Promise<void>
@@ -254,6 +291,13 @@ export interface HdrPreview extends Omit<FullPreview, 'format'> {
 export type DisplayPreview = FullPreview | HdrPreview
 
 export interface FullPreview {
+  /** This prepared source contains spatial edits; Before needs its original lineage. */
+  requiresUnfilteredComparison?: true
+  workingSource?: import('./prepared-comparison').PreparedPreviewSourceRef
+  comparisonOf?: import('./prepared-comparison').PreparedComparisonIdentity
+  /** A revision-checked uncropped source leased for transient framing. */
+  sourceSpace?: 'uncropped'
+  crop?: import('./crop').CropGeometry
   cpuSource?: import('./native-cpu-preview').CpuPreviewSourceRef
   adjustments?: AdjustmentParameters
   linear?: LinearAsset
@@ -279,9 +323,16 @@ export interface PhotoPage {
 }
 
 export interface BackgroundTask {
+  editApplication?: {
+    applied: number
+    unchanged: number
+    conflict: number
+    unavailable: number
+    failed: number
+  }
   exportWorkerProgress?: import('./export').ExportWorkerProgressSnapshot
   mergeMeasurements?: import('./merge').MergeMeasurements
-  kind: 'import' | 'delete' | 'merge' | 'capture-grouping' | 'export'
+  kind: 'import' | 'delete' | 'merge' | 'capture-grouping' | 'export' | 'edit-application'
   export?: {
     exported: number
     skipped: number
@@ -395,6 +446,8 @@ export interface ReviewThumbnailRequest {
 export interface LibraryEvent {
   editsChanged?: { photoId: string; revision: number }
   lensChanged?: { photoId: string; revision: number }
+  geometryChanged?: { photoId: string; revision: number }
+  sourceChanged?: { photoId: string; revision: number }
   sessionId?: string
   libraryChanged?: boolean
   tasksChanged?: boolean

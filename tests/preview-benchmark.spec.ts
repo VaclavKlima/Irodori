@@ -16,9 +16,9 @@ requiresForeground(test, foregroundReason)
 test(
   'benchmarks RAW processing and actual Electron frame presentation',
   foregroundTest(foregroundReason),
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.skip(
-      process.env.LUMA_PREVIEW_BENCHMARK !== '1',
+      process.env.IRODORI_PREVIEW_BENCHMARK !== '1',
       'Run npm run benchmark:preview for the hardware benchmark.',
     )
     // Direct CPU ACES proofs are deliberately included; preserve every cold/revisit sample.
@@ -54,25 +54,25 @@ process.on('message',async ({path,output,type})=>{
     const cpuPath = join(root, 'cpu.mjs')
     await writeFile(
       cpuPath,
-      `process.env.LUMA_PREVIEW_BACKEND = 'cpu';\nawait import(${JSON.stringify(pathToFileURL(resolve('out/main/preview-worker.js')).href)});\n`,
+      `process.env.IRODORI_PREVIEW_BACKEND = 'cpu';\nawait import(${JSON.stringify(pathToFileURL(resolve('out/main/preview-worker.js')).href)});\n`,
     )
     const cpu = new PreviewProcess(cpuPath)
     const current = new PreviewProcess(resolve('out/main/preview-worker.js'))
     const correctedCpu = new PreviewProcess(cpuPath)
     const correctedGpu = new PreviewProcess(resolve('out/main/preview-worker.js'))
-    const sample = resolve(process.env.LUMA_RAW_BENCHMARK_FILE ?? 'tests/fixtures/sony-zv1.ARW')
+    const sample = resolve(process.env.IRODORI_RAW_BENCHMARK_FILE ?? 'tests/fixtures/sony-zv1.ARW')
     const metadataReader = new PreviewProcess(resolve('out/main/preview-worker.js'))
     const metadata = await metadataReader.inspect(sample, new AbortController().signal)
     await metadataReader.close()
     const options = { metadata, settings: automaticLensSettings, revision: 0 }
     // The isolated benchmark serves only its two output files. Production handlers and
     // user libraries are never involved. Both formats use the same streamed transport.
-    await luma.app.evaluate(({ protocol }, root) => {
+    await irodori.app.evaluate(({ protocol }, root) => {
       const fs = process.getBuiltinModule('fs')
       const streams = process.getBuiltinModule('stream')
       const path = process.getBuiltinModule('path')
-      protocol.unhandle('luma-photo')
-      protocol.handle('luma-photo', async (request) => {
+      protocol.unhandle('irodori-photo')
+      protocol.handle('irodori-photo', async (request) => {
         const match = new URL(request.url).pathname.match(
           /^\/(legacy|current)\/([0-3])-(legacy|cpu|gpu|cpu-corrected|gpu-corrected)$/,
         )
@@ -96,17 +96,17 @@ process.on('message',async ({path,output,type})=>{
         )
       })
     }, root)
-    await luma.page.reload()
+    await irodori.page.reload()
     const presenterBundle = await build({
       entryPoints: ['src/renderer/src/preview/presenter.ts'],
       bundle: true,
       write: false,
       format: 'iife',
-      globalName: 'LumaBenchmark',
+      globalName: 'IrodoriBenchmark',
       define: { 'import.meta.url': JSON.stringify('file:///unused-benchmark-worker.js') },
     })
-    await luma.page.evaluate(
-      `${presenterBundle.outputFiles[0].text}; globalThis.lumaBenchmark = LumaBenchmark;`,
+    await irodori.page.evaluate(
+      `${presenterBundle.outputFiles[0].text}; globalThis.irodoriBenchmark = IrodoriBenchmark;`,
     )
 
     const results: {
@@ -147,7 +147,7 @@ process.on('message',async ({path,output,type})=>{
           // Warm presentation is only a few milliseconds. Sample multiple revisits so
           // one compositor delay or collection does not dominate the comparison.
           for (let cached = 0; cached <= 8; cached++) {
-            const presentationMs = await luma.page.evaluate(
+            const presentationMs = await irodori.page.evaluate(
               async ({ kind, result, cached, repetition }) => {
                 // Start on the same animation-frame boundary. Otherwise the short warm
                 // samples mostly measure a random wait until the next refresh.
@@ -161,14 +161,14 @@ process.on('message',async ({path,output,type})=>{
                 let presenter: PreviewPresenter | undefined
                 if (kind === 'legacy') {
                   const image = new Image()
-                  image.src = `luma-photo://library/legacy/${repetition}-${kind}`
+                  image.src = `irodori-photo://library/legacy/${repetition}-${kind}`
                   await image.decode()
                   canvas.getContext('2d', { colorSpace: 'srgb' })!.drawImage(image, 0, 0)
                 } else {
                   const cache = window as unknown as { benchmarkBitmap?: ImageBitmap }
                   if (!cached || !cache.benchmarkBitmap) {
                     const response = await fetch(
-                      `luma-photo://library/current/${repetition}-${kind}`,
+                      `irodori-photo://library/current/${repetition}-${kind}`,
                       {
                         cache: 'no-store',
                       },
@@ -188,9 +188,9 @@ process.on('message',async ({path,output,type})=>{
                   }
                   const Constructor = (
                     window as unknown as {
-                      lumaBenchmark: { PreviewPresenter: typeof PreviewPresenter }
+                      irodoriBenchmark: { PreviewPresenter: typeof PreviewPresenter }
                     }
-                  ).lumaBenchmark.PreviewPresenter
+                  ).irodoriBenchmark.PreviewPresenter
                   // Match the application: present RGBA immediately through Canvas2D, then
                   // prepare the WebGL editing surface after first display (measured below).
                   presenter = new Constructor(canvas, true, () => {
@@ -208,7 +208,16 @@ process.on('message',async ({path,output,type})=>{
                       x: 0,
                       y: 0,
                     },
-                    { shadows: 0, whites: 0, blacks: 0, exposureEv: 0, contrast: 0, highlights: 0 },
+                    {
+                      saturation: 0,
+                      vibrance: 0,
+                      shadows: 0,
+                      whites: 0,
+                      blacks: 0,
+                      exposureEv: 0,
+                      contrast: 0,
+                      highlights: 0,
+                    },
                   )
                 }
                 document.body.append(canvas)
@@ -260,8 +269,8 @@ process.on('message',async ({path,output,type})=>{
         info.outputPath('benchmark.json'),
         JSON.stringify({ sample: basename(sample), medians, results }, null, 2),
       )
-      const baseline = process.env.LUMA_PREVIEW_BASELINE
-        ? JSON.parse(await readFile(process.env.LUMA_PREVIEW_BASELINE, 'utf8'))
+      const baseline = process.env.IRODORI_PREVIEW_BASELINE
+        ? JSON.parse(await readFile(process.env.IRODORI_PREVIEW_BASELINE, 'utf8'))
         : undefined
       await recordBenchmark(info, {
         family: 'preview',

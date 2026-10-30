@@ -2,10 +2,12 @@ import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import type { EditSettings } from '../src/shared/edits'
 
-test('toolbar history restores every light adjustment across restart', async ({ luma }) => {
-  let { page } = luma
-  await importPhotos(luma.app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
-  const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
+test('toolbar history restores every light and color adjustment across restart', async ({
+  irodori,
+}) => {
+  let { page } = irodori
+  await importPhotos(irodori.app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
+  const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
   const controls = [
     ['Exposure', 'exposureEv', 0.5],
     ['Contrast', 'contrast', 40],
@@ -13,11 +15,13 @@ test('toolbar history restores every light adjustment across restart', async ({ 
     ['Shadows', 'shadows', 65],
     ['Whites', 'whites', -35],
     ['Blacks', 'blacks', 20],
+    ['Saturation', 'saturation', 40],
+    ['Vibrance', 'vibrance', -35],
   ] as const
-  const snapshots = [(await page.evaluate((id) => window.luma.getEdits(id), id)).settings]
+  const snapshots = [(await page.evaluate((id) => window.irodori.getEdits(id), id)).settings]
   const confirm = async (settings: EditSettings) => {
     await expect
-      .poll(() => page.evaluate((id) => window.luma.getEdits(id), id))
+      .poll(() => page.evaluate((id) => window.irodori.getEdits(id), id))
       .toMatchObject({ settings })
     for (const [label, key] of controls)
       await expect(page.getByRole('spinbutton', { name: `${label} value` })).toHaveValue(
@@ -30,11 +34,11 @@ test('toolbar history restores every light adjustment across restart', async ({ 
     await field.fill(String(value))
     await field.press('Enter')
     await expect
-      .poll(() => page.evaluate((id) => window.luma.getEdits(id), id))
+      .poll(() => page.evaluate((id) => window.irodori.getEdits(id), id))
       .toMatchObject({ settings: { [key]: value } })
-    snapshots.push((await page.evaluate((id) => window.luma.getEdits(id), id)).settings)
+    snapshots.push((await page.evaluate((id) => window.irodori.getEdits(id), id)).settings)
   }
-  ;({ page } = await luma.restart())
+  ;({ page } = await irodori.restart())
   await confirm(snapshots.at(-1)!)
   for (const settings of snapshots.slice(0, -1).reverse()) {
     await page.getByRole('button', { name: 'Undo', exact: true }).click()

@@ -11,17 +11,54 @@ import { frameByteLength } from '../shared/preview-frame'
 import { CROP_POLICY, LENS_RENDER_VERSION } from './processing/lens-correction'
 import { rawDecoderDefinitions } from './processing/formats'
 import { cameraProfiles } from './processing/cameras'
+import {
+  CROP_GEOMETRY_VERSION,
+  cropGeometry,
+  type CropGeometry,
+  type CropSettings,
+} from '../shared/crop'
+import { CROP_FILTER_VERSION } from '../shared/crop-filter'
+import { validateDetailTransform } from './processing/detail-identity'
 
 export type WorkingAsset = NonNullable<ProcessingOptions['workingAsset']>
+export type WorkingAssetRendition = 'working' | 'primary'
 export interface WorkingAssetLease {
   identity: string
   asset: WorkingAsset
   backend?: 'cpu' | 'gpu'
   fallback?: string
+  detailSource?: import('./processing/detail-identity').DetailSourceLineage
   release: () => void
 }
 
-/** Preparation depends on source/corrections, while committed Light edits stay frozen separately. */
+/** Pixel identity excludes authoring constraints that leave the compiled sampling map unchanged. */
+export function croppedWorkingIdentity(base: string, geometry: CropGeometry): string {
+  if (geometry.identity) return base
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        base,
+        CROP_GEOMETRY_VERSION,
+        geometry.pixelAligned ? 'native-copy-v1' : CROP_FILTER_VERSION,
+        geometry.source.width,
+        geometry.source.height,
+        geometry.width,
+        geometry.height,
+        geometry.outputToSource,
+      ]),
+    )
+    .digest('hex')
+}
+
+export function currentWorkingIdentity(
+  base: string,
+  source: CropGeometry['source'],
+  settings?: CropSettings,
+): string {
+  return settings ? croppedWorkingIdentity(base, cropGeometry(source, settings)) : base
+}
+
+/** Source/corrections own this uncropped identity; point edits and geometry are frozen separately. */
 export function workingSourceIdentity(
   id: string,
   options: ProcessingOptions,
@@ -61,27 +98,36 @@ export async function validateWorkingAsset(
 ): Promise<void> {
   signal.throwIfAborted()
   const hdr = asset.hdr
-  if (!hdr) throw new Error('Missing HDR working descriptor.')
-  validateHdrSource(hdr.source)
-  if (
-    hdr.kind !== 'hdr-working-v1' ||
-    hdr.source.processing !== 'hdr-v1' ||
-    asset.width !== hdr.width ||
-    asset.height !== hdr.height ||
-    asset.byteLength !== frameByteLength(asset.width, asset.height) * 4 ||
-    asset.byteLength !== hdr.byteLength ||
-    asset.byteLength > 512 * 1024 ** 2 ||
-    !/^[a-f0-9]{64}$/.test(asset.sha256) ||
-    asset.sha256 !== hdr.sha256 ||
-    !Array.isArray(hdr.strips) ||
-    hdr.strips.length !== Math.ceil(asset.height / 64) ||
-    hdr.strips.some(
-      (strip, index) =>
-        strip.byteLength !== Math.min(64, asset.height - index * 64) * asset.width * 16 ||
-        !/^[a-f0-9]{64}$/.test(strip.sha256),
+  if (!hdr) {
+    if (
+      asset.byteLength !== frameByteLength(asset.width, asset.height) * 4 ||
+      asset.byteLength > 512 * 1024 ** 2 ||
+      !/^[a-f0-9]{64}$/.test(asset.sha256)
     )
-  )
-    throw new Error('Invalid HDR working asset.')
+      throw new Error('Invalid raster working asset.')
+    validateDetailTransform(asset.transform)
+  } else {
+    validateHdrSource(hdr.source)
+    if (
+      hdr.kind !== 'hdr-working-v1' ||
+      hdr.source.processing !== 'hdr-v1' ||
+      asset.width !== hdr.width ||
+      asset.height !== hdr.height ||
+      asset.byteLength !== frameByteLength(asset.width, asset.height) * 4 ||
+      asset.byteLength !== hdr.byteLength ||
+      asset.byteLength > 512 * 1024 ** 2 ||
+      !/^[a-f0-9]{64}$/.test(asset.sha256) ||
+      asset.sha256 !== hdr.sha256 ||
+      !Array.isArray(hdr.strips) ||
+      hdr.strips.length !== Math.ceil(asset.height / 64) ||
+      hdr.strips.some(
+        (strip, index) =>
+          strip.byteLength !== Math.min(64, asset.height - index * 64) * asset.width * 16 ||
+          !/^[a-f0-9]{64}$/.test(strip.sha256),
+      )
+    )
+      throw new Error('Invalid HDR working asset.')
+  }
   const info = await lstat(asset.path)
   signal.throwIfAborted()
   if (!info.isFile() || info.isSymbolicLink() || info.size !== asset.byteLength)
@@ -99,7 +145,7 @@ export async function validateWorkingAsset(
     for await (const chunk of file.createReadStream({ autoClose: false, signal })) {
       digest.update(chunk)
       let offset = 0
-      while (offset < chunk.length) {
+      while (hdr && offset < chunk.length) {
         const strip = hdr.strips[stripIndex]
         if (!strip) throw new Error('Unexpected HDR working bytes.')
         const count = Math.min(chunk.length - offset, strip.byteLength - stripBytes)
@@ -118,10 +164,10 @@ export async function validateWorkingAsset(
     signal.throwIfAborted()
     if (
       digest.digest('hex') !== asset.sha256 ||
-      stripIndex !== hdr.strips.length ||
+      (hdr && stripIndex !== hdr.strips.length) ||
       stripBytes !== 0
     )
-      throw new Error('Damaged HDR working asset.')
+      throw new Error(`Damaged ${hdr ? 'HDR' : 'raster'} working asset.`)
   } finally {
     await file.close()
   }

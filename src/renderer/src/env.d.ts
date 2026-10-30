@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { LumaApi } from '../../shared/contracts'
+import type { IrodoriApi } from '../../shared/contracts'
 
 declare global {
   interface HdrScreen extends Screen, EventTarget {
@@ -15,7 +15,7 @@ declare global {
     screens: HdrScreen[]
   }
   interface Window {
-    luma: LumaApi
+    irodori: IrodoriApi
     getScreenDetails?: () => Promise<ScreenDetails>
     hdrDiagnostic: { onResume: (callback: () => void) => () => void }
   }

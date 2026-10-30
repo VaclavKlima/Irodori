@@ -1,12 +1,12 @@
-# Testing Luma
+# Testing Irodori
 
 Use explicit suite targets for routine feature verification. Comprehensive testing requires a user-requested or previously agreed checkpoint; completing a feature alone never triggers one. The shared Playwright runner retains platform-specific evidence and limitations below.
 
 ## Choose verification
 
-Automated Electron tests use the [shared background launcher](background-testing.md) by default. Compatible checks render in real hidden, nonfocusable windows without activating Luma. Add `--foreground` explicitly for native focus, pointer lock, display integration and renderer presentation benchmarks. `--background` makes the default explicit; the two flags are mutually exclusive and work with target/scope selection, `--plan` and package aliases. Normal application, development and manual inspection launches remain visible.
+Automated Electron tests use the [shared background launcher](background-testing.md) by default. Compatible checks render in real hidden, nonfocusable windows without activating Irodori. Add `--foreground` explicitly for native focus, pointer lock, display integration and renderer presentation benchmarks. `--background` makes the default explicit; the two flags are mutually exclusive and work with target/scope selection, `--plan` and package aliases. Normal application, development and manual inspection launches remain visible.
 
-For an already approved long foreground benchmark on GNOME, prefix the selected command with `gnome-session-inhibit --inhibit=idle --reason='Luma foreground benchmark'`. This is a transient session-idle inhibitor for the wrapped command, not a change to idle/dimming preferences or brightness; end it with the agreed desktop window and record its cleanup. A retained Bazzite case changed HDR target headroom/generation during idle, and idle dimming was a plausible environmental risk; historical causation was not established. Keep native focus, visibility, monitor/target-generation and cadence guards strict. Inhibition does not turn a display-transition or focus-invalid case into a pass; retain the failed attempt and require its valid exact rerun.
+For an already approved long foreground benchmark on GNOME, prefix the selected command with `gnome-session-inhibit --inhibit=idle --reason='Irodori foreground benchmark'`. This is a transient session-idle inhibitor for the wrapped command, not a change to idle/dimming preferences or brightness; end it with the agreed desktop window and record its cleanup. A retained Bazzite case changed HDR target headroom/generation during idle, and idle dimming was a plausible environmental risk; historical causation was not established. Keep native focus, visibility, monitor/target-generation and cadence guards strict. Inhibition does not turn a display-transition or focus-invalid case into a pass; retain the failed attempt and require its valid exact rerun.
 
 The [October 15 macOS migration acceptance](background-testing.md#local-migration-acceptance--2026-10-15) records focused case counts, native-window and activation evidence, cleanup, durations and deferred coverage. It does not replace an agreed comprehensive checkpoint or certify other platforms.
 
@@ -18,9 +18,9 @@ Library browsing targets are `all-photos-model` (Node), `all-photos` and `catalo
 
 Workspace sizing uses actual native minimum/content sizes, including dimensions larger than the physical work area; it never emulates a web viewport. Preview failure injection releases its test gate before awaiting import completion so it cannot hold an artificial foreground lease indefinitely. Warm-cache assertions wait for both validated frames before disabling further bitmap fetches.
 
-For canvas layout (#18), select `workspace`, `preview`, `full-preview-ui`, `comparison-ui`, `all-photos-ui`, and `photo-menu-ui`. Cover native 1100 × 700, 1280 × 800, 1440 × 900 and 1920 × 1080 with Console closed/open, independent panel scrolling, native-pixel zoom and Fit, long metadata, empty/loading/failure states and keyboard-accessible retries. The minimum-size canvas with Console open is approximately 628 × 338 pixels; assert useful viewport bounds and non-overlap rather than every CSS value. Display details must describe the matching presented backend, including legacy SDR on an HDR-capable monitor, WebGPU and CPU fallback. Inspect the popover at minimum size through isolated `dev:mcp`; no processing or benchmark checkpoint is implied.
+For canvas layout (#18), select `workspace`, `preview`, `full-preview-ui`, `comparison-ui`, `all-photos-ui`, and `photo-menu-ui`. Cover native 1100 × 700, 1280 × 800, 1440 × 900 and 1920 × 1080 with Console closed/open, independent panel scrolling, native-pixel zoom and Fit, long metadata, empty/loading/failure states and keyboard-accessible retries. The minimum-size canvas with Console open is approximately 628 × 338 pixels; assert useful viewport bounds and non-overlap rather than every CSS value. Display details must describe the matching presented backend, including legacy SDR on an HDR-capable monitor, WebGPU and CPU fallback. Inspect the popover at minimum size through isolated `npm run dev`; no processing or benchmark checkpoint is implied.
 
-BRK grouping and merge compatibility (#11–12) have explicit targets: `brk-capture` (Node), `brk-library` and `brk-merge` (service), and `brk-raw` and `brk-ui` (RAW/GPU, one worker). The ignored private fixture manifest is `artifacts/fixtures/sony-brk/manifest.json`, overridable with `LUMA_BRK_FIXTURES`. Missing fixtures leave camera acceptance incomplete. RAW cases use actual decoder dimensions and require Auto Align, every selected source, native review, byte-identical master publication, restart, unchanged originals, bounded memory and independent CPU native proof crops. The UI case covers partial-group extension, cover/expansion preservation, selection, preview zoom/pan and the 1100 × 700 console layout. Real capture metadata covers both continuous modes, complete/partial BRK and separate-trigger negatives; service negatives retain alignment, illumination and parallax failures. Combine affected import, deletion, stack, merge and bridge/MCP targets explicitly. These checks do not start a comprehensive checkpoint.
+BRK grouping and merge compatibility (#11–12) have explicit targets: `brk-capture` (Node), `brk-library` and `brk-merge` (service), and `brk-raw` and `brk-ui` (RAW/GPU, one worker). The ignored private fixture manifest is `artifacts/fixtures/sony-brk/manifest.json`, overridable with `IRODORI_BRK_FIXTURES`. Missing fixtures leave camera acceptance incomplete. RAW cases use actual decoder dimensions and require Auto Align, every selected source, native review, byte-identical master publication, restart, unchanged originals, bounded memory and independent CPU native proof crops. The UI case covers partial-group extension, cover/expansion preservation, selection, preview zoom/pan and the 1100 × 700 console layout. Real capture metadata covers both continuous modes, complete/partial BRK and separate-trigger negatives; service negatives retain alignment, illumination and parallax failures. Combine affected import, deletion, stack, merge and bridge/MCP targets explicitly. These checks do not start a comprehensive checkpoint.
 
 The BRK service suites also cover overlapping capture refresh/review creation, queued cancellation and shutdown; independent signal-dependent radiometry noise; surviving camera-channel registration with unchanged strict fusion masks; and clipping-boundary, insufficient-texture, repeated-pattern and parallax negatives. RAW agreement checks retain each source's lens tables and common crop, canonical RGB and per-channel clipping masks, checksummed channel evidence, and CPU/GPU accumulation under the same frozen recipe. Source confidence and fallback transitions remain within the versioned 64-native-pixel policy and the 95% affected-area limit. Covered pixels with no valid accumulated samples join the frozen fallback mask before dilation and tapering; output must not introduce untapered clipping seams. A clipped fallback reference uses the existing camera-stage highlight blend only for originally invalid reference pixels, with its own cache identity and measurements; it supplies no alignment, radiometry or fusion evidence. See [algorithm policies](merge-processing.md#algorithms-and-bounds).
 
@@ -45,7 +45,163 @@ For direct whole-group actions (#14), select `stack-group-actions` (service) and
 
 Target IDs are defined in [verification-plan.ts](../scripts/verification-plan.ts), including `mcp-import` for the separate isolated import script. Every new spec must register one unique target and execution group and declare its desktop requirements; use the shared launcher and reasoned `@foreground` tags as described in [background testing](background-testing.md#writing-and-migrating-tests). Unknown IDs and mixed target/scope selections are rejected. Target selections always include cheap checks; broad scopes form a deduplicated union (`npm run verify -- ui library`). Neither mode examines the dirty working tree.
 
-Background import uses focused targets `work-scheduler` (Node), `import-pipeline` (service), `import-foreground-ui` (exclusive Electron), and `import-preparation-raw` (RAW/GPU). `import-performance` runs three isolated measurements with one service test worker and belongs to no broad regression scope. Its JSON includes copy throughput separately from preparation, first publication, CPU/RSS and staging peaks. See [scheduling and benchmark configuration](import-pipeline.md). Select `hdr-interaction-benchmark` and `hdr-slider-benchmark` with `LUMA_BENCHMARK_IMPORT_ACTIVE=1` to retain the existing foreground latency gates during an accepted import.
+Standard enlargement uses `export-enlargement-model` (Node),
+`export-enlargement` (exclusive service), `export-enlargement-ui` (hidden Electron),
+and `export-enlargement-gpu` (8x6 synthetic input, one GPU worker). Combine
+`export-model`, `export-resources`, `export-context`, `crop-export` and affected
+edit/export consumers. The [resize record](features/upscaling.md) retains the
+821-check/61.47-second focused checkpoint, independent Decimal80 2D convolution,
+actual tiny SDR/HDR JPEGs, frozen job retry, resource refusal and keyboard/UI/MCP/
+restart evidence. The routine budget warning remains recorded; no assertion or
+quality gate is removed. These checks do not accept real RAW/merge photography,
+foreground input, full-size resources or performance.
+
+Public denoise/detail adoption uses `detail-edits` (Node), `detail-history` and
+`detail-edit-export` (service), and `detail-application-ui` (hidden Electron).
+Combine `catalog-migration` when changing settings/catalog versions and affected
+comparison/working-preview targets when changing source handoffs. The application
+fixture uses an original 19x17 PNG, production comparison IPC, UI/MCP history,
+actual canvas pixels, deferred reply cancellation, keyboard gestures, native
+minimum-size Console-open layout and restart. Export uses an actual 17x11 JPEG
+worker with a cancellable gate to verify frozen settings through foreground retry.
+Earlier checkpoint descriptions below are historical availability snapshots;
+current public settings are 11/catalog 21. Real RAW/HDR application, photographic,
+foreground-input and full-size performance acceptance remains pending.
+
+The internal denoise/detail foundation uses `spatial-detail` and `detail-resources`
+(Node), `detail-quality` (service), and `spatial-detail-gpu` and
+`spatial-detail-owner` (tiny GPU, one worker). The bounded file/worker adapter uses
+`detail-preparation` (service) and `detail-preparation-gpu` (tiny GPU, one worker).
+Add `catalog-migration` when changing the public-settings rejection boundary. The
+[detail record](features/detail-processing.md#focused-verification-2026-10-27)
+retains the initial 766-case/47.77-second selection and failed candidates; its
+[streamed adapter record](features/detail-processing.md#streamed-prepared-source-adapter-2026-10-27)
+records 754 passing cases in 45.79 seconds. These overlapping focused selections
+do not accept public controls, native 100% photographic quality, full-size
+performance or preview/export integration.
+
+`detail-placement` (service) runs the [predeclared order comparison](features/detail-processing.md#predeclared-placement-comparison-1)
+on small known-truth fields and writes a complete candidate report before quality
+assertions. It keeps
+all four noise seeds, both primary domains, before/after WB and geometry, native
+context/permutation checks and unchanged quality gates. Read its candidate metrics
+as order evidence; it does not certify real photographic or full-size performance.
+
+The in-memory detail adapter uses `detail-frame` (service) and `detail-frame-gpu`
+(tiny GPU, one worker). Select `detail-resources` and the existing file targets
+`detail-preparation`/`detail-preparation-gpu` when changing their shared band engine.
+The [2026-10-28 checkpoint](features/detail-processing.md#authored-in-memory-adapter-2026-10-28)
+passes 762 cases in 41.34 seconds, including overlapping shared cheap checks. An
+earlier runner interruption has a separate observation note and preserved partial
+logs; its stale lock was removed only after checking the exact recorded processes.
+
+The prepared-preview path uses `detail-preview` (service) and `detail-preview-gpu`
+(tiny GPU, one worker). Select `detail-resources` and `detail-preparation` when
+changing its admission/identity handoff. The [preview record](features/detail-processing.md#prepared-preview-path-2026-10-28)
+retains separate 759-case/45.56-second CPU/worker and 749-case/40.47-second hardware
+selections, including overlapping shared checks. Source pixel and RGBA agreement,
+revision/file validation, source-domain routing and cleanup are separate from
+native/export and photographic/performance acceptance.
+
+Application cache adoption uses `detail-preview-cache` (service) and
+`detail-preview-cache-gpu` (tiny GPU, one worker). Combine affected
+`crop-preview-cache`, `crop-context`, `full-previews`, `detail-preview` and
+`detail-frame` targets as needed. The [cache record](features/detail-processing.md#application-cache-integration-2026-10-28)
+retains the 800-case/51.56-second checkpoint, preceding GPU-diagnostics failure and
+exact-case rerun. Coverage separates filter/output backend diagnostics, frozen
+source identities, native crop ordering, unfiltered WB dispatch, corrupt-cache
+recovery, legacy proof invalidation and independent leases. Synthetic HDR and tiny
+GPU checks do not accept real-source, native desktop or full-size performance.
+
+Private detail export uses `detail-export` (service) and `detail-export-gpu`
+(tiny GPU, one worker). Select affected `export-context`, `crop-export`,
+`detail-preview` and `detail-preview-cache` consumers explicitly. The
+[export record](features/detail-processing.md#frozen-export-adapters-2026-10-28)
+retains the 801-case/46.48-second checkpoint and later exact-file CPU-recovery
+extension. Coverage separates source filtering from final rendering, frozen policy
+and controls, retained variants and paired-domain behavior. Export allocation
+models use `export-resources` (Node); exact GPU buffer limits and retirement use
+`export-resources-gpu` (tiny GPU, one worker); native/WASM encoder admission uses
+`export-resources-encoder` (service, 8x8). Their [resource checkpoint](features/detail-processing.md#export-resource-checkpoint-2026-10-28)
+passes 801 overlapping checks in 55.09 seconds. Injected-budget worker boundaries
+use `export-resources-integration` (service), with constrained real rendering in
+`export-resources-gpu` and no-publication checks in `export-context`. Filtered raster
+and paired authored cache reuse use `detail-export-cache` (service).
+`detail-native-source` is an exclusive service target using the checked bundled
+Linux x64 helper and a 19x17 prepared fixture; it needs no camera decode or display.
+The [cache/native checkpoint](features/detail-processing.md#export-reuse-and-native-source-checkpoint-2026-10-28)
+records 823 checks in 45.01 seconds and three later exact-selected cases in
+1.61 seconds, with overlapping counts. Public spatial comparison/UI/API adoption,
+real HDR JPEG round trips, native desktop and full-size resource/performance
+acceptance remain open.
+
+Prepared Before sources use `prepared-comparison` (Node capability validation) and
+`detail-comparison` (service), combined with affected `detail-preview-cache`,
+`full-previews` and `detail-native-source` targets. `detail-comparison-ui` (hidden
+Electron child frames) verifies the real comparison/float hooks without photographs
+or GPU dispatch; combine `crop-working-preview-ui` when changing the shared loader.
+The [comparison foundation record](features/detail-processing.md#unfiltered-comparison-source-foundation-2026-10-28)
+retains the 792-case service and 762-case hook checkpoints, overlapping counts and
+the repaired initial ownership failure. This does not establish that the actual
+Before/Split presenters or public spatial edit controls consume the new sources.
+
+`raster-spatial-comparison` (hidden Electron) exercises the actual private raster
+presenter and presentation worker with distinct 8x6 Float32 Before/After sources,
+grading, transparency, Fit/100%/200%, stale replies, source reuse and retirement.
+Combine `creative-color-presenter` when changing the shared programs/worker. The
+[raster adapter checkpoint](features/detail-processing.md#raster-comparison-presenter-adapter-2026-10-28)
+records 763 overlapping checks in 42.79 seconds. These tiny WebGL pixel checks
+do not establish application hook wiring, HDR/native pairing, full-size resource
+admission or performance acceptance. Public NR/detail tools remain unavailable.
+
+`hdr-comparison-source` (Node) checks paired HDR domains and detached capabilities;
+`hdr-spatial-comparison` (hidden Electron) exercises the actual HDR presenter with
+distinct 8x6 sources, real upload validation/mips, grading, Before/Split histograms,
+warm reuse, stale cancellation, budget/damage refusal and both recovery methods.
+Combine `hdr-render-cache`, `hdr-presentation-cache`, `hdr-source-cache` and
+`hdr-readback` for changes to these shared owners. The
+[HDR comparison record](features/detail-processing.md#hdr-comparison-presenter-adapter-2026-10-28)
+retains the 765-case checkpoint and final six-case refinement with overlapping counts.
+Authored HDR uses its HDR rendition here; its SDR primary retains the raster path.
+Application wiring, native CPU pairing, real-source/full-size/performance acceptance
+and public NR/detail adoption remain open.
+
+`native-cpu-comparison` (exclusive service) verifies real native Before/After
+pixels/samples, exact prepared-cache lineage, bounded baseline reuse, corrupt
+derived-output recovery and cancellation/stream ownership. `native-cpu-comparison-ui`
+(hidden Electron) exercises the real client through a test transport, including
+sample capability refusal and noninterruptible digest draining. Combine
+`native-cpu-pure`, `native-cpu-controller`, `detail-native-source` and
+`detail-comparison` for affected shared owners. The
+[source-pair checkpoint](features/detail-processing.md#native-cpu-comparison-source-pairs-2026-10-28)
+records 791 overlapping checks in 47.54 seconds. Native presenter/analysis and
+application wiring, production IPC, real-source and performance acceptance remain
+open; public NR/detail controls are unavailable.
+
+`hdr-cpu-comparison-ui` (hidden Electron) verifies actual native and JavaScript CPU
+presenters, original Before/Split pixels, source samples, range overlays, point-edit
+reuse and aliases on 8x6 original arrays. `hdr-sample` (Node) covers paired observer
+selection, stale publication and backing-buffer ownership; `hdr-source-cache`
+also checks sample charges across retiring cache fences. Combine
+`hdr-cpu-presenter`, `hdr-spatial-comparison`, `native-cpu-comparison-ui`,
+`image-resource-owners` and `image-resource-query-ui` for changes to shared consumers.
+The [paired-analysis checkpoint](features/detail-processing.md#cpu-presenters-and-paired-analysis-samples-2026-10-28)
+records 780 overlapping checks in 47.94 seconds. Native Before mask and application
+wiring, real-source/full-size/performance acceptance and public NR/detail adoption
+remain open.
+
+`detail-comparison-mask` (exclusive service) verifies original Before-mask lineage,
+independent Before/After cache pins, source-pair acknowledgement and exact tiny
+shipping-helper mask bytes. CPU/GPU comparison presenter cases also probe resource
+admission for the actual selected source. Combine `detail-comparison`,
+`native-hdr-mask-controller`, `native-cpu-comparison`, `hdr-cpu-comparison-ui` and
+`hdr-spatial-comparison` for affected owners. The
+[Before-mask checkpoint](features/detail-processing.md#native-before-clipping-masks-2026-10-28)
+records 809 overlapping checks in 64.81 seconds, exceeding the 60-second routine aim
+without removing assertions. Actual application wiring and real-source/native/
+performance acceptance remain open; public NR/detail controls are unavailable.
+
+Background import uses focused targets `work-scheduler` (Node), `import-pipeline` (service), `import-foreground-ui` (exclusive Electron), and `import-preparation-raw` (RAW/GPU). `import-performance` runs three isolated measurements with one service test worker and belongs to no broad regression scope. Its JSON includes copy throughput separately from preparation, first publication, CPU/RSS and staging peaks. See [scheduling and benchmark configuration](import-pipeline.md). Select `hdr-interaction-benchmark` and `hdr-slider-benchmark` with `IRODORI_BENCHMARK_IMPORT_ACTIVE=1` to retain the existing foreground latency gates during an accepted import.
 
 Device import and progressive review use focused targets `device-discovery`, `device-directory-visibility`, `device-service`, `device-ui`, `progressive-review`, `progressive-review-ui`, and `raw-thumbnail`. Run `review-performance` explicitly for retained before/after discovery and visible-thumbnail timings; it uses one service worker and belongs to no broad regression scope. Thumbnail gate tests keep discovery, scrolling, and selection active while image work is held. Chronological fixtures verify newest-first ordering and stable choices as rows arrive. Windows attribute checks use a main-owned, cancellable worker with portable protocol fixtures. Hardware inspection uses a fresh temporary library; never import into the user library during automated verification.
 
@@ -53,7 +209,7 @@ Repeat device imports (#16) use `import-source-records` (Node), `import-missing`
 
 For merge processing, `npm run verify -- --target merge-cpu-kernels --target merge-gpu-output` selects fast Node checks without RAW decoding or a GPU. SIMD coverage requires exact native Float32 bytes and unrounded Float64 luminance, all orientations, lens/clipping masks, partial strips, ordered reductions with per-update Float32 rounding, transactional recovery and the aggregate arena bound. Output coverage checks two-slot admission, immutable upload ownership, owned readback copies, release, cancellation, device/scoped failures, partial mappings and optional timestamps. Select `merge-gpu` separately for hardware CPU/GPU agreement, complete sequential/two-slot master and comparison equality, partial strips and in-flight failure recovery; `merge-engine` and `brk-merge` retain service behavior.
 
-The optional SIMD binary is shipped with its manifest. Changes to its maintained C source require `LUMA_EMCC=/path/to/emsdk-4.0.20/upstream/emscripten/emcc npm run build:merge-kernels` before verification; ordinary builds copy the versioned binary rather than rebuilding it. The pinned compiler, SIMD/strict floating-point flags, source/binary hashes, ABI and bounded borrowed-view lifetimes are documented in [merge processing](merge-processing.md#algorithms-and-bounds) and [the kernel build instructions](../vendor/merge-kernels/README.md). Compare `LUMA_MERGE_CPU_KERNEL=scalar` with the optional `wasm` path and `LUMA_MERGE_OUTPUT_SLOTS=1` with normal two-slot comparison output using the same source/recipe hashes. `LUMA_MERGE_GPU_TIMESTAMPS=1` requests supported compute timestamps; record its status and measured batch count, keeping the diagnostic mode matched between trials. Host dispatch and map wait are not device compute measurements. These controls do not relax pixel, checksum, memory or complete-operation gates.
+The optional SIMD binary is shipped with its manifest. Changes to its maintained C source require `IRODORI_EMCC=/path/to/emsdk-4.0.20/upstream/emscripten/emcc npm run build:merge-kernels` before verification; ordinary builds copy the versioned binary rather than rebuilding it. The pinned compiler, SIMD/strict floating-point flags, source/binary hashes, ABI and bounded borrowed-view lifetimes are documented in [merge processing](merge-processing.md#algorithms-and-bounds) and [the kernel build instructions](../vendor/merge-kernels/README.md). Compare `IRODORI_MERGE_CPU_KERNEL=scalar` with the optional `wasm` path and `IRODORI_MERGE_OUTPUT_SLOTS=1` with normal two-slot comparison output using the same source/recipe hashes. `IRODORI_MERGE_GPU_TIMESTAMPS=1` requests supported compute timestamps; record its status and measured batch count, keeping the diagnostic mode matched between trials. Host dispatch and map wait are not device compute measurements. These controls do not relax pixel, checksum, memory or complete-operation gates.
 
 For merge viewport performance work, `npm run verify -- --foreground --target merge-preview-benchmark` measures warmed zoom, horizontal/vertical scrolling and mouse drag on a textured 3672 × 5496 native image at 100% and 800%, with deghost overlay off and on. Each of sixteen cases retains 60 samples after five warmups, dispatching four events every animation frame while earlier paints are pending. It measures through the following animation frame and posted paint task, requires continued presentations during input and retains p95 ≤33 ms. The isolated run records the WebGL renderer and verifies main-preview suspension. It measures browser presentation, excluding physical input delivery and RAW preparation. The merge benchmark family also includes this suite.
 
@@ -61,9 +217,9 @@ For HDR pan/zoom performance, `npm run verify -- --foreground --target hdr-inter
 
 For HDR slider performance, `npm run verify -- --foreground --target hdr-slider-benchmark` checks Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Temperature and Tint at Fit and 100% in an isolated 1440 × 900 Retina window. Each case retains 40 bursts after five warmups, with four input events per burst, followed by uninterrupted input every animation frame. Continuous cases verify monotonic publication, matching histogram serials and one history entry on release. It waits for actual GPU completion and the following animation frame, pairs histogram edit serials, requires p95 ≤33 ms for frames and histograms, and requires normal detail within 500 ms after release. Loader/visibility observations, one source upload and fixed sidebar geometry are recorded. `hdr-content`, `hdr-content-gpu` and `hdr-content-ui` cover content invariance, reference-proof mapping and history/visibility; independent CTL coverage includes Rec.2020 at peak 10. Physical nits, scanout and broader platform accuracy remain unverified.
 
-`benchmark:preview` deliberately no longer bundles adjustment, HDR, or merge measurements. Use `benchmark:all` for the previous combined coverage, or `check:all` for the comprehensive checkpoint. Thresholds and sample counts are unchanged. Set `LUMA_PREVIEW_BASELINE=/absolute/path/to/saved/benchmark.json` to enforce the existing 15% uncorrected CPU/GPU gates. The runner snapshots the baseline for stable assertions and records its original path, snapshot, content hash, sample, and medians. Missing/invalid baselines, missing reports, and selected tests skipped for required hardware or unsupplied real merge sequences mean **incomplete** verification (exit 2), never a complete checkpoint pass. Actual command failure exit codes are preserved; SIGINT/SIGTERM return 130/143.
+`benchmark:preview` deliberately no longer bundles adjustment, HDR, or merge measurements. Use `benchmark:all` for the previous combined coverage, or `check:all` for the comprehensive checkpoint. Thresholds and sample counts are unchanged. Set `IRODORI_PREVIEW_BASELINE=/absolute/path/to/saved/benchmark.json` to enforce the existing 15% uncorrected CPU/GPU gates. The runner snapshots the baseline for stable assertions and records its original path, snapshot, content hash, sample, and medians. Missing/invalid baselines, missing reports, and selected tests skipped for required hardware or unsupplied real merge sequences mean **incomplete** verification (exit 2), never a complete checkpoint pass. Actual command failure exit codes are preserved; SIGINT/SIGTERM return 130/143.
 
-Merge timing separates repeated-original calibration from distinct Sony sequences. Supply `LUMA_MERGE_SONY_SEQUENCE` as a JSON array of unmodified compatible Sony RAW paths (at least nine to select all workloads), and optionally `LUMA_MERGE_SONY_MODE=hdr` (default `noise`). Each 2/3/5/9 case selects distributed subsets and creates three fresh isolated libraries, with no preparation reuse before publication. RAW preparation, alignment, native review accumulation/comparison output and durable publication are timed; import copying/metadata inspection and human review are excluded. Every run must finish within 15 seconds. Reports separate native review preparation from publication; rendering before acceptance remains part of the cold total. The first published master and per-run diagnostics are retained. Repeated-file calibration never substitutes for distinct-sequence acceptance. Libraries and prepared synthetic scratch reside under the invocation's project-filesystem output, so publication uses the SSD rather than this machine's RAM-backed `/tmp`. Cold means fresh workers and preparation, not flushed OS file caches. Use `LUMA_MERGE_BENCHMARK_NATIVE=1` for the separate 2/9/32 native prepared-input scaling measurements. Avoid competing GPU workloads during performance measurements and retain any earlier failures.
+Merge timing separates repeated-original calibration from distinct Sony sequences. Supply `IRODORI_MERGE_SONY_SEQUENCE` as a JSON array of unmodified compatible Sony RAW paths (at least nine to select all workloads), and optionally `IRODORI_MERGE_SONY_MODE=hdr` (default `noise`). Each 2/3/5/9 case selects distributed subsets and creates three fresh isolated libraries, with no preparation reuse before publication. RAW preparation, alignment, native review accumulation/comparison output and durable publication are timed; import copying/metadata inspection and human review are excluded. Every run must finish within 15 seconds. Reports separate native review preparation from publication; rendering before acceptance remains part of the cold total. The first published master and per-run diagnostics are retained. Repeated-file calibration never substitutes for distinct-sequence acceptance. Libraries and prepared synthetic scratch reside under the invocation's project-filesystem output, so publication uses the SSD rather than this machine's RAM-backed `/tmp`. Cold means fresh workers and preparation, not flushed OS file caches. Use `IRODORI_MERGE_BENCHMARK_NATIVE=1` for the separate 2/9/32 native prepared-input scaling measurements. Avoid competing GPU workloads during performance measurements and retain any earlier failures.
 
 The additional `merge-three-raw-benchmark` target uses the committed Sony manifest
 directly and requires both the complete HDR bracket and three distinct distributed
@@ -74,7 +230,7 @@ same frozen review revision. Native review generation, including PNG encoding,
 and fresh managed capture verification are included. Import setup, human review,
 browser decoding and renderer presentation are outside this service clock. Missing
 or changed committed originals fail this target. Set
-`LUMA_MERGE_THREE_RAW_BASELINE=/path/to/report.json` to compare frozen geometry,
+`IRODORI_MERGE_THREE_RAW_BASELINE=/path/to/report.json` to compare frozen geometry,
 registration/masks and master/strip hashes; prepared manifests are compared when
 the baseline retains them. Source/master hashes, per-run
 timings and earlier failures remain in ignored evidence. Run
@@ -91,7 +247,7 @@ and the final sharp editor frame's post-paint observation. Five fresh-preparatio
 operations require median ≤10 seconds and maximum ≤12 seconds; a separate
 application-restart control also requires ≤12 seconds. Import, startup and human
 review are excluded. The 15-second checkpoint is reported separately; the existing
-five-second service stretch remains unchanged. `LUMA_MERGE_WORKFLOW_RUNS=3` selects
+five-second service stretch remains unchanged. `IRODORI_MERGE_WORKFLOW_RUNS=3` selects
 a matched experiment series and explicitly records insufficient final acceptance
 sample count. Use `npm run verify -- --foreground --target merge-workflow-benchmark`
 or the sequential foreground merge family. Backend and every sample remain in the
@@ -104,8 +260,8 @@ targets: `merge-gpu-preparation` (camera numerical/lifecycle),
 `merge-gpu-reference` (reference conversion numerical/lifecycle), and
 `merge-gpu-preparation-native` (complete isolated RAW operations through
 publication). The native target uses three interleaved CPU/GPU pairs;
-`LUMA_MERGE_GPU_PREPARATION_PAIRS=1` is diagnostic only. Select
-`LUMA_MERGE_GPU_PREPARATION_STAGE=camera`, `reference`, or `both` to attribute
+`IRODORI_MERGE_GPU_PREPARATION_PAIRS=1` is diagnostic only. Select
+`IRODORI_MERGE_GPU_PREPARATION_STAGE=camera`, `reference`, or `both` to attribute
 each candidate separately. These service comparisons exclude Electron
 presentation and cannot replace the foreground workflow acceptance above.
 
@@ -113,7 +269,7 @@ The isolated [image-pipeline research](performance-research.md) adds `research-p
 
 1. Select the relevant target IDs and implement the change.
 2. Run that verification command when ready.
-3. Read `summary.md` first. On failure, open the linked diagnostic evidence and rerun the exact failed case command from the report. Reuse the build unless application code changed; retain `LUMA_TEST_UI_MODE` from the reported command and add `LUMA_TEST_TRACE=1` for diagnostic functional tracing.
+3. Read `summary.md` first. On failure, open the linked diagnostic evidence and rerun the exact failed case command from the report. Reuse the build unless application code changed; retain `IRODORI_TEST_UI_MODE` from the reported command and add `IRODORI_TEST_TRACE=1` for diagnostic functional tracing.
 4. Stop when relevant checks pass. Broader coverage repeats only when subsequent changes justify it. Extra GPU smoke checks, manual inspection, and MCP inspection remain purpose-driven.
 
 Routine verification warns after 60 seconds, listing the ten slowest tests in the report; fast checks also warn above the 15 second target. Budgets never remove assertions or stop tests early. The compact report includes selected targets, stage outcomes, timings, failures, exact reruns, skipped/blocked work, benchmark measurements, worker counts, runtime/hardware, Git revision/dirty state, and baseline provenance. Detailed logs and successful screenshots stay in artifacts.
@@ -184,23 +340,23 @@ Slow-copy instrumentation runs through Playwright’s main-process debugger and 
 
 Native picker return values are supplied using Playwright's Electron main-process API. The renderer, preload, scanner, preview process, filesystem copies, and database remain real. Native OS picker interaction itself requires a manual check. No test-only filesystem access is exposed by the production preload bridge.
 
-Each invocation creates a unique directory under `artifacts/verification/`. It contains `summary.md`, `result.json`, stage logs, and group `summary.json`, `results/`, and `report/` directories under `functional/` or `benchmarks/`. Failures retain `failure.png` and Electron diagnostics. Tracing is disabled normally and always disabled for benchmarks; `LUMA_TEST_TRACE=1` records `electron-N.zip` traces for diagnostic failures. Open a report with `npx playwright show-report <run>/functional/<project>/report`. Later runs never erase earlier artifacts; remove obsolete runs explicitly when no longer needed. All artifacts are ignored by Git.
+Each invocation creates a unique directory under `artifacts/verification/`. It contains `summary.md`, `result.json`, stage logs, and group `summary.json`, `results/`, and `report/` directories under `functional/` or `benchmarks/`. Failures retain `failure.png` and Electron diagnostics. Tracing is disabled normally and always disabled for benchmarks; `IRODORI_TEST_TRACE=1` records `electron-N.zip` traces for diagnostic failures. Open a report with `npx playwright show-report <run>/functional/<project>/report`. Later runs never erase earlier artifacts; remove obsolete runs explicitly when no longer needed. All artifacts are ignored by Git.
 
 The real Electron Trash API was also checked separately on the Linux home filesystem with a uniquely named disposable bundle; contents were verified and the fixture restored and cleaned up. The host's `/tmp` uses tmpfs, where that native Trash check failed. The failure leaves the library photo intact; see Electron's [tmpfs Trash issue](https://github.com/electron/electron/issues/28045).
 
-Preview tests cover scrolling on both axes without zoom, Shift-wheel mapping, unchanged Fit scrolling, pointer-centered pinch/Ctrl-scroll without browser zoom, native image sizing, bounded drag and capture cleanup, keyboard controls, context menus and deletion, photo switching, resize behavior, small/portrait images, and the compact toolbar with the console at 1100 × 700. Both previews accumulate complete scroll/pinch bursts into one animation-frame presentation, with matching overlays, unchanged overlay dimensions and no second queued draw. Geometry tests check fit, zoom limits, pointer anchoring, pan bounds, pixel/line/page delta normalization, zero deltas, physical Ctrl-wheel scale (`scale × 1.1^(-clamp(normalizedDelta, -100, 100) / 100)`) and exact pinch scale (`scale × exp(-deltaY / 100)`, matching [Chromium's native conversion](https://chromium.googlesource.com/chromium/src/+/refs/tags/126.0.6443.1/content/common/input/touchpad_pinch_event_queue.cc)). Shared Electron checks establish Control using keyboard/pointer events, preserve it across loading, retry and same-photo catalog updates, and clear it on key release or blur/visibility changes. Coarse mouse deltas of 100, 120 and 240 pixels produce the same 10% step; fractional deltas retain proportional sensitivity and reverse consistently. Consecutive wheel events still present once per animation frame without a settling delay. Both preview suites verify native mouse locking, relative motion beyond cursor boundaries, hidden cursor state, and release on mouse up, Escape and blur. Mouse release adds a 120 ms cubic ease-out capped at 24 CSS pixels, using applied movement from the last 60 ms and a 0.05 px/ms minimum speed. Node and Electron cases cover bounds, stationary releases, reduced motion, interruptions, duplicate release/unlock cleanup and captured fallback. The `pan-drag` Node target also covers delayed grants after cancellation or disposal, denied locks, touch/pen capture, and cleanup. Test gates delay full-frame requests and invalidate frame metadata to verify neutral loading, disabled controls, ignored gestures, errors, and retry states. Photo-action tests send native Electron Delete and Backspace events for single and multiple selections, editable fields, the console, modifiers, repeated keys and already-handled events; confirmation still starts on Cancel and uses isolated Trash. Physical macOS touchpad delivery and responsiveness require a separate manual check in an isolated profile.
+Preview tests cover scrolling on both axes without zoom, Shift-wheel mapping, unchanged Fit scrolling, pointer-centered pinch/Ctrl-scroll without browser zoom, native image sizing, bounded drag and capture cleanup, keyboard controls, context menus and deletion, photo switching, resize behavior, small/portrait images, and the compact toolbar with the console at 1100 × 700. Both previews accumulate complete scroll/pinch bursts into one animation-frame presentation, with matching overlays, unchanged overlay dimensions and no second queued draw. Geometry tests check fit, zoom limits, pointer anchoring, pan bounds, pixel/line/page delta normalization, zero deltas, physical Ctrl-wheel scale (`scale × 1.1^(-normalizedDelta / 120)`) and exact pinch scale (`scale × exp(-deltaY / 100)`, matching [Chromium's native conversion](https://chromium.googlesource.com/chromium/src/+/refs/tags/126.0.6443.1/content/common/input/touchpad_pinch_event_queue.cc)). Shared Electron checks establish Control using keyboard/pointer events, preserve it across loading, retry and same-photo catalog updates, and clear it on key release or blur/visibility changes. Mouse zoom integrates normalized distance without a per-event cap: split high-resolution bursts and coalesced events produce identical scales and preserve pointer anchoring. Recorded 15/30/75-pixel G502 fragments have regression coverage. Zoom-out from maximum zoom restores exact centered Fit, including arbitrary Fit scales below 10%, and subsequent resize retains Fit behavior. A 2% mouse-only snap zone catches a recorded 135-pixel zoom-in followed by a 120-pixel zoom-out; touchpad pinch remains continuous above Fit. Explicit toolbar scales below Fit remain available. The Wayland display refresh pauses while physical Control is held, preventing its hide/show cycle from clearing modifier evidence mid-gesture; native view blur, actual window loss, release and observer cleanup have Node coverage. The [wheel recorder](preview-wheel-debugging.md) provides opt-in physical-input and requested/presented-view logs. Consecutive wheel events still present once per animation frame without a settling delay. Both preview suites verify native mouse locking, relative motion beyond cursor boundaries, hidden cursor state, and release on mouse up, Escape and blur. Mouse release adds a 120 ms cubic ease-out capped at 24 CSS pixels, using applied movement from the last 60 ms and a 0.05 px/ms minimum speed. Node and Electron cases cover bounds, stationary releases, reduced motion, interruptions, duplicate release/unlock cleanup and captured fallback. The `pan-drag` Node target also covers delayed grants after cancellation or disposal, denied locks, touch/pen capture, and cleanup. Test gates delay full-frame requests and invalidate frame metadata to verify neutral loading, disabled controls, ignored gestures, errors, and retry states. Photo-action tests send native Electron Delete and Backspace events for single and multiple selections, editable fields, the console, modifiers, repeated keys and already-handled events; confirmation still starts on Cancel and uses isolated Trash. Physical macOS touchpad delivery and responsiveness require a separate manual check in an isolated profile.
 
 Full-resolution checks decode the real Sony RAW to 5496 × 3672 uncorrected pixels; verified automatic lens corrections produce a 5422 × 3622 crop. Production full previews use linear Rec.2020 HDR preparation and an ACES SDR proof. CPU checks compare the complete proof against the analytic reference and retain original, working-strip and frame hashes, alpha, dimensions and exact matching placeholders. Direct decoder GPU checks separately compare AHD output against LibRaw and exercise synthetic neutral bars, black levels, highlights, stripe boundaries, all flip orientations, and device loss. A simulated GPU failure verifies CPU fallback and a matching placeholder. Raster checks cover orientation, profiles, native dimensions, and alpha. Cache tests cover restart, LRU, stream leases, version cleanup, interrupted writes, cancellation, removal, and shutdown. Electron tests verify neutral first loading, matching blurred placeholders, native canvas dimensions, rapid navigation, imports during loading, and repair of corrupted RGBA frames. GPU tests skip only when no hardware adapter is available; this is reported separately from a hardware pass. [Mac workability](mac-workability.md) records the focused repairs, measured performance failures and remaining platform gaps.
 
 Lens-correction module contracts, schema migration, independent-table coverage, and the extended correction benchmark are documented in [RAW processing](raw-processing.md). Lens UI tests cover default availability, rapid independent changes, cached variants, native zoom, restart persistence, and the minimum console layout. MCP additionally imports the real Sony RAW, changes distortion, reloads the renderer to verify persistence, captures the correction controls, and deletes the photo through isolated Trash.
 
-Run `npm run gpu:check` for a native compute/readback smoke check. Run `npm run benchmark:preview -- --foreground` for four measurements each of CPU/PNG, CPU/RGBA fallback, and GPU/RGBA using the same Sony fixture, bundled Node worker, streamed files, and real Electron canvas presentation. The benchmark requires a hardware GPU, includes integrity checking and two animation frames, aligns presentation starts to a frame boundary, samples eight cached revisits per rendered frame, reports generation/presentation separately, and fails if first display is slower or cached presentation regresses by more than 15%. It is opt-in rather than a timing-sensitive ordinary test. Reports go to the unique benchmark run directory under `artifacts/verification/`; later checks preserve them. Set `LUMA_PREVIEW_DIAGNOSTICS=1` to log per-frame backend and stage timings; `LUMA_PREVIEW_BACKEND=cpu` forces fallback. The local Sony fixture benchmark on Radeon RX 7900 XTX measured median first presentation at 3449 ms for CPU/PNG and 749 ms for GPU/RGBA; warm presentation was 12 ms and 8 ms respectively. Four samples include cold GPU initialization once. These are fixture measurements, not a guarantee for other cameras or hardware. The renderer bitmap cache is bounded to 256 MiB and has LRU/lease/identity tests. The tested renderer remains SDR. Windows/macOS hardware and packaging are not covered by the local Linux run.
+Run `npm run gpu:check` for a native compute/readback smoke check. Run `npm run benchmark:preview -- --foreground` for four measurements each of CPU/PNG, CPU/RGBA fallback, and GPU/RGBA using the same Sony fixture, bundled Node worker, streamed files, and real Electron canvas presentation. The benchmark requires a hardware GPU, includes integrity checking and two animation frames, aligns presentation starts to a frame boundary, samples eight cached revisits per rendered frame, reports generation/presentation separately, and fails if first display is slower or cached presentation regresses by more than 15%. It is opt-in rather than a timing-sensitive ordinary test. Reports go to the unique benchmark run directory under `artifacts/verification/`; later checks preserve them. Set `IRODORI_PREVIEW_DIAGNOSTICS=1` to log per-frame backend and stage timings; `IRODORI_PREVIEW_BACKEND=cpu` forces fallback. The local Sony fixture benchmark on Radeon RX 7900 XTX measured median first presentation at 3449 ms for CPU/PNG and 749 ms for GPU/RGBA; warm presentation was 12 ms and 8 ms respectively. Four samples include cold GPU initialization once. These are fixture measurements, not a guarantee for other cameras or hardware. The renderer bitmap cache is bounded to 256 MiB and has LRU/lease/identity tests. The tested renderer remains SDR. Windows/macOS hardware and packaging are not covered by the local Linux run.
 
 ### Additional camera samples
 
 The GPU eligibility regression covers the **ZV-1A** model name as well as ZV-1. Ten local ZV-1A ARWs were separately compared against LibRaw at full resolution, including portrait orientation and different white balances. All passed the same pixel tolerances as the checked-in ZV-1 fixture. These local photographs are not repository fixtures. On the same Radeon RX 7900 XTX, a ZV-1A sample measured 2586 ms median for CPU/RGBA fallback versus 717 ms for GPU/RGBA, including worker generation, streamed loading, integrity validation, and Electron canvas presentation. Cached GPU presentation measured 14 ms across 32 revisits. These isolated measurements exclude React selection handling and are not a guarantee for every photograph.
 
-To repeat comparisons using local files, set `LUMA_RAW_TEST_FILES` to a JSON array of absolute paths and run `npx playwright test tests/gpu-preview.spec.ts`. To benchmark one of those files through the bundled worker and Electron presentation, set `LUMA_RAW_BENCHMARK_FILE` to its absolute path and run `npm run benchmark:preview -- --foreground`. Both commands read source files and write only isolated test output; the benchmark does not touch the existing library. Comparison images and reports appear in that invocation’s `artifacts/verification/` directory.
+To repeat comparisons using local files, set `IRODORI_RAW_TEST_FILES` to a JSON array of absolute paths and run `npx playwright test tests/gpu-preview.spec.ts`. To benchmark one of those files through the bundled worker and Electron presentation, set `IRODORI_RAW_BENCHMARK_FILE` to its absolute path and run `npm run benchmark:preview -- --foreground`. Both commands read source files and write only isolated test output; the benchmark does not touch the existing library. Comparison images and reports appear in that invocation’s `artifacts/verification/` directory.
 
 ## Canvas layout
 
@@ -218,7 +374,7 @@ The [scrolling design acceptance](scrolling-design.md#local-acceptance--2026-10-
 
 The [menu design standard](menu-design.md) defines eligibility, target deduplication, labels, temporary blockers and interaction. Run `npm run verify -- --target photo-menu-model --target photo-menu-context --target photo-menu-ui`, then the affected `photo-actions`, `stack-group-actions`, `stack-group-actions-ui`, `stack-ui`, `stack-range-selection-ui`, `merge-ui`, `all-photos-ui`, `workspace`, and `editor-mcp` targets. Node covers the pure menu model; service covers bulk metadata-only reads and admission; Electron covers presentation, keyboard/pointer use, focus, asynchronous updates and stale targets. Old Delete labels and initial Delete focus are intentionally replaced by Move to Trash and enabled non-destructive focus.
 
-Inspect representative menus in a harness-created isolated `dev:mcp` profile at native 1100 × 700 with Console open. Verify profile isolation before interaction, use isolated Trash adapters, retain ignored screenshots/logs, and remove profiles/processes afterwards. Record the local OS; this does not verify Linux native select dropdowns (#10), real OS Trash integration, processing, benchmarks, or a comprehensive checkpoint.
+Inspect representative menus in a harness-created isolated `npm run dev` profile at native 1100 × 700 with Console open. Verify profile isolation before interaction, use isolated Trash adapters, retain ignored screenshots/logs, and remove profiles/processes afterwards. Record the local OS; this does not verify Linux native select dropdowns (#10), real OS Trash integration, processing, benchmarks, or a comprehensive checkpoint.
 
 ## Test through MCP
 
@@ -233,7 +389,7 @@ This builds and launches an isolated hidden Electron instance with a temporary l
 For an isolated development inspection, pass Electron's profile argument through the launcher:
 
 ```sh
-npm run dev:mcp -- -- --user-data-dir=/absolute/temporary/profile
+npm run dev -- -- --user-data-dir=/absolute/temporary/profile
 ```
 
 The first `--` belongs to npm; the second forwards the profile argument to Electron through electron-vite. Do not rely on `ELECTRON_CLI_ARGS`: the electron-vite CLI replaces that environment variable while parsing arguments.
@@ -243,7 +399,7 @@ For intentional manual inspection of the isolated development window:
 1. Start the application and keep it running:
 
    ```sh
-   npm run dev:mcp -- -- --user-data-dir=/absolute/temporary/profile
+   npm run dev -- -- --user-data-dir=/absolute/temporary/profile
    ```
 
 2. In another terminal, verify the actual MCP connection:
@@ -254,21 +410,21 @@ For intentional manual inspection of the isolated development window:
 
 The check starts the locally installed MCP server over stdio, initializes the protocol, discovers tools, and uses those tools to inspect the app, select a photo (or open the empty-library import dialog), open the console, and capture a screenshot. A successful check establishes that the server can operate the renderer even if the current Codex session has not loaded its tools yet.
 
-`dev:mcp` exposes Electron's Chrome DevTools Protocol endpoint at `http://127.0.0.1:9222`. The local, version-pinned Playwright MCP server connects to that endpoint using `npm run mcp:ui`. This follows [Playwright MCP's support for Electron over CDP](https://playwright.dev/mcp/configuration/browser-extension). Neither a browser extension nor a separately installed Chrome is needed for this connection.
+`npm run dev` exposes Electron's Chrome DevTools Protocol endpoint at `http://127.0.0.1:9222`; `npm run dev:mcp` is an alias. The local, version-pinned Playwright MCP server connects to that endpoint using the separate `npm run mcp:ui` stdio server. This follows [Playwright MCP's support for Electron over CDP](https://playwright.dev/mcp/configuration/browser-extension). Neither a browser extension nor a separately installed Chrome is needed for this connection.
 
-Ordinary `npm run dev` and production launches do not enable the debug endpoint. Stop the `dev:mcp` process when finished. Run one Luma debugging instance at a time because the port is fixed.
+Production launches do not enable the debug endpoint. Stop the development process when finished. Run one Irodori development instance at a time because the debugging port is fixed.
 
-Both `npm run dev` and `npm run dev:mcp` automatically try the next available renderer development port if port `5173` is occupied. To choose a different starting port, use `LUMA_DEV_PORT=5180 npm run dev:mcp`. Electron uses the selected Vite port; the MCP debugging endpoint remains bound to `127.0.0.1:9222`.
+Both `npm run dev` and `npm run dev:mcp` automatically try the next available renderer development port if port `5173` is occupied. To choose a different starting port, use `IRODORI_DEV_PORT=5180 npm run dev`. Electron uses the selected Vite port; the MCP debugging endpoint remains bound to `127.0.0.1:9222`.
 
 ### Register the server in Codex
 
-Merge [mcp-config.example.toml](mcp-config.example.toml) into the trusted project's `.codex/config.toml` and replace `cwd` with the absolute checkout path. In this workspace the path is `/var/home/KolegaDragan/Development/Luma`. Preserve any existing settings. The project configuration directory may require a separately permitted write in managed environments.
+Merge [mcp-config.example.toml](mcp-config.example.toml) into the trusted project's `.codex/config.toml` and replace `cwd` with the absolute checkout path. In this workspace the path is `/var/home/KolegaDragan/Development/Irodori`. Preserve any existing settings. The project configuration directory may require a separately permitted write in managed environments.
 
-The `luma_ui` server runs `npm run --silent mcp:ui` from that directory. Codex supports project-scoped MCP configuration for trusted projects, including an explicit working directory. See the [official Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+The `irodori_ui` server runs `npm run --silent mcp:ui` from that directory. Codex supports project-scoped MCP configuration for trusted projects, including an explicit working directory. See the [official Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
 
-Restart or reload the Codex client's MCP connection after registration. A server added during a conversation may not appear in that conversation's tool catalog until the client reconnects. Use the client's MCP settings or `/mcp` where available to confirm that `luma_ui` is connected.
+Restart or reload the Codex client's MCP connection after registration. A server added during a conversation may not appear in that conversation's tool catalog until the client reconnects. Use the client's MCP settings or `/mcp` where available to confirm that `irodori_ui` is connected.
 
-Once connected, ask the agent to inspect the Luma window, select an imported photograph, open the console, and take a screenshot. Use fresh accessibility snapshots to identify controls before interacting with them. The MCP connection can inspect rendered controls, screenshots, and renderer console messages; native operating-system dialogs are outside this renderer connection and need separate verification.
+Once connected, ask the agent to inspect the Irodori window, select an imported photograph, open the console, and take a screenshot. Use fresh accessibility snapshots to identify controls before interacting with them. The MCP connection can inspect rendered controls, screenshots, and renderer console messages; native operating-system dialogs are outside this renderer connection and need separate verification.
 
 Do not use MCP `browser_resize` or Playwright `page.setViewportSize()` for Electron layout checks. They emulate the web viewport without resizing the native window, which can leave flickering empty areas outside the content. In direct MCP inspection, evaluate `window.resizeTo(1100, 700)` and wait for `innerWidth` and `innerHeight` to settle; verify that the OS frame also changed. Automated tests use Electron's `BrowserWindow.setContentSize(1100, 700)`. If viewport emulation was already enabled, restart the isolated development window before native resizing.
 
@@ -276,7 +432,7 @@ Do not use MCP `browser_resize` or Playwright `page.setViewportSize()` for Elect
 
 | Symptom                                        | Check                                                                                                                                             |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MCP cannot connect to port 9222                | Start `npm run dev:mcp`, wait for the window, and confirm no other application owns port 9222.                                                    |
+| MCP cannot connect to port 9222                | Start `npm run dev`, wait for the window, and confirm no other application owns port 9222.                                                        |
 | Server starts but no tools appear in Codex     | Verify the trusted project's configuration, its absolute `cwd`, and reload the client's MCP connection.                                           |
 | `mcp:ui` waits without displaying an interface | This is a stdio server intended for an MCP client. Use `mcp:check` to exercise it from a terminal.                                                |
 | Electron cannot open a window                  | Run from a graphical Linux session and check the reported missing display or system library. A browser-only run does not verify Electron startup. |
@@ -292,17 +448,37 @@ Report automated checks and MCP protocol checks separately from direct Codex too
 
 ## Dedicated editing MCP server
 
-Start Luma normally with `npm start` or `npm run dev`. Run `npm run --silent mcp:editor` as a stdio MCP server; this interface does not need CDP or `dev:mcp`. It uses the installed [MCP SDK stdio transport](https://ts.sdk.modelcontextprotocol.io/server#stdio).
+Start Irodori with `npm start` or `npm run dev`. Run `npm run --silent mcp:editor` as a separate stdio MCP server; this interface does not need CDP and also works with production launches. It uses the installed [MCP SDK stdio transport](https://ts.sdk.modelcontextprotocol.io/server#stdio).
 
-The server offers `luma_list_photos`, `luma_get_edits`, `luma_update_edits`, `luma_get_edit_history`, `luma_undo_edit`, `luma_redo_edit`, `luma_get_photo_statistics` and `luma_get_photo_pixel`, alongside stack, merge, task and display operations. Use photo IDs from the list operation, then read the current revision before committing a patch or navigating history. An exposure patch looks like `{ "exposureEv": 1.25 }`; contrast accepts integers from −100 to +100, for example `{ "contrast": 35 }`. Shadows, Whites, Blacks, and Highlights accept integers from −100 to +100, for example `{ "highlights": -60 }`. A combined `{ "exposureEv": 1.25, "contrast": 35, "highlights": -60, "shadows": 65, "whites": -35, "blacks": 20, "lens": { "distortion": false } }` patch makes one history entry. Lens patches use `{ "lens": { "distortion": false } }`. Revision conflicts require another read. Each update creates one entry in the same history used by the UI.
+The server offers `irodori_list_photos`, `irodori_get_edits`, `irodori_get_edit_capabilities`, `irodori_update_edits`, `irodori_get_edit_history`, `irodori_undo_edit`, `irodori_redo_edit`, `irodori_get_photo_statistics` and `irodori_get_photo_pixel`, alongside stack, merge, task and display operations. Use photo IDs from the list operation, then read the current revision before committing a patch or navigating history. An exposure patch looks like `{ "exposureEv": 1.25 }`; contrast accepts integers from −100 to +100, for example `{ "contrast": 35 }`. Shadows, Whites, Blacks, and Highlights accept integers from −100 to +100, for example `{ "highlights": -60 }`. A combined `{ "exposureEv": 1.25, "contrast": 35, "highlights": -60, "shadows": 65, "whites": -35, "blacks": 20, "lens": { "distortion": false } }` patch makes one history entry. Lens patches use `{ "lens": { "distortion": false } }`. Revision conflicts require another read. Each update creates one entry in the same history used by the UI.
 
-For a committed HDR pixel, call `luma_get_photo_pixel` with `{ "photoId": "<id>", "expectedRevision": 4, "x": 100, "y": 100, "domain": "working-hdr" }`. Coordinates are integer native-image positions, independent of zoom/pan; the result reports authoritative decoded/corrected dimensions. Output sampling additionally selects `target: "sdr"` or `"current"`; current requires `targetGeneration` from display state and follows SDR presentation fallback. Linear channels, alpha, relative luminance and stops are returned; stops are `null` at zero/negative luminance. Raster and legacy processing are unsupported. The `hdr-pixel` service target covers independent samples, strip/coordinate boundaries, alpha, corruption/truncation, committed revisions, target conflicts, cancellation and merged masters. Lens UI automation must expand **Lens corrections** before interacting with checkboxes, including after reload/restart; collapsing the section keeps edits and subscriptions mounted.
+Mixer and grading accept partial nested patches, such as
+`{ "colorMixer": { "ranges": { "blue": { "hue": -30 } } }, "colorGrading": { "tones": { "shadows": { "hue": 234.5, "saturation": 25 } }, "balance": 10 } }`.
+Unmentioned ranges, tones and amounts remain unchanged. Read
+`irodori_get_edit_capabilities` for algorithm versions, domains, stage order, range
+definitions, units and numeric bounds; the typed UI API returns the same contract.
+The `creative-color-edits`, `creative-color-history`, `catalog-migration`,
+`creative-color-raster` and `creative-color-ui` targets cover settings 10/catalog 20,
+history/rollback, small-PNG proof/export and hidden UI/MCP restoration. Tiny synthetic
+RAW proof and native fallback have separate `creative-color-raw-proof` and
+`creative-color-native-frame` targets. This evidence does not substitute for the
+deferred real-source, native visual/input or source-matched performance gates.
+
+Real native-helper tests require an explicit verified executable; omission fails
+before computation rather than silently skipping coverage. After building/staging
+the helper, select its small creative-color cases with:
+
+```sh
+IRODORI_NATIVE_CPU_RENDER_TEST_EXECUTABLE="$PWD/vendor/native-cpu-render/linux-x64/irodori-cpu-render" npm run verify -- --target creative-color-native-frame
+```
+
+For a committed HDR pixel, call `irodori_get_photo_pixel` with `{ "photoId": "<id>", "expectedRevision": 4, "x": 100, "y": 100, "domain": "working-hdr" }`. Coordinates are integer native-image positions, independent of zoom/pan; the result reports authoritative decoded/corrected dimensions. Output sampling additionally selects `target: "sdr"` or `"current"`; current requires `targetGeneration` from display state and follows SDR presentation fallback. Linear channels, alpha, relative luminance and stops are returned; stops are `null` at zero/negative luminance. Raster and legacy processing are unsupported. The `hdr-pixel` service target covers independent samples, strip/coordinate boundaries, alpha, corruption/truncation, committed revisions, target conflicts, cancellation and merged masters. Lens UI automation must expand **Lens corrections** before interacting with checkboxes, including after reload/restart; collapsing the section keeps edits and subscriptions mounted.
 
 The application listens on an ephemeral port bound only to `127.0.0.1`. A random authentication token and port are published atomically at `<profile>/editor/connection.json`, with directory mode 0700 and file mode 0600 on Unix, and removed during shutdown. Requests with browser origins, incorrect hosts, missing authentication, or unknown operations are rejected. Only the application opens SQLite. The stdio server reads the connection file again per request, so it reconnects after a normal application restart.
 
-For an isolated profile, launch Electron with `--user-data-dir=/absolute/test/profile` and set `LUMA_PROFILE=/absolute/test/profile` in the MCP server environment. The default profile follows Electron's Luma configuration directory. Register a server named `luma_editor` using command `npm`, arguments `["run", "--silent", "mcp:editor"]`, and this repository as its working directory. Set `LUMA_PROFILE` when using a nondefault profile. Keep `luma_ui` registered separately for development renderer inspection.
+For an isolated profile, launch Electron with `--user-data-dir=/absolute/test/profile` and set `IRODORI_PROFILE=/absolute/test/profile` in the MCP server environment. The default profile follows Electron's Irodori configuration directory. Register a server named `irodori_editor` using command `npm`, arguments `["run", "--silent", "mcp:editor"]`, and this repository as its working directory. Set `IRODORI_PROFILE` when using a nondefault profile. Keep `irodori_ui` registered separately for development renderer inspection.
 
-Run `npm run mcp:editor:test` to exercise the real stdio protocol against an isolated Electron profile, including shared UI Undo/Redo, conflicts, authentication, file permissions, and restart. `npm run verify -- adjustments`, `npm run verify -- mcp`, and `npm run check:full` include the editing protocol tests. Run `npm run benchmark:adjustments -- --foreground <name>` or `npm run benchmark:all -- --foreground` separately from other GPU workloads; `exposure-latency.json`, `contrast-latency.json`, and `highlights-latency.json`, `shadows-latency.json`, `whites-latency.json`, and `blacks-latency.json` report warmed RAW slider presentation, targeting p95 ≤33 ms on the verified Radeon setup. Set `LUMA_PREVIEW_BASELINE` to a saved pre-change benchmark JSON to enforce the 15% uncorrected regression gate.
+Run `npm run mcp:editor:test` to exercise the real stdio protocol against an isolated Electron profile, including shared UI Undo/Redo, conflicts, authentication, file permissions, and restart. `npm run verify -- adjustments`, `npm run verify -- mcp`, and `npm run check:full` include the editing protocol tests. Run `npm run benchmark:adjustments -- --foreground <name>` or `npm run benchmark:all -- --foreground` separately from other GPU workloads; `exposure-latency.json`, `contrast-latency.json`, and `highlights-latency.json`, `shadows-latency.json`, `whites-latency.json`, and `blacks-latency.json` report warmed RAW slider presentation, targeting p95 ≤33 ms on the verified Radeon setup. Set `IRODORI_PREVIEW_BASELINE` to a saved pre-change benchmark JSON to enforce the 15% uncorrected regression gate.
 
 Adjustment coverage is shared where behavior is shared: `adjustment-input-decimal.spec.ts` and `adjustment-input-integer.spec.ts` exercise shared input gestures, cancellation, control switching, conflicts, shutdown, and minimum layout; `adjustment-wiring.spec.ts` checks each adjustment's connection to history and the preview. Curve and validation tests stay in `contrast.spec.ts`, `highlights.spec.ts`, `tonal-adjustments.spec.ts`, and `edits.spec.ts`. Curve sweeps report the first failing sample instead of thousands of separate assertions.
 
@@ -312,9 +488,9 @@ Adjustment coverage is shared where behavior is shared: `adjustment-input-decima
 
 Choose explicit white-balance/analysis targets from the registry. Use `npm run verify -- ui adjustments preview mcp` only for a deliberate broader regression; Sony import and embedded-preview-failure targets are `import-raw` and `library-raw`. New coverage includes `white-balance.spec.ts`, `white-balance-raw.spec.ts`, `white-balance-ui.spec.ts`, `statistics.spec.ts`, comparison interaction and statistics scheduling/cancellation in the existing preview service suite.
 
-`luma_get_photo_statistics` takes `{ "photoId": "<id>", "expectedRevision": 4 }`. Its `rgb` arrays contain exact integer counts, excluding alpha-zero pixels; the UI histogram is sampled. A stale revision returns a conflict. A new foreground preview can interrupt background statistics, in which case request them again after presentation settles. The MCP timeout accommodates full RAW generation. Combined editing patches may include `{ "whiteBalance": { "mode": "custom", "kelvin": 8000, "tint": 25 }, "highlights": -50 }`; `{ "whiteBalance": { "mode": "as-shot" } }` resets both controls in one history entry.
+`irodori_get_photo_statistics` takes `{ "photoId": "<id>", "expectedRevision": 4 }`. Its `rgb` arrays contain exact integer counts, excluding alpha-zero pixels; the UI histogram is sampled. A stale revision returns a conflict. A new foreground preview can interrupt background statistics, in which case request them again after presentation settles. The MCP timeout accommodates full RAW generation. Combined editing patches may include `{ "whiteBalance": { "mode": "custom", "kelvin": 8000, "tint": 25 }, "highlights": -50 }`; `{ "whiteBalance": { "mode": "as-shot" } }` resets both controls in one history entry.
 
-Capture `npm run benchmark:preview -- --foreground` before implementation, then set `LUMA_PREVIEW_BASELINE` to its `benchmark.json` for the post-change run. The 15% uncorrected-preview gate is unchanged. `npm run benchmark:adjustments -- --foreground temperature` measures warmed white-balance gestures with the histogram and both clipping overlays enabled, retaining the 33 ms p95 target. Keep evidence under ignored `artifacts/verification/` and report the actual hardware and platform limitations.
+Capture `npm run benchmark:preview -- --foreground` before implementation, then set `IRODORI_PREVIEW_BASELINE` to its `benchmark.json` for the post-change run. The 15% uncorrected-preview gate is unchanged. `npm run benchmark:adjustments -- --foreground temperature` measures warmed white-balance gestures with the histogram and both clipping overlays enabled, retaining the 33 ms p95 target. Keep evidence under ignored `artifacts/verification/` and report the actual hardware and platform limitations.
 
 ## JPEG export
 
@@ -324,17 +500,17 @@ Select `export-model`, `export-context`, `export-rendering` and `export-ui` expl
 
 The independent Float64 oracle has its own ISO packet parser, JPEG-primary/gain-map extraction and sRGB-to-Rec.2020 conversion. It uses sharp as the independent JPEG reader and compares against both the pinned decoder and the reference HDR rendition in relative SDR-white units at partial/full headroom. Original CC0 algebraic vectors cover offsets, differing channels and gamma; chart interiors require relative error within 3% / 5% / 10% at JPEG quality 100 / 90 / 80. The real Sony fixture and a full-size 5496 × 3672 encoder case retain memory evidence. No display-brightness claim follows from a numerical/file pass.
 
-Inspect the chooser and Custom dialog in a harness-created isolated `dev:mcp` profile at native 1100 × 700 with Console open and a larger window, verifying the actual profile before any imports. Keep screenshots/logs under ignored artifacts and remove owned processes/profiles. Native pickers, OS HDR viewers, Linux/Windows, installers and physical luminance need separate evidence; automated picker adapters exercise application behavior only. Do not run comprehensive checkpoints or presentation benchmarks as an automatic export completion step.
+Inspect the chooser and Custom dialog in a harness-created isolated `npm run dev` profile at native 1100 × 700 with Console open and a larger window, verifying the actual profile before any imports. Keep screenshots/logs under ignored artifacts and remove owned processes/profiles. Native pickers, OS HDR viewers, Linux/Windows, installers and physical luminance need separate evidence; automated picker adapters exercise application behavior only. Do not run comprehensive checkpoints or presentation benchmarks as an automatic export completion step.
 
 ### Local JPEG export acceptance — 2026-10-15
 
-The later HDR round-trip correction has **329 distinct passing focused cases**, with no unresolved test failures or skips. Selected targets include JPEG import/UI, export, authored/RAW GPU rendering, history/migrations, source/cache analysis, background import, workspace and editing MCP. The final export/HDR run passed 264 cases in 85.5 seconds (real Sony export: 56.9 seconds); the background-compatible RAW editor subset passed three cases in 96.5 seconds; the final export-dialog run passed 250 in 27.7 seconds. Evidence is `artifacts/verification/hdr-jpeg-fixed-N5rFoO/summary.md`. A corrected export of the reported photograph was compared across 59,340 sampled channels against the source rendition and independent oracle; originals were verified unchanged. Isolated `dev:mcp`/`luma_ui` inspection passed at 1100 × 700 and 1440 × 900 with Console open; `artifacts/mcp/hdr-jpeg-1792063841038/` retains evidence. Native macOS decoded the corrected photo as HDR with 2.067× content headroom. Native alternate-gamut appearance, physical luminance, other platforms and the broader HDR roadmap remain open. No comprehensive checkpoint or benchmark was run.
+The later HDR round-trip correction has **329 distinct passing focused cases**, with no unresolved test failures or skips. Selected targets include JPEG import/UI, export, authored/RAW GPU rendering, history/migrations, source/cache analysis, background import, workspace and editing MCP. The final export/HDR run passed 264 cases in 85.5 seconds (real Sony export: 56.9 seconds); the background-compatible RAW editor subset passed three cases in 96.5 seconds; the final export-dialog run passed 250 in 27.7 seconds. Evidence is `artifacts/verification/hdr-jpeg-fixed-N5rFoO/summary.md`. A corrected export of the reported photograph was compared across 59,340 sampled channels against the source rendition and independent oracle; originals were verified unchanged. Isolated `dev:mcp`/`irodori_ui` inspection passed at 1100 × 700 and 1440 × 900 with Console open; `artifacts/mcp/hdr-jpeg-1792063841038/` retains evidence. Native macOS decoded the corrected photo as HDR with 2.067× content headroom. Native alternate-gamut appearance, physical luminance, other platforms and the broader HDR roadmap remain open. No comprehensive checkpoint or benchmark was run.
 
 On macOS 25.6 / Apple M4 Pro, Node 24.20.0 and Electron 44.3.0, the selected export and affected menu, selection, editing MCP, task, deletion, import, workspace, migration and processing checks have **415 distinct passing cases**, with no unresolved failures or skips. This includes an explicit foreground photo-actions run for native deletion keys. The final hidden export/Library/import/RAW run passed 286 cases in 152.4 seconds; its real Sony two-process export took 54.7 seconds. The final quality-input cancellation UI run passed 250 cases in 30.8 seconds. Routine-budget warnings retain every assertion. Consolidated evidence is `artifacts/verification/jpeg-export-completion-E8NaL2/summary.md`, with per-run paths and resolved attempts in `completion.json`.
 
 The full 5496 × 3672 encoder fixture used 809,304,064 bytes of WASM heap, below the 2 GiB cap. The independent ISO reader/oracle passes the quality-specific chart tolerances and confirms the supplied SDR primary's decoded pixels. Gain-map code values bypass ICC conversion: the auxiliary profile identifies reconstruction primaries rather than photographic gain-map pixel colors. Camera/copyright, copyright-only and no-metadata outputs preserve their declared allowlists and required ICC data while excluding location and serials.
 
-Isolated `npm run dev:mcp` inspection through the `luma_ui` stdio capabilities passed at native content sizes 1100 × 700 and 1440 × 900 with Console open. Chooser, Custom scrolling, fixed footer actions and keyboard traversal fit; no renderer errors were recorded. Evidence is under `artifacts/mcp/jpeg-export-1792056625540/`. Owned processes and temporary profiles were removed and port 9222 closed. Native folder-picker interaction, OS HDR viewers, Linux/Windows, installers and physical luminance remain unverified. No comprehensive checkpoint or presentation benchmark was selected; the broader HDR roadmap remains open.
+Isolated `npm run dev:mcp` inspection through the `irodori_ui` stdio capabilities passed at native content sizes 1100 × 700 and 1440 × 900 with Console open. Chooser, Custom scrolling, fixed footer actions and keyboard traversal fit; no renderer errors were recorded. Evidence is under `artifacts/mcp/jpeg-export-1792056625540/`. Owned processes and temporary profiles were removed and port 9222 closed. Native folder-picker interaction, OS HDR viewers, Linux/Windows, installers and physical luminance remain unverified. No comprehensive checkpoint or presentation benchmark was selected; the broader HDR roadmap remains open.
 
 ### Export performance — 2026-10-16
 

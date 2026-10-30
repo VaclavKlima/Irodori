@@ -6,6 +6,11 @@ import {
   type HdrSourceAdmission,
   type HdrSourceCandidate,
 } from '../src/renderer/src/preview/hdr-source-cache'
+import {
+  hdrSampleMemory,
+  publishHdrSample,
+  selectHdrSampleSources,
+} from '../src/renderer/src/preview/hdr-sample'
 
 class SourceResource {
   destroyed = 0
@@ -64,6 +69,30 @@ function candidate(
 const admission = (): HdrSourceAdmission => ({
   signal: new AbortController().signal,
   isCurrent: () => true,
+})
+
+test('analysis samples stay charged after their retired GPU cache owner finishes draining', async () => {
+  const cache = new HdrSourceCache<SourceResource>(),
+    device = {},
+    input = candidate('a', 8, 6),
+    lease = (await cache.admit(device, input, admission()))!,
+    fence = deferred(),
+    bytes = input.samples.sample.byteLength + input.samples.draft.byteLength
+  selectHdrSampleSources(input.identity.sha256)
+  publishHdrSample(input.identity.sha256, input.samples.sample, input.samples.draft)
+  const uncached = () => hdrSampleMemory((buffer) => cache.ownsSampleBuffer(buffer))
+  expect(cache.memory().ramBytes).toBe(bytes)
+  expect(uncached()).toBe(0)
+  const retired = cache.invalidate(device),
+    released = lease.releaseAfter(fence.promise)
+  expect(uncached()).toBe(0)
+  expect(cache.memory().ramBytes).toBe(bytes)
+  fence.resolve()
+  await Promise.all([retired, released])
+  expect(cache.memory().ramBytes).toBe(0)
+  expect(uncached()).toBe(bytes)
+  selectHdrSampleSources('f'.repeat(64))
+  expect(uncached()).toBe(0)
 })
 
 test('source identity is detached and includes the verified manifest, geometry and mip policy', () => {
@@ -241,6 +270,75 @@ test('malformed photo association cannot change source ownership or an existing 
   expect(cache.evictOldestUnpinned()).toBe(true)
   expect(source.resource.destroyed).toBe(1)
   await cache.dispose()
+})
+
+test('cold third-photo preparation frees the LRU source before existing ownership is frozen', async () => {
+  const cache = new HdrSourceCache<SourceResource>(),
+    device = {},
+    a = { ...candidate('a', 5496, 3672), photoId: '1'.repeat(64) },
+    b = { ...candidate('b', 5496, 3672), photoId: '2'.repeat(64) },
+    c = { ...candidate('c', 5496, 3672), photoId: '3'.repeat(64) },
+    first = (await cache.admit(device, a, admission()))!,
+    second = (await cache.admit(device, b, admission()))!
+  await first.releaseAfter(Promise.resolve())
+  await second.releaseAfter(Promise.resolve())
+  const full = cache.memory()
+  cache.preparePhoto(a.photoId)
+  cache.preparePhoto(b.photoId)
+  expect(cache.memory()).toEqual(full)
+  expect([a.resource.destroyed, b.resource.destroyed]).toEqual([0, 0])
+
+  // A revisit updates LRU only when the exact source is acquired, not from the hint.
+  await cache.acquire(device, a.identity)!.releaseAfter(Promise.resolve())
+  cache.preparePhoto(c.photoId)
+  expect([a.resource.destroyed, b.resource.destroyed, c.resource.destroyed]).toEqual([0, 1, 0])
+  expect(cache.memory()).toEqual({
+    ramBytes: a.samples.sample.byteLength + a.samples.draft.byteLength,
+    vramBytes: a.identity.textureBytes,
+    entries: 1,
+  })
+  cache.preparePhoto(c.photoId)
+  expect(a.resource.destroyed).toBe(0)
+  const third = (await cache.admit(device, c, admission()))!
+  expect(cache.memory()).toEqual(full)
+  expect(cache.hasCompletedPhoto(a.photoId)).toBe(true)
+  expect(cache.hasCompletedPhoto(c.photoId)).toBe(true)
+  await third.releaseAfter(Promise.resolve())
+  await cache.dispose()
+})
+
+test('cold photo preparation preserves submitted sources and their unreleased memory charges', async () => {
+  for (const pinned of ['oldest', 'both', 'retired'] as const) {
+    const cache = new HdrSourceCache<SourceResource>(),
+      device = {},
+      fence = deferred(),
+      a = { ...candidate('a'), photoId: '1'.repeat(64) },
+      b = { ...candidate('b'), photoId: '2'.repeat(64) },
+      first = (await cache.admit(device, a, admission()))!,
+      second = (await cache.admit(device, b, admission()))!,
+      releasing = first.releaseAfter(fence.promise)
+    if (pinned !== 'both') await second.releaseAfter(Promise.resolve())
+    const full = cache.memory()
+    if (pinned === 'retired') void cache.invalidate(device)
+    cache.preparePhoto('3'.repeat(64))
+    expect(a.resource.destroyed).toBe(0)
+    expect(b.resource.destroyed).toBe(pinned === 'both' ? 0 : 1)
+    expect(cache.memory()).toEqual(
+      pinned === 'both'
+        ? full
+        : {
+            ramBytes: a.samples.sample.byteLength + a.samples.draft.byteLength,
+            vramBytes: a.identity.textureBytes,
+            entries: 1,
+          },
+    )
+    if (pinned === 'both') await second.releaseAfter(Promise.resolve())
+    fence.resolve()
+    await releasing
+    await cache.dispose()
+    expect(a.resource.destroyed).toBe(1)
+    expect(b.resource.destroyed).toBe(1)
+  }
 })
 
 test('cached samples must be source-matched, finite and tightly owned', async () => {

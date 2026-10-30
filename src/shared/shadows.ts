@@ -1,4 +1,4 @@
-/** Luma's versioned shadows curve, in luminance normalized to display white. */
+/** Irodori's versioned shadows curve, in luminance normalized to display white. */
 export const shadowsModule = {
   id: 'shadows',
   version: 1,

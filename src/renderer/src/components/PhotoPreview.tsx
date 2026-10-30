@@ -3,6 +3,7 @@ import type { EditorPreviewPolicy } from '../../../shared/editor-preview-policy'
 import type { PreviewViewState } from '../../../shared/workspace'
 import { useHdrAnalysis } from '../hooks/useHdrAnalysis'
 import type { ReserveNativeMask } from '../preview/native-mask-relay'
+import { maskPixelTarget } from '../preview/native-mask-reservation'
 import { SDR_TARGET } from '../../../shared/hdr'
 import type { DisplayTarget } from '../../../shared/hdr'
 import { HdrPresenter } from '../preview/hdr-presenter'
@@ -15,7 +16,11 @@ import {
   HDR_BITMAP_RESERVATION,
   type HdrMemoryLimits,
 } from '../preview/hdr-memory'
-import { neutralAdjustments, sameAdjustments } from '../../../shared/adjustments'
+import {
+  neutralAdjustments,
+  sameAdjustments,
+  snapshotAdjustments,
+} from '../../../shared/adjustments'
 import {
   HDR_FIRST_SURFACE_VERSION,
   hdrFirstSurfaceRequestKey,
@@ -23,10 +28,18 @@ import {
   type HdrFirstSurfaceRequest,
 } from '../../../shared/hdr-first-surface'
 import type { PreviewTools } from '../hooks/usePreviewTools'
+import type { WhiteBalancePickerController } from '../hooks/useWhiteBalancePicker'
+import type { CropController } from '../hooks/useCrop'
+import { CropOverlay } from './CropOverlay'
+import { whiteBalanceSampleArea } from '../../../shared/white-balance-picker'
+import { normalizedSourcePoint } from '../preview/geometry'
+import { mapCropAffine } from '../../../shared/crop'
 import { usePreviewAnalysis, type ClippingMask } from '../hooks/usePreviewAnalysis'
 import type { AdjustmentParameters } from '../../../shared/adjustments'
 import { PreviewPresenter } from '../preview/presenter'
 import { useWorkingPreview } from '../hooks/useWorkingPreview'
+import { useComparisonPreview } from '../hooks/useComparisonPreview'
+import { spatialControlsActive } from '../../../shared/detail-controls'
 import {
   useCallback,
   useMemo,
@@ -87,6 +100,8 @@ interface Props {
   onNavigate: (direction: -1 | 1) => Promise<void>
   onImport: () => void
   onContextMenu: (photo: Photo, element: HTMLElement, x: number, y: number) => void
+  whiteBalancePicker?: WhiteBalancePickerController
+  crop?: CropController
 }
 
 // The parent keys this component by photo ID so every new photograph starts in Fit.
@@ -110,7 +125,10 @@ export function PhotoPreview({
   onNavigate,
   onImport,
   onContextMenu,
+  whiteBalancePicker,
+  crop,
 }: Props) {
+  const cropping = !!crop?.active
   const presentationState = previewPolicy.presentationCache ? confirmedEdits : null
   const gestureCommit = previewPolicy.interactivePrecision === 'f32' ? localGestureCommit : null
   const gestureConfirmation = confirmedEdits
@@ -122,13 +140,19 @@ export function PhotoPreview({
   const overlay = useRef<HTMLCanvasElement>(null)
   const divider = useRef<HTMLDivElement>(null)
   const dividerPointer = useRef<number | null>(null)
-  const [mask, setMask] = useState<ClippingMask>()
+  const [maskState, setMaskState] = useState<{ key: string; value: ClippingMask }>()
   const viewport = useRef<HTMLDivElement>(null)
   const image = useRef<HTMLCanvasElement>(null)
   const retainedSurface = useRef<HTMLCanvasElement>(null)
   const presenter = useRef<PreviewPresenter | HdrPresenter | HdrCpuPresenter | null>(null)
   const firstSurfacePolicyOwner = useRef<HdrPresenter | null>(null)
-  const [retained, setRetained] = useState(false)
+  const [retainedFrame, setRetained] = useState<{
+    sourceSpace: string
+    revision: number
+    comparison: string
+    binding: string
+  } | null>(null)
+  const [geometryRevision, setGeometryRevision] = useState(0)
   const restoreCanvasFocus = useRef(false)
   const mounted = useRef(false)
   useLayoutEffect(() => {
@@ -145,6 +169,12 @@ export function PhotoPreview({
       const previous = image.current,
         surface = retainedSurface.current
       if (mounted.current && surface && previous?.dataset.editing === 'ready') {
+        const identity = {
+          sourceSpace: previous.dataset.frameSourceSpace ?? 'confirmed',
+          revision: Number(previous.dataset.frameGeometryRevision ?? -1),
+          comparison: previous.dataset.comparison ?? 'after',
+          binding: previous.dataset.spatialComparisonBinding ?? 'single',
+        }
         try {
           if (previous.dataset.backend === 'webgpu-hdr') {
             // Materialize owned completed CPU half pixels before clearing the old ref.
@@ -154,13 +184,13 @@ export function PhotoPreview({
               activePresenter instanceof HdrPresenter
                 ? activePresenter.recoverCompletedFrame(surface)
                 : surface.dataset.presentationSerial === previous.dataset.presentationSerial
-            if (recovered) setRetained(true)
+            if (recovered) setRetained(identity)
           } else {
             const scale = Math.min(1, 1024 / Math.max(previous.width, previous.height))
             surface.width = Math.max(1, Math.round(previous.width * scale))
             surface.height = Math.max(1, Math.round(previous.height * scale))
             surface.getContext('2d')!.drawImage(previous, 0, 0, surface.width, surface.height)
-            setRetained(true)
+            setRetained(identity)
           }
         } catch {
           /* Keep first-render loading explicit if a lost device cannot be copied. */
@@ -180,9 +210,18 @@ export function PhotoPreview({
     view: INITIAL_VIEW,
   })
   const current = useRef(model)
+  const framingView = useRef<{ image: Size; view: View } | null>(null)
   const [fallback, setFallback] = useState(false)
   const firstSurfaceRequest = useMemo<HdrFirstSurfaceRequest | undefined>(() => {
-    if (!photo || fallback || suspended || gesturing) return undefined
+    if (
+      !photo ||
+      fallback ||
+      suspended ||
+      gesturing ||
+      cropping ||
+      (confirmedEdits && spatialControlsActive(confirmedEdits.settings))
+    )
+      return undefined
     // An optional display surface requires confirmed edits; original-source preparation does not.
     if (
       !confirmedEdits ||
@@ -197,15 +236,7 @@ export function PhotoPreview({
       version: HDR_FIRST_SURFACE_VERSION,
       generation: editingEpoch + 1,
       settingsRevision: confirmedEdits.revision,
-      parameters: {
-        whiteBalance: confirmedEdits.settings.whiteBalance,
-        exposureEv: confirmedEdits.settings.exposureEv,
-        contrast: confirmedEdits.settings.contrast,
-        highlights: confirmedEdits.settings.highlights,
-        shadows: confirmedEdits.settings.shadows,
-        whites: confirmedEdits.settings.whites,
-        blacks: confirmedEdits.settings.blacks,
-      },
+      parameters: snapshotAdjustments(confirmedEdits.settings),
       target: displayTarget,
       viewport: model.viewport,
       dpr: window.devicePixelRatio || 1,
@@ -231,6 +262,7 @@ export function PhotoPreview({
     tools.mode,
     tools.split,
     tools.hdrRanges,
+    cropping,
   ])
   const firstSurfaceKey = firstSurfaceRequest ? hdrFirstSurfaceRequestKey(firstSurfaceRequest) : ''
   const full = useFullPreview(
@@ -241,6 +273,7 @@ export function PhotoPreview({
     !!photo &&
       confirmedEdits?.photoId === photo.id &&
       confirmedEdits.settings.processing === 'display-referred-v1',
+    cropping ? crop?.context?.revision : undefined,
   )
   const { isFirstSurfaceCurrent } = full
   const { begin: beginActivity, pulse: pulseActivity } = useForegroundActivity(
@@ -274,7 +307,7 @@ export function PhotoPreview({
   useEffect(() => {
     if (!hdrReady) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setRetained(false)
+    setRetained(null)
   }, [hdrReady])
   const selectedAt = useRef(0)
   const firstPresentedMs = useRef<number | undefined>(undefined)
@@ -313,6 +346,8 @@ export function PhotoPreview({
         // lifecycle work. Commit authoritative geometry before any visible paint;
         // the presenter starts its two real paint observations only after return.
         canvas.style.visibility = 'hidden'
+        canvas.dataset.frameSourceSpace = 'confirmed'
+        canvas.dataset.frameGeometryRevision = String(offer.identity.settingsRevision)
         flushSync(() => {
           const next = {
             ...previous,
@@ -354,19 +389,63 @@ export function PhotoPreview({
   const live = useWorkingPreview(full.preview, fullVisible && !suspended)
   const { generation } = live
   const working = fallback && hdrJpeg ? null : live.working
+  const { mode, split, hdrRanges, analyze, update } = tools
+  const comparisonRequired =
+    !!full.preview?.requiresUnfilteredComparison && mode !== 'after' && !cropping
+  const comparison = useComparisonPreview(
+    full.preview,
+    comparisonRequired && !suspended && fullVisible,
+  )
+  const comparisonAlias =
+    !!comparison.preview?.linear &&
+    comparison.preview.linear.sha256 === full.preview?.workingSource?.workingSha256 &&
+    JSON.stringify(comparison.preview.linear.transform) ===
+      JSON.stringify(full.preview?.linear?.transform)
+  const comparisonLive = useWorkingPreview(
+    comparison.preview,
+    comparisonRequired && !suspended && !comparisonAlias,
+  )
+  const verifiedBefore =
+    comparison.preview?.linear &&
+    comparisonLive.working?.identity ===
+      `${comparison.preview.linear.url}:${comparison.preview.linear.sha256}`
+      ? comparisonLive.working
+      : null
+  const beforeWorking = comparisonAlias ? working : verifiedBefore
+  const comparisonReady = !comparisonRequired || (!!working && !!beforeWorking)
+  const comparisonError = comparisonRequired
+    ? comparison.error || (!comparisonAlias && comparisonLive.error) || ''
+    : ''
+  const comparisonBinding = comparisonRequired
+    ? JSON.stringify([
+        full.preview?.workingSource?.workingSha256,
+        comparison.preview?.linear?.sha256 ?? 'pending',
+      ])
+    : 'single'
+  const retained =
+    !!retainedFrame &&
+    retainedFrame.sourceSpace === (cropping ? 'framing' : 'confirmed') &&
+    retainedFrame.revision >= geometryRevision &&
+    retainedFrame.comparison === mode &&
+    retainedFrame.binding === comparisonBinding
+  const analysisWorking = mode === 'before' && comparisonRequired ? beforeWorking : working
   const hdrCapable = hdrJpeg || !!working?.hdr
   const editingSurface = !!working
   const firstSurface =
     full.firstSurface && full.isFirstSurfaceCurrent(full.firstSurface) ? full.firstSurface : null
   const hdrSurface = !fallback && !!(firstSurface || full.preview?.linear?.hdr || working?.hdr)
-  const hdrOwnerKey =
-    firstSurface?.identity.parentWorkingKey ??
-    (full.preview?.format === 'hdr-working'
-      ? full.preview.firstSurfaceLineage?.parentWorkingKey
-      : undefined) ??
-    full.preview?.linear?.sha256 ??
-    working?.hdr?.sha256 ??
-    'pending'
+  // Rendered raster revisions do not replace the already uploaded working source.
+  const hdrOwnerKey = !(hdrSurface || working?.hdr)
+    ? 'raster'
+    : full.preview?.requiresUnfilteredComparison
+      ? JSON.stringify([full.preview.workingSource, full.preview.linear?.sha256])
+      : (firstSurface?.identity.parentWorkingKey ??
+        (full.preview?.format === 'hdr-working'
+          ? full.preview.firstSurfaceLineage?.parentWorkingKey
+          : undefined) ??
+        full.preview?.linear?.sha256 ??
+        working?.hdr?.sha256 ??
+        'pending')
   const presenterRoute = hdrSurface
     ? 'hdr'
     : working?.hdr
@@ -374,7 +453,6 @@ export function PhotoPreview({
       : editingSurface
         ? 'raster-edit'
         : 'raster-preview'
-  const { mode, split, hdrRanges, analyze, update } = tools
   const analysisPending = useCallback(
     (pending: boolean) => update({ analysisPending: pending }),
     [update],
@@ -397,10 +475,24 @@ export function PhotoPreview({
       ? tools.hdrOverlay & 4
       : tools.hdrOverlay
   const shadows = tools.shadows || tools.hover === 'shadows'
+  const maskSourceKey = JSON.stringify([
+    analysisWorking?.identity,
+    mode === 'before',
+    mode === 'before' ? neutralAdjustments : adjustments,
+    maskPixelTarget(actualTarget),
+    tools.domain,
+  ])
+  const setMask = useCallback(
+    (value?: ClippingMask) => {
+      setMaskState(value ? { key: maskSourceKey, value } : undefined)
+    },
+    [maskSourceKey],
+  )
+  const mask = maskState?.key === maskSourceKey ? maskState.value : undefined
   const highlights = tools.highlights || tools.hover === 'highlights'
   const sdrAnalysisError = usePreviewAnalysis(
-    working?.hdr || suspended ? null : working,
-    `${photo?.id}-${working?.identity ?? 'pending'}-${generation}`,
+    analysisWorking?.hdr || suspended || cropping ? null : analysisWorking,
+    `${photo?.id}-${analysisWorking?.identity ?? 'pending'}-${generation}`,
     mode === 'before' ? neutralAdjustments : adjustments,
     shadows || highlights,
     gesturing,
@@ -418,13 +510,25 @@ export function PhotoPreview({
     () => ({
       confirmed: confirmedEdits,
       comparison: mode === 'before' ? ('before' as const) : ('after' as const),
+      comparisonOf:
+        mode === 'before' && comparisonRequired && !comparisonAlias
+          ? working?.cpuSource
+          : undefined,
       reserve: reserveNativeMask,
       presentationSerial: analysisPresentationSerial,
     }),
-    [confirmedEdits, mode, reserveNativeMask, analysisPresentationSerial],
+    [
+      confirmedEdits,
+      mode,
+      reserveNativeMask,
+      analysisPresentationSerial,
+      comparisonRequired,
+      comparisonAlias,
+      working?.cpuSource,
+    ],
   )
   const { statisticsError: analysisError, maskError } = useHdrAnalysis(
-    hdrReady && !suspended ? working : null,
+    hdrReady && !suspended && !cropping ? analysisWorking : null,
     mode === 'before' ? neutralAdjustments : adjustments,
     actualTarget,
     'content-hdr',
@@ -440,7 +544,7 @@ export function PhotoPreview({
     if (gesturing && mode === 'before') update({ mode: 'after' })
   }, [gesturing, mode, update])
   const histogramError =
-    full.error || live.error || (working?.hdr ? analysisError : sdrAnalysisError)
+    full.error || live.error || comparisonError || (working?.hdr ? analysisError : sdrAnalysisError)
   useEffect(
     () => update({ analysisError: histogramError, clippingError: maskError }),
     [histogramError, maskError, update],
@@ -455,7 +559,7 @@ export function PhotoPreview({
       if (cancelled) return
       if (ready) firstPresentedMs.current ??= performance.now() - selectedAt.current
       if (ready) firstUsefulMs.current ??= firstPresentedMs.current
-      void window.luma.reportPreviewPresentation({
+      void window.irodori.reportPreviewPresentation({
         photoId: preview?.photoId ?? firstSurface!.photoId,
         revision: preview
           ? (preview.settingsRevision ?? 0)
@@ -519,10 +623,44 @@ export function PhotoPreview({
     displayTarget.reason,
   ])
   const placeholderView = constrain(model.view, full.placeholder ?? model.image, model.viewport)
+  const bindWorkingSource = useCallback(
+    (owner: PreviewPresenter | HdrPresenter | HdrCpuPresenter) => {
+      if (working) {
+        if (owner instanceof HdrPresenter) {
+          if (
+            full.preview?.format === 'hdr-working' &&
+            full.preview.firstSurfacePolicy &&
+            firstSurfacePolicyOwner.current !== owner
+          ) {
+            owner.setFirstSurfacePolicy(full.preview.firstSurfacePolicy)
+            firstSurfacePolicyOwner.current = owner
+          }
+          owner.setWorking(
+            working,
+            full.preview?.format === 'hdr-working' ? full.preview.firstSurfaceLineage : undefined,
+          )
+        } else owner.setWorking(working)
+      }
+      owner.setComparisonSource(
+        comparisonRequired && !comparisonAlias && working ? beforeWorking : null,
+        comparisonRequired && !comparisonAlias,
+      )
+    },
+    [working, full.preview, beforeWorking, comparisonRequired, comparisonAlias],
+  )
   function draw(model: Model) {
     pulseActivity()
     const started = performance.now()
     presenter.current?.setComparison(mode, split)
+    if (presenter.current) {
+      try {
+        bindWorkingSource(presenter.current)
+      } catch {
+        full.displayFailed()
+        return
+      }
+    }
+    if (image.current) image.current.dataset.spatialComparisonBinding = comparisonBinding
     if (presenter.current instanceof HdrPresenter || presenter.current instanceof HdrCpuPresenter)
       presenter.current.setHdrRanges(hdrRanges)
     if (presenter.current instanceof HdrCpuPresenter)
@@ -532,24 +670,16 @@ export function PhotoPreview({
     if (presenter.current instanceof HdrPresenter)
       presenter.current.setEditing(gesturing, editingEpoch, gestureCommit, gestureConfirmation)
     if (previewPolicy.presentationCache && working?.hdr && !presentationState) return
-    presenter.current?.draw(model.image, model.viewport, model.view, {
-      whiteBalance: adjustments.whiteBalance,
-      exposureEv: adjustments.exposureEv,
-      contrast: adjustments.contrast,
-      highlights: adjustments.highlights,
-      shadows: adjustments.shadows,
-      whites: adjustments.whites,
-      blacks: adjustments.blacks,
-    })
-    performance.measure('luma.preview.presentation', {
+    presenter.current?.draw(
+      model.image,
+      model.viewport,
+      model.view,
+      snapshotAdjustments(adjustments),
+    )
+    performance.measure('irodori.preview.presentation', {
       start: started,
       detail: {
-        exposureEv: adjustments.exposureEv,
-        contrast: adjustments.contrast,
-        highlights: adjustments.highlights,
-        shadows: adjustments.shadows,
-        whites: adjustments.whites,
-        blacks: adjustments.blacks,
+        ...snapshotAdjustments(adjustments),
         scale: model.view.scale,
       },
     })
@@ -564,7 +694,7 @@ export function PhotoPreview({
     if (canvas.width !== canvasWidth) canvas.width = canvasWidth
     if (canvas.height !== canvasHeight) canvas.height = canvasHeight
     context.clearRect(0, 0, canvas.width, canvas.height)
-    if (!mask || !working) return
+    if (!comparisonReady || !analysisWorking || !mask || !working) return
     const { image, viewport, view } = model
     let levelIndex = 0
     while (levelIndex + 1 < mask.levels.length && view.scale * 2 ** levelIndex < 1) levelIndex++
@@ -635,12 +765,12 @@ export function PhotoPreview({
       if (next === current.current) return
       next.view = constrain(next.view, next.image, next.viewport)
       current.current = next
-      if (next.loaded && next.viewport.width > 0 && !recoveryView.current && photo?.id)
+      if (!cropping && next.loaded && next.viewport.width > 0 && !recoveryView.current && photo?.id)
         onViewChange?.(savedView(photo.id, next.view, next.image))
       if (immediate) setModel(next)
       schedule()
     },
-    [schedule, photo, onViewChange],
+    [schedule, photo, onViewChange, cropping],
   )
   const ready = Boolean(
     !suspended &&
@@ -650,6 +780,7 @@ export function PhotoPreview({
     model.viewport.width &&
     model.viewport.height &&
     (!full.preview?.linear?.hdr || hdrReady) &&
+    comparisonReady &&
     !full.error,
   )
   const { view } = model
@@ -687,6 +818,23 @@ export function PhotoPreview({
     dividerPointer.current = null
     stopPan()
   }, [stopPan])
+  useLayoutEffect(() => {
+    stopDrag()
+    if (cropping && !framingView.current) {
+      framingView.current = {
+        image: { ...current.current.image },
+        view: { ...current.current.view },
+      }
+      change((value) => ({ ...value, view: INITIAL_VIEW }))
+    } else if (!cropping && framingView.current) {
+      const saved = framingView.current
+      framingView.current = null
+      change((value) => ({
+        ...value,
+        view: replaceDimensions(saved.view, saved.image, value.image, value.viewport),
+      }))
+    }
+  }, [cropping, change, stopDrag])
   usePreviewWheel(viewport, ready, change, stopDrag)
   const adjustmentKey = JSON.stringify(adjustments)
   useEffect(() => {
@@ -694,6 +842,8 @@ export function PhotoPreview({
   }, [
     stopDrag,
     adjustmentKey,
+    whiteBalancePicker?.active,
+    cropping,
     editingEpoch,
     generation,
     displayTarget.generation,
@@ -707,8 +857,12 @@ export function PhotoPreview({
   }, [ready, stopDrag])
   useEffect(
     () =>
-      window.luma.onLibraryEvent((event) => {
-        if (event.lensChanged && event.lensChanged.photoId === photo?.id) stopDrag()
+      window.irodori.onLibraryEvent((event) => {
+        const changed = event.lensChanged ?? event.geometryChanged ?? event.sourceChanged
+        if (changed && changed.photoId === photo?.id) {
+          stopDrag()
+          setGeometryRevision(changed.revision)
+        }
       }),
     [photo?.id, stopDrag],
   )
@@ -739,7 +893,7 @@ export function PhotoPreview({
       }))
       if (current.current.loaded && recoveryView.current) {
         recoveryView.current = null
-        if (photo?.id)
+        if (!cropping && photo?.id)
           onViewChange?.(savedView(photo.id, current.current.view, current.current.image))
       }
     }
@@ -755,7 +909,7 @@ export function PhotoPreview({
       observer.disconnect()
       window.removeEventListener('blur', stopDrag)
     }
-  }, [change, stopDrag, suspended, photo, onViewChange])
+  }, [change, stopDrag, suspended, photo, onViewChange, cropping])
 
   const { preview: renderedFrame, pixels, displayFailed } = full
   useEffect(() => {
@@ -766,7 +920,7 @@ export function PhotoPreview({
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setHdrReady(false)
         setCachedDisplayReady(false)
-        setRetained(false)
+        setRetained(null)
       }
       return
     }
@@ -886,6 +1040,11 @@ export function PhotoPreview({
       return
     try {
       if (pixels && (!editingSurface || fallback)) presenter.current.setBitmap(pixels)
+      if (image.current) {
+        image.current.dataset.frameSourceSpace =
+          renderedFrame.sourceSpace === 'uncropped' ? 'framing' : 'confirmed'
+        image.current.dataset.frameGeometryRevision = String(renderedFrame.settingsRevision ?? 0)
+      }
       const dimensions = { width: renderedFrame.width, height: renderedFrame.height }
       // The decoded frame establishes authoritative dimensions after presentation upload.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -900,7 +1059,8 @@ export function PhotoPreview({
       }))
       if (current.current.viewport.width > 0) {
         recoveryView.current = null
-        if (photo?.id) onViewChange?.(savedView(photo.id, current.current.view, dimensions))
+        if (!cropping && photo?.id)
+          onViewChange?.(savedView(photo.id, current.current.view, dimensions))
       }
     } catch {
       if (!fallback) setFallback(true)
@@ -917,6 +1077,7 @@ export function PhotoPreview({
     suspended,
     photo,
     onViewChange,
+    cropping,
   ])
 
   useEffect(() => {
@@ -929,21 +1090,7 @@ export function PhotoPreview({
         presenter.current.setPresentationState(confirmedEdits)
       else if (previewPolicy.presentationCache && presenter.current instanceof HdrPresenter)
         presenter.current.setPresentationState(presentationState)
-      if (presenter.current instanceof HdrPresenter) {
-        if (
-          full.preview?.format === 'hdr-working' &&
-          full.preview.firstSurfacePolicy &&
-          firstSurfacePolicyOwner.current !== presenter.current
-        ) {
-          presenter.current.setFirstSurfacePolicy(full.preview.firstSurfacePolicy)
-          firstSurfacePolicyOwner.current = presenter.current
-        }
-        if (working)
-          presenter.current.setWorking(
-            working,
-            full.preview?.format === 'hdr-working' ? full.preview.firstSurfaceLineage : undefined,
-          )
-      } else if (working) presenter.current?.setWorking(working)
+      if (presenter.current) bindWorkingSource(presenter.current)
       onEditingReady(
         working && (!previewPolicy.presentationCache || !working.hdr || hdrReady)
           ? (photo?.id ?? null)
@@ -957,6 +1104,10 @@ export function PhotoPreview({
     return () => onEditingReady(null)
   }, [
     working,
+    beforeWorking,
+    comparisonRequired,
+    comparisonAlias,
+    comparisonReady,
     fallback,
     generation,
     photo?.id,
@@ -969,6 +1120,7 @@ export function PhotoPreview({
     hdrOwnerKey,
     previewPolicy,
     hdrLoaded,
+    bindWorkingSource,
   ])
 
   useEffect(() => {
@@ -989,6 +1141,8 @@ export function PhotoPreview({
     renderedFrame,
     pixels,
     working,
+    beforeWorking,
+    comparisonReady,
     fallback,
     generation,
     model.loaded,
@@ -1065,6 +1219,10 @@ export function PhotoPreview({
     adjustments.shadows,
     adjustments.whites,
     adjustments.blacks,
+    adjustments.saturation,
+    adjustments.vibrance,
+    adjustments.colorMixer,
+    adjustments.colorGrading,
     adjustments.whiteBalance,
     mode,
     split,
@@ -1123,6 +1281,10 @@ export function PhotoPreview({
       return
     }
     if (!ready || event.ctrlKey || event.metaKey || event.altKey) return
+    if (cropping && ['\\', 'y', 'j'].includes(event.key.toLowerCase())) {
+      event.preventDefault()
+      return
+    }
     if (working && event.key === '\\') update({ mode: mode === 'before' ? 'after' : 'before' })
     else if (working && event.key.toLowerCase() === 'y')
       update({ mode: mode === 'split' ? 'after' : 'split' })
@@ -1155,9 +1317,23 @@ export function PhotoPreview({
     event.stopPropagation()
   }
   function pointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (cropping) return
     if (event.button !== 0 || !event.isPrimary || !ready) return
     event.preventDefault()
     image.current?.focus({ preventScroll: true })
+    if (whiteBalancePicker?.active) {
+      stopDrag()
+      const box = event.currentTarget.getBoundingClientRect()
+      const point = normalizedSourcePoint(
+        { x: event.clientX - box.left, y: event.clientY - box.top },
+        current.current.image,
+        current.current.viewport,
+        current.current.view,
+        full.preview?.crop,
+      )
+      if (point) whiteBalancePicker.sampleAt(point)
+      return
+    }
     pan.reset()
     if (!panX && !panY) return
     pan.start(event.nativeEvent)
@@ -1166,6 +1342,16 @@ export function PhotoPreview({
     pan.move(event.nativeEvent)
   }
   const exactPreset = ZOOM_STOPS.some((stop) => Math.abs(stop - view.scale) < 0.00001)
+  const pickerArea =
+    whiteBalancePicker?.active && ready
+      ? whiteBalanceSampleArea(
+          whiteBalancePicker.sample,
+          full.preview?.crop?.source.width ?? model.image.width,
+          full.preview?.crop?.source.height ?? model.image.height,
+        )
+      : null
+  const pickerMatrix = full.preview?.crop?.sourceToOutput,
+    pickerOrigin = pickerArea && pickerMatrix ? mapCropAffine(pickerMatrix, pickerArea) : pickerArea
   const zoomValue = view.fit
     ? 'fit'
     : exactPreset
@@ -1177,7 +1363,7 @@ export function PhotoPreview({
       <div className={layout.previewArea}>
         <div
           ref={viewport}
-          className={`${styles.viewport} ${ready && (panX || panY) ? styles.pannable : ''} ${dragging ? styles.dragging : ''}`}
+          className={`${styles.viewport} ${ready && (panX || panY) ? styles.pannable : ''} ${dragging ? styles.dragging : ''} ${whiteBalancePicker?.active ? styles.picking : ''}`}
           data-testid="preview-viewport"
           data-mode={view.fit ? 'fit' : 'manual'}
           data-scale={view.scale}
@@ -1207,6 +1393,7 @@ export function PhotoPreview({
             else pan.lostCapture()
           }}
           onDoubleClick={(event) => {
+            if (whiteBalancePicker?.active || cropping) return
             if (!ready || dragged.current) return
             const box = event.currentTarget.getBoundingClientRect()
             if (current.current.view.fit)
@@ -1217,6 +1404,10 @@ export function PhotoPreview({
             else fit()
           }}
           onContextMenu={(event) => {
+            if (cropping) {
+              event.preventDefault()
+              return
+            }
             if (photo) {
               event.preventDefault()
               stopDrag()
@@ -1231,6 +1422,29 @@ export function PhotoPreview({
         >
           {photo ? (
             <>
+              {pickerArea && pickerOrigin && (
+                <div
+                  className={styles.whiteBalanceSample}
+                  aria-hidden="true"
+                  data-testid="white-balance-sample"
+                  style={{
+                    left:
+                      model.viewport.width / 2 +
+                      view.x +
+                      (pickerOrigin.x - model.image.width / 2) * view.scale,
+                    top:
+                      model.viewport.height / 2 +
+                      view.y +
+                      (pickerOrigin.y - model.image.height / 2) * view.scale,
+                    width: pickerArea.width * view.scale,
+                    height: pickerArea.height * view.scale,
+                    transformOrigin: '0 0',
+                    transform: pickerMatrix
+                      ? `matrix(${pickerMatrix[0]},${pickerMatrix[2]},${pickerMatrix[1]},${pickerMatrix[3]},0,0)`
+                      : undefined,
+                  }}
+                />
+              )}
               <canvas
                 key={`${fallback}-${generation}-${presenterRoute}-${hdrSurface ? hdrOwnerKey : editingSurface}`}
                 ref={attachCanvas}
@@ -1256,8 +1470,9 @@ export function PhotoPreview({
                   width: model.viewport.width || undefined,
                   height: model.viewport.height || undefined,
                   visibility:
-                    (!suspended && !full.error && (cachedDisplayReady || firstSurfaceReady)) ||
-                    (fullVisible && ready && (!full.preview?.linear?.hdr || hdrReady))
+                    comparisonReady &&
+                    ((!suspended && !full.error && (cachedDisplayReady || firstSurfaceReady)) ||
+                      (fullVisible && ready && (!full.preview?.linear?.hdr || hdrReady)))
                       ? 'visible'
                       : 'hidden',
                 }}
@@ -1283,6 +1498,16 @@ export function PhotoPreview({
                 aria-hidden="true"
                 data-testid="clipping-overlay"
               />
+              {crop &&
+                cropping &&
+                ready &&
+                full.preview?.sourceSpace === 'uncropped' &&
+                crop.context &&
+                full.preview.settingsRevision === crop.context.revision &&
+                model.image.width === crop.context.source.width &&
+                model.image.height === crop.context.source.height && (
+                  <CropOverlay crop={crop} viewport={model.viewport} view={model.view} />
+                )}
               {working && mode !== 'after' && <span className={styles.beforeLabel}>Before</span>}
               {working && mode === 'split' && (
                 <>
@@ -1358,19 +1583,31 @@ export function PhotoPreview({
                   }}
                 />
               )}
-              {((!fullVisible && !firstSurfaceReady) ||
+              {((comparisonRequired && !comparisonReady) ||
+                (!fullVisible && !firstSurfaceReady) ||
                 (!!full.preview?.linear?.hdr &&
                   !hdrReady &&
                   !retained &&
                   !cachedDisplayReady &&
                   !firstSurfaceReady)) && (
-                <div className={styles.message} role={full.error ? 'alert' : 'status'}>
-                  {full.error ? (
-                    <span>Could not load this preview.</span>
+                <div
+                  className={styles.message}
+                  role={full.error || comparisonError ? 'alert' : 'status'}
+                >
+                  {full.error || comparisonError ? (
+                    <span>
+                      {comparisonError
+                        ? 'Could not load this comparison.'
+                        : 'Could not load this preview.'}
+                    </span>
                   ) : (
                     <>
                       <ProgressSpinner />
-                      <span>Loading preview…</span>
+                      <span>
+                        {comparisonRequired && !comparisonReady
+                          ? 'Preparing comparison…'
+                          : 'Loading preview…'}
+                      </span>
                     </>
                   )}
                 </div>
@@ -1467,10 +1704,11 @@ export function PhotoPreview({
             className={styles.resolution}
             data-testid="preview-resolution"
             role="status"
-            aria-description={full.error || live.error || undefined}
+            aria-description={full.error || live.error || comparisonError || undefined}
             title={
               full.error ||
               live.error ||
+              comparisonError ||
               (fullVisible
                 ? `${model.image.width} × ${model.image.height} · ${working?.hdr ? 'Rec.2020 linear working data' : 'sRGB'} · Original preserved`
                 : 'Loading the full-resolution image.')
@@ -1482,6 +1720,25 @@ export function PhotoPreview({
                 <button onClick={full.retry} aria-description={full.error}>
                   Retry
                 </button>
+              </>
+            ) : comparisonError ? (
+              <>
+                <span>Comparison unavailable</span>
+                <button
+                  onClick={() => {
+                    comparison.retry()
+                    comparisonLive.retry()
+                  }}
+                  aria-description={comparisonError}
+                >
+                  Retry comparison
+                </button>
+                <button onClick={() => update({ mode: 'after' })}>Show After</button>
+              </>
+            ) : comparisonRequired && !comparisonReady ? (
+              <>
+                <span>Preparing comparison…</span>
+                <button onClick={() => update({ mode: 'after' })}>Show After</button>
               </>
             ) : firstSurfaceReady && !hdrReady ? (
               <span>Loading full detail…</span>

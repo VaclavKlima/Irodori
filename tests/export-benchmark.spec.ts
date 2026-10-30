@@ -15,21 +15,21 @@ import { verifyUltraHdrBundle } from '../src/main/export/codec'
 import { provenance } from '../scripts/research/pipeline/provenance'
 import { randomUUID } from 'node:crypto'
 
-const requestedEncoder = process.env.LUMA_EXPORT_BENCHMARK_ENCODER ?? 'auto'
+const requestedEncoder = process.env.IRODORI_EXPORT_BENCHMARK_ENCODER ?? 'auto'
 if (!['auto', 'native', 'wasm'].includes(requestedEncoder))
-  throw new Error('LUMA_EXPORT_BENCHMARK_ENCODER must be auto, native or wasm when set.')
+  throw new Error('IRODORI_EXPORT_BENCHMARK_ENCODER must be auto, native or wasm when set.')
 const expectedEncoder = requestedEncoder === 'auto' ? 'native' : requestedEncoder
 
 let previousEncoder: string | undefined
 test.beforeEach(() => {
-  previousEncoder = process.env.LUMA_EXPORT_ENCODER
+  previousEncoder = process.env.IRODORI_EXPORT_ENCODER
   // Default measurements use application Auto; explicit controls remain isolated.
-  if (requestedEncoder === 'auto') delete process.env.LUMA_EXPORT_ENCODER
-  else process.env.LUMA_EXPORT_ENCODER = requestedEncoder
+  if (requestedEncoder === 'auto') delete process.env.IRODORI_EXPORT_ENCODER
+  else process.env.IRODORI_EXPORT_ENCODER = requestedEncoder
 })
 test.afterEach(() => {
-  if (previousEncoder === undefined) delete process.env.LUMA_EXPORT_ENCODER
-  else process.env.LUMA_EXPORT_ENCODER = previousEncoder
+  if (previousEncoder === undefined) delete process.env.IRODORI_EXPORT_ENCODER
+  else process.env.IRODORI_EXPORT_ENCODER = previousEncoder
 })
 
 async function benchmarkProvenance() {
@@ -57,17 +57,17 @@ async function benchmarkProvenance() {
       'src/shared/export.ts',
       'src/shared/display-rendering.ts',
       join(bundle, 'SHA256SUMS'),
-      join(bundle, 'luma-ultrahdr.wasm'),
+      join(bundle, 'irodori-ultrahdr.wasm'),
       ...(executable ? [executable, join(dirname(executable), 'SHA256SUMS')] : []),
       ...compiled,
     ])),
     build:
       'Production PhotoLibrary export acceptance through isolated compiled decoder/encoder workers, durable publication and scratch cleanup; no Electron presentation measurement.',
     encoderSelection: {
-      environment: 'LUMA_EXPORT_BENCHMARK_ENCODER',
-      requested: process.env.LUMA_EXPORT_BENCHMARK_ENCODER ?? 'unset (application Auto)',
+      environment: 'IRODORI_EXPORT_BENCHMARK_ENCODER',
+      requested: process.env.IRODORI_EXPORT_BENCHMARK_ENCODER ?? 'unset (application Auto)',
       expected: expectedEncoder,
-      inheritedWorkerMode: process.env.LUMA_EXPORT_ENCODER ?? 'auto',
+      inheritedWorkerMode: process.env.IRODORI_EXPORT_ENCODER ?? 'auto',
       bundle,
       executable: executable ?? null,
       fallbackAllowed: false,
@@ -79,7 +79,7 @@ async function benchmarkProvenance() {
 
 test('quality 100 original-size HDR export measures acceptance through durable publication', async ({}, info) => {
   test.skip(
-    process.env.LUMA_PREVIEW_BENCHMARK !== '1',
+    process.env.IRODORI_PREVIEW_BENCHMARK !== '1',
     'Run npm run benchmark:export for the isolated hardware benchmark.',
   )
   test.setTimeout(600000)
@@ -224,7 +224,7 @@ test('quality 100 original-size HDR export measures acceptance through durable p
 
 test('quality 100 warm working-source and retained-preparation retries measure durable HDR export separately', async ({}, info) => {
   test.skip(
-    process.env.LUMA_PREVIEW_BENCHMARK !== '1',
+    process.env.IRODORI_PREVIEW_BENCHMARK !== '1',
     'Run npm run benchmark:export for the isolated hardware benchmark.',
   )
   test.setTimeout(600000)

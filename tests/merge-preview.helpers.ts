@@ -20,7 +20,7 @@ export async function setupMergePreview(
   spatialMask = false,
 ) {
   await importPhotos(app, page)
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   const native = await app.browserWindow(page)
   await native.evaluate((w) => {
     w.unmaximize()

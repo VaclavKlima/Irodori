@@ -7,25 +7,26 @@ import { readGainJpeg } from './export-reference'
 
 test.use({ hdrDisplay: true })
 test('HDR JPEG import presents HDR, preserves its SDR primary and survives restart and export', async ({
-  luma,
+  irodori,
 }, info) => {
   const directory = info.outputPath('chart')
   await mkdir(directory)
   const image = await hdrJpegFixture(directory)
-  const app = luma.app
-  let page = luma.page
+  const app = irodori.app
+  let page = irodori.page
   await importPhotos(app, page, [image.path], false)
-  const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
+  const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'webgpu-hdr')
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-quality', 'normal')
   const pixel = await page.evaluate(
-    async (id) => window.luma.getPhotoPixel(id, 0, 224, 32, { domain: 'content-hdr' }),
+    async (id) => window.irodori.getPhotoPixel(id, 0, 224, 32, { domain: 'content-hdr' }),
     id,
   )
   expect(pixel.rgb[0]).toBeCloseTo(4, 1)
   await expect(
     page.evaluate(
-      async (id) => window.luma.getPhotoPixel(id, 0, 224, 32, { domain: 'output', target: 'sdr' }),
+      async (id) =>
+        window.irodori.getPhotoPixel(id, 0, 224, 32, { domain: 'output', target: 'sdr' }),
       id,
     ),
   ).rejects.toThrow('SDR output analysis')
@@ -54,7 +55,7 @@ test('HDR JPEG import presents HDR, preserves its SDR primary and survives resta
     .toBeLessThanOrEqual(4)
   await page.getByRole('combobox', { name: 'Preview display mode' }).selectOption('hdr')
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'webgpu-hdr')
-  const destination = join(luma.userDataDir, 'exports')
+  const destination = join(irodori.userDataDir, 'exports')
   await mkdir(destination)
   await app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
@@ -68,36 +69,36 @@ test('HDR JPEG import presents HDR, preserves its SDR primary and survives resta
     { timeout: 30000 },
   )
   expect((await readFile(join(destination, 'authored-hdr.jpg'))).length).toBeGreaterThan(1000)
-  page = (await luma.restart()).page
+  page = (await irodori.restart()).page
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'webgpu-hdr')
-  expect((await page.evaluate((id) => window.luma.getEditHistory(id), id)).snapshots).toHaveLength(
-    1,
-  )
+  expect(
+    (await page.evaluate((id) => window.irodori.getEditHistory(id), id)).snapshots,
+  ).toHaveLength(1)
 })
 
 test('an invalid ISO gain map imports its preserved SDR primary with a counted fallback explanation', async ({
-  luma,
+  irodori,
 }, info) => {
   const directory = info.outputPath('invalid')
   await mkdir(directory)
   const image = await hdrJpegFixture(directory)
   const path = join(directory, 'broken-hdr.jpg')
   await writeFile(path, readGainJpeg(image.bytes).primary)
-  await importPhotos(luma.app, luma.page, [path])
-  await luma.page.getByRole('combobox', { name: 'Preview display mode' }).selectOption('hdr')
-  const details = luma.page.getByLabel('Display details', { exact: true })
+  await importPhotos(irodori.app, irodori.page, [path])
+  await irodori.page.getByRole('combobox', { name: 'Preview display mode' }).selectOption('hdr')
+  const details = irodori.page.getByLabel('Display details', { exact: true })
   await expect(details).toContainText('SDR fallback')
   await details.click()
-  await expect(luma.page.getByText(/HDR gain map unavailable; displaying SDR:/)).toBeVisible()
+  await expect(irodori.page.getByText(/HDR gain map unavailable; displaying SDR:/)).toBeVisible()
 })
 
 test('an unavailable HDR renderer uses the authored SDR primary and a fresh capability probe recovers HDR', async ({
-  luma,
+  irodori,
 }, info) => {
   const directory = info.outputPath('fallback')
   await mkdir(directory)
   const image = await hdrJpegFixture(directory),
-    { page, app } = luma
+    { page, app } = irodori
   await page.evaluate(() => {
     const original = HTMLCanvasElement.prototype.getContext
     Object.assign(window, { blockHdrJpegContext: true })

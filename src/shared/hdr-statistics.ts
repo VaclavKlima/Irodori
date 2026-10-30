@@ -6,6 +6,7 @@ import {
 } from './rgb-histogram'
 import { HDR_CONTENT } from './display-rendering'
 import type { AdjustmentParameters } from './adjustments'
+import { prepareCreativeColor } from './creative-color'
 import {
   HDR_ANALYSIS_VERSION,
   adjustHdr,
@@ -122,12 +123,13 @@ export function analyzeHdr(
   mask?: Uint8Array,
   maskOffset = 0,
 ) {
-  const wb = hdrAdjustmentMatrix(p, asset.whiteBalance) ?? undefined
+  const wb = hdrAdjustmentMatrix(p, asset.whiteBalance) ?? undefined,
+    creative = prepareCreativeColor(p)
   for (let i = 0; i < data.length; i += 4) {
     if (![data[i], data[i + 1], data[i + 2], data[i + 3]].every(Number.isFinite))
       throw new Error('Invalid HDR analysis sample.')
     if (data[i + 3] === 0) continue
-    const rgb = adjustHdr([data[i], data[i + 1], data[i + 2]], p, wb),
+    const rgb = adjustHdr([data[i], data[i + 1], data[i + 2]], p, wb, creative),
       y = luminance(rgb)
     const content =
       result.domain !== 'working-hdr' || mask ? contentHdr(rgb, asset.source) : undefined

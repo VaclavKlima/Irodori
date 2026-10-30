@@ -59,7 +59,7 @@ const nativeWayland = process.platform === 'linux' && !!process.env.WAYLAND_DISP
 const nativeArguments = nativeWayland
   ? ['--ozone-platform=wayland', '--enable-features=Vulkan', '--enable-unsafe-webgpu']
   : []
-const requestedConversionProfile = process.env.LUMA_RECOVERY_CONVERSION_PROFILE
+const requestedConversionProfile = process.env.IRODORI_RECOVERY_CONVERSION_PROFILE
 if (
   requestedConversionProfile !== undefined &&
   !['raw-half', 'raw-half-throughput'].includes(requestedConversionProfile)
@@ -83,7 +83,7 @@ if (!throughputOnly)
       async ({}, info) => {
         requiresForeground(test, 'Hardware browser conversion and actual native display metadata.')
         test.setTimeout(300_000)
-        const profile = await mkdtemp(join(tmpdir(), 'luma-e2e-recovery-color-')),
+        const profile = await mkdtemp(join(tmpdir(), 'irodori-e2e-recovery-color-')),
           env = { ...process.env } as Record<string, string>,
           results: Array<Awaited<ReturnType<typeof compareRecoveryColor>>> = [],
           errors: Array<{ fixture: string; error: string }> = [],
@@ -190,7 +190,7 @@ if (!throughputOnly)
           await expect(page.locator('#report')).toContainText('target')
           evidence.bridge = await page.evaluate(() => ({
             diagnostic: 'hdrDiagnostic' in window,
-            application: 'luma' in window,
+            application: 'irodori' in window,
             node: 'require' in window,
           }))
           expect(evidence.bridge).toEqual({ diagnostic: true, application: false, node: false })
@@ -357,7 +357,7 @@ if (throughputOnly)
     async ({}, info) => {
       requiresForeground(test, 'Native hardware WebGPU and recorded maximized display geometry.')
       test.setTimeout(180_000)
-      const profile = await mkdtemp(join(tmpdir(), 'luma-e2e-raw-half-throughput-')),
+      const profile = await mkdtemp(join(tmpdir(), 'irodori-e2e-raw-half-throughput-')),
         env = { ...process.env } as Record<string, string>,
         plan = { width: 2866, height: 1189, trials: 90 },
         evidence: Record<string, unknown> = {
@@ -422,7 +422,7 @@ if (throughputOnly)
         await expect(page.locator('#report')).toContainText('target')
         evidence.bridge = await page.evaluate(() => ({
           diagnostic: 'hdrDiagnostic' in window,
-          application: 'luma' in window,
+          application: 'irodori' in window,
           node: 'require' in window,
         }))
         expect(evidence.bridge).toEqual({ diagnostic: true, application: false, node: false })

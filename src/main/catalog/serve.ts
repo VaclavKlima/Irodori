@@ -6,6 +6,10 @@ import { CatalogConnectionError } from './transaction'
 const operations = new Set([
   'processing.publish',
   'edits.commit',
+  'edit-application.accept',
+  'edit-application.result',
+  'edit-application.task',
+  'edit-application.dismiss',
   'workspace.save',
   'stack.group',
   'stack.ungroup',

@@ -1,6 +1,6 @@
 # Demo photography
 
-These photographs are bundled with Luma for its offline demo workspace. They are
+These photographs are bundled with Irodori for its offline demo workspace. They are
 free to use under the [Unsplash License](https://unsplash.com/license), verified
 on September 15, 2026. The license permits downloading, copying, modifying, and
 distributing images, including for commercial use. The photographers retain

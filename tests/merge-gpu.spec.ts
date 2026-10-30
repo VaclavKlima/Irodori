@@ -118,7 +118,7 @@ test('merge GPU preparation applies every sensor orientation exactly once with c
     gpu = new RawGpuRenderer(),
     engine = new PreviewEngine(),
     metadata = await engine.inspect('tests/fixtures/sony-zv1.ARW'),
-    directory = await mkdtemp(join(tmpdir(), 'luma-sensor-agreement-'))
+    directory = await mkdtemp(join(tmpdir(), 'irodori-sensor-agreement-'))
   try {
     const original = session.gpuSource(true)!,
       width = 64,
@@ -536,7 +536,7 @@ test('native GPU coverage matches independent double-precision projective and ti
 // eslint-disable-next-line no-empty-pattern -- Playwright requires destructured fixtures.
 test('merge GPU preparation agrees with independent LibRaw CPU preparation and device-failure fallback', async ({}, info) => {
   test.setTimeout(120000)
-  const directory = await mkdtemp(join(tmpdir(), 'luma-merge-gpu-')),
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-merge-gpu-')),
     engine = new PreviewEngine(),
     gpu = new RawGpuRenderer(),
     broken = new RawGpuRenderer()
@@ -648,10 +648,10 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
       motion: true,
       deghost: true,
     }),
-    previous = process.env.LUMA_MERGE_BACKEND,
-    previousOutputSlots = process.env.LUMA_MERGE_OUTPUT_SLOTS
+    previous = process.env.IRODORI_MERGE_BACKEND,
+    previousOutputSlots = process.env.IRODORI_MERGE_OUTPUT_SLOTS
   try {
-    process.env.LUMA_MERGE_OUTPUT_SLOTS = '1'
+    process.env.IRODORI_MERGE_OUTPUT_SLOTS = '1'
     const recipe = structuredClone(f.result.recipe)
     recipe.resolution = 'preview'
     recipe.sources[0].transform.matrix![2] = 1.25
@@ -693,7 +693,7 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
         pendingPeak: 1,
       },
     })
-    process.env.LUMA_MERGE_OUTPUT_SLOTS = '2'
+    process.env.IRODORI_MERGE_OUTPUT_SLOTS = '2'
     const overlapped = await runMerge({
       ...f.job,
       recipe,
@@ -727,8 +727,8 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
       expect(await readFile(join(f.directory, 'gpu-overlapped', name)), name).toEqual(
         await readFile(join(f.directory, 'gpu', name)),
       )
-    process.env.LUMA_MERGE_OUTPUT_SLOTS = '1'
-    process.env.LUMA_MERGE_BACKEND = 'cpu'
+    process.env.IRODORI_MERGE_OUTPUT_SLOTS = '1'
+    process.env.IRODORI_MERGE_BACKEND = 'cpu'
     const cpu = await runMerge({
       ...f.job,
       recipe,
@@ -859,13 +859,13 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
     expect(reused.measurements.attempts).toHaveLength(0)
     expect(reused.measurements.preparation.every((p) => p.reused)).toBe(true)
     expect(reused.measurements.preparation.every((p) => !p.work && !p.gpu)).toBe(true)
-    delete process.env.LUMA_MERGE_BACKEND
-    process.env.LUMA_MERGE_OUTPUT_SLOTS = '2'
+    delete process.env.IRODORI_MERGE_BACKEND
+    process.env.IRODORI_MERGE_OUTPUT_SLOTS = '2'
     const outputMap = GPUBuffer.prototype.mapAsync
     let outputReadbacks = 0
     GPUBuffer.prototype.mapAsync = function (mode, offset, size) {
       if (
-        this.label.startsWith('Luma merge output slot ') &&
+        this.label.startsWith('Irodori merge output slot ') &&
         this.label.endsWith(' staging') &&
         ++outputReadbacks === 2
       )
@@ -906,7 +906,7 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
       }
     } finally {
       GPUBuffer.prototype.mapAsync = outputMap
-      process.env.LUMA_MERGE_OUTPUT_SLOTS = '1'
+      process.env.IRODORI_MERGE_OUTPUT_SLOTS = '1'
     }
     const method = RawGpuRenderer.prototype.mergeDevice
     RawGpuRenderer.prototype.mergeDevice = async () => {
@@ -960,10 +960,10 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
       GPUBuffer.prototype.getMappedRange = range
     }
   } finally {
-    if (previous === undefined) delete process.env.LUMA_MERGE_BACKEND
-    else process.env.LUMA_MERGE_BACKEND = previous
-    if (previousOutputSlots === undefined) delete process.env.LUMA_MERGE_OUTPUT_SLOTS
-    else process.env.LUMA_MERGE_OUTPUT_SLOTS = previousOutputSlots
+    if (previous === undefined) delete process.env.IRODORI_MERGE_BACKEND
+    else process.env.IRODORI_MERGE_BACKEND = previous
+    if (previousOutputSlots === undefined) delete process.env.IRODORI_MERGE_OUTPUT_SLOTS
+    else process.env.IRODORI_MERGE_OUTPUT_SLOTS = previousOutputSlots
     await f.close()
   }
 })

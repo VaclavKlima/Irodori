@@ -700,9 +700,9 @@ function assertNativeValidation(recipe: MergeRecipe, check = expect) {
 /* eslint-disable no-empty-pattern */
 test('three fresh Sony HDR pairs retain exact working evidence and complete GPU preparation quality through publication', async ({}, info) => {
   test.setTimeout(15 * 60 * 1000)
-  const pairSetting = process.env.LUMA_MERGE_GPU_PREPARATION_PAIRS,
+  const pairSetting = process.env.IRODORI_MERGE_GPU_PREPARATION_PAIRS,
     pairs = pairSetting === '1' ? 1 : 3,
-    stageSetting = process.env.LUMA_MERGE_GPU_PREPARATION_STAGE,
+    stageSetting = process.env.IRODORI_MERGE_GPU_PREPARATION_STAGE,
     stage = (stageSetting ?? 'camera') as Sample['stage'],
     expectedSamples = pairs * 2,
     fixtureRoot = resolve('tests/fixtures/research-sony'),
@@ -713,18 +713,18 @@ test('three fresh Sony HDR pairs retain exact working evidence and complete GPU 
     originals: Original[] = [],
     samples: Sample[] = [],
     failures: unknown[] = [],
-    previousCamera = process.env.LUMA_MERGE_CAMERA_PREPARATION,
-    previousReference = process.env.LUMA_MERGE_REFERENCE_PREPARATION,
+    previousCamera = process.env.IRODORI_MERGE_CAMERA_PREPARATION,
+    previousReference = process.env.IRODORI_MERGE_REFERENCE_PREPARATION,
     libraries = info.outputPath('libraries'),
     inspector = new PreviewProcess(resolve('out/main/preview-worker.js'))
   let reference: { snapshot: Snapshot; sample: Sample; master: string } | undefined
   expect(
     pairSetting === undefined || pairSetting === '1' || pairSetting === '3',
-    'LUMA_MERGE_GPU_PREPARATION_PAIRS accepts 1 for diagnostics or 3 for complete native acceptance.',
+    'IRODORI_MERGE_GPU_PREPARATION_PAIRS accepts 1 for diagnostics or 3 for complete native acceptance.',
   ).toBe(true)
   expect(
     ['camera', 'reference', 'both'].includes(stage),
-    'LUMA_MERGE_GPU_PREPARATION_STAGE accepts camera (default), reference, or both.',
+    'IRODORI_MERGE_GPU_PREPARATION_STAGE accepts camera (default), reference, or both.',
   ).toBe(true)
   expect(manifest.version).toBe(1)
   expect(sequence?.complete, 'The committed native HDR bracket is required.').toBe(true)
@@ -778,7 +778,7 @@ test('three fresh Sony HDR pairs retain exact working evidence and complete GPU 
         'src/main/merge/cpu-kernels.ts',
         'src/main/merge/kernels/prepare.c',
         'vendor/merge-kernels/manifest.json',
-        'vendor/merge-kernels/luma-merge-kernels.wasm',
+        'vendor/merge-kernels/irodori-merge-kernels.wasm',
         'src/main/merge/preparation-cache.ts',
         'src/main/merge/store.ts',
         'src/shared/merge.ts',
@@ -792,8 +792,8 @@ test('three fresh Sony HDR pairs retain exact working evidence and complete GPU 
       for (const backend of ['cpu', 'gpu'] as const) {
         const cameraGpu = backend === 'gpu' && stage !== 'reference',
           referenceGpu = backend === 'gpu' && stage !== 'camera'
-        process.env.LUMA_MERGE_CAMERA_PREPARATION = cameraGpu ? 'gpu' : 'cpu'
-        process.env.LUMA_MERGE_REFERENCE_PREPARATION = referenceGpu ? 'gpu' : 'cpu'
+        process.env.IRODORI_MERGE_CAMERA_PREPARATION = cameraGpu ? 'gpu' : 'cpu'
+        process.env.IRODORI_MERGE_REFERENCE_PREPARATION = referenceGpu ? 'gpu' : 'cpu'
         const sample: Sample = {
             stage,
             backend,
@@ -1255,10 +1255,10 @@ test('three fresh Sony HDR pairs retain exact working evidence and complete GPU 
         }
       }
   } finally {
-    if (previousCamera === undefined) delete process.env.LUMA_MERGE_CAMERA_PREPARATION
-    else process.env.LUMA_MERGE_CAMERA_PREPARATION = previousCamera
-    if (previousReference === undefined) delete process.env.LUMA_MERGE_REFERENCE_PREPARATION
-    else process.env.LUMA_MERGE_REFERENCE_PREPARATION = previousReference
+    if (previousCamera === undefined) delete process.env.IRODORI_MERGE_CAMERA_PREPARATION
+    else process.env.IRODORI_MERGE_CAMERA_PREPARATION = previousCamera
+    if (previousReference === undefined) delete process.env.IRODORI_MERGE_REFERENCE_PREPARATION
+    else process.env.IRODORI_MERGE_REFERENCE_PREPARATION = previousReference
     const originalsAfter = []
     for (const original of originals) {
       try {
@@ -1523,16 +1523,16 @@ async function nativeLifecycleOriginals(): Promise<Original[]> {
 
 function setNativeLifecyclePolicies(camera: boolean, reference: boolean) {
   const previous = {
-    camera: process.env.LUMA_MERGE_CAMERA_PREPARATION,
-    reference: process.env.LUMA_MERGE_REFERENCE_PREPARATION,
+    camera: process.env.IRODORI_MERGE_CAMERA_PREPARATION,
+    reference: process.env.IRODORI_MERGE_REFERENCE_PREPARATION,
   }
-  process.env.LUMA_MERGE_CAMERA_PREPARATION = camera ? 'gpu' : 'cpu'
-  process.env.LUMA_MERGE_REFERENCE_PREPARATION = reference ? 'gpu' : 'cpu'
+  process.env.IRODORI_MERGE_CAMERA_PREPARATION = camera ? 'gpu' : 'cpu'
+  process.env.IRODORI_MERGE_REFERENCE_PREPARATION = reference ? 'gpu' : 'cpu'
   return () => {
-    if (previous.camera === undefined) delete process.env.LUMA_MERGE_CAMERA_PREPARATION
-    else process.env.LUMA_MERGE_CAMERA_PREPARATION = previous.camera
-    if (previous.reference === undefined) delete process.env.LUMA_MERGE_REFERENCE_PREPARATION
-    else process.env.LUMA_MERGE_REFERENCE_PREPARATION = previous.reference
+    if (previous.camera === undefined) delete process.env.IRODORI_MERGE_CAMERA_PREPARATION
+    else process.env.IRODORI_MERGE_CAMERA_PREPARATION = previous.camera
+    if (previous.reference === undefined) delete process.env.IRODORI_MERGE_REFERENCE_PREPARATION
+    else process.env.IRODORI_MERGE_REFERENCE_PREPARATION = previous.reference
   }
 }
 
@@ -2615,7 +2615,7 @@ for (const stage of ['camera', 'reference'] as const) {
     const originals = await nativeLifecycleOriginals(),
       contexts: NativeLifecycleContext[] = [],
       captures: NativeLifecycleCapture[] = [],
-      previousBackend = process.env.LUMA_MERGE_BACKEND,
+      previousBackend = process.env.IRODORI_MERGE_BACKEND,
       restorePolicies = setNativeLifecyclePolicies(stage === 'camera', false),
       { RawGpuRenderer } = await import('../src/main/gpu/raw-renderer'),
       originalMergeDevice = RawGpuRenderer.prototype.mergeDevice,
@@ -2634,7 +2634,7 @@ for (const stage of ['camera', 'reference'] as const) {
       }
     let fault: Awaited<ReturnType<typeof injectNativeSharedDeviceLoss>> | undefined
     try {
-      process.env.LUMA_MERGE_BACKEND = stage === 'camera' ? 'cpu' : 'gpu'
+      process.env.IRODORI_MERGE_BACKEND = stage === 'camera' ? 'cpu' : 'gpu'
       if (stage === 'reference')
         RawGpuRenderer.prototype.mergeDevice = async function () {
           evidence.controlDeviceDenials++
@@ -2651,7 +2651,7 @@ for (const stage of ['camera', 'reference'] as const) {
       await publishNativeLifecycle(control, frozen, originals)
       await closeNativeLifecycle(control)
       RawGpuRenderer.prototype.mergeDevice = originalMergeDevice
-      process.env.LUMA_MERGE_BACKEND = 'gpu'
+      process.env.IRODORI_MERGE_BACKEND = 'gpu'
       setNativeLifecyclePolicies(stage === 'camera', stage === 'reference')
       fault = await injectNativeSharedDeviceLoss()
       evidence.fault = fault.evidence
@@ -2752,8 +2752,8 @@ for (const stage of ['camera', 'reference'] as const) {
     } finally {
       fault?.restore()
       RawGpuRenderer.prototype.mergeDevice = originalMergeDevice
-      if (previousBackend === undefined) delete process.env.LUMA_MERGE_BACKEND
-      else process.env.LUMA_MERGE_BACKEND = previousBackend
+      if (previousBackend === undefined) delete process.env.IRODORI_MERGE_BACKEND
+      else process.env.IRODORI_MERGE_BACKEND = previousBackend
       restorePolicies()
       for (const context of contexts)
         if (!context.sample.cleaned) await closeNativeLifecycle(context)

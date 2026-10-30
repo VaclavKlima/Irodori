@@ -13,7 +13,7 @@ rendering retains AP1 limiting, JMh conversion, tonescale, chroma compression,
 gamut compression, and conversion into limiting primaries. No photographic LUT or
 fitted approximation replaces the reference algorithm.
 
-Luma uses Bradford adaptation from Rec.2020/D65 to ACES2065-1/D60. Nominal
+Irodori uses Bradford adaptation from Rec.2020/D65 to ACES2065-1/D60. Nominal
 reference white is 100, and nominal peak is 100 × effective headroom (1–100).
 Output remains relative linear RGB; white limiting and extended sRGB encoding
 follow rendering. These parameters are not measurements of physical display nits.

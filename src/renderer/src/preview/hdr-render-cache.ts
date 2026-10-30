@@ -13,6 +13,8 @@ export interface HdrCacheTile {
 }
 export interface HdrCachePlan {
   variant?: string
+  /** A distinct unfiltered source; absent for the ordinary shared-source route. */
+  beforeSourceIdentity?: string
   level: number
   width: number
   height: number
@@ -116,7 +118,10 @@ export class HdrRenderCache {
       }
   }
   private key(plan: HdrCachePlan, tile: HdrCacheTile, neutral: boolean) {
-    return `${plan.variant ?? 'legacy'}:${tile.level}:${tile.x}:${tile.y}:${tile.before || neutral ? 'neutral' : 'after'}`
+    const ordinary = `${plan.variant ?? 'legacy'}:${tile.level}:${tile.x}:${tile.y}:${tile.before || neutral ? 'neutral' : 'after'}`
+    return tile.before && plan.beforeSourceIdentity
+      ? `${ordinary}:before-source:${JSON.stringify(plan.beforeSourceIdentity)}`
+      : ordinary
   }
   has(plan: HdrCachePlan, neutral: boolean) {
     return plan.tiles.every((tile) => this.entries.has(this.key(plan, tile, neutral)))
@@ -154,7 +159,14 @@ export class HdrRenderCache {
           const slot = this.free.pop()
           if (slot === undefined) throw new Error('HDR render cache has no unpinned slot.')
           entry = { slot, neutral: tiles[0].before || neutral }
-          jobs.push(tiles[0].x, tiles[0].y, slot, Number(entry.neutral))
+          // Bit 0 still bypasses adjustments in the unchanged WGSL kernel.
+          // Bit 1 selects the separate source bind group in the caller.
+          jobs.push(
+            tiles[0].x,
+            tiles[0].y,
+            slot,
+            Number(entry.neutral) | (tiles[0].before && plan.beforeSourceIdentity ? 2 : 0),
+          )
         }
         this.entries.set(key, entry)
         for (const tile of tiles)
@@ -168,5 +180,24 @@ export class HdrRenderCache {
         jobs: new Uint32Array(),
         renderedTiles: 0,
       }
+  }
+}
+
+/** Keep source bindings homogeneous without changing ordinary batching or job order. */
+export function* hdrCacheJobRuns(jobs: Uint32Array<ArrayBuffer>, maximumJobs: number) {
+  if (!Number.isSafeInteger(maximumJobs) || maximumJobs < 1 || jobs.length % 4)
+    throw new Error('Invalid HDR cache job batch.')
+  let start = 0
+  while (start < jobs.length) {
+    const beforeSource = !!(jobs[start + 3] & 2)
+    let end = start + 4
+    while (
+      end < jobs.length &&
+      end - start < maximumJobs * 4 &&
+      !!(jobs[end + 3] & 2) === beforeSource
+    )
+      end += 4
+    yield { start, jobs: jobs.subarray(start, end), beforeSource }
+    start = end
   }
 }

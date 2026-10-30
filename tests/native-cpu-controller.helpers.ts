@@ -75,10 +75,10 @@ export function resourcePolicy(revision = 1, ramMiB = 2048, vramMiB = 2048) {
   )
 }
 export async function realNativeExecutable() {
-  const executable = process.env.LUMA_NATIVE_CPU_RENDER_TEST_EXECUTABLE
+  const executable = process.env.IRODORI_NATIVE_CPU_RENDER_TEST_EXECUTABLE
   if (!executable || !isAbsolute(executable))
     throw new Error(
-      'Set LUMA_NATIVE_CPU_RENDER_TEST_EXECUTABLE to the absolute verified stdin-capable Rust helper; native coverage is not optional.',
+      'Set IRODORI_NATIVE_CPU_RENDER_TEST_EXECUTABLE to the absolute verified stdin-capable Rust helper; native coverage is not optional.',
     )
   await access(executable, constants.X_OK)
   return executable
@@ -100,10 +100,13 @@ export interface ChildEvent {
   generation: number
   pid: number
   code?: number
+  phase?: 'before' | 'after'
 }
 interface FixtureOptions {
+  nativeExecutable?: string
   synthetic?: {
     holdGenerations?: number[]
+    holdBeforeGenerations?: number[]
     nonzeroGenerations?: number[]
     maskHoldOutput?: number[]
     maskHoldExit?: number[]
@@ -125,8 +128,10 @@ function shellQuote(value: string) {
 }
 export async function controllerFixture(options: FixtureOptions = {}) {
   // Missing native coverage must fail without leaving a temporary profile behind.
-  const nativeExecutable = options.synthetic ? undefined : await realNativeExecutable()
-  const root = await mkdtemp(join(tmpdir(), 'luma-native-cpu-controller-'))
+  const nativeExecutable = options.synthetic
+    ? undefined
+    : (options.nativeExecutable ?? (await realNativeExecutable()))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-native-cpu-controller-'))
   const directory = join(root, 'cpu-presentations'),
     control = join(root, 'protocol-control')
   await mkdir(control)
@@ -143,6 +148,7 @@ export async function controllerFixture(options: FixtureOptions = {}) {
       JSON.stringify({
         directory: control,
         holdGenerations: options.synthetic.holdGenerations ?? [],
+        holdBeforeGenerations: options.synthetic.holdBeforeGenerations ?? [],
         nonzeroGenerations: options.synthetic.nonzeroGenerations ?? [],
         maskHoldOutput: options.synthetic.maskHoldOutput ?? [],
         maskHoldExit: options.synthetic.maskHoldExit ?? [],
@@ -161,9 +167,16 @@ export async function controllerFixture(options: FixtureOptions = {}) {
     )
     executable = wrapper
   } else executable = nativeExecutable!
-  const source = async (label: string, width = 7, height = 129): Promise<SourceRecord> => {
-    const pixels = new Float32Array(width * height * 4)
-    for (let index = 0; index < width * height; index++) {
+  const source = async (
+    label: string,
+    width = 7,
+    height = 129,
+    supplied?: Float32Array<ArrayBuffer>,
+  ): Promise<SourceRecord> => {
+    const pixels = supplied ? new Float32Array(supplied) : new Float32Array(width * height * 4)
+    if (pixels.length !== width * height * 4)
+      throw new Error('Invalid isolated source fixture geometry.')
+    for (let index = 0; !supplied && index < width * height; index++) {
       const level = [0, 0.004, 0.02, 0.18, 0.4, 0.9, 1.5, 3][index % 8]
       pixels.set([level, level * 0.9, level * 0.7, [0, 0.25, 0.5, 1][index % 4]], index * 4)
     }
@@ -389,6 +402,7 @@ export async function controllerFixture(options: FixtureOptions = {}) {
       // controller close BEFORE deleting its evidence or manually closing leaks.
       for (const at of new Set([
         ...(options.synthetic?.holdGenerations ?? []),
+        ...(options.synthetic?.holdBeforeGenerations ?? []),
         ...(options.synthetic?.maskHoldOutput ?? []),
         ...(options.synthetic?.maskHoldExit ?? []),
       ])) {
@@ -420,7 +434,10 @@ export async function readPlane(controller: NativeCpuController, url: string) {
 }
 /** Independent unchanged application CPU functions, not native generated math or
  * its request encoder. This deliberately covers tiny full-resolution fixtures. */
-export function cpuOracle(record: SourceRecord, request: CpuPreviewRequest) {
+export function cpuOracle(
+  record: Pick<SourceRecord, 'pixels' | 'asset'>,
+  request: CpuPreviewRequest,
+) {
   const after = new Uint8ClampedArray(record.asset.width * record.asset.height * 4)
   const before = new Uint8ClampedArray(after.length),
     wb = hdrAdjustmentMatrix(request.parameters, record.asset.whiteBalance) ?? undefined

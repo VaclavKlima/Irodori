@@ -1,4 +1,4 @@
-import type { ForegroundActivity, LumaApi } from '../../../shared/contracts'
+import type { ForegroundActivity, IrodoriApi } from '../../../shared/contracts'
 
 export class ForegroundActivityClient {
   private activityId = crypto.randomUUID()
@@ -9,7 +9,7 @@ export class ForegroundActivityClient {
   private pulseRelease?: () => void
   constructor(
     private target: Pick<ForegroundActivity, 'photoId' | 'reviewId'>,
-    private report: LumaApi['reportForegroundActivity'],
+    private report: IrodoriApi['reportForegroundActivity'],
   ) {}
   private send(active: boolean) {
     void this.report({

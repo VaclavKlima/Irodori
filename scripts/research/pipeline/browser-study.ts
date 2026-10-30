@@ -22,9 +22,9 @@ export async function runPresentationStudy(options: PresentationOptions) {
     throw new Error('Sustained evidence requires three runs of at least 240 inputs.')
   const token = crypto.randomUUID(),
     started = performance.now()
-  let cleanup = () => window.luma.releaseFullPreview(token)
+  let cleanup = () => window.irodori.releaseFullPreview(token)
   try {
-    const preview = await window.luma.requestHdrPreview(options.photoId, token)
+    const preview = await window.irodori.requestHdrPreview(options.photoId, token)
     if (!preview) throw new Error('A real managed HDR fixture is required.')
     const asset = { ...preview.linear.hdr, url: preview.linear.url }
     const data = new Float32Array(asset.byteLength / 4),
@@ -48,7 +48,7 @@ export async function runPresentationStudy(options: PresentationOptions) {
     })
     cleanup = async () => {
       device.destroy()
-      await window.luma.releaseFullPreview(token)
+      await window.irodori.releaseFullPreview(token)
     }
     const errors: string[] = []
     device.addEventListener('uncapturederror', (event) => {
@@ -72,7 +72,7 @@ export async function runPresentationStudy(options: PresentationOptions) {
     cleanup = async () => {
       device.destroy()
       canvas.remove()
-      await window.luma.releaseFullPreview(token)
+      await window.irodori.releaseFullPreview(token)
     }
     const study = await createTileStudy(
       device,
@@ -84,7 +84,7 @@ export async function runPresentationStudy(options: PresentationOptions) {
       study.destroy()
       device.destroy()
       canvas.remove()
-      await window.luma.releaseFullPreview(token)
+      await window.irodori.releaseFullPreview(token)
     }
     if (errors.length) throw new Error(errors[0])
     const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve))

@@ -10,7 +10,7 @@ export async function scrollCollection(viewport: Locator, index: number) {
   }, index)
 }
 export async function revealEditorPhoto(page: Page, id: string) {
-  const location = await page.evaluate((id) => window.luma.locateGalleryPhoto(id), id)
+  const location = await page.evaluate((id) => window.irodori.locateGalleryPhoto(id), id)
   expect(location).not.toBeNull()
   await scrollCollection(page.getByTestId('editor-photo-scroll'), location!.index)
   await expect(page.getByTestId(`photo-card-${id}`)).toBeVisible()

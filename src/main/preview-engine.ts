@@ -13,7 +13,7 @@ import {
   type WorkingFrame,
 } from '../shared/adjustments'
 import { createHash } from 'node:crypto'
-import { frameByteLength } from '../shared/preview-frame'
+import { frameByteLength, PREPARED_PROOF_VERSION } from '../shared/preview-frame'
 import { RawGpuRenderer } from './gpu/raw-renderer'
 import { prepareFirstSurfaceOrientationPipeline } from './gpu/hdr-first-surface'
 import { prepareHdrPipelines } from '../renderer/src/preview/hdr-pipelines'
@@ -57,7 +57,7 @@ const extractEmbedded: ExtractEmbedded = async (tool, path, output) => {
 export class PreviewEngine {
   private tool = new ExifTool({ maxProcs: 1, taskTimeoutMillis: 20_000 })
 
-  private working?: { key: string; frame: WorkingFrame }
+  private working?: { key: string; frame: WorkingFrame; sha256?: string; original: boolean }
 
   async prewarmHdr(kernel: HdrCacheKernelKind): Promise<PreviewWarmResult> {
     const started = performance.now()
@@ -138,7 +138,7 @@ export class PreviewEngine {
 
   constructor(
     private extract: ExtractEmbedded = extractEmbedded,
-    private backend = process.env.LUMA_PREVIEW_BACKEND ?? 'auto',
+    private backend = process.env.IRODORI_PREVIEW_BACKEND ?? 'auto',
     private gpu: Pick<RawGpuRenderer, 'render' | 'close' | 'releaseFrame'> &
       Partial<Pick<RawGpuRenderer, 'mergeDevice'>> = new RawGpuRenderer(),
   ) {
@@ -344,6 +344,28 @@ export class PreviewEngine {
     }
   }
 
+  /** Render an admitted derived source without reopening its original or decoding a camera JPEG. */
+  async renderPreparedFull(
+    output: string,
+    options: ProcessingOptions,
+    backend: 'cpu' | 'gpu' | 'auto' = this.backend as 'cpu' | 'gpu' | 'auto',
+  ): Promise<FullPreviewResult> {
+    if (!options.workingAsset || options.crop || !['cpu', 'gpu', 'auto'].includes(backend))
+      throw new Error('Invalid prepared preview request.')
+    if (options.workingAsset.hdr) this.releaseFrame()
+    const frame = options.workingAsset.hdr
+      ? await renderHdr(options.workingAsset.path, output, options, this.gpu, backend)
+      : await this.renderFull(options.workingAsset.path, output, undefined, options)
+    return {
+      ...frame,
+      diagnostics: frame.diagnostics
+        ? { ...frame.diagnostics, proofBackend: frame.diagnostics.proofBackend ?? 'cpu' }
+        : undefined,
+      preparedProofVersion: PREPARED_PROOF_VERSION,
+      renderId: `${frame.renderId}-${PREPARED_PROOF_VERSION}-${options.workingAsset.sha256}`,
+    }
+  }
+
   async renderFull(
     path: string,
     output: string,
@@ -353,6 +375,8 @@ export class PreviewEngine {
     rawSource?: HdrRawSourceFactory,
     rawPreparation?: HdrRawPreparation,
   ): Promise<FullPreviewResult> {
+    if (options?.crop)
+      throw new Error('Crop geometry requires a prepared preview variant before rendering.')
     if (options?.metadata.hdrJpeg?.state === 'supported' && options.workingOnly)
       return renderHdrJpeg(path, output, options)
     if (rawDecoder(path) || options?.metadata.mergeMaster) {
@@ -383,7 +407,39 @@ export class PreviewEngine {
       options?.settings,
     ])
     const adjustments = options?.adjustments ?? neutralAdjustments
-    let working = this.working?.key === workingKey ? this.working.frame : undefined
+    const retained = this.working?.key === workingKey ? this.working : undefined,
+      selected = options?.workingAsset
+    let working: WorkingFrame | undefined,
+      workingSha256: string | undefined,
+      original = false
+    if (retained) {
+      if (
+        selected &&
+        retained.frame.width === selected.width &&
+        retained.frame.height === selected.height &&
+        retained.frame.data.byteLength === selected.byteLength &&
+        JSON.stringify(retained.frame.transform) === JSON.stringify(selected.transform)
+      ) {
+        retained.sha256 ??= createHash('sha256')
+          .update(
+            new Uint8Array(
+              retained.frame.data.buffer,
+              retained.frame.data.byteOffset,
+              retained.frame.data.byteLength,
+            ),
+          )
+          .digest('hex')
+        if (retained.sha256 === selected.sha256) {
+          working = retained.frame
+          workingSha256 = retained.sha256
+          original = retained.original
+        }
+      } else if (!selected && retained.original) {
+        working = retained.frame
+        workingSha256 = retained.sha256
+        original = true
+      }
+    }
     if (!working && options?.workingAsset) {
       const asset = options.workingAsset
       if (
@@ -405,6 +461,7 @@ export class PreviewEngine {
         height: asset.height,
         transform: asset.transform,
       }
+      workingSha256 = asset.sha256
     }
     const input = sharp(path).autoOrient()
     let frame: { data: Buffer; width: number; height: number } | undefined
@@ -434,6 +491,7 @@ export class PreviewEngine {
         height: info.height,
         transform: srgbTransform,
       }
+      original = true
       frame = {
         data: Buffer.from(renderAdjustments(working.data, adjustments, working.transform)),
         width: info.width,
@@ -441,7 +499,7 @@ export class PreviewEngine {
       }
     }
     if (working && working.data.byteLength <= 384 * 1024 ** 2)
-      this.working = { key: workingKey, frame: working }
+      this.working = { key: workingKey, frame: working, sha256: workingSha256, original }
     if (!frame) {
       const dimensions = await input.metadata()
       frameByteLength(dimensions.width, dimensions.height)
@@ -471,6 +529,7 @@ export class PreviewEngine {
         sha256: createHash('sha256').update(bytes).digest('hex'),
         transform: working.transform,
       }
+      if (this.working?.frame === working) this.working.sha256 = linear.sha256
     }
     const sha256 = createHash('sha256').update(frame.data).digest('hex')
     await writeFile(join(output, 'full.rgba'), frame.data)

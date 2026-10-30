@@ -1,4 +1,4 @@
-/** Luma's rational highlight shoulder, adapted from Reinhard et al. (2002). */
+/** Irodori's rational highlight shoulder, adapted from Reinhard et al. (2002). */
 export const highlightsModule = {
   id: 'highlights',
   version: 1,

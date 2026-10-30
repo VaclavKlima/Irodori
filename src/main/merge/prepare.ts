@@ -215,7 +215,7 @@ export async function prepareSource(
     attemptedGpuBytes = 0,
     attemptedCameraMetrics: GpuCameraRegistrationMetrics | undefined,
     attemptedSensor: SensorCache | undefined
-  if (gpu && process.env.LUMA_MERGE_BACKEND !== 'cpu') {
+  if (gpu && process.env.IRODORI_MERGE_BACKEND !== 'cpu') {
     const decoder = rawDecoder(path)
     if (!decoder) throw new Error('Merge requires RAW sources.')
     const opening = performance.now(),
@@ -719,7 +719,7 @@ async function prepareCpu(
   if (
     highlightSafe &&
     referenceGpu?.policy === GPU_REFERENCE_PREPARATION &&
-    process.env.LUMA_MERGE_BACKEND !== 'cpu'
+    process.env.IRODORI_MERGE_BACKEND !== 'cpu'
   ) {
     const conversionStart = (referenceGpuStart = performance.now())
     try {
@@ -788,7 +788,7 @@ async function prepareCpu(
     cy = (frame.height - 1) / 2,
     radius = Math.hypot(cx, cy),
     staging = new Float32Array(width * Math.min(64, height) * 4),
-    stagingLuma = new Float64Array(width * Math.min(64, height)),
+    stagingLuminance = new Float64Array(width * Math.min(64, height)),
     maximumGain = Math.max(...normal.gains),
     minimumGain = Math.min(...gains),
     cameraRgb = [0, 0, 0],
@@ -819,7 +819,7 @@ async function prepareCpu(
     ),
     reduction =
       kernel?.reduction ??
-      createAreaReducer(width, height, { width: plane.width, height: plane.height }, 'luma')
+      createAreaReducer(width, height, { width: plane.width, height: plane.height }, 'luminance')
   let accelerated = kernel
   try {
     if (preparation && !highlightSafe) {
@@ -902,10 +902,10 @@ async function prepareCpu(
             out[i + 1] = rgb[1]
             out[i + 2] = rgb[2]
             out[i + 3] = Number(!clipped)
-            stagingLuma[i / 4] = Math.max(0, luminance(rgb))
+            stagingLuminance[i / 4] = Math.max(0, luminance(rgb))
           }
       }
-      reduction.add(top, out, native?.luma ?? stagingLuma.subarray(0, width * rows))
+      reduction.add(top, out, native?.luminance ?? stagingLuminance.subarray(0, width * rows))
       work.conversionMs += performance.now() - conversion
       const bytes = Buffer.from(out.buffer, out.byteOffset, out.byteLength),
         hashing = performance.now()
@@ -1011,7 +1011,8 @@ async function prepareGpuReference(
       | undefined
   try {
     try {
-      const reduction = converter.reduction ?? createAreaReducer(width, height, reduced, 'luma')
+      const reduction =
+        converter.reduction ?? createAreaReducer(width, height, reduced, 'luminance')
       file = await open(target, 'wx')
       ownedFile = true
       for (let top = 0; top < height; top += 64) {
@@ -1019,11 +1020,11 @@ async function prepareGpuReference(
         const converting = performance.now(),
           rows = Math.min(64, height - top),
           native = await converter.convert(top, rows)
-        if (native.rgba.length !== width * rows * 4 || native.luma.length !== width * rows)
+        if (native.rgba.length !== width * rows * 4 || native.luminance.length !== width * rows)
           throw new Error('Invalid GPU reference fallback strip.')
         work.conversionMs += performance.now() - converting
         const reducing = performance.now()
-        reduction.add(top, native.rgba, native.luma)
+        reduction.add(top, native.rgba, native.luminance)
         work.reductionMs += performance.now() - reducing
         const bytes = Buffer.from(
             native.rgba.buffer,

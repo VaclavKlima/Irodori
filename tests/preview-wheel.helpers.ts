@@ -84,7 +84,7 @@ export async function verifyPreviewWheel(page: Page, viewport: Locator, zoom: Lo
     const draws = () =>
       canvas.dataset.frames !== undefined
         ? Number(canvas.dataset.frames)
-        : performance.getEntriesByName('luma.preview.presentation').length
+        : performance.getEntriesByName('irodori.preview.presentation').length
     try {
       await frame()
       const beforeDraws = draws()
@@ -162,7 +162,7 @@ export async function verifyPreviewWheel(page: Page, viewport: Locator, zoom: Lo
   await page.keyboard.down('Control')
   await page.mouse.wheel(0, -100)
   await page.keyboard.up('Control')
-  await expect.poll(async () => (await view()).scale).toBeCloseTo(1.1, 5)
+  await expect.poll(async () => (await view()).scale).toBeCloseTo(1.1 ** (100 / 120), 5)
 
   await zoom.selectOption('1')
   const mouseSteps = await viewport.evaluate(async (el) => {
@@ -189,8 +189,8 @@ export async function verifyPreviewWheel(page: Page, viewport: Locator, zoom: Lo
     }
     return scales
   })
-  for (const [i, steps] of [1, 2, 3, 2, 1, 0].entries())
-    expect(mouseSteps[i]).toBeCloseTo(1.1 ** steps, 5)
+  for (const [i, distance] of [100, 220, 460, 360, 240, 0].entries())
+    expect(mouseSteps[i]).toBeCloseTo(1.1 ** (distance / 120), 5)
 
   await zoom.selectOption('1')
 
@@ -224,7 +224,34 @@ export async function verifyPreviewWheel(page: Page, viewport: Locator, zoom: Lo
   })
   let expected = 1
   for (const [i, physicalControl] of [false, true, false, false].entries()) {
-    expected *= physicalControl ? 1.1 ** 0.2 : Math.exp(0.2)
+    expected *= physicalControl ? 1.1 ** (20 / 120) : Math.exp(0.2)
     expect(modifierScales[i]).toBeCloseTo(expected, 5)
   }
+
+  await zoom.selectOption('fit')
+  const fitted = await view()
+  await zoom.selectOption('32')
+  await viewport.evaluate(async (el) => {
+    const box = el.getBoundingClientRect()
+    document.dispatchEvent(new KeyboardEvent('keydown', { ctrlKey: true, key: 'Control' }))
+    try {
+      // Replay split high-resolution input from maximum zoom through the Fit boundary.
+      for (let notch = 0; notch < 100; notch++)
+        for (const deltaY of [30, 15, 15, 15, 15, 15, 15])
+          el.dispatchEvent(
+            new WheelEvent('wheel', {
+              cancelable: true,
+              ctrlKey: true,
+              deltaY,
+              clientX: box.left + box.width / 2 + 50,
+              clientY: box.top + box.height / 2 + 25,
+            }),
+          )
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    } finally {
+      document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Control' }))
+    }
+  })
+  await expect(zoom).toHaveValue('fit')
+  expect(await view()).toEqual(fitted)
 }

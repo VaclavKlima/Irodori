@@ -20,7 +20,8 @@ export function Highlights({
       step={parameter.step}
       precision={0}
       resetKey={edits.state?.revision}
-      disabled={!edits.state || edits.saving || !previewReady}
+      disabled={!edits.state || !previewReady}
+      busy={edits.saving}
       onChange={(highlights) => void edits.change({ highlights })}
       onCommit={() => void edits.flush().catch(() => undefined)}
       onCancel={edits.cancel}

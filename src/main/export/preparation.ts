@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { FullPreviewResult } from '../preview-types'
 import { validateWorkingAsset, workingSourceIdentity, type WorkingAsset } from '../working-assets'
 import type { ExportRenderJob } from './types'
+import { matchesExportWorkingAsset, validateExportDetailPolicy } from './detail-policy'
 
 interface PreparedSource {
   version: 1
@@ -19,8 +20,9 @@ export async function prepareExportWorkingSource(
   decode: (directory: string) => Promise<FullPreviewResult>,
 ) {
   signal.throwIfAborted()
+  validateExportDetailPolicy(job)
   const identity = workingSourceIdentity(job.source.photo.id, job.source.processing)
-  if (job.workingAsset?.identity === identity)
+  if (job.workingAsset && matchesExportWorkingAsset(job.source, job.workingAsset))
     return { ...job.workingAsset, preparation: 'preview-cache' as const }
   const directory = job.preparationDirectory ?? job.directory
   if (job.preparationDirectory) {
@@ -31,6 +33,7 @@ export async function prepareExportWorkingSource(
       if (entry.version !== 1 || entry.identity !== identity)
         throw new Error('Export preparation identity changed.')
       const asset = { ...entry.asset, path: join(directory, 'linear.f32') }
+      if (!asset.hdr) throw new Error('Missing HDR export working descriptor.')
       await validateWorkingAsset(asset, signal)
       return { ...entry, asset, preparation: 'retained' as const }
     } catch {

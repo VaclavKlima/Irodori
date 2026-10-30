@@ -15,6 +15,11 @@ import { exportFixture, sha, syntheticExportSource } from './export.helpers'
 import { finishTask } from './stack.helpers'
 import { prepareExportWorkingSource } from '../src/main/export/preparation'
 import { workingSourceIdentity, type WorkingAssetLease } from '../src/main/working-assets'
+import { exportCropPolicy } from '../src/main/export/crop-policy'
+import { identityCrop } from '../src/shared/crop'
+import { cropAdmission } from './crop-frame.helpers'
+import { exportDetailPolicy } from '../src/main/export/detail-policy'
+import { exportSdrEncodePlan } from '../src/shared/export-resources'
 
 async function controlled(
   t: Awaited<ReturnType<typeof exportFixture>>,
@@ -27,6 +32,7 @@ async function controlled(
   working?: {
     hdr: boolean
     acquire?: ConstructorParameters<typeof ExportJobs>[8]
+    cropAdmission?: ConstructorParameters<typeof ExportJobs>[9]
   },
 ) {
   t.library.exports = new ExportJobs(
@@ -49,6 +55,7 @@ async function controlled(
           ...JSON.parse(row.data),
           ...(working?.hdr ? { processing: 'hdr-v1' } : {}),
           revision: edits.revision,
+          crop: edits.settings.crop,
           adjustments: { ...neutralAdjustments, ...edits.settings },
         },
       }
@@ -62,6 +69,7 @@ async function controlled(
     { render },
     boundary,
     working?.acquire,
+    working?.cropAdmission,
   )
 }
 async function fakeRender(job: ExportRenderJob) {
@@ -186,7 +194,13 @@ test('acceptance freezes committed edits, saves Custom atomically and preserves 
     release = r
   })
   try {
+    const colorSnapshots: { saturation?: number; vibrance?: number }[] = []
     await controlled(t, async (job, signal) => {
+      expect(job.cropPolicy).toEqual(exportCropPolicy)
+      colorSnapshots.push({
+        saturation: job.source.processing.adjustments?.saturation,
+        vibrance: job.source.processing.adjustments?.vibrance,
+      })
       await Promise.race([
         gate,
         new Promise<void>((_, reject) => {
@@ -200,7 +214,7 @@ test('acceptance freezes committed edits, saves Custom atomically and preserves 
     const before = await t.library.getEditHistory(t.photos[0].id)
     const revision = t.db.prepare('SELECT revision FROM browse_state').get()
     let prepared = await t.library.prepareExport([t.photos[0].id])
-    await t.library.updateEdits(t.photos[0].id, { exposureEv: 1 }, 0)
+    await t.library.updateEdits(t.photos[0].id, { exposureEv: 1, saturation: 35, vibrance: -20 }, 0)
     await expect(
       t.library.startExport({
         preparationId: prepared.id,
@@ -217,6 +231,9 @@ test('acceptance freezes committed edits, saves Custom atomically and preserves 
       action: 'custom',
       options,
     })
+    expect(
+      t.library.exports.store.jobs().find((job) => job.manifest.id === id)?.manifest.pipeline.crop,
+    ).toEqual(exportCropPolicy)
     expect((await t.library.getExportPreferences()).lastCustom?.quality).toBe(81)
     expect(() => t.library.deletePhotos([t.photos[0].id])).toThrow('export')
     expect(
@@ -230,7 +247,7 @@ test('acceptance freezes committed edits, saves Custom atomically and preserves 
       t.photos[0].id,
       t.library.listStacks().revision,
     )
-    await t.library.updateEdits(t.photos[0].id, { exposureEv: 2 }, 1)
+    await t.library.updateEdits(t.photos[0].id, { exposureEv: 2, saturation: -60, vibrance: 80 }, 1)
     release()
     expect((await wait(t, id)).export).toMatchObject({ exported: 1, failed: 0 })
     expect(await readFile(join(t.destination, 'Photo-0.jpg'), 'utf8')).toBe('jpeg-1')
@@ -238,6 +255,9 @@ test('acceptance freezes committed edits, saves Custom atomically and preserves 
     const after = await t.library.getEditHistory(t.photos[0].id)
     expect(after.snapshots.length).toBe(before.snapshots.length + 2)
     expect(t.db.prepare('SELECT revision FROM browse_state').get()).toEqual(revision)
+    expect(colorSnapshots.length).toBeGreaterThan(0)
+    for (const attempt of colorSnapshots) expect(attempt).toEqual({ saturation: 35, vibrance: -20 })
+    colorSnapshots.length = 0
     const next = await t.library.prepareExport([t.photos[0].id])
     const quick = await t.library.startExport({
       preparationId: next.id,
@@ -247,6 +267,8 @@ test('acceptance freezes committed edits, saves Custom atomically and preserves 
     await wait(t, quick)
     expect((await t.library.getExportPreferences()).lastCustom?.quality).toBe(81)
     expect(await readFile(join(t.destination, 'Photo-0 (2).jpg'), 'utf8')).toBe('jpeg-2')
+    expect(colorSnapshots.length).toBeGreaterThan(0)
+    for (const attempt of colorSnapshots) expect(attempt).toEqual({ saturation: -60, vibrance: 80 })
   } finally {
     release?.()
     await t.close()
@@ -598,6 +620,286 @@ test('foreground interaction drains an export worker and retries only the unfini
   }
 })
 
+async function seedCroppedHistory(t: Awaited<ReturnType<typeof exportFixture>>) {
+  const history = await t.library.getEditHistory(t.photos[0].id)
+  const settings = { ...history.settings, crop: { ...identityCrop, quarterTurns: 1 as const } }
+  history.snapshots.push({ settings, createdAt: new Date().toISOString() })
+  history.settings = settings
+  history.cursor++
+  await t.library.catalogCommands.command({
+    operation: 'edits.commit',
+    payload: { history, expectedRevision: history.revision },
+  })
+  return settings.crop
+}
+
+test('detail export refreshes live admission while frozen controls and policy survive foreground retries and worker mutation', async () => {
+  const t = await exportFixture(1)
+  let attempts = 0,
+    admissions = 0,
+    entered!: () => void
+  const started = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  try {
+    const row = t.db.prepare('SELECT data FROM processing WHERE id = ?').get(t.photos[0].id) as {
+        data: string
+      },
+      processing = JSON.parse(row.data),
+      noiseReduction = { version: 1, luminance: 35, chroma: 45 },
+      detailSharpening = { version: 1, amount: 40, radius: 1.2, threshold: 50 }
+    t.db
+      .prepare('UPDATE processing SET data = ? WHERE id = ?')
+      .run(JSON.stringify({ ...processing, noiseReduction, detailSharpening }), t.photos[0].id)
+    await controlled(
+      t,
+      async (job, signal) => {
+        attempts++
+        expect(job.source.processing.noiseReduction).toEqual(noiseReduction)
+        expect(job.source.processing.detailSharpening).toEqual(detailSharpening)
+        expect(job.detailPolicy).toEqual(exportDetailPolicy)
+        expect(job.detailAdmission!.reservation.ramBytes).toBe(attempts * 4096)
+        expect(job.cropAdmission).toBeUndefined()
+        if (attempts === 1) {
+          Object.assign(job.source.processing.noiseReduction!, { luminance: 100 })
+          job.detailPolicy!.stage = 'worker-local-mutation'
+          entered()
+          await new Promise<void>((_, reject) =>
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+          )
+        }
+        return fakeRender(job)
+      },
+      undefined,
+      {
+        hdr: false,
+        cropAdmission: async (signal) => {
+          signal.throwIfAborted()
+          const snapshot = cropAdmission()
+          return {
+            ...snapshot,
+            reservation: { ...snapshot.reservation, ramBytes: ++admissions * 4096 },
+          }
+        },
+      },
+    )
+    const grant = await t.library.exports.store.authorize(t.destination),
+      prepared = await t.library.prepareExport([t.photos[0].id]),
+      id = await t.library.startExport({
+        preparationId: prepared.id,
+        destinationId: grant.id,
+        action: 'high',
+      })
+    await started
+    await t.library.updateEdits(t.photos[0].id, { exposureEv: 1 }, 0)
+    expect((await wait(t, id)).export).toMatchObject({ exported: 1, failed: 0 })
+    expect({ attempts, admissions }).toEqual({ attempts: 2, admissions: 2 })
+    const frozen = t.library.exports.store.jobs().find((job) => job.manifest.id === id)!.manifest
+    expect(frozen.pipeline.detail).toEqual(exportDetailPolicy)
+    expect(frozen.sources[0].processing.noiseReduction).toEqual(noiseReduction)
+    expect(frozen.sources[0].processing.adjustments!.exposureEv).toBe(0)
+  } finally {
+    await t.close()
+  }
+})
+
+test('a real detail worker budget refusal publishes nothing and a newly admitted export preserves existing files and originals', async () => {
+  const previous = process.env.IRODORI_EXPORT_BACKEND,
+    t = await exportFixture(1)
+  try {
+    process.env.IRODORI_EXPORT_BACKEND = 'cpu'
+    const photo = t.photos[0],
+      originalPath = join(t.root, 'library', 'originals', photo.id, 'original.png'),
+      original = await readFile(originalPath),
+      existingPath = join(t.destination, 'Photo-0.jpg'),
+      existing = Buffer.from('existing destination must remain unchanged'),
+      row = t.db.prepare('SELECT data FROM processing WHERE id = ?').get(photo.id) as {
+        data: string
+      }
+    t.db.prepare('UPDATE processing SET data = ? WHERE id = ?').run(
+      JSON.stringify({
+        ...JSON.parse(row.data),
+        noiseReduction: { version: 1, luminance: 35, chroma: 45 },
+        detailSharpening: { version: 1, amount: 40, radius: 1.2, threshold: 50 },
+      }),
+      photo.id,
+    )
+    await writeFile(existingPath, existing)
+    const admission = cropAdmission(),
+      encodePlan = exportSdrEncodePlan(photo.width!, photo.height!, {
+        ...admission,
+        reservation: {
+          ...admission.reservation,
+          ramBytes: admission.reservation.ramBytes + photo.width! * photo.height! * 3,
+        },
+      }),
+      normalBudget = admission.policy.ram.effectiveBytes,
+      worker = new ExportProcess(
+        resolve('out/main/export-worker.js'),
+        resolve('out/main/preview-worker.js'),
+      ),
+      boundaries: ExportBoundary[] = []
+    Object.assign(admission.policy.ram, { effectiveBytes: encodePlan.total.ramBytes - 1 })
+    await controlled(
+      t,
+      (job, signal, progress) => worker.render(job, signal, progress),
+      async (boundary) => {
+        boundaries.push(boundary)
+      },
+      { hdr: false, cropAdmission: async () => structuredClone(admission) },
+    )
+    const history = await t.library.getEditHistory(photo.id),
+      grant = await t.library.exports.store.authorize(t.destination)
+    for (const allowed of [false, true]) {
+      if (allowed) Object.assign(admission.policy.ram, { effectiveBytes: normalBudget })
+      const prepared = await t.library.prepareExport([photo.id]),
+        id = await t.library.startExport({
+          preparationId: prepared.id,
+          destinationId: grant.id,
+          action: 'custom',
+          options: { ...defaultExportOptions, metadata: 'none' },
+        }),
+        task = await wait(t, id)
+      expect(task.export).toMatchObject(
+        allowed ? { exported: 1, failed: 0 } : { exported: 0, failed: 1 },
+      )
+      if (!allowed) {
+        expect(t.library.exports.store.files(id)[0].message).toContain(
+          'frozen managed image budgets',
+        )
+        expect(boundaries).toEqual([])
+        expect(await readdir(t.destination)).toEqual(['Photo-0.jpg'])
+      } else {
+        // The first publication attempt encounters the preserved destination filename.
+        expect(boundaries).toEqual([
+          'partial',
+          'ready',
+          'publishing',
+          'publishing',
+          'published',
+          'recorded',
+        ])
+        expect((await readdir(t.destination)).sort()).toEqual(['Photo-0 (2).jpg', 'Photo-0.jpg'])
+        expect(t.library.exports.store.files(id)[0].diagnostics!.detail!.primary).toBeDefined()
+      }
+      expect(await readFile(existingPath)).toEqual(existing)
+      expect(await readFile(originalPath)).toEqual(original)
+      expect(await t.library.getEditHistory(photo.id)).toEqual(history)
+      expect(t.library.exports.leased([photo.id])).toBe(false)
+    }
+  } finally {
+    if (previous === undefined) delete process.env.IRODORI_EXPORT_BACKEND
+    else process.env.IRODORI_EXPORT_BACKEND = previous
+    await t.close()
+  }
+})
+
+test('crop export refreshes resource admission after a foreground retry and retains accepted geometry and policy', async () => {
+  const t = await exportFixture(1)
+  let admissions = 0,
+    attempts = 0,
+    entered!: () => void
+  const started = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  try {
+    const crop = await seedCroppedHistory(t)
+    await controlled(
+      t,
+      async (job, signal) => {
+        attempts++
+        expect(job.source.processing.crop).toEqual(crop)
+        expect(job.source.processing.adjustments?.exposureEv).toBe(0)
+        expect(job.cropPolicy).toEqual(exportCropPolicy)
+        expect(job.cropAdmission!.reservation.ramBytes).toBe(attempts * 4096)
+        if (attempts === 1) {
+          job.cropPolicy!.filter = 'worker-local-mutation'
+          entered()
+          await new Promise<void>((_, reject) =>
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+          )
+        }
+        return fakeRender(job)
+      },
+      undefined,
+      {
+        hdr: false,
+        cropAdmission: async (signal) => {
+          signal.throwIfAborted()
+          admissions++
+          const snapshot = cropAdmission()
+          return {
+            ...snapshot,
+            reservation: { ...snapshot.reservation, ramBytes: admissions * 4096 },
+          }
+        },
+      },
+    )
+    const grant = await t.library.exports.store.authorize(t.destination)
+    const prepared = await t.library.prepareExport([t.photos[0].id])
+    const id = await t.library.startExport({
+      preparationId: prepared.id,
+      destinationId: grant.id,
+      action: 'high',
+    })
+    await started
+    await t.library.updateEdits(t.photos[0].id, { exposureEv: 1 }, 1)
+    expect((await wait(t, id)).export).toMatchObject({ exported: 1, failed: 0 })
+    expect({ admissions, attempts }).toEqual({ admissions: 2, attempts: 2 })
+    const frozen = t.library.exports.store.jobs().find((job) => job.manifest.id === id)!.manifest
+    expect(frozen.pipeline.crop).toEqual(exportCropPolicy)
+    expect(frozen.sources[0].processing.crop).toEqual(crop)
+    expect(frozen.sources[0].processing.revision).toBe(1)
+    expect(await readFile(join(t.destination, 'Photo-0.jpg'), 'utf8')).toBe('jpeg-0')
+  } finally {
+    await t.close()
+  }
+})
+
+for (const unavailable of ['missing', 'failed'] as const)
+  test(`a ${unavailable} crop resource snapshot fails the file before starting a renderer`, async () => {
+    const t = await exportFixture(1)
+    let renders = 0
+    try {
+      await seedCroppedHistory(t)
+      await controlled(
+        t,
+        async (job) => {
+          renders++
+          return fakeRender(job)
+        },
+        undefined,
+        {
+          hdr: false,
+          cropAdmission:
+            unavailable === 'missing'
+              ? undefined
+              : async () => {
+                  throw new Error('Resource inventory unavailable.')
+                },
+        },
+      )
+      const grant = await t.library.exports.store.authorize(t.destination)
+      const prepared = await t.library.prepareExport([t.photos[0].id])
+      const id = await t.library.startExport({
+        preparationId: prepared.id,
+        destinationId: grant.id,
+        action: 'high',
+      })
+      expect((await wait(t, id)).export).toMatchObject({ exported: 0, failed: 1 })
+      expect(renders).toBe(0)
+      expect(t.library.exports.store.files(id)[0].message).toContain(
+        unavailable === 'missing'
+          ? 'resource admission is unavailable'
+          : 'Resource inventory unavailable',
+      )
+      expect(await readdir(t.destination)).toEqual([])
+      expect(t.library.exports.leased([t.photos[0].id])).toBe(false)
+    } finally {
+      await t.close()
+    }
+  })
+
 test('completed source preparation survives foreground retry while output and frozen edits stay isolated', async () => {
   const t = await exportFixture(1)
   const descriptorDirectory = test.info().outputPath('prepared-source')
@@ -880,6 +1182,96 @@ for (const outcome of ['success', 'failure', 'cancellation', 'shutdown'] as cons
       await t.close()
     }
   })
+
+test('paired HDR and primary leases remain frozen across foreground retries and both retire after worker cancellation', async () => {
+  const t = await exportFixture(1),
+    directory = test.info().outputPath('paired-lease-source')
+  await mkdir(directory)
+  const synthetic = await syntheticExportSource(directory, 12, 8, () => [0.18, 0.2, 1]),
+    acquisitions: string[] = [],
+    releases: string[] = [],
+    releaseExits: number[] = []
+  let attempts = 0,
+    exited = 0
+  try {
+    const row = t.db.prepare('SELECT data FROM processing WHERE id = ?').get(t.photos[0].id) as {
+        data: string
+      },
+      processing = JSON.parse(row.data)
+    t.db.prepare('UPDATE processing SET data = ? WHERE id = ?').run(
+      JSON.stringify({
+        ...processing,
+        metadata: {
+          ...processing.metadata,
+          hdrJpeg: { version: 1, state: 'supported', headroom: 4 },
+        },
+      }),
+      t.photos[0].id,
+    )
+    await controlled(
+      t,
+      async (job, signal) => {
+        attempts++
+        const primaryHash = synthetic.processing.workingAsset!.sha256
+        expect(job.workingAsset!.asset.hdr).toBeDefined()
+        expect(job.primaryWorkingAsset!.asset.hdr).toBeUndefined()
+        expect(job.primaryWorkingAsset!.asset.sha256).toBe(primaryHash)
+        // This disposable worker copy cannot change the source leased for its retry.
+        Object.assign(job.primaryWorkingAsset!.asset, { sha256: 'f'.repeat(64) })
+        try {
+          await new Promise<void>((_, reject) =>
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+          )
+        } finally {
+          exited++
+        }
+        throw new Error('The controlled renderer must be cancelled.')
+      },
+      undefined,
+      {
+        hdr: true,
+        acquire: async (source, _signal, rendition = 'working') => {
+          acquisitions.push(rendition)
+          const asset = structuredClone(synthetic.processing.workingAsset!)
+          if (rendition === 'primary') delete asset.hdr
+          return {
+            identity: workingSourceIdentity(
+              source.photo.id,
+              source.processing,
+              rendition !== 'primary',
+            ),
+            asset,
+            release: () => {
+              releases.push(rendition)
+              releaseExits.push(exited)
+            },
+          }
+        },
+      },
+    )
+    const grant = await t.library.exports.store.authorize(t.destination),
+      prepared = await t.library.prepareExport([t.photos[0].id]),
+      id = await t.library.startExport({
+        preparationId: prepared.id,
+        destinationId: grant.id,
+        action: 'custom',
+        options: { ...defaultExportOptions, output: 'sdr' },
+      })
+    await expect.poll(() => attempts).toBe(1)
+    await t.library.scheduler.run('interactive', async () => {})
+    await expect.poll(() => attempts).toBe(2)
+    expect(releases).toEqual([])
+    expect(acquisitions).toEqual(['working', 'primary'])
+    await t.library.cancelTask(id)
+    expect((await wait(t, id)).status).toBe('cancelled')
+    expect(releases).toEqual(['working', 'primary'])
+    expect(releaseExits).toEqual([2, 2])
+    expect(t.library.exports.leased([t.photos[0].id])).toBe(false)
+    expect(await readdir(t.destination)).toEqual([])
+  } finally {
+    await t.close()
+  }
+})
 
 test('a destination write failure cleans its owned partial and retains independent file outcomes', async () => {
   const t = await exportFixture(2)

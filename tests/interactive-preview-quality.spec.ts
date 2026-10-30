@@ -44,7 +44,7 @@ import {
 // Independent isolated proof admission, separate from application resource preferences.
 const PHOTOGRAPHIC_PROOF_GPU_BUDGET_BYTES = 2 * 1024 ** 3
 
-const requestedProfile = process.env.LUMA_INTERACTIVE_QUALITY_PROFILE
+const requestedProfile = process.env.IRODORI_INTERACTIVE_QUALITY_PROFILE
 if (
   requestedProfile !== undefined &&
   ![
@@ -771,7 +771,7 @@ for (const { name: scene, sourcePath, sourceSha256, coverage } of sources.filter
   // eslint-disable-next-line no-empty-pattern -- Playwright requires a destructured fixture argument.
   test(`real Sony ${scene} ${qualityDescription}`, async ({}, info) => {
     test.setTimeout(240000)
-    const directory = await mkdtemp(join(tmpdir(), 'luma-interactive-quality-'))
+    const directory = await mkdtemp(join(tmpdir(), 'irodori-interactive-quality-'))
     const engine = new PreviewEngine()
     let device: GPUDevice | undefined, proof: Awaited<ReturnType<typeof photoProof>> | undefined
     const results: unknown[] = []
@@ -872,6 +872,8 @@ for (const { name: scene, sourcePath, sourceSha256, coverage } of sources.filter
       const edits: AdjustmentParameters[] = heldReplyReplay
         ? [
             {
+              saturation: 0,
+              vibrance: 0,
               exposureEv: 1.75,
               contrast: 45,
               highlights: -55,

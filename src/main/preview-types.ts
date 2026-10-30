@@ -2,6 +2,26 @@ import type { ImageStatistics } from '../shared/statistics'
 import type { HdrStatistics, HdrAnalysisDomain } from '../shared/hdr-statistics'
 import type { HdrWorkingAsset, DisplayTarget } from '../shared/hdr'
 import type { HdrPixel } from '../shared/hdr-pixel'
+import type {
+  WhiteBalanceSample,
+  SampledWhiteBalanceProposal,
+} from '../shared/white-balance-picker'
+export interface WhiteBalanceSampleJob {
+  asset: HdrWorkingAsset
+  sample: WhiteBalanceSample
+}
+export interface PreviewAnalysisFrame {
+  width: number
+  height: number
+  sha256: string
+  hdr?: HdrStatisticsJob
+  whiteBalance?: WhiteBalanceSampleJob
+  crop?: import('./processing/crop-preparation').CropPreparationJob
+  cropPreview?: import('./processing/crop-preview').CropPreviewJob
+  detail?: import('./processing/detail-preparation').DetailPreparationJob
+  detailPreview?: import('./processing/detail-preview').DetailPreviewJob
+  preparedBackend?: 'cpu' | 'gpu' | 'auto'
+}
 export interface HdrStatisticsJob {
   asset: HdrWorkingAsset
   adjustments: AdjustmentParameters
@@ -90,11 +110,17 @@ export type PreviewWorkerRequest =
         | 'capture-metadata-session'
         | 'statistics'
         | 'pixel'
+        | 'white-balance-sample'
+        | 'crop-working'
+        | 'crop-preview'
+        | 'detail-working'
+        | 'detail-preview'
+        | 'prepared-full'
         | 'warmup'
       path: string
       output: string
       options?: ProcessingOptions
-      frame?: { width: number; height: number; sha256: string; hdr?: HdrStatisticsJob }
+      frame?: PreviewAnalysisFrame
       pixel?: HdrPixelJob
       importMode?: 'embedded' | 'fallback'
       importSeed?: PreviewResult
@@ -115,6 +141,9 @@ export type PreviewWorkerResponse =
         | ImageStatistics
         | HdrStatistics
         | HdrPixel
+        | SampledWhiteBalanceProposal
+        | import('./processing/crop-preparation').CropPreparationResult
+        | import('./processing/detail-preparation').DetailPreparationResult
         | PreviewWarmResult
         | import('../shared/capture-sequence').CaptureMetadata
     }
@@ -203,6 +232,9 @@ export interface HdrPreparationTimings {
 }
 
 export interface FullPreviewResult {
+  preparedProofVersion?: typeof import('../shared/preview-frame').PREPARED_PROOF_VERSION
+  detail?: import('./processing/detail-preview').DetailPreviewIdentity
+  crop?: import('../shared/crop').CropGeometry
   firstSurface?: HdrFirstSurfaceArtifact
   firstSurfaceDecline?: string
   statistics?: ImageStatistics
@@ -221,6 +253,10 @@ export interface FullPreviewResult {
     sourceBackend?: 'wasm-libraw' | 'native-rust-rows'
     clock?: 'worker-performance'
     backend: 'cpu' | 'gpu'
+    /** Actual completed proof conversions, independently of source preparation. */
+    proofBackend?: 'cpu' | 'gpu' | 'mixed'
+    proofGpuStrips?: number
+    proofCpuStrips?: number
     adapter?: string
     fallback?: string
     timings: Record<string, number> & HdrPreparationTimings
@@ -228,10 +264,45 @@ export interface FullPreviewResult {
 }
 
 export interface FullPreviewProcessor {
+  renderPreparedFull?(
+    output: string,
+    options: ProcessingOptions,
+    signal: AbortSignal,
+    backend: 'cpu' | 'gpu' | 'auto',
+  ): Promise<FullPreviewResult>
+  prepareDetailPreview?(
+    path: string,
+    output: string,
+    job: import('./processing/detail-preview').DetailPreviewJob,
+    signal: AbortSignal,
+  ): Promise<FullPreviewResult>
+  prepareDetail?(
+    path: string,
+    output: string,
+    job: import('./processing/detail-preparation').DetailPreparationJob,
+    signal: AbortSignal,
+  ): Promise<import('./processing/detail-preparation').DetailPreparationResult>
+  prepareCropPreview?(
+    path: string,
+    output: string,
+    job: import('./processing/crop-preview').CropPreviewJob,
+    signal: AbortSignal,
+  ): Promise<FullPreviewResult>
+  prepareCrop?(
+    path: string,
+    output: string,
+    job: import('./processing/crop-preparation').CropPreparationJob,
+    signal: AbortSignal,
+  ): Promise<import('./processing/crop-preparation').CropPreparationResult>
   prewarmHdr?(
     kernel: import('../renderer/src/preview/hdr-shader').HdrCacheKernelKind,
   ): Promise<PreviewWarmResult>
   hdrPixel?(path: string, job: HdrPixelJob, signal: AbortSignal): Promise<HdrPixel>
+  whiteBalanceSample?(
+    path: string,
+    job: WhiteBalanceSampleJob,
+    signal: AbortSignal,
+  ): Promise<SampledWhiteBalanceProposal>
   hdrStatistics?(path: string, job: HdrStatisticsJob, signal: AbortSignal): Promise<HdrStatistics>
   statistics?(
     path: string,

@@ -11,10 +11,13 @@ requiresForeground(test, foregroundReason)
 test(
   'warmed native merge wheel and drag presentation with deghost overlay',
   foregroundTest(foregroundReason),
-  async ({ luma }, info) => {
-    test.skip(process.env.LUMA_PREVIEW_BENCHMARK !== '1', 'Select target merge-preview-benchmark.')
+  async ({ irodori }, info) => {
+    test.skip(
+      process.env.IRODORI_PREVIEW_BENCHMARK !== '1',
+      'Select target merge-preview-benchmark.',
+    )
     test.setTimeout(120000)
-    const { page, app } = luma
+    const { page, app } = irodori
     const { viewport, zoom } = await setupMergePreview(app, page, 3672, 5496, false, 2, true)
     const measurements = []
     for (const scale of [1, 8]) {

@@ -30,20 +30,20 @@ export async function numberedGroupSources(root: string, count: number) {
   return paths
 }
 export async function allGroupPhotos(page: Page) {
-  const first = await page.evaluate(() => window.luma.listPhotos())
+  const first = await page.evaluate(() => window.irodori.listPhotos())
   const rest =
-    first.total > 60 ? (await page.evaluate(() => window.luma.listPhotos(60))).photos : []
+    first.total > 60 ? (await page.evaluate(() => window.irodori.listPhotos(60))).photos : []
   return [...first.photos, ...rest]
 }
 export async function createGroup(page: Page, ids: string[], expanded = false) {
   return page.evaluate(
     async ({ ids, expanded }) => {
-      const stack = await window.luma.groupPhotos(
+      const stack = await window.irodori.groupPhotos(
         ids,
         ids[0],
-        (await window.luma.listStacks()).revision,
+        (await window.irodori.listStacks()).revision,
       )
-      return expanded ? window.luma.setStackExpanded(stack.id, true, stack.revision) : stack
+      return expanded ? window.irodori.setStackExpanded(stack.id, true, stack.revision) : stack
     },
     { ids, expanded },
   )
@@ -146,7 +146,7 @@ export async function fixtureGroupMerge(app: ElectronApplication, derivedIds: st
       const update = (p: import('../src/shared/photo-actions').ActionPhotoReference) => ({
         ...p,
         assetKind: derived.includes(p.id) ? ('derived' as const) : ('original' as const),
-        format: derived.includes(p.id) ? 'LUMA HDR' : format,
+        format: derived.includes(p.id) ? 'IRODORI HDR' : format,
       })
       const selection = value.selection.map(update)
       if (value.photo) value.photo = update(value.photo)
@@ -183,7 +183,7 @@ export async function fixtureGroupMerge(app: ElectronApplication, derivedIds: st
         photos: value.photos.map((p) => ({
           ...p,
           assetKind: derived.includes(p.id) ? 'derived' : 'original',
-          format: derived.includes(p.id) ? 'LUMA HDR' : format,
+          format: derived.includes(p.id) ? 'IRODORI HDR' : format,
         })),
       }
     })

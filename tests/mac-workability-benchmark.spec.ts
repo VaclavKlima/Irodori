@@ -23,9 +23,9 @@ for (const [width, height, consoleOpen] of [
     test(
       `sharp editor ${width}x${height} ${frequency}Hz: three 240-input trials for eight sliders at Fit and 100%`,
       foregroundTest(reason),
-      async ({ luma }, info) => {
+      async ({ irodori }, info) => {
         test.setTimeout(900000)
-        const { app, page } = luma
+        const { app, page } = irodori
         await (
           await app.browserWindow(page)
         ).evaluate(

@@ -6,10 +6,10 @@ import { HDR_CACHE_MAX_TILES } from '../src/renderer/src/preview/hdr-render-cach
 
 test.use({ hdrDisplay: true })
 test('HDR edits retain the photograph, histogram geometry and source upload through commits, history and monitor changes', async ({
-  luma,
+  irodori,
 }, info) => {
   test.setTimeout(120000)
-  const { app, page } = luma
+  const { app, page } = irodori
   const nativeWindow = await app.browserWindow(page)
   await nativeWindow.evaluate((window) => window.setContentSize(1100, 700))
   await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
@@ -79,8 +79,8 @@ test('HDR edits retain the photograph, histogram geometry and source upload thro
   })().catch((error) => {
     captureError = String(error)
   })
-  const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
-  const before = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+  const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
+  const before = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
   const exposure = page.getByRole('spinbutton', { name: 'Exposure value' })
   await exposure.fill('1')
   await exposure.press('Enter')
@@ -90,7 +90,7 @@ test('HDR edits retain the photograph, histogram geometry and source upload thro
   await expect
     .poll(
       async () =>
-        (await page.evaluate((id) => window.luma.getEditHistory(id), id)).snapshots.length,
+        (await page.evaluate((id) => window.irodori.getEditHistory(id), id)).snapshots.length,
     )
     .toBe(before.snapshots.length + 1)
   const temperature = page.getByRole('spinbutton', { name: 'Temperature value' })
@@ -98,13 +98,15 @@ test('HDR edits retain the photograph, histogram geometry and source upload thro
   await temperature.press('Enter')
   await expect(canvas).toHaveAttribute('data-gesturing', 'false')
   await expect(canvas).toHaveAttribute('data-quality', 'normal')
-  const savedWhiteBalance = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+  const savedWhiteBalance = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
   await temperature.fill('6500')
   await temperature.fill('6300')
   await temperature.press('Enter')
   await expect(canvas).toHaveAttribute('data-gesturing', 'false')
   await expect(canvas).toHaveAttribute('data-quality', 'normal')
-  expect(await page.evaluate((id) => window.luma.getEditHistory(id), id)).toEqual(savedWhiteBalance)
+  expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(
+    savedWhiteBalance,
+  )
   const getPaths = () =>
     page
       .getByRole('slider', { name: 'Histogram tonal value' })
@@ -137,7 +139,7 @@ test('HDR edits retain the photograph, histogram geometry and source upload thro
     await page.getByLabel('Preview display mode').selectOption(mode)
     await expect
       .poll(async () => {
-        const target = await page.evaluate(() => window.luma.getDisplayState())
+        const target = await page.evaluate(() => window.irodori.getDisplayState())
         return (
           target.mode === mode &&
           (await canvas.getAttribute('data-target-generation')) === String(target.generation)
@@ -194,10 +196,10 @@ test('HDR edits retain the photograph, histogram geometry and source upload thro
 })
 
 test('sharp edits advance while one histogram readback is held and converge to the latest pending edit', async ({
-  luma,
+  irodori,
 }) => {
   test.setTimeout(90000)
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false)
   const canvas = page.getByTestId('main-preview')
   const histogram = page.locator('#histogram')

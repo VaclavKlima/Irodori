@@ -3,18 +3,25 @@ import { whiteBalanceMatrix, type WhiteBalanceProfile } from './white-balance'
 import type { PreviewPreference } from './hdr-display'
 import { renderDisplay, renderHdrContent, DISPLAY_RENDERING_VERSION } from './display-rendering'
 import { encodeDiagnosticChannel } from './hdr-display'
+import { applyColorIntensity } from './color-intensity'
+import {
+  applyCreativeColor,
+  prepareCreativeColor,
+  CREATIVE_COLOR_VERSION,
+  type CompiledCreativeColor,
+} from './creative-color'
 
 export type ProcessingIdentity = 'display-referred-v1' | 'hdr-v1'
 export const HDR_SOURCE_VERSION = 'hdr-source-v2-capture-scale-1'
 export const HDR_JPEG_SOURCE_VERSION = 'hdr-jpeg-v1-relative-white'
 export const SENSOR_BLEND_VERSION = 'sensor-blend-v1'
 export const HDR_RAW_SOURCE_VERSION = `${HDR_SOURCE_VERSION}-${SENSOR_BLEND_VERSION}`
-export const HDR_ADJUSTMENT_VERSION = 'hdr-adjustments-v1'
+export const HDR_ADJUSTMENT_VERSION = `hdr-adjustments-v3-${CREATIVE_COLOR_VERSION}`
 export const HDR_OUTPUT_VERSION =
   `hdr-output-v6-content-proof-${DISPLAY_RENDERING_VERSION}` as const
 export const HDR_ANALYSIS_VERSION = `hdr-analysis-v4-content-${DISPLAY_RENDERING_VERSION}` as const
 export type RGB = [number, number, number]
-export const REC2020_LUMA: RGB = [0.2627002120112671, 0.6779980715188708, 0.059301716469862]
+export const REC2020_LUMINANCE: RGB = [0.2627002120112671, 0.6779980715188708, 0.059301716469862]
 export const SRGB_TO_2020 = [
   0.627403895934699, 0.3292830383778837, 0.0433130656874172, 0.0690972893582321, 0.9195403950754588,
   0.0113623155663092, 0.0163914388751503, 0.0880133078772258, 0.895595253247624,
@@ -151,7 +158,9 @@ export function matrixRgb(m: readonly number[], rgb: readonly number[]): RGB {
   ) as RGB
 }
 export function luminance(rgb: readonly number[]): number {
-  return rgb[0] * REC2020_LUMA[0] + rgb[1] * REC2020_LUMA[1] + rgb[2] * REC2020_LUMA[2]
+  return (
+    rgb[0] * REC2020_LUMINANCE[0] + rgb[1] * REC2020_LUMINANCE[1] + rgb[2] * REC2020_LUMINANCE[2]
+  )
 }
 export function hdrWhiteBalance(profile?: WhiteBalanceProfile): WhiteBalanceProfile | undefined {
   if (!profile) return undefined
@@ -172,7 +181,12 @@ export function hdrAdjustmentMatrix(p: AdjustmentParameters, profile?: WhiteBala
   return whiteBalanceMatrix(p.whiteBalance, profile)
 }
 /** Fixed reference white is already incorporated into the prepared asset. */
-export function adjustHdr(rgb: RGB, p: AdjustmentParameters, wb?: readonly number[]): RGB {
+export function adjustHdr(
+  rgb: RGB,
+  p: AdjustmentParameters,
+  wb?: readonly number[],
+  creative?: CompiledCreativeColor,
+): RGB {
   let out = wb ? matrixRgb(wb, rgb) : ([...rgb] as RGB)
   const gain = 2 ** p.exposureEv
   out = out.map((v) => v * gain) as RGB
@@ -213,7 +227,10 @@ export function adjustHdr(rgb: RGB, p: AdjustmentParameters, wb?: readonly numbe
       else scale((v) => Math.max(0, v + d))
     }
   }
-  return out
+  const color = creative ?? prepareCreativeColor(p)
+  return (
+    color ? applyCreativeColor(out, color, 'rec2020') : applyColorIntensity(out, p, 'rec2020')
+  ) as RGB
 }
 /** Imported HDR is already a rendered rendition; never run the RAW output transform twice. */
 export function contentHdr(rgb: RGB, source?: HdrSource) {

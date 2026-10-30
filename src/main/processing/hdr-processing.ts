@@ -40,6 +40,7 @@ import type { FullPreviewResult, HdrPreparationTimings } from '../preview-types'
 import { frameByteLength } from '../../shared/preview-frame'
 import { neutralAdjustments, sameAdjustments, srgbTransform } from '../../shared/adjustments'
 import { validateMergeVersion } from '../../shared/merge'
+import { prepareCreativeColor } from '../../shared/creative-color'
 import {
   validateHdrSource,
   HDR_SOURCE_VERSION,
@@ -628,12 +629,17 @@ export async function renderHdr(
       },
     }
   const wb = hdrAdjustmentMatrix(adjustments, asset.whiteBalance) ?? undefined
+  const creative = prepareCreativeColor(adjustments)
   const neutral = sameAdjustments(adjustments, neutralAdjustments)
   const file = await open(join(output, 'full.rgba'), 'wx')
   const proofStarted = performance.now()
   let converter: Awaited<ReturnType<typeof gpuOutput>> | undefined
   let proofFallback: string | undefined
-  if (gpu.mergeDevice && (prepared?.backend === 'gpu' || backend === 'gpu')) {
+  if (
+    !asset.source.display &&
+    gpu.mergeDevice &&
+    (prepared?.backend === 'gpu' || backend === 'gpu')
+  ) {
     try {
       converter = await gpuOutput({ mergeDevice: gpu.mergeDevice.bind(gpu) }, asset.width * 64)
     } catch (error) {
@@ -645,30 +651,38 @@ export async function renderHdr(
   const thumbWidth = Math.max(1, Math.round(asset.width * ratio)),
     thumbHeight = Math.max(1, Math.round(asset.height * ratio))
   const thumb = Buffer.alloc(thumbWidth * thumbHeight * 4)
-  let top = 0
+  let top = 0,
+    proofGpuStrips = 0,
+    proofCpuStrips = 0
   try {
     for await (const strip of readHdrStrips(sourcePath, asset)) {
       let data: Buffer
       if (converter) {
         const adjusted = neutral ? strip : new Float32Array(strip.length)
         for (let i = 0; !neutral && i < strip.length; i += 4) {
-          adjusted.set(adjustHdr([strip[i], strip[i + 1], strip[i + 2]], adjustments, wb), i)
+          adjusted.set(
+            adjustHdr([strip[i], strip[i + 1], strip[i + 2]], adjustments, wb, creative),
+            i,
+          )
           adjusted[i + 3] = strip[i + 3]
         }
         try {
           data = await converter.convert(adjusted)
+          proofGpuStrips++
         } catch (error) {
           proofFallback = `SDR proof CPU fallback: ${String(error)}`
-          converter.close()
+          await converter.close()
           converter = undefined
           data = Buffer.alloc(strip.length)
         }
       } else data = Buffer.alloc(strip.length)
+      if (!converter) proofCpuStrips++
       for (let i = 0; i < strip.length; i += 4) {
         if (!converter) {
           const rgb = outputHdr(
-            adjustHdr([strip[i], strip[i + 1], strip[i + 2]], adjustments, wb),
+            adjustHdr([strip[i], strip[i + 1], strip[i + 2]], adjustments, wb, creative),
             SDR_TARGET,
+            asset.source,
           ).rgb
           for (let c = 0; c < 3; c++) data[i + c] = Math.round(encodeHdr(rgb[c]) * 255)
         }
@@ -689,7 +703,7 @@ export async function renderHdr(
     }
   } finally {
     await file.close()
-    converter?.close()
+    await converter?.close()
   }
   const placeholder = await sharp(thumb, {
     raw: { width: thumbWidth, height: thumbHeight, channels: 4 },
@@ -721,6 +735,9 @@ export async function renderHdr(
     diagnostics: {
       clock: 'worker-performance',
       backend: prepared?.backend ?? 'cpu',
+      proofBackend: proofGpuStrips ? (proofCpuStrips ? 'mixed' : 'gpu') : 'cpu',
+      proofGpuStrips,
+      proofCpuStrips,
       fallback: proofFallback ?? prepared?.fallback,
       timings: {
         ...prepared?.timings,

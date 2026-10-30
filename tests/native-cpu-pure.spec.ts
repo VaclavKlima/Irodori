@@ -42,7 +42,7 @@ async function scratch(
     file: (name: string, bytes?: Uint8Array) => Promise<FileHandle>
   }) => Promise<void>,
 ) {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-native-cpu-pure-')),
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-native-cpu-pure-')),
     handles: FileHandle[] = []
   try {
     await work({
@@ -423,9 +423,9 @@ for (const terminal of ['callback-error', 'premature-close', 'abort'] as const)
   })
 
 function pairFixture(width = 7, height = 65, sourceWidth = width) {
-  const request = Buffer.alloc(400)
-  request.write('LUMACPU1')
-  request.writeUInt32LE(1, 8)
+  const request = Buffer.alloc(832)
+  request.write('IRODCPU3')
+  request.writeUInt32LE(3, 8)
   for (const [at, value] of [
     [16, sourceWidth],
     [20, height],
@@ -442,17 +442,17 @@ function pairFixture(width = 7, height = 65, sourceWidth = width) {
     after[index] = index % 4 === 3 ? 255 : index % 251
     before[index] = index % 4 === 3 ? 255 : 250 - (index % 251)
   }
-  const header = Buffer.alloc(416)
-  header.write('LUMARGB1')
-  header.writeUInt32LE(400, 8)
+  const header = Buffer.alloc(848)
+  header.write('IRODRGB1')
+  header.writeUInt32LE(832, 8)
   request.copy(header, 12)
-  header.writeUInt32LE(4, 412)
+  header.writeUInt32LE(4, 844)
   const parts = [header]
   for (let row = 0; row < height; row += 64) {
     const count = Math.min(64, height - row),
       bytes = width * count * 4,
       strip = Buffer.alloc(24)
-    strip.write('LUMAROW1')
+    strip.write('IRODROW1')
     for (const [at, value] of [
       [8, row],
       [12, count],
@@ -480,7 +480,7 @@ function pairFixture(width = 7, height = 65, sourceWidth = width) {
       }),
     ),
     end = Buffer.alloc(12)
-  end.write('LUMAEND1')
+  end.write('IRODEND1')
   end.writeUInt32LE(trailer.length, 8)
   return { request, after, before, wire: Buffer.concat([...parts, end, trailer]) }
 }
@@ -495,7 +495,7 @@ async function* fragments(bytes: Buffer, done?: ReturnType<typeof deferred<void>
 }
 
 // The corruption table below always uses the fixed 7x65 paired fixture.
-const completionOffset = 416 + 2 * 24 + 7 * 65 * 8
+const completionOffset = 848 + 2 * 24 + 7 * 65 * 8
 function alterCompletion(wire: Buffer, alter: (metrics: Record<string, unknown>) => void) {
   const metrics = JSON.parse(wire.subarray(completionOffset + 12).toString()) as Record<
     string,
@@ -577,35 +577,35 @@ const corruptions: { name: string; mutate: (wire: Buffer) => Buffer }[] = [
   {
     name: 'thread echo',
     mutate: (wire) => {
-      wire.writeUInt32LE(8, 412)
+      wire.writeUInt32LE(8, 844)
       return wire
     },
   },
   {
     name: 'row order',
     mutate: (wire) => {
-      wire.writeUInt32LE(1, 416 + 8)
+      wire.writeUInt32LE(1, 848 + 8)
       return wire
     },
   },
   {
     name: 'oversized row count',
     mutate: (wire) => {
-      wire.writeUInt32LE(65, 416 + 12)
+      wire.writeUInt32LE(65, 848 + 12)
       return wire
     },
   },
   {
     name: 'row byte count',
     mutate: (wire) => {
-      wire.writeUInt32LE(1, 416 + 16)
+      wire.writeUInt32LE(1, 848 + 16)
       return wire
     },
   },
   {
     name: 'reserved row field',
     mutate: (wire) => {
-      wire.writeUInt32LE(1, 416 + 20)
+      wire.writeUInt32LE(1, 848 + 20)
       return wire
     },
   },
@@ -750,6 +750,68 @@ const planRequest = (): CpuMemoryRequest => ({
   threads: 4,
   oldPairBytes: 2 * 11 * 13 * 4,
   existingOwners: nativeCpuExistingOwners(3, 5, 7, 9),
+})
+
+test('sequential comparison sources retain both sample domains without doubling strips, bitmaps or GPU ownership', () => {
+  const request = planRequest(),
+    ordinary = nativeCpuMemory(request, limits),
+    comparison = nativeCpuMemory({ ...request, sourceCount: 2 }, limits)
+  expect(comparison.owners.samples).toBe(ordinary.owners.samples * 2)
+  expect(comparison.owners.input).toBe(ordinary.owners.input)
+  expect(comparison.owners.output).toBe(ordinary.owners.output)
+  expect(comparison.owners.newPairConstruction).toBe(ordinary.owners.newPairConstruction)
+  expect(comparison.peak.gpuBytes).toBe(ordinary.peak.gpuBytes)
+  expect(comparison.nativePeak.ramBytes - ordinary.nativePeak.ramBytes).toBe(
+    ordinary.owners.samples,
+  )
+  const boundary = { ...limits, ramBytes: comparison.peak.ramBytes - 1 }
+  expect(nativeCpuMemory(request, boundary).accepted).toBe(true)
+  expect(nativeCpuMemory({ ...request, sourceCount: 2 }, boundary).accepted).toBe(false)
+  expect(
+    nativeCpuResidentMemory({ ...request, sourceCount: 2 }, limits).peak.ramBytes -
+      nativeCpuResidentMemory(request, limits).peak.ramBytes,
+  ).toBe(ordinary.owners.samples)
+  expect(() => nativeCpuMemory({ ...request, sourceCount: 3 as 2 }, limits)).toThrow()
+})
+
+test('a one-plane native sink validates the complete unused plane and the actual child close', async () => {
+  await scratch(async ({ file, directory }) => {
+    const fixture = pairFixture(),
+      before = await file('before-only.rgba'),
+      result = await writeNativeCpuPair({
+        stdout: fragments(fixture.wire),
+        expectedRequest: fixture.request,
+        threads: 4,
+        before,
+        closedSuccessfully: Promise.resolve(),
+        signal: new AbortController().signal,
+      })
+    expect(result.before.sha256).toBe(hash(fixture.before))
+    expect(await readFile(join(directory, 'before-only.rgba'))).toEqual(fixture.before)
+    const failed = await file('failed-before.rgba')
+    await expect(
+      writeNativeCpuPair({
+        stdout: fragments(fixture.wire),
+        expectedRequest: fixture.request,
+        threads: 4,
+        before: failed,
+        closedSuccessfully: Promise.reject(new Error('late child failure')),
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('late child failure')
+    const damaged = Buffer.from(fixture.wire)
+    damaged.writeUInt32LE(1, 848 + 20)
+    await expect(
+      writeNativeCpuPair({
+        stdout: fragments(damaged),
+        expectedRequest: fixture.request,
+        threads: 4,
+        before: failed,
+        closedSuccessfully: Promise.resolve(),
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('row ordering')
+  })
 })
 
 test('phase owners cover actual strip/sample/pair buffers and independent explicit existing owners', () => {

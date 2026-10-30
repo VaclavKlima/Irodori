@@ -42,7 +42,7 @@ backend and record bounded component timings and resource counters.
 
 ## Camera evidence candidate
 
-`LUMA_MERGE_CAMERA_PREPARATION=gpu` requests `gpu-camera-v2-exact` for new verified
+`IRODORI_MERGE_CAMERA_PREPARATION=gpu` requests `gpu-camera-v2-exact` for new verified
 HDR work. An unset selector or `cpu` keeps the ordinary writer. Existing recipes
 without a policy remain CPU recipes even when the selector requests GPU.
 
@@ -93,7 +93,7 @@ policy-specific proof-metadata assertion failure; it was not counted as a pass.
 
 ## Reference fallback candidate
 
-`LUMA_MERGE_REFERENCE_PREPARATION=gpu` requests `gpu-reference-fallback-v2-compensated` for
+`IRODORI_MERGE_REFERENCE_PREPARATION=gpu` requests `gpu-reference-fallback-v2-compensated` for
 new verified HDR work. The fallback supplies pixels for irrecoverably clipped
 reference regions and does not supply alignment/fusion evidence. The existing
 LibRaw linear decode and highlight blend remain unchanged.
@@ -206,7 +206,7 @@ Maintained C source SHA-256:
 `cdc92aec5079f6e5ec305b6de31092bf759d898a9bea7143a418fa99c849a329`.
 
 Rebuild with
-`LUMA_EMCC=/path/to/emsdk-4.0.20/upstream/emscripten/emcc npm run build:merge-kernels`.
+`IRODORI_EMCC=/path/to/emsdk-4.0.20/upstream/emscripten/emcc npm run build:merge-kernels`.
 The [manifest](../vendor/merge-kernels/manifest.json) records compiler and flags.
 Float64 weights, contribution order and fallback Float32 update rounding remain
 unchanged. Streaming reductions retain at most two active output rows. Optional
@@ -302,9 +302,9 @@ file closes. Cancellation after CPU recovery removes the newly owned outputs
 before propagating. These final-close transaction fixes are implemented; their
 the final affected checks pass as recorded below.
 
-The native suite accepts `LUMA_MERGE_GPU_PREPARATION_STAGE=camera|reference|both`.
+The native suite accepts `IRODORI_MERGE_GPU_PREPARATION_STAGE=camera|reference|both`.
 Three fresh interleaved CPU/GPU pairs are required for complete native evidence.
-`LUMA_MERGE_GPU_PREPARATION_PAIRS=1` is diagnostic only. Native snapshots and
+`IRODORI_MERGE_GPU_PREPARATION_PAIRS=1` is diagnostic only. Native snapshots and
 all samples remain outside Git, with snapshot work retained inside the operation
 clock. Import, application startup and human review are excluded. Electron's
 actual review draw/post-paint and final sharp presentation remain separate
@@ -506,7 +506,7 @@ hardware is available, using the same full-path proof before changing GPU defaul
 ## Implementation revision
 
 The implementation is frozen at
-[`0a70599669c884fc70d2e2afe5f9a6527df44dbb`](https://github.com/VaclavKlima/Luma/commit/0a70599669c884fc70d2e2afe5f9a6527df44dbb)
+[`0a70599669c884fc70d2e2afe5f9a6527df44dbb`](https://github.com/VaclavKlima/Irodori/commit/0a70599669c884fc70d2e2afe5f9a6527df44dbb)
 on `perf/gpu-merge-preparation`. Documentation-only descendants may record the
 final measurements; they must not change this implementation guard.
 

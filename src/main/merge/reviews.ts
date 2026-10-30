@@ -312,7 +312,7 @@ export class MergeReviews {
       if (this.state === s && s.review.revision === revision) s.failure = mergeFailure(error)
       throw error
     }
-    const url = `luma-photo://merge/${id}/${revision}`
+    const url = `irodori-photo://merge/${id}/${revision}`
     return {
       reviewId: id,
       revision,

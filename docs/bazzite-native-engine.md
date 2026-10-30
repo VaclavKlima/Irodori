@@ -132,7 +132,7 @@ likewise has a complete clean 48-trial replacement rather than a waived guard.
 
 ### Retired standalone viewport experiment
 
-The unused ten-file `native/luma-engine` winit/wgpu host was retired from the
+The unused ten-file `native/irodori-engine` winit/wgpu host was retired from the
 active source tree after a fresh byte-for-byte archive (175,793 bytes). Its
 [manifest](../artifacts/bazzite-native-20261019/archived-winit-viewport/manifest.json)
 retains every source, lockfile and schema hash. All failed/incomplete measurements
@@ -322,7 +322,7 @@ using background mode:
 The earlier static failure is preserved separately.
 
 Production cache kernels now use **linear64** exclusively. The unused
-`VITE_LUMA_HDR_KERNEL` selector and duplicate grid8 production branch are removed.
+`VITE_IRODORI_HDR_KERNEL` selector and duplicate grid8 production branch are removed.
 Canonical and interactive arithmetic remain distinct. The exact grid8 shader
 remains an independent research/test control in
 `scripts/research/pipeline/grid8-reference.ts`; it is not a production selector.
@@ -805,7 +805,11 @@ verdict or publishing a partial sensor/working frame. These are lifecycle and
 transport observations, not image correctness, GPU or performance acceptance.
 
 Every UI HDR request captures its existing renderer owners independently of the
-optional first surface. Eligible uncached Sony sources capture one main-owned
+optional first surface. Before freezing that reservation for an uncached photo,
+the two-source cache frees an idle LRU slot so native preparation does not overlap
+two retained source pyramids. Cached-photo revisits retain both sources; submitted
+or retired leases remain charged until their fences settle.
+Eligible uncached Sony sources capture one main-owned
 RAM/GPU policy; native unpack/transport, subsequent GPU preparation and exceptional
 native-to-WASM CPU overlap have separate admission checks against that snapshot.
 Native stream failures and budget failures do not silently retry through WASM.
@@ -1549,7 +1553,7 @@ and provisional decisions. The selected decisions below supersede that dated
 decision status. Generated binaries, logs, timings and detailed inventories stay
 ignored.
 
-Product scope comes from [Luma.md](../Luma.md) and [README.md](../README.md).
+Product scope comes from [Irodori.md](../Irodori.md) and [README.md](../README.md).
 Existing algorithm and ownership requirements remain in [RAW processing](raw-processing.md),
 [HDR processing](hdr-processing.md), [display rendering](display-rendering.md),
 [merge processing](merge-processing.md), [import](import-pipeline.md), and

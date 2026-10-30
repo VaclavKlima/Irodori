@@ -41,7 +41,7 @@ test('HDR edits and actual WGSL agree with independent Float64 CTL through extre
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
   })
   const uniform = device.createBuffer({
-    size: 176,
+    size: 192,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   })
   const tables = device.createBuffer({
@@ -126,7 +126,7 @@ test('HDR edits and actual WGSL agree with independent Float64 CTL through extre
               const independent = output
                 ? referenceAces(binary, referenceInputs, peak, space)
                 : referenceInputs
-              const values = new Float32Array(44)
+              const values = new Float32Array(48)
               values.set(
                 [params.exposureEv, extreme, extreme, extreme, extreme, extreme, peak, output],
                 8,
@@ -212,7 +212,7 @@ test('sensor blend and HDR range colors agree between CPU and hardware WGSL', as
     [0.8, 0, 0],
   ]
   const uniform = device.createBuffer({
-    size: 176,
+    size: 192,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   })
   const blendBuffer = device.createBuffer({
@@ -281,7 +281,7 @@ test('sensor blend and HDR range colors agree between CPU and hardware WGSL', as
       for (const enabled of [false, true])
         for (const space of ['srgb', 'display-p3'] as const)
           for (const peak of [1, 4, 16]) {
-            const values = new Float32Array(44)
+            const values = new Float32Array(48)
             values[14] = peak
             values[15] = Number(ranges)
             values[42] = 1

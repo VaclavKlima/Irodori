@@ -31,7 +31,16 @@ test('highlight shoulder is monotonic, smooth at middle grey and preserves retai
   const pixels = new Float32Array([1, 1, 1, 0.25, 2, 2, 2, 0.5, 4, 4, 4, 1])
   const result = renderAdjustments(
     pixels,
-    { shadows: 0, whites: 0, blacks: 0, exposureEv: 0, contrast: 0, highlights: -100 },
+    {
+      saturation: 0,
+      vibrance: 0,
+      shadows: 0,
+      whites: 0,
+      blacks: 0,
+      exposureEv: 0,
+      contrast: 0,
+      highlights: -100,
+    },
     srgbTransform,
   )
   expect(result[0]).toBeLessThan(result[4])
@@ -68,7 +77,16 @@ test('zero Highlights is byte-identical to prior exposure/contrast including RAW
         expect(
           renderAdjustments(
             input,
-            { shadows: 0, whites: 0, blacks: 0, exposureEv, contrast, highlights: 0 },
+            {
+              saturation: 0,
+              vibrance: 0,
+              shadows: 0,
+              whites: 0,
+              blacks: 0,
+              exposureEv,
+              contrast,
+              highlights: 0,
+            },
             transform,
           ),
         ).toEqual(expected)
@@ -86,7 +104,16 @@ test('Highlights follows contrast and scales RGB by luminance normalized to disp
   expect([
     ...renderAdjustments(
       input,
-      { shadows: 0, whites: 0, blacks: 0, exposureEv: 1, contrast: 100, highlights: -100 },
+      {
+        saturation: 0,
+        vibrance: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        exposureEv: 1,
+        contrast: 100,
+        highlights: -100,
+      },
       transform,
     ),
   ]).toEqual([...expected, 64])
@@ -98,6 +125,8 @@ test('rejects invalid Highlights patches and accepts combined adjustments', () =
   for (const highlights of [-100, 0, 100])
     expect(() =>
       validatePatch({
+        saturation: 0,
+        vibrance: 0,
         shadows: 0,
         whites: 0,
         blacks: 0,

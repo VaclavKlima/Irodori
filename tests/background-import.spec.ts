@@ -51,7 +51,7 @@ async function startSlowImport(app: ElectronApplication, page: Page) {
     .poll(() =>
       page.evaluate(
         async () =>
-          (await window.luma.listTasks()).find(
+          (await window.irodori.listTasks()).find(
             (task) => task.kind === 'import' && task.status === 'running',
           )?.transfer?.bytes ?? 0,
       ),
@@ -60,9 +60,9 @@ async function startSlowImport(app: ElectronApplication, page: Page) {
 }
 
 test('copies in the background with usable browsing, compact progress, reload recovery and cancellation', async ({
-  luma,
+  irodori,
 }, testInfo) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page)
   await startSlowImport(app, page)
   await expect(page.getByRole('button', { name: 'Import photos', exact: true })).toBeFocused()
@@ -81,7 +81,7 @@ test('copies in the background with usable browsing, compact progress, reload re
   await page.getByRole('button', { name: 'Add photos', exact: true }).click()
   await expect(page.getByTestId('task-details')).toBeVisible()
   const before = await page.evaluate(async () =>
-    (await window.luma.listTasks()).find((task) => task.status === 'running')!,
+    (await window.irodori.listTasks()).find((task) => task.status === 'running')!,
   )
   expect(before.transfer!.bytes).toBeLessThan(before.transfer!.totalBytes)
   const nativeWindow = await app.browserWindow(page)
@@ -131,7 +131,7 @@ test('copies in the background with usable browsing, compact progress, reload re
   await page.reload()
   await expect(page.getByRole('progressbar')).toBeVisible()
   const after = await page.evaluate(async () =>
-    (await window.luma.listTasks()).find((task) => task.status === 'running')!,
+    (await window.irodori.listTasks()).find((task) => task.status === 'running')!,
   )
   expect(after.id).toBe(before.id)
   expect(after.progress!.total).toBe(before.progress!.total)
@@ -139,8 +139,8 @@ test('copies in the background with usable browsing, compact progress, reload re
   await activateButton(page.getByTestId('task-progress'))
   await activateButton(page.getByRole('button', { name: 'Cancel task', exact: true }))
   await expect(page.getByTestId(`task-${before.id}`)).toHaveAttribute('data-status', 'cancelled')
-  expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(2)
-  expect(await readdir(join(luma.userDataDir, 'library', 'staging'))).toEqual([])
+  expect((await page.evaluate(() => window.irodori.listPhotos())).total).toBe(2)
+  expect(await readdir(join(irodori.userDataDir, 'library', 'staging'))).toEqual([])
   await page.reload()
   await expect(page.getByTestId('task-progress')).toContainText('Import cancelled')
   await activateButton(page.getByTestId('task-progress'))
@@ -151,9 +151,9 @@ test('copies in the background with usable browsing, compact progress, reload re
 })
 
 test('retains partial failures across a new review and automatically dismisses successful results', async ({
-  luma,
+  irodori,
 }, testInfo) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
   await expect(page.getByTestId('task-progress')).toHaveCount(0, { timeout: 10_000 })
   const source = testInfo.outputPath('disconnected-card')
@@ -172,8 +172,8 @@ test('retains partial failures across a new review and automatically dismisses s
   await expect(page.getByTestId('task-details')).toContainText('1 / 2 photos imported')
   await page.getByRole('button', { name: 'Show 1 errors', exact: true }).click()
   await expect(page.getByTestId('task-details')).toContainText('missing.jpg')
-  expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(2)
-  expect(await readdir(join(luma.userDataDir, 'library', 'staging'))).toEqual([])
+  expect((await page.evaluate(() => window.irodori.listPhotos())).total).toBe(2)
+  expect(await readdir(join(irodori.userDataDir, 'library', 'staging'))).toEqual([])
   await page.getByRole('button', { name: 'Import photos', exact: true }).click()
   await choose(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
   await expect(page.getByTestId('import-status')).toContainText('Ready to import')
@@ -186,9 +186,9 @@ test('retains partial failures across a new review and automatically dismisses s
 })
 
 test('asks before closing or quitting during import and cleans unfinished copies before exit', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
   await startSlowImport(app, page)
   for (const trigger of ['close', 'quit'] as const) {
@@ -213,20 +213,20 @@ test('asks before closing or quitting during import and cleans unfinished copies
     await expect(page.getByRole('progressbar')).toBeVisible()
     expect(
       await page.evaluate(async () =>
-        (await window.luma.listTasks()).some((task) => task.status === 'running'),
+        (await window.irodori.listTasks()).some((task) => task.status === 'running'),
       ),
     ).toBe(true)
   }
   await app.evaluate(({ dialog }) => {
     dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false })
   })
-  await luma.expectQuit(async () => {
+  await irodori.expectQuit(async () => {
     await app.evaluate(({ BrowserWindow }) => {
       setImmediate(() => BrowserWindow.getAllWindows()[0].close())
     })
   })
-  expect(await readdir(join(luma.userDataDir, 'library', 'staging'))).toEqual([])
-  const restarted = await luma.restart()
-  expect((await restarted.page.evaluate(() => window.luma.listPhotos())).total).toBe(1)
-  expect(await restarted.page.evaluate(() => window.luma.listTasks())).toEqual([])
+  expect(await readdir(join(irodori.userDataDir, 'library', 'staging'))).toEqual([])
+  const restarted = await irodori.restart()
+  expect((await restarted.page.evaluate(() => window.irodori.listPhotos())).total).toBe(1)
+  expect(await restarted.page.evaluate(() => window.irodori.listTasks())).toEqual([])
 })

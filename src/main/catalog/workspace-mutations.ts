@@ -2,11 +2,14 @@ import { catalogTransaction } from './transaction'
 import { WorkspaceStore } from '../workspace'
 import {
   DEFAULT_WORKSPACE,
+  DEFAULT_INSPECTOR_SECTIONS,
   WORKSPACE_VERSION,
   type WorkspaceChange,
   type WorkspaceState,
 } from '../../shared/workspace'
 import type { CollectionAnchor } from '../../shared/collections'
+import { colorRangeIds } from '../../shared/color-mixer'
+import { gradingToneIds } from '../../shared/color-grading'
 
 const hash = /^[a-f0-9]{64}$/
 const id = (value: unknown) => value === null || (typeof value === 'string' && hash.test(value))
@@ -34,6 +37,19 @@ function validate(state: WorkspaceState) {
     !['editor', 'library'].includes(state.mode) ||
     ![state.activeId, state.editorFocusId, state.libraryFocusId, state.rangeAnchorId].every(id) ||
     typeof state.consoleOpen !== 'boolean' ||
+    !state.inspector ||
+    typeof state.inspector !== 'object' ||
+    Array.isArray(state.inspector) ||
+    Object.keys(state.inspector).some((key) => !Object.hasOwn(DEFAULT_INSPECTOR_SECTIONS, key)) ||
+    Object.keys(DEFAULT_INSPECTOR_SECTIONS).some(
+      (key) => typeof state.inspector[key as keyof typeof state.inspector] !== 'boolean',
+    ) ||
+    !state.creativeColor ||
+    typeof state.creativeColor !== 'object' ||
+    Array.isArray(state.creativeColor) ||
+    Object.keys(state.creativeColor).some((key) => !['range', 'tone'].includes(key)) ||
+    !colorRangeIds.includes(state.creativeColor.range) ||
+    !gradingToneIds.includes(state.creativeColor.tone) ||
     !anchor(state.editorAnchor) ||
     !anchor(state.libraryAnchor) ||
     !state.query ||
@@ -88,8 +104,11 @@ export class WorkspaceMutations extends WorkspaceStore {
       const row = this.db
         .prepare('SELECT checkpoint, data FROM workspace_state WHERE singleton = 1')
         .get() as { checkpoint: number; data: string } | undefined
+      const saved = row ? JSON.parse(row.data) : undefined
       const state = {
-        ...(row ? JSON.parse(row.data) : DEFAULT_WORKSPACE),
+        ...DEFAULT_WORKSPACE,
+        ...saved,
+        inspector: { ...DEFAULT_INSPECTOR_SECTIONS, ...saved?.inspector },
         ...change.state,
       } as WorkspaceState
       validate(state)

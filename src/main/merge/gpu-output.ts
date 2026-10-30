@@ -174,11 +174,11 @@ export async function gpuOutput(
       const tables = buffer(
         ACES_DATA_BYTES,
         GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        'Luma merge output tables',
+        'Irodori merge output tables',
       )
       device.queue.writeBuffer(tables, 0, packAces(prepareDisplayRendering(SDR_TARGET)))
       for (let i = 0; i < slotsCount; i++) {
-        const label = `Luma merge output slot ${i}`,
+        const label = `Irodori merge output slot ${i}`,
           uniform = buffer(
             176,
             GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -265,7 +265,7 @@ struct Params { values:array<vec4f,11> }
             slot.resolve = buffer(
               16,
               GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
-              'Luma merge output timestamp resolve',
+              'Irodori merge output timestamp resolve',
             )
           }
         })

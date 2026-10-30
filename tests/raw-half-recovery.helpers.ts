@@ -193,7 +193,7 @@ export async function installRawHalfRecoveryProbe(page: Page) {
     }
     GPUCommandEncoder.prototype.copyTextureToBuffer = function (...args) {
       const result = Reflect.apply(original.copyTextureToBuffer, this, args)
-      if (departureFilename && args[1].buffer.label === 'luma-hdr-recovery-readback')
+      if (departureFilename && args[1].buffer.label === 'irodori-hdr-recovery-readback')
         recoveryEncoders.set(this, args[1].buffer)
       return result
     }
@@ -356,7 +356,7 @@ export async function installRawHalfRecoveryProbe(page: Page) {
         }
         return work
       }
-      if (!holdArmed || this.label !== 'luma-hdr-recovery-readback') return work
+      if (!holdArmed || this.label !== 'irodori-hdr-recovery-readback') return work
       holdArmed = false
       let resolve!: () => void
       const gate = new Promise<void>((done) => {

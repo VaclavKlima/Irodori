@@ -325,7 +325,7 @@ flowchart LR
   grade --> output[Exact requested output region]
 ```
 
-The demand-driven model has precedent in [libvips regions, partial images, and operation caching](https://www.libvips.org/API/current/how-it-works.html). This prototype is an independent reference executor, not a wrapper around libvips or a decision to move Luma into its GObject runtime.
+The demand-driven model has precedent in [libvips regions, partial images, and operation caching](https://www.libvips.org/API/current/how-it-works.html). This prototype is an independent reference executor, not a wrapper around libvips or a decision to move Irodori into its GObject runtime.
 
 ### Execution and invalidation
 
@@ -381,7 +381,7 @@ The protocol has a fixed 32-byte request header (magic, dimensions, request ID, 
 
 Electron 44 exposes experimental shared-texture import/send APIs. The separate test inventories these and checks the existing sandbox/isolation preferences. An API being present does not establish transport throughput. [Import/release lifetime](https://www.electronjs.org/docs/latest/api/shared-texture), [texture metadata](https://www.electronjs.org/docs/latest/api/structures/shared-texture-import-texture-info), and [platform handle types](https://www.electronjs.org/docs/latest/api/structures/shared-texture-handle) define the next producer/receiver experiment.
 
-The current Node Dawn binding has no tested producer/export ownership path for this experiment. A native IOSurface/Mach-port producer on macOS and DMA-BUF producer on Linux, synchronization, receiver death, stale generations, format/alpha/color preservation, and all-reference release remain incomplete. Do not expose handles through `window.luma` or MCP to bridge this gap. Continue using validated typed assets/frames.
+The current Node Dawn binding has no tested producer/export ownership path for this experiment. A native IOSurface/Mach-port producer on macOS and DMA-BUF producer on Linux, synchronization, receiver death, stale generations, format/alpha/color preservation, and all-reference release remain incomplete. Do not expose handles through `window.irodori` or MCP to bridge this gap. Continue using validated typed assets/frames.
 
 [wgpu](https://docs.rs/wgpu/30.0.1/wgpu/) is a separate native Rust WebGPU implementation with platform backends. This PR retains Dawn. The Linux paired compute experiment above holds shader/input/adapter/completion boundaries constant and records host differences; its shared exact-reference failure remains unresolved. Wgpu application/HDR presentation, external-texture transport and fallback certification remain incomplete.
 
@@ -422,7 +422,7 @@ npm run research:presentation -- --foreground
 npm run verify -- --foreground --target hdr-slider-benchmark --target hdr-interaction-benchmark
 ```
 
-`LUMA_RESEARCH_CARGO` selects the Cargo executable for an isolated toolchain. `LUMA_RESEARCH_PINNED_SOURCES=1` selects verified LibRaw/OpenCV archives even when pkg-config finds system packages; a mismatched system version is rejected. `LUMA_RESEARCH_RUST_BINARY`, `LUMA_RESEARCH_LIBRAW_BINARY`, `LUMA_RESEARCH_OPENCV_BINARY` and `LUMA_RESEARCH_HDR_1_BINARY` can select explicit research helpers; default paths are under `artifacts/research-build/<platform>-<arch>/` or `artifacts/research-rust/release/`. Helpers have adjacent build manifests. No binary is installed into the application. `CXX` selects a compiler executable, not a shell command.
+`IRODORI_RESEARCH_CARGO` selects the Cargo executable for an isolated toolchain. `IRODORI_RESEARCH_PINNED_SOURCES=1` selects verified LibRaw/OpenCV archives even when pkg-config finds system packages; a mismatched system version is rejected. `IRODORI_RESEARCH_RUST_BINARY`, `IRODORI_RESEARCH_LIBRAW_BINARY`, `IRODORI_RESEARCH_OPENCV_BINARY` and `IRODORI_RESEARCH_HDR_1_BINARY` can select explicit research helpers; default paths are under `artifacts/research-build/<platform>-<arch>/` or `artifacts/research-rust/release/`. Helpers have adjacent build manifests. No binary is installed into the application. `CXX` selects a compiler executable, not a shell command.
 
 The build helper verifies SHA-256 before extracting fallback sources:
 

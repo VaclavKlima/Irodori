@@ -111,7 +111,7 @@ test('opaque source keys distinguish volume, root replacement, relative paths an
 })
 
 test('same-size in-place edits with restored mtime and atomic replacements change the full witness', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-source-witness-'))
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-source-witness-'))
   const path = join(directory, 'photo.jpg')
   const modified = new Date('2020-01-01T00:00:00.000Z')
   try {
@@ -152,7 +152,7 @@ test('same-size in-place edits with restored mtime and atomic replacements chang
 })
 
 test('source inspection rejects directories, symlinks and missing files', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-source-inspection-'))
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-source-inspection-'))
   try {
     const path = join(directory, 'photo.jpg')
     await writeFile(path, 'original')
@@ -169,7 +169,7 @@ test('source inspection rejects directories, symlinks and missing files', async 
 })
 
 test('records survive reopening and every source-witness field participates in exact matching', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-source-records-'))
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-source-records-'))
   const path = join(directory, 'catalog.sqlite')
   let opened = database(path)
   try {
@@ -270,7 +270,7 @@ test('invalid keys or damaged legacy record data remain uncertain', () => {
 })
 
 test('uncertain source hashing preserves bytes and creates no staging or other files', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-source-hash-'))
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-source-hash-'))
   const path = join(directory, 'photo.ARW')
   const contents = Buffer.alloc(3 * 1024 * 1024 + 31, 7)
   try {
@@ -299,7 +299,7 @@ test('uncertain source hashing preserves bytes and creates no staging or other f
 })
 
 test('hash cancellation stops further source reads and closes the source without changing it', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-source-hash-cancel-'))
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-source-hash-cancel-'))
   const path = join(directory, 'photo.ARW')
   const contents = Buffer.alloc(4 * 1024 * 1024, 11)
   const abort = new AbortController()
@@ -332,7 +332,7 @@ test('hash cancellation stops further source reads and closes the source without
 
 for (const mutation of ['in-place', 'replacement'] as const) {
   test(`source hashing rejects ${mutation} changes during scheduled reads`, async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'luma-source-hash-change-'))
+    const directory = await mkdtemp(join(tmpdir(), 'irodori-source-hash-change-'))
     const path = join(directory, 'photo.ARW')
     const contents = Buffer.alloc(3 * 1024 * 1024, 13)
     try {

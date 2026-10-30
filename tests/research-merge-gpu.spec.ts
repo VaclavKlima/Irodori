@@ -290,7 +290,7 @@ function assertResult(result: Awaited<ReturnType<typeof measure>>) {
 test('research camera evidence compares all orientations, signed pixels, lens clipping and partial strips to the maintained CPU writer', async ({}, info) => {
   test.setTimeout(180000)
   const { device, adapter } = await hardware(),
-    directory = await mkdtemp(join(tmpdir(), 'luma-research-camera-')),
+    directory = await mkdtemp(join(tmpdir(), 'irodori-research-camera-')),
     errors: string[] = [],
     results = []
   device.addEventListener('uncapturederror', (event) => errors.push(event.error.message))
@@ -330,13 +330,13 @@ test('research camera evidence compares all orientations, signed pixels, lens cl
 test('research camera evidence drains cancellation and device loss before complete scalar evidence recovery', async ({}, info) => {
   test.setTimeout(180000)
   const { device, adapter } = await hardware(),
-    directory = await mkdtemp(join(tmpdir(), 'luma-research-camera-recovery-')),
+    directory = await mkdtemp(join(tmpdir(), 'irodori-research-camera-recovery-')),
     { raw, plan, rgba } = numericInput(7, true),
     inputHash = createHash('sha256').update(new Uint8Array(rgba.buffer)).digest('hex'),
     errors: string[] = [],
     cases: unknown[] = [],
     recoveries: unknown[] = [],
-    kernelBefore = process.env.LUMA_MERGE_CPU_KERNEL
+    kernelBefore = process.env.IRODORI_MERGE_CPU_KERNEL
   let study: CameraStudy | undefined
   device.addEventListener('uncapturederror', (event) => errors.push(event.error.message))
   try {
@@ -361,7 +361,7 @@ test('research camera evidence drains cancellation and device loss before comple
       expect(proof.differingWords).toBe(0)
       expect(proof.nonFinite).toBe(0)
       expect(proof.maskMismatches).toBe(0)
-      expect(process.env.LUMA_MERGE_CPU_KERNEL).toBe(kernelBefore)
+      expect(process.env.IRODORI_MERGE_CPU_KERNEL).toBe(kernelBefore)
     }
     const preallocation = new AbortController()
     preallocation.abort(new Error('Research cancellation before allocation.'))
@@ -468,7 +468,7 @@ for (const name of ['DSC03245.ARW', 'DSC03246.ARW'])
       path = resolve(fixtureRoot, entry.path),
       before = await identity(path)
     expect(before).toEqual({ sha256: entry.sha256, bytes: entry.bytes })
-    const directory = await mkdtemp(join(tmpdir(), 'luma-research-camera-native-')),
+    const directory = await mkdtemp(join(tmpdir(), 'irodori-research-camera-native-')),
       inspector = new PreviewEngine(),
       gpu = new RawGpuRenderer()
     let device: GPUDevice | undefined,

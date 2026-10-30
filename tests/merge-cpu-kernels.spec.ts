@@ -26,7 +26,7 @@ import {
 } from '../src/main/merge/camera-registration'
 import { correctionPlan, type CorrectionPlan } from '../src/main/processing/lens-correction'
 import { automaticLensSettings, type LensProfile } from '../src/shared/lens'
-import { REC2020_LUMA, SRGB_TO_2020 } from '../src/shared/hdr'
+import { REC2020_LUMINANCE, SRGB_TO_2020 } from '../src/shared/hdr'
 import { MERGE_LIMITS } from '../src/shared/merge'
 import { areaContributions, flattenedAreaContributions } from '../src/main/merge/area'
 import {
@@ -139,23 +139,23 @@ function taps(frame: LinearFrame, plan: CorrectionPlan, x: number, y: number, ch
 }
 
 // The frozen full-plane algorithm is intentionally independent of the bounded
-// row implementation. Its Float32 luma assignment occurs after every update.
+// row implementation. Its Float32 luminance assignment occurs after every update.
 function referenceReduction(
   pixels: Float32Array,
-  luma: Float64Array | undefined,
+  luminance: Float64Array | undefined,
   width: number,
   height: number,
   pw: number,
   ph: number,
-  doubleLuma = false,
+  doubleLuminance = false,
 ) {
-  const channels = luma ? 1 : 3,
+  const channels = luminance ? 1 : 3,
     xs = areaContributions(width, pw),
     ys = areaContributions(height, ph),
     totals = new Float64Array(pw * ph),
     counts = Array.from({ length: channels }, () => new Float64Array(pw * ph)),
     sums = Array.from({ length: channels }, () =>
-      luma && !doubleLuma ? new Float32Array(pw * ph) : new Float64Array(pw * ph),
+      luminance && !doubleLuminance ? new Float32Array(pw * ph) : new Float64Array(pw * ph),
     )
   for (let y = 0; y < height; y++)
     for (let x = 0; x < width; x++) {
@@ -167,8 +167,8 @@ function referenceReduction(
             weight = wx * wy
           totals[p] += weight
           for (let c = 0; c < channels; c++) {
-            const value = luma ? luma[i] : pixels[i * 4 + c]
-            if ((luma ? valid : valid & (1 << c)) && value > MERGE_LIMITS.readNoise * 3) {
+            const value = luminance ? luminance[i] : pixels[i * 4 + c]
+            if ((luminance ? valid : valid & (1 << c)) && value > MERGE_LIMITS.readNoise * 3) {
               sums[c][p] += value * weight
               counts[c][p] += weight
             }
@@ -293,22 +293,22 @@ function referenceFallbackGeometry(
 
 test('optional SIMD assets verify checksums and resolve beside the packaged worker', async () => {
   expect(mergeKernelDirectory(join(repository, 'src/main/merge'))).toBe(vendor)
-  const directory = await mkdtemp(join(tmpdir(), 'luma-merge-kernel-assets-'))
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-merge-kernel-assets-'))
   try {
     expect(await readMergeKernel(directory)).toBeUndefined()
-    const binary = await readFile(join(vendor, 'luma-merge-kernels.wasm')),
+    const binary = await readFile(join(vendor, 'irodori-merge-kernels.wasm')),
       manifest = await readFile(join(vendor, 'manifest.json'), 'utf8')
     const relocated = join(directory, 'app/main/merge-kernels'),
       chunks = join(directory, 'app/main/chunks')
     await mkdir(relocated, { recursive: true })
     await mkdir(chunks)
-    await writeFile(join(relocated, 'luma-merge-kernels.wasm'), binary)
+    await writeFile(join(relocated, 'irodori-merge-kernels.wasm'), binary)
     await writeFile(join(relocated, 'manifest.json'), manifest)
     expect(mergeKernelDirectory(join(directory, 'app/main'))).toBe(relocated)
     expect(await readMergeKernel(mergeKernelDirectory(join(directory, 'app/main')))).toBeDefined()
     expect(mergeKernelDirectory(chunks)).toBe(relocated)
     expect(await readMergeKernel(mergeKernelDirectory(chunks))).toBeDefined()
-    await writeFile(join(directory, 'luma-merge-kernels.wasm'), binary)
+    await writeFile(join(directory, 'irodori-merge-kernels.wasm'), binary)
     await writeFile(join(directory, 'manifest.json'), manifest)
     expect(await readMergeKernel(directory)).toBeDefined()
     const current = JSON.parse(manifest) as { version: number; sha256: string }
@@ -317,7 +317,7 @@ test('optional SIMD assets verify checksums and resolve beside the packaged work
     await writeFile(join(directory, 'manifest.json'), manifest)
     const corrupted = Buffer.from(binary)
     corrupted[corrupted.length - 1] ^= 1
-    await writeFile(join(directory, 'luma-merge-kernels.wasm'), corrupted)
+    await writeFile(join(directory, 'irodori-merge-kernels.wasm'), corrupted)
     expect(await readMergeKernel(directory)).toBeUndefined()
     const invalid = new Uint8Array([0])
     await writeFile(
@@ -325,7 +325,7 @@ test('optional SIMD assets verify checksums and resolve beside the packaged work
       JSON.stringify({ version: 5, sha256: createHash('sha256').update(invalid).digest('hex') }),
     )
     // A checksum alone does not make malformed or unsupported bytecode usable.
-    await writeFile(join(directory, 'luma-merge-kernels.wasm'), invalid)
+    await writeFile(join(directory, 'irodori-merge-kernels.wasm'), invalid)
     expect(await readMergeKernel(directory)).toBeUndefined()
   } finally {
     await rm(directory, { recursive: true, force: true })
@@ -396,7 +396,7 @@ test('SIMD camera rows and channel validity exactly match Float64 for every orie
 
 test('SIMD preparation preserves native Float32 and unquantized Float64 luminance exactly', async () => {
   const module = await readMergeKernel(vendor),
-    originalCacheEntries = process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES
+    originalCacheEntries = process.env.IRODORI_MERGE_GAIN_CACHE_ENTRIES
   expect(module).toBeDefined()
   try {
     for (const flip of [0, 1, 2, 3, 4, 5, 6, 7]) {
@@ -410,7 +410,7 @@ test('SIMD preparation preserves native Float32 and unquantized Float64 luminanc
         originalSaturation = saturated.slice(),
         gains = [1.75, 1, 1.25],
         expected = new Float32Array(width * height * 4),
-        luma = new Float64Array(width * height),
+        luminance = new Float64Array(width * height),
         coordinates = new Set<number>()
       for (let y = 0; y < height; y++)
         for (let x = 0; x < width; x++) {
@@ -446,16 +446,18 @@ test('SIMD preparation preserves native Float32 and unquantized Float64 luminanc
             ),
             at = y * width + x
           expected.set([...rgb, Number(!clipped)], at * 4)
-          luma[at] = Math.max(
+          luminance[at] = Math.max(
             0,
-            rgb[0] * REC2020_LUMA[0] + rgb[1] * REC2020_LUMA[1] + rgb[2] * REC2020_LUMA[2],
+            rgb[0] * REC2020_LUMINANCE[0] +
+              rgb[1] * REC2020_LUMINANCE[1] +
+              rgb[2] * REC2020_LUMINANCE[2],
           )
         }
       expect(coordinates.size).toBeGreaterThan(2048)
       expect(expected.some((v, i) => i % 4 === 3 && v === 0)).toBe(true)
       expect(expected.some((v, i) => i % 4 === 3 && v === 1)).toBe(true)
       for (const entries of [2048, 32768] as const) {
-        process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES = String(entries)
+        process.env.IRODORI_MERGE_GAIN_CACHE_ENTRIES = String(entries)
         const work = measurement(),
           kernel = await createPreparationKernel(frame, plan, saturated, gains, work, module)
         expect(kernel).toBeDefined()
@@ -471,7 +473,9 @@ test('SIMD preparation preserves native Float32 and unquantized Float64 luminanc
             expect(bytes(result.pixels).equals(bytes(expected.subarray(first * 4, last * 4)))).toBe(
               true,
             )
-            expect(bytes(result.luma).equals(bytes(luma.subarray(first, last)))).toBe(true)
+            expect(bytes(result.luminance).equals(bytes(luminance.subarray(first, last)))).toBe(
+              true,
+            )
           }
           expect(work.backend).toBe('wasm-simd')
           expect(work.gainCacheEntries).toBe(entries)
@@ -486,8 +490,8 @@ test('SIMD preparation preserves native Float32 and unquantized Float64 luminanc
     }
     expect(getMergeKernelHeapBytes()).toBeLessThanOrEqual(MERGE_KERNEL_HEAP_LIMIT)
   } finally {
-    if (originalCacheEntries === undefined) delete process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES
-    else process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES = originalCacheEntries
+    if (originalCacheEntries === undefined) delete process.env.IRODORI_MERGE_GAIN_CACHE_ENTRIES
+    else process.env.IRODORI_MERGE_GAIN_CACHE_ENTRIES = originalCacheEntries
   }
 })
 
@@ -495,37 +499,37 @@ test('gain cache capacity defaults to 32768 and rejects unsupported allocations'
   const module = await readMergeKernel(vendor),
     { frame, plan } = fixture(5),
     saturated = new Uint8Array(frame.width * frame.height),
-    original = process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES
+    original = process.env.IRODORI_MERGE_GAIN_CACHE_ENTRIES
   expect(module).toBeDefined()
   const instance = new WebAssembly.Instance(module!, { env: { hypot: Math.hypot } }),
     kernelExports = instance.exports as unknown as {
       memory: WebAssembly.Memory
       __heap_base: WebAssembly.Global
-      luma_kernel_version(): number
-      luma_prepare_strip(config: number, top: number, rows: number): number
+      irodori_kernel_version(): number
+      irodori_prepare_strip(config: number, top: number, rows: number): number
     },
     configAt = Number(kernelExports.__heap_base.value),
     config = new Float64Array(kernelExports.memory.buffer, configAt, 32)
-  expect(kernelExports.luma_kernel_version()).toBe(5)
+  expect(kernelExports.irodori_kernel_version()).toBe(5)
   // ABI5 validates slot27 before any strip pointer can be read. An invalid
   // capacity must never index the caller's smaller allocation with a larger mask.
   for (const invalid of [0, 2049, 16384, 32767, 65536, NaN]) {
     config[27] = invalid
-    expect(kernelExports.luma_prepare_strip(configAt, 0, 1)).toBe(4)
+    expect(kernelExports.irodori_prepare_strip(configAt, 0, 1)).toBe(4)
   }
   for (const entries of [2048, 32768]) {
     config[27] = entries
-    expect(kernelExports.luma_prepare_strip(configAt, 0, 1)).toBe(3)
+    expect(kernelExports.irodori_prepare_strip(configAt, 0, 1)).toBe(3)
   }
   try {
-    delete process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES
+    delete process.env.IRODORI_MERGE_GAIN_CACHE_ENTRIES
     const work = measurement(),
       kernel = await createPreparationKernel(frame, plan, saturated, [1, 1, 1], work, module)
     expect(kernel).toBeDefined()
     kernel!.close()
     expect(work.gainCacheEntries).toBe(32768)
     for (const invalid of ['0', '2049', '16384', '32767', '65536', 'NaN']) {
-      process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES = invalid
+      process.env.IRODORI_MERGE_GAIN_CACHE_ENTRIES = invalid
       const fallback = measurement()
       expect(
         await createPreparationKernel(frame, plan, saturated, [1, 1, 1], fallback, module),
@@ -534,18 +538,18 @@ test('gain cache capacity defaults to 32768 and rejects unsupported allocations'
       expect(fallback.gainCacheEntries).toBeUndefined()
     }
   } finally {
-    if (original === undefined) delete process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES
-    else process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES = original
+    if (original === undefined) delete process.env.IRODORI_MERGE_GAIN_CACHE_ENTRIES
+    else process.env.IRODORI_MERGE_GAIN_CACHE_ENTRIES = original
   }
 })
 
 test('scalar controls and unsupported input retain the existing preparation path', async () => {
   const module = await readMergeKernel(vendor),
     { frame, raw, plan } = fixture(5),
-    original = process.env.LUMA_MERGE_CPU_KERNEL
+    original = process.env.IRODORI_MERGE_CPU_KERNEL
   expect(module).toBeDefined()
   try {
-    process.env.LUMA_MERGE_CPU_KERNEL = 'scalar'
+    process.env.IRODORI_MERGE_CPU_KERNEL = 'scalar'
     expect(await createCameraKernel(raw, plan, Array(9).fill(0), measurement())).toBeUndefined()
     expect(
       await createPreparationKernel(
@@ -557,8 +561,8 @@ test('scalar controls and unsupported input retain the existing preparation path
       ),
     ).toBeUndefined()
   } finally {
-    if (original === undefined) delete process.env.LUMA_MERGE_CPU_KERNEL
-    else process.env.LUMA_MERGE_CPU_KERNEL = original
+    if (original === undefined) delete process.env.IRODORI_MERGE_CPU_KERNEL
+    else process.env.IRODORI_MERGE_CPU_KERNEL = original
   }
   expect(await createCameraKernel(raw, plan, [NaN], measurement(), module)).toBeUndefined()
   expect(
@@ -576,8 +580,8 @@ test('scalar controls and unsupported input retain the existing preparation path
 })
 
 test('camera writer accelerates 256-row GPU chunks with exact scalar bytes, hashes and planes', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-camera-kernel-chunks-')),
-    original = process.env.LUMA_MERGE_CPU_KERNEL
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-camera-kernel-chunks-')),
+    original = process.env.IRODORI_MERGE_CPU_KERNEL
   let index = 0
   try {
     for (const clipped of [false, true]) {
@@ -599,7 +603,7 @@ test('camera writer accelerates 256-row GPU chunks with exact scalar bytes, hash
         ['wasm', 128],
         ['wasm', 256],
       ] as const) {
-        process.env.LUMA_MERGE_CPU_KERNEL = backend
+        process.env.IRODORI_MERGE_CPU_KERNEL = backend
         const work = measurement(),
           writer = await cameraRegistrationWriter(directory, index++, raw, plan, 7, 11, work)
         try {
@@ -644,8 +648,8 @@ test('camera writer accelerates 256-row GPU chunks with exact scalar bytes, hash
       expect(bytes(rgba).equals(originalPixels)).toBe(true)
     }
   } finally {
-    if (original === undefined) delete process.env.LUMA_MERGE_CPU_KERNEL
-    else process.env.LUMA_MERGE_CPU_KERNEL = original
+    if (original === undefined) delete process.env.IRODORI_MERGE_CPU_KERNEL
+    else process.env.IRODORI_MERGE_CPU_KERNEL = original
     await rm(directory, { recursive: true, force: true })
   }
 })
@@ -703,7 +707,7 @@ test('flattened footprints retain exact weights, order and final contributing ro
   }
 })
 
-test('compiled camera and luma reducers preserve ordered Float64 and per-update Float32 bytes', async () => {
+test('compiled camera and luminance reducers preserve ordered Float64 and per-update Float32 bytes', async () => {
   const module = await readMergeKernel(vendor),
     inverse = [1, 0, 0, 0, 1, 0, 0, 0, 1]
   expect(module).toBeDefined()
@@ -736,7 +740,7 @@ test('compiled camera and luma reducers preserve ordered Float64 and per-update 
     expect(preparation?.reduction).toBeDefined()
     const cameraPixels = new Float32Array(input.length),
       preparedPixels = new Float32Array(input.length),
-      luma = new Float64Array(width * height)
+      luminance = new Float64Array(width * height)
     try {
       for (let c = 0; c < 3; c++)
         for (let i = 0; i < raw.width * raw.height; i++)
@@ -747,15 +751,15 @@ test('compiled camera and luma reducers preserve ordered Float64 and per-update 
           prepared = preparation!.convert(top, rows)
         cameraPixels.set(output, top * width * 4)
         preparedPixels.set(prepared.pixels, top * width * 4)
-        luma.set(prepared.luma, top * width)
+        luminance.set(prepared.luminance, top * width)
         camera!.reduction!.add(top, output)
-        preparation!.reduction!.add(top, prepared.pixels, prepared.luma)
+        preparation!.reduction!.add(top, prepared.pixels, prepared.luminance)
       }
       expect(camera!.reduction!.finish()).toEqual(
         referenceReduction(cameraPixels, undefined, width, height, reduced.width, reduced.height),
       )
       expect(preparation!.reduction!.finish()).toEqual(
-        referenceReduction(preparedPixels, luma, width, height, reduced.width, reduced.height),
+        referenceReduction(preparedPixels, luminance, width, height, reduced.width, reduced.height),
       )
     } finally {
       camera?.close()
@@ -766,20 +770,32 @@ test('compiled camera and luma reducers preserve ordered Float64 and per-update 
     height = 139,
     reduced = { width: 6, height: 5 },
     pixels = Float32Array.from({ length: width * height * 4 }, (_, i) => (i % 4 === 3 ? 1 : 0.5)),
-    luma = Float64Array.from({ length: width * height }, (_, i) => 1e8 + (i % 17)),
-    scalar = createAreaReducer(width, height, reduced, 'luma')
+    luminance = Float64Array.from({ length: width * height }, (_, i) => 1e8 + (i % 17)),
+    scalar = createAreaReducer(width, height, reduced, 'luminance')
   for (let top = 0; top < height; top += 64) {
     const last = Math.min(height, top + 64) * width
-    scalar.add(top, pixels.subarray(top * width * 4, last * 4), luma.subarray(top * width, last))
+    scalar.add(
+      top,
+      pixels.subarray(top * width * 4, last * 4),
+      luminance.subarray(top * width, last),
+    )
   }
-  const exact = referenceReduction(pixels, luma, width, height, reduced.width, reduced.height),
-    double = referenceReduction(pixels, luma, width, height, reduced.width, reduced.height, true)
+  const exact = referenceReduction(pixels, luminance, width, height, reduced.width, reduced.height),
+    double = referenceReduction(
+      pixels,
+      luminance,
+      width,
+      height,
+      reduced.width,
+      reduced.height,
+      true,
+    )
   expect(scalar.finish()).toEqual(exact)
   expect(bytes(exact[0].data).equals(bytes(double[0].data))).toBe(false)
-  expect(() => scalar.add(height, pixels.subarray(0, width * 4), luma.subarray(0, width))).toThrow(
-    'Invalid',
-  )
-  expect(() => createAreaReducer(width, height, { width: width + 1, height }, 'luma')).toThrow(
+  expect(() =>
+    scalar.add(height, pixels.subarray(0, width * 4), luminance.subarray(0, width)),
+  ).toThrow('Invalid')
+  expect(() => createAreaReducer(width, height, { width: width + 1, height }, 'luminance')).toThrow(
     'geometry',
   )
 })
@@ -789,7 +805,7 @@ test('late reducer status, traps and malformed emissions restore live rows befor
     Instance = WebAssembly.Instance
   expect(module).toBeDefined()
   for (const failure of ['status', 'trap', 'emission'] as const)
-    for (const mode of ['camera', 'luma'] as const) {
+    for (const mode of ['camera', 'luminance'] as const) {
       const { raw, frame, plan } = fixture(0, 139, 331),
         width = plan.width,
         height = plan.height,
@@ -797,8 +813,8 @@ test('late reducer status, traps and malformed emissions restore live rows befor
         pixels = Float32Array.from({ length: width * height * 4 }, (_, i) =>
           i % 4 === 3 ? (mode === 'camera' ? 7 : 1) : (i % 31) / 17 + 0.02,
         ),
-        luma =
-          mode === 'luma'
+        luminance =
+          mode === 'luminance'
             ? Float64Array.from({ length: width * height }, (_, i) => 1e8 + (i % 17))
             : undefined
       raw.normalization!.sourceSaturation!.saturatedSites = 0
@@ -809,14 +825,14 @@ test('late reducer status, traps and malformed emissions restore live rows befor
       try {
         WebAssembly.Instance = function (code: WebAssembly.Module, imports?: WebAssembly.Imports) {
           const instance = new Instance(code, imports),
-            original = instance.exports.luma_reduce_strip as (
+            original = instance.exports.irodori_reduce_strip as (
               config: number,
               top: number,
               rows: number,
             ) => number,
             exports = {
               ...instance.exports,
-              luma_reduce_strip(configAt: number, top: number, rows: number) {
+              irodori_reduce_strip(configAt: number, top: number, rows: number) {
                 const status = original(configAt, top, rows)
                 if (++calls !== 2) return status
                 if (failure === 'trap')
@@ -864,10 +880,10 @@ test('late reducer status, traps and malformed emissions restore live rows befor
           kernel!.reduction!.add(
             top,
             pixels.subarray(top * width * 4, Math.min(top + 64, height) * width * 4),
-            luma?.subarray(top * width, Math.min(top + 64, height) * width),
+            luminance?.subarray(top * width, Math.min(top + 64, height) * width),
           )
         expect(kernel!.reduction!.finish()).toEqual(
-          referenceReduction(pixels, luma, width, height, reduced.width, reduced.height),
+          referenceReduction(pixels, luminance, width, height, reduced.width, reduced.height),
         )
         expect(calls).toBe(2)
       } finally {
@@ -968,10 +984,10 @@ test('reduction allocation pressure retains compiled conversion and bounded scal
     try {
       WebAssembly.Instance = function (code: WebAssembly.Module, imports?: WebAssembly.Imports) {
         const instance = new Instance(code, imports),
-          original = instance.exports.luma_reduce_strip as (...args: number[]) => number,
+          original = instance.exports.irodori_reduce_strip as (...args: number[]) => number,
           exports = {
             ...instance.exports,
-            luma_reduce_strip(...args: number[]) {
+            irodori_reduce_strip(...args: number[]) {
               reductions++
               return original(...args)
             },
@@ -1056,10 +1072,10 @@ test('failed canonical repair publishes no partial RGB, alpha or changed positio
   try {
     WebAssembly.Instance = function (code: WebAssembly.Module, imports?: WebAssembly.Imports) {
       const instance = new Instance(code, imports),
-        original = instance.exports.luma_repair_mask as (...args: number[]) => number,
+        original = instance.exports.irodori_repair_mask as (...args: number[]) => number,
         exports = {
           ...instance.exports,
-          luma_repair_mask(...args: number[]) {
+          irodori_repair_mask(...args: number[]) {
             original(...args)
             return 5
           },
@@ -1095,7 +1111,7 @@ test('failed canonical repair publishes no partial RGB, alpha or changed positio
 
 test('camera validity strips retain exact channel masks without RGB projection for every orientation', async () => {
   const module = await readMergeKernel(vendor),
-    previous = process.env.LUMA_MERGE_CPU_KERNEL,
+    previous = process.env.IRODORI_MERGE_CPU_KERNEL,
     Instance = WebAssembly.Instance
   expect(module).toBeDefined()
   try {
@@ -1150,7 +1166,7 @@ test('camera validity strips retain exact channel masks without RGB projection f
         let validityCalls = 0,
           projectionCalls = 0
         for (const backend of ['scalar', 'wasm']) {
-          process.env.LUMA_MERGE_CPU_KERNEL = backend
+          process.env.IRODORI_MERGE_CPU_KERNEL = backend
           let provider: Awaited<ReturnType<typeof createCameraValidityProvider>>
           try {
             WebAssembly.Instance = function (
@@ -1158,16 +1174,16 @@ test('camera validity strips retain exact channel masks without RGB projection f
               imports?: WebAssembly.Imports,
             ) {
               const instance = new Instance(code, imports),
-                validity = instance.exports.luma_camera_validity_strip as (
+                validity = instance.exports.irodori_camera_validity_strip as (
                   ...args: number[]
                 ) => number,
                 exports = {
                   ...instance.exports,
-                  luma_camera_validity_strip(...args: number[]) {
+                  irodori_camera_validity_strip(...args: number[]) {
                     validityCalls++
                     return validity(...args)
                   },
-                  luma_camera_strip() {
+                  irodori_camera_strip() {
                     projectionCalls++
                     throw new Error('Validity must not project RGB.')
                   },
@@ -1212,17 +1228,17 @@ test('camera validity strips retain exact channel masks without RGB projection f
       }
   } finally {
     WebAssembly.Instance = Instance
-    if (previous === undefined) delete process.env.LUMA_MERGE_CPU_KERNEL
-    else process.env.LUMA_MERGE_CPU_KERNEL = previous
+    if (previous === undefined) delete process.env.IRODORI_MERGE_CPU_KERNEL
+    else process.env.IRODORI_MERGE_CPU_KERNEL = previous
   }
 })
 
 test('late mask-only failures replay exact validity and rebuild partial sensor masks transactionally', async () => {
   const module = await readMergeKernel(vendor),
-    previous = process.env.LUMA_MERGE_CPU_KERNEL,
+    previous = process.env.IRODORI_MERGE_CPU_KERNEL,
     Instance = WebAssembly.Instance
   expect(module).toBeDefined()
-  process.env.LUMA_MERGE_CPU_KERNEL = 'wasm'
+  process.env.IRODORI_MERGE_CPU_KERNEL = 'wasm'
   try {
     for (const stage of ['sensor', 'validity'] as const)
       for (const failure of ['status', 'trap'] as const) {
@@ -1250,18 +1266,18 @@ test('late mask-only failures replay exact validity and rebuild partial sensor m
             imports?: WebAssembly.Imports,
           ) {
             const instance = new Instance(code, imports),
-              sensor = instance.exports.luma_sensor_mask as (...args: number[]) => number,
-              validity = instance.exports.luma_camera_validity_strip as (
+              sensor = instance.exports.irodori_sensor_mask as (...args: number[]) => number,
+              validity = instance.exports.irodori_camera_validity_strip as (
                 ...args: number[]
               ) => number,
               exports = {
                 ...instance.exports,
-                luma_sensor_mask(...args: number[]) {
+                irodori_sensor_mask(...args: number[]) {
                   const status = sensor(...args)
                   sensorCalls++
                   return stage === 'sensor' && sensorCalls === 2 ? fail() : status
                 },
-                luma_camera_validity_strip(...args: number[]) {
+                irodori_camera_validity_strip(...args: number[]) {
                   const status = validity(...args)
                   validityCalls++
                   if (stage === 'validity' && validityCalls === 2) {
@@ -1310,14 +1326,14 @@ test('late mask-only failures replay exact validity and rebuild partial sensor m
       }
   } finally {
     WebAssembly.Instance = Instance
-    if (previous === undefined) delete process.env.LUMA_MERGE_CPU_KERNEL
-    else process.env.LUMA_MERGE_CPU_KERNEL = previous
+    if (previous === undefined) delete process.env.IRODORI_MERGE_CPU_KERNEL
+    else process.env.IRODORI_MERGE_CPU_KERNEL = previous
   }
 })
 
 test('fallback geometry preserves Float64 tap selection and union alpha without RGB or neighbor gain work', async () => {
   const module = await readMergeKernel(vendor),
-    previous = process.env.LUMA_MERGE_CPU_KERNEL,
+    previous = process.env.IRODORI_MERGE_CPU_KERNEL,
     Instance = WebAssembly.Instance
   expect(module).toBeDefined()
   try {
@@ -1344,7 +1360,7 @@ test('fallback geometry preserves Float64 tap selection and union alpha without 
           minimal = { width: frame.width, height: frame.height, flip },
           reduced = { width: 7, height: 11 },
           fullRgba = new Float32Array(width * height * 4),
-          fullLuma = Float64Array.from({ length: width * height }, (_, i) => 1e8 + (i % 17))
+          fullLuminance = Float64Array.from({ length: width * height }, (_, i) => 1e8 + (i % 17))
         let plannerCalls = 0,
           hypotCalls = 0,
           provider: Awaited<ReturnType<typeof createFallbackGeometryProvider>>
@@ -1363,12 +1379,12 @@ test('fallback geometry preserves Float64 tap selection and union alpha without 
                   },
                 },
               }),
-              planner = instance.exports.luma_fallback_geometry_strip as (
+              planner = instance.exports.irodori_fallback_geometry_strip as (
                 ...args: number[]
               ) => number,
               exports = {
                 ...instance.exports,
-                luma_fallback_geometry_strip(...args: number[]) {
+                irodori_fallback_geometry_strip(...args: number[]) {
                   plannerCalls++
                   return planner(...args)
                 },
@@ -1430,13 +1446,20 @@ test('fallback geometry preserves Float64 tap selection and union alpha without 
             provider!.reduction!.add(
               top,
               rgba,
-              fullLuma.subarray(top * width, (top + rows) * width),
+              fullLuminance.subarray(top * width, (top + rows) * width),
             )
           }
           expect(plannerCalls).toBe(Math.ceil(height / 64))
           expect(hypotCalls).toBe(width * height)
           expect(provider!.reduction!.finish()).toEqual(
-            referenceReduction(fullRgba, fullLuma, width, height, reduced.width, reduced.height),
+            referenceReduction(
+              fullRgba,
+              fullLuminance,
+              width,
+              height,
+              reduced.width,
+              reduced.height,
+            ),
           )
           for (const [top, rows] of [
             [-1, 1],
@@ -1452,7 +1475,7 @@ test('fallback geometry preserves Float64 tap selection and union alpha without 
         }
         expect(() => provider!.read(0, 1)).toThrow('closed')
         expect(() => provider!.coordinate(0, 0, 0)).toThrow('closed')
-        process.env.LUMA_MERGE_CPU_KERNEL = 'scalar'
+        process.env.IRODORI_MERGE_CPU_KERNEL = 'scalar'
         const scalar = await createFallbackGeometryProvider(minimal, plan, saturated)
         try {
           for (let top = 0; top < height; top += 64) {
@@ -1469,8 +1492,8 @@ test('fallback geometry preserves Float64 tap selection and union alpha without 
       }
   } finally {
     WebAssembly.Instance = Instance
-    if (previous === undefined) delete process.env.LUMA_MERGE_CPU_KERNEL
-    else process.env.LUMA_MERGE_CPU_KERNEL = previous
+    if (previous === undefined) delete process.env.IRODORI_MERGE_CPU_KERNEL
+    else process.env.IRODORI_MERGE_CPU_KERNEL = previous
   }
 })
 
@@ -1504,10 +1527,12 @@ test('fallback geometry late failures and aborts publish only complete independe
               },
             },
           }),
-          planner = instance.exports.luma_fallback_geometry_strip as (...args: number[]) => number,
+          planner = instance.exports.irodori_fallback_geometry_strip as (
+            ...args: number[]
+          ) => number,
           exports = {
             ...instance.exports,
-            luma_fallback_geometry_strip(...args: number[]) {
+            irodori_fallback_geometry_strip(...args: number[]) {
               const result = planner(...args)
               calls++
               if (failure !== 'abort' && calls === 2) {
@@ -1565,7 +1590,7 @@ test('fallback geometry late failures and aborts publish only complete independe
   }
 })
 
-test('fallback geometry allocation preflight preserves compiled planning when optional luma reduction misses', async () => {
+test('fallback geometry allocation preflight preserves compiled planning when optional luminance reduction misses', async () => {
   const module = await readMergeKernel(vendor),
     Instance = WebAssembly.Instance,
     small = fixture(0),
@@ -1597,15 +1622,17 @@ test('fallback geometry allocation preflight preserves compiled planning when op
     try {
       WebAssembly.Instance = function (code: WebAssembly.Module, imports?: WebAssembly.Imports) {
         const instance = new Instance(code, imports),
-          planner = instance.exports.luma_fallback_geometry_strip as (...args: number[]) => number,
-          reduce = instance.exports.luma_reduce_strip as (...args: number[]) => number,
+          planner = instance.exports.irodori_fallback_geometry_strip as (
+            ...args: number[]
+          ) => number,
+          reduce = instance.exports.irodori_reduce_strip as (...args: number[]) => number,
           exports = {
             ...instance.exports,
-            luma_fallback_geometry_strip(...args: number[]) {
+            irodori_fallback_geometry_strip(...args: number[]) {
               plannerCalls++
               return planner(...args)
             },
-            luma_reduce_strip(...args: number[]) {
+            irodori_reduce_strip(...args: number[]) {
               reductionCalls++
               return reduce(...args)
             },
@@ -1631,7 +1658,7 @@ test('fallback geometry allocation preflight preserves compiled planning when op
     const rgba = Float32Array.from({ length: width * height * 4 }, (_, i) =>
         i % 4 === 3 ? 1 : 0.125,
       ),
-      luma = Float64Array.from({ length: width * height }, (_, i) => 1e8 + (i % 17))
+      luminance = Float64Array.from({ length: width * height }, (_, i) => 1e8 + (i % 17))
     for (let top = 0; top < height; top += 64) {
       const rows = Math.min(64, height - top),
         output = provider.read(top, rows)
@@ -1639,11 +1666,11 @@ test('fallback geometry allocation preflight preserves compiled planning when op
       provider.reduction!.add(
         top,
         rgba.subarray(top * width * 4, (top + rows) * width * 4),
-        luma.subarray(top * width, (top + rows) * width),
+        luminance.subarray(top * width, (top + rows) * width),
       )
     }
     expect(provider.reduction!.finish()).toEqual(
-      referenceReduction(rgba, luma, width, height, reduced.width, reduced.height),
+      referenceReduction(rgba, luminance, width, height, reduced.width, reduced.height),
     )
     expect(plannerCalls).toBe(Math.ceil(height / 64))
     expect(reductionCalls).toBe(0)

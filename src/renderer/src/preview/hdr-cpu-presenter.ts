@@ -1,4 +1,6 @@
-import { publishHdrSample } from './hdr-sample'
+import { publishHdrSample, selectHdrSampleSources } from './hdr-sample'
+import { checkedHdrComparison } from './hdr-comparison-source'
+import { imageResourceOwners } from './image-resource-owners'
 import {
   sameAdjustments,
   neutralAdjustments,
@@ -21,10 +23,29 @@ import {
   maskPixelTarget,
   type NativeMaskReservation,
 } from './native-mask-reservation'
-type CpuReply = Partial<CpuClientReply> & { generation: number; error?: string }
+type CpuReply = Partial<CpuClientReply> & {
+  generation: number
+  beforeSha256?: string
+  error?: string
+}
 type CpuBackend = 'native' | 'javascript'
 
 export class HdrCpuPresenter {
+  private readonly imageOwner: ReturnType<typeof imageResourceOwners.register>
+  private imageBytes() {
+    const memory = this.native?.memory
+    if (memory) return { ramBytes: memory.peak.ramBytes, vramBytes: memory.peak.gpuBytes }
+    // Unsupported-platform JS fallback: full source/bitmap construction and canvas mirrors.
+    const source = this.frame ? this.frame.width * this.frame.height : 0,
+      canvas = this.canvas.width * this.canvas.height,
+      beforeSamples = this.comparisonFrame
+        ? (Math.min(65536, source) + Math.min(8192, source)) * 16
+        : 0
+    return {
+      ramBytes: source * 48 + beforeSamples + canvas * 32,
+      vramBytes: source * 8 + canvas * 32,
+    }
+  }
   private worker?: Worker
   private native?: NativeCpuClient
   private backendReady: Promise<void>
@@ -36,6 +57,9 @@ export class HdrCpuPresenter {
   }
   private context: CanvasRenderingContext2D
   private frame?: WorkingFrame
+  private comparisonInput?: WorkingFrame
+  private comparisonFrame?: WorkingFrame
+  private comparisonRequired = false
   private bitmap?: ImageBitmap
   private completedParameters?: AdjustmentParameters
   private completedRanges = false
@@ -65,7 +89,9 @@ export class HdrCpuPresenter {
     cancel: () => void,
     drained: Promise<void>,
   ): NativeMaskReservation | undefined {
-    if (this.disposed || !sameMaskFrame(this.frame, frame)) return undefined
+    const selected = this.mode === 'before' ? (this.comparisonFrame ?? this.frame) : this.frame
+    if (this.disposed || this.comparisonMissing() || !sameMaskFrame(selected, frame))
+      return undefined
     return this.native?.reserveMask(frame, cancel, drained)
   }
   private drainMaskForResize() {
@@ -85,12 +111,13 @@ export class HdrCpuPresenter {
     private activity?: () => () => void,
     retirement = Promise.resolve(),
     selectBackend: () => CpuBackend | Promise<CpuBackend> = () =>
-      window.luma.getCpuPreviewBackend(),
+      window.irodori.getCpuPreviewBackend(),
     private readonly limitation?: (fullBlocked: boolean) => void,
   ) {
     const context = canvas.getContext('2d', { colorSpace: 'srgb' })
     if (!context) throw new Error('CPU presentation unavailable.')
     this.context = context
+    this.imageOwner = imageResourceOwners.register(() => this.imageBytes())
     this.resetPublication()
     canvas.dataset.backend = 'canvas2d-hdr-sdr'
     canvas.dataset.fullBlocked = 'false'
@@ -114,7 +141,7 @@ export class HdrCpuPresenter {
         // Keep the rejection observable by the client without an unhandled event.
         void prerequisite.catch(() => undefined)
         this.native = new NativeCpuClient(
-          window.luma,
+          window.irodori,
           prerequisite,
           (reply) => this.acceptReply(reply, false),
           (error) => this.failCpu(error),
@@ -179,6 +206,15 @@ export class HdrCpuPresenter {
       return reject()
     }
     if (
+      this.comparisonFrame &&
+      (!data.beforeSample ||
+        !data.beforeDraftSample ||
+        (closeRejected && data.beforeSha256 !== this.comparisonFrame.hdr!.sha256))
+    ) {
+      this.failCpu(new Error('CPU renderer returned incomplete comparison samples.'))
+      return reject()
+    }
+    if (
       this.presentationState === null ||
       (!this.nativePresented &&
         this.presentationState &&
@@ -210,7 +246,9 @@ export class HdrCpuPresenter {
     }
     if (data.sample && data.draftSample && this.frame?.hdr)
       publishHdrSample(this.frame.hdr.sha256, data.sample, data.draftSample)
-    if (this.presentationState === undefined) this.loaded()
+    if (data.beforeSample && data.beforeDraftSample && this.comparisonFrame?.hdr)
+      publishHdrSample(this.comparisonFrame.hdr.sha256, data.beforeSample, data.beforeDraftSample)
+    if (this.presentationState === undefined && !this.comparisonMissing()) this.loaded()
     if (this.view)
       this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
     if (!data.draft) {
@@ -238,8 +276,48 @@ export class HdrCpuPresenter {
     this.releaseActivity = undefined
   }
   setWorking(frame: WorkingFrame) {
-    if (this.frame === frame || (this.frame?.identity && this.frame.identity === frame.identity))
+    if (
+      this.frame === frame ||
+      (this.frame?.identity &&
+        this.frame.identity === frame.identity &&
+        JSON.stringify(this.frame.hdr) === JSON.stringify(frame.hdr) &&
+        JSON.stringify(this.frame.cpuSource) === JSON.stringify(frame.cpuSource))
+    )
       return
+    this.resetSourcePixels()
+    this.frame = frame
+    this.comparisonInput = undefined
+    this.comparisonFrame = undefined
+    this.comparisonRequired = false
+    if (frame.hdr) selectHdrSampleSources(frame.hdr.sha256)
+  }
+  /** Main/loader lineage checks precede this local domain validation. */
+  setComparisonSource(input: WorkingFrame | null, required = true) {
+    if (this.disposed) return
+    if (this.comparisonInput === (input ?? undefined) && this.comparisonRequired === required)
+      return
+    if (input && !this.frame)
+      throw new Error('The CPU edited frame must load before its comparison source.')
+    const accepted = input ? checkedHdrComparison(this.frame!, input) : undefined
+    if (input && !accepted) {
+      input = null
+      required = false
+    }
+    if (this.comparisonInput === (input ?? undefined) && this.comparisonRequired === required)
+      return
+    this.resetSourcePixels()
+    this.comparisonInput = input ?? undefined
+    this.comparisonFrame = accepted?.frame
+    this.comparisonRequired = required
+    if (this.frame?.hdr)
+      selectHdrSampleSources(this.frame.hdr.sha256, this.comparisonFrame?.hdr?.sha256)
+    if (this.view)
+      this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
+  }
+  private comparisonMissing() {
+    return this.mode !== 'after' && this.comparisonRequired && !this.comparisonFrame
+  }
+  private resetSourcePixels() {
     void this.native?.cancelMasks()
     // A new corrected source cannot inherit another source's completed bitmaps or first-paint authority.
     this.generation++
@@ -256,7 +334,6 @@ export class HdrCpuPresenter {
     this.resetPublication()
     this.releaseActivity?.()
     this.releaseActivity = undefined
-    this.frame = frame
     this.setFullBlocked(false)
     this.key = ''
   }
@@ -271,12 +348,16 @@ export class HdrCpuPresenter {
       'shadows',
       'whites',
       'blacks',
+      'saturation',
+      'vibrance',
       'whiteBalance',
       'comparison',
       'hdrRanges',
       'nativeCpuPair',
       'cpuRenderingIdentity',
       'presentedSourceIdentity',
+      'presentedBeforeSourceIdentity',
+      'presentedBeforeSourceSha256',
       'presentedSettingsRevision',
       'presentedView',
     ])
@@ -295,6 +376,10 @@ export class HdrCpuPresenter {
   }
   draw(image: Size, viewport: Size, view: View, parameters: AdjustmentParameters) {
     this.view = { image, viewport, view, parameters }
+    if (this.comparisonMissing()) {
+      this.resetPublication()
+      return
+    }
     if (
       this.presentationState === null ||
       (!this.nativePresented &&
@@ -311,6 +396,7 @@ export class HdrCpuPresenter {
       const generation = ++this.generation
       this.native?.post({
         frame: this.frame,
+        beforeFrame: this.comparisonFrame,
         parameters,
         hdrRanges: this.hdrRanges,
         generation,
@@ -320,6 +406,7 @@ export class HdrCpuPresenter {
       })
       this.worker?.postMessage({
         asset: this.frame.hdr,
+        beforeAsset: this.comparisonFrame?.hdr,
         parameters,
         hdrRanges: this.hdrRanges,
         generation,
@@ -337,6 +424,7 @@ export class HdrCpuPresenter {
     if (this.native) {
       const input = {
         frame: this.frame,
+        beforeFrame: this.comparisonFrame,
         parameters,
         hdrRanges: this.hdrRanges,
         generation: this.generation,
@@ -426,18 +514,31 @@ export class HdrCpuPresenter {
       shadows: String(completed.shadows),
       whites: String(completed.whites),
       blacks: String(completed.blacks),
+      saturation: String(completed.saturation),
+      vibrance: String(completed.vibrance),
       whiteBalance: JSON.stringify(completed.whiteBalance),
       comparison: this.mode,
       hdrRanges: String(this.completedRanges),
       presentedView: JSON.stringify(view),
     })
     this.nativePresented = true
+    if (this.mode !== 'after' && this.comparisonFrame) {
+      this.canvas.dataset.presentedBeforeSourceIdentity =
+        this.comparisonFrame.identity ?? this.comparisonFrame.hdr!.sha256
+      this.canvas.dataset.presentedBeforeSourceSha256 = this.comparisonFrame.hdr!.sha256
+    } else {
+      delete this.canvas.dataset.presentedBeforeSourceIdentity
+      delete this.canvas.dataset.presentedBeforeSourceSha256
+    }
     const published = this.completedNative
     this.maskKey =
       published?.quality === 'normal'
         ? JSON.stringify([
             published.pairId,
-            published.source,
+            this.mode === 'before'
+              ? (published.beforeSource ?? published.source)
+              : published.source,
+            this.mode === 'before' && published.beforeSource ? published.source : null,
             published.settingsRevision,
             this.mode === 'before' ? neutralAdjustments : published.parameters,
             maskPixelTarget(this.completedTarget),
@@ -464,6 +565,7 @@ export class HdrCpuPresenter {
         this.neutral?.close()
         this.release()
       })
+    this.imageOwner.retire(this.retired)
     // Register synchronously before React can construct the next photo owner.
     // NativeCpuClient releases its main session only after its browser receivers
     // have settled, so this barrier covers arrays/bitmaps beyond fetch completion.

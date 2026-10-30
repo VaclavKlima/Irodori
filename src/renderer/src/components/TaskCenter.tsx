@@ -174,7 +174,12 @@ function TaskDetails({
         <p>{task.skippedAfterDeletion} Skipped after deletion</p>
       )}
       {!!task.unprocessed && (
-        <p>{task.unprocessed} photos unprocessed after source disconnection</p>
+        <p>
+          {task.unprocessed}{' '}
+          {task.kind === 'edit-application'
+            ? 'photos not changed'
+            : 'photos unprocessed after source disconnection'}
+        </p>
       )}
       {task.transfer && (
         <>
@@ -203,7 +208,7 @@ function TaskDetails({
         {task.export && (
           <button
             disabled={pending}
-            onClick={() => void act(() => window.luma.showExportFolder(task.id))}
+            onClick={() => void act(() => window.irodori.showExportFolder(task.id))}
           >
             Show in folder
           </button>

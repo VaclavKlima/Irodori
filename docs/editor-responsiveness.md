@@ -4,7 +4,7 @@
 
 The unset Linux build selects one frozen policy from main's `AppInfo.platform`: Float32 gesture feedback, exact completed-presentation reuse, 512-tile dispatch chunks, and the final presentation fence. Unconfirmed platforms and macOS/Windows retain canonical gesture rendering, cache disabled, 32-tile chunks and separate completion until their own verification is complete. App passes that policy to each preview owner; browser platform guesses and build environment variables do not choose it.
 
-The former precision, presentation-cache, tile-batch, interactive-fence and kernel `VITE_LUMA_HDR_*` selectors are retired. Production uses the linear64 kernel; the exact grid8 program remains a research/test reference. The dated commands and comparisons below preserve their original builds and results; they no longer configure an ordinary build. `VITE_LUMA_HDR_GPU_TIMINGS` remains optional diagnostics.
+The former precision, presentation-cache, tile-batch, interactive-fence and kernel `VITE_IRODORI_HDR_*` selectors are retired. Production uses the linear64 kernel; the exact grid8 program remains a research/test reference. The dated commands and comparisons below preserve their original builds and results; they no longer configure an ordinary build. `VITE_IRODORI_HDR_GPU_TIMINGS` remains optional diagnostics.
 
 Only eligible After gestures use the existing versioned feedback arithmetic. Final refinement, navigation, Before/Split, source preparation, exports, independent numerical references and all identity/admission/recovery guards retain their contracts. Default adoption alone establishes neither a new performance result nor whole-goal acceptance; package version remains 0.1.0.
 
@@ -138,11 +138,11 @@ native-engine ledger supersede its selector/default and fixed-memory status.
 Mac measurements remain separate and do not certify current Bazzite acceptance.
 
 At this checkpoint, both candidates were opt-in experiments.
-`VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` selects the separately versioned
+`VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32` selects the separately versioned
 `aces2-f32-interactive-v1` math during after-view editing gestures. It retains
 the same source, mip, sample positions, alpha and adjustment equations. Before,
 split, navigation, settled rendering and exports keep canonical compensated
-math. `VITE_LUMA_HDR_PRESENTATION_CACHE=1` independently enables exact completed
+math. `VITE_IRODORI_HDR_PRESENTATION_CACHE=1` independently enables exact completed
 surface reuse. Its 64 MiB reservation reduces active tile capacity within the
 existing 768 MiB presentation limit. No default had changed at this checkpoint.
 
@@ -574,30 +574,30 @@ reports/raw measurements. Neither the editor default nor production was changed.
 The following source snapshots were inspected on October 18, 2026. Vendor
 documentation establishes public behavior, not proprietary shader, scheduler or
 cache implementations. Source mechanisms from other applications are useful
-comparisons, not evidence of a speed-up or imperceptible loss in Luma.
+comparisons, not evidence of a speed-up or imperceptible loss in Irodori.
 
-| Source                                                                                                                                                                    | Documented or directly inspected behavior                                                                                                                                                                             | Implication to evaluate in Luma                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [Capture One preview settings](https://support.captureone.com/hc/en-us/articles/360002484457-Capture-One-Preferences-Settings-Image-tab)                                  | Recommends matching preview size to display resolution; oversized and undersized previews can slow adjustments.                                                                                                       | Evaluate display-footprint working previews using actual physical pixels. This is not approval to undersample a Retina canvas.                                     |
-| [Lightroom performance guidance](https://helpx.adobe.com/lightroom-classic/desktop/technical-support/performance-guidelines/optimize-performance-lightroom.html)          | Separates standard and native previews, retains them to avoid regeneration, and caches original image data to skip early processing.                                                                                  | Measure early-stage reuse and cached selection independently from cold decoding. Library-preview guidance alone does not describe Develop internals.               |
-| [Lightroom Smart Previews](https://helpx.adobe.com/lightroom-classic/desktop/viewing-photos/lightroom-smart-previews.html)                                                | Supports editing lightweight proxies based on lossy DNG and synchronizing edits with originals.                                                                                                                       | Editable proxies are a candidate architecture, but their size, quality and responsiveness do not transfer automatically to Luma.                                   |
-| [darktable pixelpipe manual](https://docs.darktable.org/usermanual/development/en/darkroom/pixelpipe/the-pixelpipe-and-module-order/)                                     | Separates export and interactive pipes; darkroom processing requests the visible ROI. Warns that spatial modules can differ from full-image export; high-quality processing trades responsiveness for correspondence. | Preserve operation order, scale semantics and neighborhood halos when introducing ROI or reduced-scale stages.                                                     |
-| [darktable scheduling/ROI source](https://github.com/darktable-org/darktable/blob/47b932b3eb3946583621f9a9515d6efb2b46959c/src/develop/develop.c#L283-L309)               | Briefly active work may finish before interruption; viewport ROI calculation at lines 868–883 includes physical pixel density.                                                                                        | Compare cancellation/coalescing policy and physical viewport work; do not assume restarting on every event improves progress.                                      |
-| [darktable mipmap source](https://github.com/darktable-org/darktable/blob/47b932b3eb3946583621f9a9515d6efb2b46959c/src/common/mipmap_cache.c#L940-L959)                   | Provides asynchronous mip prefetch and separate scaled floating-point/full-source caches.                                                                                                                             | Evaluate bounded lookahead and retained intermediates while foreground work remains first priority.                                                                |
-| [darktable architecture at the same revision](https://github.com/darktable-org/darktable/blob/47b932b3eb3946583621f9a9515d6efb2b46959c/dev-doc/pixelpipe_architecture.md) | Describes backward ROI propagation, cumulative parameter hashes, pipe/scale-aware cache keys and downstream invalidation.                                                                                             | Retain reusable upstream work with explicit cache identity; future spatial nodes need complete input regions.                                                      |
-| [RawTherapee coordinator source](https://github.com/RawTherapee/RawTherapee/blob/b2ee504c47e5e6d5e054395aa12bf1fe43bd1c3c/rtengine/improccoordinator.cc#L3508-L3620)      | One loop snapshots latest parameters and merges pending change bits. Separate scaled float/Lab buffers and full-detail crops exist; below-native fast demosaic is an explicit quality policy.                         | Stage-specific invalidation and scaled/detail paths are maintained precedents. Luma retains its current decoder unless a separately validated change is justified. |
+| Source                                                                                                                                                                    | Documented or directly inspected behavior                                                                                                                                                                             | Implication to evaluate in Irodori                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Capture One preview settings](https://support.captureone.com/hc/en-us/articles/360002484457-Capture-One-Preferences-Settings-Image-tab)                                  | Recommends matching preview size to display resolution; oversized and undersized previews can slow adjustments.                                                                                                       | Evaluate display-footprint working previews using actual physical pixels. This is not approval to undersample a Retina canvas.                                        |
+| [Lightroom performance guidance](https://helpx.adobe.com/lightroom-classic/desktop/technical-support/performance-guidelines/optimize-performance-lightroom.html)          | Separates standard and native previews, retains them to avoid regeneration, and caches original image data to skip early processing.                                                                                  | Measure early-stage reuse and cached selection independently from cold decoding. Library-preview guidance alone does not describe Develop internals.                  |
+| [Lightroom Smart Previews](https://helpx.adobe.com/lightroom-classic/desktop/viewing-photos/lightroom-smart-previews.html)                                                | Supports editing lightweight proxies based on lossy DNG and synchronizing edits with originals.                                                                                                                       | Editable proxies are a candidate architecture, but their size, quality and responsiveness do not transfer automatically to Irodori.                                   |
+| [darktable pixelpipe manual](https://docs.darktable.org/usermanual/development/en/darkroom/pixelpipe/the-pixelpipe-and-module-order/)                                     | Separates export and interactive pipes; darkroom processing requests the visible ROI. Warns that spatial modules can differ from full-image export; high-quality processing trades responsiveness for correspondence. | Preserve operation order, scale semantics and neighborhood halos when introducing ROI or reduced-scale stages.                                                        |
+| [darktable scheduling/ROI source](https://github.com/darktable-org/darktable/blob/47b932b3eb3946583621f9a9515d6efb2b46959c/src/develop/develop.c#L283-L309)               | Briefly active work may finish before interruption; viewport ROI calculation at lines 868–883 includes physical pixel density.                                                                                        | Compare cancellation/coalescing policy and physical viewport work; do not assume restarting on every event improves progress.                                         |
+| [darktable mipmap source](https://github.com/darktable-org/darktable/blob/47b932b3eb3946583621f9a9515d6efb2b46959c/src/common/mipmap_cache.c#L940-L959)                   | Provides asynchronous mip prefetch and separate scaled floating-point/full-source caches.                                                                                                                             | Evaluate bounded lookahead and retained intermediates while foreground work remains first priority.                                                                   |
+| [darktable architecture at the same revision](https://github.com/darktable-org/darktable/blob/47b932b3eb3946583621f9a9515d6efb2b46959c/dev-doc/pixelpipe_architecture.md) | Describes backward ROI propagation, cumulative parameter hashes, pipe/scale-aware cache keys and downstream invalidation.                                                                                             | Retain reusable upstream work with explicit cache identity; future spatial nodes need complete input regions.                                                         |
+| [RawTherapee coordinator source](https://github.com/RawTherapee/RawTherapee/blob/b2ee504c47e5e6d5e054395aa12bf1fe43bd1c3c/rtengine/improccoordinator.cc#L3508-L3620)      | One loop snapshots latest parameters and merges pending change bits. Separate scaled float/Lab buffers and full-detail crops exist; below-native fast demosaic is an explicit quality policy.                         | Stage-specific invalidation and scaled/detail paths are maintained precedents. Irodori retains its current decoder unless a separately validated change is justified. |
 
 The darktable snapshot is `47b932b3eb3946583621f9a9515d6efb2b46959c`;
 RawTherapee is `b2ee504c47e5e6d5e054395aa12bf1fe43bd1c3c`. These are source
 inspection references, not new application dependencies. No third-party source
-is copied into Luma by this research.
+is copied into Irodori by this research.
 
 ## Rendering decisions
 
 These decisions preserve the existing pipeline while evaluating the measured
 expensive work. "Retain" describes the current implementation; "experiment"
 does not mean a candidate is enabled by default. The source comparisons above
-motivate mechanisms, while only Luma's recorded trials establish its behavior.
+motivate mechanisms, while only Irodori's recorded trials establish its behavior.
 
 | Mechanism                          | Decision for this pass                                                                                                        | Evidence, constraints and remaining work                                                                                                                                                                                                                                                                                          |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -678,8 +678,8 @@ The merge implementation remains frozen at
 editor experiment. The coordinator must record the final tested editor revision
 and source/build identities before handoff. That revision is still pending.
 
-Keep `VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` and
-`VITE_LUMA_HDR_PRESENTATION_CACHE=1` explicit in candidate builds; an unset
+Keep `VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32` and
+`VITE_IRODORI_HDR_PRESENTATION_CACHE=1` explicit in candidate builds; an unset
 selector is the reference configuration. Linux acceptance requires its own
 measured cold/warm conditions, 60/120 Hz cadence, native display/DPR, quality,
 history, resources, cancellation/recovery and background-work results. Mac
@@ -851,9 +851,9 @@ actual arithmetic from the confirmed semantic display target:
 
 The family selector and presentation cache both remain disabled by default.
 Candidate builds and launches must explicitly set
-`VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32` and
-`VITE_LUMA_HDR_PRESENTATION_CACHE=1`. An unset precision selector uses the
-canonical reference. `VITE_LUMA_HDR_TILE_BATCH=128` is a separate opt-in scheduling
+`VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32` and
+`VITE_IRODORI_HDR_PRESENTATION_CACHE=1`. An unset precision selector uses the
+canonical reference. `VITE_IRODORI_HDR_TILE_BATCH=128` is a separate opt-in scheduling
 candidate; the default remains 32, with the historical 8-tile comparison retained.
 Keep batch size and cache selection fixed for each arithmetic comparison.
 
@@ -919,10 +919,10 @@ the current 512/final configuration:
 
 ```sh
 npm run verify -- --target hdr-gesture-handoff --target edit-gesture-commit --target hdr-presentation-cache --target hdr-render-cache
-VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 VITE_LUMA_HDR_TILE_BATCH=32 npm run build
-VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 LUMA_INTERACTIVE_QUALITY_PROFILE=linux-held-reply-dpr1 npx playwright test --project=raw-gpu tests/interactive-preview-quality.spec.ts --workers=1
-VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 VITE_LUMA_HDR_TILE_BATCH=32 LUMA_TEST_UI_MODE=foreground npx playwright test --project=raw-gpu tests/interactive-preview-lifecycle.spec.ts --grep 'the last local input receives Float32 feedback' --workers=1
-VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32 VITE_LUMA_HDR_PRESENTATION_CACHE=1 VITE_LUMA_HDR_TILE_BATCH=32 LUMA_TEST_UI_MODE=foreground LUMA_PREVIEW_BENCHMARK=1 LUMA_RESPONSIVENESS_PROFILE=linux-native-dpr1 LUMA_RESPONSIVENESS_LAYOUTS=1440x900 LUMA_RESPONSIVENESS_FREQUENCIES=60 LUMA_RESPONSIVENESS_DISPLAY=sdr LUMA_RESPONSIVENESS_SLIDERS=Exposure npx playwright test --project=benchmark tests/editor-responsiveness-benchmark.spec.ts --workers=1
+VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32 VITE_IRODORI_HDR_PRESENTATION_CACHE=1 VITE_IRODORI_HDR_TILE_BATCH=32 npm run build
+VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32 VITE_IRODORI_HDR_PRESENTATION_CACHE=1 IRODORI_INTERACTIVE_QUALITY_PROFILE=linux-held-reply-dpr1 npx playwright test --project=raw-gpu tests/interactive-preview-quality.spec.ts --workers=1
+VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32 VITE_IRODORI_HDR_PRESENTATION_CACHE=1 VITE_IRODORI_HDR_TILE_BATCH=32 IRODORI_TEST_UI_MODE=foreground npx playwright test --project=raw-gpu tests/interactive-preview-lifecycle.spec.ts --grep 'the last local input receives Float32 feedback' --workers=1
+VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32 VITE_IRODORI_HDR_PRESENTATION_CACHE=1 VITE_IRODORI_HDR_TILE_BATCH=32 IRODORI_TEST_UI_MODE=foreground IRODORI_PREVIEW_BENCHMARK=1 IRODORI_RESPONSIVENESS_PROFILE=linux-native-dpr1 IRODORI_RESPONSIVENESS_LAYOUTS=1440x900 IRODORI_RESPONSIVENESS_FREQUENCIES=60 IRODORI_RESPONSIVENESS_DISPLAY=sdr IRODORI_RESPONSIVENESS_SLIDERS=Exposure npx playwright test --project=benchmark tests/editor-responsiveness-benchmark.spec.ts --workers=1
 ```
 
 Use the short absolute `TMPDIR` described in the handoff. The numerical replay
@@ -951,11 +951,11 @@ broader editor migration or change production defaults.
 The passing candidate explicitly selects:
 
 ```sh
-VITE_LUMA_HDR_INTERACTIVE_PRECISION=f32
-VITE_LUMA_HDR_PRESENTATION_CACHE=1
-VITE_LUMA_HDR_TILE_BATCH=512
-VITE_LUMA_HDR_INTERACTIVE_FENCE=final
-LUMA_RESPONSIVENESS_PROFILE=linux-native-dpr1
+VITE_IRODORI_HDR_INTERACTIVE_PRECISION=f32
+VITE_IRODORI_HDR_PRESENTATION_CACHE=1
+VITE_IRODORI_HDR_TILE_BATCH=512
+VITE_IRODORI_HDR_INTERACTIVE_FENCE=final
+IRODORI_RESPONSIVENESS_PROFILE=linux-native-dpr1
 ```
 
 The arithmetic family is `aces2-f32-interactive-v2-sdr3-hdr1`: confirmed SDR

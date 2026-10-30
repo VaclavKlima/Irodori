@@ -9,7 +9,7 @@ import {
   createGpuReferenceFallback,
   gpuReferenceFallbackBytes,
 } from '../src/main/merge/gpu-reference-fallback'
-import { REC2020_LUMA, SRGB_TO_2020 } from '../src/shared/hdr'
+import { REC2020_LUMINANCE, SRGB_TO_2020 } from '../src/shared/hdr'
 import { automaticLensSettings, type LensProfile } from '../src/shared/lens'
 import { GPU_REFERENCE_PREPARATION, MERGE_LIMITS } from '../src/shared/merge'
 
@@ -25,7 +25,7 @@ interface Fixture {
 }
 interface Reference {
   rgba: Float32Array<ArrayBuffer>
-  luma: Float64Array<ArrayBuffer>
+  luminance: Float64Array<ArrayBuffer>
   plane: Plane
 }
 
@@ -132,12 +132,12 @@ function footprints(native: number, reduced: number) {
   return cells
 }
 
-/** The legacy fallback recipe rounds luma sums to Float32 after every ordered update. */
+/** The legacy fallback recipe rounds luminance sums to Float32 after every ordered update. */
 function reduce(
   width: number,
   height: number,
   rgba: Float32Array,
-  luma: Float64Array,
+  luminance: Float64Array,
   reduced: { width: number; height: number },
 ): Plane {
   const xs = footprints(width, reduced.width),
@@ -153,9 +153,9 @@ function reduce(
           const at = py * reduced.width + px,
             weight = wx * wy
           totals[at] += weight
-          if (rgba[pixel * 4 + 3] && luma[pixel] > minimumSignal) {
+          if (rgba[pixel * 4 + 3] && luminance[pixel] > minimumSignal) {
             counts[at] += weight
-            sums[at] += luma[pixel] * weight
+            sums[at] += luminance[pixel] * weight
           }
         }
     }
@@ -170,7 +170,7 @@ function reduce(
 function reference(data: Fixture, reduced = { width: 11, height: 7 }): Reference {
   const { frame, plan, saturated, gains, width, height } = data,
     rgba = new Float32Array(width * height * 4),
-    luma = new Float64Array(width * height),
+    luminance = new Float64Array(width * height),
     cx = (frame.width - 1) / 2,
     cy = (frame.height - 1) / 2,
     radius = Math.hypot(cx, cy),
@@ -224,12 +224,14 @@ function reference(data: Fixture, reduced = { width: 11, height: 7 }): Reference
         rgba[pixel * 4 + c] = rgb[c]
       }
       rgba[pixel * 4 + 3] = Number(!clipped)
-      luma[pixel] = Math.max(
+      luminance[pixel] = Math.max(
         0,
-        rgb[0] * REC2020_LUMA[0] + rgb[1] * REC2020_LUMA[1] + rgb[2] * REC2020_LUMA[2],
+        rgb[0] * REC2020_LUMINANCE[0] +
+          rgb[1] * REC2020_LUMINANCE[1] +
+          rgb[2] * REC2020_LUMINANCE[2],
       )
     }
-  return { rgba, luma, plane: reduce(width, height, rgba, luma, reduced) }
+  return { rgba, luminance, plane: reduce(width, height, rgba, luminance, reduced) }
 }
 
 function assertSamples(
@@ -418,19 +420,19 @@ function createConverter(
 
 async function convertAll(converter: Converter, rows = 64) {
   const rgba = new Float32Array(converter.width * converter.height * 4),
-    luma = new Float64Array(converter.width * converter.height)
+    luminance = new Float64Array(converter.width * converter.height)
   for (let top = 0; top < converter.height; top += rows) {
     const part = await converter.convert(top, Math.min(rows, converter.height - top))
     rgba.set(part.rgba, top * converter.width * 4)
-    luma.set(part.luma, top * converter.width)
-    converter.reduction?.add(top, part.rgba, part.luma)
+    luminance.set(part.luminance, top * converter.width)
+    converter.reduction?.add(top, part.rgba, part.luminance)
   }
-  return { rgba, luma, plane: converter.reduction?.finish()[0] }
+  return { rgba, luminance, plane: converter.reduction?.finish()[0] }
 }
 
 function assertReference(actual: Awaited<ReturnType<typeof convertAll>>, expected: Reference) {
   assertSamples(expected.rgba, actual.rgba, true)
-  assertSamples(expected.luma, actual.luma)
+  assertSamples(expected.luminance, actual.luminance)
   expect(actual.plane).toBeDefined()
   expect(actual.plane!.mask).toEqual(expected.plane.mask)
   assertSamples(expected.plane.data, actual.plane!.data)
@@ -438,7 +440,7 @@ function assertReference(actual: Awaited<ReturnType<typeof convertAll>>, expecte
 
 for (const corrected of [false, true])
   for (let flip = 0; flip < 8; flip++)
-    test(`GPU reference fallback agrees with original CPU RGB and luma for orientation ${flip}, lens ${corrected ? 'on' : 'off'}`, async () => {
+    test(`GPU reference fallback agrees with original CPU RGB and luminance for orientation ${flip}, lens ${corrected ? 'on' : 'off'}`, async () => {
       test.setTimeout(120000)
       const context = await hardware(),
         tracked = trackedDevice(context.device),
@@ -529,17 +531,17 @@ test('GPU reference geometry prefetch preserves borrowed validity and discards n
 
     const firstResource = tracked.resources.length,
       rgba = new Float32Array(expected.rgba.length),
-      luma = new Float64Array(expected.luma.length)
+      luminance = new Float64Array(expected.luminance.length)
     interrupted = await createConverter(data, tracked.device)
     const preserve = (top: number, part: Awaited<ReturnType<Converter['convert']>>) => {
       const first = top * data.width,
-        last = first + part.luma.length
+        last = first + part.luminance.length
       assertSamples(expected.rgba.subarray(first * 4, last * 4), part.rgba, true)
-      assertSamples(expected.luma.subarray(first, last), part.luma)
+      assertSamples(expected.luminance.subarray(first, last), part.luminance)
       // Both output views expire on the next convert; copy before the deliberate probe.
       rgba.set(part.rgba, first * 4)
-      luma.set(part.luma, first)
-      interrupted!.reduction!.add(top, part.rgba, part.luma)
+      luminance.set(part.luminance, first)
+      interrupted!.reduction!.add(top, part.rgba, part.luminance)
     }
     preserve(0, await interrupted.convert(0, 64))
     expect(interrupted.metrics.prefetchedStrips).toBe(1)
@@ -548,12 +550,12 @@ test('GPU reference geometry prefetch preserves borrowed validity and discards n
       first = 65 * data.width,
       last = 82 * data.width
     assertSamples(expected.rgba.subarray(first * 4, last * 4), probe.rgba, true)
-    assertSamples(expected.luma.subarray(first, last), probe.luma)
+    assertSamples(expected.luminance.subarray(first, last), probe.luminance)
     expect(interrupted.metrics.discardedPrefetches).toBe(1)
     // Restore the ordered consumer stream after discarding the borrowed 64-row prefetch.
     preserve(64, await interrupted.convert(64, 64))
     preserve(128, await interrupted.convert(128, 21))
-    assertReference({ rgba, luma, plane: interrupted.reduction!.finish()[0] }, expected)
+    assertReference({ rgba, luminance, plane: interrupted.reduction!.finish()[0] }, expected)
     expect(interrupted.metrics.batches).toBe(4)
     expect(interrupted.metrics.prefetchedStrips).toBe(1)
     expect(interrupted.metrics.discardedPrefetches).toBe(1)
@@ -638,7 +640,7 @@ test('GPU reference fallback retains exact union validity from every channel foo
 })
 
 for (const offset of [-1e-15, 1e-15])
-  test(`GPU reference fallback preserves the pre-Float32 luma threshold ${offset < 0 ? 'below' : 'above'} read noise`, async () => {
+  test(`GPU reference fallback preserves the pre-Float32 luminance threshold ${offset < 0 ? 'below' : 'above'} read noise`, async () => {
     const context = await hardware(),
       tracked = trackedDevice(context.device),
       data = fixture(0, false)
@@ -652,19 +654,19 @@ for (const offset of [-1e-15, 1e-15])
     data.frame.normalization!.gains = [1, 1, 1, 1]
     data.gains = [(minimumSignal + offset) / data.frame.data[0], 1, 1, 1]
     const expected = reference(data),
-      roundedLuma =
-        expected.rgba[0] * REC2020_LUMA[0] +
-        expected.rgba[1] * REC2020_LUMA[1] +
-        expected.rgba[2] * REC2020_LUMA[2]
+      roundedLuminance =
+        expected.rgba[0] * REC2020_LUMINANCE[0] +
+        expected.rgba[1] * REC2020_LUMINANCE[1] +
+        expected.rgba[2] * REC2020_LUMINANCE[2]
     let converter: Converter | undefined
     try {
-      expect(expected.luma.every((value) => value > minimumSignal === offset > 0)).toBe(true)
+      expect(expected.luminance.every((value) => value > minimumSignal === offset > 0)).toBe(true)
       expect(expected.plane.mask!.every((value) => value === (offset > 0 ? 255 : 0))).toBe(true)
-      if (offset > 0) expect(roundedLuma).toBeLessThanOrEqual(minimumSignal)
+      if (offset > 0) expect(roundedLuminance).toBeLessThanOrEqual(minimumSignal)
       converter = await createConverter(data, tracked.device)
       const actual = await convertAll(converter, 31)
       assertReference(actual, expected)
-      expect(actual.luma.every((value) => value > minimumSignal === offset > 0)).toBe(true)
+      expect(actual.luminance.every((value) => value > minimumSignal === offset > 0)).toBe(true)
       expect(converter.metrics.thresholdRepairs).toBeGreaterThan(0)
       await converter.close()
       tracked.assertReleased()
@@ -724,7 +726,7 @@ test('GPU reference fallback keeps native alpha and fractional reductions with t
   const context = await hardware(),
     tracked = trackedDevice(context.device),
     data = fixture(5, true),
-    previous = process.env.LUMA_MERGE_CPU_KERNEL,
+    previous = process.env.IRODORI_MERGE_CPU_KERNEL,
     measurement: CpuKernelMeasurement = {
       backend: 'scalar',
       heapBytes: 0,
@@ -733,7 +735,7 @@ test('GPU reference fallback keeps native alpha and fractional reductions with t
     }
   let converter: Converter | undefined
   try {
-    process.env.LUMA_MERGE_CPU_KERNEL = 'scalar'
+    process.env.IRODORI_MERGE_CPU_KERNEL = 'scalar'
     converter = await createConverter(
       data,
       tracked.device,
@@ -750,8 +752,8 @@ test('GPU reference fallback keeps native alpha and fractional reductions with t
     try {
       await converter?.close()
     } finally {
-      if (previous === undefined) delete process.env.LUMA_MERGE_CPU_KERNEL
-      else process.env.LUMA_MERGE_CPU_KERNEL = previous
+      if (previous === undefined) delete process.env.IRODORI_MERGE_CPU_KERNEL
+      else process.env.IRODORI_MERGE_CPU_KERNEL = previous
       context.close()
     }
   }
@@ -878,7 +880,7 @@ test('GPU reference device loss after a completed strip rejects further output a
     })
     const first = await converter.convert(0, 64)
     assertSamples(expected.rgba.subarray(0, data.width * 64 * 4), first.rgba, true)
-    assertSamples(expected.luma.subarray(0, data.width * 64), first.luma)
+    assertSamples(expected.luminance.subarray(0, data.width * 64), first.luminance)
     await expect(converter.convert(64, Math.min(64, data.height - 64))).rejects.toThrow(
       /device lost/i,
     )
@@ -919,7 +921,7 @@ test('concurrent GPU reference conversion is rejected without corrupting the adm
     resume.resolve()
     const firstStrip = await first
     assertSamples(expected.rgba.subarray(0, data.width * 64 * 4), firstStrip.rgba, true)
-    assertSamples(expected.luma.subarray(0, data.width * 64), firstStrip.luma)
+    assertSamples(expected.luminance.subarray(0, data.width * 64), firstStrip.luminance)
     for (let top = 64; top < data.height; top += 64) {
       const rows = Math.min(64, data.height - top),
         part = await converter.convert(top, rows)
@@ -928,7 +930,10 @@ test('concurrent GPU reference conversion is rejected without corrupting the adm
         part.rgba,
         true,
       )
-      assertSamples(expected.luma.subarray(top * data.width, (top + rows) * data.width), part.luma)
+      assertSamples(
+        expected.luminance.subarray(top * data.width, (top + rows) * data.width),
+        part.luminance,
+      )
     }
     await converter.close()
     tracked.assertReleased()

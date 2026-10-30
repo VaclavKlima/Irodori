@@ -2,6 +2,9 @@ import { catalogTransaction } from './transaction'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Photo } from '../../shared/contracts'
 import { initialSettings, SETTINGS_VERSION, type EditHistory } from '../../shared/edits'
+import { sameCropFraming } from '../../shared/crop'
+import { spatialControlsKey } from '../../shared/detail-controls'
+import { supportsEditingSettings } from './editing-migration'
 import {
   automaticLensSettings,
   PROCESSING_METADATA_VERSION,
@@ -13,6 +16,7 @@ import { BrowseMutations } from './browse-mutations'
 import { WorkspaceMutations } from './workspace-mutations'
 import { CameraMutations } from './camera-mutations'
 import { ImportSourceMutations } from './import-source-mutations'
+import { EditApplicationMutations } from '../edit-application-store'
 import { ExportMutations } from './export-mutations'
 
 /** Only the dedicated writer uses this after the explicit startup phase ends. */
@@ -22,6 +26,7 @@ export class CatalogMutations {
   readonly workspace: WorkspaceMutations
   readonly camera: CameraMutations
   readonly sources: ImportSourceMutations
+  readonly editApplications: EditApplicationMutations
   readonly exports: ExportMutations
   constructor(readonly db: DatabaseSync) {
     this.stacks = new StackMutations(db)
@@ -30,6 +35,7 @@ export class CatalogMutations {
     this.camera = new CameraMutations(db)
     this.sources = new ImportSourceMutations(db)
     this.exports = new ExportMutations(db)
+    this.editApplications = new EditApplicationMutations(db)
   }
   transaction<T>(work: () => T): T {
     return catalogTransaction(this.db, work)
@@ -98,7 +104,7 @@ export class CatalogMutations {
         })
       }
       case 'edits.commit': {
-        const { history, expectedRevision } = command.payload
+        const { history, expectedRevision, application } = command.payload
         if (
           !Number.isSafeInteger(expectedRevision) ||
           expectedRevision < 0 ||
@@ -123,15 +129,37 @@ export class CatalogMutations {
           const lensChanged =
             previous.settings.processing !== history.settings.processing ||
             JSON.stringify(previous.settings.lens) !== JSON.stringify(history.settings.lens)
+          for (const settings of [
+            history.settings,
+            ...history.snapshots.map((snapshot) => snapshot.settings),
+          ])
+            if (!supportsEditingSettings(settings as unknown as Record<string, unknown>))
+              throw new Error('Invalid confirmed edit settings.')
+          const geometryChanged = !sameCropFraming(previous.settings.crop, history.settings.crop)
+          const sourceChanged =
+            spatialControlsKey(previous.settings) !== spatialControlsKey(history.settings)
           history.revision++
           history.canUndo = history.cursor > 0
           history.canRedo = history.cursor < history.snapshots.length - 1
           this.db
             .prepare('UPDATE edits SET data = ? WHERE id = ?')
             .run(JSON.stringify(history), history.photoId)
-          return { history, lensChanged }
+          if (application) this.editApplications.confirm(application, previous, history)
+          return { history, lensChanged, geometryChanged, sourceChanged }
         })
       }
+      case 'edit-application.accept':
+        return this.transaction(() =>
+          this.editApplications.accept(command.payload.manifest, command.payload.task),
+        )
+      case 'edit-application.result':
+        return this.transaction(() =>
+          this.editApplications.result(command.payload.commit, command.payload.result),
+        )
+      case 'edit-application.task':
+        return this.transaction(() => this.editApplications.task(command.payload.task))
+      case 'edit-application.dismiss':
+        return this.transaction(() => this.editApplications.dismiss(command.payload.id))
       case 'workspace.save':
         return this.workspace.save(command.payload)
       case 'stack.group': {

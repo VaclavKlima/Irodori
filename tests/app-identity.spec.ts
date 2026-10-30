@@ -36,11 +36,10 @@ function desktop(appData: string, explicitProfile?: string) {
   return app
 }
 
-test('renaming preserves the existing library and settings even when a new-name folder exists', async () => {
-  const profile = join(directory, 'Luma')
+test('the Irodori profile preserves existing originals and settings', async () => {
+  const profile = join(directory, 'Irodori')
   const originals = join(profile, 'library', 'originals')
   await mkdir(originals, { recursive: true })
-  await mkdir(join(directory, 'Irodori'))
   const original = Buffer.from([0, 1, 2, 127, 255])
   const settings = '{"version":1,"saved":"existing profile"}\n'
   await writeFile(join(originals, 'retained-original'), original)
@@ -75,7 +74,7 @@ test('an explicit isolated profile takes priority over the normal library direct
 test('a first launch creates its stable profile before Electron receives the path', () => {
   const app = desktop(directory)
   configureAppIdentity(app)
-  expect(app.getPath('userData')).toBe(join(directory, 'Luma'))
+  expect(app.getPath('userData')).toBe(join(directory, 'Irodori'))
   expect(existsSync(app.getPath('userData'))).toBe(true)
-  expect(existsSync(join(directory, 'Irodori'))).toBe(false)
+  expect(app.getPath('sessionData')).toBe(join(directory, 'Irodori'))
 })

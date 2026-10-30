@@ -2,6 +2,7 @@ import { cp } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, expect } from './electron.fixture'
 import { importPhotos } from './import.helpers'
+import { activateButton } from './button.helpers'
 import { isolateTrash } from './photo-actions.helpers'
 import {
   allGroupPhotos,
@@ -12,9 +13,9 @@ import {
 } from './stack-group-actions.helpers'
 
 test('toolbar keyboard opening, roving focus, prefix search and normal Tab traversal share one menu', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const actions = page.getByRole('button', { name: 'Actions', exact: true })
   await actions.click()
   await expect(page.getByRole('menu')).toContainText('No photo actions available.')
@@ -62,6 +63,8 @@ test('toolbar keyboard opening, roving focus, prefix search and normal Tab trave
   await expect(items.last()).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(menu).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
   await expect(page.getByRole('button', { name: 'Library', exact: true })).toBeFocused()
   await card.click({ button: 'right' })
   await expect(items.first()).toBeFocused()
@@ -74,9 +77,9 @@ test('toolbar keyboard opening, roving focus, prefix search and normal Tab trave
 })
 
 test('eligibility and equivalent targets keep complete-group menus compact, with originals-only group merges', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, groupSources.slice(0, 3))
   const photos = await allGroupPhotos(page)
   const stack = await createGroup(
@@ -108,7 +111,7 @@ test('eligibility and equivalent targets keep complete-group menus compact, with
     await page.keyboard.press('Escape')
     await fixture.evaluate((f) => f.set({ derived: [] }))
     const order = (
-      await page.evaluate((s) => window.luma.getStackSnapshot(s.id, s.revision), stack)
+      await page.evaluate((s) => window.irodori.getStackSnapshot(s.id, s.revision), stack)
     ).photos
     await page.getByTestId(`photo-card-${order[0].id}`).click()
     for (const p of order.slice(1))
@@ -123,9 +126,9 @@ test('eligibility and equivalent targets keep complete-group menus compact, with
 })
 
 test('availability updates retain focus, explain distinct blockers once, and disabled commands never run', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, groupSources.slice(0, 3))
   const photos = await allGroupPhotos(page)
   await createGroup(
@@ -170,6 +173,7 @@ test('availability updates retain focus, explain distinct blockers once, and dis
     await page.getByRole('button', { name: 'Actions', exact: true }).click()
     const menu = page.getByRole('menu')
     const cover = menu.locator('[data-action-id="photo-cover"]')
+    await cover.focus()
     await expect(cover).toBeFocused()
     await fixture.evaluate((f) => f.set(true))
     await expect(cover).toHaveAttribute('aria-disabled', 'true')
@@ -197,9 +201,9 @@ test('availability updates retain focus, explain distinct blockers once, and dis
 })
 
 test('loading is dismissible and generation guards reject late context reads and repeated pending actions', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, groupSources.slice(0, 3))
   const photos = await allGroupPhotos(page)
   await createGroup(
@@ -240,9 +244,9 @@ test('loading is dismissible and generation guards reject late context reads and
 })
 
 test('a failed superseded availability read cannot close the current menu or replace its focus', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, groupSources.slice(0, 3))
   const photos = await allGroupPhotos(page)
   await createGroup(
@@ -254,6 +258,7 @@ test('a failed superseded availability read cannot close the current menu or rep
   await page.getByRole('button', { name: 'Actions', exact: true }).click()
   const menu = page.getByRole('menu')
   const cover = menu.locator('[data-action-id="photo-cover"]')
+  await cover.focus()
   await expect(cover).toBeFocused()
   const hold = await holdGroupOperation(app, 'photo-actions:context')
   const changed = () =>
@@ -279,11 +284,11 @@ test('a failed superseded availability read cannot close the current menu or rep
 })
 
 test('long headings fit the native minimum window; unrelated imports persist and stale targets close', async ({
-  luma,
-}, info) => {
-  const { app, page } = luma
+  irodori,
+}) => {
+  const { app, page } = irodori
   const filename = `${'Long photographic filename '.repeat(7)}.jpg`
-  const source = join(luma.userDataDir, filename)
+  const source = join(irodori.userDataDir, filename)
   await cp(groupSources[0], source)
   await importPhotos(app, page, [source, groupSources[1], groupSources[2]])
   const photos = await allGroupPhotos(page)
@@ -303,7 +308,7 @@ test('long headings fit the native minimum window; unrelated imports persist and
     w.setContentSize(1100, 700)
   })
   await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
-  await page.getByRole('button', { name: 'Actions', exact: true }).click()
+  await activateButton(page.getByRole('button', { name: 'Actions', exact: true }))
   const menu = page.getByRole('menu')
   await expect(menu.getByRole('group', { name: `Photo · ${filename}`, exact: true })).toBeVisible()
   expect(
@@ -327,7 +332,6 @@ test('long headings fit the native minimum window; unrelated imports persist and
         ),
       ),
   ).toBe(true)
-  await page.screenshot({ path: info.outputPath('photo-menu-minimum-console.png') })
   // A real accepted import is allowed while this menu remains open.
   await app.evaluate(
     ({ dialog }, source) => {
@@ -336,30 +340,33 @@ test('long headings fit the native minimum window; unrelated imports persist and
     join(process.cwd(), groupSources[3]),
   )
   await page.evaluate(async () => {
-    const id = await window.luma.chooseSource('files', true)
+    const id = await window.irodori.chooseSource('files', true)
     if (!id) throw new Error('Expected isolated import session.')
     for (;;) {
-      if ((await window.luma.getReview(id)).phase === 'review') break
+      if ((await window.irodori.getReview(id)).phase === 'review') break
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
-    await window.luma.importSelected(id)
+    await window.irodori.importSelected(id)
   })
-  await expect.poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total).toBe(4)
+  await expect
+    .poll(async () => (await page.evaluate(() => window.irodori.listPhotos())).total)
+    .toBe(4)
   await expect(menu).toBeVisible()
-  await expect(menu.locator('[data-action-id="photo-cover"]')).toBeFocused()
+  await expect(menu.locator('[data-action-id="photo-copy-edits"]')).toBeFocused()
   await expect
     .poll(async () =>
-      (await page.evaluate(() => window.luma.listTasks())).some(
+      (await page.evaluate(() => window.irodori.listTasks())).some(
         (task) => task.status === 'running' || task.status === 'cancelling',
       ),
     )
     .toBe(false)
-  await page.evaluate((s) => window.luma.ungroupStack(s.id, s.revision), stack)
+  await page.evaluate((s) => window.irodori.ungroupStack(s.id, s.revision), stack)
   await expect(menu).toHaveCount(0)
-  await page.getByTestId(`photo-card-${long.id}`).click({ button: 'right' })
+  await activateButton(page.getByTestId(`photo-card-${long.id}`))
+  await page.getByTestId(`photo-card-${long.id}`).press('Shift+F10')
   await expect(menu).toBeVisible()
   await isolateTrash(app)
-  await page.evaluate((id) => window.luma.deletePhotos([id]), long.id)
+  await page.evaluate((id) => window.irodori.deletePhotos([id]), long.id)
   await expect(menu).toHaveCount(0)
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })

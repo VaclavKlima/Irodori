@@ -5,15 +5,15 @@ import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 
 test('lens settings survive rapid changes, cache variants, restart and preserve native zoom', async ({
-  luma,
+  irodori,
 }) => {
   test.setTimeout(90_000)
-  let { app, page } = luma
+  let { app, page } = irodori
   await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'])
   await page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
-  const id = await page.evaluate(async () => (await window.luma.listPhotos()).photos[0].id)
+  const id = await page.evaluate(async () => (await window.irodori.listPhotos()).photos[0].id)
   const original = await readFile(
-    join(luma.userDataDir, 'library', 'originals', id, 'original.arw'),
+    join(irodori.userDataDir, 'library', 'originals', id, 'original.arw'),
   )
   const initialUrl = await page.getByTestId('main-preview').getAttribute('data-src')
   await expect(page.getByRole('checkbox', { name: 'Distortion', exact: true })).toBeChecked()
@@ -50,11 +50,11 @@ test('lens settings survive rapid changes, cache variants, restart and preserve 
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-src', initialUrl!)
   const result = await page.evaluate(async (id) => {
     await Promise.all([
-      window.luma.updateLensSettings(id, 'vignetting', false),
-      window.luma.updateLensSettings(id, 'chromaticAberration', false),
-      window.luma.updateLensSettings(id, 'vignetting', true),
+      window.irodori.updateLensSettings(id, 'vignetting', false),
+      window.irodori.updateLensSettings(id, 'chromaticAberration', false),
+      window.irodori.updateLensSettings(id, 'vignetting', true),
     ])
-    return window.luma.getLensSettings(id)
+    return window.irodori.getLensSettings(id)
   }, id)
   expect(result.revision).toBe(5)
   expect(result.settings).toEqual({
@@ -66,9 +66,9 @@ test('lens settings survive rapid changes, cache variants, restart and preserve 
   const response = await page.evaluate(async (id) => {
     const token = crypto.randomUUID()
     try {
-      return await window.luma.requestHdrPreview(id, token)
+      return await window.irodori.requestHdrPreview(id, token)
     } finally {
-      await window.luma.releaseFullPreview(token)
+      await window.irodori.releaseFullPreview(token)
     }
   }, id)
   expect(response).not.toBeNull()
@@ -76,9 +76,9 @@ test('lens settings survive rapid changes, cache variants, restart and preserve 
   expect(response!.settingsRevision).toBe(5)
   expect(response!.appliedCorrections).toEqual(result.settings)
   expect(
-    await readdir(join(luma.userDataDir, 'library', 'cache', 'previews', PREVIEW_VERSION)),
+    await readdir(join(irodori.userDataDir, 'library', 'cache', 'previews', PREVIEW_VERSION)),
   ).toHaveLength(3)
-  ;({ app, page } = await luma.restart())
+  ;({ app, page } = await irodori.restart())
   await expect(page.getByRole('button', { name: 'Lens corrections', exact: true })).toHaveAttribute(
     'aria-expanded',
     'false',
@@ -88,9 +88,9 @@ test('lens settings survive rapid changes, cache variants, restart and preserve 
     page.getByRole('checkbox', { name: 'Lateral chromatic aberration' }),
   ).not.toBeChecked()
   await expect(page.getByRole('checkbox', { name: 'Vignetting', exact: true })).toBeChecked()
-  expect(await page.evaluate((id) => window.luma.getLensSettings(id), id)).toEqual(result)
+  expect(await page.evaluate((id) => window.irodori.getLensSettings(id), id)).toEqual(result)
   expect(
-    await readFile(join(luma.userDataDir, 'library', 'originals', id, 'original.arw')),
+    await readFile(join(irodori.userDataDir, 'library', 'originals', id, 'original.arw')),
   ).toEqual(original)
   await page.getByTestId('console-toggle').click()
   await app.evaluate(({ BrowserWindow }) =>

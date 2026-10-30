@@ -44,7 +44,7 @@ export async function nativeCpuExecutable(
     trustedRuntimeRoot.replace(/\/app\.asar(?=\/|$)/, '/app.asar.unpacked'),
     'native-cpu-render/linux-x64',
   )
-  const executable = join(root, 'luma-cpu-render')
+  const executable = join(root, 'irodori-cpu-render')
   const manifest = await checkedFile(join(root, 'SHA256SUMS'), 256)
   let expected: string
   try {
@@ -53,7 +53,7 @@ export async function nativeCpuExecutable(
     const extra = Buffer.alloc(1)
     if ((await manifest.file.read(extra, 0, 1, bytes.length)).bytesRead)
       throw new Error('The bundled native CPU checksum manifest grew during validation.')
-    const match = /^([a-f0-9]{64}) {2}luma-cpu-render$/.exec(bytes.toString('utf8').trim())
+    const match = /^([a-f0-9]{64}) {2}irodori-cpu-render$/.exec(bytes.toString('utf8').trim())
     if (!match) throw new Error('Invalid bundled native CPU checksum manifest.')
     expected = match[1]
   } finally {
@@ -157,14 +157,14 @@ export async function nativeCpuMaskCapability(
   const sha = /^[a-f0-9]{64}$/
   if (
     capability?.version !== 'native-cpu-capabilities-v1' ||
-    capability.presentation !== 'LUMACPU1' ||
-    mask?.request !== 'MASKCPU1' ||
+    capability.presentation !== 'IRODCPU3' ||
+    mask?.request !== 'MASKCPU3' ||
     mask.output !== 'MASKOUT1' ||
     mask.terminal !== 'MASKDONE' ||
     mask.mode !== '--mask-v1' ||
     typeof mask.arithmeticSha256 !== 'string' ||
     !sha.test(mask.arithmeticSha256) ||
-    arithmetic?.version !== 'native-hdr-mask-arithmetic-v2-electron-llvm' ||
+    arithmetic?.version !== 'native-hdr-mask-arithmetic-v3-electron-llvm' ||
     !reference ||
     typeof reference !== 'object' ||
     Array.isArray(reference) ||
@@ -178,7 +178,7 @@ export async function nativeCpuMaskCapability(
     arithmetic.substitution?.count !== 1 ||
     arithmetic.substitution.before !== 'double h_rad = atan2(Aab[2], Aab[1]);' ||
     arithmetic.substitution.after !==
-      'double h_rad = luma_electron_atan2::atan2(Aab[2], Aab[1]);' ||
+      'double h_rad = irodori_electron_atan2::atan2(Aab[2], Aab[1]);' ||
     arithmetic.isolation !== 'namespace and C symbol renames only'
   )
     throw new Error(
@@ -206,6 +206,9 @@ export async function nativeCpuMaskCapability(
     'maskBridgeSha256',
     'maskHostSha256',
     'prepareSourceSha256',
+    'creativeHeaderSha256',
+    'creativeAbiSha256',
+    'creativeHostSha256',
   ])
     if (typeof arithmetic[name] !== 'string' || !sha.test(arithmetic[name]))
       throw new Error('The bundled mask arithmetic receipt contains an invalid source hash.')

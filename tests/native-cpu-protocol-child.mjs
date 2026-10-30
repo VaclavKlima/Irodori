@@ -6,15 +6,16 @@ import { join } from 'node:path'
 const [configPath, requestPath, inputMode, threadText] = process.argv.slice(2)
 const config = JSON.parse(await readFile(configPath, 'utf8'))
 const request = await readFile(requestPath)
-if (request.length !== 400 || request.subarray(0, 8).toString() !== 'LUMACPU1' || inputMode !== '-')
+if (request.length !== 832 || request.subarray(0, 8).toString() !== 'IRODCPU3' || inputMode !== '-')
   throw new Error('Invalid synthetic protocol-fixture invocation.')
 const generation = Number(request.readBigUInt64LE(32)),
-  threads = Number(threadText)
+  threads = Number(threadText),
+  phase = requestPath.endsWith('before-request.bin') ? 'before' : 'after'
 let terminating = false
 const audit = (event, extra = {}) =>
   appendFile(
     join(config.directory, 'events.jsonl'),
-    `${JSON.stringify({ event, generation, pid: process.pid, ...extra })}\n`,
+    `${JSON.stringify({ event, generation, pid: process.pid, phase, ...extra })}\n`,
   )
 const marker = (name) => join(config.directory, `${name}-${generation}`)
 function gate(name, stopOnTermination = true) {
@@ -61,16 +62,19 @@ try {
   if (inputBytes !== Number(request.readBigUInt64LE(120)))
     throw new Error('Synthetic input length mismatch.')
   await audit('input-ended')
-  if (config.holdGenerations.includes(generation)) {
+  if (
+    config.holdGenerations.includes(generation) ||
+    (phase === 'before' && config.holdBeforeGenerations?.includes(generation))
+  ) {
     await audit('held-before-output')
     await gate('allow-output')
   }
   if (terminating) throw new Error('Synthetic child was terminated.')
-  const header = Buffer.alloc(416)
-  header.write('LUMARGB1')
-  header.writeUInt32LE(400, 8)
+  const header = Buffer.alloc(848)
+  header.write('IRODRGB1')
+  header.writeUInt32LE(832, 8)
   request.copy(header, 12)
-  header.writeUInt32LE(threads, 412)
+  header.writeUInt32LE(threads, 844)
   await write(header)
   const width = request.readUInt32LE(24),
     height = request.readUInt32LE(28)
@@ -81,7 +85,7 @@ try {
     const record = Buffer.alloc(24),
       after = Buffer.alloc(planeBytes),
       before = Buffer.alloc(planeBytes)
-    record.write('LUMAROW1')
+    record.write('IRODROW1')
     record.writeUInt32LE(row, 8)
     record.writeUInt32LE(count, 12)
     record.writeUInt32LE(planeBytes, 16)
@@ -112,7 +116,7 @@ try {
     }),
   )
   const trailer = Buffer.alloc(12)
-  trailer.write('LUMAEND1')
+  trailer.write('IRODEND1')
   trailer.writeUInt32LE(metrics.length, 8)
   await write(trailer)
   await write(metrics)

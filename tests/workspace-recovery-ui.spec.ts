@@ -4,11 +4,11 @@ import { importPhotos } from './import.helpers'
 import { revealEditorPhoto } from './collection-ui.helpers'
 
 test('normal restart restores independent workspace state, empty selection, Console, scroll anchors and active-photo zoom', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page)
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   const chosen = photos[1]
   await page.getByTestId(`photo-card-${chosen.id}`).click()
   await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-resolution', 'full')
@@ -20,12 +20,13 @@ test('normal restart restores independent workspace state, empty selection, Cons
   const grid = page.getByTestId('browse-grid')
   await grid.focus()
   await page.keyboard.press('End')
-  const focused = (await page.evaluate(() => window.luma.getWorkspaceState())).state?.libraryFocusId
+  const focused = (await page.evaluate(() => window.irodori.getWorkspaceState())).state
+    ?.libraryFocusId
   await page.getByRole('button', { name: 'Clear selection', exact: true }).click()
   await page.getByRole('button', { name: 'Collapse all groups', exact: true }).click()
   await page.getByRole('button', { name: 'Expand all groups', exact: true }).click()
   await expect
-    .poll(async () => (await page.evaluate(() => window.luma.getWorkspaceState())).state)
+    .poll(async () => (await page.evaluate(() => window.irodori.getWorkspaceState())).state)
     .toMatchObject({
       mode: 'library',
       activeId: chosen.id,
@@ -33,7 +34,7 @@ test('normal restart restores independent workspace state, empty selection, Cons
       query: { search: '.jpg', grouping: 'month' },
       preview: { photoId: chosen.id, fit: false, scale: 2 },
     })
-  const restarted = await luma.restart()
+  const restarted = await irodori.restart()
   await expect(restarted.page.getByTestId('all-photos')).toBeVisible()
   await expect(restarted.page.getByRole('searchbox', { name: 'Search photos' })).toHaveValue('.jpg')
   await expect(restarted.page.getByRole('combobox', { name: 'Group photos by' })).toHaveValue(
@@ -51,25 +52,31 @@ test('normal restart restores independent workspace state, empty selection, Cons
   void focused
 })
 test('abrupt exit recovers the last completed checkpoint and preserves a deep ID scroll anchor', async ({
-  luma,
+  irodori,
 }) => {
-  await seedLargeBrowser(luma.app, luma.page, luma.userDataDir, 185)
-  let { page } = await luma.restart()
-  const summary = await page.evaluate(() => window.luma.getGallerySummary())
+  await seedLargeBrowser(irodori.app, irodori.page, irodori.userDataDir, 185)
+  let { page } = await irodori.restart()
+  const summary = await page.evaluate(() => window.irodori.getGallerySummary())
   const target = (
-    await page.evaluate((revision) => window.luma.getGalleryChunk(120, revision), summary)
+    await page.evaluate((revision) => window.irodori.getGalleryChunk(120, revision), summary)
   ).entries[10].photo
   await revealEditorPhoto(page, target.id)
   await page.getByTestId(`photo-card-${target.id}`).click()
+  await expect(page.getByTestId('preview-filename')).toHaveText(target.filename)
+  // Scrolling may have checkpointed before selection. Crash only after the
+  // requested photo and its selection are in the completed checkpoint too.
+  await expect
+    .poll(() => page.evaluate(() => window.irodori.getWorkspaceState()))
+    .toMatchObject({ state: { activeId: target.id }, selected: [{ id: target.id }] })
   await expect
     .poll(
       async () =>
-        (await page.evaluate(() => window.luma.getWorkspaceState())).state?.editorAnchor?.index,
+        (await page.evaluate(() => window.irodori.getWorkspaceState())).state?.editorAnchor?.index,
     )
     .toBeGreaterThan(100)
   const before = await page.getByTestId('editor-photo-scroll').evaluate((el) => el.scrollTop)
-  const saved = await page.evaluate(() => window.luma.getWorkspaceState())
-  ;({ page } = await luma.crashAndRestart())
+  const saved = await page.evaluate(() => window.irodori.getWorkspaceState())
+  ;({ page } = await irodori.crashAndRestart())
   await expect(page.getByTestId('preview-filename')).toHaveText(target.filename)
   await expect(page.getByTestId('selection-count')).toHaveText('1 selected')
   await expect(page.getByTestId(`photo-card-${target.id}`)).toBeVisible()
@@ -77,16 +84,16 @@ test('abrupt exit recovers the last completed checkpoint and preserves a deep ID
     .poll(() => page.getByTestId('editor-photo-scroll').evaluate((el) => el.scrollTop))
     .toBeCloseTo(before, 0)
   expect(
-    (await page.evaluate(() => window.luma.getWorkspaceState())).checkpoint,
+    (await page.evaluate(() => window.irodori.getWorkspaceState())).checkpoint,
   ).toBeGreaterThanOrEqual(saved.checkpoint)
 })
 
 test('workspace save failures leave editing usable and a visible Retry commits accumulated state', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page)
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   const control = await app.evaluateHandle(({ ipcMain }) => {
     const handlers = (
       ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> }
@@ -136,7 +143,7 @@ test('workspace save failures leave editing usable and a visible Retry commits a
       page.getByText('Workspace recovery could not be saved.', { exact: false }),
     ).toHaveCount(0)
     await expect
-      .poll(async () => (await page.evaluate(() => window.luma.getWorkspaceState())).state)
+      .poll(async () => (await page.evaluate(() => window.irodori.getWorkspaceState())).state)
       .toMatchObject({ activeId: photos[1].id, consoleOpen: true })
     expect(await control.evaluate((s) => s.failures.length)).toBeGreaterThan(0)
   } finally {

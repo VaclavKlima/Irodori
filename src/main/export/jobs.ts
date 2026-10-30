@@ -7,6 +7,7 @@ import {
   defaultExportOptions,
   exportFilename,
   exportPresets,
+  exportAllowsEnlargement,
   validateExportOptions,
   validateExportPhotoIds,
   EXPORT_CODEC_VERSION,
@@ -33,12 +34,27 @@ import { COLLECTION_CHUNK_SIZE } from '../../shared/collections'
 import { DISPLAY_RENDERING_VERSION, HDR_CONTENT_VERSION } from '../../shared/display-rendering'
 import { ADJUSTMENT_VERSION } from '../../shared/adjustments'
 import { LENS_RENDER_VERSION } from '../processing/lens-correction'
-import type { WorkingAssetLease } from '../working-assets'
+import type { WorkingAssetLease, WorkingAssetRendition } from '../working-assets'
 import type { ExportWorkerProgress, ExportWorkerProgressSnapshot } from '../../shared/export'
 import { acceptExportWorkerProgress, exportProgressOwner } from './progress'
+import { isUncropped } from '../../shared/crop'
+import { exportCropPolicy } from './crop-policy'
+import { exportDetailPolicy } from './detail-policy'
+import { resolveDetailSettings } from '../processing/detail-identity'
+import { exportResizePolicy } from './resize-policy'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const active = (task: BackgroundTask) => task.status === 'running' || task.status === 'cancelling'
+const frozenWorkingAsset = (lease: WorkingAssetLease | undefined) =>
+  lease
+    ? structuredClone({
+        identity: lease.identity,
+        asset: lease.asset,
+        backend: lease.backend,
+        fallback: lease.fallback,
+        detailSource: lease.detailSource,
+      })
+    : undefined
 export type ExportBoundary = 'partial' | 'ready' | 'publishing' | 'published' | 'recorded'
 interface Job {
   manifest: ExportManifest
@@ -67,7 +83,11 @@ export class ExportJobs {
     private acquireWorkingAsset?: (
       source: ExportSource,
       signal: AbortSignal,
+      rendition?: WorkingAssetRendition,
     ) => Promise<WorkingAssetLease | undefined>,
+    private cropAdmission?: (
+      signal: AbortSignal,
+    ) => Promise<import('../../shared/crop-resources').CropAdmission>,
   ) {}
   private lease(id: string, delta: number) {
     const count = (this.leases.get(id) ?? 0) + delta
@@ -186,6 +206,9 @@ export class ExportJobs {
             adjustments: ADJUSTMENT_VERSION,
             lens: LENS_RENDER_VERSION,
             sdrEncoder: 'sharp-0.35.4-baseline-444-srgb',
+            crop: { ...exportCropPolicy },
+            detail: { ...exportDetailPolicy },
+            resize: { ...exportResizePolicy },
           },
           destinationId: grant.id,
           options,
@@ -259,7 +282,8 @@ export class ExportJobs {
           filename: source.photo.filename,
           status: 'pending',
         }
-        let workingAsset: WorkingAssetLease | undefined
+        let workingAsset: WorkingAssetLease | undefined,
+          primaryWorkingAsset: WorkingAssetLease | undefined
         try {
           abort.signal.throwIfAborted()
           task.detail = source.photo.filename
@@ -288,9 +312,27 @@ export class ExportJobs {
                   (await hashFile(source.path)) !== source.photo.id
                 )
                   throw new Error('The managed original is damaged.')
-                if (source.hdr && !source.processing.metadata.mergeMaster && !workingAsset)
-                  workingAsset = await this.acquireWorkingAsset?.(source, signal)
+                if (!source.processing.metadata.mergeMaster) {
+                  workingAsset ??= await this.acquireWorkingAsset?.(source, signal)
+                  if (source.hdr && source.processing.metadata.hdrJpeg)
+                    primaryWorkingAsset ??= await this.acquireWorkingAsset?.(
+                      source,
+                      signal,
+                      'primary',
+                    )
+                }
                 sourceValidationMs += performance.now() - validationStarted
+                const detailActive = resolveDetailSettings(source.processing).active,
+                  cropActive = source.processing.crop && !isUncropped(source.processing.crop),
+                  resizeActive = exportAllowsEnlargement(manifest.options.size),
+                  admission =
+                    cropActive || detailActive || resizeActive
+                      ? await this.requireImageAdmission(
+                          signal,
+                          detailActive ? 'Detail' : cropActive ? 'Crop' : 'Resize',
+                        )
+                      : undefined
+                signal.throwIfAborted()
                 const attempt = {}
                 activeAttempt = attempt
                 const workerProgressIdentity = {
@@ -304,18 +346,22 @@ export class ExportJobs {
                   attemptId: workerProgressIdentity.attemptId,
                 }
                 const renderJob: Parameters<ExportProcess['render']>[0] = {
-                  source,
-                  options: manifest.options,
+                  cropPolicy: manifest.pipeline.crop ? { ...manifest.pipeline.crop } : undefined,
+                  cropAdmission: cropActive ? admission : undefined,
+                  detailAdmission: detailActive ? admission : undefined,
+                  resizeAdmission: resizeActive ? admission : undefined,
+                  resizePolicy: manifest.pipeline.resize
+                    ? { ...manifest.pipeline.resize }
+                    : undefined,
+                  detailPolicy: manifest.pipeline.detail
+                    ? { ...manifest.pipeline.detail }
+                    : undefined,
+                  source: structuredClone(source),
+                  options: structuredClone(manifest.options),
                   directory,
                   preparationDirectory,
-                  workingAsset: workingAsset
-                    ? {
-                        identity: workingAsset.identity,
-                        asset: workingAsset.asset,
-                        backend: workingAsset.backend,
-                        fallback: workingAsset.fallback,
-                      }
-                    : undefined,
+                  workingAsset: frozenWorkingAsset(workingAsset),
+                  primaryWorkingAsset: frozenWorkingAsset(primaryWorkingAsset),
                   hdr:
                     manifest.options.output === 'hdr' ||
                     (manifest.options.output === 'auto' && source.hdr),
@@ -379,7 +425,7 @@ export class ExportJobs {
             file.diagnostics.stages.publicationMs = performance.now() - publishStarted
             file.diagnostics.stages.fileMs = performance.now() - started
             await this.store.file(manifest.id, file)
-            if (process.env.LUMA_EXPORT_DIAGNOSTICS)
+            if (process.env.IRODORI_EXPORT_DIAGNOSTICS)
               console.info('Export diagnostics', { photoId: source.photo.id, ...file.diagnostics })
           }
         } catch (error) {
@@ -410,6 +456,7 @@ export class ExportJobs {
         } finally {
           // render() settles only after the worker and its process tree have exited.
           workingAsset?.release()
+          primaryWorkingAsset?.release()
           this.lease(source.photo.id, -1)
           held.delete(source.photo.id)
           await rm(join(this.root, 'export-work', manifest.id, String(index)), {
@@ -447,10 +494,14 @@ export class ExportJobs {
       await this.persist(job)
     }
   }
+  private async requireImageAdmission(signal: AbortSignal, stage: 'Crop' | 'Detail' | 'Resize') {
+    if (!this.cropAdmission) throw new Error(`${stage} export resource admission is unavailable.`)
+    return structuredClone(await this.cropAdmission(signal))
+  }
   private async publish(job: Job, file: ExportFile, rendered: { path: string; sha256: string }) {
     const grant = this.store.grant(job.manifest.destinationId)
     await validateDirectory(grant)
-    file.partial = `.luma-export-${job.manifest.id}-${file.index}-${randomUUID()}.partial`
+    file.partial = `.irodori-export-${job.manifest.id}-${file.index}-${randomUUID()}.partial`
     const partial = join(grant.path, file.partial)
     const handle = await open(partial, 'wx', 0o600)
     try {

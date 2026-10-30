@@ -99,7 +99,7 @@ pub fn wait_for_start(input: &mut impl Read, nonce: &str) -> io::Result<()> {
     if nonce.len() != 32 || !nonce.bytes().all(|v| v.is_ascii_hexdigit() && !v.is_ascii_uppercase()) {
         return Err(io::Error::other("Invalid native RAW start identity."));
     }
-    let expected = format!("LUMA-RAW-START1 {nonce}\n");
+    let expected = format!("IRODORI-RAW-START1 {nonce}\n");
     let mut token = vec![0; expected.len()];
     input.read_exact(&mut token)?;
     if token != expected.as_bytes() {

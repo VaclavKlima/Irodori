@@ -26,9 +26,9 @@ for (const [width, height, consoleOpen] of [
   test(
     `application ${candidate}-tile batches at ${width}x${height}: three 240-input Exposure trials`,
     foregroundTest(reason),
-    async ({ luma }, info) => {
+    async ({ irodori }, info) => {
       test.setTimeout(180000)
-      const { app, page } = luma
+      const { app, page } = irodori
       await (
         await app.browserWindow(page)
       ).evaluate((window, [width, height]) => window.setContentSize(width, height), [width, height])
@@ -165,9 +165,9 @@ for (const [width, height, consoleOpen] of [
 test(
   `application ${candidate}-tile batches reject cold work after history, comparison, display and source invalidation`,
   foregroundTest(reason),
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(180000)
-    const { app, page } = luma
+    const { app, page } = irodori
     await (await app.browserWindow(page)).evaluate((window) => window.setContentSize(1440, 900))
     await importPhotos(
       app,
@@ -243,12 +243,12 @@ test(
         })
       })
       const changedExposure = await page.evaluate(async () => {
-        const photo = (await window.luma.listPhotos()).photos.find(
+        const photo = (await window.irodori.listPhotos()).photos.find(
           (photo) => photo.filename === 'sony-zv1.ARW',
         )!
-        const edits = await window.luma.getEdits(photo.id)
+        const edits = await window.irodori.getEdits(photo.id)
         const value = edits.settings.exposureEv === 0.75 ? 0.5 : 0.75
-        await window.luma.updateEdits(photo.id, { exposureEv: value }, edits.revision)
+        await window.irodori.updateEdits(photo.id, { exposureEv: value }, edits.revision)
         return value
       })
       await expect
@@ -264,10 +264,13 @@ test(
       try {
         if (invalidation === 'history')
           await page.evaluate(async () => {
-            const photo = (await window.luma.listPhotos()).photos.find(
+            const photo = (await window.irodori.listPhotos()).photos.find(
               (photo) => photo.filename === 'sony-zv1.ARW',
             )!
-            await window.luma.undoEdit(photo.id, (await window.luma.getEdits(photo.id)).revision)
+            await window.irodori.undoEdit(
+              photo.id,
+              (await window.irodori.getEdits(photo.id)).revision,
+            )
           })
         else if (invalidation === 'comparison')
           await page.getByRole('button', { name: 'Before', exact: true }).click()
@@ -290,7 +293,7 @@ test(
         await expect(canvas).toHaveAttribute('data-comparison', 'before')
       if (invalidation === 'display')
         await expect
-          .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+          .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
           .toMatchObject({ mode: 'sdr' })
       await expect(canvas).toHaveAttribute('data-quality', 'normal', { timeout: 60000 })
       await expect

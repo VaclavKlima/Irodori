@@ -9,7 +9,7 @@
     "source": "User-supplied SD card BA61-2D83, DCIM/100MSDCF",
     "copiedOn": "2026-10-16",
     "policy": "Unmodified full camera originals; no repetition, transformations, or metadata rewriting.",
-    "permission": "The user explicitly requested that SD-card benchmark photographs be saved in this repository for repeatable Luma testing on multiple devices, including Mac. This authorizes repository inclusion and project testing; no general open-content license or unrelated reuse permission is asserted.",
+    "permission": "The user explicitly requested that SD-card benchmark photographs be saved in this repository for repeatable Irodori testing on multiple devices, including Mac. This authorizes repository inclusion and project testing; no general open-content license or unrelated reuse permission is asserted.",
     "metadataTool": "ExifTool 13.59 (-j -G1 -n; selected fields only)",
     "dimensionsTool": "@colorhythm/libraw-wasm 1.1.1 / LibRaw 0.22.1 open-file metadata; no demosaicing",
     "sourceAndCopyHashesVerified": true,

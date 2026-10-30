@@ -3,7 +3,7 @@
 The AHD shader, sensor-aware highlight blend, and display-curve calculations in `src/main/gpu/` are adapted
 from LibRaw 0.22.1, under the Common Development and Distribution License 1.0
 (CDDL-1.0). The modified source is included in this repository. Preserve this
-notice, the license, and access to the modified source when distributing Luma.
+notice, the license, and access to the modified source when distributing Irodori.
 
 Copyright 2019–2025 LibRaw LLC. LibRaw's dcraw portions are copyright 1997–2018
 Dave Coffin. AHD is based on the work of Keigo Hirakawa, Thomas Parks, and Paul Lee.

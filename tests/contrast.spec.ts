@@ -29,7 +29,16 @@ test('contrast is monotonic with fixed pivot and endpoints, finite extremes and 
     for (const exposureEv of [-5, -1.25, 0, 1.5, 5]) {
       const neutral = renderAdjustments(
         input,
-        { shadows: 0, whites: 0, blacks: 0, exposureEv, contrast: 0, highlights: 0 },
+        {
+          saturation: 0,
+          vibrance: 0,
+          shadows: 0,
+          whites: 0,
+          blacks: 0,
+          exposureEv,
+          contrast: 0,
+          highlights: 0,
+        },
         transform,
       )
       for (let i = 0; i < input.length; i++)
@@ -39,7 +48,16 @@ test('contrast is monotonic with fixed pivot and endpoints, finite extremes and 
       for (const contrast of [-100, 100]) {
         const result = renderAdjustments(
           input,
-          { shadows: 0, whites: 0, blacks: 0, exposureEv, contrast, highlights: 0 },
+          {
+            saturation: 0,
+            vibrance: 0,
+            shadows: 0,
+            whites: 0,
+            blacks: 0,
+            exposureEv,
+            contrast,
+            highlights: 0,
+          },
           transform,
         )
         expect(result[3]).toBe(128)
@@ -61,7 +79,16 @@ test('contrast scales exposed linear luminance together, normalized by display w
   expect([
     ...renderAdjustments(
       input,
-      { shadows: 0, whites: 0, blacks: 0, exposureEv: 1, contrast: 100, highlights: 0 },
+      {
+        saturation: 0,
+        vibrance: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        exposureEv: 1,
+        contrast: 100,
+        highlights: 0,
+      },
       transform,
     ),
   ]).toEqual([...expected, 64])

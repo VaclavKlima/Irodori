@@ -95,7 +95,7 @@ function cpuLeaseRequest(
   if (!frame.cpuSource || frame.settingsRevision === undefined)
     throw new Error('Prepared HDR fixture omitted its trusted CPU reference/revision.')
   return {
-    version: 'native-cpu-preview-v1',
+    version: 'native-cpu-preview-v3',
     requestId: randomUUID(),
     sessionId: randomUUID(),
     source: structuredClone(frame.cpuSource),
@@ -1013,7 +1013,16 @@ test('leases one immutable working asset across exposure variants and worker res
     metadata: { version: 1, lensProfile: unavailableProfile },
     settings: { ...automaticLensSettings },
     revision: 0,
-    adjustments: { shadows: 0, whites: 0, blacks: 0, exposureEv: 0, contrast: 0, highlights: 0 },
+    adjustments: {
+      saturation: 0,
+      vibrance: 0,
+      shadows: 0,
+      whites: 0,
+      blacks: 0,
+      exposureEv: 0,
+      contrast: 0,
+      highlights: 0,
+    },
   }
   let preparations = 0,
     reused = 0
@@ -1049,7 +1058,16 @@ test('leases one immutable working asset across exposure variants and worker res
     const stream = cache.acquire(new URL(prepared.linear!.url!))!
     options = {
       ...options,
-      adjustments: { shadows: 0, whites: 0, blacks: 0, exposureEv: 1, contrast: 35, highlights: 0 },
+      adjustments: {
+        saturation: 0,
+        vibrance: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        exposureEv: 1,
+        contrast: 35,
+        highlights: 0,
+      },
       revision: 1,
     }
     cache.settingsChanged(ids[0])
@@ -1060,7 +1078,16 @@ test('leases one immutable working asset across exposure variants and worker res
     expect(reused).toBe(1)
     options = {
       ...options,
-      adjustments: { shadows: 0, whites: 0, blacks: 0, exposureEv: 1, contrast: 36, highlights: 0 },
+      adjustments: {
+        saturation: 0,
+        vibrance: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        exposureEv: 1,
+        contrast: 36,
+        highlights: 0,
+      },
       revision: 2,
     }
     cache.settingsChanged(ids[0])

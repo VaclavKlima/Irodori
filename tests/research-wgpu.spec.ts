@@ -34,13 +34,14 @@ test.afterEach(async ({}, info) => attachResearchEvidence(info))
 // eslint-disable-next-line no-empty-pattern -- Playwright requires a destructured fixture argument.
 test('Dawn and pinned wgpu complete identical exact Float32 tile kernels on the same hardware adapter', async ({}, info) => {
   test.setTimeout(180000)
-  const requestedAdapter = process.env.LUMA_RESEARCH_GPU_ADAPTER
+  const requestedAdapter = process.env.IRODORI_RESEARCH_GPU_ADAPTER
   test.skip(
     !requestedAdapter,
-    'Set LUMA_RESEARCH_GPU_ADAPTER to the same native adapter name for Dawn and wgpu; hardware comparison incomplete.',
+    'Set IRODORI_RESEARCH_GPU_ADAPTER to the same native adapter name for Dawn and wgpu; hardware comparison incomplete.',
   )
   const binary = resolve(
-    process.env.LUMA_RESEARCH_WGPU_BINARY || 'artifacts/research-wgpu/release/luma-wgpu-research',
+    process.env.IRODORI_RESEARCH_WGPU_BINARY ||
+      'artifacts/research-wgpu/release/irodori-wgpu-research',
   )
   test.skip(
     !(await access(binary).then(

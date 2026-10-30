@@ -1,6 +1,6 @@
 # Continuous scrolling and workspace recovery
 
-Continuous scrolling is the default for collections in Luma. Future collections must use the shared collection controller and declare their identity and ordering, availability, selection semantics, loading and retry behavior, recovery state, and focused verification. Do not add page-number controls or a separate pagination engine. Bounded transport chunks are not UI pages.
+Continuous scrolling is the default for collections in Irodori. Future collections must use the shared collection controller and declare their identity and ordering, availability, selection semantics, loading and retry behavior, recovery state, and focused verification. Do not add page-number controls or a separate pagination engine. Bounded transport chunks are not UI pages.
 
 ## Collection behavior
 
@@ -34,7 +34,7 @@ Review thumbnail priority replaces one bounded visible/lookahead set with a mono
 
 Transport chunks contain at most 60 records, using `COLLECTION_CHUNK_SIZE`. Metadata/window reads do not decode originals.
 
-Gallery summary, chunk, and location reads use both catalog and stack revisions. Main caches a lightweight ID/order/membership projection under this pair and bulk-loads full Photo records only for requested chunks. `listGallery`, bounded flat MCP lists, and stack member reads remain compatible. Complete ranges and group snapshots retain their existing transaction and revision semantics. The unused flat `locatePhoto` and `getPhotoRange` bridge operations are removed. Editing MCP adds `luma_get_gallery_summary` and `luma_get_gallery_chunk`.
+Gallery summary, chunk, and location reads use both catalog and stack revisions. Main caches a lightweight ID/order/membership projection under this pair and bulk-loads full Photo records only for requested chunks. `listGallery`, bounded flat MCP lists, and stack member reads remain compatible. Complete ranges and group snapshots retain their existing transaction and revision semantics. The unused flat `locatePhoto` and `getPhotoRange` bridge operations are removed. Editing MCP adds `irodori_get_gallery_summary` and `irodori_get_gallery_chunk`.
 
 Import review has separate ordering, content, and selection revisions. Indexed chunk and location reads require the ordering revision. Content revisions are accepted monotonically, without requiring equality with a concurrently updating global summary. Discovery changes ordering; thumbnail and selection updates do not. Events coalesce into serialized summary and current-window refreshes, with one follow-up when a read is dirtied. Optimistic selection applies once to summary totals and separately to each row's selection revision.
 

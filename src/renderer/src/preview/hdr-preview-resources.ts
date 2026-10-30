@@ -3,9 +3,23 @@ import { HdrPresentationCache } from './hdr-presentation-cache'
 import { HdrSourceCache } from './hdr-source-cache'
 import { HDR_BITMAP_RESERVATION } from './hdr-memory'
 import type { HdrFirstSurfaceManagedBytes } from '../../../shared/hdr-first-surface'
+import { presentationBitmapBytes } from './frame-cache'
+import { hdrSampleMemory } from './hdr-sample'
 
 export const presentationCache = new HdrPresentationCache<GPUTexture>()
 export const sourceCache = new HdrSourceCache<GPUTexture>()
+/** Current cache owners plus conservative browser mirrors; presenter peaks are added separately. */
+export function rendererImageResources(): HdrFirstSurfaceManagedBytes {
+  const source = sourceCache.memory(),
+    bitmapBytes = presentationBitmapBytes()
+  return {
+    ramBytes:
+      source.ramBytes +
+      bitmapBytes +
+      hdrSampleMemory((buffer) => sourceCache.ownsSampleBuffer(buffer)),
+    vramBytes: source.vramBytes + presentationCache.bytes + bitmapBytes,
+  }
+}
 /** Only suppresses optional first-surface work; ordinary source validation stays authoritative. */
 export function hdrHasCompletedPhoto(photoId: string): boolean {
   return sourceCache.hasCompletedPhoto(photoId)
@@ -28,10 +42,14 @@ export function retainHdrPreviewRetirement(retired: Promise<void>): void {
   )
 }
 /** Called after earlier presenters drain, before admitting native first-surface work. */
-export function hdrFirstSurfaceExistingOwners(): HdrFirstSurfaceManagedBytes {
+export function hdrFirstSurfaceExistingOwners(photoId?: string): HdrFirstSurfaceManagedBytes {
+  if (photoId) sourceCache.preparePhoto(photoId)
   const source = sourceCache.memory()
   return {
-    ramBytes: source.ramBytes + HDR_BITMAP_RESERVATION.ramBytes,
+    ramBytes:
+      source.ramBytes +
+      HDR_BITMAP_RESERVATION.ramBytes +
+      hdrSampleMemory((buffer) => sourceCache.ownsSampleBuffer(buffer)),
     vramBytes: source.vramBytes + presentationCache.bytes + HDR_BITMAP_RESERVATION.vramBytes,
   }
 }

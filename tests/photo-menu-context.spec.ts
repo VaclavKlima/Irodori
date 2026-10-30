@@ -81,7 +81,7 @@ test('selection and group share early merge eligibility while ordered originals 
     ).toBe(false)
     t.db
       .prepare('UPDATE photos SET photo = ? WHERE id = ?')
-      .run(JSON.stringify({ ...t.photos[1], format: 'LUMA HDR', assetKind: 'derived' }), ids[1])
+      .run(JSON.stringify({ ...t.photos[1], format: 'IRODORI HDR', assetKind: 'derived' }), ids[1])
     c = t.library.getPhotoActionsContext(ids[1], ordered)
     expect(c.group?.originals.map((p) => p.id)).toEqual(ordered.filter((id) => id !== ids[1]))
     expect(c.availability['selection-hdr'].kind).toBe('inapplicable')

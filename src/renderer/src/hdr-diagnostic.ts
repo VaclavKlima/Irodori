@@ -29,7 +29,7 @@ let last: Record<string, unknown> = {}
 function publish(extra: Record<string, unknown>): void {
   last = { ...last, ...extra, timestamp: new Date().toISOString() }
   report.textContent = JSON.stringify(last, null, 2)
-  console.info('LUMA_HDR_REPORT ' + JSON.stringify(last))
+  console.info('IRODORI_HDR_REPORT ' + JSON.stringify(last))
 }
 
 function target() {

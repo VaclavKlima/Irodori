@@ -62,7 +62,7 @@ export default class VerificationReporter implements Reporter {
     }
     const benchmark = project === 'benchmark'
     const prefix = benchmark
-      ? `LUMA_PREVIEW_BENCHMARK=1 LUMA_TEST_TRACE=0 ${process.env.LUMA_PREVIEW_BASELINE ? `LUMA_PREVIEW_BASELINE=${quote(process.env.LUMA_PREVIEW_BASELINE)} ` : ''}`
+      ? `IRODORI_PREVIEW_BENCHMARK=1 IRODORI_TEST_TRACE=0 ${process.env.IRODORI_PREVIEW_BASELINE ? `IRODORI_PREVIEW_BASELINE=${quote(process.env.IRODORI_PREVIEW_BASELINE)} ` : ''}`
       : ''
     // Playwright appends tags to the title matched by --grep.
     const pattern = `${regex(test.titlePath().slice(3).join(' ') || test.title)}(?: @\\S+)*$`
@@ -80,9 +80,9 @@ export default class VerificationReporter implements Reporter {
       errors: result.errors.map((e) => concise(e.message ?? String(e))),
       annotations: test.annotations,
       evidence: result.attachments.flatMap((a) => (a.path ? [a.path] : [])),
-      rerun: `LUMA_TEST_UI_MODE=${this.uiMode} ${command}`,
+      rerun: `IRODORI_TEST_UI_MODE=${this.uiMode} ${command}`,
       ...(status === 'skipped' && this.uiMode === 'background' && requiresForeground
-        ? { foregroundRerun: `LUMA_TEST_UI_MODE=foreground ${command}` }
+        ? { foregroundRerun: `IRODORI_TEST_UI_MODE=foreground ${command}` }
         : {}),
       benchmarks,
     })

@@ -57,7 +57,7 @@ const directory = await artifactDirectory('hdr-display')
 const selected = matrix ? Object.keys(configurations) : [configuration]
 console.log(`HDR diagnostic evidence: ${directory}`)
 for (const name of selected) {
-  const profile = await mkdtemp(join(tmpdir(), 'luma-hdr-'))
+  const profile = await mkdtemp(join(tmpdir(), 'irodori-hdr-'))
   let desktop
   let closed = false
   const reports = []
@@ -131,9 +131,9 @@ for (const name of selected) {
     page.on('pageerror', (error) => logs.push(`Renderer: ${error.message}`))
     page.on('console', (message) => {
       const text = message.text()
-      if (text.startsWith('LUMA_HDR_REPORT ')) {
+      if (text.startsWith('IRODORI_HDR_REPORT ')) {
         try {
-          reports.push(JSON.parse(text.slice('LUMA_HDR_REPORT '.length)))
+          reports.push(JSON.parse(text.slice('IRODORI_HDR_REPORT '.length)))
         } catch {
           logs.push(text)
         }

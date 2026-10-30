@@ -72,7 +72,7 @@ function protocolFixture(fallback = false, wrongLibrary = false) {
     linearMax: [15360, 15360, 15360, 15360],
   }
   const header: NativeRawPipeHeader = {
-    contract: 'luma-parallel-sony-arw2-rows-v1',
+    contract: 'irodori-parallel-sony-arw2-rows-v1',
     protocol: 'u16le-live-rows-v2',
     opened: { ...structuredClone(snapshot), rawPitch: 0 },
     unpacked: snapshot,
@@ -121,7 +121,7 @@ function protocolFixture(fallback = false, wrongLibrary = false) {
   ])
     payload.writeUInt16LE(value, (row * 64 + column) * 2)
   const completion = {
-    contract: 'luma-parallel-sony-arw2-rows-v1',
+    contract: 'irodori-parallel-sony-arw2-rows-v1',
     complete: true,
     packedBytes: 4096,
     rowsWritten: 32,
@@ -147,9 +147,9 @@ function protocolFixture(fallback = false, wrongLibrary = false) {
     header,
     payload,
     packet: Buffer.concat([
-      jsonFrame('LUMARAW2', header),
+      jsonFrame('IRODRAW2', header),
       payload,
-      jsonFrame('LUMAEND2', completion),
+      jsonFrame('IRODEND2', completion),
     ]),
   }
 }
@@ -172,7 +172,7 @@ function mainExit(code: number | null = 0): NativeRawMainMessage {
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve))
 
 async function socketPair() {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-raw-receiver-')),
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-raw-receiver-')),
     path = join(directory, 'stream'),
     server = createServer({ allowHalfOpen: true }),
     listening = once(server, 'listening'),

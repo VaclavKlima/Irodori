@@ -1,5 +1,7 @@
 /** Shared protocol and disk-cache layout version. */
 export const PREVIEW_ASSET_VERSION = 'v9'
+/** Derived float proofs use source-aware output routing, independently of their cache container. */
+export const PREPARED_PROOF_VERSION = 'prepared-source-proof-v1'
 
 /** RGBA8, straight alpha, sRGB. Limit allocations before reading untrusted cache metadata. */
 export const MAX_FRAME_BYTES = 512 * 1024 * 1024

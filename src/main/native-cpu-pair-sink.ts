@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { FileHandle } from 'node:fs/promises'
+import { NATIVE_CPU_REQUEST_BYTES } from '../shared/native-color-protocol'
 
 const MAX_PIPE_CHUNK = 128 * 1024
 const MAX_TRAILER = 64 * 1024
@@ -60,8 +61,9 @@ export interface CpuPairSinkOptions {
   readonly threads: 1 | 4 | 8
   /** Resolve ONLY on child close with code zero; reject on error/nonzero/signal. */
   readonly closedSuccessfully: Promise<void>
-  readonly after: FileHandle
-  readonly before: FileHandle
+  /** An omitted plane is still fully parsed and hashed, without a scratch write. */
+  readonly after?: FileHandle
+  readonly before?: FileHandle
   readonly signal: AbortSignal
 }
 
@@ -70,7 +72,12 @@ export interface CpuPairSinkOptions {
  * producer/sink/close allSettled before releasing any source or file owner. */
 export async function writeNativeCpuPair(options: CpuPairSinkOptions) {
   const { expectedRequest: request, threads, signal } = options
-  if (request.length !== 400 || request.subarray(0, 8).toString() !== 'LUMACPU1')
+  if (
+    (!options.after && !options.before) ||
+    request.length !== NATIVE_CPU_REQUEST_BYTES ||
+    request.subarray(0, 8).toString() !== 'IRODCPU3' ||
+    request.readUInt32LE(8) !== 3
+  )
     throw new Error('Invalid expected native CPU request.')
   const width = request.readUInt32LE(24),
     height = request.readUInt32LE(28)
@@ -82,12 +89,12 @@ export async function writeNativeCpuPair(options: CpuPairSinkOptions) {
     (error: unknown) => ({ ok: false as const, error }),
   )
   const reader = new Reader(options.stdout, signal)
-  const header = await reader.take(416)
+  const header = await reader.take(NATIVE_CPU_REQUEST_BYTES + 16)
   if (
-    header.subarray(0, 8).toString() !== 'LUMARGB1' ||
-    header.readUInt32LE(8) !== 400 ||
-    !header.subarray(12, 412).equals(request) ||
-    header.readUInt32LE(412) !== threads
+    header.subarray(0, 8).toString() !== 'IRODRGB1' ||
+    header.readUInt32LE(8) !== NATIVE_CPU_REQUEST_BYTES ||
+    !header.subarray(12, NATIVE_CPU_REQUEST_BYTES + 12).equals(request) ||
+    header.readUInt32LE(NATIVE_CPU_REQUEST_BYTES + 12) !== threads
   )
     throw new Error('Native CPU response does not match the admitted request.')
   const afterHash = createHash('sha256'),
@@ -99,7 +106,7 @@ export async function writeNativeCpuPair(options: CpuPairSinkOptions) {
       count = strip.readUInt32LE(12),
       bytes = strip.readUInt32LE(16)
     if (
-      strip.subarray(0, 8).toString() !== 'LUMAROW1' ||
+      strip.subarray(0, 8).toString() !== 'IRODROW1' ||
       strip.readUInt32LE(8) !== row ||
       !count ||
       count > 64 ||
@@ -112,16 +119,16 @@ export async function writeNativeCpuPair(options: CpuPairSinkOptions) {
     // its buffer can die. There is no full-frame main accumulator or extra IPC copy.
     const after = await reader.take(bytes)
     afterHash.update(after)
-    await writeAll(options.after, after, signal)
+    if (options.after) await writeAll(options.after, after, signal)
     const before = await reader.take(bytes)
     beforeHash.update(before)
-    await writeAll(options.before, before, signal)
+    if (options.before) await writeAll(options.before, before, signal)
     row += count
     strips++
   }
   const trailerHeader = await reader.take(12),
     length = trailerHeader.readUInt32LE(8)
-  if (trailerHeader.subarray(0, 8).toString() !== 'LUMAEND1' || !length || length > MAX_TRAILER)
+  if (trailerHeader.subarray(0, 8).toString() !== 'IRODEND1' || !length || length > MAX_TRAILER)
     throw new Error('Native CPU completion trailer is invalid.')
   const raw: unknown = JSON.parse((await reader.take(length)).toString())
   if (!raw || typeof raw !== 'object' || Array.isArray(raw))
@@ -154,8 +161,8 @@ export async function writeNativeCpuPair(options: CpuPairSinkOptions) {
   signal.throwIfAborted()
   const expectedBytes = width * height * 4
   if (
-    (await options.after.stat()).size !== expectedBytes ||
-    (await options.before.stat()).size !== expectedBytes
+    (options.after && (await options.after.stat()).size !== expectedBytes) ||
+    (options.before && (await options.before.stat()).size !== expectedBytes)
   )
     throw new Error('CPU scratch files have incorrect final lengths.')
   return {

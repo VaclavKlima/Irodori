@@ -10,6 +10,7 @@ import { HDR_SOURCE_VERSION, type HdrWorkingAsset } from '../src/shared/hdr'
 
 interface Request {
   asset: HdrWorkingAsset
+  beforeAsset?: HdrWorkingAsset
   generation: number
   parameters: AdjustmentParameters
   hdrRanges: boolean
@@ -150,6 +151,11 @@ function fixture(
             draft,
             bitmap: bitmap('after'),
             neutral: bitmap('before'),
+            beforeSha256: request.beforeAsset?.sha256,
+            beforeSample: request.beforeAsset ? new Float32Array([0.1, 0.2, 0.3, 1]) : undefined,
+            beforeDraftSample: request.beforeAsset
+              ? new Float32Array([0.1, 0.2, 0.3, 1])
+              : undefined,
           },
         })
       },
@@ -169,6 +175,61 @@ function fixture(
 
 const viewport = { width: 64, height: 64 },
   view = { fit: false, scale: 1, x: 0, y: 0 }
+
+test('CPU comparison sources invalidate pixels and stale replies independently of point edits', () => {
+  fixture(({ presenter, requests, reply, canvas, drawn, closed }) => {
+    const after = source('a'),
+      before = source('b'),
+      replaced = { ...source('c'), identity: before.identity }
+    presenter.setWorking(after)
+    presenter.setComparison('before', 0.5)
+    presenter.setComparisonSource(null, true)
+    presenter.draw(after, viewport, view, neutralAdjustments)
+    expect(requests).toHaveLength(0)
+    presenter.setComparisonSource(before)
+    expect(requests).toHaveLength(1)
+    expect(requests[0].beforeAsset?.sha256).toBe(before.hdr!.sha256)
+    reply(requests[0], 'first')
+    expect(drawn).toEqual(['first-before'])
+    expect(canvas.dataset.presentedBeforeSourceSha256).toBe(before.hdr!.sha256)
+    presenter.setComparisonSource(replaced)
+    expect(canvas.style.visibility).toBe('hidden')
+    expect(canvas.dataset.presentedBeforeSourceSha256).toBeUndefined()
+    expect(closed).toEqual(['first-after', 'first-before'])
+    expect(requests[1].beforeAsset?.sha256).toBe(replaced.hdr!.sha256)
+    reply(requests[0], 'stale')
+    expect(drawn).toEqual(['first-before'])
+    reply(requests[1], 'replacement')
+    expect(drawn).toEqual(['first-before', 'replacement-before'])
+    expect(canvas.dataset.presentedBeforeSourceSha256).toBe(replaced.hdr!.sha256)
+    presenter.setComparisonSource({ ...after })
+    expect(requests[2].beforeAsset).toBeUndefined()
+    reply(requests[2], 'alias')
+    expect(drawn.at(-1)).toBe('alias-before')
+    expect(canvas.dataset.presentedBeforeSourceSha256).toBeUndefined()
+  })
+})
+
+test('a required missing Before hides an ordinary completed neutral pair until its own source arrives', () => {
+  fixture(({ presenter, requests, reply, canvas, drawn }) => {
+    const after = source('a')
+    presenter.setWorking(after)
+    presenter.setComparisonSource(null, true)
+    presenter.draw(after, viewport, view, neutralAdjustments)
+    reply(requests[0], 'after-only')
+    expect(drawn).toEqual(['after-only-after'])
+    presenter.setComparison('before', 0.5)
+    presenter.draw(after, viewport, view, neutralAdjustments)
+    expect(canvas.style.visibility).toBe('hidden')
+    expect(drawn).toEqual(['after-only-after'])
+    expect(() => presenter.setComparisonSource(source('b', 65, 64))).toThrow('match')
+    expect(requests).toHaveLength(1)
+    presenter.setComparisonSource(source('b'))
+    reply(requests[1], 'original')
+    expect(drawn.at(-1)).toBe('original-before')
+    expect(canvas.style.visibility).toBe('visible')
+  })
+})
 
 test('CPU first pixels wait for confirmation, reject superseded replies and refine the same request to full quality', () => {
   fixture(({ presenter, requests, reply, canvas, drawn, closed, state }) => {

@@ -15,9 +15,9 @@ test.use({ hdrDisplay: true })
 test(
   'Wayland refresh updates native screen metadata without disturbing the editor',
   foregroundTest('Wayland screen metadata refresh verifies mapped window focus and pointer lock.'),
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(120000)
-    const { app, page } = luma
+    const { app, page } = irodori
     test.skip(
       !(await app.evaluate(
         () =>
@@ -59,7 +59,7 @@ test(
     const exposure = page.getByRole('spinbutton', { name: 'Exposure value' })
     await exposure.focus()
     const retained = await preview.evaluateHandle((canvas) => canvas)
-    const before = await page.evaluate(() => window.luma.getPreviewDiagnostics())
+    const before = await page.evaluate(() => window.irodori.getPreviewDiagnostics())
     const currentScreen = () =>
       page.evaluate(async () => {
         const screen = (await window.getScreenDetails!()).currentScreen
@@ -84,7 +84,7 @@ test(
     await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-scale', '1')
     expect(await retained.evaluate((canvas) => canvas.isConnected)).toBe(true)
     await expect(preview).toHaveAttribute('data-backend', 'webgpu-hdr')
-    const after = await page.evaluate(() => window.luma.getPreviewDiagnostics())
+    const after = await page.evaluate(() => window.irodori.getPreviewDiagnostics())
     expect(after.presentation).toEqual(before.presentation)
     expect(await currentScreen()).toEqual(initial)
     // CDP keyboard input can bypass missing native focus. Exercise Electron's
@@ -127,7 +127,7 @@ test(
     await expect(consoleInput).toBeFocused()
     await pressNativeKey('Delete')
     await expect(page.getByRole('dialog')).toHaveCount(0)
-    expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(1)
+    expect((await page.evaluate(() => window.irodori.listPhotos())).total).toBe(1)
     await page.getByTestId('console-toggle').click()
     const viewport = page.getByTestId('preview-viewport')
     const box = (await viewport.boundingBox())!
@@ -153,7 +153,7 @@ test(
     await page.reload()
     expect(await currentScreen()).toEqual(initial)
     await expect
-      .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+      .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
       .toMatchObject({ capabilities: { monitor: { label: initial.label } } })
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide())
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].show())
@@ -188,14 +188,14 @@ test(
 )
 
 test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis', async ({
-  luma,
+  irodori,
 }, info) => {
   test.setTimeout(300000)
-  const { page } = luma
+  const { page } = irodori
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await importPhotos(luma.app, page, ['tests/fixtures/sony-zv1.ARW'], false)
-  const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
-  expect((await page.evaluate((id) => window.luma.getEdits(id), id)).settings.processing).toBe(
+  await importPhotos(irodori.app, page, ['tests/fixtures/sony-zv1.ARW'], false)
+  const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
+  expect((await page.evaluate((id) => window.irodori.getEdits(id), id)).settings.processing).toBe(
     'hdr-v1',
   )
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'webgpu-hdr', {
@@ -223,7 +223,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   await expect(clipping).toBeFocused()
   await clipping.press('Space')
   await expect(clipping).toHaveAttribute('aria-pressed', 'true')
-  const unchangedEdits = await page.evaluate((id) => window.luma.getEdits(id), id)
+  const unchangedEdits = await page.evaluate((id) => window.irodori.getEdits(id), id)
   await ranges.focus()
   await ranges.press('Space')
   await expect(ranges).toHaveAttribute('aria-pressed', 'true')
@@ -244,7 +244,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   await expect
     .poll(() => histogramPaths.evaluateAll((paths) => paths.map((path) => path.getAttribute('d'))))
     .toEqual(unchangedHistogram)
-  expect(await page.evaluate((id) => window.luma.getEdits(id), id)).toEqual(unchangedEdits)
+  expect(await page.evaluate((id) => window.irodori.getEdits(id), id)).toEqual(unchangedEdits)
   await ranges.press('Enter')
   await expect(ranges).toHaveAttribute('aria-pressed', 'false')
   await expect(clipping).toHaveAttribute('aria-pressed', 'true')
@@ -265,13 +265,13 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     contentType: 'application/json',
   })
   await page.getByLabel('Preview display mode').selectOption('sdr')
-  expect((await page.evaluate(() => window.luma.getDisplayState())).mode).toBe('sdr')
+  expect((await page.evaluate(() => window.irodori.getDisplayState())).mode).toBe('sdr')
   await expect(page.getByText('Rec.2020 · HDR content')).toBeVisible()
-  const state = await page.evaluate((id) => window.luma.getEdits(id), id)
+  const state = await page.evaluate((id) => window.irodori.getEdits(id), id)
   await page.getByRole('spinbutton', { name: 'Exposure value' }).fill('1')
   await page.getByRole('spinbutton', { name: 'Exposure value' }).press('Enter')
   await expect
-    .poll(() => page.evaluate((id) => window.luma.getEdits(id), id))
+    .poll(() => page.evaluate((id) => window.irodori.getEdits(id), id))
     .toMatchObject({
       revision: state.revision + 1,
       settings: { exposureEv: 1, processing: 'hdr-v1' },
@@ -279,13 +279,13 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
   await expect(page.getByRole('spinbutton', { name: 'Exposure value' })).toHaveValue('0.00')
   const statistics = await page.evaluate(async (id) => {
-    const state = await window.luma.getEdits(id)
-    return window.luma.getPhotoStatistics(id, state.revision, { domain: 'working-hdr' })
+    const state = await window.irodori.getEdits(id)
+    return window.irodori.getPhotoStatistics(id, state.revision, { domain: 'working-hdr' })
   }, id)
   expect(statistics.exact).toBe(true)
   expect(statistics.aboveWhite).toBeGreaterThan(0)
   await page.getByLabel('Preview display mode').selectOption('hdr')
-  const display = await page.evaluate(() => window.luma.getDisplayState())
+  const display = await page.evaluate(() => window.irodori.getDisplayState())
   expect(display.physicalOutputVerified).toBe(false)
   const client = new Client({ name: 'hdr-parity', version: '1' })
   try {
@@ -293,26 +293,26 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
       new StdioClientTransport({
         command: process.execPath,
         args: [resolve('scripts/editor-mcp.mjs')],
-        env: { ...(process.env as Record<string, string>), LUMA_PROFILE: luma.userDataDir },
+        env: { ...(process.env as Record<string, string>), IRODORI_PROFILE: irodori.userDataDir },
       }),
     )
-    const state = await client.callTool({ name: 'luma_get_display_state', arguments: {} })
+    const state = await client.callTool({ name: 'irodori_get_display_state', arguments: {} })
     expect(state.structuredContent).toMatchObject({
       requested: 'hdr',
       physicalOutputVerified: false,
     })
     const diagnostics = await client.callTool({
-      name: 'luma_get_preview_diagnostics',
+      name: 'irodori_get_preview_diagnostics',
       arguments: {},
     })
-    const bridgeDiagnostics = await page.evaluate(() => window.luma.getPreviewDiagnostics())
+    const bridgeDiagnostics = await page.evaluate(() => window.irodori.getPreviewDiagnostics())
     expect(diagnostics.structuredContent).toEqual(bridgeDiagnostics)
     expect(bridgeDiagnostics).toMatchObject({
       photoId: id,
       loadingStage: 'prepared',
       presentation: { photoId: id, stage: 'presented', backend: 'webgpu-hdr' },
     })
-    const revision = (await page.evaluate((id) => window.luma.getEdits(id), id)).revision
+    const revision = (await page.evaluate((id) => window.irodori.getEdits(id), id)).revision
     const pixelArguments = {
       photoId: id,
       expectedRevision: revision,
@@ -320,11 +320,14 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
       y: 100,
       domain: 'working-hdr',
     }
-    const pixel = await client.callTool({ name: 'luma_get_photo_pixel', arguments: pixelArguments })
+    const pixel = await client.callTool({
+      name: 'irodori_get_photo_pixel',
+      arguments: pixelArguments,
+    })
     expect(pixel.isError).not.toBe(true)
     const bridgePixel = await page.evaluate(
       ({ id, revision }) =>
-        window.luma.getPhotoPixel(id, revision, 100, 100, { domain: 'working-hdr' }),
+        window.irodori.getPhotoPixel(id, revision, 100, 100, { domain: 'working-hdr' }),
       { id, revision },
     )
     expect(pixel.structuredContent).toEqual(bridgePixel)
@@ -346,7 +349,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
       10,
     )
     const outputPixel = await client.callTool({
-      name: 'luma_get_photo_pixel',
+      name: 'irodori_get_photo_pixel',
       arguments: { ...pixelArguments, domain: 'output', target: 'sdr' },
     })
     expect(outputPixel.isError).not.toBe(true)
@@ -364,13 +367,13 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
       expect(
         (
           await client.callTool({
-            name: 'luma_get_photo_pixel',
+            name: 'irodori_get_photo_pixel',
             arguments: { ...pixelArguments, ...patch },
           })
         ).isError,
       ).toBe(true)
     const exact = await client.callTool({
-      name: 'luma_get_photo_statistics',
+      name: 'irodori_get_photo_statistics',
       arguments: { photoId: id, expectedRevision: revision, domain: 'working-hdr' },
     })
     expect(exact.isError).not.toBe(true)
@@ -383,7 +386,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     const legacy = await test.step('Read compatible SDR statistics through MCP', () =>
       client.callTool(
         {
-          name: 'luma_get_photo_statistics',
+          name: 'irodori_get_photo_statistics',
           arguments: { photoId: id, expectedRevision: revision },
         },
         undefined,
@@ -393,7 +396,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     const output = await test.step('Read exact SDR output statistics through MCP', () =>
       client.callTool(
         {
-          name: 'luma_get_photo_statistics',
+          name: 'irodori_get_photo_statistics',
           arguments: { photoId: id, expectedRevision: revision, domain: 'output', target: 'sdr' },
         },
         undefined,
@@ -407,7 +410,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
       target: { peak: 1, outputVersion: HDR_OUTPUT_VERSION },
     })
     const stale = await client.callTool({
-      name: 'luma_get_photo_statistics',
+      name: 'irodori_get_photo_statistics',
       arguments: {
         photoId: id,
         expectedRevision: revision,
@@ -417,9 +420,12 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
       },
     })
     expect(stale.isError).toBe(true)
-    await client.callTool({ name: 'luma_set_preview_preference', arguments: { preference: 'sdr' } })
+    await client.callTool({
+      name: 'irodori_set_preview_preference',
+      arguments: { preference: 'sdr' },
+    })
     await expect(page.getByLabel('Preview display mode')).toHaveValue('sdr')
-    expect((await page.evaluate((id) => window.luma.getEdits(id), id)).revision).toBe(revision)
+    expect((await page.evaluate((id) => window.irodori.getEdits(id), id)).revision).toBe(revision)
   } finally {
     await client.close()
   }
@@ -433,7 +439,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     body: JSON.stringify(display),
     contentType: 'application/json',
   })
-  await luma.app.evaluate(({ BrowserWindow }) =>
+  await irodori.app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setContentSize(1100, 700),
   )
   await page.getByTestId('console-toggle').click()
@@ -442,7 +448,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   await expect(ranges).toBeInViewport()
   await expect(page.getByLabel('HDR range legend')).toBeInViewport()
   await page.screenshot({ path: info.outputPath('hdr-editor-layout-sdr-capture.png') })
-  await luma.app.evaluate(({ BrowserWindow }) =>
+  await irodori.app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setContentSize(3440, 1080),
   )
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'webgpu-hdr')
@@ -456,7 +462,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   assertHdrMemory(await page.getByTestId('main-preview').evaluate(readHdrMemory))
   await page.screenshot({ path: info.outputPath('hdr-ultrawide.png') })
   // Force an eligible Retina surface independently of compositor window-size limits.
-  await luma.app.evaluate(({ BrowserWindow }) =>
+  await irodori.app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setContentSize(1100, 700),
   )
   const viewport = page.getByTestId('preview-viewport')
@@ -534,7 +540,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   })
   await page.getByLabel('Preview display mode').selectOption('hdr')
   await expect
-    .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+    .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
     .toMatchObject({
       mode: 'sdr',
       requested: 'hdr',
@@ -544,7 +550,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     (window as unknown as { testDisplay: { resolveOld: () => void } }).testDisplay.resolveOld(),
   )
   await expect
-    .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+    .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
     .toMatchObject({
       mode: 'sdr',
       capabilities: { monitor: { label: 'Zero-headroom test monitor' } },
@@ -562,7 +568,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     details.currentScreen.dispatchEvent(new Event('hdrheadroomchange'))
   })
   await expect
-    .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+    .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
     .toMatchObject({ mode: 'hdr', peak: 8 })
   await expect(page.locator('#histogram').getByText('HDR', { exact: true })).toBeVisible()
   await expect(page.locator('#histogram').getByText('+4', { exact: true })).toBeVisible()
@@ -574,10 +580,10 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   )
   await page.screenshot({ path: info.outputPath('hdr-histogram-stops.png') })
   await page.getByLabel('Preview display mode').selectOption('sdr')
-  await luma.app.evaluate(({ BrowserWindow }) =>
+  await irodori.app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setContentSize(1100, 700),
   )
-  const beforeLoss = await page.evaluate((id) => window.luma.getEdits(id), id)
+  const beforeLoss = await page.evaluate((id) => window.irodori.getEdits(id), id)
   await expect(page.locator('#histogram')).toHaveAttribute('data-samples', '65536')
   await page.waitForTimeout(100)
   const contentBeforeLoss = await histogramPaths.evaluateAll((paths) =>
@@ -604,9 +610,9 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   await expect
     .poll(() => histogramPaths.evaluateAll((paths) => paths.map((path) => path.getAttribute('d'))))
     .toEqual(contentBeforeLoss)
-  expect(await page.evaluate((id) => window.luma.getEdits(id), id)).toEqual(beforeLoss)
-  expect((await page.evaluate(() => window.luma.getDisplayState())).mode).toBe('sdr')
-  const { page: reopened, app: reopenedApp } = await luma.restart()
+  expect(await page.evaluate((id) => window.irodori.getEdits(id), id)).toEqual(beforeLoss)
+  expect((await page.evaluate(() => window.irodori.getDisplayState())).mode).toBe('sdr')
+  const { page: reopened, app: reopenedApp } = await irodori.restart()
   await expect(reopened.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
     timeout: 60000,
   })
@@ -615,7 +621,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     'aria-pressed',
     'false',
   )
-  expect(await reopened.evaluate((id) => window.luma.getEdits(id), id)).toEqual(beforeLoss)
+  expect(await reopened.evaluate((id) => window.irodori.getEdits(id), id)).toEqual(beforeLoss)
   await expect(reopened.getByLabel('Preview display mode')).toHaveValue('sdr')
   await reopened.getByRole('button', { name: 'Show HDR ranges' }).click()
   await importPhotos(reopenedApp, reopened, ['tests/fixtures/photos/mountain-ridge.jpg'], false)
@@ -635,7 +641,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   await reopenedApp.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setContentSize(1100, 700),
   )
-  const currentTarget = await reopened.evaluate(() => window.luma.getDisplayState())
+  const currentTarget = await reopened.evaluate(() => window.irodori.getDisplayState())
   await reopenedApp.evaluate(({ BrowserWindow }, target) => {
     BrowserWindow.getAllWindows()[0].webContents.send('display:state', {
       ...target,
@@ -651,19 +657,19 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   await expect(reopened.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
     timeout: 60000,
   })
-  const beforeClose = await reopened.evaluate((id) => window.luma.getEdits(id), id)
+  const beforeClose = await reopened.evaluate((id) => window.irodori.getEdits(id), id)
   await reopened.getByRole('spinbutton', { name: 'Exposure value' }).fill('0.25')
   await expect(reopened.getByRole('slider', { name: 'Exposure', exact: true })).toHaveValue('0.25')
-  expect(await reopened.evaluate((id) => window.luma.getEdits(id), id)).toEqual(beforeClose)
+  expect(await reopened.evaluate((id) => window.irodori.getEdits(id), id)).toEqual(beforeClose)
   // Closing must flush the draft even while its CPU preview is still processing.
-  await luma.expectQuit(async () => {
+  await irodori.expectQuit(async () => {
     await reopenedApp.evaluate(({ BrowserWindow }) => {
       setImmediate(() => BrowserWindow.getAllWindows()[0].close())
     })
   })
-  const saved = await luma.restart()
+  const saved = await irodori.restart()
   await expect
-    .poll(() => saved.page.evaluate((id) => window.luma.getEdits(id), id))
+    .poll(() => saved.page.evaluate((id) => window.irodori.getEdits(id), id))
     .toMatchObject({ revision: beforeClose.revision + 1, settings: { exposureEv: 0.25 } })
   await expect(saved.page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
     timeout: 60000,
@@ -671,13 +677,13 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
 })
 
 test('CPU presentation worker preserves SDR pixels, Before/After range colors, warning stripes and analysis samples', async ({
-  luma,
+  irodori,
 }) => {
   const workerFile = (await readdir(resolve('out/renderer/assets'))).find((name) =>
     /^hdr-presentation-worker-.*\.js$/.test(name),
   )!
   expect(workerFile).toBeTruthy()
-  const actual = await luma.page.evaluate(
+  const actual = await irodori.page.evaluate(
     async ({ workerFile, sourceVersion }) => {
       const values = [0.5, 1, 1.01, 2, 4, 8, 16, 0]
       const data = new Float32Array(
@@ -787,9 +793,9 @@ test('CPU presentation worker preserves SDR pixels, Before/After range colors, w
 })
 
 test('monitor tracking survives pending GPU probes and missed compositor events', async ({
-  luma,
+  irodori,
 }) => {
-  const { page } = luma
+  const { page } = irodori
   await page.addInitScript(() => {
     const sdr = Object.assign(new EventTarget(), {
       label: 'SDR monitor',
@@ -855,7 +861,7 @@ test('monitor tracking survives pending GPU probes and missed compositor events'
     (window as unknown as { monitorTest: { enterHdr(): void } }).monitorTest.enterHdr(),
   )
   await expect
-    .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+    .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
     .toMatchObject({
       mode: 'hdr',
       capabilities: { monitor: { label: 'HDR monitor', scale: 1.25 }, headroomStops: 3 },
@@ -866,7 +872,7 @@ test('monitor tracking survives pending GPU probes and missed compositor events'
     ).monitorTest.enterSdrWithoutEvent(),
   )
   await expect
-    .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+    .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
     .toMatchObject({
       mode: 'sdr',
       capabilities: { monitor: { label: 'SDR monitor' }, headroomStops: 0 },
@@ -877,13 +883,13 @@ test('monitor tracking survives pending GPU probes and missed compositor events'
     ).monitorTest.enterHdrWithoutEvent(),
   )
   await expect
-    .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+    .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
     .toMatchObject({ mode: 'hdr' })
   await page.evaluate(() =>
     (window as unknown as { monitorTest: { zeroHeadroom(): void } }).monitorTest.zeroHeadroom(),
   )
   await expect
-    .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+    .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
     .toMatchObject({
       mode: 'sdr',
       capabilities: { monitor: { label: 'HDR monitor' }, headroomStops: 0 },
@@ -895,10 +901,10 @@ test(
   foregroundTest(
     'Built-in HDR monitor and native macOS full-screen transitions require foreground presentation.',
   ),
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.skip(process.platform !== 'darwin', 'Native macOS full-screen coverage requires macOS.')
     test.setTimeout(150000)
-    const { app, page } = luma
+    const { app, page } = irodori
     const display = await app.evaluate(({ screen }) =>
       screen.getAllDisplays().find((display) => display.internal),
     )
@@ -914,9 +920,9 @@ test(
       viewport = page.getByTestId('preview-viewport')
     await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr', { timeout: 90000 })
     await expect(canvas).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
-    const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
-    const edits = await page.evaluate((id) => window.luma.getEdits(id), id)
-    const nativeTarget = await page.evaluate(() => window.luma.getDisplayState())
+    const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
+    const edits = await page.evaluate((id) => window.irodori.getEdits(id), id)
+    const nativeTarget = await page.evaluate(() => window.irodori.getDisplayState())
     expect(nativeTarget.mode).toBe('hdr')
     expect(nativeTarget.peak).toBeGreaterThan(1)
     await canvas.focus()
@@ -980,7 +986,7 @@ test(
         window.dispatchEvent(new Event('focus'))
       })
       await expect
-        .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+        .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
         .toMatchObject({ mode: 'sdr', peak: 1 })
       await page.evaluate(() => {
         const monitor = (
@@ -990,7 +996,7 @@ test(
         monitor.dispatchEvent(new Event('hdrheadroomchange'))
       })
       await expect
-        .poll(() => page.evaluate(() => window.luma.getDisplayState()))
+        .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
         .toMatchObject({ mode: 'hdr', peak: 8 })
       await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr')
       await expect(viewport).toHaveAttribute('data-scale', '1')
@@ -1043,7 +1049,7 @@ test(
     await expect(canvas).toHaveAttribute('data-hdr-ranges', 'true')
     await expect(viewport).toHaveAttribute('data-scale', '1')
     await expect(viewport).toHaveAttribute('data-pan-x', pan!)
-    expect(await page.evaluate((id) => window.luma.getEdits(id), id)).toEqual(edits)
+    expect(await page.evaluate((id) => window.irodori.getEdits(id), id)).toEqual(edits)
     await info.attach('mac-display-evidence', {
       body: JSON.stringify({
         display,

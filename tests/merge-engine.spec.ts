@@ -108,7 +108,7 @@ async function expectPolicyMiss(
 }
 
 test('legacy CPU preparation remains reusable for CPU and misses both requested GPU policies', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-preparation-legacy-policy-'))
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-preparation-legacy-policy-'))
   try {
     const { source, reference } = await preparationFixture(directory)
     await writeFile(
@@ -146,7 +146,7 @@ test('legacy CPU preparation remains reusable for CPU and misses both requested 
 })
 
 test('versioned CPU preparation keeps identity validation and fails closed on corrupted planes', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-preparation-cpu-policy-'))
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-preparation-cpu-policy-'))
   try {
     const { source, reference } = await preparationFixture(directory)
     await savePreparation(directory, 0, reference, source)
@@ -178,7 +178,7 @@ for (const [label, policy, opposite] of [
   ['reference', referencePolicy, cameraPolicy],
 ] as const)
   test(`versioned ${label} preparation reuses only its matching policy and retains corruption checks`, async () => {
-    const directory = await mkdtemp(join(tmpdir(), `luma-preparation-${label}-policy-`))
+    const directory = await mkdtemp(join(tmpdir(), `irodori-preparation-${label}-policy-`))
     try {
       const { source, reference } = await preparationFixture(directory, policy)
       await savePreparation(directory, 0, reference, source)
@@ -227,11 +227,11 @@ for (const [label, policy, opposite] of [
 
 test('versioned camera policy keeps legacy recipes exact and rejects unknown arithmetic', async () => {
   const f = await syntheticMerge([0.5, 1, 2]),
-    previous = process.env.LUMA_MERGE_CAMERA_PREPARATION,
-    previousReference = process.env.LUMA_MERGE_REFERENCE_PREPARATION
+    previous = process.env.IRODORI_MERGE_CAMERA_PREPARATION,
+    previousReference = process.env.IRODORI_MERGE_REFERENCE_PREPARATION
   try {
-    process.env.LUMA_MERGE_CAMERA_PREPARATION = 'gpu'
-    process.env.LUMA_MERGE_REFERENCE_PREPARATION = 'gpu'
+    process.env.IRODORI_MERGE_CAMERA_PREPARATION = 'gpu'
+    process.env.IRODORI_MERGE_REFERENCE_PREPARATION = 'gpu'
     expect(cameraPreparationPolicy()).toBe(GPU_CAMERA_PREPARATION)
     expect(cameraPreparationPolicy(f.result.recipe)).toBeUndefined()
     expect(referencePreparationPolicy()).toBe(GPU_REFERENCE_PREPARATION)
@@ -281,10 +281,10 @@ test('versioned camera policy keeps legacy recipes exact and rejects unknown ari
       }),
     ).rejects.toThrow('requires a verified RAW bracket')
   } finally {
-    if (previous === undefined) delete process.env.LUMA_MERGE_CAMERA_PREPARATION
-    else process.env.LUMA_MERGE_CAMERA_PREPARATION = previous
-    if (previousReference === undefined) delete process.env.LUMA_MERGE_REFERENCE_PREPARATION
-    else process.env.LUMA_MERGE_REFERENCE_PREPARATION = previousReference
+    if (previous === undefined) delete process.env.IRODORI_MERGE_CAMERA_PREPARATION
+    else process.env.IRODORI_MERGE_CAMERA_PREPARATION = previous
+    if (previousReference === undefined) delete process.env.IRODORI_MERGE_REFERENCE_PREPARATION
+    else process.env.IRODORI_MERGE_REFERENCE_PREPARATION = previousReference
     await f.close()
   }
 })
@@ -372,7 +372,7 @@ test('moving regions resolve to the reference instead of secondary edges', async
 
 test('source exclusions retain independently valid contributors and reference detail', async () => {
   const f = await syntheticMerge([1, 1, 1], { noise: 0.001, deghost: true, edge: true }),
-    previous = process.env.LUMA_MERGE_BACKEND
+    previous = process.env.IRODORI_MERGE_BACKEND
   try {
     const recipe = structuredClone(f.result.recipe)
     recipe.resolution = 'preview'
@@ -388,7 +388,7 @@ test('source exclusions retain independently valid contributors and reference de
         runtimeMs: 0,
         wasmMemoryBytes: 0,
       }
-    process.env.LUMA_MERGE_BACKEND = 'cpu'
+    process.env.IRODORI_MERGE_BACKEND = 'cpu'
     const result = await runMerge({ ...f.job, recipe, output: join(f.directory, 'excluded') }),
       bytes = await readFile(join(f.directory, 'excluded', 'linear.f32')),
       pixels = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4)
@@ -400,9 +400,9 @@ test('source exclusions retain independently valid contributors and reference de
       const expected = [0, 0, 0]
       for (const s of usable) {
         const p = f.frames[s],
-          luma = p[i] * 0.2627 + p[i + 1] * 0.678 + p[i + 2] * 0.0593,
+          luminance = p[i] * 0.2627 + p[i + 1] * 0.678 + p[i + 2] * 0.0593,
           scale = recipe.sources[s].scale,
-          weight = scale ** 2 / (0.0015 ** 2 + 0.0001 * Math.max(0, luma))
+          weight = scale ** 2 / (0.0015 ** 2 + 0.0001 * Math.max(0, luminance))
         total += weight
         for (let c = 0; c < 3; c++) expected[c] += (p[i + c] / scale) * weight
       }
@@ -410,8 +410,8 @@ test('source exclusions retain independently valid contributors and reference de
         expect(Math.abs(pixels[i + c] - expected[c] / total)).toBeLessThan(2e-6)
     }
   } finally {
-    if (previous === undefined) delete process.env.LUMA_MERGE_BACKEND
-    else process.env.LUMA_MERGE_BACKEND = previous
+    if (previous === undefined) delete process.env.IRODORI_MERGE_BACKEND
+    else process.env.IRODORI_MERGE_BACKEND = previous
     await f.close()
   }
 })

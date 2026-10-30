@@ -32,24 +32,24 @@ async function finishExposure(page: Page) {
 
 for (const route of ['ipc', 'mcp'] as const)
   test(`${route} export preparation and start preserve an unrelated active gesture as one Undo entry`, async ({
-    luma,
+    irodori,
   }) => {
     test.setTimeout(90000)
-    const { app, page } = luma
+    const { app, page } = irodori
     await importPhotos(app, page)
-    const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+    const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
     const editor = photos[0]
     const target = photos[1]
     await page.getByTestId(`photo-card-${editor.id}`).click()
     await expect(page.getByTestId('preview-filename')).toHaveText(editor.filename)
-    const before = await page.evaluate((id) => window.luma.getEditHistory(id), editor.id)
-    const targetBefore = await page.evaluate((id) => window.luma.getEditHistory(id), target.id)
-    const destination = join(luma.userDataDir, 'exports')
+    const before = await page.evaluate((id) => window.irodori.getEditHistory(id), editor.id)
+    const targetBefore = await page.evaluate((id) => window.irodori.getEditHistory(id), target.id)
+    const destination = join(irodori.userDataDir, 'exports')
     await mkdir(destination)
     await app.evaluate(({ dialog }, path) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
     }, destination)
-    const grant = await page.evaluate(() => window.luma.chooseExportDestination())
+    const grant = await page.evaluate(() => window.irodori.chooseExportDestination())
     let client: Client | undefined
     let transport: StdioClientTransport | undefined
     try {
@@ -58,7 +58,7 @@ for (const route of ['ipc', 'mcp'] as const)
         transport = new StdioClientTransport({
           command: process.execPath,
           args: [resolve('scripts/editor-mcp.mjs')],
-          env: { ...(process.env as Record<string, string>), LUMA_PROFILE: luma.userDataDir },
+          env: { ...(process.env as Record<string, string>), IRODORI_PROFILE: irodori.userDataDir },
         })
         await client.connect(transport)
       }
@@ -66,16 +66,18 @@ for (const route of ['ipc', 'mcp'] as const)
       let prepared: ExportPreparation
       if (client) {
         const result = await client.callTool({
-          name: 'luma_prepare_export',
+          name: 'irodori_prepare_export',
           arguments: { ids: [target.id] },
         })
         expect(result.isError).not.toBe(true)
         prepared = result.structuredContent as unknown as ExportPreparation
-      } else prepared = await page.evaluate((id) => window.luma.prepareExport([id]), target.id)
+      } else prepared = await page.evaluate((id) => window.irodori.prepareExport([id]), target.id)
       expect(prepared.targets).toEqual([
         expect.objectContaining({ photoId: target.id, revision: targetBefore.revision }),
       ])
-      expect(await page.evaluate((id) => window.luma.getEditHistory(id), editor.id)).toEqual(before)
+      expect(await page.evaluate((id) => window.irodori.getEditHistory(id), editor.id)).toEqual(
+        before,
+      )
       await draftExposure(page, 1)
       const request: ExportStart = {
         preparationId: prepared.id,
@@ -85,18 +87,20 @@ for (const route of ['ipc', 'mcp'] as const)
       let taskId: string
       if (client) {
         const result = await client.callTool({
-          name: 'luma_start_export',
+          name: 'irodori_start_export',
           arguments: { exportRequest: request },
         })
         expect(result.isError).not.toBe(true)
         taskId = (result.structuredContent as { taskId: string }).taskId
-      } else taskId = await page.evaluate((request) => window.luma.startExport(request), request)
-      expect(await page.evaluate((id) => window.luma.getEditHistory(id), editor.id)).toEqual(before)
+      } else taskId = await page.evaluate((request) => window.irodori.startExport(request), request)
+      expect(await page.evaluate((id) => window.irodori.getEditHistory(id), editor.id)).toEqual(
+        before,
+      )
       await expect(page.getByTestId('preview-filename')).toHaveText(editor.filename)
       await draftExposure(page, 1.5)
       await finishExposure(page)
       await expect
-        .poll(() => page.evaluate((id) => window.luma.getEditHistory(id), editor.id))
+        .poll(() => page.evaluate((id) => window.irodori.getEditHistory(id), editor.id))
         .toMatchObject({
           settings: { exposureEv: 1.5 },
           snapshots: [
@@ -108,22 +112,23 @@ for (const route of ['ipc', 'mcp'] as const)
         .poll(
           () =>
             page.evaluate(
-              async (id) => (await window.luma.listTasks()).find((task) => task.id === id)?.status,
+              async (id) =>
+                (await window.irodori.listTasks()).find((task) => task.id === id)?.status,
               taskId,
             ),
           { timeout: 30000 },
         )
         .toBe('completed')
-      expect(await page.evaluate((id) => window.luma.getEditHistory(id), target.id)).toEqual(
+      expect(await page.evaluate((id) => window.irodori.getEditHistory(id), target.id)).toEqual(
         targetBefore,
       )
-      const after = await page.evaluate((id) => window.luma.getEditHistory(id), editor.id)
-      await page.evaluate(({ id, revision }) => window.luma.undoEdit(id, revision), {
+      const after = await page.evaluate((id) => window.irodori.getEditHistory(id), editor.id)
+      await page.evaluate(({ id, revision }) => window.irodori.undoEdit(id, revision), {
         id: editor.id,
         revision: after.revision,
       })
       await expect
-        .poll(() => page.evaluate((id) => window.luma.getEdits(id), editor.id))
+        .poll(() => page.evaluate((id) => window.irodori.getEdits(id), editor.id))
         .toMatchObject({ settings: before.settings })
     } finally {
       await client?.close()
@@ -132,21 +137,21 @@ for (const route of ['ipc', 'mcp'] as const)
   })
 
 test('exporting the edited photo flushes its draft and rejects a preparation made stale by a later gesture', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
-  const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
-  const before = await page.evaluate((id) => window.luma.getEditHistory(id), id)
-  const destination = join(luma.userDataDir, 'exports')
+  const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
+  const before = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
+  const destination = join(irodori.userDataDir, 'exports')
   await mkdir(destination)
   await app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
   }, destination)
-  const grant = await page.evaluate(() => window.luma.chooseExportDestination())
+  const grant = await page.evaluate(() => window.irodori.chooseExportDestination())
   await draftExposure(page, 0.75)
-  const prepared = await page.evaluate((id) => window.luma.prepareExport([id]), id)
-  const first = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+  const prepared = await page.evaluate((id) => window.irodori.prepareExport([id]), id)
+  const first = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
   expect(prepared.targets[0].revision).toBe(first.revision)
   expect(first.settings.exposureEv).toBe(0.75)
   expect(first.snapshots).toHaveLength(before.snapshots.length + 1)
@@ -175,7 +180,7 @@ test('exporting the edited photo flushes its draft and rejects a preparation mad
   })
   try {
     await expect(
-      page.evaluate((request) => window.luma.startExport(request), {
+      page.evaluate((request) => window.irodori.startExport(request), {
         preparationId: prepared.id,
         destinationId: grant!.id,
         action: 'high' as const,
@@ -188,32 +193,34 @@ test('exporting the edited photo flushes its draft and rejects a preparation mad
     await rejection.evaluate((state) => state.restore())
     await rejection.dispose()
   }
-  const second = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+  const second = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
   expect(second.settings.exposureEv).toBe(1.5)
   expect(second.snapshots).toHaveLength(before.snapshots.length + 2)
   expect(
-    (await page.evaluate(() => window.luma.listTasks())).some((task) => task.kind === 'export'),
+    (await page.evaluate(() => window.irodori.listTasks())).some((task) => task.kind === 'export'),
   ).toBe(false)
   expect(await readdir(destination)).toEqual([])
 })
 
-test('global shutdown still commits a draft before the library is reopened', async ({ luma }) => {
-  await importPhotos(luma.app, luma.page, ['tests/fixtures/photos/alpine-lake.jpg'])
-  const id = (await luma.page.evaluate(() => window.luma.listPhotos())).photos[0].id
-  const before = await luma.page.evaluate((id) => window.luma.getEditHistory(id), id)
-  await draftExposure(luma.page, 1.25)
-  const { page } = await luma.restart()
-  const after = await page.evaluate((id) => window.luma.getEditHistory(id), id)
+test('global shutdown still commits a draft before the library is reopened', async ({
+  irodori,
+}) => {
+  await importPhotos(irodori.app, irodori.page, ['tests/fixtures/photos/alpine-lake.jpg'])
+  const id = (await irodori.page.evaluate(() => window.irodori.listPhotos())).photos[0].id
+  const before = await irodori.page.evaluate((id) => window.irodori.getEditHistory(id), id)
+  await draftExposure(irodori.page, 1.25)
+  const { page } = await irodori.restart()
+  const after = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
   expect(after.settings.exposureEv).toBe(1.25)
   expect(after.snapshots).toHaveLength(before.snapshots.length + 1)
 })
 
 test('an active export permits a new file import while preserving the current photo and selection', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page)
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   await page.getByTestId(`photo-card-${photos[0].id}`).click()
   await page.getByTestId(`photo-card-${photos[1].id}`).click({ modifiers: ['ControlOrMeta'] })
   await expect(page.getByTestId('preview-filename')).toHaveText(photos[1].filename)
@@ -222,7 +229,7 @@ test('an active export permits a new file import while preserving the current ph
       'aria-selected',
       'true',
     )
-  const destination = join(luma.userDataDir, 'exports')
+  const destination = join(irodori.userDataDir, 'exports')
   await mkdir(destination)
   await app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
@@ -277,7 +284,7 @@ test('an active export permits a new file import while preserving the current ph
     await expect.poll(() => hold.evaluate((gate) => gate.calls)).toBeGreaterThan(0)
     const exportId = await page.evaluate(
       async () =>
-        (await window.luma.listTasks()).find(
+        (await window.irodori.listTasks()).find(
           (task) => task.kind === 'export' && task.status === 'running',
         )!.id,
     )
@@ -289,7 +296,7 @@ test('an active export permits a new file import while preserving the current ph
     })
     await expect(page.getByTestId('import-status')).toContainText('1 awaiting checks')
     const previousImports = await page.evaluate(async () =>
-      (await window.luma.listTasks())
+      (await window.irodori.listTasks())
         .filter((task) => task.kind === 'import')
         .map((task) => task.id),
     )
@@ -297,7 +304,7 @@ test('an active export permits a new file import while preserving the current ph
     await expect(page.getByRole('dialog')).toHaveCount(0)
     const importId = await page.evaluate(
       async (previous) =>
-        (await window.luma.listTasks()).find(
+        (await window.irodori.listTasks()).find(
           (task) => task.kind === 'import' && !previous.includes(task.id),
         )!.id,
       previousImports,
@@ -315,7 +322,7 @@ test('an active export permits a new file import while preserving the current ph
           page.evaluate(
             async (ids) =>
               Object.fromEntries(
-                (await window.luma.listTasks())
+                (await window.irodori.listTasks())
                   .filter((task) => ids.includes(task.id))
                   .map((task) => [task.id, task.status]),
               ),
@@ -324,7 +331,7 @@ test('an active export permits a new file import while preserving the current ph
         { timeout: 30000 },
       )
       .toEqual({ [exportId]: 'completed', [importId]: 'completed' })
-    expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(3)
+    expect((await page.evaluate(() => window.irodori.listPhotos())).total).toBe(3)
     await expect(page.getByTestId('preview-filename')).toHaveText(photos[1].filename)
     for (const photo of photos)
       await expect(page.getByTestId(`photo-card-${photo.id}`)).toHaveAttribute(
@@ -332,12 +339,14 @@ test('an active export permits a new file import while preserving the current ph
         'true',
       )
     expect((await readdir(destination)).sort()).toEqual(['alpine-lake.jpg', 'mountain-ridge.jpg'])
-    expect(await readdir(join(luma.userDataDir, 'library', 'staging'))).toEqual([])
+    expect(await readdir(join(irodori.userDataDir, 'library', 'staging'))).toEqual([])
     expect(
-      await readdir(join(luma.userDataDir, 'library', 'export-work', exportId)).catch((error) => {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
-        throw error
-      }),
+      await readdir(join(irodori.userDataDir, 'library', 'export-work', exportId)).catch(
+        (error) => {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+          throw error
+        },
+      ),
     ).toEqual([])
   } finally {
     await hold.evaluate((gate) => gate.restore())
@@ -346,11 +355,11 @@ test('an active export permits a new file import while preserving the current ph
 })
 
 test('chooser reuses the destination, picker cancellation changes no preferences and retained results show counts', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
-  const destination = join(luma.userDataDir, 'exports')
+  const destination = join(irodori.userDataDir, 'exports')
   await mkdir(destination)
   await app.evaluate(({ dialog }) => {
     dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] })
@@ -361,7 +370,7 @@ test('chooser reuses the destination, picker cancellation changes no preferences
   await expect(chooser.getByRole('button', { name: /Last custom/ })).toBeDisabled()
   await chooser.getByRole('button', { name: /High quality/ }).click()
   await expect(chooser).toBeVisible()
-  expect((await page.evaluate(() => window.luma.getExportPreferences())).destination).toBeNull()
+  expect((await page.evaluate(() => window.irodori.getExportPreferences())).destination).toBeNull()
   await app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
   }, destination)
@@ -386,11 +395,11 @@ test('chooser reuses the destination, picker cancellation changes no preferences
 })
 
 test('Custom is keyboard-accessible at minimum size, persists only on acceptance, and Last custom survives restart', async ({
-  luma,
+  irodori,
 }) => {
-  let { app, page } = luma
+  let { app, page } = irodori
   await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
-  const destination = join(luma.userDataDir, 'exports')
+  const destination = join(irodori.userDataDir, 'exports')
   await mkdir(destination)
   await app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
@@ -416,7 +425,7 @@ test('Custom is keyboard-accessible at minimum size, persists only on acceptance
   await custom.getByRole('combobox', { name: 'Size', exact: true }).selectOption('longest')
   await custom.getByLabel('Longest edge (px)').fill('101')
   await custom.getByRole('button', { name: 'Cancel', exact: true }).click()
-  expect((await page.evaluate(() => window.luma.getExportPreferences())).lastCustom).toBeNull()
+  expect((await page.evaluate(() => window.irodori.getExportPreferences())).lastCustom).toBeNull()
   await page.getByRole('button', { name: 'Export photo', exact: true }).click()
   await page.getByRole('button', { name: /Custom…/ }).click()
   await custom.getByRole('spinbutton', { name: 'JPEG quality value' }).fill('83')
@@ -428,7 +437,7 @@ test('Custom is keyboard-accessible at minimum size, persists only on acceptance
   await custom.getByRole('button', { name: 'Export', exact: true }).click()
   await expect(custom).toHaveCount(0)
   await expect.poll(() => readdir(destination)).toEqual(['alpine-lake.jpg'])
-  ;({ app, page } = await luma.restart())
+  ;({ app, page } = await irodori.restart())
   await app.evaluate(({ dialog }) => {
     dialog.showOpenDialog = async () => {
       throw new Error('Unexpected picker after restart.')
@@ -438,24 +447,26 @@ test('Custom is keyboard-accessible at minimum size, persists only on acceptance
   await expect(page.getByRole('dialog')).toContainText('JPEG quality 83')
   await page.getByRole('button', { name: /Last custom/ }).click()
   await expect.poll(() => readdir(destination)).toHaveLength(2)
-  expect((await page.evaluate(() => window.luma.getExportPreferences())).lastCustom).toMatchObject({
+  expect(
+    (await page.evaluate(() => window.irodori.getExportPreferences())).lastCustom,
+  ).toMatchObject({
     quality: 83,
     metadata: 'none',
   })
 })
 
 test('header export awaits pending ranges and includes unloaded photos hidden by a later Library filter', async ({
-  luma,
+  irodori,
 }) => {
   test.setTimeout(90000)
-  await seedLargeBrowser(luma.app, luma.page, luma.userDataDir, 125)
-  const { app, page } = await luma.restart()
+  await seedLargeBrowser(irodori.app, irodori.page, irodori.userDataDir, 125)
+  const { app, page } = await irodori.restart()
   await page
     .getByRole('navigation', { name: 'Workspaces' })
     .getByRole('button', { name: 'Library', exact: true })
     .click()
   const references = await page.evaluate(
-    (query) => window.luma.getBrowseSection(query, '2026-10-04'),
+    (query) => window.irodori.getBrowseSection(query, '2026-10-04'),
     DEFAULT_BROWSE_QUERY,
   )
   await page.getByTestId(`browse-photo-${references[0].id}`).click()
@@ -488,22 +499,22 @@ test('header export awaits pending ranges and includes unloaded photos hidden by
 })
 
 test('editing MCP shares export validation, opaque destination grants and retained job results', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
-  const destination = join(luma.userDataDir, 'exports')
+  const destination = join(irodori.userDataDir, 'exports')
   await mkdir(destination)
   await app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
   }, destination)
-  const grant = await page.evaluate(() => window.luma.chooseExportDestination())
-  const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
+  const grant = await page.evaluate(() => window.irodori.chooseExportDestination())
+  const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
   const client = new Client({ name: 'export-test', version: '1' })
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [resolve('scripts/editor-mcp.mjs')],
-    env: { ...(process.env as Record<string, string>), LUMA_PROFILE: luma.userDataDir },
+    env: { ...(process.env as Record<string, string>), IRODORI_PROFILE: irodori.userDataDir },
   })
   try {
     await client.connect(transport)
@@ -512,13 +523,13 @@ test('editing MCP shares export validation, opaque destination grants and retain
       expect(result.isError).not.toBe(true)
       return result.structuredContent as Record<string, unknown>
     }
-    expect(await call('luma_get_export_capabilities')).toMatchObject({
+    expect(await call('irodori_get_export_capabilities')).toMatchObject({
       format: 'jpeg',
       hdr: 'iso-21496-1',
     })
-    const preparation = await call('luma_prepare_export', { ids: [id] })
+    const preparation = await call('irodori_prepare_export', { ids: [id] })
     const rejected = await client.callTool({
-      name: 'luma_start_export',
+      name: 'irodori_start_export',
       arguments: {
         exportRequest: {
           preparationId: preparation.id,
@@ -528,11 +539,13 @@ test('editing MCP shares export validation, opaque destination grants and retain
       },
     })
     expect(rejected.isError).toBe(true)
-    const result = await call('luma_start_export', {
+    const result = await call('irodori_start_export', {
       exportRequest: { preparationId: preparation.id, destinationId: grant!.id, action: 'high' },
     })
     await expect
-      .poll(async () => (await call('luma_get_export_results', { taskId: result.taskId })).results)
+      .poll(
+        async () => (await call('irodori_get_export_results', { taskId: result.taskId })).results,
+      )
       .toMatchObject([{ photoId: id, status: 'exported', outputName: 'alpine-lake.jpg' }])
     expect((await readFile(join(destination, 'alpine-lake.jpg'))).byteLength).toBeGreaterThan(100)
   } finally {

@@ -52,9 +52,9 @@ async function tabToRetry(page: Page, retry: Locator) {
 }
 
 test('opens cached photos with only a matching blurred placeholder, including after reload', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page)
   const viewport = page.getByTestId('preview-viewport')
   // Both photos must have validated warm frames before rejecting further bitmap fetches.
@@ -115,9 +115,9 @@ test('opens cached photos with only a matching blurred placeholder, including af
 import { holdFullPreview } from './full-preview.helpers'
 
 test('shows an error without camera JPEG fallback, retries, and repairs corrupt RGBA frames', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const gate = await holdFullPreview(app)
   const liveError = 'Working preview generation failed while preparing live adjustments. '.repeat(8)
   const liveGate = await app.evaluateHandle(({ ipcMain }, liveError) => {
@@ -165,7 +165,7 @@ test('shows an error without camera JPEG fallback, retries, and repairs corrupt 
     const url = new URL((await page.getByTestId('main-preview').getAttribute('data-src'))!)
     const [id, , version, revision] = url.pathname.slice(1).split('/')
     const cacheFile = join(
-      luma.userDataDir,
+      irodori.userDataDir,
       'library',
       'cache',
       'previews',
@@ -190,7 +190,7 @@ test('shows an error without camera JPEG fallback, retries, and repairs corrupt 
     expect(await page.getByTestId('main-preview').getAttribute('data-src')).not.toBe(url.toString())
     // A broken quick preview must not prevent a valid full-resolution image from loading.
     await writeFile(
-      join(luma.userDataDir, 'library', 'originals', id, 'preview.jpg'),
+      join(irodori.userDataDir, 'library', 'originals', id, 'preview.jpg'),
       'Invalid JPEG',
     )
     await app.evaluate(async ({ session }) => session.defaultSession.clearCache())
@@ -205,9 +205,9 @@ test('shows an error without camera JPEG fallback, retries, and repairs corrupt 
 })
 
 test('accepts only the current photo after rapid navigation and permits imports while detail is pending', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page)
   await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-resolution', 'full')
   const gate = await holdFullPreview(app)
@@ -238,7 +238,7 @@ test('accepts only the current photo after rapid navigation and permits imports 
     await gate.evaluate((control) => control.release())
     await expectImportComplete(page)
     await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-resolution', 'full')
-    const { photos } = await page.evaluate(() => window.luma.listPhotos())
+    const { photos } = await page.evaluate(() => window.irodori.listPhotos())
     expect(photos).toHaveLength(3)
     const selected = photos.find((photo) => photo.filename === 'mountain-ridge.jpg')!
     await expect(page.getByTestId('main-preview')).toHaveAttribute(

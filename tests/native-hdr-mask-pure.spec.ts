@@ -12,18 +12,18 @@ const turn = () => new Promise<void>((resolve) => setImmediate(resolve))
 function protocol() {
   const width = 3,
     height = 129,
-    request = Buffer.alloc(416),
-    header = Buffer.alloc(432),
+    request = Buffer.alloc(848),
+    header = Buffer.alloc(864),
     body = Buffer.from(Array.from({ length: width * height }, (_, index) => index % 16)),
     parts: Buffer[] = []
-  request.write('MASKCPU1')
-  request.writeUInt32LE(1, 8)
+  request.write('MASKCPU3')
+  request.writeUInt32LE(3, 8)
   request.writeUInt32LE(width, 16)
   request.writeUInt32LE(height, 20)
   header.write('MASKOUT1')
-  header.writeUInt32LE(416, 8)
+  header.writeUInt32LE(848, 8)
   request.copy(header, 12)
-  header.writeUInt32LE(4, 428)
+  header.writeUInt32LE(4, 860)
   parts.push(header)
   for (let row = 0; row < height; row += 64) {
     const rows = Math.min(64, height - row),
@@ -48,7 +48,7 @@ function protocol() {
   return { request, parts, body, width, height }
 }
 async function scratch(work: (file: FileHandle, path: string) => Promise<void>) {
-  const directory = await mkdtemp(join(tmpdir(), 'luma-native-mask-pure-')),
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-native-mask-pure-')),
     path = join(directory, 'mask.r8'),
     file = await open(path, 'wx+', 0o600)
   try {
@@ -146,7 +146,7 @@ const corruptions: Array<[string, (parts: Buffer[]) => void]> = [
   [
     'thread receipt',
     (p) => {
-      p[0].writeUInt32LE(8, 428)
+      p[0].writeUInt32LE(8, 860)
     },
   ],
   [

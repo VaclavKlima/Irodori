@@ -90,7 +90,7 @@ test('pinch reconstructs native scale directly, anchors the pointer and retains 
   ).toBe(32)
   expect(
     wheelView(before, { ...scroll, ctrlKey: true, deltaY: 10000 }, pointer, image, viewport).scale,
-  ).toBe(0.1)
+  ).toBe(fitScale(image, viewport))
 })
 
 test('every event in mixed scroll and pinch bursts uses the latest bounded view', () => {
@@ -108,13 +108,13 @@ test('every event in mixed scroll and pinch bursts uses the latest bounded view'
   expect(view.y).toBeCloseTo(pointer.y - (pointer.y - 20) * Math.exp(0.4) - 5, 12)
 })
 
-test('physical Ctrl-wheel bounds coarse mouse events to ten percent without changing anchoring', () => {
+test('physical Ctrl-wheel integrates high-resolution mouse distance without changing anchoring', () => {
   const before = { fit: false, scale: 1, x: -100, y: 30 }
-  for (const magnitude of [100, 120, 240, 10000])
+  for (const magnitude of [15, 30, 100, 120, 240])
     for (const direction of [-1, 1]) {
       const event = { ...scroll, deltaY: magnitude * direction, ctrlKey: true, shiftKey: true }
       const after = wheelView(before, event, pointer, image, viewport, true)
-      expect(after.scale).toBeCloseTo(direction < 0 ? 1.1 : 1 / 1.1, 12)
+      expect(after.scale).toBeCloseTo(1.1 ** ((-magnitude * direction) / 120), 12)
       expect((pointer.x - after.x) / after.scale).toBeCloseTo(pointer.x - before.x, 12)
       expect((pointer.y - after.y) / after.scale).toBeCloseTo(pointer.y - before.y, 12)
     }
@@ -122,7 +122,7 @@ test('physical Ctrl-wheel bounds coarse mouse events to ten percent without chan
   expect(wheelScale(1, -120, 0, viewport.height)).toBeCloseTo(Math.exp(1.2), 12)
 })
 
-test('physical Ctrl-wheel normalizes line and page units before bounding coarse events', () => {
+test('physical Ctrl-wheel normalizes line and page units before integrating distance', () => {
   expect(wheelScale(1, 1, 1, 600, true)).toBe(wheelScale(1, 16, 0, 600, true))
   expect(wheelScale(1, 1, 2, 100, true)).toBe(wheelScale(1, 100, 0, 600, true))
   for (const direction of [-1, 1])
@@ -135,28 +135,22 @@ test('physical Ctrl-wheel normalizes line and page units before bounding coarse 
         12,
       )
   for (const [delta, mode] of [
-    [6.25, 1],
     [7.5, 1],
-    [15, 1],
-    [10000, 1],
-    [1 / 6, 2],
     [0.2, 2],
-    [0.4, 2],
-    [10000, 2],
   ]) {
     expect(wheelScale(1, -delta, mode, 600, true)).toBeCloseTo(1.1, 12)
     expect(wheelScale(1, delta, mode, 600, true)).toBeCloseTo(1 / 1.1, 12)
   }
 })
 
-test('coarse Ctrl-wheel steps repeat predictably from Fit-sized views and respect zoom limits', () => {
+test('Ctrl-wheel steps reverse from arbitrary scales and respect numeric zoom limits', () => {
   const before = { fit: false, scale: 0.24, x: 0, y: 0 }
   const event = { ...scroll, ctrlKey: true, deltaY: -120 }
   const first = wheelView(before, event, { x: 0, y: 0 }, image, viewport, true)
   expect(first.scale).toBeCloseTo(0.264, 12)
-  const second = wheelView(first, { ...event, deltaY: -240 }, { x: 0, y: 0 }, image, viewport, true)
+  const second = wheelView(first, event, { x: 0, y: 0 }, image, viewport, true)
   expect(second.scale).toBeCloseTo(0.2904, 12)
-  const down = wheelView(second, { ...event, deltaY: 10000 }, { x: 0, y: 0 }, image, viewport, true)
+  const down = wheelView(second, { ...event, deltaY: 120 }, { x: 0, y: 0 }, image, viewport, true)
   const restored = wheelView(down, { ...event, deltaY: 120 }, { x: 0, y: 0 }, image, viewport, true)
   expect(restored.scale).toBeCloseTo(before.scale, 12)
   expect(wheelView({ ...before, scale: 31 }, event, pointer, image, viewport, true).scale).toBe(32)
@@ -188,6 +182,96 @@ test('fine Ctrl-wheel deltas remain proportional, split consistently and reverse
   expect(restored.scale).toBeCloseTo(before.scale, 12)
   expect(restored.x).toBeCloseTo(before.x, 12)
   expect(restored.y).toBeCloseTo(before.y, 12)
+})
+
+test('recorded mouse bursts and coalesced wheel events produce identical zoom', () => {
+  const before = { fit: false, scale: 1, x: -100, y: 30 }
+  // Recorded G502 bursts include 15/30-pixel fragments and coalesced 75-pixel events.
+  for (const deltas of [
+    [30, 15, 15, 15, 15, 15, 15],
+    [30, 15, 30, 30, 15],
+    [30, 15, 15, 75],
+    [120, 120],
+  ])
+    for (const direction of [-1, 1]) {
+      let split = before
+      for (const delta of deltas)
+        split = wheelView(
+          split,
+          { ...scroll, ctrlKey: true, deltaY: delta * direction },
+          pointer,
+          image,
+          viewport,
+          true,
+        )
+      const total = deltas.reduce((sum, delta) => sum + delta, 0) * direction
+      const combined = wheelView(
+        before,
+        { ...scroll, ctrlKey: true, deltaY: total },
+        pointer,
+        image,
+        viewport,
+        true,
+      )
+      expect(split.scale).toBeCloseTo(combined.scale, 12)
+      expect(split.x).toBeCloseTo(combined.x, 12)
+      expect(split.y).toBeCloseTo(combined.y, 12)
+    }
+})
+
+test('wheel zoom-out restores exact centered Fit from maximum zoom and stays fitted', () => {
+  for (const dimensions of [image, { width: 100, height: 80 }, { width: 40000, height: 30000 }])
+    for (const physicalControl of [false, true]) {
+      let view = { fit: false, scale: 32, x: -90, y: 50 }
+      const event = { ...scroll, ctrlKey: true, deltaY: 120 }
+      for (let step = 0; step < 100 && !view.fit; step++)
+        view = wheelView(view, event, pointer, dimensions, viewport, physicalControl)
+      expect(view).toEqual(constrain(INITIAL_VIEW, dimensions, viewport))
+      expect(wheelView(view, event, pointer, dimensions, viewport, physicalControl)).toBe(view)
+      const smaller = { width: viewport.width / 2, height: viewport.height / 2 }
+      expect(constrain(view, dimensions, smaller)).toEqual(
+        constrain(INITIAL_VIEW, dimensions, smaller),
+      )
+      expect(
+        wheelView(view, { ...event, deltaY: -120 }, pointer, dimensions, viewport, physicalControl)
+          .scale,
+      ).toBeGreaterThan(view.scale)
+    }
+})
+
+test('reversing one mouse notch restores Fit despite floating-point rounding', () => {
+  const fitted = constrain(INITIAL_VIEW, image, viewport)
+  const event = { ...scroll, ctrlKey: true, deltaY: -120 }
+  const zoomed = wheelView(fitted, event, pointer, image, viewport, true)
+  expect(zoomed.scale).toBeCloseTo(fitted.scale * 1.1, 12)
+  expect(wheelView(zoomed, { ...event, deltaY: 120 }, pointer, image, viewport, true)).toEqual(
+    fitted,
+  )
+})
+
+test('mouse zoom-out snaps a recorded one-fragment short reversal to Fit', () => {
+  const fitted = constrain(INITIAL_VIEW, image, viewport)
+  const event = { ...scroll, ctrlKey: true, deltaY: -135 }
+  const zoomed = wheelView(fitted, event, pointer, image, viewport, true)
+  // The physical sample delivered 135 pixels up but only 120 pixels back down.
+  let restored = zoomed
+  for (const deltaY of [30, 15, 15, 15, 15, 15, 15])
+    restored = wheelView(restored, { ...event, deltaY }, pointer, image, viewport, true)
+  expect(restored).toEqual(fitted)
+  const farther = wheelView(fitted, { ...event, deltaY: -180 }, pointer, image, viewport, true)
+  expect(wheelView(farther, { ...event, deltaY: 120 }, pointer, image, viewport, true).fit).toBe(
+    false,
+  )
+  // Pinch remains continuous just above Fit; the mouse snap zone does not affect it.
+  const pinch = wheelView(
+    { ...fitted, fit: false, scale: fitted.scale * 1.015 },
+    { ...event, deltaY: 0.1 },
+    pointer,
+    image,
+    viewport,
+  )
+  expect(pinch.fit).toBe(false)
+  expect(pinch.scale).toBeGreaterThan(fitted.scale)
 })
 
 test('Shift-wheel maps only vertical events to horizontal pan, including line/page units and bounds', () => {

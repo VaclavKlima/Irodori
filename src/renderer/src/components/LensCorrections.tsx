@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Aperture, ChevronDown, ChevronRight } from 'lucide-react'
+import { Aperture } from 'lucide-react'
+import { InspectorSection } from './InspectorSection'
 import { correctionKinds, type CorrectionKind, type LensState } from '../../../shared/lens'
 import styles from '../App.module.css'
 
@@ -29,7 +30,7 @@ export function LensCorrections({
     let active = true
     const refresh = () => {
       if (suspended) return
-      void window.luma
+      void window.irodori
         .getLensSettings(photoId)
         .then((next) => {
           if (active && pending.current === 0)
@@ -42,7 +43,7 @@ export function LensCorrections({
         })
     }
     refresh()
-    const unsubscribe = window.luma.onLibraryEvent((event) => {
+    const unsubscribe = window.irodori.onLibraryEvent((event) => {
       if (event.lensChanged?.photoId === photoId) refresh()
     })
     return () => {
@@ -58,14 +59,14 @@ export function LensCorrections({
     )
     try {
       await flushEdits()
-      await window.luma.updateLensSettings(photoId, kind, enabled)
+      await window.irodori.updateLensSettings(photoId, kind, enabled)
     } catch (error) {
       setError(String(error))
     } finally {
       pending.current--
       if (pending.current === 0) {
         try {
-          const next = await window.luma.getLensSettings(photoId)
+          const next = await window.irodori.getLensSettings(photoId)
           if (pending.current === 0)
             setState((previous) =>
               !previous || next.revision >= previous.revision ? next : previous,
@@ -78,24 +79,14 @@ export function LensCorrections({
   }
 
   return (
-    <section className={styles.adjustmentSection} aria-labelledby="lens-heading">
-      <button
-        id="lens-heading"
-        className={styles.sectionToggle}
-        aria-expanded={expanded}
-        aria-controls="lens-controls"
-        onClick={onToggle}
-      >
-        <Aperture size={14} />
-        Lens corrections{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-      </button>
-      <div
-        id="lens-controls"
-        hidden={!expanded}
-        className={styles.sectionContent}
-        data-testid="lens-corrections"
-        data-revision={state?.revision}
-      >
+    <InspectorSection
+      id="lens-controls"
+      title="Lens corrections"
+      icon={Aperture}
+      expanded={expanded}
+      onToggle={onToggle}
+    >
+      <div data-testid="lens-corrections" data-revision={state?.revision}>
         <p className={styles.lensProfile}>{state?.profile.label ?? 'Reading lens metadata…'}</p>
         {state?.fixed && (
           <p>Lens corrections were applied during merge preparation and are fixed.</p>
@@ -106,7 +97,7 @@ export function LensCorrections({
               <input
                 type="checkbox"
                 checked={!!state?.profile[kind] && (state.fixed || !!state.settings[kind])}
-                disabled={state?.fixed || !state?.profile[kind]}
+                disabled={suspended || state?.fixed || !state?.profile[kind]}
                 aria-describedby={!state?.profile[kind] ? `lens-${kind}-reason` : undefined}
                 onChange={(event) => void update(kind, event.target.checked)}
               />
@@ -119,6 +110,6 @@ export function LensCorrections({
         ))}
         {error && <p role="alert">{error}</p>}
       </div>
-    </section>
+    </InspectorSection>
   )
 }

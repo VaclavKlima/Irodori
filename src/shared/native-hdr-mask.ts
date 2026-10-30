@@ -4,12 +4,14 @@ import type { HdrAnalysisDomain } from './hdr-statistics'
 import type { CpuPreviewSourceRef } from './native-cpu-preview'
 import type { ManagedImageBytes, ResourcePolicySnapshot } from './resource-policy'
 
-export const NATIVE_HDR_MASK_VERSION = 'native-hdr-mask-v1' as const
+export const NATIVE_HDR_MASK_VERSION = 'native-hdr-mask-v3' as const
 export interface NativeHdrMaskRequest {
   readonly version: typeof NATIVE_HDR_MASK_VERSION
   readonly requestId: string
   readonly sessionId: string
   readonly source: CpuPreviewSourceRef
+  /** Exact edited source authorizing a distinct original Before; never a path. */
+  readonly comparisonOf?: CpuPreviewSourceRef
   readonly generation: number
   readonly expectedSettingsRevision: number
   readonly comparison: 'before' | 'after'
@@ -26,6 +28,7 @@ export interface NativeHdrMaskResult {
   readonly sessionId: string
   readonly maskId: string
   readonly source: CpuPreviewSourceRef
+  readonly comparisonOf?: CpuPreviewSourceRef
   readonly generation: number
   readonly settingsRevision: number
   readonly comparison: 'before' | 'after'

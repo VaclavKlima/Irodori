@@ -13,7 +13,7 @@ void _initialize(void) {}
 // byte offsets. The host validates dimensions and owns every allocation.
 enum {
   WIDTH, HEIGHT, RAW_WIDTH, RAW_HEIGHT, FLIP, PLAN_WIDTH, PLAN_HEIGHT,
-  PLAN_LEFT, PLAN_TOP, CX, CY, RADIUS, INPUT, OUTPUT, LUMA, MASK,
+  PLAN_LEFT, PLAN_TOP, CX, CY, RADIUS, INPUT, OUTPUT, LUMINANCE, MASK,
   LUT, MATRIX, GAINS, ROI_LEFT, ROI_TOP, ROI_WIDTH, ROI_HEIGHT,
   GAIN_KEYS, GAIN_VALUES, CAPACITY, HAS_MASK, GAIN_CACHE_ENTRIES,
   SENSOR_INPUT, SENSOR_CFA, SENSOR_THRESHOLDS, SENSOR_MODE, SENSOR_CAPACITY,
@@ -76,7 +76,7 @@ static int channel_clipped(const double *p, double qx, double qy,
       (const uint8_t *)ptr(p[MASK]) + channel * (int)p[RAW_WIDTH] * (int)p[RAW_HEIGHT]);
 }
 
-int luma_kernel_version(void) { return 5; }
+int irodori_kernel_version(void) { return 5; }
 
 typedef struct {
   int32_t ix, iy;
@@ -86,7 +86,7 @@ _Static_assert(sizeof(FallbackGeometryTap) == 24, "Fallback geometry tap ABI");
 
 // The planner selects exact Float64 source footprints and canonical alpha only.
 // RGB sampling, integer-coordinate vignette gains, WB and matrices are consumers.
-int luma_fallback_geometry_strip(double *p, int top, int rows) {
+int irodori_fallback_geometry_strip(double *p, int top, int rows) {
   const int width = (int)p[WIDTH], raw_width = (int)p[RAW_WIDTH];
   const int raw_height = (int)p[RAW_HEIGHT];
   if (top < 0 || rows < 1 || rows > 64 || top + rows > (int)p[HEIGHT] ||
@@ -130,7 +130,7 @@ int luma_fallback_geometry_strip(double *p, int top, int rows) {
   return 0;
 }
 
-int luma_camera_strip(double *p, int top, int rows) {
+int irodori_camera_strip(double *p, int top, int rows) {
   const int width = (int)p[WIDTH];
   if (top < 0 || rows < 1 || top + rows > (int)p[HEIGHT] ||
       width * rows > (int)p[CAPACITY]) return 3;
@@ -164,7 +164,7 @@ int luma_camera_strip(double *p, int top, int rows) {
 
 // Canonical validity is independent of RGB projection. The bounded byte strip
 // supplies GPU camera evidence without materializing another native image.
-int luma_camera_validity_strip(double *p, int top, int rows) {
+int irodori_camera_validity_strip(double *p, int top, int rows) {
   const int width = (int)p[WIDTH];
   if (top < 0 || rows < 1 || rows > 64 || top + rows > (int)p[HEIGHT] ||
       width * rows > (int)p[CAPACITY]) return 3;
@@ -200,7 +200,7 @@ static void dilate_sensor_run(uint8_t *mask, int width, int height,
 
 // Input is a packed active-sensor strip; dilated output remains in native sensor
 // coordinates. Camera masks keep the two green CFA positions in one channel.
-int luma_sensor_mask(double *p, int top, int rows) {
+int irodori_sensor_mask(double *p, int top, int rows) {
   const int width = (int)p[RAW_WIDTH], height = (int)p[RAW_HEIGHT];
   const int channel_masks = (int)p[SENSOR_MODE];
   if (top < 0 || rows < 1 || rows > 64 || top + rows > height ||
@@ -233,7 +233,7 @@ int luma_sensor_mask(double *p, int top, int rows) {
   return 0;
 }
 
-int luma_repair_mask(double *p, int top, int rows) {
+int irodori_repair_mask(double *p, int top, int rows) {
   const int width = (int)p[WIDTH];
   if (top < 0 || rows < 1 || rows > 256 || top + rows > (int)p[HEIGHT] ||
       width * rows > (int)p[CAPACITY]) return 3;
@@ -285,14 +285,14 @@ static double gain_at(const double *p, int x, int y) {
   return values[slot];
 }
 
-int luma_prepare_strip(double *p, int top, int rows) {
+int irodori_prepare_strip(double *p, int top, int rows) {
   if (p[GAIN_CACHE_ENTRIES] != 2048.0 && p[GAIN_CACHE_ENTRIES] != 32768.0) return 4;
   const int width = (int)p[WIDTH], raw_width = (int)p[RAW_WIDTH], raw_height = (int)p[RAW_HEIGHT];
   if (top < 0 || rows < 1 || top + rows > (int)p[HEIGHT] ||
       width * rows > (int)p[CAPACITY]) return 3;
   const float *input = (const float *)ptr(p[INPUT]), *lut = (const float *)ptr(p[LUT]);
   float *output = (float *)ptr(p[OUTPUT]);
-  double *luma = (double *)ptr(p[LUMA]);
+  double *luminance = (double *)ptr(p[LUMINANCE]);
   const uint8_t *saturated = (const uint8_t *)ptr(p[MASK]);
   const double *matrix = (const double *)ptr(p[MATRIX]), *working = matrix + 12;
   const double *gains = (const double *)ptr(p[GAINS]);
@@ -334,7 +334,7 @@ int luma_prepare_strip(double *p, int top, int rows) {
       output[at + 2] = (float)b;
       output[at + 3] = clipped ? 0.0f : 1.0f;
       const double value = r * working[9] + g * working[10] + b * working[11];
-      luma[at / 4] = value > 0.0 ? value : value == value ? 0.0 : value;
+      luminance[at / 4] = value > 0.0 ? value : value == value ? 0.0 : value;
     }
   return 0;
 }
@@ -345,7 +345,7 @@ enum {
   RED_WIDTH, RED_HEIGHT, REDUCED_WIDTH, REDUCED_HEIGHT, RED_CHANNELS,
   RED_X_OFFSETS, RED_X_TARGETS, RED_X_WEIGHTS,
   RED_Y_OFFSETS, RED_Y_TARGETS, RED_Y_WEIGHTS, RED_ROW_LAST,
-  RED_TOTALS, RED_COUNTS, RED_SUMS, RED_ROW_IDS, RED_INPUT, RED_LUMA,
+  RED_TOTALS, RED_COUNTS, RED_SUMS, RED_ROW_IDS, RED_INPUT, RED_LUMINANCE,
   RED_EMIT_DATA, RED_EMIT_MASKS, RED_EMIT_ROWS, RED_EMIT_COUNT,
   RED_EMIT_CAPACITY, RED_THRESHOLD
 };
@@ -358,7 +358,7 @@ static int emit_reduced_row(double *p, int slot) {
   double *totals = (double *)ptr(p[RED_TOTALS]);
   double *counts = (double *)ptr(p[RED_COUNTS]);
   double *camera = (double *)ptr(p[RED_SUMS]);
-  float *luma = (float *)ptr(p[RED_SUMS]);
+  float *luminance = (float *)ptr(p[RED_SUMS]);
   float *data = (float *)ptr(p[RED_EMIT_DATA]);
   uint8_t *masks = (uint8_t *)ptr(p[RED_EMIT_MASKS]);
   int32_t *rows = (int32_t *)ptr(p[RED_EMIT_ROWS]);
@@ -371,11 +371,11 @@ static int emit_reduced_row(double *p, int slot) {
       const int valid = counts[k] > 0.0 &&
                         __builtin_fabs(counts[k] - totals[at]) < 1e-8;
       masks[out] = valid ? 255 : 0;
-      const double sum = channels == 3 ? camera[k] : (double)luma[k];
+      const double sum = channels == 3 ? camera[k] : (double)luminance[k];
       data[out] = valid ? (float)(sum / counts[k]) : 0.0f;
       counts[k] = 0.0;
       if (channels == 3) camera[k] = 0.0;
-      else luma[k] = 0.0f;
+      else luminance[k] = 0.0f;
     }
     totals[at] = 0.0;
   }
@@ -384,7 +384,7 @@ static int emit_reduced_row(double *p, int slot) {
   return 0;
 }
 
-int luma_reduce_strip(double *p, int top, int rows) {
+int irodori_reduce_strip(double *p, int top, int rows) {
   const int width = (int)p[RED_WIDTH], height = (int)p[RED_HEIGHT];
   const int reduced_width = (int)p[REDUCED_WIDTH];
   const int channels = (int)p[RED_CHANNELS], row_pixels = reduced_width * 2;
@@ -401,11 +401,11 @@ int luma_reduce_strip(double *p, int top, int rows) {
   const int32_t *last = (const int32_t *)ptr(p[RED_ROW_LAST]);
   int32_t *ids = (int32_t *)ptr(p[RED_ROW_IDS]);
   const float *input = (const float *)ptr(p[RED_INPUT]);
-  const double *luma = (const double *)ptr(p[RED_LUMA]);
+  const double *luminance = (const double *)ptr(p[RED_LUMINANCE]);
   double *totals = (double *)ptr(p[RED_TOTALS]);
   double *counts = (double *)ptr(p[RED_COUNTS]);
   double *camera_sums = (double *)ptr(p[RED_SUMS]);
-  float *luma_sums = (float *)ptr(p[RED_SUMS]);
+  float *luminance_sums = (float *)ptr(p[RED_SUMS]);
   p[RED_EMIT_COUNT] = 0.0;
   for (int row = 0; row < rows; row++) {
     const int y = top + row;
@@ -422,13 +422,13 @@ int luma_reduce_strip(double *p, int top, int rows) {
           const double weight = xw[xi] * yw[yi];
           totals[at] += weight;
           for (int c = 0; c < channels; c++) {
-            const double value = channels == 3 ? (double)input[pixel * 4 + c] : luma[pixel];
+            const double value = channels == 3 ? (double)input[pixel * 4 + c] : luminance[pixel];
             const int usable = channels == 3 ? valid & (1 << c) : valid;
             if (usable && value > p[RED_THRESHOLD]) {
               const int k = c * row_pixels + at;
-              // The luma recipe rounds every individual update to Float32.
+              // The luminance recipe rounds every individual update to Float32.
               if (channels == 3) camera_sums[k] += value * weight;
-              else luma_sums[k] = (float)((double)luma_sums[k] + value * weight);
+              else luminance_sums[k] = (float)((double)luminance_sums[k] + value * weight);
               counts[k] += weight;
             }
           }

@@ -11,11 +11,11 @@ export function WhiteBalance({
   const profile = edits.state?.whiteBalanceProfile
   const wb = edits.adjustments.whiteBalance
   const value = wb?.mode === 'custom' ? wb : (profile?.estimate ?? { kelvin: 6500, tint: 0 })
-  const disabled = !profile || !previewReady || edits.saving
+  const unavailable = !profile || !previewReady
   return (
     <>
       <button
-        disabled={disabled || wb?.mode !== 'custom'}
+        disabled={unavailable || edits.saving || wb?.mode !== 'custom'}
         onClick={() =>
           void edits
             .change({ whiteBalance: { mode: 'as-shot' } })
@@ -44,7 +44,8 @@ export function WhiteBalance({
         step={50}
         precision={0}
         resetKey={edits.state?.revision}
-        disabled={disabled}
+        disabled={unavailable}
+        busy={edits.saving}
         onChange={(kelvin) =>
           void edits.change({ whiteBalance: { mode: 'custom', kelvin, tint: value.tint } })
         }
@@ -60,7 +61,8 @@ export function WhiteBalance({
         step={1}
         precision={0}
         resetKey={edits.state?.revision}
-        disabled={disabled}
+        disabled={unavailable}
+        busy={edits.saving}
         onChange={(tint) =>
           void edits.change({ whiteBalance: { mode: 'custom', kelvin: value.kelvin, tint } })
         }

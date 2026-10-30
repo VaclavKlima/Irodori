@@ -105,10 +105,10 @@ async function failureState(page: Page, path: string) {
         }
       }
       const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]'),
-        tasks = read(() => window.luma.listTasks()),
-        diagnostics = read(() => window.luma.getPreviewDiagnostics()),
+        tasks = read(() => window.irodori.listTasks()),
+        diagnostics = read(() => window.irodori.getPreviewDiagnostics()),
         photos = read(async () => {
-          const result = await window.luma.listPhotos()
+          const result = await window.irodori.listPhotos()
           return {
             count: result.photos.length,
             photos: result.photos
@@ -183,7 +183,7 @@ async function minimumWindow(app: ElectronApplication, page: Page) {
 
 async function preferences(page: Page) {
   const { settings, revision, status, issue } = await page.evaluate(() =>
-    window.luma.getResourceSettings(),
+    window.irodori.getResourceSettings(),
   )
   return { settings, revision, status, issue }
 }
@@ -254,9 +254,9 @@ async function normalPreview(page: Page) {
 }
 
 test('Preview memory is a real modal in Editor and Library at 1100x700 with Console, explicit Apply and keyboard recovery', async ({
-  luma,
+  irodori,
 }, info) => {
-  const { app, page } = luma,
+  const { app, page } = irodori,
     native = await minimumWindow(app, page)
   await activateButton(page.getByTestId('console-toggle'))
   await expect(page.getByTestId('console-panel')).toBeVisible()
@@ -390,20 +390,20 @@ test('Preview memory is a real modal in Editor and Library at 1100x700 with Cons
 })
 
 test('real Sony preview keeps active limits and edits while saved budgets apply to the next photo and survive restart', async ({
-  luma,
+  irodori,
 }, info) => {
   test.setTimeout(180000)
-  let { page } = luma
+  let { page } = irodori
   try {
-    await minimumWindow(luma.app, page)
+    await minimumWindow(irodori.app, page)
     await setCustomBudgets(page, '2', '2')
     const initialPreferences = await preferences(page)
     expect(initialPreferences.settings).toEqual({ version: 1, ramMiB: 2048, vramMiB: 2048 })
-    await importWithKeyboard(luma.app, page)
+    await importWithKeyboard(irodori.app, page)
     await page.getByLabel('Preview display mode').selectOption('sdr')
     await activateButton(page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }))
     await normalPreview(page)
-    const photos = (await page.evaluate(() => window.luma.listPhotos())).photos,
+    const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos,
       raw = photos.find((photo) => photo.filename === 'sony-zv1.ARW')!
     expect(raw).toBeDefined()
     const exposure = page.getByRole('spinbutton', { name: 'Exposure value', exact: true })
@@ -412,17 +412,17 @@ test('real Sony preview keeps active limits and edits while saved budgets apply 
     await page.getByTestId('main-preview').focus()
     await expect(page.getByTestId('main-preview')).toHaveAttribute('data-exposure', '1.25')
     await expect
-      .poll(() => page.evaluate((id) => window.luma.getEditHistory(id), raw.id))
+      .poll(() => page.evaluate((id) => window.irodori.getEditHistory(id), raw.id))
       .toMatchObject({ revision: 1, settings: { exposureEv: 1.25 }, cursor: 1 })
     const before = await normalPreview(page),
-      edits = await page.evaluate((id) => window.luma.getEdits(id), raw.id),
-      history = await page.evaluate((id) => window.luma.getEditHistory(id), raw.id)
+      edits = await page.evaluate((id) => window.irodori.getEdits(id), raw.id),
+      history = await page.evaluate((id) => window.irodori.getEditHistory(id), raw.id)
     expect(before.memory.ramBudgetBytes).toBe(2 * GiB)
     expect(before.memory.vramBudgetBytes).toBe(2 * GiB)
     expect(before.contract.sourceIdentity).toBeTruthy()
     expect(Number(before.contract.sourceUploads)).toBeGreaterThan(0)
     await setCustomBudgets(page, '4', '3')
-    const saved = await page.evaluate(() => window.luma.getResourceSettings())
+    const saved = await page.evaluate(() => window.irodori.getResourceSettings())
     expect(saved.settings).toEqual({ version: 1, ramMiB: 4096, vramMiB: 3072 })
     expect(saved.revision).toBe(initialPreferences.revision + 1)
     expect(saved.policy.revision).toBeGreaterThan(before.memory.resourcePolicyRevision)
@@ -431,15 +431,15 @@ test('real Sony preview keeps active limits and edits while saved budgets apply 
     expect(active.memory.vramBudgetBytes).toBe(before.memory.vramBudgetBytes)
     expect(active.memory.resourcePolicyRevision).toBe(before.memory.resourcePolicyRevision)
     expect(active.contract).toEqual(before.contract)
-    expect(await page.evaluate((id) => window.luma.getEdits(id), raw.id)).toEqual(edits)
-    expect(await page.evaluate((id) => window.luma.getEditHistory(id), raw.id)).toEqual(history)
+    expect(await page.evaluate((id) => window.irodori.getEdits(id), raw.id)).toEqual(edits)
+    expect(await page.evaluate((id) => window.irodori.getEditHistory(id), raw.id)).toEqual(history)
     await activateButton(page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }))
     await expect(page.getByTestId('main-preview')).toHaveAttribute('aria-label', 'alpine-lake.jpg')
     await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-resolution', 'full')
     await expect(page.getByTestId('main-preview')).toBeVisible()
     const raster = photos.find((photo) => photo.filename === 'alpine-lake.jpg')!
     expect(raster).toBeDefined()
-    const rasterEdits = await page.evaluate((id) => window.luma.getEdits(id), raster.id),
+    const rasterEdits = await page.evaluate((id) => window.irodori.getEdits(id), raster.id),
       rasterReceipt = () =>
         page.getByTestId('main-preview').evaluate((element) => {
           const canvas = element as HTMLCanvasElement,
@@ -499,8 +499,8 @@ test('real Sony preview keeps active limits and edits while saved budgets apply 
     expect(next.memory.resourcePolicyRevision).toBeGreaterThan(before.memory.resourcePolicyRevision)
     expect(next.contract.sourceIdentity).toBe(before.contract.sourceIdentity)
     expect(next.contract.exposure).toBe('1.25')
-    expect(await page.evaluate((id) => window.luma.getEditHistory(id), raw.id)).toEqual(history)
-    ;({ page } = await luma.restart())
+    expect(await page.evaluate((id) => window.irodori.getEditHistory(id), raw.id)).toEqual(history)
+    ;({ page } = await irodori.restart())
     await activateButton(page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }))
     const restarted = await normalPreview(page),
       persisted = await preferences(page)
@@ -510,8 +510,8 @@ test('real Sony preview keeps active limits and edits while saved budgets apply 
     expect(restarted.memory.ramBudgetBytes).toBe(4 * GiB)
     expect(restarted.memory.vramBudgetBytes).toBe(3 * GiB)
     expect(restarted.contract.sourceIdentity).toBe(before.contract.sourceIdentity)
-    expect(await page.evaluate((id) => window.luma.getEdits(id), raw.id)).toEqual(edits)
-    expect(await page.evaluate((id) => window.luma.getEditHistory(id), raw.id)).toEqual(history)
+    expect(await page.evaluate((id) => window.irodori.getEdits(id), raw.id)).toEqual(edits)
+    expect(await page.evaluate((id) => window.irodori.getEditHistory(id), raw.id)).toEqual(history)
     const dialog = await openSettings(page)
     await expect(
       dialog.getByRole('textbox', { name: 'RAM budget in GiB', exact: true }),

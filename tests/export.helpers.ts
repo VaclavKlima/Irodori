@@ -52,7 +52,7 @@ export async function exportFixture(
   count = 2,
   metadataProcessor?: Pick<PreviewProcess, 'inspect' | 'close'>,
 ) {
-  const root = await mkdtemp(join(tmpdir(), 'luma-export-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-export-'))
   await mkdir(join(root, 'trash'))
   const library = new PhotoLibrary(
     join(root, 'library'),
@@ -96,8 +96,8 @@ export async function exportFixture(
       bytes: bytes.length,
       importedAt: new Date(1700000000000 + i).toISOString(),
       previewSource: 'image',
-      previewUrl: `luma-photo://library/${id}/preview`,
-      thumbnailUrl: `luma-photo://library/${id}/thumb`,
+      previewUrl: `irodori-photo://library/${id}/preview`,
+      thumbnailUrl: `irodori-photo://library/${id}/thumb`,
     }
     photos.push(photo)
     db.prepare("INSERT INTO photos VALUES (?, ?, ?, 'display-referred-v1')").run(
@@ -149,8 +149,8 @@ export async function syntheticExportSource(
     identity: { dev: 0, ino: 0, size: bytes.length, mtimeMs: 0, ctimeMs: 0 },
     photo: {
       id: sha(bytes),
-      filename: 'Merged.luma',
-      format: 'LUMA HDR',
+      filename: 'Merged.irodori',
+      format: 'IRODORI HDR',
       assetKind: 'derived',
       width,
       height,

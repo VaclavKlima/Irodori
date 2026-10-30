@@ -473,6 +473,14 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.inspectorPinned {
+  flex: 0 0 auto;
+  background: inherit;
+}
+.sectionHeading {
+  margin: 0;
 }
 .histogramSection {
   padding: 15px 18px 8px;
@@ -558,7 +566,7 @@
   gap: 9px;
   border: none;
   background: transparent;
-  padding: 14px 18px;
+  padding: 9px 14px;
   text-align: left;
   font-size: 11px;
   font-weight: 500;
@@ -574,7 +582,7 @@
   background: #292927;
 }
 .sectionContent {
-  padding: 1px 19px 15px;
+  padding: 2px 14px 12px;
 }
 .sliderControl {
   margin: 0 0 10px;

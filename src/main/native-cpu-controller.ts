@@ -12,7 +12,14 @@ import {
   type FileHandle,
 } from 'node:fs/promises'
 import { join } from 'node:path'
-import { validatePatch } from '../shared/edits'
+import { validateProcessingPatch } from '../shared/edits'
+import {
+  nativeColorValues,
+  NATIVE_CPU_REQUEST_BYTES,
+  NATIVE_MASK_REQUEST_BYTES,
+  NATIVE_CPU_COLOR_OFFSET,
+  NATIVE_MASK_COLOR_OFFSET,
+} from '../shared/native-color-protocol'
 import { sameAdjustments, neutralAdjustments } from '../shared/adjustments'
 import {
   hdrAdjustmentMatrix,
@@ -29,7 +36,12 @@ import type {
   CpuPreviewPair,
   CpuPreviewSourceRef,
 } from '../shared/native-cpu-preview'
-import { NATIVE_CPU_PREVIEW_VERSION } from '../shared/native-cpu-preview'
+import {
+  NATIVE_CPU_PREVIEW_VERSION,
+  validateCpuPreviewSourceRef,
+} from '../shared/native-cpu-preview'
+import type { PreparedPreviewSourceRef } from '../shared/prepared-comparison'
+import { NativeCpuBeforeCache, type CpuSampleStamp } from './native-cpu-before-cache'
 import { nativeCpuMemory, type CpuManagedBytes } from '../shared/native-cpu-memory'
 import { attestAndFeedCpuSource, attestAndFeedCpuMaskSource } from './native-cpu-input'
 import { writeNativeCpuPair } from './native-cpu-pair-sink'
@@ -68,6 +80,7 @@ export interface CpuControllerOptions {
   readonly acquireSource: (
     request: CpuPreviewRequest,
     signal: AbortSignal,
+    comparisonOf?: PreparedPreviewSourceRef,
   ) => Promise<CpuWorkingLease>
   readonly foreground: <T>(work: () => Promise<T>, signal: AbortSignal) => Promise<T>
   /** Complete renderer analysis/overlay/cache allowances after old GPU retirement. */
@@ -81,7 +94,7 @@ export interface CpuControllerOptions {
     ) => Promise<CpuMaskSourceLease>
     /** Existing main display-state snapshot; check complete pixel target before/after. */
     readonly checkTarget: (
-      request: Pick<NativeHdrMaskRequest, 'domain' | 'target' | 'source'>,
+      request: Pick<NativeHdrMaskRequest, 'domain' | 'target' | 'source' | 'comparisonOf'>,
     ) => void
   }
 }
@@ -141,6 +154,9 @@ interface Owner {
   source: CpuPreviewSourceRef
   policy: Readonly<ResourcePolicySnapshot>
   lease?: CpuWorkingLease
+  beforeSource?: CpuPreviewSourceRef
+  beforeLease?: CpuWorkingLease
+  beforeCache?: NativeCpuBeforeCache
 }
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/
 const sha = /^[a-f0-9]{64}$/
@@ -150,6 +166,8 @@ const sameSource = (a: CpuPreviewSourceRef, b: CpuPreviewSourceRef) =>
   a.cacheId === b.cacheId &&
   a.renderingIdentity === b.renderingIdentity &&
   a.workingSha256 === b.workingSha256
+const sameOptionalSource = (a?: CpuPreviewSourceRef, b?: CpuPreviewSourceRef) =>
+  a && b ? sameSource(a, b) : a === b
 
 function validate(value: CpuPreviewRequest) {
   const keys = [
@@ -157,6 +175,7 @@ function validate(value: CpuPreviewRequest) {
     'requestId',
     'sessionId',
     'source',
+    'beforeSource',
     'generation',
     'expectedSettingsRevision',
     'parameters',
@@ -174,18 +193,6 @@ function validate(value: CpuPreviewRequest) {
     !uuid.test(value.requestId) ||
     typeof value.sessionId !== 'string' ||
     !uuid.test(value.sessionId) ||
-    !value.source ||
-    typeof value.source !== 'object' ||
-    Object.keys(value.source).sort().join(',') !==
-      'cacheId,photoId,renderingIdentity,workingSha256' ||
-    typeof value.source.photoId !== 'string' ||
-    !sha.test(value.source.photoId) ||
-    typeof value.source.cacheId !== 'string' ||
-    !uuid.test(value.source.cacheId) ||
-    typeof value.source.workingSha256 !== 'string' ||
-    !sha.test(value.source.workingSha256) ||
-    typeof value.source.renderingIdentity !== 'string' ||
-    value.source.renderingIdentity.length > 512 ||
     !Number.isSafeInteger(value.generation) ||
     value.generation < 0 ||
     !Number.isSafeInteger(value.expectedSettingsRevision) ||
@@ -202,6 +209,12 @@ function validate(value: CpuPreviewRequest) {
     value.viewport.height * value.viewport.dpr > 32768
   )
     throw new Error('Invalid native CPU preview request.')
+  validateCpuPreviewSourceRef(value.source)
+  if (value.beforeSource !== undefined) {
+    validateCpuPreviewSourceRef(value.beforeSource)
+    if (value.beforeSource.photoId !== value.source.photoId)
+      throw new Error('CPU comparison belongs to another photograph.')
+  }
   const parameters = value.parameters
   if (
     !parameters ||
@@ -216,14 +229,25 @@ function validate(value: CpuPreviewRequest) {
           'shadows',
           'whites',
           'blacks',
+          'saturation',
+          'vibrance',
+          'colorMixer',
+          'colorGrading',
         ].includes(key),
     ) ||
-    ['exposureEv', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'].some(
-      (key) => typeof parameters[key as keyof typeof parameters] !== 'number',
-    )
+    [
+      'exposureEv',
+      'contrast',
+      'highlights',
+      'shadows',
+      'whites',
+      'blacks',
+      'saturation',
+      'vibrance',
+    ].some((key) => typeof parameters[key as keyof typeof parameters] !== 'number')
   )
     throw new Error('Native CPU preview requires complete Light parameters.')
-  validatePatch(parameters)
+  validateProcessingPatch(parameters)
 }
 
 function validateMask(value: NativeHdrMaskRequest) {
@@ -232,6 +256,7 @@ function validateMask(value: NativeHdrMaskRequest) {
     'requestId',
     'sessionId',
     'source',
+    'comparisonOf',
     'generation',
     'expectedSettingsRevision',
     'comparison',
@@ -244,7 +269,7 @@ function validateMask(value: NativeHdrMaskRequest) {
     !value ||
     typeof value !== 'object' ||
     Array.isArray(value) ||
-    Object.keys(value).length !== keys.length ||
+    ![keys.length - 1, keys.length].includes(Object.keys(value).length) ||
     Object.keys(value).some((key) => !keys.includes(key)) ||
     value.version !== NATIVE_HDR_MASK_VERSION ||
     !uuid.test(value.requestId) ||
@@ -266,14 +291,26 @@ function validateMask(value: NativeHdrMaskRequest) {
     !['working-hdr', 'content-hdr', 'output'].includes(value.domain)
   )
     throw new Error('Invalid native HDR mask request.')
+  if (value.comparisonOf !== undefined) {
+    validateCpuPreviewSourceRef(value.comparisonOf)
+    if (value.comparison !== 'before' || value.comparisonOf.photoId !== value.source.photoId)
+      throw new Error('Invalid native Before mask lineage.')
+  }
   if (
     !value.parameters ||
-    ['exposureEv', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'].some(
-      (key) => typeof value.parameters[key as keyof typeof value.parameters] !== 'number',
-    )
+    [
+      'exposureEv',
+      'contrast',
+      'highlights',
+      'shadows',
+      'whites',
+      'blacks',
+      'saturation',
+      'vibrance',
+    ].some((key) => typeof value.parameters[key as keyof typeof value.parameters] !== 'number')
   )
     throw new Error('Native mask requires complete confirmed Light parameters.')
-  validatePatch(value.parameters)
+  validateProcessingPatch(value.parameters)
   validateTarget(value.target)
   if (
     value.target.headroom !== null &&
@@ -393,25 +430,45 @@ export class NativeCpuController {
     if (this.owner?.sessionId !== request.sessionId) {
       const previousOwner = this.owner
       this.owner = undefined
-      await this.dropPairs().finally(() => previousOwner?.lease?.release())
+      await this.dropPairs().finally(() => this.releaseOwner(previousOwner))
       const policy = structuredClone(await this.options.policy())
       signal.throwIfAborted()
       this.owner = {
         sessionId: request.sessionId,
         source: request.source,
+        beforeSource: request.beforeSource,
         policy: Object.freeze(policy),
       }
     }
     const owner = this.owner
-    if (!sameSource(owner.source, request.source))
+    if (
+      !sameSource(owner.source, request.source) ||
+      !sameOptionalSource(owner.beforeSource, request.beforeSource)
+    )
       throw new Error('A changed source requires a new CPU owner session.')
     if ([...this.pairs.values()].some((pair) => !pair.published))
       throw new Error('Previous CPU pair construction has not been acknowledged or released.')
     const lease = (owner.lease ??= await this.options.acquireSource(request, signal))
+    const beforeLease = request.beforeSource
+      ? (owner.beforeLease ??= await this.options.acquireSource(
+          { ...request, source: request.beforeSource, parameters: neutralAdjustments },
+          signal,
+          {
+            photoId: request.source.photoId,
+            cacheId: request.source.cacheId,
+            workingSha256: request.source.workingSha256,
+          },
+        ))
+      : undefined
+    const check = async () => {
+      await lease.check(request.expectedSettingsRevision, signal)
+      if (beforeLease) await beforeLease.check(request.expectedSettingsRevision, signal)
+      signal.throwIfAborted()
+    }
     let directory: string | undefined, after: FileHandle | undefined, before: FileHandle | undefined
     let keep = false
     try {
-      await lease.check(request.expectedSettingsRevision, signal)
+      await check()
       signal.throwIfAborted()
       validateHdrSource(lease.asset.source)
       if (
@@ -421,6 +478,21 @@ export class NativeCpuController {
         lease.asset.byteLength > 512 * 1024 ** 2
       )
         throw new Error('The trusted CPU lease does not match the requested source identity.')
+      if (beforeLease) {
+        validateHdrSource(beforeLease.asset.source)
+        if (
+          !sameSource(beforeLease.source, request.beforeSource!) ||
+          beforeLease.asset.sha256 !== request.beforeSource!.workingSha256 ||
+          beforeLease.asset.width !== lease.asset.width ||
+          beforeLease.asset.height !== lease.asset.height ||
+          beforeLease.asset.byteLength !== lease.asset.byteLength ||
+          JSON.stringify(beforeLease.asset.source) !== JSON.stringify(lease.asset.source) ||
+          JSON.stringify(beforeLease.asset.whiteBalance) !==
+            JSON.stringify(lease.asset.whiteBalance)
+        )
+          throw new Error('The CPU comparison source does not match its edited frame.')
+      }
+      const separateBefore = !!beforeLease && beforeLease.asset.sha256 !== lease.asset.sha256
       const scale =
         request.quality === 'draft' && Math.max(lease.asset.width, lease.asset.height) > 1024
           ? 1024 / Math.max(lease.asset.width, lease.asset.height)
@@ -444,6 +516,7 @@ export class NativeCpuController {
           threads,
           oldPairBytes,
           existingOwners: this.options.existingOwners(lease.asset, request),
+          sourceCount: separateBefore ? 2 : 1,
         },
         {
           ramBytes: owner.policy.ram.effectiveBytes,
@@ -460,7 +533,7 @@ export class NativeCpuController {
       const requestPath = join(directory, 'request.bin')
       await writeFile(requestPath, encoded, { flag: 'wx', mode: 0o600 })
       after = await open(join(directory, 'after.rgba'), 'wx', 0o600)
-      before = await open(join(directory, 'before.rgba'), 'wx', 0o600)
+      if (!separateBefore) before = await open(join(directory, 'before.rgba'), 'wx', 0o600)
       const timing = performance.now()
       const native = await this.child(
         executable,
@@ -474,17 +547,96 @@ export class NativeCpuController {
       )
       await after.close()
       after = undefined
-      await before.close()
+      await before?.close()
       before = undefined
       signal.throwIfAborted()
-      await lease.check(request.expectedSettingsRevision, signal)
+      await check()
+      let comparison:
+          { plane: { byteLength: number; sha256: string }; samples: CpuSampleStamp } | undefined,
+        beforeCacheHit = false,
+        beforeSourceReadHashSampleMs = 0
+      if (separateBefore) {
+        const key = JSON.stringify([
+            'native-unfiltered-before-v1',
+            [
+              request.beforeSource!.photoId,
+              request.beforeSource!.cacheId,
+              request.beforeSource!.renderingIdentity,
+              request.beforeSource!.workingSha256,
+            ],
+            width,
+            height,
+            request.hdrRanges,
+            request.headroom,
+          ]),
+          planePath = join(directory, 'before.rgba'),
+          samplesPath = join(directory, 'before-samples.f32'),
+          cache = (owner.beforeCache ??= new NativeCpuBeforeCache(this.options.root))
+        comparison = await cache.reuse(request.quality, key, planePath, samplesPath, signal)
+        beforeCacheHit = !!comparison
+        if (!comparison) {
+          const originalRequest: CpuPreviewRequest = {
+            ...request,
+            source: beforeLease!.source,
+            parameters: neutralAdjustments,
+          }
+          delete (originalRequest as { beforeSource?: CpuPreviewSourceRef }).beforeSource
+          const originalEncoded = this.encode(
+              originalRequest,
+              beforeLease!.asset,
+              width,
+              height,
+              owner.policy.revision,
+            ),
+            originalPath = join(directory, 'before-request.bin')
+          await writeFile(originalPath, originalEncoded, { flag: 'wx', mode: 0o600 })
+          before = await open(planePath, 'wx', 0o600)
+          const original = await this.child(
+            executable,
+            originalPath,
+            originalEncoded,
+            beforeLease!,
+            undefined,
+            before,
+            threads,
+            abort,
+          )
+          await before.close()
+          before = undefined
+          await check()
+          const data = Buffer.concat([
+            Buffer.from(original.input.samples.sample.buffer),
+            Buffer.from(original.input.samples.draft.buffer),
+          ])
+          await writeFile(samplesPath, data, { flag: 'wx', mode: 0o600 })
+          const samples: CpuSampleStamp = {
+            format: 'rgba-f32le-straight',
+            sampleCount: original.input.samples.sample.length / 4,
+            draftCount: original.input.samples.draft.length / 4,
+            byteLength: data.byteLength,
+            sha256: hash(data),
+          }
+          comparison = { plane: original.output.before, samples }
+          beforeSourceReadHashSampleMs = original.input.elapsedMs
+          await cache.retain(
+            request.quality,
+            key,
+            planePath,
+            comparison.plane,
+            samplesPath,
+            samples,
+            signal,
+          )
+        }
+        await check()
+      }
       const sampleData = Buffer.concat([
         Buffer.from(native.input.samples.sample.buffer),
         Buffer.from(native.input.samples.draft.buffer),
       ])
       await writeFile(join(directory, 'samples.f32'), sampleData, { flag: 'wx', mode: 0o600 })
       const pairId = randomUUID(),
-        base = `luma-photo://library/${request.source.photoId}/cpu/${pairId}`
+        base = `irodori-photo://library/${request.source.photoId}/cpu/${pairId}`
       const plane = (name: string, value: { byteLength: number; sha256: string }) => ({
         format: 'rgba8-srgb' as const,
         width,
@@ -498,6 +650,7 @@ export class NativeCpuController {
         requestId: request.requestId,
         sessionId: request.sessionId,
         source: lease.source,
+        ...(request.beforeSource ? { beforeSource: beforeLease!.source } : {}),
         generation: request.generation,
         settingsRevision: request.expectedSettingsRevision,
         parameters: request.parameters,
@@ -507,7 +660,7 @@ export class NativeCpuController {
         sourceDimensions: { width: lease.asset.width, height: lease.asset.height },
         policy: owner.policy,
         after: plane('after', native.output.after),
-        before: plane('before', native.output.before),
+        before: plane('before', comparison?.plane ?? native.output.before),
         samples: {
           format: 'rgba-f32le-straight',
           sampleCount: native.input.samples.sample.length / 4,
@@ -516,6 +669,9 @@ export class NativeCpuController {
           sha256: hash(sampleData),
           url: `${base}/samples`,
         },
+        ...(comparison
+          ? { beforeSamples: { ...comparison.samples, url: `${base}/before-samples` } }
+          : {}),
         diagnostics: {
           implementation: 'float64-ctl-cpu-strip-v1',
           threads,
@@ -525,6 +681,7 @@ export class NativeCpuController {
           childAndOutputMs: performance.now() - timing,
           managedRamPeakBytes: plan.peak.ramBytes,
           managedGpuPeakBytes: plan.peak.gpuBytes,
+          ...(separateBefore ? { beforeCacheHit, beforeSourceReadHashSampleMs } : {}),
         },
       }
       await writeFile(join(directory, 'manifest.pending'), JSON.stringify(result), {
@@ -532,10 +689,10 @@ export class NativeCpuController {
         mode: 0o600,
       })
       signal.throwIfAborted()
-      await lease.check(request.expectedSettingsRevision, signal)
+      await check()
       await rename(join(directory, 'manifest.pending'), join(directory, 'manifest.json'))
       signal.throwIfAborted()
-      await lease.check(request.expectedSettingsRevision, signal)
+      await check()
       signal.throwIfAborted()
       this.pairs.set(pairId, { result, directory, pins: 0, retained: true, published: false })
       keep = true
@@ -640,7 +797,7 @@ export class NativeCpuController {
         )
       )
         throw new Error('The native mask frozen source policy changed.')
-      validatePatch(lease.parameters)
+      validateProcessingPatch(lease.parameters)
       if (!sameAdjustments(lease.parameters, request.parameters))
         throw new Error('Native mask parameters do not match confirmed Before/After history.')
       if (
@@ -699,6 +856,7 @@ export class NativeCpuController {
           sessionId: request.sessionId,
           maskId,
           source: lease.source,
+          ...(request.comparisonOf ? { comparisonOf: request.comparisonOf } : {}),
           generation: request.generation,
           settingsRevision: request.expectedSettingsRevision,
           comparison: request.comparison,
@@ -712,7 +870,7 @@ export class NativeCpuController {
           arithmeticSha256: configuration.arithmeticSha256,
           byteLength: native.output.byteLength,
           sha256: native.output.sha256,
-          url: `luma-photo://library/${request.source.photoId}/mask/${maskId}`,
+          url: `irodori-photo://library/${request.source.photoId}/mask/${maskId}`,
           additionalReservation: plan.additional,
         }
       await writeFile(join(directory, 'manifest.pending'), JSON.stringify(result), {
@@ -786,14 +944,14 @@ export class NativeCpuController {
     parameters: AdjustmentParameters,
     arithmeticSha256: string,
   ) {
-    const data = Buffer.alloc(416),
+    const data = Buffer.alloc(NATIVE_MASK_REQUEST_BYTES),
       wb = hdrAdjustmentMatrix(parameters, asset.whiteBalance),
       flags =
         Number(Boolean(wb)) |
         (Number(Boolean(asset.source.display)) << 1) |
         (Number(request.target.headroom !== null) << 4)
-    data.write('MASKCPU1')
-    data.writeUInt32LE(1, 8)
+    data.write('MASKCPU3')
+    data.writeUInt32LE(3, 8)
     data.writeUInt32LE(flags, 12)
     data.writeUInt32LE(asset.width, 16)
     data.writeUInt32LE(asset.height, 20)
@@ -822,6 +980,11 @@ export class NativeCpuController {
     data.writeDoubleLE(request.target.peak, 368)
     data.writeDoubleLE(request.target.headroom ?? 0, 376)
     Buffer.from(arithmeticSha256, 'hex').copy(data, 384)
+    data.writeDoubleLE(parameters.saturation, 416)
+    data.writeDoubleLE(parameters.vibrance, 424)
+    nativeColorValues(parameters).forEach((value, index) =>
+      data.writeDoubleLE(value, NATIVE_MASK_COLOR_OFFSET + index * 8),
+    )
     return data
   }
   private async maskChild(
@@ -910,7 +1073,7 @@ export class NativeCpuController {
   }
   acquireMask(url: URL) {
     if (
-      url.protocol !== 'luma-photo:' ||
+      url.protocol !== 'irodori-photo:' ||
       url.hostname !== 'library' ||
       url.search ||
       url.hash ||
@@ -965,15 +1128,15 @@ export class NativeCpuController {
     revision: number,
   ) {
     const wb = hdrAdjustmentMatrix(request.parameters, asset.whiteBalance),
-      data = Buffer.alloc(400)
+      data = Buffer.alloc(NATIVE_CPU_REQUEST_BYTES)
     const flags =
       Number(!!wb) |
       (Number(!!asset.source.display) << 1) |
       (Number(request.hdrRanges) << 2) |
       (Number(sameAdjustments(request.parameters, neutralAdjustments)) << 3) |
       (Number(request.headroom !== null) << 4)
-    data.write('LUMACPU1')
-    data.writeUInt32LE(1, 8)
+    data.write('IRODCPU3')
+    data.writeUInt32LE(3, 8)
     data.writeUInt32LE(flags, 12)
     for (const [at, n] of [
       [16, asset.width],
@@ -999,6 +1162,11 @@ export class NativeCpuController {
     )
     ;(wb ?? [1, 0, 0, 0, 1, 0, 0, 0, 1]).forEach((n, i) => data.writeDoubleLE(n, 320 + i * 8))
     data.writeDoubleLE(request.headroom ?? 0, 392)
+    data.writeDoubleLE(p.saturation, 400)
+    data.writeDoubleLE(p.vibrance, 408)
+    nativeColorValues(p).forEach((value, index) =>
+      data.writeDoubleLE(value, NATIVE_CPU_COLOR_OFFSET + index * 8),
+    )
     return data
   }
   private async child(
@@ -1006,8 +1174,8 @@ export class NativeCpuController {
     requestPath: string,
     encoded: Buffer,
     lease: CpuWorkingLease,
-    after: FileHandle,
-    before: FileHandle,
+    after: FileHandle | undefined,
+    before: FileHandle | undefined,
     threads: 1 | 4 | 8,
     abort: AbortController,
   ) {
@@ -1093,7 +1261,7 @@ export class NativeCpuController {
 
   acquire(url: URL) {
     if (
-      url.protocol !== 'luma-photo:' ||
+      url.protocol !== 'irodori-photo:' ||
       url.hostname !== 'library' ||
       url.search ||
       url.hash ||
@@ -1107,21 +1275,24 @@ export class NativeCpuController {
       kind !== 'cpu' ||
       extra !== undefined ||
       !uuid.test(pairId ?? '') ||
-      !['after', 'before', 'samples'].includes(plane)
+      !['after', 'before', 'samples', 'before-samples'].includes(plane)
     )
       return
     const entry = this.pairs.get(pairId)
     if (!entry?.retained || entry.result.source.photoId !== photoId) return
     const metadata =
-      plane === 'samples'
-        ? entry.result.samples
-        : plane === 'after'
-          ? entry.result.after
-          : entry.result.before
+      plane === 'before-samples'
+        ? entry.result.beforeSamples
+        : plane === 'samples'
+          ? entry.result.samples
+          : plane === 'after'
+            ? entry.result.after
+            : entry.result.before
+    if (!metadata) return
     entry.pins++
     let released = false
     return {
-      path: join(entry.directory, plane === 'samples' ? 'samples.f32' : `${plane}.rgba`),
+      path: join(entry.directory, plane.endsWith('samples') ? `${plane}.f32` : `${plane}.rgba`),
       contentType: 'application/octet-stream',
       byteLength: metadata.byteLength,
       release: () => {
@@ -1133,12 +1304,22 @@ export class NativeCpuController {
     }
   }
   /** Actual acknowledged CPU bitmap owner, independent of compositor/report RAFs. */
-  hasCpuPresentationSource(source: CpuPreviewSourceRef): boolean {
+  hasCpuPresentationSource(
+    source: CpuPreviewSourceRef,
+    comparisonOf?: CpuPreviewSourceRef,
+  ): boolean {
+    const matches = (after: CpuPreviewSourceRef, before?: CpuPreviewSourceRef) =>
+      comparisonOf
+        ? sameSource(after, comparisonOf) && !!before && sameSource(before, source)
+        : sameSource(after, source)
     return (
       !!this.owner &&
-      sameSource(this.owner.source, source) &&
+      matches(this.owner.source, this.owner.beforeSource) &&
       [...this.pairs.values()].some(
-        (entry) => entry.published && entry.retained && sameSource(entry.result.source, source),
+        (entry) =>
+          entry.published &&
+          entry.retained &&
+          matches(entry.result.source, entry.result.beforeSource),
       )
     )
   }
@@ -1213,6 +1394,16 @@ export class NativeCpuController {
   private async dropPairs() {
     await Promise.all([...this.pairs.values()].map((entry) => this.drop(entry)))
   }
+  private async releaseOwner(owner?: Owner) {
+    const results = await Promise.allSettled([
+        owner?.beforeCache?.close(),
+        owner?.beforeLease?.release(),
+        owner?.lease?.release(),
+      ]),
+      errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
+    if (errors.length === 1) throw errors[0]
+    if (errors.length > 1) throw new AggregateError(errors, 'CPU source-pair retirement failed.')
+  }
   beforeRemoval(photoId: string) {
     return this.retireOwners((owner) => owner.source.photoId === photoId, 'CPU source removed.')
   }
@@ -1260,7 +1451,7 @@ export class NativeCpuController {
       ))
         if (result.status === 'rejected') errors.push(result.reason)
       try {
-        await owner?.lease?.release()
+        await this.releaseOwner(owner)
       } catch (error) {
         errors.push(error)
       }

@@ -108,7 +108,7 @@ interface AttemptEvidence {
 }
 
 async function mergeBaseline(mode: MergeMode) {
-  const input = process.env.LUMA_MERGE_THREE_RAW_BASELINE
+  const input = process.env.IRODORI_MERGE_THREE_RAW_BASELINE
   if (!input) return
   const path = resolve(input),
     bytes = await readFile(path),
@@ -273,7 +273,7 @@ for (const mode of ['noise', 'hdr'] as const)
           'src/main/merge/cpu-kernels.ts',
           'src/main/merge/kernels/prepare.c',
           'src/main/merge/gpu-output.ts',
-          'vendor/merge-kernels/luma-merge-kernels.wasm',
+          'vendor/merge-kernels/irodori-merge-kernels.wasm',
           'vendor/merge-kernels/manifest.json',
           'src/main/merge/preparation-policy.ts',
           'src/main/preview-process.ts',
@@ -316,7 +316,7 @@ for (const mode of ['noise', 'hdr'] as const)
         }
         attempts.push(attempt)
         const retained: Record<string, unknown> = { attempt }
-        const root = await mkdtemp(join(libraries, `luma-three-${mode}-`))
+        const root = await mkdtemp(join(libraries, `irodori-three-${mode}-`))
         let observe = () => {}
         const library = new PhotoLibrary(
           root,
@@ -563,7 +563,7 @@ for (const mode of ['noise', 'hdr'] as const)
             'Alignment overlaps unchanged reference fallback',
           ).toBe(true)
         }
-        if (mode === 'hdr' && process.env.LUMA_MERGE_CPU_KERNEL === 'wasm') {
+        if (mode === 'hdr' && process.env.IRODORI_MERGE_CPU_KERNEL === 'wasm') {
           for (const prepared of measured!.preparation)
             expect(prepared.work?.cpuKernel?.backend, 'Requested SIMD preparation ran').toBe(
               'wasm-simd',
@@ -572,15 +572,15 @@ for (const mode of ['noise', 'hdr'] as const)
             measured?.referenceFallback?.work?.cpuKernel?.backend,
             'Requested SIMD highlight fallback ran',
           ).toBe('wasm-simd')
-          if (process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES)
+          if (process.env.IRODORI_MERGE_GAIN_CACHE_ENTRIES)
             expect(measured?.referenceFallback?.work?.cpuKernel?.gainCacheEntries).toBe(
-              Number(process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES),
+              Number(process.env.IRODORI_MERGE_GAIN_CACHE_ENTRIES),
             )
         }
-        if (process.env.LUMA_MERGE_OUTPUT_SLOTS) {
+        if (process.env.IRODORI_MERGE_OUTPUT_SLOTS) {
           expect(measured?.output?.backend).toBe('gpu')
           expect(measured?.output?.conversion?.slots).toBe(
-            Number(process.env.LUMA_MERGE_OUTPUT_SLOTS),
+            Number(process.env.IRODORI_MERGE_OUTPUT_SLOTS),
           )
           expect(measured?.output?.conversion?.pendingPeak).toBeLessThanOrEqual(2)
         }
@@ -634,10 +634,10 @@ for (const mode of ['noise', 'hdr'] as const)
           includesDiagnosticSnapshot: true,
           includesElectronPresentation: false,
           experiment: {
-            outputSlots: process.env.LUMA_MERGE_OUTPUT_SLOTS ?? 'default',
-            gpuTimestamps: process.env.LUMA_MERGE_GPU_TIMESTAMPS === '1',
-            cpuKernel: process.env.LUMA_MERGE_CPU_KERNEL ?? 'default',
-            gainCacheEntries: process.env.LUMA_MERGE_GAIN_CACHE_ENTRIES ?? 'default',
+            outputSlots: process.env.IRODORI_MERGE_OUTPUT_SLOTS ?? 'default',
+            gpuTimestamps: process.env.IRODORI_MERGE_GPU_TIMESTAMPS === '1',
+            cpuKernel: process.env.IRODORI_MERGE_CPU_KERNEL ?? 'default',
+            gainCacheEntries: process.env.IRODORI_MERGE_GAIN_CACHE_ENTRIES ?? 'default',
           },
           publicationFilesystem: 'project-filesystem',
           clock:

@@ -102,7 +102,7 @@ export function ImportCandidates({
       `${review.sessionId}:${review.orderingRevision}`,
       review.total,
       async (offset) => {
-        const chunk = await globalThis.window.luma.getReviewChunk(
+        const chunk = await globalThis.window.irodori.getReviewChunk(
           review.sessionId,
           offset,
           review.orderingRevision,
@@ -122,7 +122,7 @@ export function ImportCandidates({
           previous,
           async (id) =>
             (
-              await globalThis.window.luma.locateReviewCandidate(
+              await globalThis.window.irodori.locateReviewCandidate(
                 review.sessionId,
                 id,
                 review.orderingRevision,
@@ -141,7 +141,7 @@ export function ImportCandidates({
         }
       }
       if (latest.current.focus) {
-        const location = await globalThis.window.luma.locateReviewCandidate(
+        const location = await globalThis.window.irodori.locateReviewCandidate(
           review.sessionId,
           latest.current.focus.id,
           review.orderingRevision,
@@ -225,11 +225,13 @@ export function ImportCandidates({
         : [],
       lookahead: active ? ids(window.lookahead).slice(0, currentCollectionPolicy().records) : [],
     }
-    void globalThis.window.luma.requestReviewThumbnails(review.sessionId, request).catch(() => {})
+    void globalThis.window.irodori
+      .requestReviewThumbnails(review.sessionId, request)
+      .catch(() => {})
   }, [collection.records, window, active, review.sessionId])
   useEffect(
     () => () => {
-      void globalThis.window.luma
+      void globalThis.window.irodori
         .requestReviewThumbnails(review.sessionId, {
           generation: ++generation.current,
           visible: [],

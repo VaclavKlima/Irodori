@@ -14,7 +14,7 @@ export async function setup(
   directoryVisibility?: Pick<DeviceDirectoryVisibility, 'hiddenEntries' | 'close'>,
   exportRenderer?: Pick<ExportProcess, 'render'>,
 ) {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'luma-library-')))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'irodori-library-')))
   const engine = new PreviewEngine()
   const service = new PhotoLibrary(
     join(root, 'library'),

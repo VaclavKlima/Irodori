@@ -1,4 +1,4 @@
-/** Luma's versioned whites curve, in luminance normalized to display white. */
+/** Irodori's versioned whites curve, in luminance normalized to display white. */
 export const whitesModule = {
   id: 'whites',
   version: 1,

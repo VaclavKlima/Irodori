@@ -1,7 +1,7 @@
 import type { AdjustmentParameters } from './adjustments'
 import type { ResourcePolicySnapshot } from './resource-policy'
 
-export const NATIVE_CPU_PREVIEW_VERSION = 'native-cpu-preview-v1' as const
+export const NATIVE_CPU_PREVIEW_VERSION = 'native-cpu-preview-v3' as const
 export interface CpuPreviewSourceRef {
   readonly photoId: string
   /** Token of the actual main-owned prepared source, never a path or URL. */
@@ -9,11 +9,32 @@ export interface CpuPreviewSourceRef {
   readonly renderingIdentity: string
   readonly workingSha256: string
 }
+export function validateCpuPreviewSourceRef(value: unknown): asserts value is CpuPreviewSourceRef {
+  const ref = value as CpuPreviewSourceRef | null
+  if (
+    !ref ||
+    typeof ref !== 'object' ||
+    Array.isArray(ref) ||
+    Object.keys(ref).sort().join(',') !== 'cacheId,photoId,renderingIdentity,workingSha256' ||
+    typeof ref.photoId !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(ref.photoId) ||
+    typeof ref.cacheId !== 'string' ||
+    !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(ref.cacheId) ||
+    typeof ref.workingSha256 !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(ref.workingSha256) ||
+    typeof ref.renderingIdentity !== 'string' ||
+    !ref.renderingIdentity ||
+    ref.renderingIdentity.length > 512
+  )
+    throw new Error('Invalid native CPU source reference.')
+}
 export interface CpuPreviewRequest {
   readonly version: typeof NATIVE_CPU_PREVIEW_VERSION
   readonly requestId: string
   readonly sessionId: string
   readonly source: CpuPreviewSourceRef
+  /** Main authorizes this unfiltered capability against source and the same revision. */
+  readonly beforeSource?: CpuPreviewSourceRef
   readonly generation: number
   readonly expectedSettingsRevision: number
   readonly parameters: AdjustmentParameters
@@ -28,7 +49,7 @@ export interface CpuPreviewPlane {
   readonly height: number
   readonly byteLength: number
   readonly sha256: string
-  /** Main-created luma-photo capability URL, never a filesystem location. */
+  /** Main-created irodori-photo capability URL, never a filesystem location. */
   readonly url: string
 }
 export interface CpuPreviewSamples {
@@ -45,6 +66,7 @@ export interface CpuPreviewPair {
   readonly requestId: string
   readonly sessionId: string
   readonly source: CpuPreviewSourceRef
+  readonly beforeSource?: CpuPreviewSourceRef
   readonly generation: number
   readonly settingsRevision: number
   readonly parameters: AdjustmentParameters
@@ -56,6 +78,8 @@ export interface CpuPreviewPair {
   readonly after: CpuPreviewPlane
   readonly before: CpuPreviewPlane
   readonly samples: CpuPreviewSamples
+  /** Present only when Before has distinct source pixels; never relabel After samples. */
+  readonly beforeSamples?: CpuPreviewSamples
   readonly diagnostics: {
     readonly implementation: 'float64-ctl-cpu-strip-v1'
     readonly threads: 1 | 4 | 8
@@ -65,6 +89,8 @@ export interface CpuPreviewPair {
     readonly childAndOutputMs: number
     readonly managedRamPeakBytes: number
     readonly managedGpuPeakBytes: number
+    readonly beforeCacheHit?: boolean
+    readonly beforeSourceReadHashSampleMs?: number
   }
 }
 

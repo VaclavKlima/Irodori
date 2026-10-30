@@ -2,7 +2,30 @@
 
 ## Status
 
-**Planned.** Luminance and chroma noise reduction are not implemented. [Shared requirements](README.md#shared-implementation-requirements) apply.
+**Public controls implemented; stronger high-noise processing remains required for Goal 1 acceptance.**
+The inspector exposes Luminance noise and Color noise, both 0…100 with zero bypass.
+The typed edit/MCP API uses `noiseReduction.luminance` and `.chroma` and the same
+revision-checked history as other edits. Settings 11/catalog 21 migrate older
+history with neutral defaults. Changes prepare a new native source on commit;
+point-color edits reuse it. The white-balance picker retains the original source.
+
+The [detail decision record](detail-processing.md) retains bounded NLM selection,
+independent noise/texture references, CPU/GPU agreement, fixed resource limits and
+prepared-native reference-WB placement before geometry/manual WB. Preview/export
+share the filters and cache leases; an independently authorized original source
+supports Before/Split. Small hidden application cases verify UI/MCP, history,
+comparison pixels, cancellation, keyboard/layout and restart; a tiny real JPEG
+export retains frozen settings through foreground retry and subsequent editing.
+Later focused checkpoints add real RAW/HDR/gain-map/merge application and export,
+whole-source CPU/GPU agreement, exact full-RAW admission/cancellation/retry and
+native keyboard/composition checks; see the [acceptance record](professional-editing-processing.md).
+Actual ISO 6400 portrait review still shows weak cleanup with NR v1 at 50 and 100.
+On 2026-10-29 the user chose to improve strong-noise removal before Goal 1
+acceptance. Noise-aware candidates remain research until their independent gates,
+backward-compatible history, UI/MCP/export integration and resources are verified.
+Existing v1 edits must not be silently retuned. Broader photographic quality,
+contention and performance acceptance remain unfinished.
+[Shared requirements](README.md#shared-implementation-requirements) apply.
 
 ## Goal
 

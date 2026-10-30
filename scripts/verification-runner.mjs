@@ -126,11 +126,12 @@ async function runtimeInfo() {
 
 async function baselineInfo(plan, artifacts) {
   if (!plan.groups.some((g) => g.stage === 'benchmark-preview')) return { status: 'not-required' }
-  const path = process.env.LUMA_PREVIEW_BASELINE
+  const path = process.env.IRODORI_PREVIEW_BASELINE
   if (!path)
     return {
       status: 'missing',
-      reason: 'LUMA_PREVIEW_BASELINE is unset; the 15% uncorrected regression gate is unverified.',
+      reason:
+        'IRODORI_PREVIEW_BASELINE is unset; the 15% uncorrected regression gate is unverified.',
     }
   try {
     const bytes = await readFile(path),
@@ -143,7 +144,7 @@ async function baselineInfo(plan, artifacts) {
       throw new Error('Baseline needs positive CPU and GPU medians.')
     if (
       baseline.sample !==
-      basename(process.env.LUMA_RAW_BENCHMARK_FILE ?? 'tests/fixtures/sony-zv1.ARW')
+      basename(process.env.IRODORI_RAW_BENCHMARK_FILE ?? 'tests/fixtures/sony-zv1.ARW')
     )
       throw new Error('Baseline sample differs from the selected benchmark sample.')
     const snapshot = join(artifacts, 'baseline.json')
@@ -211,11 +212,11 @@ export async function executePlan(
     buildFailed = false
   const baseEnv = {
     ...process.env,
-    LUMA_VERIFICATION_DIR: artifacts,
-    LUMA_PREVIEW_BENCHMARK: '0',
-    LUMA_TEST_UI_MODE: plan.uiMode,
+    IRODORI_VERIFICATION_DIR: artifacts,
+    IRODORI_PREVIEW_BENCHMARK: '0',
+    IRODORI_TEST_UI_MODE: plan.uiMode,
   }
-  delete baseEnv.LUMA_TEST_GROUP
+  delete baseEnv.IRODORI_TEST_GROUP
   const stage = async (
     name,
     phase,
@@ -234,10 +235,10 @@ export async function executePlan(
       log,
       targets,
       workers,
-      rerun: `LUMA_TEST_UI_MODE=${plan.uiMode} ${[command, ...args].map((s) => `'${s.replaceAll("'", "'\\''")}'`).join(' ')}`,
+      rerun: `IRODORI_TEST_UI_MODE=${plan.uiMode} ${[command, ...args].map((s) => `'${s.replaceAll("'", "'\\''")}'`).join(' ')}`,
     }
     if (phase === 'benchmark')
-      record.rerun = `LUMA_PREVIEW_BENCHMARK=1 LUMA_TEST_TRACE=0 ${env.LUMA_PREVIEW_BASELINE ? `LUMA_PREVIEW_BASELINE='${env.LUMA_PREVIEW_BASELINE.replaceAll("'", "'\\''")}' ` : ''}${record.rerun}`
+      record.rerun = `IRODORI_PREVIEW_BENCHMARK=1 IRODORI_TEST_TRACE=0 ${env.IRODORI_PREVIEW_BASELINE ? `IRODORI_PREVIEW_BASELINE='${env.IRODORI_PREVIEW_BASELINE.replaceAll("'", "'\\''")}' ` : ''}${record.rerun}`
     result.stages.push(record)
     if (
       controller.signal.aborted ||
@@ -286,11 +287,11 @@ export async function executePlan(
       baselineInfo(plan, artifacts),
     ])
     if (result.baseline.status === 'available')
-      baseEnv.LUMA_PREVIEW_BASELINE = result.baseline.snapshot
+      baseEnv.IRODORI_PREVIEW_BASELINE = result.baseline.snapshot
     if (['missing', 'invalid'].includes(result.baseline.status)) {
       result.incomplete.push(result.baseline.reason)
       // Invalid evidence cannot be used by the optional baseline assertions.
-      delete baseEnv.LUMA_PREVIEW_BASELINE
+      delete baseEnv.IRODORI_PREVIEW_BASELINE
     }
     if (plan.staticChecks)
       await Promise.all(
@@ -314,9 +315,9 @@ export async function executePlan(
       const record = await stage(group.stage, group.phase, process.execPath, args, {
         env: {
           ...baseEnv,
-          LUMA_TEST_GROUP: group.directory,
-          LUMA_PREVIEW_BENCHMARK: group.phase === 'benchmark' ? '1' : '0',
-          ...(group.phase === 'benchmark' ? { LUMA_TEST_TRACE: '0' } : {}),
+          IRODORI_TEST_GROUP: group.directory,
+          IRODORI_PREVIEW_BENCHMARK: group.phase === 'benchmark' ? '1' : '0',
+          ...(group.phase === 'benchmark' ? { IRODORI_TEST_TRACE: '0' } : {}),
         },
         targets: group.targets,
         workers: group.workers,

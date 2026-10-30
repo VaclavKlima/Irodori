@@ -1,4 +1,4 @@
-/** Luma's SDR luminance curve; this is not OpenColorIO's contrast operator. */
+/** Irodori's SDR luminance curve; this is not OpenColorIO's contrast operator. */
 export const contrastModule = {
   id: 'contrast',
   version: 1,

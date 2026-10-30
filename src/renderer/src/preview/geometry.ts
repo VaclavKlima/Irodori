@@ -1,4 +1,5 @@
 import type { PreviewViewState } from '../../../shared/workspace'
+import { cropPointToSource, type CropGeometry } from '../../../shared/crop'
 export interface Size {
   width: number
   height: number
@@ -11,6 +12,41 @@ export interface View {
 }
 export const ZOOM_STOPS = [0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32]
 export const INITIAL_VIEW: View = { fit: true, scale: 1, x: 0, y: 0 }
+
+/** CSS point to the uncropped, oriented native image, independent of display density. */
+export function normalizedSourcePoint(
+  point: { x: number; y: number },
+  image: Size,
+  viewport: Size,
+  view: View,
+  crop?: CropGeometry,
+): { x: number; y: number } | null {
+  if (
+    ![
+      point.x,
+      point.y,
+      image.width,
+      image.height,
+      viewport.width,
+      viewport.height,
+      view.scale,
+      view.x,
+      view.y,
+    ].every(Number.isFinite) ||
+    image.width <= 0 ||
+    image.height <= 0 ||
+    viewport.width <= 0 ||
+    viewport.height <= 0 ||
+    view.scale <= 0 ||
+    (crop && (image.width !== crop.width || image.height !== crop.height))
+  )
+    return null
+  const x = (point.x - viewport.width / 2 - view.x) / view.scale + image.width / 2,
+    y = (point.y - viewport.height / 2 - view.y) / view.scale + image.height / 2
+  if (x < 0 || y < 0 || x >= image.width || y >= image.height) return null
+  const normalized = { x: x / image.width, y: y / image.height }
+  return crop ? cropPointToSource(crop, normalized) : normalized
+}
 
 export function fitScale(image: Size, viewport: Size): number {
   if (image.width <= 0 || image.height <= 0 || viewport.width <= 0 || viewport.height <= 0) return 1
@@ -77,14 +113,10 @@ export function wheelScale(
   physicalControl = false,
 ): number {
   const pixels = wheelPixels(delta, mode, viewportHeight)
-  // Bound coarse or accelerated mouse deltas while retaining fractional wheel precision.
-  // Touchpad pinch keeps Chromium's logarithmic scale conversion.
-  return (
-    scale *
-    (physicalControl
-      ? 1.1 ** (-Math.max(-100, Math.min(100, pixels)) / 100)
-      : Math.exp(-pixels * 0.01))
-  )
+  // High-resolution wheels split a notch across several events. Integrate distance
+  // without a per-event cap so split and coalesced input produce the same zoom.
+  // A 120-pixel mouse movement gives a 10% step; pinch keeps native sensitivity.
+  return scale * (physicalControl ? 1.1 ** (-pixels / 120) : Math.exp(-pixels * 0.01))
 }
 export function wheelPixels(delta: number, mode: number, viewportExtent: number): number {
   return delta * (mode === 1 ? 16 : mode === 2 ? viewportExtent : 1)
@@ -97,16 +129,25 @@ export function wheelView(
   viewport: Size,
   physicalControl = false,
 ): View {
-  if (event.ctrlKey)
-    return event.deltaY
-      ? zoomAt(
-          view,
-          wheelScale(view.scale, event.deltaY, event.deltaMode, viewport.height, physicalControl),
-          point,
-          image,
-          viewport,
-        )
-      : view
+  if (event.ctrlKey) {
+    if (!event.deltaY) return view
+    const scale = wheelScale(
+      view.scale,
+      event.deltaY,
+      event.deltaMode,
+      viewport.height,
+      physicalControl,
+    )
+    const fitted = fitScale(image, viewport)
+    // A physical detent can end one high-resolution fragment short on reversal.
+    // Catch that small remainder near Fit without changing continuous pinch scale.
+    const fitThreshold = fitted * (physicalControl ? 1.02 : 1 + 1e-12)
+    // Restore actual Fit, including resize behavior, rather than passing through
+    // its numeric scale. Explicit toolbar scales below Fit remain available.
+    if (event.deltaY > 0 && view.scale >= fitted * (1 - 1e-12) && scale <= fitThreshold)
+      return view.fit ? view : constrain(INITIAL_VIEW, image, viewport)
+    return zoomAt(view, scale, point, image, viewport)
+  }
   if (view.fit || (!event.deltaX && !event.deltaY)) return view
   const horizontal = event.shiftKey && event.deltaX === 0
   return constrain(

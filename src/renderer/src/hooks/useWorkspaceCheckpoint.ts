@@ -5,7 +5,7 @@ import type { WorkspaceState } from '../../../shared/workspace'
 export function useWorkspaceCheckpoint() {
   const [status, setStatus] = useState('')
   const [checkpoint] = useState(
-    () => new WorkspaceCheckpoint((change) => window.luma.saveWorkspaceState(change), setStatus),
+    () => new WorkspaceCheckpoint((change) => window.irodori.saveWorkspaceState(change), setStatus),
   )
   const patch = useCallback(
     (change: Partial<WorkspaceState>) => checkpoint.patch(change),

@@ -8,7 +8,8 @@ export function hdrDevice(): Promise<GPUDevice> {
       throw new Error('A hardware WebGPU adapter is unavailable.')
     const device = await adapter.requestDevice({
       requiredFeatures:
-        import.meta.env.VITE_LUMA_HDR_GPU_TIMINGS === '1' && adapter.features.has('timestamp-query')
+        import.meta.env.VITE_IRODORI_HDR_GPU_TIMINGS === '1' &&
+        adapter.features.has('timestamp-query')
           ? ['timestamp-query']
           : [],
       requiredLimits: {

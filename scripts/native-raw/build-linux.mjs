@@ -32,10 +32,10 @@ const archive = resolve(archiveArg)
 const started = performance.now()
 const archiveSha256 = 'a789dc4e2409e2901d93793a4e0b80c7b49d0d97cf6ad71c850eb7616acfd786'
 const pinned = {
-  'bridge.cpp': 'a0697614bc852a7e3964a59e0d685ff2494f8544d333ccf4cf0eaa9789a7f62a',
-  'rows-abi.h': 'a58e4b0ca4f36a0b2285eda1d82ddd8e32125bd690747ca029d2e5cb8b7c6119',
-  'src/rows.rs': '26a0edef7a4df9503495a5cea4f42004489b005e9cb164b597e924156ea23da8',
-  'src/parent_guard.rs': 'b7db1736d0a75ce497c4b44198bd99edcaa8609459890cecd2e2638902020abd',
+  'bridge.cpp': 'de11acca7a065ba1c8a3fba228c57b70ba01772176c0e55f09e2e6f4c95e4f6f',
+  'rows-abi.h': '91b4dbc0765451ea532a201b3be90b40a8ab9411af720a1e5c4078f67633e559',
+  'src/rows.rs': '9597328a7638cf5e01ae14f2cf053db19f8863904d85c6802d7d4dc945f3a89a',
+  'src/parent_guard.rs': '5fe394a55f7bf54a396c83c8cdeb69d34da2e55854d476d984c61bcf3fb769fb',
 }
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex')
 const bounded = (path, maximum) => {
@@ -90,13 +90,13 @@ const buildEnv = {
   RUSTC: rustc,
   RUSTFLAGS: '',
   CARGO_ENCODED_RUSTFLAGS: '',
-  LUMA_RAW_SOURCE: source,
+  IRODORI_RAW_SOURCE: source,
 }
 const report = {
-  implementation: 'luma-owned-sony-arw2-rows-v1',
+  implementation: 'irodori-owned-sony-arw2-rows-v1',
   status: 'building',
   applicationAcceptance: false,
-  streamContract: 'luma-parallel-sony-arw2-rows-v1',
+  streamContract: 'irodori-parallel-sony-arw2-rows-v1',
   entry: '--owned-rows-v1',
   maximumTotalThreads: 8,
   descriptorLayout: {
@@ -169,7 +169,7 @@ try {
   run('tar', ['-xzf', archive, '-C', working])
   const decoder = join(source, 'src/decoders/decoders_dcraw.cpp')
   const originalDecoderSha256 = 'e17e3faac2e9d5de0d1c3155b5fe37165010a09eab9a80f63523a391237d1658'
-  const patchedDecoderSha256 = '6a50c59729af5d0ee5d75832e54b3fec585d77a1bb702f2f48da962ef9331856'
+  const patchedDecoderSha256 = '9513732388a2010d842ff5893cfe8067c440089734a4487ddfe578c1760bf302'
   const pinnedHeaders = {
     'libraw/libraw.h': '48b3048304f42266ddb5bb5068f69427c249d574f80d8423387906d44bcae27d',
     'libraw/libraw_internal.h': '50a814b8f5d8308d57d31aa616f239215042f3d4befea50c9a8af983f4bf9c27',
@@ -182,11 +182,11 @@ try {
     needle = 'void LibRaw::sony_arw2_load_raw()\n{\n'
   if (before.split(needle).length !== 2) throw new Error('Sony row dispatch seam is ambiguous.')
   const replacement =
-    'extern "C" int luma_parallel_sony_arw2(void*);\n' +
+    'extern "C" int irodori_parallel_sony_arw2(void*);\n' +
     needle +
-    '  const int luma_rows = luma_parallel_sony_arw2(this);\n' +
-    '  if (luma_rows > 0) return;\n' +
-    '  if (luma_rows < 0) throw LIBRAW_EXCEPTION_IO_CORRUPT;\n'
+    '  const int irodori_rows = irodori_parallel_sony_arw2(this);\n' +
+    '  if (irodori_rows > 0) return;\n' +
+    '  if (irodori_rows < 0) throw LIBRAW_EXCEPTION_IO_CORRUPT;\n'
   writeFileSync(join(working, 'decoders_dcraw.original.cpp'), before, { flag: 'wx' })
   writeFileSync(decoder, before.replace(needle, replacement))
   if (hash(decoder) !== patchedDecoderSha256)
@@ -219,8 +219,8 @@ try {
     '--target-dir',
     join(working, 'cargo'),
   ])
-  const binary = join(working, 'luma-raw')
-  copyFileSync(join(working, 'cargo/release/luma-raw'), binary)
+  const binary = join(working, 'irodori-raw')
+  copyFileSync(join(working, 'cargo/release/irodori-raw'), binary)
   chmodSync(binary, 0o755)
   Object.assign(report, {
     status: 'built-unverified',
@@ -239,20 +239,20 @@ try {
     writeFileSync(
       join(destination, 'licenses/NOTICE.txt'),
       [
-        'Luma main-owned native RAW sensor source',
+        'Irodori main-owned native RAW sensor source',
         'LibRaw 0.22.1; upstream LGPL/CDDL notices are included unchanged.',
         'Source: https://github.com/LibRaw/LibRaw/tree/0.22.1',
-        'Luma adds the pinned Sony dispatch hook, bounded Rust row kernel and owned FD/start entry.',
+        'Irodori adds the pinned Sony dispatch hook, bounded Rust row kernel and owned FD/start entry.',
         `Corresponding original/modified LibRaw and host source: ${working}`,
         'No test, pixel/lifecycle acceptance or application performance is implied by staging.',
         '',
       ].join('\n'),
     )
-    const temporary = join(destination, `luma-raw-${process.pid}.tmp`)
+    const temporary = join(destination, `irodori-raw-${process.pid}.tmp`)
     copyFileSync(binary, temporary, constants.COPYFILE_EXCL)
     chmodSync(temporary, 0o755)
-    renameSync(temporary, join(destination, 'luma-raw'))
-    writeFileSync(join(destination, 'SHA256SUMS'), `${report.binarySha256}  luma-raw\n`)
+    renameSync(temporary, join(destination, 'irodori-raw'))
+    writeFileSync(join(destination, 'SHA256SUMS'), `${report.binarySha256}  irodori-raw\n`)
     report.staged = destination
   }
 } catch (error) {

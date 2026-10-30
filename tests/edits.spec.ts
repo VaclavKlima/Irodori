@@ -12,14 +12,32 @@ test('exposure multiplies linear light before clipping and preserves alpha', () 
   expect([
     ...renderAdjustments(
       pixels,
-      { shadows: 0, whites: 0, blacks: 0, exposureEv: -2, contrast: 0, highlights: 0 },
+      {
+        saturation: 0,
+        vibrance: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        exposureEv: -2,
+        contrast: 0,
+        highlights: 0,
+      },
       srgbTransform,
     ),
   ]).toEqual([188, 71, 0, 128])
   expect([
     ...renderAdjustments(
       pixels,
-      { shadows: 0, whites: 0, blacks: 0, exposureEv: 0, contrast: 0, highlights: 0 },
+      {
+        saturation: 0,
+        vibrance: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        exposureEv: 0,
+        contrast: 0,
+        highlights: 0,
+      },
       srgbTransform,
     ),
   ]).toEqual([255, 137, 0, 128])

@@ -101,6 +101,8 @@ async function rawEngineAgreement(
       expect(await fileHash(path)).toBe(asset.sha256)
     }
     await warm('combined', {
+      saturation: 0,
+      vibrance: 0,
       shadows: 65,
       whites: -35,
       blacks: -20,
@@ -176,6 +178,8 @@ export function engineAgreement(formats: readonly ('png' | 'tiff' | 'jpeg' | 'ra
         const adjusted = await engine.renderFull(source, root, undefined, {
           ...options,
           adjustments: {
+            saturation: 0,
+            vibrance: 0,
             shadows: 65,
             whites: -35,
             blacks: -20,
@@ -190,6 +194,8 @@ export function engineAgreement(formats: readonly ('png' | 'tiff' | 'jpeg' | 'ra
           renderAdjustments(
             working,
             {
+              saturation: 0,
+              vibrance: 0,
               shadows: 65,
               whites: -35,
               blacks: -20,

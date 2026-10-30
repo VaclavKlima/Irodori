@@ -9,8 +9,8 @@ const config = JSON.parse(await readFile(configPath, 'utf8')),
   threads = Number(threadText)
 if (
   mode !== '--mask-v1' ||
-  request.length !== 416 ||
-  request.subarray(0, 8).toString() !== 'MASKCPU1'
+  request.length !== 848 ||
+  request.subarray(0, 8).toString() !== 'MASKCPU3'
 )
   throw new Error('Invalid synthetic mask fixture invocation.')
 let prior = ''
@@ -81,11 +81,11 @@ try {
     await gate('allow-output')
   }
   if (terminating) throw new Error('Terminated fixture.')
-  const header = Buffer.alloc(432)
+  const header = Buffer.alloc(864)
   header.write('MASKOUT1')
-  header.writeUInt32LE(416, 8)
+  header.writeUInt32LE(848, 8)
   request.copy(header, 12)
-  header.writeUInt32LE(threads, 428)
+  header.writeUInt32LE(threads, 860)
   if (fault === 'echo') header[84] ^= 1
   await write(header)
   const width = request.readUInt32LE(16),

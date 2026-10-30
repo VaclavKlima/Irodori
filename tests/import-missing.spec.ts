@@ -65,7 +65,7 @@ async function setup(
     sourceHash?: typeof hashImportSource
   } = {},
 ) {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'luma-missing-service-')))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'irodori-missing-service-')))
   const card = join(root, 'card')
   await mkdir(card)
   await mkdir(join(root, 'trash'))

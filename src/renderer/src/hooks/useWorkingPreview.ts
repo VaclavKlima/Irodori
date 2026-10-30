@@ -1,28 +1,55 @@
 import { validateHdrAsset } from '../preview/hdr-stream'
 import { validateWhiteBalanceProfile } from '../../../shared/white-balance'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useLayoutEffect, useState, useRef } from 'react'
 import type { DisplayPreview } from '../../../shared/contracts'
 import { frameByteLength } from '../../../shared/preview-frame'
 import type { WorkingFrame } from '../../../shared/adjustments'
 import { useForegroundActivity } from './useForegroundActivity'
+import { imageResourceOwners } from '../preview/image-resource-owners'
 
 export function useWorkingPreview(preview: DisplayPreview | null, presented: boolean) {
   const { begin } = useForegroundActivity(preview?.photoId, undefined, presented)
-  const [working, setWorking] = useState<WorkingFrame | null>(null)
+  const [loaded, setLoaded] = useState<{ frame: WorkingFrame; geometryIdentity: string } | null>(
+    null,
+  )
+  const working = loaded?.frame ?? null
+  const pendingTransfers = useRef(new Set<() => void>())
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
   const [generation, setGeneration] = useState(0)
   const prepared = useRef(false)
   const preparedIdentity = useRef('')
   const preparedFormat = useRef<DisplayPreview['format'] | undefined>(undefined)
+  const preparedGeometry = useRef('')
+  const geometryIdentity = JSON.stringify(preview?.crop ?? null)
+  useLayoutEffect(() => {
+    const owner = working?.data.byteLength
+      ? imageResourceOwners.register(() => ({
+          ramBytes: working.data.byteLength,
+          vramBytes: 0,
+        }))
+      : undefined
+    // Register committed data before releasing queued or superseded state handoffs.
+    for (const release of pendingTransfers.current) release()
+    pendingTransfers.current.clear()
+    return () => owner?.release()
+  }, [working])
+  useEffect(
+    () => () => {
+      for (const release of pendingTransfers.current) release()
+      pendingTransfers.current.clear()
+    },
+    [],
+  )
   const requiredRevision = useRef(0)
   useEffect(
     () =>
-      window.luma.onLibraryEvent((event) => {
-        if (event.lensChanged && event.lensChanged.photoId === preview?.photoId) {
-          requiredRevision.current = event.lensChanged.revision
+      window.irodori.onLibraryEvent((event) => {
+        const replaced = event.lensChanged ?? event.geometryChanged ?? event.sourceChanged
+        if (replaced && replaced.photoId === preview?.photoId) {
+          requiredRevision.current = replaced.revision
           prepared.current = false
-          setWorking(null)
+          setLoaded(null)
           setGeneration((value) => value + 1)
         }
       }),
@@ -34,29 +61,37 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
       !preview ||
       !presented ||
       (prepared.current &&
-        (preview.format !== 'hdr-working' ||
+        preparedGeometry.current === geometryIdentity &&
+        (!preview.linear?.url ||
           preparedIdentity.current === `${preview.linear.url}:${preview.linear.sha256}`)) ||
       (preview.settingsRevision ?? 0) < requiredRevision.current
     )
       return
     const abort = new AbortController()
     const token = crypto.randomUUID()
-    let cancelled = false
+    let cancelled = false,
+      requested = false
     let releaseActivity: (() => void) | undefined
+    let releaseTransfer: (() => void) | undefined
     const timer = setTimeout(
       () => {
         void (async () => {
           releaseActivity = begin()
           try {
-            const result =
-              preview.format === 'hdr-working'
-                ? preview
-                : await window.luma.requestEditingPreview(preview.photoId, token)
+            const direct =
+              preview.format === 'hdr-working' ||
+              preview.sourceSpace === 'uncropped' ||
+              Boolean(preview.comparisonOf)
+            if (!direct) requested = true
+            const result = direct
+              ? preview
+              : await window.irodori.requestEditingPreview(preview.photoId, token)
             if (cancelled) return
             if (
               result.photoId !== preview.photoId ||
-              (result.format !== 'hdr-working' && result.requestId !== token) ||
-              (result.settingsRevision ?? 0) < (preview.settingsRevision ?? 0)
+              (!direct && result.requestId !== token) ||
+              (result.settingsRevision ?? 0) < (preview.settingsRevision ?? 0) ||
+              JSON.stringify(result.crop ?? null) !== geometryIdentity
             )
               throw new Error('The working preview is stale.')
             const asset = result.linear
@@ -81,20 +116,28 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
               if (!cancelled) {
                 preparedIdentity.current = `${asset.url}:${asset.sha256}`
                 preparedFormat.current = preview.format
+                preparedGeometry.current = geometryIdentity
                 prepared.current = true
                 setError('')
-                setWorking({
-                  cpuSource: result.cpuSource,
-                  identity: `${asset.url}:${asset.sha256}`,
-                  data: new Float32Array(0),
-                  width: result.width,
-                  height: result.height,
-                  transform: asset.transform,
-                  hdr,
+                setLoaded({
+                  geometryIdentity,
+                  frame: {
+                    cpuSource: result.cpuSource,
+                    identity: `${asset.url}:${asset.sha256}`,
+                    data: new Float32Array(0),
+                    width: result.width,
+                    height: result.height,
+                    transform: asset.transform,
+                    hdr,
+                  },
                 })
               }
               return
             }
+            releaseTransfer = imageResourceOwners.register(() => ({
+              ramBytes: asset.byteLength * 2,
+              vramBytes: 0,
+            })).release
             const response = await fetch(asset.url, { signal: abort.signal, cache: 'no-store' })
             if (!response.ok || Number(response.headers.get('content-length')) !== asset.byteLength)
               throw new Error('Incomplete working preview.')
@@ -120,20 +163,27 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
             if (!cancelled) {
               preparedIdentity.current = `${asset.url}:${asset.sha256}`
               preparedFormat.current = preview.format
+              preparedGeometry.current = geometryIdentity
               prepared.current = true
               setError('')
-              setWorking({
-                identity: `${asset.url}:${asset.sha256}`,
-                data,
-                width: result.width,
-                height: result.height,
-                transform: asset.transform,
+              pendingTransfers.current.add(releaseTransfer!)
+              releaseTransfer = undefined
+              setLoaded({
+                geometryIdentity,
+                frame: {
+                  identity: `${asset.url}:${asset.sha256}`,
+                  data,
+                  width: result.width,
+                  height: result.height,
+                  transform: asset.transform,
+                },
               })
             }
           } catch (error) {
             if (!cancelled && !String(error).toLowerCase().includes('cancel'))
               setError('Live adjustments could not be prepared.')
           } finally {
+            releaseTransfer?.()
             releaseActivity?.()
           }
         })()
@@ -145,13 +195,17 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
       releaseActivity?.()
       clearTimeout(timer)
       abort.abort()
-      void window.luma.releaseFullPreview(token).catch(() => undefined)
+      if (requested) void window.irodori.releaseFullPreview(token).catch(() => undefined)
     }
-  }, [preview, presented, generation, attempt, begin])
+  }, [preview, presented, generation, attempt, begin, geometryIdentity])
   return {
     working:
-      (preview?.format === 'rgba8-srgb' && working?.hdr?.source.display) ||
-      (preview?.format === 'hdr-working' && !working?.hdr)
+      !preview ||
+      (preview.format === 'rgba8-srgb' && working?.hdr?.source.display) ||
+      (preview?.format === 'hdr-working' && !working?.hdr) ||
+      (preview?.comparisonOf &&
+        working?.identity !== `${preview.linear?.url}:${preview.linear?.sha256}`) ||
+      loaded?.geometryIdentity !== geometryIdentity
         ? null
         : working,
     generation,

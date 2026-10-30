@@ -53,7 +53,7 @@ for (const tile of [64, 128, 256]) {
     })
     const makeBuffer = (size: number, usage: GPUBufferUsageFlags) =>
       device.createBuffer({ size, usage })
-    const uniform = makeBuffer(176, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
+    const uniform = makeBuffer(192, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
     const tables = makeBuffer(ACES_DATA_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
     const jobs = makeBuffer(64, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
     const lookup = makeBuffer(16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
@@ -226,7 +226,7 @@ for (const tile of [64, 128, 256]) {
               }),
             ),
           )
-          const values = new Float32Array(44)
+          const values = new Float32Array(48)
           values[6] = 0.75
           values[8] = 2
           values[14] = peak

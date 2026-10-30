@@ -62,7 +62,7 @@ test('sample windows cover small files completely and merge overlaps within 256 
         windows[index - 1].offset + windows[index - 1].length,
       )
   }
-  const root = await mkdtemp(join(tmpdir(), 'luma-sample-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-sample-'))
   try {
     const path = join(root, 'original.jpg')
     const bytes = Buffer.alloc(2 * 1024 * 1024, 0x5a)
@@ -83,7 +83,7 @@ test('sample windows cover small files completely and merge overlaps within 256 
 })
 
 test('bindings distinguish full proof from samples and exclude pending removal and derived originals', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-binding-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-binding-'))
   const db = new DatabaseSync(':memory:')
   try {
     const path = join(root, 'file.jpg')

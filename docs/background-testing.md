@@ -1,8 +1,8 @@
 # Background testing
 
-Automated Electron tests run in background mode by default. Luma uses real hidden, nonfocusable windows with normal GPU rendering and initial painting enabled. Background throttling is disabled. Context isolation and the renderer sandbox stay enabled; Node integration stays disabled. This is a quiet desktop workflow, not a browser headless mode or an offscreen renderer. Tests still consume CPU, GPU and memory, and Electron still needs a graphical session or a provisioned virtual display on Linux.
+Automated Electron tests run in background mode by default. Irodori uses real hidden, nonfocusable windows with normal GPU rendering and initial painting enabled. Background throttling is disabled. Context isolation and the renderer sandbox stay enabled; Node integration stays disabled. This is a quiet desktop workflow, not a browser headless mode or an offscreen renderer. Tests still consume CPU, GPU and memory, and Electron still needs a graphical session or a provisioned virtual display on Linux.
 
-The explicit test entry installs a startup marker before importing Luma. An environment variable alone cannot hide a normal application. Normal application launches, `dev`, `dev:mcp`, manual MCP inspection and `hdr:diagnostic` remain visible. Node and service tests do not change. Worker limits, assertions, image dimensions, pixel checks and benchmark thresholds do not change with the UI mode.
+The explicit test entry installs a startup marker before importing Irodori. An environment variable alone cannot hide a normal application. Normal application launches, `dev`, `dev:mcp`, manual MCP inspection and `hdr:diagnostic` remain visible. Node and service tests do not change. Worker limits, assertions, image dimensions, pixel checks and benchmark thresholds do not change with the UI mode.
 
 ## Running checks
 
@@ -29,12 +29,12 @@ If a background selection includes required foreground cases, compatible cases r
 Read the invocation's `summary.md` first. Use its exact rerun command; direct Playwright reruns reuse the existing build and need the mode in the environment:
 
 ```sh
-LUMA_TEST_UI_MODE=foreground npx playwright test tests/preview.spec.ts --project=electron
+IRODORI_TEST_UI_MODE=foreground npx playwright test tests/preview.spec.ts --project=electron
 ```
 
 Direct Playwright commands retain normal Playwright exit semantics: deferred cases appear as skipped and may leave exit 0. Inspect the summary and skipped reasons; exit 0 alone does not establish complete coverage. Use the verification runner when an incomplete exit status is required.
 
-Omitting `LUMA_TEST_UI_MODE` selects background mode. Its only accepted values are `background` and `foreground`. Do not rebuild while another invocation is using the output. `LUMA_TEST_TRACE=1` remains available for diagnostic functional reruns. Keep evidence under ignored `artifacts/verification/` directories.
+Omitting `IRODORI_TEST_UI_MODE` selects background mode. Its only accepted values are `background` and `foreground`. Do not rebuild while another invocation is using the output. `IRODORI_TEST_TRACE=1` remains available for diagnostic functional reruns. Keep evidence under ignored `artifacts/verification/` directories.
 
 ## Writing and migrating tests
 
@@ -56,7 +56,7 @@ import { focusPreviewWindow } from './preview-pan.helpers'
 test(
   'preview receives native window focus',
   foregroundTest('This case verifies native focus, which owns the desktop.'),
-  async ({ luma: { app, page } }) => {
+  async ({ irodori: { app, page } }) => {
     await focusPreviewWindow(app, page)
     const window = await app.browserWindow(page)
     await expect.poll(() => window.evaluate((window) => window.isFocused())).toBe(true)
@@ -70,7 +70,7 @@ test(
 
 The October 15, 2026 macOS feasibility run used unchanged existing specs with an artifact-only guarded launcher. Six targets (`continuous-scroll-ui`, `workspace-recovery-ui`, `photo-menu-ui`, `progressive-review-ui`, `full-preview-ui` and `hdr-content-ui`) passed **20 cases across 24 Electron launches**. The run recorded no native window visibility or focus events and no Electron desktop activations, while retaining real imports, GPU HDR rendering, screenshots, normal restart and abrupt-exit recovery. Evidence is retained in `artifacts/verification/2026-10-15T05-31-10.223Z-hidden-original-targets-hn9O1R/`.
 
-An earlier `NODE_OPTIONS` injection probe did not load its guard and briefly opened a window; that approach was rejected. The shared launcher must arm its guard before importing Luma. The feasibility evidence is separate from acceptance of the repository migration. Broader macOS target results belong in the invocation reports; Linux and Windows background behavior remain unverified until tested. Quiet execution does not establish native input correctness, physical HDR accuracy, hardware luminance or equivalent performance timings.
+An earlier `NODE_OPTIONS` injection probe did not load its guard and briefly opened a window; that approach was rejected. The shared launcher must arm its guard before importing Irodori. The feasibility evidence is separate from acceptance of the repository migration. Broader macOS target results belong in the invocation reports; Linux and Windows background behavior remain unverified until tested. Quiet execution does not establish native input correctness, physical HDR accuracy, hardware luminance or equivalent performance timings.
 
 ### Local migration acceptance — 2026-10-15
 

@@ -2,6 +2,7 @@ node_modules/
 out/
 dist/
 artifacts/
+__pycache__/
 native/**/target/
 vendor/ultrahdr/native/linux-x64/
 vendor/native-cpu-render/linux-x64/

@@ -17,8 +17,8 @@ const sources = [
 test(
   'native Delete and Backspace confirm single and multiple selections with isolated Trash',
   foregroundTest('Native Delete and Backspace delivery requires a foreground window.'),
-  async ({ luma }) => {
-    const { app, page } = luma
+  async ({ irodori }) => {
+    const { app, page } = irodori
     const trash = await isolateTrash(app)
     await importPhotos(app, page, sources.slice(0, 3))
     await focusPreviewWindow(app, page)
@@ -30,7 +30,7 @@ test(
         window.webContents.sendInputEvent({ type: 'keyDown', keyCode })
         window.webContents.sendInputEvent({ type: 'keyUp', keyCode })
       }, keyCode)
-    const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+    const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
     const card = (index: number) => page.getByTestId(`photo-card-${photos[index].id}`)
     for (const key of ['Delete', 'Backspace']) {
       await card(0).click()
@@ -52,7 +52,7 @@ test(
     await expect(page.getByRole('dialog')).toContainText('Move 2 photos to Trash?')
     await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
     await expect
-      .poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total)
+      .poll(async () => (await page.evaluate(() => window.irodori.listPhotos())).total)
       .toBe(1)
     await card(2).click()
     await press('Delete')
@@ -68,8 +68,8 @@ test(
 test(
   'native deletion keys protect fields, console focus, modifiers, repeats and handled events',
   foregroundTest('Native deletion-key focus guards require a foreground window.'),
-  async ({ luma }) => {
-    const { app, page } = luma
+  async ({ irodori }) => {
+    const { app, page } = irodori
     await isolateTrash(app)
     await importPhotos(app, page, sources.slice(0, 2))
     await focusPreviewWindow(app, page)
@@ -172,7 +172,7 @@ test(
       )
       expect(await calls.evaluate((state) => state.count)).toBe(0)
       await expect(page.getByRole('dialog')).toHaveCount(0)
-      expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(2)
+      expect((await page.evaluate(() => window.irodori.listPhotos())).total).toBe(2)
     } finally {
       await calls.dispose()
       await page.evaluate(() => document.querySelector('#deletion-key-fields')?.remove())
@@ -181,11 +181,11 @@ test(
 )
 
 test('selects ranges and individual photos, and preserves or replaces selection for context menus', async ({
-  luma,
+  irodori,
 }, testInfo) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, sources)
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   const card = (index: number) => page.getByTestId(`photo-card-${photos[index].id}`)
   await card(0).click()
   await card(2).click({ modifiers: ['Shift'] })
@@ -227,7 +227,7 @@ test('selects ranges and individual photos, and preserves or replaces selection 
   await page.screenshot({ path: testInfo.outputPath('delete-confirmation.png') })
   await page.keyboard.press('Escape')
   await expect(card(2)).toBeFocused()
-  expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(5)
+  expect((await page.evaluate(() => window.irodori.listPhotos())).total).toBe(5)
   await card(3).click()
   await card(1).click({ modifiers: ['Shift'] })
   await expect(page.getByTestId('selection-count')).toHaveText('3 selected')
@@ -248,19 +248,21 @@ test('selects ranges and individual photos, and preserves or replaces selection 
 })
 
 test('deletes a confirmed group and the last photos while preserving source files', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   const trash = await isolateTrash(app)
   await importPhotos(app, page, sources)
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   await page.getByTestId(`photo-card-${photos[0].id}`).click()
   await page.getByTestId(`photo-card-${photos[2].id}`).click({ modifiers: ['Shift'] })
   await page.keyboard.press('Delete')
   await expect(page.getByRole('dialog')).toContainText('Move 3 photos to Trash?')
   await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect.poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total).toBe(2)
+  await expect
+    .poll(async () => (await page.evaluate(() => window.irodori.listPhotos())).total)
+    .toBe(2)
   await expect(page.getByTestId('preview-filename')).toHaveText(photos[3].filename)
   await expect(page.getByTestId('selection-count')).toHaveText('0 selected')
   expect(await readdir(trash)).toHaveLength(3)
@@ -268,24 +270,26 @@ test('deletes a confirmed group and the last photos while preserving source file
   await page.getByTestId('main-preview').click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Move selected photo to Trash…' }).click()
   await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
-  await expect.poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total).toBe(1)
+  await expect
+    .poll(async () => (await page.evaluate(() => window.irodori.listPhotos())).total)
+    .toBe(1)
   await expect(page.getByTestId('preview-filename')).toHaveText(photos[4].filename)
   await page.getByTestId(`photo-card-${photos[4].id}`).click()
   await page.keyboard.press('Delete')
   await page.getByRole('button', { name: 'Move to Trash', exact: true }).click()
   await expect(page.getByTestId('empty-library')).toBeVisible()
   expect(await readdir(trash)).toHaveLength(5)
-  const restarted = await luma.restart()
+  const restarted = await irodori.restart()
   await expect(restarted.page.getByTestId('empty-library')).toBeVisible()
 })
 
 test('keeps deletion running through reload and cancels after the current OS move', async ({
-  luma,
+  irodori,
 }, testInfo) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page, sources)
   await isolateTrash(app, { delay: 3000 })
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   await page.getByTestId(`photo-card-${photos[0].id}`).click()
   await page.getByTestId(`photo-card-${photos[4].id}`).click({ modifiers: ['Shift'] })
   await page.keyboard.press('Delete')
@@ -295,7 +299,7 @@ test('keeps deletion running through reload and cancels after the current OS mov
   await page.reload()
   await expect(page.getByTestId('task-progress')).toContainText('Moving photos to Trash')
   const id = await page.evaluate(
-    async () => (await window.luma.listTasks()).find((task) => task.kind === 'delete')!.id,
+    async () => (await window.irodori.listTasks()).find((task) => task.kind === 'delete')!.id,
   )
   await page.getByRole('button', { name: 'Import photos', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -304,14 +308,14 @@ test('keeps deletion running through reload and cancels after the current OS mov
   await expect(page.getByTestId(`task-${id}`)).toContainText('Cancelling deletion')
   await page.screenshot({ path: testInfo.outputPath('background-deletion.png') })
   await expect(page.getByTestId(`task-${id}`)).toHaveAttribute('data-status', 'cancelled')
-  expect((await page.evaluate(() => window.luma.listPhotos())).total).toBe(4)
-  expect(await readdir(join(luma.userDataDir, 'library', 'removed'))).toEqual([])
+  expect((await page.evaluate(() => window.irodori.listPhotos())).total).toBe(4)
+  expect(await readdir(join(irodori.userDataDir, 'library', 'removed'))).toEqual([])
 })
 
-test('retains failed photos and confirms quit during deletion', async ({ luma }) => {
-  const { app, page } = luma
+test('retains failed photos and confirms quit during deletion', async ({ irodori }) => {
+  const { app, page } = irodori
   await importPhotos(app, page, sources.slice(0, 2))
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   await isolateTrash(app, { failId: photos[0].id })
   await page.getByTestId(`photo-card-${photos[0].id}`).click()
   await page.keyboard.press('Delete')
@@ -356,12 +360,12 @@ test('retains failed photos and confirms quit during deletion', async ({ luma })
   await app.evaluate(({ dialog }) => {
     dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false })
   })
-  await luma.expectQuit(async () => {
+  await irodori.expectQuit(async () => {
     await app.evaluate(({ app }) => {
       setImmediate(() => app.quit())
     })
   })
-  expect(await readdir(join(luma.userDataDir, 'library', 'removed'))).toEqual([])
-  const restarted = await luma.restart()
-  expect((await restarted.page.evaluate(() => window.luma.listPhotos())).total).toBe(1)
+  expect(await readdir(join(irodori.userDataDir, 'library', 'removed'))).toEqual([])
+  const restarted = await irodori.restart()
+  expect((await restarted.page.evaluate(() => window.irodori.listPhotos())).total).toBe(1)
 })

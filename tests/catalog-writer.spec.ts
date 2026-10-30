@@ -59,7 +59,7 @@ function history(id: string, exposureEv = 0): EditHistory {
 async function fixture(
   mode: 'normal' | 'held' | 'before-write-exit' | 'after-commit-exit' | 'rollback-exit' = 'normal',
 ) {
-  const root = await mkdtemp(join(tmpdir(), 'luma-catalog-writer-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-catalog-writer-'))
   const path = join(root, 'catalog.sqlite'),
     db = new DatabaseSync(path),
     gate = new Int32Array(new SharedArrayBuffer(8))
@@ -379,7 +379,7 @@ test('production worker keeps stale CAS rejection reusable and read-after-ACK vi
 })
 
 test('metadata-less publication gets seeded history through the worker before pure library reads', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-catalog-metadata-')),
+  const root = await mkdtemp(join(tmpdir(), 'irodori-catalog-metadata-')),
     owners: CatalogWriter[] = []
   const args: ConstructorParameters<typeof PhotoLibrary> = [
     root,

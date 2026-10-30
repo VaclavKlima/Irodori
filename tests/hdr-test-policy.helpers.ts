@@ -22,7 +22,7 @@ export async function requireEditorPreviewFeature(
   page: Page,
   feature: 'interactive' | 'presentation-cache',
 ) {
-  const info = await page.evaluate(() => window.luma.getAppInfo())
+  const info = await page.evaluate(() => window.irodori.getAppInfo())
   expect(info.platform, 'The app and test process must use the same platform policy.').toBe(
     process.platform,
   )
@@ -36,7 +36,7 @@ export async function requireEditorPreviewFeature(
 
 async function expectArithmeticPolicy(page: Page, interactive: boolean) {
   const canvas = page.getByTestId('main-preview')
-  const target = await page.evaluate(() => window.luma.getDisplayState())
+  const target = await page.evaluate(() => window.irodori.getDisplayState())
   await expect(canvas).toHaveAttribute('data-target-generation', String(target.generation))
   await expect(canvas).toHaveAttribute(
     'data-presented-arithmetic-policy',
@@ -91,7 +91,7 @@ export async function policyEditorInput(
 ) {
   const trial = await sustainedEditorInput(page, options)
   const final = await page.getByTestId('main-preview').evaluate(async (element) => ({
-    target: await window.luma.getDisplayState(),
+    target: await window.irodori.getDisplayState(),
     quality: element.dataset.quality,
     presentedPolicy: element.dataset.presentedPolicy,
     presentedArithmeticPolicy: element.dataset.presentedArithmeticPolicy,

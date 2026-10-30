@@ -41,7 +41,7 @@ async function setup(
   trash?: (path: string) => Promise<void>,
   capture?: Pick<PreviewProcess, 'inspectCapture' | 'close'>,
 ) {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'luma-pipeline-')))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'irodori-pipeline-')))
   const library = new PhotoLibrary(
     join(root, 'library'),
     processor,

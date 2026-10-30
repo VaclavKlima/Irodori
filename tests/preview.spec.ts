@@ -34,22 +34,24 @@ async function geometry(page: Page) {
 }
 
 test('scroll pans without zooming and mixed gesture bursts present once with matching overlays', async ({
-  luma,
+  irodori,
 }) => {
-  await importPhotos(luma.app, luma.page)
-  await luma.page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }).click()
-  await expect(luma.page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
+  await importPhotos(irodori.app, irodori.page)
+  await irodori.page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }).click()
+  await expect(irodori.page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
   await verifyPreviewWheel(
-    luma.page,
-    luma.page.getByTestId('preview-viewport'),
-    luma.page.getByRole('combobox', { name: 'Preview zoom', exact: true }),
+    irodori.page,
+    irodori.page.getByTestId('preview-viewport'),
+    irodori.page.getByRole('combobox', { name: 'Preview zoom', exact: true }),
   )
-  const pending = await holdPreviewFrame(luma.page.getByTestId('preview-viewport'))
+  const pending = await holdPreviewFrame(irodori.page.getByTestId('preview-viewport'))
   try {
     expect(await pending.evaluate((state) => state.held)).toBe(true)
-    await luma.page.getByRole('button', { name: 'Select mountain-ridge.jpg', exact: true }).click()
-    await expect(luma.page.getByTestId('preview-filename')).toHaveText('mountain-ridge.jpg')
-    await expect(luma.page.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue('fit')
+    await irodori.page
+      .getByRole('button', { name: 'Select mountain-ridge.jpg', exact: true })
+      .click()
+    await expect(irodori.page.getByTestId('preview-filename')).toHaveText('mountain-ridge.jpg')
+    await expect(irodori.page.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue('fit')
     await expect.poll(() => pending.evaluate((state) => state.cancelled)).toBe(true)
   } finally {
     await pending.evaluate((state) => state.restore())
@@ -60,13 +62,13 @@ test('scroll pans without zooming and mixed gesture bursts present once with mat
 test(
   'mouse panning hides and locks the cursor until release or interruption',
   foregroundTest('Pointer lock and native window focus require a foreground window.'),
-  async ({ luma }) => {
-    await importPhotos(luma.app, luma.page)
+  async ({ irodori }) => {
+    await importPhotos(irodori.app, irodori.page)
     await verifyLockedPan(
-      luma.app,
-      luma.page,
-      luma.page.getByTestId('preview-viewport'),
-      luma.page.getByRole('combobox', { name: 'Preview zoom', exact: true }),
+      irodori.app,
+      irodori.page,
+      irodori.page.getByTestId('preview-viewport'),
+      irodori.page.getByRole('combobox', { name: 'Preview zoom', exact: true }),
     )
   },
 )
@@ -74,13 +76,13 @@ test(
 test(
   'mouse release glide stays bounded and cancels on new input, resize and reduced motion',
   foregroundTest('Mouse release glide verifies native focus and pointer-lock interaction.'),
-  async ({ luma }) => {
-    await importPhotos(luma.app, luma.page)
+  async ({ irodori }) => {
+    await importPhotos(irodori.app, irodori.page)
     await verifyPanGlide(
-      luma.app,
-      luma.page,
-      luma.page.getByTestId('preview-viewport'),
-      luma.page.getByRole('combobox', { name: 'Preview zoom', exact: true }),
+      irodori.app,
+      irodori.page,
+      irodori.page.getByTestId('preview-viewport'),
+      irodori.page.getByRole('combobox', { name: 'Preview zoom', exact: true }),
     )
   },
 )
@@ -88,8 +90,8 @@ test(
 test(
   'zooms at the pointer, pans with capture, and retains keyboard and context-menu controls',
   foregroundTest('Pointer-lock cancellation and native focus require a foreground window.'),
-  async ({ luma }, testInfo) => {
-    const { app, page } = luma
+  async ({ irodori }, testInfo) => {
+    const { app, page } = irodori
     await importPhotos(app, page)
     await focusPreviewWindow(app, page)
     const viewport = page.getByTestId('preview-viewport')
@@ -105,7 +107,7 @@ test(
     await page.keyboard.up('Control')
     await expect.poll(async () => (await geometry(page)).scale).toBeGreaterThan(1)
     const after = await geometry(page)
-    expect(after.scale).toBeCloseTo(1.1, 5)
+    expect(after.scale).toBeCloseTo(1.1 ** (100 / 120), 5)
     expect((65 - after.x) / after.scale).toBeCloseTo((65 - before.x) / before.scale, 3)
     expect((35 - after.y) / after.scale).toBeCloseTo((35 - before.y) / before.scale, 3)
     await page.mouse.down()
@@ -200,9 +202,9 @@ test(
 )
 
 test('resizes Fit and manual views, preserves same-photo zoom across imports, and resets new photos', async ({
-  luma,
+  irodori,
 }, testInfo) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page)
   const zoom = page.getByRole('combobox', { name: 'Preview zoom' })
   const fit = await geometry(page)
@@ -266,7 +268,7 @@ test('resizes Fit and manual views, preserves same-photo zoom across imports, an
 })
 
 test('keeps small images at native size and fits a portrait using decoded preview dimensions', async ({
-  luma,
+  irodori,
 }, testInfo) => {
   const small = testInfo.outputPath('small.png')
   const portrait = testInfo.outputPath('portrait.png')
@@ -276,24 +278,24 @@ test('keeps small images at native size and fits a portrait using decoded previe
   await sharp({ create: { width: 1000, height: 2000, channels: 3, background: '#987654' } })
     .png()
     .toFile(portrait)
-  await importPhotos(luma.app, luma.page, [small, portrait])
-  await luma.page.getByRole('button', { name: 'Select small.png', exact: true }).click()
-  await expect(luma.page.getByTestId('main-preview')).toBeVisible()
-  expect((await geometry(luma.page)).imageWidth).toBe(80)
-  expect((await geometry(luma.page)).imageHeight).toBe(40)
-  await luma.page.getByRole('button', { name: 'Select portrait.png', exact: true }).click()
-  await expect(luma.page.getByTestId('main-preview')).toBeVisible()
-  const actual = await geometry(luma.page)
+  await importPhotos(irodori.app, irodori.page, [small, portrait])
+  await irodori.page.getByRole('button', { name: 'Select small.png', exact: true }).click()
+  await expect(irodori.page.getByTestId('main-preview')).toBeVisible()
+  expect((await geometry(irodori.page)).imageWidth).toBe(80)
+  expect((await geometry(irodori.page)).imageHeight).toBe(40)
+  await irodori.page.getByRole('button', { name: 'Select portrait.png', exact: true }).click()
+  await expect(irodori.page.getByTestId('main-preview')).toBeVisible()
+  const actual = await geometry(irodori.page)
   expect(actual.imageHeight).toBeCloseTo(actual.height, 1)
   expect(actual.imageWidth).toBeCloseTo(actual.imageHeight / 2, 1)
 })
 
 test('keeps controls disabled after invalid frame metadata and recovers through Retry', async ({
-  luma,
+  irodori,
 }) => {
-  const { app, page } = luma
+  const { app, page } = irodori
   await importPhotos(app, page)
-  const first = (await page.evaluate(() => window.luma.listPhotos())).photos[0]
+  const first = (await page.evaluate(() => window.irodori.listPhotos())).photos[0]
   await page.getByTestId(`photo-card-${first.id}`).click()
   await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-resolution', 'full')
   const gate = await app.evaluateHandle(({ ipcMain }) => {

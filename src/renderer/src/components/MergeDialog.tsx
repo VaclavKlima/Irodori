@@ -45,7 +45,7 @@ export function MergeDialog({
     const ticket = generation.current
     dialog.current?.showModal()
     let active = true
-    life.creation ??= window.luma.createMergeReview(ids, mode)
+    life.creation ??= window.irodori.createMergeReview(ids, mode)
     void life.creation
       .then(async (value) => {
         if (!active) return
@@ -53,7 +53,7 @@ export function MergeDialog({
         setReview(value)
         setSettings(value.settings)
         desired.current = value.settings
-        return window.luma.requestMergePreview(value.id, value.revision).then((result) => {
+        return window.irodori.requestMergePreview(value.id, value.revision).then((result) => {
           if (
             active &&
             generation.current === ticket &&
@@ -79,7 +79,7 @@ export function MergeDialog({
       queueMicrotask(() => {
         if (!life.mounted)
           void life.creation
-            ?.then((value) => window.luma.disposeMergeReview(value.id))
+            ?.then((value) => window.irodori.disposeMergeReview(value.id))
             .catch(() => {})
       })
     }
@@ -106,14 +106,14 @@ export function MergeDialog({
         if (ticket !== generation.current) return
         const current = reviewRef.current
         if (!current) return
-        const next = await window.luma.updateMergeReview(
+        const next = await window.irodori.updateMergeReview(
           current.id,
           current.revision,
           desired.current!,
         )
         reviewRef.current = next
         setReview(next)
-        void window.luma.requestMergePreview(next.id, next.revision).then(
+        void window.irodori.requestMergePreview(next.id, next.revision).then(
           (result) => {
             if (ticket === generation.current) {
               setPreview(result)
@@ -139,7 +139,7 @@ export function MergeDialog({
     if (starting) return
     generation.current++
     const current = reviewRef.current
-    if (current) await window.luma.disposeMergeReview(current.id).catch(() => {})
+    if (current) await window.irodori.disposeMergeReview(current.id).catch(() => {})
     dialog.current?.close()
     onClose()
   }
@@ -147,7 +147,7 @@ export function MergeDialog({
     if (!review || !preview || decodedPreview !== preview || updating || error) return
     setStarting(true)
     try {
-      const taskId = await window.luma.startMerge(review.id, preview.revision)
+      const taskId = await window.irodori.startMerge(review.id, preview.revision)
       reviewRef.current = null
       dialog.current?.close()
       onStarted(taskId)

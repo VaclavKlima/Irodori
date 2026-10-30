@@ -1,15 +1,15 @@
 import { expect, type ElectronApplication, type Page, type TestInfo } from '@playwright/test'
-import { sustainedEditorInput } from './mac-workability.helpers'
+import { prepareSustainedEditorInput, sustainedEditorInput } from './mac-workability.helpers'
 import { selectInteractivePreviewPolicy } from '../src/shared/interactive-preview-policy'
 import { editorTestPreviewPolicy } from './hdr-test-policy.helpers'
 
-export const editorDisplayPreference = process.env.LUMA_RESPONSIVENESS_DISPLAY ?? 'auto'
+export const editorDisplayPreference = process.env.IRODORI_RESPONSIVENESS_DISPLAY ?? 'auto'
 if (editorDisplayPreference !== 'auto' && editorDisplayPreference !== 'sdr')
-  throw new Error('LUMA_RESPONSIVENESS_DISPLAY must be auto or sdr.')
+  throw new Error('IRODORI_RESPONSIVENESS_DISPLAY must be auto or sdr.')
 
-export const editorDisplayProfile = process.env.LUMA_RESPONSIVENESS_PROFILE ?? 'mac-retina-dpr2'
+export const editorDisplayProfile = process.env.IRODORI_RESPONSIVENESS_PROFILE ?? 'mac-retina-dpr2'
 if (!['mac-retina-dpr2', 'linux-native-dpr1'].includes(editorDisplayProfile))
-  throw new Error('LUMA_RESPONSIVENESS_PROFILE must be mac-retina-dpr2 or linux-native-dpr1.')
+  throw new Error('IRODORI_RESPONSIVENESS_PROFILE must be mac-retina-dpr2 or linux-native-dpr1.')
 export const editorExpectedDpr = editorDisplayProfile === 'linux-native-dpr1' ? 1 : 2
 export const editorRequestedTileBatch = editorTestPreviewPolicy.tileBatch
 export const editorRequestedInteractiveFence = editorTestPreviewPolicy.interactiveFence
@@ -33,7 +33,7 @@ export async function editorPhysicalDisplay(app: ElectronApplication, page: Page
     }
   }, bounds)
   const renderer = await page.evaluate(async () => {
-    const before = await window.luma.getDisplayState()
+    const before = await window.irodori.getDisplayState()
     let permission: PermissionState | 'unavailable' = 'unavailable'
     let currentScreen: {
       label: string | null
@@ -76,7 +76,7 @@ export async function editorPhysicalDisplay(app: ElectronApplication, page: Page
         }
       } else screenDetailsStatus = `permission-${permission}`
     }
-    const target = await window.luma.getDisplayState()
+    const target = await window.irodori.getDisplayState()
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')
     return {
       currentScreen,
@@ -147,7 +147,7 @@ export async function editorPhysicalDisplay(app: ElectronApplication, page: Page
       matchesConfirmedMonitor: currentScreenMatchesConfirmedMonitor,
     },
     confirmedRendererMonitor: {
-      source: 'window.luma.getDisplayState().capabilities.monitor',
+      source: 'window.irodori.getDisplayState().capabilities.monitor',
       monitor,
       reliable: confirmedMonitorReliable,
       generation: renderer.target.generation,
@@ -166,12 +166,12 @@ export async function editorPhysicalDisplay(app: ElectronApplication, page: Page
 /** Confirm the completed canvas, rather than just the preference-setting IPC reply. */
 export async function confirmEditorDisplay(page: Page, selectPreference = false) {
   if (selectPreference && editorDisplayPreference === 'sdr')
-    await page.evaluate(() => window.luma.setPreviewPreference('sdr'))
+    await page.evaluate(() => window.irodori.setPreviewPreference('sdr'))
   await expect
     .poll(
       () =>
         page.evaluate(async (preference) => {
-          const target = await window.luma.getDisplayState()
+          const target = await window.irodori.getDisplayState()
           const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')
           const configuration = canvas?.getContext('webgpu')?.getConfiguration()
           return (
@@ -204,7 +204,7 @@ export async function confirmEditorDisplay(page: Page, selectPreference = false)
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
     const configuration = canvas.getContext('webgpu')!.getConfiguration()!
     return {
-      target: await window.luma.getDisplayState(),
+      target: await window.irodori.getDisplayState(),
       completedTargetGeneration: Number(canvas.dataset.targetGeneration),
       presentedArithmeticPolicy: canvas.dataset.presentedArithmeticPolicy,
       rangeArithmeticPolicy: canvas.dataset.rangeArithmeticPolicy,
@@ -232,15 +232,178 @@ export async function confirmEditorDisplay(page: Page, selectPreference = false)
   }
 }
 
-/** Keep every observed completed generation and every authoritative target change. */
+export interface EditorInputPreparation {
+  expectedPhotoId: string
+  expectedSettingsRevision: number
+  status: 'waiting' | 'ready' | 'failed'
+  observations: Record<string, unknown>[]
+}
+interface EditorTrialContext {
+  app: ElectronApplication
+  layout: { width: number; height: number; maximized: boolean }
+  recordPreparation?: (evidence: EditorInputPreparation) => void
+}
+
+/** Native focus and the actual completed baseline must agree before the timed observer exists. */
+async function prepareMatchedEditorTrial(
+  page: Page,
+  prepared: Awaited<ReturnType<typeof prepareSustainedEditorInput>>,
+  context: EditorTrialContext,
+): Promise<EditorInputPreparation> {
+  const evidence: EditorInputPreparation = {
+    expectedPhotoId: prepared.photoId,
+    expectedSettingsRevision: prepared.settingsRevision,
+    status: 'waiting',
+    observations: [],
+  }
+  context.recordPreparation?.(evidence)
+  const nativeWindow = await context.app.browserWindow(page)
+  let stableSignature: string | null = null,
+    stableSince = 0
+  try {
+    await expect
+      .poll(
+        async () => {
+          const physical = await editorPhysicalDisplay(context.app, page),
+            native = await nativeWindow.evaluate((window) => ({
+              focused: window.isFocused(),
+              contentsFocused: window.webContents.isFocused(),
+              visible: window.isVisible(),
+              minimized: window.isMinimized(),
+              fullscreen: window.isFullScreen(),
+              maximized: window.isMaximized(),
+            })),
+            frame = await page.evaluate(
+              async ({ photoId, revision }) => {
+                const target = await window.irodori.getDisplayState()
+                const canvas = document.querySelector<HTMLCanvasElement>(
+                  '[data-testid="main-preview"]',
+                )!
+                const configuration = canvas.getContext('webgpu')?.getConfiguration()
+                const sourceIdentity = canvas.dataset.presentedSourceIdentity,
+                  sourceMatched =
+                    !!sourceIdentity &&
+                    sourceIdentity.startsWith(`irodori-photo://library/${photoId}/`) &&
+                    sourceIdentity === canvas.dataset.requestedSourceIdentity,
+                  epoch = Number(canvas.dataset.presentedEpoch),
+                  serial = Number(canvas.dataset.completedEditSerial)
+                return {
+                  targetGeneration: target.generation,
+                  monitor: target.capabilities?.monitor,
+                  mode: target.mode,
+                  colorSpace: target.colorSpace,
+                  sourceIdentity,
+                  epoch,
+                  serial,
+                  settingsRevision: Number(canvas.dataset.presentedSettingsRevision),
+                  viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
+                  focused: document.hasFocus(),
+                  visible: document.visibilityState === 'visible',
+                  ready:
+                    target.presentation?.stage === 'presented' &&
+                    target.presentation.backend === 'webgpu-hdr' &&
+                    target.presentation.photoId === photoId &&
+                    target.presentation.revision === revision &&
+                    target.presentation.mode === target.mode &&
+                    target.presentation.targetGeneration === target.generation &&
+                    Number(canvas.dataset.targetGeneration) === target.generation &&
+                    Number(canvas.dataset.presentedSettingsRevision) === revision &&
+                    sourceMatched &&
+                    Number.isFinite(epoch) &&
+                    epoch === Number(canvas.dataset.requestedEpoch) &&
+                    Number.isFinite(serial) &&
+                    serial === Number(canvas.dataset.requestedSerial) &&
+                    canvas.dataset.quality === 'normal' &&
+                    canvas.dataset.gesturing === 'false' &&
+                    canvas.dataset.editing === 'ready' &&
+                    canvas.dataset.presentedPolicy === 'reference' &&
+                    canvas.dataset.presentedArithmeticPolicy === 'reference' &&
+                    canvas.dataset.analysisPending === 'false' &&
+                    !!canvas.dataset.analysisKey &&
+                    canvas.dataset.analysisKey === canvas.dataset.displayedAnalysisKey &&
+                    configuration?.format === 'rgba16float' &&
+                    configuration.colorSpace === target.colorSpace &&
+                    configuration.toneMapping?.mode ===
+                      (target.mode === 'sdr' ? 'standard' : 'extended'),
+                }
+              },
+              { photoId: prepared.photoId, revision: prepared.settingsRevision },
+            ),
+            geometryMatched =
+              native.maximized === context.layout.maximized &&
+              (context.layout.maximized ||
+                (frame.viewport.width === context.layout.width &&
+                  frame.viewport.height === context.layout.height)),
+            agreed =
+              physical.confirmedRendererMonitor.reliable &&
+              frame.targetGeneration === physical.confirmedRendererMonitor.generation &&
+              JSON.stringify(frame.monitor) ===
+                JSON.stringify(physical.confirmedRendererMonitor.monitor) &&
+              frame.viewport.dpr === editorExpectedDpr &&
+              frame.ready &&
+              frame.focused &&
+              frame.visible &&
+              native.focused &&
+              native.contentsFocused &&
+              native.visible &&
+              !native.minimized &&
+              !native.fullscreen &&
+              geometryMatched,
+            signature = agreed
+              ? JSON.stringify({
+                  monitor: frame.monitor,
+                  generation: frame.targetGeneration,
+                  source: frame.sourceIdentity,
+                  epoch: frame.epoch,
+                  serial: frame.serial,
+                  revision: frame.settingsRevision,
+                  viewport: frame.viewport,
+                })
+              : null,
+            now = performance.now()
+          evidence.observations.push({
+            at: now,
+            signature,
+            native,
+            frame,
+            confirmedMonitor: physical.confirmedRendererMonitor,
+          })
+          if (signature === null || signature !== stableSignature) {
+            stableSignature = signature
+            stableSince = now
+          }
+          return signature !== null && now - stableSince >= 1000
+        },
+        {
+          timeout: 15000,
+          intervals: [100, 100, 250],
+          message:
+            'The prepared baseline, latest completed source/revision/serial, native focus and confirmed monitor must settle before timing.',
+        },
+      )
+      .toBe(true)
+    evidence.status = 'ready'
+    return evidence
+  } catch (error) {
+    evidence.status = 'failed'
+    throw error
+  } finally {
+    await nativeWindow.dispose()
+  }
+}
+
+/** Keep every timed completed generation and every authoritative target change. */
 export async function matchedEditorInput(
   page: Page,
   options: Parameters<typeof sustainedEditorInput>[1],
+  context?: EditorTrialContext,
 ) {
+  const prepared = await prepareSustainedEditorInput(page, options)
   await confirmEditorDisplay(page)
+  const preparation = context ? await prepareMatchedEditorTrial(page, prepared, context) : undefined
   const observer = await page.evaluateHandle(async (requestedInteractiveFence) => {
     const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
-    const initialTarget = await window.luma.getDisplayState()
+    const initialTarget = await window.irodori.getDisplayState()
     const attentionState = () => ({
       epochMs: Date.now(),
       at: performance.now(),
@@ -268,7 +431,7 @@ export async function matchedEditorInput(
     document.addEventListener('visibilitychange', visibilityChanged)
     let target = initialTarget
     const targets = [{ at: performance.now(), target }]
-    const stopTarget = window.luma.onDisplayState((next) => {
+    const stopTarget = window.irodori.onDisplayState((next) => {
       target = next
       if (next.generation !== targets.at(-1)!.target.generation)
         targets.push({ at: performance.now(), target: next })
@@ -347,10 +510,14 @@ export async function matchedEditorInput(
     }
   }, editorRequestedInteractiveFence)
   try {
-    const trial = await sustainedEditorInput(page, {
-      ...options,
-      pacing: options.pacing ?? (options.frequency === 120 ? 'timer-deadline-v1' : 'native-raf'),
-    })
+    const trial = await sustainedEditorInput(
+      page,
+      {
+        ...options,
+        pacing: options.pacing ?? (options.frequency === 120 ? 'timer-deadline-v1' : 'native-raf'),
+      },
+      prepared,
+    )
     const display = await observer.evaluate((observer) => observer.stop())
     const presentations = trial.presentations.map((frame) => {
       const publication = display.publications.find(
@@ -415,6 +582,7 @@ export async function matchedEditorInput(
       ...trial,
       presentations,
       display,
+      preparation,
       presentedTargetMatches,
       arithmeticPolicyMismatches,
       requestedInteractiveFence: editorRequestedInteractiveFence,

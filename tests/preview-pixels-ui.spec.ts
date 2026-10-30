@@ -3,7 +3,7 @@ import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 
 test('WebGL pixel inspection agrees with CPU exposure and falls back after context loss', async ({
-  luma,
+  irodori,
 }, info) => {
   const source = info.outputPath('pixels.png')
   await sharp(
@@ -12,12 +12,12 @@ test('WebGL pixel inspection agrees with CPU exposure and falls back after conte
   )
     .png()
     .toFile(source)
-  const { page } = luma
-  await importPhotos(luma.app, page, [source])
+  const { page } = irodori
+  await importPhotos(irodori.app, page, [source])
   const preview = page.getByTestId('main-preview')
   await expect(preview).toHaveAttribute('data-editing', 'ready')
-  const id = (await page.evaluate(() => window.luma.listPhotos())).photos[0].id
-  await page.evaluate((id) => window.luma.updateEdits(id, { exposureEv: -1 }, 0), id)
+  const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
+  await page.evaluate((id) => window.irodori.updateEdits(id, { exposureEv: -1 }, 0), id)
   await expect(preview).toHaveAttribute('data-exposure', '-1')
   for (const scale of [1, 8, 16, 32]) {
     await page.getByRole('combobox', { name: 'Preview zoom' }).selectOption(String(scale))
@@ -91,13 +91,13 @@ test('WebGL pixel inspection agrees with CPU exposure and falls back after conte
 })
 
 test('pixel grid follows fractional pan at multiple display scale factors', async ({
-  luma,
+  irodori,
 }, info) => {
   const source = info.outputPath('grid.png')
   await sharp({ create: { width: 80, height: 80, channels: 3, background: '#ffffff' } })
     .png()
     .toFile(source)
-  const { page, app } = luma
+  const { page, app } = irodori
   await importPhotos(app, page, [source])
   const preview = page.getByTestId('main-preview')
   await expect(preview).toHaveAttribute('data-editing', 'ready')

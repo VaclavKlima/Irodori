@@ -1,0 +1,75 @@
+.ranges,
+.tones {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.ranges {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.tones {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.ranges button,
+.tones button {
+  padding: 5px 2px;
+  min-width: 0;
+  font-size: 10px;
+}
+.ranges button[aria-pressed='true'],
+.tones button[aria-pressed='true'] {
+  border-color: var(--muted);
+  background: var(--accent-surface);
+}
+.help {
+  margin: 6px 0 10px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.reset {
+  display: block;
+  margin-left: auto;
+  font-size: 10px;
+}
+.wheelControl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.wheelControl .help {
+  flex: 1;
+}
+.wheel {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  flex: 0 0 104px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, #b8b8b8, transparent 70%),
+    conic-gradient(from 90deg, #dc6060, #c9c94f, #50b768, #52bdbd, #666bd4, #b65cba, #dc6060);
+  touch-action: none;
+  cursor: crosshair;
+  user-select: none;
+}
+.wheel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.wheel[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+}
+.wheelMarker {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid #fff;
+  box-shadow: 0 0 0 1px #111;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}

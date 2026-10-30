@@ -8,19 +8,19 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 test.use({})
 test('supplied Sony brackets review, publish, open and survive source deletion through the UI', async ({
-  luma,
+  irodori,
 }, info) => {
   test.skip(
-    !process.env.LUMA_MERGE_BRACKETS,
+    !process.env.IRODORI_MERGE_BRACKETS,
     'Supply a read-only Sony bracket sequence explicitly.',
   )
   test.setTimeout(360000)
-  const paths = JSON.parse(process.env.LUMA_MERGE_BRACKETS!) as string[]
-  await isolateTrash(luma.app)
-  await importPhotos(luma.app, luma.page, paths, false)
-  const { page } = luma,
-    photos = (await page.evaluate(() => window.luma.listPhotos())).photos
-  for (const stack of (await page.evaluate(() => window.luma.listStacks())).stacks) {
+  const paths = JSON.parse(process.env.IRODORI_MERGE_BRACKETS!) as string[]
+  await isolateTrash(irodori.app)
+  await importPhotos(irodori.app, irodori.page, paths, false)
+  const { page } = irodori,
+    photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
+  for (const stack of (await page.evaluate(() => window.irodori.listStacks())).stacks) {
     if (stack.expanded) continue
     const cover = photos.find((photo) => photo.id === stack.coverId)!
     await page
@@ -34,7 +34,7 @@ test('supplied Sony brackets review, publish, open and survive source deletion t
   await page
     .getByTestId(`photo-card-${photos[photos.length - 1].id}`)
     .click({ modifiers: ['Shift'] })
-  const native = await luma.app.browserWindow(page)
+  const native = await irodori.app.browserWindow(page)
   await native.evaluate((w) => {
     w.unmaximize()
     w.setContentSize(1100, 700)
@@ -54,10 +54,10 @@ test('supplied Sony brackets review, publish, open and survive source deletion t
       .toBe(true)
     await expect(merge).toBeEnabled()
   } catch (error) {
-    const review = await page.evaluate(() => window.luma.getActiveMergeReview())
+    const review = await page.evaluate(() => window.irodori.getActiveMergeReview())
     if (review) {
       const diagnostics = await page.evaluate(
-        (r) => window.luma.getMergeDiagnostics(r.id, r.revision),
+        (r) => window.irodori.getMergeDiagnostics(r.id, r.revision),
         review,
       )
       await info.attach('alignment-diagnostics', {
@@ -70,17 +70,17 @@ test('supplied Sony brackets review, publish, open and survive source deletion t
   const viewport = page.getByTestId('merge-viewport')
   await expect(viewport).toHaveAttribute('data-ready', 'true')
   await expect(page.getByRole('button', { name: 'Native detail (100%)' })).toHaveCount(0)
-  const readyReview = await page.evaluate(() => window.luma.getActiveMergeReview())
+  const readyReview = await page.evaluate(() => window.irodori.getActiveMergeReview())
   const client = new Client({ name: 'native-merge-review-test', version: '1' }),
     transport = new StdioClientTransport({
       command: process.execPath,
       args: [resolve('scripts/editor-mcp.mjs')],
-      env: { ...(process.env as Record<string, string>), LUMA_PROFILE: luma.userDataDir },
+      env: { ...(process.env as Record<string, string>), IRODORI_PROFILE: irodori.userDataDir },
     })
   try {
     await client.connect(transport)
     const response = await client.callTool({
-      name: 'luma_request_merge_preview',
+      name: 'irodori_request_merge_preview',
       arguments: { reviewId: readyReview!.id, expectedRevision: readyReview!.revision },
     })
     expect(response.isError).not.toBe(true)
@@ -99,7 +99,10 @@ test('supplied Sony brackets review, publish, open and survive source deletion t
   }
   await info.attach('alignment-diagnostics', {
     body: JSON.stringify(
-      await page.evaluate((r) => window.luma.getMergeDiagnostics(r!.id, r!.revision), readyReview),
+      await page.evaluate(
+        (r) => window.irodori.getMergeDiagnostics(r!.id, r!.revision),
+        readyReview,
+      ),
       null,
       2,
     ),
@@ -110,7 +113,7 @@ test('supplied Sony brackets review, publish, open and survive source deletion t
   await strength.press('Escape')
   await expect(strength).toHaveValue('50')
   await page.getByRole('checkbox', { name: 'Show deghost overlay' }).check()
-  expect((await page.evaluate(() => window.luma.getActiveMergeReview()))?.revision).toBe(
+  expect((await page.evaluate(() => window.irodori.getActiveMergeReview()))?.revision).toBe(
     readyReview!.revision,
   )
   await expect(merge).toBeEnabled()
@@ -137,12 +140,12 @@ test('supplied Sony brackets review, publish, open and survive source deletion t
   await expect
     .poll(
       async () =>
-        (await page.evaluate(() => window.luma.listTasks())).find((t) => t.kind === 'merge')
+        (await page.evaluate(() => window.irodori.listTasks())).find((t) => t.kind === 'merge')
           ?.finishedAt,
       { timeout: 120000 },
     )
     .toBeTruthy()
-  const result = (await page.evaluate(() => window.luma.listPhotos())).photos.find(
+  const result = (await page.evaluate(() => window.irodori.listPhotos())).photos.find(
     (p) => p.assetKind === 'derived',
   )!
   expect(result).toBeTruthy()
@@ -153,11 +156,11 @@ test('supplied Sony brackets review, publish, open and survive source deletion t
   await expect(resultCard).toHaveAttribute('aria-pressed', 'true')
   await expect(resultCard).toBeInViewport({ ratio: 1 })
   await cp(
-    join(luma.userDataDir, 'library', 'originals', result.id),
+    join(irodori.userDataDir, 'library', 'originals', result.id),
     info.outputPath('published-master'),
     { recursive: true },
   )
-  expect(await page.evaluate((id) => window.luma.getEdits(id), result.id)).toMatchObject({
+  expect(await page.evaluate((id) => window.irodori.getEdits(id), result.id)).toMatchObject({
     referenceWhiteBalance: true,
     revision: 0,
     settings: { exposureEv: 0, contrast: 0, highlights: 0 },
@@ -167,37 +170,45 @@ test('supplied Sony brackets review, publish, open and survive source deletion t
   })
   const adjusted = await page.evaluate(
     (id) =>
-      window.luma.updateEdits(id, { whiteBalance: { mode: 'custom', kelvin: 7000, tint: 10 } }, 0),
+      window.irodori.updateEdits(
+        id,
+        { whiteBalance: { mode: 'custom', kelvin: 7000, tint: 10 } },
+        0,
+      ),
     result.id,
   )
   expect(adjusted.settings.whiteBalance).toMatchObject({ mode: 'custom', kelvin: 7000, tint: 10 })
-  await page.evaluate((id) => window.luma.undoEdit(id, 1), result.id)
+  await page.evaluate((id) => window.irodori.undoEdit(id, 1), result.id)
   await page.evaluate(
-    (ids) => window.luma.deletePhotos(ids),
+    (ids) => window.irodori.deletePhotos(ids),
     photos.map((p) => p.id),
   )
-  await expect.poll(async () => (await page.evaluate(() => window.luma.listPhotos())).total).toBe(1)
-  expect(await page.evaluate((id) => window.luma.getMergeProvenance(id), result.id)).toMatchObject({
+  await expect
+    .poll(async () => (await page.evaluate(() => window.irodori.listPhotos())).total)
+    .toBe(1)
+  expect(
+    await page.evaluate((id) => window.irodori.getMergeProvenance(id), result.id),
+  ).toMatchObject({
     reproducible: false,
   })
-  const restarted = await luma.restart(true)
+  const restarted = await irodori.restart(true)
   await expect(restarted.page.getByTestId('main-preview')).toHaveAttribute(
     'data-editing',
     'ready',
     { timeout: 45000 },
   )
-  expect((await restarted.page.evaluate(() => window.luma.listPhotos())).photos[0].id).toBe(
+  expect((await restarted.page.evaluate(() => window.irodori.listPhotos())).photos[0].id).toBe(
     result.id,
   )
   const statistics = await restarted.page.evaluate(
-    (id) => window.luma.getPhotoStatistics(id, 2, { domain: 'working-hdr' }),
+    (id) => window.irodori.getPhotoStatistics(id, 2, { domain: 'working-hdr' }),
     result.id,
   )
   expect(statistics.exact).toBe(true)
   expect(statistics.visiblePixels).toBe(result.width * result.height)
   expect(statistics.sourceSaturation).toBeNull()
   expect(
-    (await restarted.page.evaluate((id) => window.luma.getEdits(id), result.id)).settings
+    (await restarted.page.evaluate((id) => window.irodori.getEdits(id), result.id)).settings
       .whiteBalance.mode,
   ).toBe('as-shot')
 })

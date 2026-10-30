@@ -226,7 +226,7 @@ test('catalog revisions reject stale chunks and locations and deletion removes i
 })
 
 test('accepted imports publish dates and metadata atomically without changing earlier browse results', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'luma-browse-import-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-browse-import-'))
   const fixture = resolve('tests/fixtures/photos/alpine-lake.jpg')
   const processor: PreviewProcessor = {
     process: async (path, output) => {

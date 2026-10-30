@@ -29,7 +29,7 @@ export function buildNative(component, directory = build) {
     const pkg = component === 'libraw' ? 'libraw' : 'opencv4'
     const requiredVersion = component === 'libraw' ? '0.22.1' : '4.13.0'
     let available = false
-    if (process.env.LUMA_RESEARCH_PINNED_SOURCES !== '1') {
+    if (process.env.IRODORI_RESEARCH_PINNED_SOURCES !== '1') {
       try {
         libraries[pkg] = run('pkg-config', ['--modversion', pkg])
         available = true
@@ -40,7 +40,7 @@ export function buildNative(component, directory = build) {
     if (available) {
       if (libraries[pkg] !== requiredVersion)
         throw new Error(
-          `${pkg} ${requiredVersion} is required for equivalence; found ${libraries[pkg]}. Use LUMA_RESEARCH_PINNED_SOURCES=1 with the verified archives.`,
+          `${pkg} ${requiredVersion} is required for equivalence; found ${libraries[pkg]}. Use IRODORI_RESEARCH_PINNED_SOURCES=1 with the verified archives.`,
         )
       flags.push(...run('pkg-config', ['--cflags', pkg]).split(/\s+/).filter(Boolean))
       libraries.flags = run('pkg-config', ['--libs', pkg]).split(/\s+/).filter(Boolean)

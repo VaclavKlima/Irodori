@@ -17,7 +17,7 @@ const processor: PreviewProcessor = {
   close: async () => {},
 }
 export async function stackFixture(count = 5) {
-  const root = await mkdtemp(join(tmpdir(), 'luma-stacks-'))
+  const root = await mkdtemp(join(tmpdir(), 'irodori-stacks-'))
   await mkdir(join(root, 'trash'))
   const move = async (path: string) => {
     await rename(path, join(root, 'trash', basename(path)))
@@ -40,8 +40,8 @@ export async function stackFixture(count = 5) {
       bytes: 1,
       format: 'JPG',
       importedAt: `2026-10-04T12:00:${String(i % 60).padStart(2, '0')}.${String(i).padStart(3, '0')}Z`,
-      thumbnailUrl: `luma-photo://library/${id}/thumb`,
-      previewUrl: `luma-photo://library/${id}/preview`,
+      thumbnailUrl: `irodori-photo://library/${id}/thumb`,
+      previewUrl: `irodori-photo://library/${id}/preview`,
       previewSource: 'image',
     }
     photos.push(photo)

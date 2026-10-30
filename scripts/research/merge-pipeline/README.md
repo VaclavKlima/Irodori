@@ -34,7 +34,7 @@ a small source view alone did not bound its full-texture initialization staging.
 Canonical sensor clipping, two-pixel dilation, orientation and lens/CA geometry
 remain CPU inputs. `camera-oracle.ts` invokes the maintained production writer,
 verifies its native strips, and extracts those masks. This deliberately isolates
-the scalar writer by setting and restoring `LUMA_MERGE_CPU_KERNEL=scalar` around
+the scalar writer by setting and restoring `IRODORI_MERGE_CPU_KERNEL=scalar` around
 the oracle's complete lifetime, independent of the optional WASM preparation.
 The comparison isolates
 the numerical work: there is no claim that clipping geometry has moved to GPU or

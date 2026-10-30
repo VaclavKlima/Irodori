@@ -153,11 +153,11 @@ static void features(const cv::Mat& image, const cv::Mat& mask,
   orb->compute(image, keys, descriptors);
 }
 extern "C" {
-void luma_patch_stats(double* output,int reset) {
+void irodori_patch_stats(double* output,int reset) {
   std::copy(patchStats,patchStats+4,output);
   if(reset) std::fill(patchStats,patchStats+4,0);
 }
-int luma_features(unsigned char* image, unsigned char* mask, int width, int height, float* points, unsigned char* descriptors) {
+int irodori_features(unsigned char* image, unsigned char* mask, int width, int height, float* points, unsigned char* descriptors) {
   try {
     std::vector<cv::KeyPoint> keys; cv::Mat desc;
     features(cv::Mat(height,width,CV_8U,image),cv::Mat(height,width,CV_8U,mask),keys,desc);
@@ -166,7 +166,7 @@ int luma_features(unsigned char* image, unsigned char* mask, int width, int heig
     return desc.rows;
   } catch(const cv::Exception&) { return -1; }
 }
-int luma_descriptors(float* ak, unsigned char* ad, int an, float* bk, unsigned char* bd, int bn, float* points) {
+int irodori_descriptors(float* ak, unsigned char* ad, int an, float* bk, unsigned char* bd, int bn, float* points) {
   try {
     if(an<2 || bn<2) return 0;
     cv::BFMatcher matcher(cv::NORM_HAMMING); std::vector<std::vector<cv::DMatch>> ab,ba;
@@ -184,7 +184,7 @@ int luma_descriptors(float* ak, unsigned char* ad, int an, float* bk, unsigned c
     return n;
   } catch(const cv::Exception&) { return -1; }
 }
-int luma_matches(unsigned char* a, unsigned char* b, unsigned char* am, unsigned char* bm,
+int irodori_matches(unsigned char* a, unsigned char* b, unsigned char* am, unsigned char* bm,
                  int width, int height, float* points) {
   try {
     std::vector<cv::KeyPoint> ak, bk;
@@ -208,7 +208,7 @@ int luma_matches(unsigned char* a, unsigned char* b, unsigned char* am, unsigned
     return n;
   } catch (const cv::Exception&) { return -1; }
 }
-int luma_fit(float* points, int count, int projective, double threshold, double* matrix, unsigned char* inliers) {
+int irodori_fit(float* points, int count, int projective, double threshold, double* matrix, unsigned char* inliers) {
   try {
     cv::setRNGSeed(1739);
     std::vector<cv::Point2f> a, b;
@@ -223,7 +223,7 @@ int luma_fit(float* points, int count, int projective, double threshold, double*
     return cv::countNonZero(mask);
   } catch (const cv::Exception&) { return -1; }
 }
-double luma_ecc(float* a, float* b, unsigned char* am, unsigned char* bm,
+double irodori_ecc(float* a, float* b, unsigned char* am, unsigned char* bm,
                 int width, int height, double* matrix, int motion, int iterations) {
   try {
     cv::Mat m(motion == cv::MOTION_HOMOGRAPHY ? 3 : 2, 3, CV_32F);
@@ -238,7 +238,7 @@ double luma_ecc(float* a, float* b, unsigned char* am, unsigned char* bm,
 // Batch native sampling and masked coarse-to-fine translation in SIMD WASM.
 // Reference/source are bounded, checksummed native luminance bands. NaN masks
 // denote sensor clipping; they are internal alignment data, never master pixels.
-int luma_patches(float* a, float* b, int width, int height, int afirst, int arows, int bfirst, int brows,
+int irodori_patches(float* a, float* b, int width, int height, int afirst, int arows, int bfirst, int brows,
                  double* matrix, float* centers, int count, int edge, double fraction, float* output, float* tiles, int columns, int identical) {
   if(width<=0 || height<=0 || edge<=0 || edge>width || edge>height || count<0 ||
      afirst<0 || arows<0 || afirst+arows>height || bfirst<0 || brows<0 || bfirst+brows>height ||
@@ -247,15 +247,15 @@ int luma_patches(float* a, float* b, int width, int height, int afirst, int arow
   int n=0;
   auto sample=[&](float* data,int first,int rows,double x,double y,float& value)->bool {
     if(!std::isfinite(x) || !std::isfinite(y) || x<0 || y<first || x>width-1 || y>std::min(height-1,first+rows-1)) return false;
-    int ix=int(x),iy=int(y); double dx=x-ix,dy=y-iy; double luma=0; bool valid=true;
+    int ix=int(x),iy=int(y); double dx=x-ix,dy=y-iy; double irodori=0; bool valid=true;
     // Interior samples use all four weights. NaN propagates the immutable
     // sensor mask without four separate branches; exact integer and border
     // coordinates retain the zero-weight handling below.
     if(dx>0 && dy>0 && ix+1<width && iy+1<first+rows && iy+1<height) {
       const float* row=data+(iy-first)*width+ix;
-      luma=double(row[0])*(1-dx)*(1-dy)+double(row[1])*dx*(1-dy)+
+      irodori=double(row[0])*(1-dx)*(1-dy)+double(row[1])*dx*(1-dy)+
         double(row[width])*(1-dx)*dy+double(row[width+1])*dx*dy;
-      value=std::isfinite(luma) && luma>.004?std::sqrt(luma):0;
+      value=std::isfinite(irodori) && irodori>.004?std::sqrt(irodori):0;
       return value>0;
     }
     for(int yy=0;yy<2;yy++) for(int xx=0;xx<2;xx++) {
@@ -263,9 +263,9 @@ int luma_patches(float* a, float* b, int width, int height, int afirst, int arow
       int ty=std::min(height-1,iy+yy),tx=std::min(width-1,ix+xx);
       if(ty>=first+rows) return false;
       const float p=data[(ty-first)*width+tx];
-      if(std::isfinite(p)) luma+=p*w; else valid=false;
+      if(std::isfinite(p)) irodori+=p*w; else valid=false;
     }
-    value=valid && luma>.004?std::sqrt(luma):0;
+    value=valid && irodori>.004?std::sqrt(irodori):0;
     return value>0;
   };
   for(int k=0;k<count;k++) {

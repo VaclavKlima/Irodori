@@ -31,7 +31,7 @@ export async function syntheticMerge(
     scratchRoot?: string
   } = {},
 ) {
-  const directory = await mkdtemp(join(options.scratchRoot ?? tmpdir(), 'luma-merge-test-')),
+  const directory = await mkdtemp(join(options.scratchRoot ?? tmpdir(), 'irodori-merge-test-')),
     output = join(directory, 'output')
   const width = options.width ?? 160,
     height = options.height ?? 96,
@@ -112,7 +112,7 @@ export async function syntheticMerge(
         identity: 'synthetic',
         provider: 'test',
         version: '1',
-        model: 'luma-kang2002-ucs-1',
+        model: 'irodori-kang2002-ucs-1',
         ranges: { kelvin: [2000, 25000], tint: [-100, 100] },
         estimate: { kelvin: 6500, tint: 0 },
         asShotGains: [1, 1, 1],

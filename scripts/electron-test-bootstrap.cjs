@@ -10,7 +10,7 @@ exports.install = ({ profile, evidenceFile, mode }) => {
     throw new Error('Invalid isolated Electron test entry.')
   if (realpathSync(app.getPath('userData')) !== realpathSync(profile))
     throw new Error('Electron test profile isolation failed before application startup.')
-  Object.defineProperty(globalThis, '__lumaTestUiMode', { value: mode })
+  Object.defineProperty(globalThis, '__irodoriTestUiMode', { value: mode })
   const evidence = { mode, pid: process.pid, profile, windows: [], violations: [] }
   const save = () => {
     writeFileSync(`${evidenceFile}.tmp`, JSON.stringify(evidence, null, 2) + '\n')

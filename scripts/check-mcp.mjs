@@ -12,7 +12,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const output = pathToFileURL(
-  join(process.env.LUMA_VERIFICATION_DIR ?? (await artifactDirectory('mcp')), 'mcp') + '/',
+  join(process.env.IRODORI_VERIFICATION_DIR ?? (await artifactDirectory('mcp')), 'mcp') + '/',
 )
 let endpoint = 'http://127.0.0.1:9222'
 const isolated = process.argv.includes('--isolated')
@@ -58,7 +58,7 @@ function buttonRef(snapshot, name) {
   return ref
 }
 
-const client = new Client({ name: 'luma-mcp-smoke', version: '0.1.0' })
+const client = new Client({ name: 'irodori-mcp-smoke', version: '0.1.0' })
 let transport
 try {
   if (isolated) {
@@ -67,7 +67,7 @@ try {
     const port = probe.address().port
     await new Promise((resolve) => probe.close(resolve))
     endpoint = `http://127.0.0.1:${port}`
-    profile = await mkdtemp(join(tmpdir(), 'luma-mcp-'))
+    profile = await mkdtemp(join(tmpdir(), 'irodori-mcp-'))
     const env = { ...process.env }
     delete env.ELECTRON_RENDERER_URL
     delete env.ELECTRON_RUN_AS_NODE
@@ -325,9 +325,9 @@ try {
     await waitForText('Import complete')
     await call('browser_evaluate', {
       function: `async () => {
-        const tasks = await window.luma.listTasks();
+        const tasks = await window.irodori.listTasks();
         const duplicateTask = tasks.find(task => task.outcomes?.duplicates === 2);
-        if (!duplicateTask || duplicateTask.outcomes.imported !== 0 || (await window.luma.listPhotos()).total !== 2)
+        if (!duplicateTask || duplicateTask.outcomes.imported !== 0 || (await window.irodori.listPhotos()).total !== 2)
           throw new Error('Deferred duplicate checks did not preserve the catalog');
         return duplicateTask.outcomes;
       }`,
@@ -355,7 +355,7 @@ try {
     await clickButton('Move to Trash')
     await waitForText('Your photographs, at home.')
     const deleted = await call('browser_evaluate', {
-      function: 'async () => ({total: (await window.luma.listPhotos()).total})',
+      function: 'async () => ({total: (await window.irodori.listPhotos()).total})',
     })
     if (!/"total":\s*0/.test(deleted.text))
       throw new Error('The confirmed selection was not deleted.')
@@ -390,9 +390,9 @@ try {
     await call('browser_click', { element: 'Distortion correction', target: lensRef })
     await call('browser_evaluate', {
       function: `async () => {
-      const id = (await window.luma.listPhotos()).photos[0].id;
+      const id = (await window.irodori.listPhotos()).photos[0].id;
       for(let i=0;i<120;i++) {
-        const state=await window.luma.getLensSettings(id);
+        const state=await window.irodori.getLensSettings(id);
         if(state.revision===1 && !state.settings.distortion && document.querySelector('[data-testid="preview-viewport"]')?.dataset.resolution==='full') return state;
         await new Promise(r=>setTimeout(r,250));
       }
@@ -405,8 +405,8 @@ try {
     await clickButton('Lens corrections')
     await call('browser_evaluate', {
       function: `async () => {
-      const id=(await window.luma.listPhotos()).photos[0].id;
-      const state=await window.luma.getLensSettings(id);
+      const id=(await window.irodori.listPhotos()).photos[0].id;
+      const state=await window.irodori.getLensSettings(id);
       if(state.settings.distortion || state.revision!==1) throw new Error('Lens settings did not survive reload');
       return state;
     }`,

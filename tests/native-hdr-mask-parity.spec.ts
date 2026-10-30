@@ -208,7 +208,7 @@ interface Source {
 // Deliberately long, explicit private-working-plane quality gate. It is omitted
 // from routine scopes and never measures foreground cadence or application RSS.
 test('actual Electron unchanged full-mask oracle matches native at every photographic mip and public threshold', async ({
-  luma,
+  irodori,
 }, info) => {
   test.skip(
     process.platform !== 'linux' || process.arch !== 'x64',
@@ -237,8 +237,10 @@ test('actual Electron unchanged full-mask oracle matches native at every photogr
     absent.length > 0,
     `Incomplete: both unchanged full-size working planes and originals are required; missing ${absent.join(', ')}. No repeated/smaller substitute.`,
   )
-  expect(await luma.page.evaluate(() => window.luma.listPhotos())).toMatchObject({ photos: [] })
-  const runtime = await luma.app.evaluate(() => ({
+  expect(await irodori.page.evaluate(() => window.irodori.listPhotos())).toMatchObject({
+    photos: [],
+  })
+  const runtime = await irodori.app.evaluate(() => ({
     platform: process.platform,
     arch: process.arch,
     versions: process.versions,
@@ -288,7 +290,7 @@ test('actual Electron unchanged full-mask oracle matches native at every photogr
     await writeFile(bundlePath, compiled.outputFiles[0].contents, { flag: 'wx', mode: 0o600 })
     bundleOwned = true
     report.oracleBundleSha256 = sha(compiled.outputFiles[0].contents)
-    oracle = await createOracle(luma.page, basename(bundlePath))
+    oracle = await createOracle(irodori.page, basename(bundlePath))
     const policy = resolveResourcePolicy(
       { version: 1, ramMiB: 2048, vramMiB: 2048 },
       {
@@ -631,7 +633,9 @@ test('actual Electron unchanged full-mask oracle matches native at every photogr
     }
     expect(await sourcePins()).toEqual(pinsBefore)
     expect(sha(await readFile(executable))).toBe(report.executableSha256)
-    expect(await luma.page.evaluate(() => window.luma.listPhotos())).toMatchObject({ photos: [] })
+    expect(await irodori.page.evaluate(() => window.irodori.listPhotos())).toMatchObject({
+      photos: [],
+    })
     report.allComparisonsCompleted = true
     report.originalsAndWorkingSourcesUnchanged = true
     report.sourcePinsUnchanged = true

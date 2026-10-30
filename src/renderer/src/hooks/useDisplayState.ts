@@ -55,8 +55,8 @@ export function useDisplayState() {
             : previous,
         )
     }
-    void window.luma.getDisplayState().then(accept)
-    const off = window.luma.onDisplayState(accept)
+    void window.irodori.getDisplayState().then(accept)
+    const off = window.irodori.onDisplayState(accept)
     const probe = async () => {
       const current = ++generation
       const caps: DisplayCapabilities = {
@@ -108,7 +108,7 @@ export function useDisplayState() {
         const { p3, extended } = await probeHdrCanvas(device, context)
         if (stopped || current !== generation) return
         accept(
-          await window.luma.reportDisplayCapabilities({
+          await window.irodori.reportDisplayCapabilities({
             ...caps,
             hardware: true,
             extended,
@@ -132,7 +132,7 @@ export function useDisplayState() {
         )
         void device.lost.then(() => {
           if (!stopped && current === generation)
-            void window.luma.reportDisplayCapabilities({
+            void window.irodori.reportDisplayCapabilities({
               ...caps,
               failure: 'device-lost',
               hardware: false,
@@ -145,7 +145,7 @@ export function useDisplayState() {
       } catch (error) {
         if (!stopped && current === generation)
           accept(
-            await window.luma.reportDisplayCapabilities({
+            await window.irodori.reportDisplayCapabilities({
               ...caps,
               failure: caps.failure ?? 'adapter-unavailable',
               reason: caps.reason || String(error).slice(0, 512),
@@ -156,7 +156,7 @@ export function useDisplayState() {
     const refresh = () => {
       void probe()
     }
-    const resume = window.luma.onDisplayRefresh(refresh)
+    const resume = window.irodori.onDisplayRefresh(refresh)
     window.addEventListener('focus', refresh)
     window.addEventListener('resize', refresh)
     document.addEventListener('visibilitychange', refresh)

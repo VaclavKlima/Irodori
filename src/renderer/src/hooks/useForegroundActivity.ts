@@ -6,7 +6,7 @@ export function useForegroundActivity(photoId?: string, reviewId?: string, enabl
   useEffect(() => {
     if (!enabled || (!photoId && !reviewId)) return
     const instance = new ForegroundActivityClient({ photoId, reviewId }, (value) =>
-      window.luma.reportForegroundActivity(value),
+      window.irodori.reportForegroundActivity(value),
     )
     client.current = instance
     const clear = () => instance.clear()

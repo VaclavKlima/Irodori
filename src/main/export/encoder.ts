@@ -1,10 +1,16 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { constants, existsSync } from 'node:fs'
-import { access, readFile, writeFile } from 'node:fs/promises'
+import { access, readFile, writeFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { loadUltraHdr, verifyUltraHdrBundle } from './codec'
+import {
+  exportHdrEncodePlan,
+  requireExportAllocation,
+  ExportResourceError,
+  type ExportAdmission,
+} from '../../shared/export-resources'
 
 const execute = promisify(execFile)
 
@@ -26,10 +32,10 @@ export async function nativeEncoderPath(directory?: string): Promise<string | un
   directory ??= await verifyUltraHdrBundle()
   directory = directory.replace('app.asar/', 'app.asar.unpacked/')
   const root = join(directory, 'native', target),
-    path = join(root, 'luma-ultrahdr')
+    path = join(root, 'irodori-ultrahdr')
   if (!existsSync(root)) return undefined
   const manifest = (await readFile(join(root, 'SHA256SUMS'), 'utf8')).trim()
-  const match = /^([a-f0-9]{64}) {2}luma-ultrahdr$/.exec(manifest)
+  const match = /^([a-f0-9]{64}) {2}irodori-ultrahdr$/.exec(manifest)
   if (
     !match ||
     createHash('sha256')
@@ -44,7 +50,7 @@ export async function nativeEncoderPath(directory?: string): Promise<string | un
 /** Main-process availability and acceptance use the same selected-backend contract. */
 export async function verifyExportEncoder(
   directory?: string,
-  mode = process.env.LUMA_EXPORT_ENCODER ?? 'auto',
+  mode = process.env.IRODORI_EXPORT_ENCODER ?? 'auto',
 ): Promise<void> {
   validateEncoderMode(mode)
   const bundle = await verifyUltraHdrBundle(directory?.replace('app.asar/', 'app.asar.unpacked/'))
@@ -67,8 +73,9 @@ export async function encodeExportHdr(
   quality: number,
   headroom: number,
   directory: string,
-  mode = process.env.LUMA_EXPORT_ENCODER ?? 'auto',
+  mode = process.env.IRODORI_EXPORT_ENCODER ?? 'auto',
   bundle?: string,
+  admission?: ExportAdmission,
 ) {
   if (process.versions.electron) throw new Error('HDR export requires the isolated Node worker.')
   validateEncoderMode(mode)
@@ -80,6 +87,10 @@ export async function encodeExportHdr(
       const executable = await nativeEncoderPath(bundle)
       if (!executable)
         throw new Error('No bundled native HDR encoder is available on this platform.')
+      const plan = admission
+        ? exportHdrEncodePlan(width, height, sdr.byteLength, 'native', admission)
+        : undefined
+      if (plan) requireExportAllocation(plan)
       const pixels = width * height
       if (
         !Number.isSafeInteger(pixels) ||
@@ -137,7 +148,10 @@ export async function encodeExportHdr(
         (process.platform === 'linux' && info.implementation !== 'rust-ultrahdr-v1')
       )
         throw new Error('Invalid native HDR JPEG rendition geometry.')
+      if (plan && (await stat(outputPath)).size > plan.outputLimitBytes)
+        throw new ExportResourceError('The HDR JPEG exceeded its admitted output storage.')
       return {
+        admission: plan,
         output: await readFile(outputPath),
         path: outputPath,
         primaryWritten,
@@ -145,10 +159,14 @@ export async function encodeExportHdr(
         memory: { kind: 'process-rss' as const, peakBytes: info.peakBytes },
       }
     } catch (error) {
-      if (nativeRequired(mode)) throw error
+      if (nativeRequired(mode) || error instanceof ExportResourceError) throw error
       fallback = error instanceof Error ? error.message : String(error)
     }
   }
+  const plan = admission
+    ? exportHdrEncodePlan(width, height, sdr.byteLength, 'wasm', admission)
+    : undefined
+  if (plan) requireExportAllocation(plan)
   const codec = await loadUltraHdr(bundle)
   const output = codec.encode(
     new Uint8Array(half.buffer, half.byteOffset, half.byteLength),
@@ -157,6 +175,7 @@ export async function encodeExportHdr(
     sdr,
     quality,
     headroom,
+    plan?.outputLimitBytes,
   )
   const inspected = codec.inspect(output)
   if (
@@ -167,6 +186,7 @@ export async function encodeExportHdr(
   )
     throw new Error('Invalid HDR JPEG rendition geometry.')
   return {
+    admission: plan,
     output,
     path: undefined,
     primaryWritten,

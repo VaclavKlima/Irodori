@@ -22,7 +22,7 @@ const matchesReference = (value) =>
   Object.keys(value).length === 4 &&
   Object.entries(maskReference).every(([key, expected]) => value[key] === expected)
 const maskCompilerFlags = ['-mno-fma', '-mno-avx', '-mno-sse4.2']
-const maskUpstream = 'native/luma-cpu-render/upstream/electron-llvm'
+const maskUpstream = 'native/irodori-cpu-render/upstream/electron-llvm'
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex')
 const bounded = (path, maximum) => {
   const file = lstatSync(path)
@@ -55,7 +55,7 @@ if (
   throw new Error('Only an owned native CPU build manifest can be staged.')
 const manifestBytes = bounded(manifestPath, 1024 ** 2),
   manifest = JSON.parse(manifestBytes.toString('utf8'))
-const executable = join(dirname(manifestPath), 'luma-cpu-render')
+const executable = join(dirname(manifestPath), 'irodori-cpu-render')
 if (
   manifest.implementation !== 'float64-ctl-cpu-strip-v1' ||
   manifest.platform !== 'linux' ||
@@ -66,7 +66,7 @@ if (
   manifest.nativeMask?.mode !== '--mask-v1' ||
   !/^[a-f0-9]{64}$/.test(manifest.nativeMask.arithmeticSha256) ||
   !/^[a-f0-9]{64}$/.test(manifest.nativeMask.capabilitiesSha256) ||
-  manifest.nativeMask.arithmeticVersion !== 'native-hdr-mask-arithmetic-v2-electron-llvm' ||
+  manifest.nativeMask.arithmeticVersion !== 'native-hdr-mask-arithmetic-v3-electron-llvm' ||
   !matchesReference(manifest.nativeMask.reference) ||
   JSON.stringify(manifest.nativeMask.maskCompilerFlags) !== JSON.stringify(maskCompilerFlags) ||
   JSON.stringify(manifest.maskCompilerFlags) !== JSON.stringify(maskCompilerFlags) ||
@@ -79,13 +79,13 @@ if (hash(binary) !== manifest.executable.sha256)
   throw new Error('The native CPU build executable checksum does not match its provenance.')
 const license = bounded(join(root, 'third_party/aces-core/LICENSE'), 64 * 1024)
 const llvmLicense = bounded(join(root, maskUpstream, 'llvm-libc/LICENSE.TXT'), 64 * 1024)
-const shim = bounded(join(root, 'native/luma-cpu-render/electron-atan2.h'), 64 * 1024)
+const shim = bounded(join(root, 'native/irodori-cpu-render/electron-atan2.h'), 64 * 1024)
 const sourceInventoryBytes = bounded(join(root, maskUpstream, 'sources.json'), 128 * 1024)
 const sourceInventory = JSON.parse(sourceInventoryBytes.toString('utf8'))
 if (
   hash(license) !== manifest.sources?.['third_party/aces-core/LICENSE'] ||
   hash(llvmLicense) !== manifest.sources?.[`${maskUpstream}/llvm-libc/LICENSE.TXT`] ||
-  hash(shim) !== manifest.sources?.['native/luma-cpu-render/electron-atan2.h'] ||
+  hash(shim) !== manifest.sources?.['native/irodori-cpu-render/electron-atan2.h'] ||
   hash(sourceInventoryBytes) !== manifest.sources?.[`${maskUpstream}/sources.json`] ||
   sourceInventory.version !== 'electron-mask-llvm-sources-v1' ||
   !matchesReference(sourceInventory.reference) ||
@@ -140,22 +140,26 @@ const canonical = (value) => {
 }
 if (
   capability.version !== 'native-cpu-capabilities-v1' ||
-  capability.presentation !== 'LUMACPU1' ||
-  capability.mask?.request !== 'MASKCPU1' ||
+  capability.presentation !== 'IRODCPU3' ||
+  capability.mask?.request !== 'MASKCPU3' ||
   capability.mask.output !== 'MASKOUT1' ||
   capability.mask.terminal !== 'MASKDONE' ||
   capability.mask.mode !== '--mask-v1' ||
   capability.mask.arithmeticSha256 !== manifest.nativeMask.arithmeticSha256 ||
   hash(canonical(capability.mask.arithmetic)) !== manifest.nativeMask.arithmeticSha256 ||
-  receipt.version !== 'native-hdr-mask-arithmetic-v2-electron-llvm' ||
+  receipt.version !== 'native-hdr-mask-arithmetic-v3-electron-llvm' ||
   !matchesReference(receipt.reference) ||
   JSON.stringify(receipt.maskCompilerFlags) !== JSON.stringify(maskCompilerFlags) ||
   receipt.llvmShimSha256 !== hash(shim) ||
   receipt.upstreamManifestSha256 !== hash(sourceInventoryBytes) ||
-  receipt.normalBridgeSha256 !== manifest.sources['native/luma-cpu-render/bridge.cpp'] ||
-  receipt.maskBridgeSha256 !== manifest.sources['native/luma-cpu-render/mask-bridge.cpp'] ||
-  receipt.maskHostSha256 !== manifest.sources['native/luma-cpu-render/src/mask.rs'] ||
-  receipt.prepareSourceSha256 !== manifest.sources['native/luma-cpu-render/prepare-mask.py'] ||
+  receipt.normalBridgeSha256 !== manifest.sources['native/irodori-cpu-render/bridge.cpp'] ||
+  receipt.maskBridgeSha256 !== manifest.sources['native/irodori-cpu-render/mask-bridge.cpp'] ||
+  receipt.maskHostSha256 !== manifest.sources['native/irodori-cpu-render/src/mask.rs'] ||
+  receipt.prepareSourceSha256 !== manifest.sources['native/irodori-cpu-render/prepare-mask.py'] ||
+  receipt.creativeHeaderSha256 !== manifest.sources['native/irodori-cpu-render/creative-color.h'] ||
+  receipt.creativeAbiSha256 !==
+    manifest.sources['native/irodori-cpu-render/creative-color-params.h'] ||
+  receipt.creativeHostSha256 !== manifest.sources['native/irodori-cpu-render/src/creative.rs'] ||
   receipt.ordinaryGeneratedSha256 !== manifest.nativeMask.generated?.['aces_math.inc'] ||
   receipt.maskGeneratedSha256 !== manifest.nativeMask.generated?.['mask_aces_math.inc'] ||
   receipt.maskContextSha256 !== manifest.nativeMask.generated?.['mask-context.inc'] ||
@@ -168,11 +172,14 @@ if (
 const destination = join(root, 'vendor/native-cpu-render/linux-x64'),
   licenses = join(destination, 'licenses')
 mkdirSync(licenses, { recursive: true })
-const temporary = join(destination, `luma-cpu-render-${process.pid}.tmp`)
+const temporary = join(destination, `irodori-cpu-render-${process.pid}.tmp`)
 writeFileSync(temporary, binary, { flag: 'wx', mode: 0o755 })
 chmodSync(temporary, 0o755)
-renameSync(temporary, join(destination, 'luma-cpu-render'))
-writeFileSync(join(destination, 'SHA256SUMS'), `${manifest.executable.sha256}  luma-cpu-render\n`)
+renameSync(temporary, join(destination, 'irodori-cpu-render'))
+writeFileSync(
+  join(destination, 'SHA256SUMS'),
+  `${manifest.executable.sha256}  irodori-cpu-render\n`,
+)
 writeFileSync(join(destination, 'build-manifest.json'), manifestBytes)
 writeFileSync(join(destination, 'capabilities.json'), capabilities)
 writeFileSync(join(destination, 'mask-arithmetic.json'), arithmetic)
@@ -184,12 +191,12 @@ for (const { destination, bytes } of provenanceLicenses)
 writeFileSync(
   join(licenses, 'NOTICE.txt'),
   [
-    'Luma native CPU preview renderer',
+    'Irodori native CPU preview renderer',
     'Derived from Academy Color Encoding System (ACES) reference CTL.',
     'Copyright Contributors to the ACES Project.',
     `Upstream revision: ${manifest.acesRevision}`,
     'Upstream source: https://github.com/aces-aswf/aces-core',
-    'Luma generates a C++ Float64 implementation and adds bounded Rust transport.',
+    'Irodori generates a C++ Float64 implementation and adds bounded Rust transport.',
     'The upstream Apache-2.0 license is included unchanged in this directory.',
     'The mask-only atan2 uses unmodified LLVM libc headers with the exact Chromium source pin.',
     `Reference: Electron ${maskReference.electron}, Chromium ${maskReference.chromium}, V8 ${maskReference.v8}.`,
@@ -208,7 +215,7 @@ writeFileSync(
 )
 console.log(
   JSON.stringify({
-    executable: join(destination, 'luma-cpu-render'),
+    executable: join(destination, 'irodori-cpu-render'),
     sha256: manifest.executable.sha256,
     sourceBuildManifest: manifestPath,
     coordinatorSelectedRetainedBuild: Boolean(existingManifest),

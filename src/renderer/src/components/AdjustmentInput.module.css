@@ -91,6 +91,9 @@
   opacity: 0.35;
   cursor: default;
 }
+.range[aria-disabled='true'] {
+  cursor: default;
+}
 .control .range {
   height: 20px;
 }

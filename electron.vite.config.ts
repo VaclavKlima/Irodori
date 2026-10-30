@@ -14,7 +14,7 @@ export default defineConfig(({ command }) => {
     main: {
       plugins: [
         {
-          name: 'luma-opencv-runtime',
+          name: 'irodori-opencv-runtime',
           async closeBundle() {
             if (process.platform === 'linux' && process.arch === 'x64') {
               const encoder = await nativeEncoderPath(resolve('vendor/ultrahdr'))
@@ -92,7 +92,7 @@ export default defineConfig(({ command }) => {
       plugins: [
         react(),
         {
-          name: 'luma-development-csp',
+          name: 'irodori-development-csp',
           apply: 'serve',
           transformIndexHtml: {
             order: 'pre',
@@ -103,7 +103,7 @@ export default defineConfig(({ command }) => {
       ],
       server: {
         host: '127.0.0.1',
-        port: Number(process.env.LUMA_DEV_PORT ?? 5173),
+        port: Number(process.env.IRODORI_DEV_PORT ?? 5173),
         strictPort: false,
       },
     },

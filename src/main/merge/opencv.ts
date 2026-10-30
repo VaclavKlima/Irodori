@@ -8,8 +8,8 @@ import type { Plane } from './math'
 import { identityMatrix } from './matrix'
 
 interface Wasm {
-  _luma_patch_stats(output: number, reset: number): void
-  _luma_features(
+  _irodori_patch_stats(output: number, reset: number): void
+  _irodori_features(
     image: number,
     mask: number,
     width: number,
@@ -17,7 +17,7 @@ interface Wasm {
     points: number,
     descriptors: number,
   ): number
-  _luma_descriptors(
+  _irodori_descriptors(
     ak: number,
     ad: number,
     an: number,
@@ -26,7 +26,7 @@ interface Wasm {
     bn: number,
     points: number,
   ): number
-  _luma_patches(
+  _irodori_patches(
     a: number,
     b: number,
     width: number,
@@ -50,7 +50,7 @@ interface Wasm {
   HEAPF64: Float64Array
   _malloc(bytes: number): number
   _free(pointer: number): void
-  _luma_matches(
+  _irodori_matches(
     a: number,
     b: number,
     am: number,
@@ -59,7 +59,7 @@ interface Wasm {
     h: number,
     out: number,
   ): number
-  _luma_fit(
+  _irodori_fit(
     points: number,
     count: number,
     projective: number,
@@ -67,7 +67,7 @@ interface Wasm {
     matrix: number,
     mask: number,
   ): number
-  _luma_ecc(
+  _irodori_ecc(
     a: number,
     b: number,
     am: number,
@@ -92,7 +92,7 @@ async function load(): Promise<Wasm> {
     throw new Error('Incomplete OpenCV checksum manifest.')
   for (const line of entries) {
     const [expected, name] = line.split(/\s+/)
-    if (!['luma-opencv.mjs', 'luma-opencv.wasm'].includes(name))
+    if (!['irodori-opencv.mjs', 'irodori-opencv.wasm'].includes(name))
       throw new Error('Invalid OpenCV checksum manifest.')
     if (
       createHash('sha256')
@@ -102,9 +102,9 @@ async function load(): Promise<Wasm> {
       throw new Error('Bundled OpenCV checksum mismatch.')
   }
   const module = await import(
-    /* @vite-ignore */ pathToFileURL(join(directory, 'luma-opencv.mjs')).href
+    /* @vite-ignore */ pathToFileURL(join(directory, 'irodori-opencv.mjs')).href
   )
-  return module.default({ wasmBinary: await readFile(join(directory, 'luma-opencv.wasm')) })
+  return module.default({ wasmBinary: await readFile(join(directory, 'irodori-opencv.wasm')) })
 }
 export async function openCv() {
   const cv = await (instance ??= load())
@@ -144,7 +144,7 @@ export async function openCv() {
               valid = alloc(mask(p)),
               keys = alloc(new Float32Array(8000)),
               data = alloc(new Uint8Array(4000 * 32)),
-              count = cv._luma_features(image, valid, p.width, p.height, keys, data)
+              count = cv._irodori_features(image, valid, p.width, p.height, keys, data)
             if (count < 0 || count > 4000) throw new Error('OpenCV feature extraction failed.')
             found = {
               keys: new Float32Array(cv.HEAPF32.slice(keys / 4, keys / 4 + count * 2)),
@@ -162,7 +162,7 @@ export async function openCv() {
           bk = alloc(bf.keys),
           bd = alloc(bf.data),
           out = alloc(new Float32Array(16000))
-        const count = cv._luma_descriptors(ak, ad, af.count, bk, bd, bf.count, out)
+        const count = cv._irodori_descriptors(ak, ad, af.count, bk, bd, bf.count, out)
         if (count < 0) throw new Error('OpenCV feature matching failed.')
         return Array.from({ length: count }, (_, i) =>
           Array.from(cv.HEAPF32.subarray(out / 4 + i * 4, out / 4 + i * 4 + 4)),
@@ -174,7 +174,7 @@ export async function openCv() {
     patchStats(reset = false) {
       return scope((alloc) => {
         const output = alloc(new Float64Array(4))
-        cv._luma_patch_stats(output, Number(reset))
+        cv._irodori_patch_stats(output, Number(reset))
         const p = cv.HEAPF64.subarray(output / 8, output / 8 + 4)
         return { samplingMs: p[0], optimizationMs: p[1], count: p[2], pixels: p[3] }
       })
@@ -198,7 +198,7 @@ export async function openCv() {
           m = alloc(Float64Array.from(matrix)),
           cp = alloc(Float32Array.from(centers.flat())),
           out = alloc(new Float32Array(centers.length * 5)),
-          count = cv._luma_patches(
+          count = cv._irodori_patches(
             ap,
             bp,
             width,
@@ -231,7 +231,7 @@ export async function openCv() {
         const p = alloc(Float32Array.from(points.flat())),
           m = alloc(new Float64Array(9)),
           mask = alloc(new Uint8Array(points.length))
-        const count = cv._luma_fit(p, points.length, Number(projective), threshold, m, mask)
+        const count = cv._irodori_fit(p, points.length, Number(projective), threshold, m, mask)
         if (count < 4) return undefined
         return {
           matrix: Array.from(cv.HEAPF64.subarray(m / 8, m / 8 + 9)) as MergeMatrix,
@@ -246,7 +246,17 @@ export async function openCv() {
           am = alloc(mask(a)),
           bm = alloc(mask(b)),
           m = alloc(Float64Array.from(matrix))
-        const correlation = cv._luma_ecc(ap, bp, am, bm, a.width, a.height, m, motion, iterations)
+        const correlation = cv._irodori_ecc(
+          ap,
+          bp,
+          am,
+          bm,
+          a.width,
+          a.height,
+          m,
+          motion,
+          iterations,
+        )
         return {
           correlation,
           matrix: Array.from(cv.HEAPF64.subarray(m / 8, m / 8 + 9)) as MergeMatrix,

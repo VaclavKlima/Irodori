@@ -39,7 +39,7 @@ async function setup(app: ElectronApplication, page: Page) {
     .getByRole('button', { name: 'Library', exact: true })
     .click()
   await page.evaluate(() =>
-    window.luma.setResourceSettings({ version: 1, ramMiB: 2048, vramMiB: 2048 }),
+    window.irodori.setResourceSettings({ version: 1, ramMiB: 2048, vramMiB: 2048 }),
   )
   const manifest = JSON.parse(
     await readFile('tests/fixtures/research-sony/manifest.json', 'utf8'),
@@ -55,16 +55,16 @@ async function setup(app: ElectronApplication, page: Page) {
   expect(fixtures[1].sha256).toBe(manifest.files.find((file) => file.name === filenames[1])!.sha256)
   expect(fixtures[0].sha256).not.toBe(fixtures[1].sha256)
   await importPhotos(app, page, files, false)
-  await page.evaluate(() => window.luma.setPreviewPreference('sdr'))
-  const photos = (await page.evaluate(() => window.luma.listPhotos())).photos
+  await page.evaluate(() => window.irodori.setPreviewPreference('sdr'))
+  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
   const targets: Target[] = []
   for (const [index, filename] of filenames.entries()) {
     const photo = photos.find((photo) => photo.filename === filename)!
     expect(photo).toBeDefined()
     const edits = await page.evaluate(
       async ({ id, exposureEv }) => {
-        const before = await window.luma.getEdits(id)
-        return window.luma.updateEdits(id, { exposureEv }, before.revision)
+        const before = await window.irodori.getEdits(id)
+        return window.irodori.updateEdits(id, { exposureEv }, before.revision)
       },
       { id: photo.id, exposureEv: index === 0 ? 1 : -1 },
     )
@@ -72,7 +72,7 @@ async function setup(app: ElectronApplication, page: Page) {
       id: photo.id,
       filename,
       edits,
-      history: await page.evaluate((id) => window.luma.getEditHistory(id), photo.id),
+      history: await page.evaluate((id) => window.irodori.getEditHistory(id), photo.id),
     })
   }
   await page
@@ -223,7 +223,7 @@ async function ready(page: Page, target: Target) {
     sourceIdentity: state.source,
     settingsRevision: target.edits.revision,
   })
-  const display = await page.evaluate(() => window.luma.getDisplayState())
+  const display = await page.evaluate(() => window.irodori.getDisplayState())
   expect(display.mode).toBe('sdr')
   expect(state.targetGeneration).toBe(display.generation)
   expect(state.recovery!.target).toEqual({
@@ -233,12 +233,12 @@ async function ready(page: Page, target: Target) {
     headroom: display.headroom,
     generation: display.generation,
   })
-  expect(await page.evaluate((id) => window.luma.getEdits(id), target.id)).toEqual(target.edits)
-  expect(await page.evaluate((id) => window.luma.getEditHistory(id), target.id)).toEqual(
+  expect(await page.evaluate((id) => window.irodori.getEdits(id), target.id)).toEqual(target.edits)
+  expect(await page.evaluate((id) => window.irodori.getEditHistory(id), target.id)).toEqual(
     target.history,
   )
   expect(
-    (await page.evaluate(() => window.luma.getPreviewDiagnostics())).presentation,
+    (await page.evaluate(() => window.irodori.getPreviewDiagnostics())).presentation,
   ).toMatchObject({ photoId: target.id, revision: target.edits.revision, stage: 'presented' })
   return state
 }
@@ -280,7 +280,7 @@ async function holdSourceMip(page: Page) {
     }
     GPUComputePassEncoder.prototype.setPipeline = function (pipeline) {
       setPipeline.call(this, pipeline)
-      if (pipeline.label === 'Luma HDR source mip') {
+      if (pipeline.label === 'Irodori HDR source mip') {
         const owner = owners.get(this)
         if (owner) encoders.add(owner)
       }
@@ -362,9 +362,9 @@ async function capture(app: ElectronApplication, page: Page, info: TestInfo, nam
 test(
   'two real completed Sony GPU sources support A/B/A/B with current edits, histograms and exact normal output',
   foreground,
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(180000)
-    const { app, page } = luma
+    const { app, page } = irodori
     const {
       fixtures,
       targets: [a, b],
@@ -402,9 +402,9 @@ test(
 test(
   'a lower new-photo GPU budget prunes inactive sources before ordinary tile capacity or raw-half recovery',
   foreground,
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(180000)
-    let { app, page } = luma
+    let { app, page } = irodori
     const {
       fixtures,
       targets: [a, b],
@@ -420,12 +420,12 @@ test(
       expect(second.sourceCacheEntries).toBe(2)
       visits.push({ phase: 'b-miss', state: second })
       a.edits = await page.evaluate(
-        ({ id, revision }) => window.luma.updateEdits(id, { exposureEv: 1.5 }, revision),
+        ({ id, revision }) => window.irodori.updateEdits(id, { exposureEv: 1.5 }, revision),
         { id: a.id, revision: a.edits.revision },
       )
-      a.history = await page.evaluate((id) => window.luma.getEditHistory(id), a.id)
+      a.history = await page.evaluate((id) => window.irodori.getEditHistory(id), a.id)
       const saved = await page.evaluate(() =>
-        window.luma.setResourceSettings({ version: 1, ramMiB: 2048, vramMiB: 1024 }),
+        window.irodori.setResourceSettings({ version: 1, ramMiB: 2048, vramMiB: 1024 }),
       )
       expect(saved.settings.vramMiB).toBe(1024)
       const stillActive = await ready(page, b)
@@ -448,7 +448,7 @@ test(
         state: lower,
         pixels: lowerPixels,
       })
-      ;({ app, page } = await luma.restart())
+      ;({ app, page } = await irodori.restart())
       await minimumWindow(app, page)
       await page.getByRole('button', { name: `Select ${a.filename}`, exact: true }).click()
       const ordinary = await ready(page, a)
@@ -487,9 +487,9 @@ test(
 test(
   'a cancelled real mip completion cannot promote its source or replace the next photo',
   foreground,
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(180000)
-    const { app, page } = luma
+    const { app, page } = irodori
     const {
       targets: [a, b],
       fixtures,
@@ -678,9 +678,9 @@ test(
   foregroundTest(
     'Histogram curve serial requires real rendering opportunities after GPU publication.',
   ),
-  async ({ luma }, info) => {
+  async ({ irodori }, info) => {
     test.setTimeout(180000)
-    const { app, page } = luma,
+    const { app, page } = irodori,
       {
         targets: [target],
       } = await setup(app, page)
@@ -690,10 +690,10 @@ test(
       final: Awaited<ReturnType<typeof observe>> | undefined
     try {
       target.edits = await page.evaluate(
-        ({ id, revision }) => window.luma.updateEdits(id, { exposureEv: 1.5 }, revision),
+        ({ id, revision }) => window.irodori.updateEdits(id, { exposureEv: 1.5 }, revision),
         { id: target.id, revision: target.edits.revision },
       )
-      target.history = await page.evaluate((id) => window.luma.getEditHistory(id), target.id)
+      target.history = await page.evaluate((id) => window.irodori.getEditHistory(id), target.id)
       await expect
         .poll(async () => (await gate.evaluate((control) => control.state())).held)
         .toBe(true)
