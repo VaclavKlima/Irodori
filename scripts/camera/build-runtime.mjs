@@ -245,7 +245,7 @@ try {
       XDG_CONFIG_HOME: join(working, 'isolated-config'),
     }
     const version = run(join(runtime, executable), ['--version'], working, smokeEnv).toString()
-    if (!version.includes('gphoto2 2.5.32') || !version.includes('libgphoto2 2.5.34'))
+    if (!/\bgphoto2\s+2\.5\.32\b/.test(version) || !/\blibgphoto2\s+2\.5\.34\b/.test(version))
       throw new Error(version)
     const cameras = run(join(runtime, executable), ['--list-cameras'], working, smokeEnv).toString()
     if (!/Sony ZV-1/.test(cameras))
