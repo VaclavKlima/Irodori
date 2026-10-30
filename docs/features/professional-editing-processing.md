@@ -462,6 +462,52 @@ references, full high-noise holdouts, native photographic quality, CPU/GPU,
 legacy compatibility, resource/cancellation and performance remain open.
 Existing v1 processing and authored edits are unchanged.
 
+On October 30, the independent reference review corrected an exponential-tail
+shortcut, introduced an explicit canonical-zero policy for intermediate E values,
+and extended the checker to all alpha/transparent/neutral pixels plus final RGB.
+The [explicit reference target](../../artifacts/verification/2026-10-30T08-11-16.229Z-check-Gb0tgp/summary.md)
+passed **788 checks in 60.28 seconds**, with no failures/skips. The numerical
+selections cover all15 declared recipes for C .040:414 and322 configurations
+with a shared pair anchor,1537 integer-converter vectors, exact intermediate
+words, signed/HDR, tiny/subnormal alpha and common scaling. These selections
+overlap; they do not establish candidate GPU or photographic acceptance.
+
+The subsequent [reserved strongest-noise boundary](../../artifacts/detail-research/strong-noise/run-b2i3rw_t/summary.md)
+rejects **both** remaining fixed-width C7 candidates: at sigma .10 / seed1 /
+Rec.2020 / strength100, leakage is3.453% for C .024 and3.331% for C .040,
+exceeding the unchanged3% limit. Edge width, finite values and exact alpha pass.
+Earlier passes and the new failures remain preserved, including an archive of
+the exact frozen sources. No fixed-width C7 candidate is accepted, and the
+remaining reserved high-noise cases were not run. A separately declared
+noise-scaled chroma bandwidth retains the same patchwise estimator,
+source-bound global statistics and original quality gates.
+
+The separately frozen C8 study tested chroma maximum
+`sqrt(.024^2 + k^2 * (varianceA + varianceB))`, with k .40 and .55. Both passed
+the initial 15-source screen, 320 nominal measurements and two 128-measurement
+examined-seed regressions. The [128-measurement fresh cohort](../../artifacts/detail-research/strong-noise/comparison8/run-zalu54va/summary.md)
+then produced four required texture failures: the shared period-4 luminance
+realization entered at about 1.060304 clean-relative amplitude and left at about
+1.060434, above the unchanged 1.05 limit for both factors/primaries. Both C8
+candidates remain rejected; the remaining high-noise cohorts were not executed.
+The sources, failures, thresholds and exact frozen-code archives are retained.
+
+The small chart's coherent entering noise makes that per-case amplitude metric
+an unreliable isolated measure of operator gain. A separate future population
+must be frozen and qualified before filtering; this does not rescue the failed
+C8 protocol or permit changing its limits. The partial population helper is
+committed for continuity, with no executable C9 study or acceptance claim.
+
+The [combined independent reference selection](../../artifacts/verification/2026-10-30T08-55-41.936Z-check-J7g3Lh/summary.md)
+passed **790 checks in 100.84 seconds**, including all 15 recipes for C .040 and
+both C8 factors. The separate [source-wide estimator selection](../../artifacts/verification/2026-10-30T08-32-10.192Z-check-hVvgPs/summary.md)
+passed **793 checks in 41.61 seconds**, including eight estimator cases. These
+selections overlap in their cheap checks. The bounded CPU estimator remains
+unwired research: caller-owned source verification/admission, deterministic
+directional sampling, alpha-weighted MAD, cancellation and independent Python
+agreement are checked. Full-source throughput, GPU processing, photographs,
+versioned integration and remaining resource/performance acceptance stay open.
+
 ## Reviewed inputs and sustained-input scope — 2026-10-29
 
 The updated fixture policy excludes identifiable people, private interiors and

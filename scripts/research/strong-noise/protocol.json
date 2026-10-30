@@ -1,5 +1,5 @@
 {
-  "version": "detail-overlapping-patchwise-comparison-7-draft-v1",
+  "version": "detail-overlapping-patchwise-comparison-7-zero-numerics-v1",
   "state": "portable-reproduction-config-unadopted",
   "purpose": "Replace center-only estimates with normalized whole-patch estimates and deterministic overlapping aggregation. Mandatory old gates and newly declared opponent-texture coverage; no production adoption.",
   "baseline": {
@@ -39,7 +39,7 @@
       "luminanceBandwidthMaximum": 0.024,
       "id": "patchwise-h024-c024",
       "chromaBandwidthMaximum": 0.024,
-      "aggregation": "normalized-patch-estimates-f32-v1",
+      "aggregation": "normalized-patch-estimates-f32-zero-v1",
       "role": "new deployable hypothesis; all mandatory gates required"
     },
     {
@@ -51,7 +51,7 @@
       "luminanceBandwidthMaximum": 0.024,
       "id": "patchwise-h024-c040",
       "chromaBandwidthMaximum": 0.04,
-      "aggregation": "normalized-patch-estimates-f32-v1",
+      "aggregation": "normalized-patch-estimates-f32-zero-v1",
       "role": "new deployable hypothesis; all mandatory gates required"
     },
     {
@@ -63,7 +63,7 @@
       "luminanceBandwidthMaximum": 0.024,
       "id": "patchwise-h024-c080",
       "chromaBandwidthMaximum": 0.08,
-      "aggregation": "normalized-patch-estimates-f32-v1",
+      "aggregation": "normalized-patch-estimates-f32-zero-v1",
       "role": "new deployable hypothesis; all mandatory gates required"
     }
   ],
@@ -395,11 +395,11 @@
     "continuity": "A finite positive-weight average is bounded by the local feature range, so final proposal tends to0 quadratically as amount tends to0. Stable inverse preserves continuity on finite admitted ranges. No universal monotonic clean-reference residual or effect-RMS theorem is claimed."
   },
   "patchwise": {
-    "version": "normalized-patch-estimates-f32-v1",
+    "version": "normalized-patch-estimates-f32-zero-v1",
     "center": "Actual c in image withalpha(c)>0; no outside-center aliases.",
     "W": "Original spatial(d)*alpha(clamp(c+d))*corrected patch match(c,d), d in[-3,3]^2; preserve original matching maps clamp(c+r) and clamp(c+d+r).",
     "E": "For actual visible target t=c+r, r in[-1,1]^2, v=clamp(c+d+r), E(c,r)=sum_d W(c,d)*alpha(v)*(F(v)-F(t))/sum_d W(c,d)*alpha(v). Skip zero-alpha sample before feature read. Alpha0centers/invalid or transparenttargets write zero slots. Selfd0 givesalpha(c)*alpha(t)>0.",
-    "publication": "Exactly27 scalar binary32 deltas/center (9row-major offsets xL/A/B); nearest-even publication of each normalized E before outeraggregation. No additional early f32 feature/weight publication in independent Float64 prototype.",
+    "publication": "Exactly27 scalar binary32 deltas/center, nearest-even normalizedE publication beforeouteraggregate; anyroundedEzero publishescanonical+0. OriginalRGBAandalpha payloads,sourcezero signs andgenericbinary32roundingremainunchanged. Numericalpolicyseparatelyreviewedbeforeprecisiongeneration.",
     "gather": "For visible p, actual c=p-r within image withalpha(c)>0; mean published E(c,r) weightedalpha(c), normalizedsumalpha(c). Do not clamp outside centers or flatten inner and outer normalizations. Then applyown m(s) once and existing stableinverse atp. Alpha0p copies originalRGBAwords.",
     "geometry": "Sample value v=clamp(p+d) remainsradius3; matchingcontext halo5. Combinedmaximumsharp9+noise5=14. No ROI/tile noise estimation.",
     "alpha": "Commonpositive globalalpha scaling cancels in real arithmetic withfixed sourcefeatures/variance. Fractionalalphasampling deliberately differs frompixelwisev1. Positive realdenominator proof isnot universalGPUFTZ proof.",
@@ -408,5 +408,10 @@
   "historicalResearch": {
     "originalDeclarationSha256": "6de48d3f65783c770226a56be8657c81dd496c9e4cc6447529baf4f7ec8687cb",
     "rule": "Originallocalfailed/successfulreceiptsremainoutsideGit. Thisrunner reproduces declaredsyntheticmath; it doesnotattesthistoricaloutputidentityfromunpublishedfiles."
+  },
+  "numericalRevision": {
+    "supersedes": "normalized-patch-estimates-f32-v1",
+    "reason": "Independentstaticreviewfound-300exponentialcutoffinDecimaldraftinvalidforexactstagewords and legitimateFloat64underflowcandifferfromDecimalzero signs. Removeoraclecutoff; canonicalizeonlyzero Epublication inbothimplementations. Noqualitycoefficient,gates,sourceRGBAorhistorysemanticschanged.",
+    "historicalEvidence": "OriginalC7frozenstudypins/code/resultsstayunchangedunderartifacts; validateoutputcorrespondencebeforerelyingonoldpixels."
   }
 }

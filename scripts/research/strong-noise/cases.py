@@ -3,10 +3,14 @@ import math
 import struct
 
 
-def legacy_scene(model, name, seed, primaries, sigma=.012, strength=50, high=False, weak=False, fresh=False, controls=None, cohort=None):
+def legacy_scene(model, name, seed, primaries, sigma=.012, strength=50, high=False, weak=False, fresh=False, controls=None, cohort=None, population=False):
     width = height = 136 if high else None
     if not high:
         width, height = 32, 24
+    if population:
+        if high or weak or name not in POPULATION_SCENES:
+            raise ValueError('Population geometry is restricted to declared nominal textures.')
+        width = height = 136
     only_l = name.startswith('period-') or name in ('flat-luminance', 'stars')
     only_c = name == 'flat-chroma'
     ls, cs = (0 if only_c else strength), (0 if only_l else strength)
@@ -111,7 +115,7 @@ def selections(protocol, stage, scenes=None, seeds=None, primaries=None, sigmas=
                                 'strength':amount,'high':False,'weak':False,'fresh':False,
                                 'controls':controls,'cohort':'dosage-diagnostic'}
         return
-    nominal = stage in ('nominal','fresh-nominal','comparison4-nominal-regression')
+    nominal = stage in ('nominal','fresh-nominal','fresh-population','comparison4-nominal-regression','comparison7-nominal-regression')
     cohort = protocol['cohorts'][stage if nominal else 'high-noise']
     chosen_scenes = scenes or (['period-2','period-4'] if stage == 'weak-stress' else cohort['scenes'])
     chosen_seeds = seeds or cohort['seeds']
@@ -123,18 +127,25 @@ def selections(protocol, stage, scenes=None, seeds=None, primaries=None, sigmas=
             for primary in chosen_primaries:
                 for sigma in chosen_sigmas:
                     for strength in chosen_strengths:
-                        yield {'name':name,'seed':seed,'primaries':primary,'sigma':sigma,
+                        recipe = {'name':name,'seed':seed,'primaries':primary,'sigma':sigma,
                             'strength':strength,'high':not nominal,'weak':stage == 'weak-stress',
                             'fresh':stage == 'fresh-nominal'}
+                        if stage == 'fresh-population':
+                            recipe.update({'fresh':True, 'population':name in POPULATION_SCENES,
+                                           'cohort':'fresh-population-required'})
+                        yield recipe
 
 
 COLOR_SCENES = tuple(f'color-{axis}-period-{period}' for axis in ('a','b') for period in (2,4))
+POPULATION_SCENES = tuple(f'period-{period}' for period in (2,3,4,6,8)) + COLOR_SCENES
 
 
-def scene(model, name, seed, primaries, sigma=.012, strength=50, high=False, weak=False, fresh=False, controls=None, cohort=None):
+def scene(model, name, seed, primaries, sigma=.012, strength=50, high=False, weak=False, fresh=False, controls=None, cohort=None, population=False):
     if name not in COLOR_SCENES:
-        return legacy_scene(model,name,seed,primaries,sigma,strength,high,weak,fresh,controls,cohort)
-    width,height = (136,136) if high else (32,24)
+        return legacy_scene(model,name,seed,primaries,sigma,strength,high,weak,fresh,controls,cohort,population)
+    if population and (high or weak):
+        raise ValueError('Population geometry must retain nominal texture amplitudes.')
+    width,height = (136,136) if high or population else (32,24)
     axis = 1 if name.split('-')[1] == 'a' else 2
     period = int(name.rsplit('-',1)[1])
     amplitude = (.024 if period == 2 else .03) if not high or weak else (2*sigma if period == 2 else 2.5*sigma)

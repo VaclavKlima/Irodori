@@ -1,0 +1,458 @@
+{
+  "version": "detail-noise-scaled-chroma-comparison-8-draft-v1",
+  "state": "draft-unexecuted-unselected",
+  "purpose": "Test source-noise-scaled chroma bandwidth with the unchanged patchwise estimator, fixed L.024 and Cfloor.024. Fixed C7 narrow/broad policies remain rejected comparators. No application adoption.",
+  "baseline": {
+    "operator": "linear-asinh-opponent-nlm7-patch3-h048-v1",
+    "reference": "scripts/research/detail-candidates.py",
+    "qualityFixture": "tests/fixtures/detail-quality.json",
+    "knownNoiseSigma": 0.012,
+    "referenceFeature": 0.18,
+    "searchRadius": 3,
+    "patchRadius": 1,
+    "spatialSigma": 2,
+    "maximumLuminanceBandwidth": 0.048,
+    "maximumChromaBandwidth": 0.16,
+    "luminanceOpponentGuidance": 0.12,
+    "chromaLuminanceGuidance": 0.08,
+    "selfWeight": "unchanged original center weight; no maximum-neighbor substitution"
+  },
+  "candidates": [
+    {
+      "variance": "frozen-global-directional-mad-v1",
+      "correction": "both",
+      "adaptive": "none",
+      "blend": "quadratic-to-50-v1",
+      "selfPolicy": "legacy",
+      "luminanceBandwidthMaximum": 0.024,
+      "aggregation": "normalized-patch-estimates-f32-zero-v1",
+      "id": "c7-fixed-c040",
+      "chromaBandwidthMaximum": 0.04,
+      "bandwidthPolicy": "fixed",
+      "adoptionCandidate": false,
+      "role": "rejected C7 narrow comparator; strongest-noise edge failure"
+    },
+    {
+      "variance": "frozen-global-directional-mad-v1",
+      "correction": "both",
+      "adaptive": "none",
+      "blend": "quadratic-to-50-v1",
+      "selfPolicy": "legacy",
+      "luminanceBandwidthMaximum": 0.024,
+      "aggregation": "normalized-patch-estimates-f32-zero-v1",
+      "id": "c7-fixed-c080",
+      "chromaBandwidthMaximum": 0.08,
+      "bandwidthPolicy": "fixed",
+      "adoptionCandidate": false,
+      "role": "rejected C7 broad comparator; nominal fine-color failure"
+    },
+    {
+      "variance": "frozen-global-directional-mad-v1",
+      "correction": "both",
+      "adaptive": "none",
+      "blend": "quadratic-to-50-v1",
+      "selfPolicy": "legacy",
+      "luminanceBandwidthMaximum": 0.024,
+      "aggregation": "normalized-patch-estimates-f32-zero-v1",
+      "id": "noise-scaled-k40",
+      "chromaBandwidthMaximum": 0.024,
+      "chromaSigmaFactor": 0.4,
+      "bandwidthPolicy": "global-chroma-sigma-floor-v1",
+      "adoptionCandidate": true,
+      "role": "new deployable hypothesis; all unchanged gates required"
+    },
+    {
+      "variance": "frozen-global-directional-mad-v1",
+      "correction": "both",
+      "adaptive": "none",
+      "blend": "quadratic-to-50-v1",
+      "selfPolicy": "legacy",
+      "luminanceBandwidthMaximum": 0.024,
+      "aggregation": "normalized-patch-estimates-f32-zero-v1",
+      "id": "noise-scaled-k55",
+      "chromaBandwidthMaximum": 0.024,
+      "chromaSigmaFactor": 0.55,
+      "bandwidthPolicy": "global-chroma-sigma-floor-v1",
+      "adoptionCandidate": true,
+      "role": "new deployable hypothesis; all unchanged gates required"
+    }
+  ],
+  "varianceCorrection": {
+    "equation": "B_c(p,q)=sum_r alpha(p+r)*alpha(q+r)*(v_c(p+r)+v_c(q+r)-2cov_c(p+r,q+r))/sum_r coverage. This draft sets covariance to 0 for distinct source samples and sets the entire pair bias to 0 when clamping maps to the identical source sample. Corrected D_L=max(D_L-B_L,0), D_C=max(D_C-B_A-B_B,0).",
+    "rangeAblation": "Correct only D_L in the luminance range term and D_C in the chroma range term; preserve raw fixed-guidance distances.",
+    "guidanceAblation": "Correct only D_C in luminance guidance and D_L in chroma guidance; preserve raw range distances.",
+    "both": "Correct distances in range and fixed-guidance terms. Bandwidths and spatial/self weights remain unchanged.",
+    "limits": "Variance sum is an IID approximation for distinct samples. Demosaic, lens correction and clipping introduce correlation and heteroscedasticity. Oracle coefficients cannot ship as an estimator."
+  },
+  "globalEstimator": {
+    "version": "frozen-global-directional-mad-v1",
+    "domain": "Full authenticated prepared reference-WB/lens Float32 Rec.2020 source; asinh luminance/opponent features. Never visible ROI, viewport, crop, zoom or embedded JPEG.",
+    "directions": [
+      [1, 0],
+      [0, 1],
+      [1, 1],
+      [1, -1]
+    ],
+    "maximumPairsPerDirection": 65536,
+    "sampling": "Enumerate valid pair origins row-major for each direction; select floor((i+0.5)*N/M), i=0..M-1, M=min(N,65536). No random or content-dependent sample selection.",
+    "alphaWeight": "product of the pair alpha values; discard zero weight before all medians; require at least16 valid pairs for a direction",
+    "medianConvention": "Weighted lower cumulative median; when cumulative weight is exactly one half, mean the two adjacent positive-weight values.",
+    "componentEstimate": "MAD of centered feature differences divided by (0.6744897501960817*sqrt(2)); square for variance. Conservative minimum across valid directions for each feature coordinate.",
+    "noSamples": "zero variance, explicitly reported unavailable; no invented calibration",
+    "freeze": "Compute once in CPU Float64 per prepared-source/estimator identity and share the exact frozen coefficients with CPU/GPU. All-zero controls skip estimation and preserve bytes.",
+    "limits": "Empirical semantic, not unbiased or calibrated. The minimum is biased downward; finite/overlapping/correlated samples, clipping and texture can bias it. A global estimate cannot describe every local noise level or a4:1 merge boundary."
+  },
+  "cohorts": {
+    "nominal": {
+      "sigma": [0.012],
+      "seeds": [1280658753, 1, 12345, 3735928559, 1515870810],
+      "primaries": ["srgb", "rec2020"],
+      "scenes": [
+        "flat-luminance",
+        "flat-chroma",
+        "mixed-flat",
+        "period-2",
+        "period-3",
+        "period-4",
+        "period-6",
+        "period-8",
+        "edge",
+        "isoluminant",
+        "stars",
+        "merge-boundary",
+        "color-a-period-2",
+        "color-a-period-4",
+        "color-b-period-2",
+        "color-b-period-4"
+      ],
+      "controls": "Original scene-specific50/0,0/50,50/50 exactly; do not raise strength just for one failing scene.",
+      "truth": "Original32x24 recipes, period2 amplitude0.024, other periods0.03, original edge steps, original15-sigma stars and4:1 merge-like noise boundary.",
+      "colorExtension": "Added A/B period2/4, baseL1,A.08,B-.04, varying own opponent by original amplitude .024/.03, noise bothA/B sigma.012 and Lnoise0. ControlsC50L0. Original seeds/primaries/metric interior and .90-1.05 clean projection gate. All cases mandatory, no post-result reclassification."
+    },
+    "high-noise": {
+      "sigma": [0.06, 0.08, 0.1],
+      "seeds": [1, 12345, 3735928559, 1515870810],
+      "primaries": ["srgb", "rec2020"],
+      "strengths": [75, 100],
+      "scenes": [
+        "flat-luminance",
+        "flat-chroma",
+        "mixed-flat",
+        "period-2",
+        "period-4",
+        "edge",
+        "isoluminant",
+        "stars",
+        "merge-boundary",
+        "color-a-period-2",
+        "color-a-period-4",
+        "color-b-period-2",
+        "color-b-period-4"
+      ],
+      "width": 136,
+      "height": 136,
+      "metricInterior": "Remove the unchanged four-pixel border:128x128=16384 samples. Keep the same absolute mean-error definition and0.003 bias gate; do not choose N after results.",
+      "truth": "Same feature recipes as nominal on136x136, with mandatory period2 amplitude2*sigma and period4 amplitude2.5*sigma (same relative SNR as original), original strong edge steps0.7/0.4, and15sigma stars at(32,32),(103,32),(32,103),(103,103). Preserve every entering projection and every result.",
+      "requiredNewChecks": [
+        "flat residual/bias",
+        "mixed flat residual/bias",
+        "period2/4 same-relative-SNR texture0.90..1.05",
+        "edge leakage/width",
+        "15sigma stars",
+        "boundary continuity"
+      ],
+      "weakTextureInterpretation": "Additional separately named period2/4 weak-stress cases retain original amplitudes0.024/0.03 at each high sigma and record the same0.90..1.05 interval. They are declared stress characterization from the outset, not substitutes for the mandatory same-relative-SNR cohort, and provide no claim of recovering noise-buried signal. No failed mandatory case is moved into this cohort.",
+      "colorExtension": "Same four opponent textures, amplitude2sigma/2.5sigma (weak-stress retains original amplitudes). Same Cstrength75/100,L0, all fixed high levels/seeds/primaries and .90-1.05 mandatory gate."
+    },
+    "estimator-stress": {
+      "noise": [
+        "IID Gaussian",
+        "same IID fields convolved with normalized separable[1,2,1] kernel then rescaled to declared sigma",
+        "clipped/asymmetric fields"
+      ],
+      "purpose": "Report estimator error, directional disagreement and variance-sum approximation failure. These are not new sensor calibration claims or silently substituted passing cohorts."
+    },
+    "alpha-hdr": {
+      "source": "tests/fixtures/detail-reference.json",
+      "requirements": [
+        "neutral byte identity incl signed zero",
+        "alpha exact",
+        "alpha-zero hidden-RGB independence",
+        "finite negative/signed channels",
+        "at least16x white",
+        "whole/tiled/native seams",
+        "independent Decimal80 candidate reference before adoption"
+      ]
+    },
+    "fresh-nominal": {
+      "sigma": [0.012],
+      "seeds": [1831565813, 461845907],
+      "primaries": ["srgb", "rec2020"],
+      "scenes": [
+        "flat-luminance",
+        "flat-chroma",
+        "mixed-flat",
+        "period-2",
+        "period-3",
+        "period-4",
+        "period-6",
+        "period-8",
+        "edge",
+        "isoluminant",
+        "stars",
+        "merge-boundary",
+        "color-a-period-2",
+        "color-a-period-4",
+        "color-b-period-2",
+        "color-b-period-4"
+      ],
+      "controls": "Original scene-specific50/0,0/50,50/50 exactly; do not raise strength just for one failing scene.",
+      "truth": "Original32x24 recipes, period2 amplitude0.024, other periods0.03, original edge steps, original15-sigma stars and4:1 merge-like noise boundary.",
+      "purpose": "New unexamined C8 seeds; C7 fresh seeds are now examined and remain regression, not fresh evidence."
+    },
+    "comparison4-nominal-regression": {
+      "sigma": [0.012],
+      "seeds": [324508639, 610839776],
+      "primaries": ["srgb", "rec2020"],
+      "scenes": [
+        "flat-luminance",
+        "flat-chroma",
+        "mixed-flat",
+        "period-2",
+        "period-3",
+        "period-4",
+        "period-6",
+        "period-8",
+        "edge",
+        "isoluminant",
+        "stars",
+        "merge-boundary",
+        "color-a-period-2",
+        "color-a-period-4",
+        "color-b-period-2",
+        "color-b-period-4"
+      ],
+      "controls": "Original scene-specific50/0,0/50,50/50 exactly; do not raise strength just for one failing scene.",
+      "truth": "Original32x24 recipes, period2 amplitude0.024, other periods0.03, original edge steps, original15-sigma stars and4:1 merge-like noise boundary.",
+      "purpose": "These two seeds were examined in Comparison4 and now remain mandatory regression, not fresh evidence."
+    },
+    "dosage": {
+      "amounts": [0, 1, 10, 25, 50, 75, 100],
+      "cornerHoldoutAmounts": [2, 49, 51],
+      "sigma": [0.012, 0.08],
+      "seed": 1,
+      "primaries": ["srgb", "rec2020"],
+      "scenes": ["flat-luminance", "flat-chroma", "mixed-flat"],
+      "width": 32,
+      "height": 24,
+      "controls": "Scene-specific L-only,C-only,or equal L/C; also mixed-noise sweeps varying one component with the other fixed50. Same entering source words at every dose.",
+      "required": [
+        "exact both0 source-word identity/estimator bypass",
+        "alpha and alpha0 hidden-RGB invariants",
+        "finite signed/HDR cases and exact zero feature proposals",
+        "independent Decimal80 reference before adoption",
+        "per-pixel alpha-eligible local-range*m bound with inner49/outer9 Float64 and binary32 E publication allowance",
+        "matching historical output only for unchanged pixelwise comparator; patchwise >=50 retains same-policy no-blend arithmetic"
+      ],
+      "descriptive": [
+        "effect feature RMS at every dose",
+        "known-clean residual feature RMS at every dose",
+        "all nonmonotone intervals for either metric; no automatic monotonic-global residual claim"
+      ],
+      "limits": "Dose charts are native-grid mathematical/control diagnostics, not replacements for the mandatory136x136 high-noise quality cohort. Published Float32 reencoded feature changes are reported separately from pre-inverse proposals; rounding and luminance/opponent-scale coupling exist."
+    },
+    "native-dose": {
+      "state": "Required after safe source review and selected-policy integration; not executable photo work in this draft",
+      "sourceRule": "Freeze all privacy-approved source identities/whole-source estimator snapshots and native ROI axes before any dose output. Never cherry-pick photos/crops from dose results. No identifiable-person image or unsupported camera metadata.",
+      "amounts": [0, 1, 10, 25, 50, 75, 100, 2, 49, 51],
+      "metrics": "Source-to-output native feature/RGBA deltas and exact-zero/current-revision ownership; no invented clean truth or sensor-noise calibration."
+    },
+    "comparison7-nominal-regression": {
+      "sigma": [0.012],
+      "seeds": [826366246, 655894552],
+      "primaries": ["srgb", "rec2020"],
+      "scenes": [
+        "flat-luminance",
+        "flat-chroma",
+        "mixed-flat",
+        "period-2",
+        "period-3",
+        "period-4",
+        "period-6",
+        "period-8",
+        "edge",
+        "isoluminant",
+        "stars",
+        "merge-boundary",
+        "color-a-period-2",
+        "color-a-period-4",
+        "color-b-period-2",
+        "color-b-period-4"
+      ],
+      "controls": "Original scene-specific50/0,0/50,50/50 exactly; do not raise strength just for one failing scene.",
+      "truth": "Original32x24 recipes, period2 amplitude0.024, other periods0.03, original edge steps, original15-sigma stars and4:1 merge-like noise boundary.",
+      "purpose": "C7examinedfreshseeds0x31415926/0x27182818arenowmandatoryregression,notnewfreshC8evidence."
+    }
+  },
+  "screenAndHoldout": {
+    "firstScreen": {
+      "stage": "screen",
+      "parts": [
+        {
+          "stage": "high-noise",
+          "sigma": 0.1,
+          "seed": 1,
+          "primaries": ["rec2020"],
+          "strength": 100,
+          "scenes": ["isoluminant", "flat-chroma", "mixed-flat", "stars"]
+        },
+        {
+          "stage": "high-noise",
+          "sigma": 0.08,
+          "seed": 1,
+          "primaries": ["rec2020"],
+          "strength": 100,
+          "scenes": ["isoluminant"]
+        },
+        {
+          "stage": "nominal",
+          "sigma": 0.012,
+          "seed": 1,
+          "primaries": ["srgb", "rec2020"],
+          "strength": 50,
+          "scenes": ["period-6", "period-8", "stars", "color-a-period-4", "color-b-period-4"]
+        }
+      ],
+      "candidateIds": ["c7-fixed-c040", "c7-fixed-c080", "noise-scaled-k40", "noise-scaled-k55"],
+      "measurements": 60,
+      "rule": "All unchanged required noise/bias/texture/edge/star/extrema gates remain mandatory. Reject anynewcandidatewithafailure; no post-result reclassification/coefficientchange."
+    },
+    "subsequentOrder": [
+      "Initial60only; rootreviewsactualoutcomesbeforecontinuation",
+      "All160original+color nominal and64examinedC4regressions forsurvivors; retainC7examinedfreshseedsasadditionalregression",
+      "Fresh64nominal atnewC8seeds",
+      "Allnonholdouthighnoise.08/seed1scenes/primaries/strengths andnowexamined.10/seed1boundarycase",
+      "IndependentDecimal80includingdynamicwidth,alpha/HDR/gentle andexactstagepublication",
+      "Remaininghigh.06/.10andotherseedsafterrootreview",
+      "Publishedsafe full-native photos,CPU/GPU,resources,cancel,versionintegrationandcadence"
+    ],
+    "freshNominalSeeds": [1831565813, 461845907],
+    "reservedHighNoiseLevels": [0.06, 0.1],
+    "reservedHighSeeds": [12345, 3735928559, 1515870810],
+    "rule": "No rejected mandatory case is moved to stress, no post-result coefficient/gate/strength change, no automatic adoption. The same-policy >=50 no-blend property does not imply old self-policy pixel identity and does not bypass high-noise gates.",
+    "alreadyExaminedHigh": [
+      {
+        "sigma": 0.08,
+        "seed": 1,
+        "scenes": "allC7nonholdout52"
+      },
+      {
+        "sigma": 0.1,
+        "seed": 1,
+        "primaries": "rec2020",
+        "strength": 100,
+        "scene": "isoluminant"
+      }
+    ]
+  },
+  "unchangedGates": {
+    "luminanceResidualRmsRatio": 0.55,
+    "chromaResidualRmsRatio": 0.45,
+    "absoluteFeatureMeanBias": 0.003,
+    "periodicTextureRetention": [0.9, 1.05],
+    "edgeMeanLeakageFraction": 0.03,
+    "edgeWidthGrowthPixels": 0.5,
+    "starPeakRetention": 0.9,
+    "inducedBoundaryJump": 0.003,
+    "sharpeningFlatNoiseGain": 1.1,
+    "sharpeningSoftEdgeSlopeGain": 1.05,
+    "rgbAgreement": {
+      "absolute": 2e-6,
+      "relative": 2e-5
+    },
+    "decimal80Agreement": {
+      "absolute": 2e-12,
+      "relative": 2e-11
+    },
+    "alpha": "bit-exact"
+  },
+  "photographs": {
+    "historicalDiagnostic": {
+      "receipt": "artifacts/professional-editing/high-iso-roi-audit-20261029/report.json",
+      "state": "Historical private diagnosis only; not a compliant new fixture, adoption input or fixed portrait requirement under updated privacy policy.",
+      "reuse": "Preserve existing ignored receipts as historical evidence; do not rerun or publish identifiable-person photographs as new acceptance inputs. Earlier Git publication does not override the updated privacy instruction."
+    },
+    "newAdoptionInput": {
+      "state": "Threeprivacy-reviewedoriginalspublished108e69c; localneutralpreparationexistsbutnotincludedinGit. A freshclone must regenerateauthenticatedworkingassetsbeforephotographicresearch.",
+      "destination": "assets/tests/images/raw/sony-zv-1a/carpet-high-iso/",
+      "beforeUse": [
+        "visually inspect every image and embedded preview for identifiable people, private documents/screens or other personal information",
+        "inspect EXIF/XMP/IPTC including GPS, addresses, contact details and device serials",
+        "choose a safe replacement if any personal information is exposed",
+        "preserve original bytes, SHA-256, license, attribution, provenance and privacy-review receipt beside the asset",
+        "verify exact files are tracked and published in the GitHub benchmark commit before acceptance use"
+      ],
+      "regions": "Rootpredeclared four512x512 paper/boundary/yarn/fiber regions in carpet-denoise-photo-plan-v2-20261030, exactcoords unchanged frominitialdeclaration. No results-dependentselection.",
+      "knownMetadata": "Root reports03483 ISO400,03489 ISO6400,03490 ISO12800; allf4,ProgramAE,AF-S,AutoWB; approximate exposure difference0.059EV. Verify exact manifest hashes/metadata before later use. ISO400 is a low-noise companion, never assumed clean truth."
+    },
+    "controls": [50, 75, 100],
+    "review": "Use a newly approved privacy-safe input, authenticated full-source estimate and full upstream neighbors, frozen neutral point settings/ACES renderer, sharpening0 first. Preserve matching v1 neutral/50/75/100 reference outputs and evaluate separate versioned candidates. Native detail review is required; a privacy-safe low-noise companion can supplement it. ROI delta/RMS is not clean noise truth."
+  },
+  "adoption": {
+    "automaticWinner": false,
+    "requirements": [
+      "all original required gates/holdouts",
+      "all declared high-noise mandatory gates incl same-relative-SNR textures",
+      "actual improvement on a privacy-reviewed public high-noise photograph published in GitHub before use, without accepted texture/color damage",
+      "independent new candidate numerical references and CPU/GPU agreement",
+      "version/history/paste/export compatibility preserving v1",
+      "full-source resource/cancel/cadence follow-up for chosen operator",
+      "independent gentle feature-delta bound/control proof and declared dosage diagnostics",
+      "old settings/history/version/output semantics preserved; no in-place v1 change",
+      "mandatory A/B fine-color textures at nominal/high relativeSNR",
+      "direct Decimal80 including all27 binary32 center slots before aggregate",
+      "partialalpha/globalbounds/hal5 tiled identity and equivalent CPU/GPU path",
+      "source-bound bandwidth computation independently referenced; coefficients shared exactly CPU/GPU",
+      "all examined C7 nominal seeds remain regression; no claimed fresh reuse"
+    ],
+    "failure": "Retain failures and reject the candidate. No post-result threshold, source-amplitude, seed, strength or semantic changes in the same declaration."
+  },
+  "hypothesis": {
+    "change": "Only maximumCbandwidthdependsonthefrozenwhole-sourcevariance: sqrt(.024^2+k^2*(vA+vB)), finitek.40/.55. hC=maximumC*(C/100)^2. Lmaximum.024 andfixedcross-guidanceunchanged. Allmatching,patchwisealpha,stagepublication,ownblend,supportandstableinverseidentical.",
+    "primarySource": "https://www.ipol.im/pub/art/2011/bcm_nlm/revisions/2011-09-13/bcm_nlm.htm",
+    "basis": "The primarypaper usesh=k*sigma with examplek.40/.55, but our featureopponentdistance,summedvariance,floor,strengthtransferand7x7searchareauthoredpolicies. Thisisnotpaper-equivalence orcamera-calibration.",
+    "limits": "GlobaldirectionalMADmaybe biasedbytexture,correlation,clippingandheteroscedasticity. LargerCwidthcanstillcrosscolorededges; alloldgatesremainmandatory.",
+    "failureRetention": "C3-C7failedcasesandoldnominal/strongnoiseoutputsremainimmutable. Sig.10/seed1edgeisnowexaminedtraining/regression,notfreshholdout."
+  },
+  "featureBlend": {
+    "version": "quadratic-to-50-v1",
+    "amounts": "Integer0..100 as before; no subunit amount or underflow-based bypass.",
+    "equation": "m(s)=min(1,(s/50)^2). Multiply normalized accumulated luminance feature delta by m(L), and opponent A/B feature deltas by m(C), before the existing stable coordinate inverse/reconstruction.",
+    "arithmetic": "If an enabled amount is>=50, perform no multiply at all; use exact prior arithmetic. A zero component bypasses its delta. Both0 bypass estimator/filter and return exact source words including signed zero. Alpha0 copies source bytes and does not enter estimates/matches.",
+    "historicalIdentity": "Only unchanged pixelwise comparator may match C4/C5/C6 hashes. Patchwise >=50 omits m multiplication relative to SAME patchwise policy, not oldpixelwise identity.",
+    "sourceCoordinateBound": "Before stable inverse/Float32 publication, abs(proposed feature delta_c)<=m(own amount)*max(abs(feature_c(q)-feature_c(p))) over alpha-positive eligible native search neighbors. No positive-alpha neighbor difference means exact0 delta; transparent output copies unchanged.",
+    "floatingPointBound": "For C7 use independently reviewed inner49 and outer9 gamma factors plus mandatory Float32 interpass halfULP bound; old Float64-only bound is insufficient. Formula in dose-diagnostics.py is frozen before run.",
+    "continuity": "A finite positive-weight average is bounded by the local feature range, so final proposal tends to0 quadratically as amount tends to0. Stable inverse preserves continuity on finite admitted ranges. No universal monotonic clean-reference residual or effect-RMS theorem is claimed."
+  },
+  "patchwise": {
+    "version": "normalized-patch-estimates-f32-zero-v1",
+    "center": "Actual c in image withalpha(c)>0; no outside-center aliases.",
+    "W": "Original spatial(d)*alpha(clamp(c+d))*corrected patch match(c,d), d in[-3,3]^2; preserve original matching maps clamp(c+r) and clamp(c+d+r).",
+    "E": "For actual visible target t=c+r, r in[-1,1]^2, v=clamp(c+d+r), E(c,r)=sum_d W(c,d)*alpha(v)*(F(v)-F(t))/sum_d W(c,d)*alpha(v). Skip zero-alpha sample before feature read. Alpha0centers/invalid or transparenttargets write zero slots. Selfd0 givesalpha(c)*alpha(t)>0.",
+    "publication": "Exactly27 scalar binary32 deltas/center, nearest-even normalizedE publication beforeouteraggregate; anyroundedEzero publishescanonical+0. OriginalRGBAandalpha payloads,sourcezero signs andgenericbinary32roundingremainunchanged. Numericalpolicyseparatelyreviewedbeforeprecisiongeneration.",
+    "gather": "For visible p, actual c=p-r within image withalpha(c)>0; mean published E(c,r) weightedalpha(c), normalizedsumalpha(c). Do not clamp outside centers or flatten inner and outer normalizations. Then applyown m(s) once and existing stableinverse atp. Alpha0p copies originalRGBAwords.",
+    "geometry": "Sample value v=clamp(p+d) remainsradius3; matchingcontext halo5. Combinedmaximumsharp9+noise5=14. No ROI/tile noise estimation.",
+    "alpha": "Commonpositive globalalpha scaling cancels in real arithmetic withfixed sourcefeatures/variance. Fractionalalphasampling deliberately differs frompixelwisev1. Positive realdenominator proof isnot universalGPUFTZ proof.",
+    "numeric": "Local proposal bound requires both inner49-term/outer9-term f64 arithmetic allowances and explicit half-ULP32 E-publication allowance. Exactzero differences must yield exactzero. No quality/RGB/Decimal80 tolerance relaxation."
+  },
+  "historicalResearch": {
+    "originalDeclarationSha256": "6de48d3f65783c770226a56be8657c81dd496c9e4cc6447529baf4f7ec8687cb",
+    "rule": "Originallocalfailed/successfulreceiptsremainoutsideGit. Thisrunner reproduces declaredsyntheticmath; it doesnotattesthistoricaloutputidentityfromunpublishedfiles."
+  },
+  "numericalRevision": {
+    "supersedes": "normalized-patch-estimates-f32-v1",
+    "reason": "Independentstaticreviewfound-300exponentialcutoffinDecimaldraftinvalidforexactstagewords and legitimateFloat64underflowcandifferfromDecimalzero signs. Removeoraclecutoff; canonicalizeonlyzero Epublication inbothimplementations. Noqualitycoefficient,gates,sourceRGBAorhistorysemanticschanged.",
+    "historicalEvidence": "OriginalC7frozenstudypins/code/resultsstayunchangedunderartifacts; validateoutputcorrespondencebeforerelyingonoldpixels."
+  },
+  "mathModule": "noise-scaled-patchwise.py"
+}

@@ -17,7 +17,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 LOCK = ROOT/'artifacts/verification/.invocation-lock'
 OUTPUT = ROOT/'artifacts/detail-research/strong-noise'
-NOMINAL_STAGES = ('nominal','fresh-nominal','comparison4-nominal-regression')
+NOMINAL_STAGES = ('nominal','fresh-nominal','comparison4-nominal-regression','comparison7-nominal-regression')
 DOSE_STAGES = ('dosage','dose-corners')
 
 
@@ -41,7 +41,9 @@ def json_file(path, value):
 
 
 def source_pins(protocol):
-    names=[HERE/name for name in ('protocol.json','patchwise.py','pixelwise.py','cases.py','dose-diagnostics.py','run.py','README.md')]
+    names=[ACTIVE_PROTOCOL,HERE/protocol.get('mathModule','patchwise.py')]
+    names += [HERE/name for name in ('patchwise.py','pixelwise.py','cases.py','dose-diagnostics.py','run.py','README.md')]
+    names=list(dict.fromkeys(names))
     names += [ROOT/name for name in ('scripts/research/detail-candidates.py','scripts/research/color-reference.py','scripts/research/detail-reference.py','tests/fixtures/detail-reference.json','tests/fixtures/detail-quality.json','AGENTS.md','assets/README.md')]
     return [{'path':str(path),'sha256':hash_file(path)} for path in names]
 
@@ -107,6 +109,7 @@ def main():
     action.add_argument('--plan',action='store_true')
     action.add_argument('--execute',action='store_true')
     parser.add_argument('--declaration',type=Path)
+    parser.add_argument('--comparison',choices=['7','8'],default='7')
     parser.add_argument('--stage',choices=['screen',*NOMINAL_STAGES,'high-noise','weak-stress',*DOSE_STAGES])
     parser.add_argument('--candidate',action='append')
     parser.add_argument('--scene',action='append')
@@ -115,12 +118,15 @@ def main():
     parser.add_argument('--sigma',type=float,action='append')
     parser.add_argument('--strength',type=int,action='append')
     args = parser.parse_args()
-    protocol = json.loads((HERE/'protocol.json').read_text())
+    global ACTIVE_PROTOCOL,OUTPUT
+    ACTIVE_PROTOCOL=HERE/('protocol.json' if args.comparison=='7' else 'comparison8.json')
+    OUTPUT=ROOT/'artifacts/detail-research/strong-noise'/('comparison8' if args.comparison=='8' else '')
+    protocol = json.loads(ACTIVE_PROTOCOL.read_text())
     if args.freeze:
         OUTPUT.mkdir(parents=True,exist_ok=True)
         destination = OUTPUT/('declaration-'+datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'.json')
         with destination.open('x') as file:
-            json.dump({'version':'detail-comparison7-declaration-v1',
+            json.dump({'version':f'detail-comparison{args.comparison}-declaration-v1',
                 'declaredAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 'protocol':protocol,'sources':source_pins(protocol)},file,indent=2)
             file.write('\n')
@@ -128,6 +134,8 @@ def main():
         return
     if not args.stage:
         parser.error('--stage is required for every plan or execution.')
+    if args.stage in NOMINAL_STAGES and args.stage not in protocol['cohorts']:
+        parser.error('This comparison does not declare that nominal cohort.')
     if args.stage in NOMINAL_STAGES and args.strength is not None and args.strength != [50]:
         parser.error('Nominal strengths are original scene-specific50; choose only --strength50 or omit it.')
     if args.stage in DOSE_STAGES and args.seed is not None and args.seed != [protocol['cohorts']['dosage']['seed']]:
@@ -170,13 +178,13 @@ def main():
         output = Path(tempfile.mkdtemp(prefix='run-',dir=OUTPUT))
         owner = {'pid':os.getpid(),'token':token,'artifacts':str(output),
             'startedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            'kind':'independent-noise-comparison7'}
+            'kind':f'independent-noise-comparison{args.comparison}'}
         json_file(LOCK/'owner.json',owner)
         json_file(output/'owner.json',owner)
         json_file(output/'plan.json',plan)
         shutil.copyfile(args.declaration,output/'declaration.json')
         baseline = load('comparison7_baseline',ROOT/'scripts/research/detail-candidates.py')
-        method = load('comparison7_noise_aware',HERE/'patchwise.py')
+        method = load('comparison_noise_aware',HERE/protocol.get('mathModule','patchwise.py'))
         dose = load('comparison7_dose',HERE/'dose-diagnostics.py')
         cases.verify_original_inputs(baseline)
         candidates = [c for c in protocol['candidates'] if c['id'] in candidate_ids]
@@ -230,7 +238,7 @@ def main():
                         delta_path = output/f'case-{case_index}-{candidate["id"]}-deltas.f64'
                         delta_path.write_bytes(b''.join(struct.pack('<3d',*pixel) for pixel in deltas))
                         diagnostics['preInverseFeatureDeltas'] = {'path':str(delta_path),'sha256':hash_file(delta_path),'format':'LE Float64 L/A/B native row-major'}
-                        result = dose.evaluate(baseline,case['entering'],case['clean'],filtered,deltas,source_ranges[cache_key],coefficients,l,c,candidate['blend'] != 'none',candidate['aggregation'] == 'normalized-patch-estimates-f32-v1')
+                        result = dose.evaluate(baseline,case['entering'],case['clean'],filtered,deltas,source_ranges[cache_key],coefficients,l,c,candidate['blend'] != 'none',candidate['aggregation'] == 'normalized-patch-estimates-f32-zero-v1')
                         if l == c == 0:
                             result['gates']['neutralEstimatorBypassed'] = diagnostics.get('estimation') == 'neutral-bypass'
                     else:
@@ -248,7 +256,7 @@ def main():
                     failures = [name for name,valid in result['gates'].items() if not valid]
                     if result['required'] and failures:
                         required_failures.append({'recipe':recipe,'candidate':candidate['id'],'gates':failures,
-                            'adoptionCandidate':candidate['aggregation'] == 'normalized-patch-estimates-f32-v1'})
+                            'adoptionCandidate':candidate.get('adoptionCandidate',candidate['aggregation'] == 'normalized-patch-estimates-f32-zero-v1')})
                     completed += 1
                     json_file(output/'progress.json',{'completed':completed,'planned':plan['plannedMeasurements'],
                         'last':{**recipe,'candidate':candidate['id']},'elapsedSeconds':time.monotonic()-started})

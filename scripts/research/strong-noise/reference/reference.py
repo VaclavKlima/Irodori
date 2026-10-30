@@ -7,7 +7,7 @@ Global feature variance is a separate frozen input, never estimated here.
 """
 
 from argparse import ArgumentParser
-from decimal import Decimal, localcontext
+from decimal import Decimal, localcontext, ROUND_CEILING
 from functools import lru_cache
 from hashlib import sha256
 import json
@@ -17,7 +17,7 @@ import struct
 D = Decimal
 ZERO, ONE, K = D(0), D(1), D("0.18")
 ROOT = Path(__file__).resolve().parent
-OUTPUT_ROOT = ROOT.parents[3] / "artifacts/detail-research/strong-noise/reference"
+OUTPUT_ROOT = ROOT.parents[3] / "artifacts"
 PRIMARY_XY = {
     "srgb": [[".64", ".33"], [".30", ".60"], [".15", ".06"]],
     "rec2020": [[".708", ".292"], [".170", ".797"], [".131", ".046"]],
@@ -118,8 +118,8 @@ def stable_difference(value, scale, delta):
 
 
 def weight_exp(exponent):
-    # Omitted tails are below 6e-131, far below the fixed oracle tolerance.
-    return ZERO if exponent < -300 else exponent.exp()
+    # Retain tiny signed contributions until the declared stage publication.
+    return exponent.exp()
 
 
 def blend(amount):
@@ -264,7 +264,8 @@ class Scene:
                     if amount and not denominator:
                         raise ArithmeticError('Lost positive center normalization')
                     value = numerators[component]/denominator if amount else ZERO
-                    words.append(binary32_word(value))
+                    word = binary32_word(value)
+                    words.append(0 if (word & 0x7fffffff) == 0 else word)
         return tuple(words)
 
     def point(self, x, y, amount_l, amount_c, max_l, max_c):
@@ -311,7 +312,10 @@ class Scene:
         bounds=[]
         for component in range(3):
             r=maximum[component]
-            bound=factors[component]*(r*(ONE+D(2)**-24)+D(2)**-150) if r else ZERO
+            # Bound arithmetic alone rounds outwards; estimator arithmetic stays nearest-even.
+            with localcontext() as bound_context:
+                bound_context.rounding=ROUND_CEILING
+                bound=factors[component]*(r*(ONE+D(2)**-24)+D(2)**-150) if r else ZERO
             bounds.append(bound)
             if abs(deltas[component])>bound:raise ArithmeticError('Published feature proposal exceeds quantization-aware local bound')
         dl=stable_difference(y_value,K,deltas[0]) if amount_l else ZERO
@@ -387,7 +391,7 @@ def main():
         selected['widthPairs']=choices
     destination = args.output.resolve()
     if not destination.is_relative_to(OUTPUT_ROOT) or destination.exists():
-        raise SystemExit("Choose a new ignored output inside this independent-research folder.")
+        raise SystemExit("Choose a new output under the ignored artifacts directory.")
     with localcontext() as context:
         context.prec = 80
         result = {"version": "comparison-7-independent-decimal80-draft-v1", "license": "CC0-1.0",

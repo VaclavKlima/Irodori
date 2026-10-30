@@ -22,7 +22,7 @@ def denoise(model, source, width, height, coefficients, luminance, chroma,
         return previous.denoise(model, source, width, height, coefficients,
             luminance, chroma, candidate, oracle_variance, capture_deltas,
             estimate_snapshot)
-    if candidate['aggregation'] != 'normalized-patch-estimates-f32-v1':
+    if candidate['aggregation'] != 'normalized-patch-estimates-f32-zero-v1':
         raise ValueError('Undeclared aggregation policy.')
     if luminance == chroma == 0:
         return [p[:] for p in source], {'estimation': 'neutral-bypass',
@@ -116,7 +116,9 @@ def denoise(model, source, width, height, coefficients, luminance, chroma,
                     denominator = sums[c][at + (3 if component == 0 else 4)]
                     if denominator <= 0:
                         raise ArithmeticError('Visible target lost positive inner denominator.')
-                    centers[c][ri * 3 + component] = model.f32(sums[c][at + component] / denominator)
+                    published = model.f32(sums[c][at + component] / denominator)
+                    # Only stage zeros are canonical; source payloads stay exact.
+                    centers[c][ri * 3 + component] = published if published != 0 else 0.0
     output, unrounded, proposals = [], [], []
     for py in range(height):
         for px in range(width):

@@ -25,13 +25,31 @@ sharpening and optional FSR evaluation remain pending. Keep masking and separate
 scoped backlog work outside this checkpoint's acceptance claims.
 
 The current stronger-NR work is **research only**. The portable equations,
-synthetic cases, frozen gates and unexecuted direct Decimal80 draft are in
+synthetic cases, frozen gates and independently checked Decimal80 reference are in
 [scripts/research/strong-noise](../scripts/research/strong-noise/README.md).
-Two narrow patchwise candidates passed the declared nominal/regression/fresh
-cohorts; C.040 also passed the selectedσ .08 high-noise cohort. Reserved high-noise
-levels/seeds, independent references, candidate GPU/native photographic quality,
-versioned integration, resources and performance are still required. Existing
-v1 edits must keep their original meaning and pixels.
+Both remaining fixed-width C7 candidates subsequently failed the reserved sigma
+.10 colored edge. The two C8 noise-scaled candidates passed the first screen and
+old nominal/regression cohorts, then failed the mandatory fresh texture cohort.
+**All executed candidates remain rejected under their declared quality protocols.**
+Failures and original thresholds are preserved; passing numerical references do
+not establish photographic quality. No candidate GPU port, public NR version 2,
+settings/catalog migration or method selector is integrated. Existing v1 edits
+must keep their original meaning and pixels.
+
+The CPU source-wide noise-estimator foundation is committed with admission,
+cancellation and independent Python agreement tests, but no production processing
+path selects it. Its source identity/hash are supplied by a caller-owned verified
+source lease; the estimator does not authenticate source bytes. Keep the complete
+source estimate frozen across tiles, crops and zoom levels when integrating later.
+
+The next research direction is a separately declared larger texture population:
+the failed small C8 chart's entering noise already exceeds its clean-relative
+amplitude ceiling. The optional population geometry helper in `cases.py` is an
+unfinished foundation only. There is no C9 protocol, qualification receipt gate,
+runner selection or executed C9 input/output. Before filtering, freeze a separate
+protocol and qualify every fresh input without importing candidate code; retain
+all accepted original small-chart regressions and every C8 failure. Do not change
+noise, amplitudes or acceptance limits to obtain a pass.
 
 Three privacy-reviewed fixture sets are committed unchanged: fog/dogs, a genuine
 Sony exposure bracket, and ISO 400/6400/12800 carpet captures. Their manifests retain
@@ -65,4 +83,19 @@ The pre-push invocation on 2026-10-30 selected
 in 101.2 seconds, including type checking, lint, formatting, build, fast Node
 checks and the combined real-source cases. The portable research runner also
 reproduced one prior synthetic source/output SHA exactly. No comprehensive
-checkpoint or unfinished independent denoiser reference was executed.
+checkpoint was executed.
+
+Subsequent focused verification selected `strong-noise-reference` plus
+`strong-noise-scaled-reference`: 790 checks passed in 100.84 seconds, including
+all 15 independent numeric recipes for fixed C .040 and both C8 factors. The
+separate `strong-noise-estimate` selection passed 793 checks in 41.61 seconds,
+including eight estimator cases. These selections overlap in their cheap checks.
+They use CPU-only synthetic data and do not certify candidate GPU processing,
+photographic quality, full-source estimator throughput or other platforms.
+
+The final publication check combined all three targets in background mode:
+**798 passed, 0 failed, 0 skipped in 100.20 seconds**, including type checking,
+lint, formatting, build and fast Node checks. A separate source-only comparison
+also preserved all 352 existing nominal/regression/fresh recipes exactly against
+the earlier published checkpoint. No comprehensive, GPU or foreground check was
+added to this publication scope.

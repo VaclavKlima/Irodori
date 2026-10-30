@@ -49,8 +49,9 @@
     "reconstruction": "Original stable inverse-coordinate differences around entering Y and its fixed hypot(Y,.18) opponent scale; RGB reconstruction preserves alpha and exact no-change copies.",
     "gentleness": "BeforeRGBinverse: |proposal|<=m*(R*(1+2^-24)+2^-150) for R>0, exactzero forR0; this is onlymandatoryFloat32 E quantization in Decimal80, notRGB/qualitytolerance relaxation.",
     "aggregation": "Estimate every actualvalid3x3patchtarget underW(c,d)*alpha(v), v=clamp(c+d+r), independentlynormalize thenroundeachE directlynearest-even tobinary32. Averagepublishedestimateswithalpha(c) over actualcentersc=p-r, then ownblend once. No flattening, outsidecenterclamp, selfcap or intermediateDecimalEaveraging.",
-    "stagePublication": "Each center has27 scalarwords: rowmajorr=-1..1, axesL/A/B. Invalid/transparenttargets andalpha0centers publish+0. Skip hiddenRGB beforeallfeaturearithmetic. Selfd0 guarantees inneralpha(c)*alpha(t)>0; outerincludesalpha(p)>0.",
-    "frozenVariance": "Each declared variance literal is parsed to IEEE Float64, then converted exactlytoDecimal80, so oracle/prototype receive identicalcoefficient words. No estimator implemented here."
+    "stagePublication": "Eachcenterhas27scalarwords,row-majorr=-1..1axesL/A/B. RoundnormalizedEnearest-even tobinary32,thencanonicalizeanyroundedzeroEto+0. Invalid/transparenttargetsandalpha0centerspublish+0. OriginalRGBA/alpha/genericIEEEconverterretainzero signs. SkiphiddenRGBbeforefeatures; selfd0givespositiveinnernormalizer.",
+    "frozenVariance": "Each declared variance literal is parsed to IEEE Float64, then converted exactlytoDecimal80, so oracle/prototype receive identicalcoefficient words. No estimator implemented here.",
+    "exponential": "Noarbitrary-300tailcutoff inDecimal80; retainnonzeroexponentialsuntilstageconversion,withstandardDecimal80underflowreportedratherthanclaimedasmathexact."
   },
   "cases": [
     {
@@ -264,6 +265,6 @@
     "float32CpuGpu": "2e-6 + 2e-5 * abs(reference), alpha exact; no new gate selection here.",
     "quality": "These small mathematical vectors cannot accept denoising quality, estimator calibration, real photography, resource use, or performance."
   },
-  "stageChecks": "For every referencedcenter requireall27words exactnearest-even publication. Additional candidateplane check: alpha0centers andinvalid/transparenttargets exactly+0. RGBpre-finalf32 compares2e-12+2e-11absreference; finalfloat32CPU/GPUgateunchanged.",
+  "stageChecks": "Everyreferencedcenterall27words exactafterdeclaredcanonicalEzero publication. All-gridalpha/transparentRGB/neutralcopies exactincluding-source-zero-signs; strictpre-finalRGB2e-12+2e-11absreference andfinalRGB2e-6+2e-5absreferenceunchanged.",
   "roundingVectors": "Independentbeforegenerationunitvectors: signed0, half-minsubnormal tieeven,1.5minsubnormaltieeven, maxsubnormal/minnormalmidpoint,1+2^-24tieeven,1+3*2^-24tieeven, andsignmirrors. No stageword tolerance."
 }
