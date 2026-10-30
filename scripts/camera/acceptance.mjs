@@ -6,7 +6,11 @@ import { resolve, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { exposureSeconds } from '../../src/main/camera-control/model.ts'
-import { acceptanceOptions, selectAcceptanceCamera } from './acceptance-options.ts'
+import {
+  acceptanceOptions,
+  acceptanceSettings,
+  selectAcceptanceCamera,
+} from './acceptance-options.ts'
 
 const args = process.argv.slice(2)
 const { selector } = acceptanceOptions(args)
@@ -87,7 +91,12 @@ try {
       try {
         await run(
           'apply-settings',
-          { settings: { exposureMode: 'Manual', driveMode: 'Single' } },
+          {
+            settings: acceptanceSettings(evidence.before.settings, {
+              exposureMode: ['Manual', 'M'],
+              driveMode: ['Single', 'Single Shot', 'Single Frame'],
+            }),
+          },
           'manual-single',
         )
         evidence.controls.exposureMode = { result: 'write-readback' }
@@ -126,22 +135,25 @@ try {
         }
       }
       if (args.includes('--run')) {
-        const captureSettings = {
-          format: 'RAW+JPEG',
-          iso: '100',
-          focusMode: 'Manual',
-          shutterSpeed: '1/100',
+        const context = await call('list_actions', { cameraId: camera.id })
+        const requested = {
+          format: ['RAW+JPEG', 'RAW+JPEG (Fine)', 'RAW+JPEG (Std)', 'RAW+JPEG (X.Fine)'],
+          iso: ['100'],
+          focusMode: ['Manual'],
+          shutterSpeed: ['1/100'],
         }
+        if (context.settings.some((setting) => setting.id === 'pcImageSize'))
+          requested.pcImageSize = ['Original']
+        if (context.settings.some((setting) => setting.id === 'pcImageFormat'))
+          requested.pcImageFormat = ['RAW & JPEG']
+        const captureSettings = acceptanceSettings(context.settings, requested)
         const destination = evidence.before.settings.find(
           (setting) => setting.id === 'captureTarget',
         )
-        if (destination?.writable) captureSettings.captureTarget = 'PC+Camera'
         evidence.controls.captureTarget = {
-          result: destination?.writable ? 'write-readback' : 'read-only',
+          result: 'preserved',
           value: destination?.value,
         }
-        if (evidence.before.settings.some((setting) => setting.id === 'pcImageSize'))
-          captureSettings.pcImageSize = 'Original'
         await run('apply-settings', { settings: captureSettings }, 'capture-setup')
         evidence.controls.shutterSpeed = {
           result: 'write-readback',
@@ -222,11 +234,11 @@ try {
         evidence.after.settings.map((setting) => [setting.id, setting.value]),
       )
       const automatic = new Set(
-        before.exposureMode === 'Program'
+        ['Program', 'P'].includes(before.exposureMode)
           ? ['aperture', 'shutterSpeed']
-          : before.exposureMode === 'Aperture priority'
+          : ['Aperture priority', 'A'].includes(before.exposureMode)
             ? ['shutterSpeed']
-            : before.exposureMode === 'Shutter priority'
+            : ['Shutter priority', 'S'].includes(before.exposureMode)
               ? ['aperture']
               : [],
       )

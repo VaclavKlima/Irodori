@@ -30,7 +30,11 @@ import {
   type RuntimeDistribution,
   type RuntimeManifest,
 } from '../scripts/camera/runtime'
-import { acceptanceOptions, selectAcceptanceCamera } from '../scripts/camera/acceptance-options'
+import {
+  acceptanceOptions,
+  acceptanceSettings,
+  selectAcceptanceCamera,
+} from '../scripts/camera/acceptance-options'
 import { createCameraProvider } from '../scripts/camera/provider'
 import { GphotoProvider } from '../src/main/camera-control/gphoto'
 
@@ -408,4 +412,32 @@ test('acceptance requires mutually exclusive explicit selectors and never choose
   expect(() =>
     selectAcceptanceCamera([...cameras, cameras[1]], { kind: 'camera-id', value: 'second' }),
   ).toThrow('ambiguous')
+})
+
+test('acceptance recipes resolve actual native and gphoto choices and preserve matching read-only settings', () => {
+  expect(
+    acceptanceSettings(
+      [
+        { id: 'exposureMode', value: 'P', writable: true, choices: ['P', 'M'] },
+        { id: 'driveMode', value: 'Single Shot', writable: false, choices: ['Single Shot'] },
+        {
+          id: 'format',
+          value: 'JPEG Fine',
+          writable: true,
+          choices: ['JPEG Fine', 'RAW+JPEG (Fine)'],
+        },
+      ],
+      {
+        exposureMode: ['Manual', 'M'],
+        driveMode: ['Single', 'Single Shot'],
+        format: ['RAW+JPEG', 'RAW+JPEG (Fine)'],
+      },
+    ),
+  ).toEqual({ exposureMode: 'M', format: 'RAW+JPEG (Fine)' })
+  expect(() =>
+    acceptanceSettings([{ id: 'driveMode', value: 'Continuous', writable: false, choices: [] }], {
+      driveMode: ['Single'],
+    }),
+  ).toThrow('physical setup')
+  expect(() => acceptanceSettings([], { iso: ['100'] })).toThrow('advertised iso')
 })

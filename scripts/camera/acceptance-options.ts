@@ -29,3 +29,21 @@ export function selectAcceptanceCamera<T extends { id: string; serial?: string }
     throw new Error('The exact requested camera is absent or ambiguous. No camera was selected.')
   return matching[0]
 }
+
+export function acceptanceSettings(
+  settings: { id: string; value: string; writable: boolean; choices: string[] }[],
+  requested: Record<string, string[]>,
+) {
+  const result: Record<string, string> = {}
+  for (const [id, preferred] of Object.entries(requested)) {
+    const setting = settings.find((setting) => setting.id === id)
+    if (setting && !setting.writable && preferred.includes(setting.value)) continue
+    const value = setting?.writable && preferred.find((value) => setting.choices.includes(value))
+    if (!value)
+      throw new Error(
+        `Acceptance requires an advertised ${id} choice: ${preferred.join(' / ')}. Inspect this exact camera and resolve physical setup first.`,
+      )
+    result[id] = value
+  }
+  return result
+}

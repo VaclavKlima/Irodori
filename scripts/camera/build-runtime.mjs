@@ -113,7 +113,7 @@ try {
         '--disable-nls',
         '--disable-rpath',
         '--with-camlibs=ptp2',
-        '--with-libusb-1.0=' + prefix,
+        '--with-libusb-1.0=auto',
         '--without-libusb',
         '--disable-serial',
         '--disable-ttylock',
