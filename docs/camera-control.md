@@ -29,7 +29,11 @@ The [official configuration guide](https://learn.chatgpt.com/docs/config-file/co
 explains trusted project discovery and precedence; the
 [MCP guide](https://learn.chatgpt.com/docs/extend/mcp) covers stdio registration
 and client refresh. An existing conversation may need to reconnect before its
-tool catalog includes the seven camera tools.
+tool catalog includes the seven camera tools. After editing the server source,
+close its sessions and fully reconnect the camera MCP. On the tested Codex app
+0.166 connection, reloading an unchanged registration reused the running process;
+a disconnect/reconnect was required to load new source. Verify the actual tool
+connection rather than relying only on `codex mcp list`.
 
 The registration travels with the checkout. It contains no account settings,
 credentials, absolute paths or architecture-specific executable. npm discovers
@@ -115,7 +119,7 @@ and USB I/O modules, and their private runtime dependencies. No host Homebrew or
 gphoto2 installation is required. The provider uses absolute executable paths,
 private loader/module paths and isolated configuration. Linux CI verifies
 relocation, version reporting, USB/PTP module loading, SDK initialization and
-discovery without hardware; **physical Bazzite camera acceptance remains open**.
+discovery without hardware. The focused Bazzite single-RAW check below adds physical evidence; Linux paired and multi-exposure capture acceptance remains open.
 
 Setup never changes USB permissions. Run discovery as your ordinary logged-in
 user:
@@ -142,8 +146,7 @@ not commands executed by setup.
 
 A container additionally needs explicit USB device access; host operation avoids
 that extra boundary. Successful archive installation or hardware-free CI does
-not prove camera access on Bazzite. Keep backlog #37 open until the physical
-Linux acceptance workflow succeeds.
+not prove camera access on Bazzite. The focused follow-up below verifies single-RAW operation on the connected Sony. Keep backlog #37 open for the remaining paired and multi-exposure Linux acceptance gates.
 
 ## MCP workflow
 
@@ -162,7 +165,9 @@ separate fields from physical identity. Same-model cameras retain different IDs
 and exact routes. Serial-backed identity supports explicit recovery after a fresh
 connection; connection-only identity never authorizes recovery on a replacement.
 Linux additionally checks the USB device node's attachment identity before each
-CLI command. No operation silently chooses the first camera.
+CLI command. The fingerprint combines the device node and kernel USB object
+generation; mutable USBfs timestamps are excluded because ordinary camera I/O
+changes them. No operation silently chooses the first camera.
 
 ### Discovery through restoration
 
@@ -387,7 +392,36 @@ The native transport exposes no DeleteObject command. Neither provider exposes
 shell arguments, formatting, firmware, uploads or card deletion through MCP.
 The CLI uses fixed argument arrays, an allowlisted environment and an empty
 application-owned gphoto configuration, excluding inherited hooks and settings.
-Subprocess duration and output are bounded.
+Subprocess duration and output are bounded. Sony writes use up to ten seconds of
+independent readback polling (five seconds for other backends). A busy/error
+acknowledgement may precede a real write; only matching readback marks it verified.
+Setters are never resent during that polling. Pending write journals retain all
+values sent by this session so an unsuccessful rollback does not lose the earlier
+uncertain target. A verified return to the original value releases ownership
+before automatic exposure modes can change aperture/shutter readouts.
+
+Sony inspection also settles events for three seconds before reading the full
+configuration. It uses kept downloads into a fresh private
+`artifacts/camera/backend-recovered/` directory so pending originals cannot be
+consumed and discarded while inspecting settings. Unexpected or partial originals
+retain their exact bytes, size, SHA-256 and inspection log. They remain unclaimed,
+appear in `info.recoveredOriginals` and block capture for that session; they never
+complete an earlier or current operation. Close the session and review them before
+requesting another capture. Empty inspection directories are removed only when
+empty. This development path adds several seconds per Sony inspection; returned
+unknown values still keep the affected controls unavailable.
+
+No non-downloading event waits are used around setters or a shutter release:
+those waits could consume late originals into the CLI process without saving
+them. Startup settling happens in the separate kept-download inspection above.
+Capture stdout,
+stderr or command errors are retained with bounded excerpts in private
+`artifacts/camera/backend-diagnostics/` JSON files. Inspection exposes the latest
+path as `info.latestCaptureDiagnostic`. A zero process exit is insufficient:
+the expected original files must arrive, and a RAW/JPEG pair must share a basename.
+Unknown formats and Multi Frame Noise Reduction ISO choices remain unavailable
+for single-release capture. Missing originals remain uncertain and are never
+retried automatically.
 
 Card inventory is read-only and bounded. An unavailable card is reported
 explicitly; matching names and sizes alone do not prove every card byte. Captures
@@ -407,11 +441,11 @@ alone does not meet those requirements.
 
 ## Verification and local evidence
 
-The four registered **Node** targets use fake providers and subprocesses, with
+The five registered **Node** targets use fake providers and subprocesses, with
 no Electron, USB access or photographic inputs:
 
 ```sh
-npm run verify -- --target camera-runtime --target camera-control-model --target camera-control-service --target camera-control-mcp
+npm run verify -- --target camera-runtime --target camera-control-model --target camera-control-service --target camera-control-mcp --target camera-acceptance
 ```
 
 They cover same-model routing, dynamic/read-only choices, schemas, bounded
@@ -496,9 +530,7 @@ documentation checks are recorded in
 tests shared installed dependencies. Fresh dependency installation, client refresh
 and Codex startup after trusting a new relocated checkout were not exercised.
 
-Physical Bazzite acceptance, complete card-byte comparison, sustained disconnect
-during an active capture, autofocus quality, native burst/bracketing and other
-camera models remain explicit limits. This is development camera control,
+Beyond the focused Bazzite follow-up below, paired/multi-exposure Linux capture, complete card-byte comparison, sustained disconnect during an active capture, autofocus quality, native burst/bracketing and other camera models remain explicit limits. This is development camera control,
 not production camera or photographic-quality certification.
 
 ### Repository runtime delivery acceptance
@@ -523,8 +555,75 @@ those platform skips. See
 `artifacts/verification/2026-10-30T10-49-35.301Z-check-xxhe6J/summary.md`.
 This focused selection is separate from comprehensive application acceptance.
 Linux Actions verifies the packaged libraries/modules and SDK discovery with an
-empty USB bus and no camera; physical Bazzite acceptance and backlog #37 remain
-open. The public-download macOS check is recorded alongside the archive pins.
+empty USB bus and no camera. At that delivery checkpoint, physical Bazzite acceptance remained open; the focused follow-up below does not close all of backlog #37. The public-download macOS check is recorded alongside the archive pins.
+
+## Bazzite follow-up, 2026-10-30
+
+The public pinned Linux archive installed and passed integrity/offline-reuse
+checks on the Bazzite host as an ordinary user. USB **054c:0c44** was already
+accessible; no USB permissions or system services were changed. The actual
+hardware is **Sony ZV-1A**; gphoto2 advertises its **Sony ZV-1 (PC Control)**
+backend alias. Connection routes and physical serial identity remain separate.
+
+The focused fixes preserve the kernel attachment identity through ordinary I/O,
+settle initially unknown Sony property descriptors, exclude multiframe ISO,
+validate the exact RAW/JPEG companions, retain backend diagnostics and protect
+pending-write recovery. Failed probes remain retained separately. In particular,
+the first paired capture returned no originals and remains uncertain; it was
+never replayed. An early hypothesis about an omitted ZV-1A startup guard was not
+established as the cause. Separate non-downloading event waits were removed
+because they could discard late originals; final settling uses the quarantined
+kept-download inspection described above.
+
+The final fresh-server **single-RAW** validation passed in **115.489 seconds**,
+including configuration, capture, independent size/SHA-256 and EXIF checks,
+close and restoration. One **20,517,888-byte ARW** reports ISO **400** and
+**1/100 s**, matching the readback. ISO **12800**, automatic focus and Program
+exposure mode were restored. The preceding RAW check also passed; its originals
+and all failed evidence remain private. This verifies transfer and metadata,
+not photographic exposure, autofocus quality or denoising quality. No capture
+was used as a processing/benchmark input or promoted into Git fixtures.
+
+Private evidence:
+`artifacts/camera-bazzite-runtime-20261030/retaining-raw-validation.json`.
+Earlier Program-mode control checks verified ISO, white balance, focus mode and
+exposure compensation round trips. The incomplete control run, its transient
+unknown-drive result and earlier restoration conflicts are retained rather than
+counted as full control acceptance. Both earlier owned control journals were then
+recovered explicitly against the same serial identity in their Manual context:
+f/4 and the original manual shutter 1/500 s were verified, then Program was
+restored. This took **61.214 seconds**, requested no shutter, and retains its own
+record at
+`artifacts/camera-bazzite-runtime-20261030/restore-earlier-controls.json`.
+
+**Codex app 0.166** connected the existing root thread to all seven tools and
+performed real discovery, inspection and setting changes through its native tool
+catalog. This is actual-client evidence, separate from the SDK capture check.
+Final native inspection was correlated with a managed process started after the
+last provider source edit; it returned Single Shot/RAW and the restored Program,
+ISO and focus values, with no unclaimed originals or pending recovery records.
+Receipts:
+`artifacts/camera-bazzite-runtime-20261030/final-native-connection.json` and
+`artifacts/camera-bazzite-runtime-20261030/final-native-parent.json`.
+Project configuration finished byte-for-byte unchanged. Connection receipts are
+under `artifacts/camera-codex-connection-20261030/`; they contain no camera serial
+or authentication material.
+
+The five selected Node camera targets and shared checks passed with **867 tests,
+zero failures and zero skips** in **38.63 seconds**; type checking, lint and
+formatting passed. Summary:
+`artifacts/verification/2026-10-30T11-55-39.663Z-check-ltIy7u/summary.md`. New
+regressions cover Linux attachment replacement, delayed/error acknowledgements,
+uncertain rollback ownership, original-value round trips, quarantined pending
+transfers and hardware-free startup/relocation. The selection did not run
+Electron, GPU work or comprehensive application acceptance.
+
+Linux RAW/JPEG pairing, three-exposure capture, active-shutter disconnect,
+full card-byte preservation and other camera models remain unverified. Existing
+card inventory is unavailable in this Sony PC Only session. Native burst and
+bracketing remain unavailable; software sequences need their own Linux hardware
+check. These limits keep extended acceptance and backlog #37 open while the
+verified single-RAW development workflow is usable.
 
 ## Protocol references
 

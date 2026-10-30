@@ -38,6 +38,234 @@ test('another service cannot claim the host broker, even using another artifacts
   }
 })
 
+test('pending write recovery revalidates old restored flags and confirms rollback after delayed acknowledgements', async () => {
+  for (const delayedWriteArrived of [false, true]) {
+    const f = await cameraFixture()
+    try {
+      const session = await f.service.openSession('camera-1')
+      await f.service.closeSession(session.sessionId)
+      const path = join(f.root, 'data/sessions', session.sessionId + '.json'),
+        record = JSON.parse(await readFile(path, 'utf8'))
+      // Reproduce a journal from the former early-readback failure: the original
+      // was observed before the acknowledged setting reached the camera.
+      record.touched.iso = {
+        original: '100',
+        lastApplied: '100',
+        intended: '200',
+        pending: true,
+        restored: true,
+      }
+      await writeFile(path, JSON.stringify(record))
+      f.provider.values.get('camera-1')!.iso = delayedWriteArrived ? '200' : '100'
+      expect((await f.service.list()).recoveries.map((entry) => entry.sessionId)).toContain(
+        session.sessionId,
+      )
+      const recovered = await f.service.openSession('camera-1', {}, session.sessionId)
+      expect(f.provider.values.get('camera-1')!.iso).toBe('100')
+      expect(f.provider.writes).toEqual([{ camera: 'camera-1', id: 'iso', value: '100' }])
+      expect(recovered.restoration).toEqual([
+        expect.objectContaining({ setting: 'iso', outcome: 'restored' }),
+      ])
+      const closed = await f.service.closeSession(recovered.sessionId)
+      expect(closed.restoration[0].outcome).toBe('already-restored')
+      expect(JSON.parse(await readFile(path, 'utf8')).touched.iso.pending).toBe(false)
+    } finally {
+      await f.cleanup()
+    }
+  }
+})
+
+test('verified return to original survives automatic readout changes without hiding inspection values', async () => {
+  const f = await cameraFixture()
+  const current = f.provider.values.get('camera-1')!
+  current.exposureProgram = 'P'
+  current.aperture = '4'
+  const inspect = f.provider.inspect.bind(f.provider)
+  f.provider.inspect = async (camera) => {
+    const inspection = await inspect(camera)
+    for (const setting of inspection.settings) {
+      if (setting.id === 'exposureProgram') setting.choices = ['P', 'M']
+      if (setting.id === 'aperture') {
+        setting.writable = f.provider.values.get(camera.id)!.exposureProgram === 'M'
+        setting.choices = setting.writable ? ['3.5', '4'] : []
+        if (!setting.writable) setting.value = 'null'
+      }
+    }
+    return inspection
+  }
+  try {
+    const session = await f.service.openSession('camera-1', { exposureProgram: 'M' })
+    for (const [index, aperture] of ['3.5', '4'].entries()) {
+      const accepted = await f.service.executeAction(
+        session.sessionId,
+        'apply-settings',
+        { settings: { aperture } },
+        `aperture-roundtrip-${index}`,
+      )
+      const operation = await finished(f.service, accepted.operationId)
+      expect(operation.state).toBe('completed')
+      expect(
+        operation.settings?.settings.find((setting) => setting.id === 'aperture'),
+      ).toMatchObject({
+        value: aperture,
+        verification: { writeReadback: true },
+      })
+    }
+    const restoredProgram = await f.service.executeAction(
+      session.sessionId,
+      'apply-settings',
+      { settings: { exposureProgram: 'P' } },
+      'program-roundtrip',
+    )
+    const operation = await finished(f.service, restoredProgram.operationId)
+    expect(operation.state).toBe('completed')
+    expect(operation.settings?.settings.find((setting) => setting.id === 'aperture')).toMatchObject(
+      {
+        value: 'null',
+        writable: false,
+        verification: { writeReadback: false },
+      },
+    )
+    const journal = JSON.parse(
+      await readFile(join(f.root, 'data/sessions', session.sessionId + '.json'), 'utf8'),
+    )
+    expect(journal.touched.aperture).toMatchObject({
+      original: '4',
+      lastApplied: '4',
+      restored: true,
+      pending: false,
+    })
+    const writes = f.provider.writes.length
+    const closed = await f.service.closeSession(session.sessionId)
+    expect(closed.restoration).toEqual([
+      expect.objectContaining({ setting: 'aperture', outcome: 'already-restored' }),
+      expect.objectContaining({ setting: 'exposureProgram', outcome: 'already-restored' }),
+    ])
+    expect(f.provider.writes).toHaveLength(writes)
+    expect((await f.service.list()).recoveries).toEqual([])
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('a later write after verified restoration rebases from the actual external value and still detects new conflicts', async () => {
+  for (const conflict of [false, true]) {
+    const f = await cameraFixture()
+    try {
+      const session = await f.service.openSession('camera-1', { iso: '200' })
+      const returned = await f.service.executeAction(
+        session.sessionId,
+        'apply-settings',
+        { settings: { iso: '100' } },
+        'return-original',
+      )
+      expect((await finished(f.service, returned.operationId)).state).toBe('completed')
+      f.provider.values.get('camera-1')!.iso = '400'
+      const reapplied = await f.service.executeAction(
+        session.sessionId,
+        'apply-settings',
+        { settings: { iso: '200' } },
+        'write-after-restoration',
+      )
+      expect((await finished(f.service, reapplied.operationId)).state).toBe('completed')
+      if (conflict) f.provider.values.get('camera-1')!.iso = '125'
+      const closed = await f.service.closeSession(session.sessionId)
+      expect(closed.restoration[0]).toMatchObject({
+        original: '400',
+        outcome: conflict ? 'conflict' : 'restored',
+        observed: conflict ? '125' : '400',
+      })
+      expect(f.provider.values.get('camera-1')!.iso).toBe(conflict ? '125' : '400')
+      expect(f.provider.writes).toEqual([
+        { camera: 'camera-1', id: 'iso', value: '200' },
+        { camera: 'camera-1', id: 'iso', value: '100' },
+        { camera: 'camera-1', id: 'iso', value: '200' },
+        ...(!conflict ? [{ camera: 'camera-1', id: 'iso', value: '400' }] : []),
+      ])
+    } finally {
+      await f.cleanup()
+    }
+  }
+})
+
+test('an original-value write with mismatching readback remains pending and recoverable', async () => {
+  const f = await cameraFixture()
+  try {
+    const session = await f.service.openSession('camera-1', { iso: '200' })
+    f.provider.mismatch = true
+    const accepted = await f.service.executeAction(
+      session.sessionId,
+      'apply-settings',
+      { settings: { iso: '100' } },
+      'unverified-return-original',
+    )
+    const operation = await finished(f.service, accepted.operationId)
+    expect(operation.state).toBe('failed')
+    expect(operation.failure?.code).toBe('readback-mismatch')
+    expect(operation.restoration[0].outcome).toBe('failed')
+    const journal = JSON.parse(
+      await readFile(join(f.root, 'data/sessions', session.sessionId + '.json'), 'utf8'),
+    )
+    expect(journal.touched.iso).toMatchObject({
+      original: '100',
+      lastApplied: '200',
+      restored: false,
+      pending: true,
+      intended: '100',
+    })
+    expect((await f.service.list()).recoveries.map((entry) => entry.sessionId)).toContain(
+      session.sessionId,
+    )
+    f.provider.values.get('camera-1')!.iso = '400'
+    const writes = f.provider.writes.length
+    const closed = await f.service.closeSession(session.sessionId)
+    expect(closed.restoration[0]).toMatchObject({ outcome: 'conflict', observed: '400' })
+    expect(f.provider.writes).toHaveLength(writes)
+    expect(f.provider.values.get('camera-1')!.iso).toBe('400')
+    expect(f.provider.captures).toEqual([])
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('rollback retains uncertain earlier targets while preserving unrelated external changes', async () => {
+  for (const externalChange of [false, true]) {
+    const f = await cameraFixture()
+    try {
+      let writes = 0
+      const write = f.provider.write.bind(f.provider)
+      f.provider.write = async (camera, setting, value) => {
+        writes++
+        if (writes <= 2) {
+          f.provider.writes.push({ camera: camera.id, id: setting.id, value })
+          if (writes === 2) f.provider.values.get(camera.id)![setting.id] = '200'
+          throw new Error('Acknowledged command has not settled yet.')
+        }
+        await write(camera, setting, value)
+      }
+      const session = await f.service.openSession('camera-1'),
+        accepted = await f.service.executeAction(
+          session.sessionId,
+          'apply-settings',
+          { settings: { iso: '200' } },
+          'delayed-setting',
+        ),
+        failed = await finished(f.service, accepted.operationId)
+      expect(failed.state).toBe('failed')
+      expect(failed.restoration[0].outcome).toBe('failed')
+      expect(f.provider.values.get('camera-1')!.iso).toBe('200')
+      if (externalChange) f.provider.values.get('camera-1')!.iso = '400'
+      const closed = await f.service.closeSession(session.sessionId)
+      expect(closed.restoration[0].outcome).toBe(externalChange ? 'conflict' : 'restored')
+      expect(f.provider.values.get('camera-1')!.iso).toBe(externalChange ? '400' : '100')
+      expect(writes).toBe(externalChange ? 2 : 3)
+      expect(f.provider.captures).toEqual([])
+    } finally {
+      await f.cleanup()
+    }
+  }
+})
+
 test('invalid and changed read-only settings cannot release a shutter', async () => {
   const f = await cameraFixture()
   try {

@@ -2,21 +2,27 @@ import { expect, test } from '@playwright/test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { access, cp, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, cp, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { delimiter, join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createCameraMcpServer } from '../src/main/camera-control/mcp'
 import { cameraFixture, finished } from './camera-control.helpers'
 
-async function unavailableBackend(directory: string) {
-  const bin = join(directory, 'bin')
-  await mkdir(bin, { recursive: true })
-  await writeFile(join(bin, 'gphoto2'), '#!/usr/bin/env node\nprocess.exit(127)\n', { mode: 0o755 })
-  return {
-    PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`,
-    IRODORI_CAMERA_BACKEND: 'gphoto2',
-  }
+async function checkoutWithoutRuntime(checkout: string) {
+  const original = fileURLToPath(new URL('../', import.meta.url))
+  for (const path of [
+    'package.json',
+    'scripts/camera-mcp.mjs',
+    'scripts/camera',
+    'src/main/camera-control',
+    'assets/app/camera-runtime',
+  ])
+    await cp(join(original, path), join(checkout, path), { recursive: true })
+  await symlink(join(original, 'node_modules'), join(checkout, 'node_modules'), 'junction')
+  await expect(access(join(checkout, 'artifacts/camera/runtime'))).rejects.toMatchObject({
+    code: 'ENOENT',
+  })
 }
 
 test('MCP discovery, validation, exact sessions, capture, polling and cleanup use the shared service', async () => {
@@ -117,14 +123,14 @@ test('standalone stdio server initializes without Electron, library, or connecte
 test('npm camera startup discovers the package from the root and a subdirectory without hardware', async () => {
   const temporary = await mkdtemp(join(tmpdir(), 'irodori-camera-backend-'))
   try {
-    const env = await unavailableBackend(temporary)
+    await checkoutWithoutRuntime(temporary)
     for (const cwd of ['.', 'scripts/camera']) {
       const client = new Client({ name: 'camera-npm-test', version: '1' })
       const transport = new StdioClientTransport({
         command: 'npm',
         args: ['run', '--silent', 'mcp:camera'],
-        cwd: resolve(cwd),
-        env,
+        cwd: join(temporary, cwd),
+        env: { PATH: process.env.PATH ?? '' },
         stderr: 'pipe',
       })
       transport.stderr?.on('data', () => {})
@@ -135,7 +141,16 @@ test('npm camera startup discovers the package from the root and a subdirectory 
         expect(listed.isError).not.toBe(true)
         expect(listed.structuredContent).toMatchObject({
           cameras: [],
-          diagnostics: [{ provider: 'gphoto2', available: false }],
+          diagnostics: [
+            {
+              provider: process.platform === 'darwin' ? 'image-capture-sony' : 'gphoto2',
+              available: false,
+              message: expect.stringContaining('npm run camera:setup'),
+            },
+          ],
+        })
+        await expect(access(join(temporary, 'artifacts/camera/runtime'))).rejects.toMatchObject({
+          code: 'ENOENT',
         })
       } finally {
         await client.close()
@@ -148,27 +163,11 @@ test('npm camera startup discovers the package from the root and a subdirectory 
 })
 
 test('relocated camera startup keeps artifacts in its own checkout with spaces and unrelated launch directories', async () => {
-  const original = fileURLToPath(new URL('../', import.meta.url))
   const temporary = await mkdtemp(join(tmpdir(), 'irodori camera registration '))
   const checkout = join(temporary, 'relocated checkout')
   try {
-    const env = await unavailableBackend(temporary)
-    await mkdir(join(checkout, 'scripts'), { recursive: true })
+    await checkoutWithoutRuntime(checkout)
     await mkdir(join(checkout, 'nested directory'))
-    await cp(join(original, 'package.json'), join(checkout, 'package.json'))
-    await cp(join(original, 'scripts/camera-mcp.mjs'), join(checkout, 'scripts/camera-mcp.mjs'))
-    await cp(join(original, 'scripts/camera'), join(checkout, 'scripts/camera'), {
-      recursive: true,
-    })
-    await cp(
-      join(original, 'assets/app/camera-runtime'),
-      join(checkout, 'assets/app/camera-runtime'),
-      { recursive: true },
-    )
-    await cp(join(original, 'src/main/camera-control'), join(checkout, 'src/main/camera-control'), {
-      recursive: true,
-    })
-    await symlink(join(original, 'node_modules'), join(checkout, 'node_modules'), 'junction')
     for (const cwd of [checkout, join(checkout, 'nested directory'), temporary]) {
       const direct = cwd === temporary
       const client = new Client({ name: 'camera-relocation-test', version: '1' })
@@ -178,7 +177,7 @@ test('relocated camera startup keeps artifacts in its own checkout with spaces a
           ? [join(checkout, 'scripts/camera-mcp.mjs')]
           : ['run', '--silent', 'mcp:camera'],
         cwd,
-        env,
+        env: { PATH: process.env.PATH ?? '' },
         stderr: 'pipe',
       })
       transport.stderr?.on('data', () => {})
@@ -189,11 +188,23 @@ test('relocated camera startup keeps artifacts in its own checkout with spaces a
         expect(listed.isError).not.toBe(true)
         expect(listed.structuredContent).toMatchObject({
           cameras: [],
-          diagnostics: [{ provider: 'gphoto2', available: false }],
+          diagnostics: [
+            {
+              provider: process.platform === 'darwin' ? 'image-capture-sony' : 'gphoto2',
+              available: false,
+              message: expect.stringContaining('npm run camera:setup'),
+            },
+          ],
           recoveries: [],
         })
-        for (const directory of ['sessions', 'operations', 'requests', 'backend-config/gphoto'])
+        for (const directory of ['sessions', 'operations', 'requests'])
           await access(join(checkout, 'artifacts/camera', directory))
+        for (const directory of ['runtime', 'backend-config'])
+          await expect(access(join(checkout, 'artifacts/camera', directory))).rejects.toMatchObject(
+            {
+              code: 'ENOENT',
+            },
+          )
         if (cwd !== checkout)
           await expect(access(join(cwd, 'artifacts/camera'))).rejects.toMatchObject({
             code: 'ENOENT',

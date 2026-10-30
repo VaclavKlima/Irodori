@@ -62,7 +62,7 @@ narrow unsandboxed rerun and in this final selection. No comprehensive suite or
 benchmark was selected. Source documentation links were checked; three existing
 historical artifact pointers require their original private artifacts.
 
-Physical Bazzite camera acceptance and backlog #37 remain open. Complete card-byte
+At this delivery checkpoint, physical Bazzite camera acceptance and backlog #37 remained open. Complete card-byte
 comparison, active-shutter disconnect, autofocus quality, native burst/bracketing,
 other cameras, Windows, Intel Macs, Linux arm64, application packaging and
 signing/notarization are outside this acceptance. Captures have not been promoted
@@ -86,3 +86,15 @@ releases; it no longer selected the camera runtime. The explicit non-latest flag
 alone had still allowed the repository's first full release through that API, so
 the development-runtime prerelease flag is intentional. No published asset was
 replaced. These delivery checks completed before the final main push.
+
+## Bazzite host follow-up
+
+The same pinned public Linux archive installed and verified offline on Bazzite
+on 2026-10-30 without permission changes, Homebrew or compilation. The
+[focused camera follow-up](../../../docs/camera-control.md#bazzite-follow-up-2026-10-30)
+records actual Sony ZV-1A single-RAW transfer, original size/SHA-256 and metadata,
+settings restoration, and the native Codex seven-tool connection. The runtime
+archive was not rebuilt or replaced; the follow-up fixes are in its TypeScript
+provider and acceptance harness. Linux paired RAW/JPEG and multi-exposure
+hardware acceptance remain open. Captured outputs remain private and were not
+used as processing inputs or promoted into Git fixtures.

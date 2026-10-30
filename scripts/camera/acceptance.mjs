@@ -7,14 +7,16 @@ import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { exposureSeconds } from '../../src/main/camera-control/model.ts'
 import {
-  acceptanceAlternate,
   acceptanceOptions,
-  acceptanceSettings,
   selectAcceptanceCamera,
+  acceptanceValue,
+  acceptancePatch,
+  acceptanceAlternate,
+  automaticCameraReadouts,
+  restorationDifferences,
 } from './acceptance-options.ts'
 
-const args = process.argv.slice(2)
-const { selector } = acceptanceOptions(args)
+const { mode, selector } = acceptanceOptions(process.argv.slice(2))
 const directory = resolve(
   fileURLToPath(new URL('../../artifacts/camera/acceptance/', import.meta.url)),
   `${new Date().toISOString().replaceAll(':', '-')}-${randomUUID()}`,
@@ -37,7 +39,6 @@ const evidence = {
   controls: {},
   operations: [],
   limitations: [
-    'Physical Bazzite/Linux acceptance remains pending.',
     'Active-session USB unplug/replug requires an attended check; this command does not simulate physical removal.',
     'No capture is promoted to a repository fixture; visual, metadata, privacy and permission review remains required.',
   ],
@@ -77,38 +78,54 @@ try {
   await client.connect(transport)
   evidence.tools = (await client.listTools()).tools.map((tool) => tool.name)
   evidence.discovery = await call('list')
-  if (!selector) {
+  if (mode === 'discover') {
     evidence.result = 'discovery-only'
     console.log(JSON.stringify(evidence.discovery, null, 2))
   } else {
     const camera = selectAcceptanceCamera(evidence.discovery.cameras, selector)
     evidence.camera = camera
     evidence.before = await call('list_actions', { cameraId: camera.id })
-    if (args.includes('--run') || args.includes('--controls')) {
+    if (mode === 'run' || mode === 'controls') {
       const opened = await call('open_session', { cameraId: camera.id })
       sessionId = opened.sessionId
+      evidence.sessionBefore = opened.settings
       evidence.cardBefore = (await run('read-card-inventory', {}, 'card-before')).inventory
       // Establish manual, single-frame capture before testing individual controls.
       try {
-        await run(
-          'apply-settings',
-          {
-            settings: acceptanceSettings(evidence.before.settings, {
-              exposureMode: ['Manual', 'M'],
-              driveMode: ['Single', 'Single Shot', 'Single Frame'],
-            }),
-          },
-          'manual-single',
-        )
-        evidence.controls.exposureMode = { result: 'write-readback' }
+        const context = await call('list_actions', { cameraId: camera.id })
+        evidence.setupContext = context
+        const manual = acceptanceValue(context.settings, 'exposureMode', ['Manual', 'M'])
+        const modePatch = acceptancePatch(context.settings, 'exposureMode', manual)
+        if (Object.keys(modePatch).length)
+          await run('apply-settings', { settings: modePatch }, 'manual-mode')
+        evidence.controls.exposureMode = {
+          result: modePatch.exposureMode ? 'write-readback' : 'already-selected',
+          value: manual,
+        }
+        // Program changes can alter control availability and refresh Sony
+        // property enums. Validate the drive against its new actual readback.
+        const singleContext = await call('list_actions', { cameraId: camera.id })
+        evidence.singleContext = singleContext
+        const single = acceptanceValue(singleContext.settings, 'driveMode', [
+          'Single',
+          'Single Shot',
+          'Single Frame',
+        ])
+        const patch = acceptancePatch(singleContext.settings, 'driveMode', single)
+        if (Object.keys(patch).length)
+          await run('apply-settings', { settings: patch }, 'single-drive')
+        evidence.controls.driveMode = {
+          result: patch.driveMode ? 'write-readback' : 'already-selected',
+          value: single,
+        }
       } catch (error) {
-        evidence.controls.exposureMode = { result: 'unavailable', error: String(error) }
-        if (args.includes('--run')) throw error
+        evidence.controls.setup = { result: 'unavailable', error: String(error) }
+        if (mode === 'run') throw error
       }
       for (const name of ['iso', 'aperture', 'whiteBalance', 'focusMode', 'exposureCompensation']) {
         const context = await call('list_actions', { cameraId: camera.id })
         const setting = context.settings.find((setting) => setting.id === name)
-        const alternate = setting && acceptanceAlternate(setting)
+        const alternate = acceptanceAlternate(setting)
         if (!setting?.writable || !alternate) {
           evidence.controls[name] = { result: 'unavailable', setting }
           continue
@@ -130,30 +147,66 @@ try {
           }
         } catch (error) {
           evidence.controls[name] = { result: 'failed', error: String(error) }
-          if (args.includes('--run')) throw error
+          if (mode === 'run') throw error
         }
       }
-      if (args.includes('--run')) {
+      if (mode === 'run') {
         const context = await call('list_actions', { cameraId: camera.id })
-        const requested = {
-          format: ['RAW+JPEG', 'RAW+JPEG (Fine)', 'RAW+JPEG (Std)', 'RAW+JPEG (X.Fine)'],
-          iso: ['100'],
-          focusMode: ['Manual'],
-          shutterSpeed: ['1/100'],
+        const format = acceptanceValue(context.settings, 'format', [
+          'RAW+JPEG',
+          'RAW+JPEG (Fine)',
+          'RAW+JPEG (Std)',
+          'RAW+JPEG (X.Fine)',
+          'RAW & JPEG',
+        ])
+        const iso = acceptanceValue(context.settings, 'iso', ['100', '400', '125', '80', '200'])
+        const focus = acceptanceValue(context.settings, 'focusMode', ['Manual'])
+        const shutter = acceptanceValue(context.settings, 'shutterSpeed', ['1/100'])
+        const captureSettings = {
+          ...acceptancePatch(context.settings, 'format', format),
+          ...acceptancePatch(context.settings, 'iso', iso),
+          ...acceptancePatch(context.settings, 'focusMode', focus),
+          ...acceptancePatch(context.settings, 'shutterSpeed', shutter),
         }
-        if (context.settings.some((setting) => setting.id === 'pcImageSize'))
-          requested.pcImageSize = ['Original']
-        if (context.settings.some((setting) => setting.id === 'pcImageFormat'))
-          requested.pcImageFormat = ['RAW & JPEG']
-        const captureSettings = acceptanceSettings(context.settings, requested)
-        const destination = evidence.before.settings.find(
-          (setting) => setting.id === 'captureTarget',
-        )
+        const destination = context.settings.find((setting) => setting.id === 'captureTarget')
         evidence.controls.captureTarget = {
           result: 'preserved',
           value: destination?.value,
         }
-        await run('apply-settings', { settings: captureSettings }, 'capture-setup')
+        const imageSize = context.settings.find((setting) => setting.id === 'pcImageSize')
+        if (imageSize)
+          Object.assign(
+            captureSettings,
+            acceptancePatch(
+              context.settings,
+              'pcImageSize',
+              acceptanceValue(context.settings, 'pcImageSize', ['Original']),
+            ),
+          )
+        const transfer = context.settings.find((setting) => setting.id === 'pcImageFormat')
+        if (transfer?.writable && transfer.choices.includes('RAW & JPEG'))
+          Object.assign(
+            captureSettings,
+            acceptancePatch(context.settings, 'pcImageFormat', 'RAW & JPEG'),
+          )
+        else if (
+          transfer &&
+          transfer.value !== 'RAW & JPEG' &&
+          !['PC Only', 'sdram'].includes(destination?.value)
+        )
+          throw new Error('RAW/JPEG PC transfer requires physical camera setup.')
+        if (Object.keys(captureSettings).length)
+          await run('apply-settings', { settings: captureSettings }, 'capture-setup')
+        const prepared = await call('list_actions', { cameraId: camera.id })
+        acceptanceValue(prepared.settings, 'shutterSpeed', ['1/200'])
+        acceptanceValue(prepared.settings, 'shutterSpeed', ['1/50'])
+        evidence.captureRecipe = {
+          format,
+          iso,
+          focusMode: focus,
+          shutterSpeed: shutter,
+          captureTarget: destination?.value,
+        }
         evidence.controls.shutterSpeed = {
           result: 'write-readback',
           values: ['1/100', '1/50', '1/200'],
@@ -202,7 +255,7 @@ try {
         const cancel = await call('execute_action', {
           sessionId,
           action: 'exposure-sequence',
-          parameters: { steps: [{ iso: '100' }, { iso: '100' }, { iso: '100' }] },
+          parameters: { steps: [{ iso }, { iso }, { iso }] },
           requestId: `acceptance-cancel-${randomUUID()}`,
         })
         evidence.cancellation = await call('cancel_operation', { operationId: cancel.operationId })
@@ -226,32 +279,37 @@ try {
       evidence.closed = await call('close_session', { sessionId })
       sessionId = undefined
       evidence.after = await call('list_actions', { cameraId: camera.id })
-      const before = Object.fromEntries(
-        evidence.before.settings.map((setting) => [setting.id, setting.value]),
+      evidence.automaticReadouts = automaticCameraReadouts(
+        evidence.sessionBefore.settings.find((setting) => setting.id === 'exposureMode')?.value ??
+          '',
       )
-      const after = Object.fromEntries(
-        evidence.after.settings.map((setting) => [setting.id, setting.value]),
+      evidence.restorationDifferences = restorationDifferences(
+        evidence.sessionBefore.settings,
+        evidence.after.settings,
       )
-      const automatic = new Set(
-        ['Program', 'P'].includes(before.exposureMode)
-          ? ['aperture', 'shutterSpeed']
-          : ['Aperture priority', 'A'].includes(before.exposureMode)
-            ? ['shutterSpeed']
-            : ['Shutter priority', 'S'].includes(before.exposureMode)
-              ? ['aperture']
-              : [],
-      )
-      evidence.automaticReadouts = [...automatic]
       if (
-        Object.keys(before).some((key) => !automatic.has(key) && before[key] !== after[key]) ||
+        evidence.restorationDifferences.length ||
         evidence.closed.restoration.some((result) =>
           ['failed', 'conflict'].includes(result.outcome),
         )
       )
         throw new Error('Initial photographic settings were not fully restored.')
-      evidence.result = args.includes('--run')
-        ? 'capture-sequence-restoration-passed'
-        : 'controls-inspected'
+      const failedControls = Object.values(evidence.controls).some(
+        (control) => control.result === 'failed',
+      )
+      const unavailableControls = Object.values(evidence.controls).some(
+        (control) => control.result === 'unavailable',
+      )
+      evidence.result =
+        mode === 'run'
+          ? 'capture-sequence-restoration-passed'
+          : failedControls
+            ? 'controls-failed'
+            : unavailableControls
+              ? 'controls-incomplete'
+              : 'controls-passed'
+      if (mode === 'controls' && (failedControls || unavailableControls))
+        process.exitCode = failedControls ? 1 : 2
     } else {
       evidence.result = 'inspection-only'
       console.log(

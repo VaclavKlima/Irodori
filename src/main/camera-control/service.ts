@@ -25,6 +25,8 @@ interface Touched {
   intended?: string
   pending: boolean
   restored?: boolean
+  /** Values sent by this session whose final camera application is still uncertain. */
+  unsettled?: string[]
 }
 export interface Restoration {
   setting: string
@@ -95,6 +97,17 @@ const failure = (error: unknown) => ({
   message: String(error),
   uncertain: error instanceof CameraError && error.uncertain,
 })
+function intend(touched: Touched, value: string): void {
+  touched.unsettled = [
+    ...new Set([
+      ...(touched.unsettled ?? []),
+      ...(touched.pending && touched.intended !== undefined ? [touched.intended] : []),
+      value,
+    ]),
+  ]
+  touched.intended = value
+  touched.pending = true
+}
 export class CameraService {
   store: CameraStore
   private providers: Map<string, CameraProvider>
@@ -152,7 +165,10 @@ export class CameraService {
     for (const entry of await readdir(join(this.store.root, 'sessions'))) {
       if (!entry.endsWith('.json')) continue
       const record = await readJson<SessionRecord>(join(this.store.root, 'sessions', entry))
-      if (record && Object.values(record.touched).some((touched) => !touched.restored))
+      if (
+        record &&
+        Object.values(record.touched).some((touched) => touched.pending || !touched.restored)
+      )
         recoveries.push({
           sessionId: record.id,
           camera: record.camera,
@@ -278,12 +294,7 @@ export class CameraService {
       const inspection = await session.provider.inspect(session.record.camera)
       for (const setting of inspection.settings) {
         const touched = session.record.touched[setting.id]
-        if (
-          touched &&
-          !touched.pending &&
-          !touched.restored &&
-          touched.lastApplied === setting.value
-        )
+        if (touched && !touched.pending && touched.lastApplied === setting.value)
           setting.verification.writeReadback = true
       }
       if (
@@ -334,20 +345,19 @@ export class CameraService {
       validateSettings({ [id]: value }, current)
       const setting = current.settings.find((setting) => setting.id === id)!
       const prior = session.record.touched[id]
-      if (prior && !prior.restored && setting.value !== prior.lastApplied)
+      if (prior && (prior.pending || !prior.restored) && setting.value !== prior.lastApplied)
         throw new CameraError(
           'setting-conflict',
           `${id} changed outside this session; no value was overwritten.`,
         )
       if (setting.value === value) continue
-      if (prior?.restored) delete session.record.touched[id]
+      if (prior?.restored && !prior.pending) delete session.record.touched[id]
       const touched = (session.record.touched[id] ??= {
         original: setting.value,
         lastApplied: setting.value,
         pending: false,
       })
-      touched.intended = value
-      touched.pending = true
+      intend(touched, value)
       touched.restored = false
       await this.saveSession(session)
       await session.provider.write(session.record.camera, setting, value, async (applied) => {
@@ -364,7 +374,11 @@ export class CameraService {
         )
       touched.lastApplied = value
       touched.pending = false
+      // A verified round trip relinquishes ownership before automatic modes can
+      // change this readout. A later write starts from its then-current value.
+      touched.restored = value === touched.original
       delete touched.intended
+      delete touched.unsettled
       await this.saveSession(session)
     }
   }
@@ -372,7 +386,7 @@ export class CameraService {
     const results: Restoration[] = []
     for (const [id, touched] of Object.entries(session.record.touched).reverse()) {
       const result: Restoration = { setting: id, original: touched.original, outcome: 'failed' }
-      if (touched.restored) {
+      if (touched.restored && !touched.pending) {
         result.outcome = 'already-restored'
         results.push(result)
         session.record.restoration = results
@@ -383,7 +397,7 @@ export class CameraService {
         const inspection = await this.inspect(session),
           setting = inspection.settings.find((setting) => setting.id === id)
         result.observed = setting?.value
-        if (setting?.value === touched.original) {
+        if (setting?.value === touched.original && !touched.pending) {
           result.outcome = 'unchanged'
           touched.restored = true
         } else if (
@@ -391,6 +405,7 @@ export class CameraService {
           ![
             touched.lastApplied,
             ...(touched.pending && touched.intended ? [touched.intended] : []),
+            ...(touched.pending ? (touched.unsettled ?? []) : []),
           ].includes(setting.value)
         )
           result.outcome = 'conflict'
@@ -401,8 +416,7 @@ export class CameraService {
               'restoration-unavailable',
               setting.reason ?? 'Original value is currently unavailable.',
             )
-          touched.intended = touched.original
-          touched.pending = true
+          intend(touched, touched.original)
           await this.saveSession(session)
           await session.provider.write(
             session.record.camera,
@@ -422,6 +436,8 @@ export class CameraService {
           result.observed = after
           touched.restored = true
           touched.pending = false
+          delete touched.intended
+          delete touched.unsettled
         }
       } catch (error) {
         result.message = String(error)
@@ -566,7 +582,10 @@ export class CameraService {
               inspection.capture.reason ?? 'Capture unavailable.',
             )
           for (const [id, touched] of Object.entries(session.record.touched))
-            if (!touched.restored && values(inspection)[id] !== touched.lastApplied)
+            if (
+              touched.pending ||
+              (!touched.restored && values(inspection)[id] !== touched.lastApplied)
+            )
               throw new CameraError('setting-conflict', `${id} changed before the shutter release.`)
           signal.throwIfAborted()
           const step: CameraStep = {
