@@ -47,6 +47,12 @@ npm run dev
 
 `npm ci` installs the exact versions in `package-lock.json`. Use `npm install` when intentionally adding or updating dependencies, and include the resulting lockfile changes.
 
+The shared [camera MCP registration](.codex/config.toml) starts automatically after
+trusting this checkout and refreshing Codex. Complete the per-machine
+[camera prerequisites](docs/camera-control.md#one-time-prerequisites-per-machine)
+first: build the macOS helper or install Linux host gphoto2 and USB permissions.
+Camera control runs independently of Electron; it does not require `npm run dev`.
+
 The renderer development server starts on port `5173` and automatically tries the next available port if it is occupied. Electron uses the selected port. Set `IRODORI_DEV_PORT` to choose a different starting port, for example `IRODORI_DEV_PORT=5180 npm run dev`.
 
 `npm run dev` also enables Electron's Chrome DevTools Protocol endpoint at `http://127.0.0.1:9222` for the separate `irodori_ui` MCP server. `npm run dev:mcp` is an alias. Run one development instance at a time because the debugging port is fixed. Production launches keep debugging disabled.
@@ -213,6 +219,9 @@ Manual exposure/contrast/highlights/shadows/whites/blacks/lens editing and the d
 | `npm run mcp:ui`                               | Start the stdio Playwright MCP server for the running app                   |
 | `npm run mcp:test`                             | Build and test photo import through MCP using an isolated temporary library |
 | `npm run mcp:check`                            | Verify the MCP protocol, UI inspection, interaction, and screenshot capture |
+| `npm run mcp:camera`                           | Start the development USB camera stdio MCP server                           |
+| `npm run camera:setup:macos`                   | Build this machine's ImageCaptureCore helper                                |
+| `npm run camera:acceptance`                    | Discover cameras only; hardware capture requires explicit run flags         |
 
 Use `npm run verify -- --target <id>` for routine feature verification; repeat `--target` to combine IDs from the suite registry. Broad scopes (`ui`, `adjustments`, `preview`, `library`, `mcp`) remain available for deliberate regression checks. Add `--plan` to preview selection without artifacts. Comprehensive commands require a user-requested or previously agreed checkpoint; completing a feature alone never triggers one. `benchmark:preview` deliberately covers preview measurements only; `benchmark:all` and `check:all` retain all existing performance gates. Supply a saved `IRODORI_PREVIEW_BASELINE` to enforce the 15% uncorrected-preview limit. Every invocation preserves `summary.md`, structured results, and detailed evidence in a separate ignored artifact directory. Read the compact report first. See the [verification workflow](docs/testing.md#choose-verification) for budgets, failure reruns, locking, and diagnostic tracing.
 
@@ -229,6 +238,17 @@ Use the Exposure slider or numeric value for −5 to +5 EV in 0.01 EV steps. Con
 RAW and merge previews use WebGPU with SDR CPU fallback; raster previews use WebGL2 with Canvas2D fallback. Both use smooth reduction, nearest-pixel magnification, and a subtle pixel grid from 800%. The HDR renderer retains bounded Float32 content tiles after the fixed ACES rendition, letting pan, zoom and monitor changes reuse those pixels. GPU edits retain normal detail during interaction and coalesce pending inputs when rendering falls behind; commits retain the validated source upload. Histogram readback proceeds independently and converges to the displayed edit. See [the sampling and memory contract](docs/display-rendering.md#interactive-presentation). Merge review uses the same grid and combines its result and deghost overlay in one viewport-sized canvas, drawing wheel and pan changes once per animation frame. The main photo renderer pauses while the merge dialog is open and restores its view on close. Interactive float textures prepare after the first full-resolution frame. Exposure, contrast, highlights, shadows, whites, and blacks changes preserve zoom and pan. Gallery and import-review thumbnails keep their quick-preview behavior.
 
 Agents can use the dedicated `npm run --silent mcp:editor` stdio server with a normally running application. It shares the application's edit service and history and requires expected revisions to prevent overwriting concurrent edits. See [editing MCP setup and tests](docs/testing.md#dedicated-editing-mcp-server). The console itself still does not execute commands.
+
+A separate development-only `irodori_camera` server controls USB cameras without
+Electron or a photo library. The tracked `.codex/config.toml` registers it portably
+through `npm run --silent mcp:camera` from the checkout or its subdirectories.
+Reuse suitable fixtures first; agents may take needed bounded captures once the
+camera and scene are ready, asking for missing information or physical setup.
+Sony ZV-1A settings, RAW/JPEG capture, three
+separate software exposures and restoration have macOS MCP evidence through
+ImageCaptureCore. Linux uses host gphoto2; physical Bazzite acceptance remains
+pending and Windows camera support is unavailable. See
+[camera setup, complete recipes, recovery and evidence](docs/camera-control.md).
 
 Use **Crop photo** in the toolbar, or **Crop → Crop and straighten** in the inspector.
 Drag the uncropped source frame/corners, or set native-pixel center/size, aspect ratio,

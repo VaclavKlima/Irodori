@@ -68,12 +68,46 @@ Preserve existing source originals unchanged.
 
 ## Obtaining missing photographic inputs
 
-When existing fixtures do not exercise the required behavior, either request new
-captures from the user or obtain suitable online photographs with the
-photographer's documented consent. Choose the smallest useful set that meets
-the test or benchmark's declared requirements. Both sources must pass the same
-privacy review and be retained under `assets/tests/images/` with hashes,
-provenance and permission notices.
+Reuse suitable committed fixtures before acquiring new inputs. When they do not
+exercise the required behavior, prefer bounded capture through the
+[development camera MCP](../docs/camera-control.md) if the camera and scene are
+ready. Otherwise request the missing physical setup or user captures, or obtain
+suitable online photographs with the photographer's documented consent. Choose
+the smallest useful set that meets the declared test or benchmark requirements.
+All sources must pass the same privacy and inclusion-permission review and be
+retained under `assets/tests/images/` with hashes and provenance notices.
+
+### Capturing through MCP
+
+The tracked [camera registration](../.codex/config.toml) starts automatically after
+trusting the checkout and refreshing Codex. Complete the guide's per-machine
+Node/dependency, macOS helper or Linux gphoto2/USB setup first. No Electron window
+or managed photo library is involved. Discover the exact camera, inspect its
+current capabilities, open a session, configure supported choices, capture and
+poll to completion, then close and inspect restoration. The guide includes
+[the complete call sequence](../docs/camera-control.md#discovery-through-restoration),
+[one RAW/JPEG pair](../docs/camera-control.md#discovery-through-restoration),
+[three software exposures](../docs/camera-control.md#three-exposure-software-sequence)
+and [controlled high-ISO texture comparisons](../docs/camera-control.md#controlled-high-iso-texture-comparison).
+
+Agents may execute needed bounded captures once the camera, scene and validation
+requirements are ready, without another confirmation. Ask only for missing
+information or physical assistance, including camera connection/positioning,
+lighting, focus or unsupported menu settings. Missing capabilities are explicit;
+do not replace software sequences with claims of verified native bracketing.
+Physical Bazzite acceptance and Windows support remain unverified.
+
+Downloads and manifests stay private under ignored `artifacts/camera/` until
+promotion. Before Git inclusion, inspect every original, embedded preview and
+EXIF/XMP/IPTC record and confirm permission covers testing/benchmarking and GitHub
+redistribution. A camera session does not establish inclusion permission. Copy
+only approved originals unchanged into a named dataset in the shared asset tree;
+retain original filenames, hashes, provenance/permission evidence, validation
+goal, camera/recording mode, requested/read-back settings and complete sequence
+order/frame count. Verify those exact files are tracked in the benchmark's commit.
+Do not promote private serials or other personal metadata from operation manifests;
+choose a safe replacement when an original is unsuitable, preserving original
+bytes rather than sanitizing or re-encoding them.
 
 ### Requesting new captures
 

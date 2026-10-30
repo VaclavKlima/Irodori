@@ -19,6 +19,16 @@ try {
   process.exit(1)
 }
 
+// electron-vite reads path.txt directly, bypassing Electron's first-use installer.
+try {
+  await import('electron')
+} catch (error) {
+  console.error(
+    `Could not prepare the Electron runtime: ${error.message}\nRun npm run setup:electron and try again.`,
+  )
+  process.exit(1)
+}
+
 const cli = fileURLToPath(
   new URL('../node_modules/electron-vite/bin/electron-vite.js', import.meta.url),
 )

@@ -16,6 +16,9 @@ interface Suite {
   family?: BenchmarkFamily
 }
 const definitions: Suite[] = [
+  { file: 'camera-control-model', group: 'node', scopes: ['mcp'] },
+  { file: 'camera-control-service', group: 'node', scopes: ['mcp'] },
+  { file: 'camera-control-mcp', group: 'node', scopes: ['mcp'] },
   { file: 'edit-transfer-model', group: 'node', scopes: ['adjustments'] },
   { file: 'edit-transfer', group: 'service', scopes: ['adjustments', 'library'] },
   { file: 'edit-transfer-journal', group: 'service', scopes: ['adjustments', 'library'] },

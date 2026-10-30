@@ -1,0 +1,6 @@
+[mcp_servers.irodori_camera]
+command = "npm"
+args = ["run", "--silent", "mcp:camera"]
+cwd = "."
+startup_timeout_sec = 30
+tool_timeout_sec = 120

@@ -811,6 +811,73 @@ test('run artifacts survive later runs; dry plans create no artifacts or lock; o
   await expect(access(profile)).rejects.toThrow()
 })
 
+async function developmentLauncherFixture(runtime: string) {
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-dev-launcher-'))
+  await Promise.all(
+    ['scripts', 'node_modules/electron', 'node_modules/electron-vite/bin'].map((path) =>
+      mkdir(join(directory, path), { recursive: true }),
+    ),
+  )
+  await Promise.all([
+    writeFile(join(directory, 'scripts/dev-mcp.mjs'), await readFile('scripts/dev-mcp.mjs')),
+    writeFile(join(directory, 'node_modules/electron/package.json'), '{"main":"index.cjs"}'),
+    writeFile(join(directory, 'node_modules/electron/index.cjs'), runtime),
+    writeFile(
+      join(directory, 'node_modules/electron-vite/bin/electron-vite.js'),
+      `const fs = require('node:fs');
+const path = require('node:path');
+fs.writeFileSync('vite-started', 'started');
+const runtime = fs.readFileSync(path.join(__dirname, '../../electron/path.txt'), 'utf8');
+fs.writeFileSync('vite.json', JSON.stringify({ runtime, args: process.argv.slice(2) }));`,
+    ),
+  ])
+  return directory
+}
+
+test('development launcher prepares a missing Electron runtime before Vite and preserves arguments', async ({}, info) => {
+  const directory = await developmentLauncherFixture(
+    `const fs = require('node:fs');
+const path = require('node:path');
+fs.writeFileSync(path.join(__dirname, 'path.txt'), 'prepared-runtime');
+module.exports = 'prepared-runtime';`,
+  )
+  try {
+    await expect(access(join(directory, 'node_modules/electron/path.txt'))).rejects.toThrow()
+    const args = ['--', `--user-data-dir=${join(directory, 'isolated profile')}`]
+    expect(
+      await runCommand(process.execPath, [join(directory, 'scripts/dev-mcp.mjs'), ...args], {
+        log: info.outputPath('prepared-runtime.log'),
+      }),
+    ).toBe(0)
+    expect(JSON.parse(await readFile(join(directory, 'vite.json'), 'utf8'))).toEqual({
+      runtime: 'prepared-runtime',
+      args: ['dev', '--remote-debugging-port=9222', ...args],
+    })
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('development launcher reports runtime installation failures without starting Vite', async ({}, info) => {
+  const directory = await developmentLauncherFixture(
+    `throw new Error('Runtime download failed in isolated installer');`,
+  )
+  try {
+    const log = info.outputPath('runtime-failure.log')
+    expect(
+      await runCommand(process.execPath, [join(directory, 'scripts/dev-mcp.mjs')], { log }),
+    ).toBe(1)
+    const output = await readFile(log, 'utf8')
+    expect(output).toContain(
+      'Could not prepare the Electron runtime: Runtime download failed in isolated installer',
+    )
+    expect(output).toContain('Run npm run setup:electron and try again.')
+    await expect(access(join(directory, 'vite-started'))).rejects.toThrow()
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 async function exited(pid: number) {
   try {
     return (await readFile(`/proc/${pid}/stat`, 'utf8')).split(' ')[2] === 'Z'

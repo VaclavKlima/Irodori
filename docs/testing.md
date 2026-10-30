@@ -418,9 +418,23 @@ Both `npm run dev` and `npm run dev:mcp` automatically try the next available re
 
 ### Register the server in Codex
 
-Merge [mcp-config.example.toml](mcp-config.example.toml) into the trusted project's `.codex/config.toml` and replace `cwd` with the absolute checkout path. In this workspace the path is `/var/home/KolegaDragan/Development/Irodori`. Preserve any existing settings. The project configuration directory may require a separately permitted write in managed environments.
+The repository's [`.codex/config.toml`](../.codex/config.toml) already registers
+only `irodori_camera`. Trust the checkout and refresh Codex after the
+[per-machine camera setup](camera-control.md#one-time-prerequisites-per-machine).
+It starts automatically without Electron. Registration is shared; dependencies,
+USB permissions and the native macOS helper remain machine-local.
 
-The `irodori_ui` server runs `npm run --silent mcp:ui` from that directory. Codex supports project-scoped MCP configuration for trusted projects, including an explicit working directory. See the [official Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+For optional renderer inspection, use the `irodori_ui` table in
+[mcp-config.example.toml](mcp-config.example.toml) in your local Codex configuration.
+Preserve existing settings and do not duplicate the shared camera table. The
+tracked configuration remains camera-only. The project configuration directory
+may require a separately permitted write in managed environments.
+
+The `irodori_ui` server runs `npm run --silent mcp:ui`. All example tables use
+`cwd = "."`; launch Codex in this checkout or a subdirectory so npm discovers
+the package root. No absolute checkout path is needed. Codex supports project-scoped
+MCP configuration for trusted projects. See the
+[official Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
 
 Restart or reload the Codex client's MCP connection after registration. A server added during a conversation may not appear in that conversation's tool catalog until the client reconnects. Use the client's MCP settings or `/mcp` where available to confirm that `irodori_ui` is connected.
 
@@ -433,7 +447,7 @@ Do not use MCP `browser_resize` or Playwright `page.setViewportSize()` for Elect
 | Symptom                                        | Check                                                                                                                                             |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | MCP cannot connect to port 9222                | Start `npm run dev`, wait for the window, and confirm no other application owns port 9222.                                                        |
-| Server starts but no tools appear in Codex     | Verify the trusted project's configuration, its absolute `cwd`, and reload the client's MCP connection.                                           |
+| Server starts but no tools appear in Codex     | Verify project trust, launch inside the intended checkout, inspect `codex mcp get <server-name> --json`, and reload the MCP connection.           |
 | `mcp:ui` waits without displaying an interface | This is a stdio server intended for an MCP client. Use `mcp:check` to exercise it from a terminal.                                                |
 | Electron cannot open a window                  | Run from a graphical Linux session and check the reported missing display or system library. A browser-only run does not verify Electron startup. |
 | First launch cannot download Electron          | Allow the required network access, then run `npm run setup:electron`. Keep the committed dependency versions.                                     |
@@ -445,6 +459,26 @@ Historical milestone verification includes local Linux runs; later feature evide
 The RAW fixture is a Sony ZV-1 12-bit compressed ARW. See [fixture provenance](../tests/fixtures/README.md). The fallback test disables embedded extraction through dependency injection while running the real LibRaw decoder. Native decoding must run with the bundled Node process, because Electron's Linux GLib exports conflict with sharp; see [runtime dependencies](runtime-dependencies.md).
 
 Report automated checks and MCP protocol checks separately from direct Codex tool invocation. A passed MCP script does not establish that a particular Codex conversation has loaded the registered server.
+
+## Development camera MCP server
+
+Development USB camera control has separate Node targets `camera-control-model`,
+`camera-control-service`, and `camera-control-mcp`, with fake providers and no
+hardware. Use `npm run verify -- --target camera-control-model --target camera-control-service --target camera-control-mcp`.
+The MCP target initializes SDK clients, checks all seven tools and read-only
+discovery with an unavailable backend, and verifies root/subdirectory startup,
+relocated paths with spaces and checkout-local artifacts without hardware.
+The relocated test copies only the server, its source and package manifest and
+shares installed dependencies; it does not certify fresh dependency installation.
+Validate project discovery separately with `codex mcp get irodori_camera --json`
+from the trusted checkout and a subdirectory; this parses the shared TOML but
+does not establish that the current Codex conversation has reloaded its tools.
+The separately invoked `npm run camera:acceptance` command defaults to discovery
+only; capture requires `-- --run --serial <exact-USB-serial>`. See
+[complete workflow, recipes, acceptance and platform limits](camera-control.md).
+Physical Bazzite/Linux acceptance and Windows camera support remain unverified.
+It never imports into
+the user library and is excluded from unattended verification.
 
 ## Dedicated editing MCP server
 
