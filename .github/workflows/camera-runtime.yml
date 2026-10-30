@@ -35,10 +35,10 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y build-essential pkg-config patchelf gettext
           # Hosted VMs have no USB devices. libusb built without udev needs this
-          # empty USB filesystem directory even for hardware-free initialization.
-          if [ ! -d /dev/bus/usb ]; then
-            sudo mkdir -p /dev/bus/usb
-            echo 'Provisioned an empty USB directory for packaging smoke; no devices or permission rules.'
+          # empty USB bus directory even for hardware-free initialization.
+          if [ ! -d /dev/bus/usb ] || [ -z "$(ls -A /dev/bus/usb)" ]; then
+            sudo mkdir -p /dev/bus/usb/001
+            echo 'Provisioned an empty USB bus for packaging smoke; no device nodes or permission rules.'
           fi
       - run: npm ci
       - name: Build pinned runtime
