@@ -67,6 +67,14 @@ image policy. Preserve visible credit, source/license links and descriptions of
 changes with distributed derivatives. This published telescope JPEG is separate
 from Sony photography and the project's Apache-2.0 code license.
 
+The [forearm skin/body-hair fixture](../assets/tests/images/raster/wikimedia/forearm-hair/README.md)
+retains **Zephyris** attribution and the selected **CC BY-SA 3.0** license from
+its own-work Commons declaration. It is the unchanged archived 2010 processed
+JPEG, not the later upload or a camera-original/RAW file. Preserve source and
+license links, describe changes and retain the selected license for distributed
+adapted photographs. Its separate [notice](../assets/tests/images/raster/wikimedia/forearm-hair/LICENSE.md)
+governs the image; exclude it from production bundles and automatic demos.
+
 ## Dependency audit: 2026-10-28
 
 Baseline: committed revision `0b8098f71f30cc1dd65740a43b9d36e226da297a`.

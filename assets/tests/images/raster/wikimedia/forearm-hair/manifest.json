@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "fixtureSet": "wikimedia-forearm-skin-body-hair-2010-v1",
+  "files": [
+    {
+      "name": "ArmHair.jpg",
+      "path": "originals/ArmHair.jpg",
+      "sha256": "02f590a33003698f750166798552a63b038456c008e9f3a220ed3544b79db4b8",
+      "bytes": 2054629,
+      "format": "JPEG",
+      "width": 4272,
+      "height": 2848,
+      "source": {
+        "title": "ArmHair.jpg",
+        "author": "Zephyris",
+        "credit": "Zephyris, ArmHair.jpg (2010 archived original), Wikimedia Commons, CC BY-SA 3.0.",
+        "authorshipDeclaration": "Own work by Zephyris on the cited Commons revision.",
+        "page": "https://commons.wikimedia.org/wiki/File:ArmHair.jpg",
+        "pageRevision": "https://commons.wikimedia.org/w/index.php?title=File:ArmHair.jpg&oldid=801603795",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/archive/f/f7/20121009112621%21ArmHair.jpg",
+        "downloadVariant": "Archived original upload by Zephyris, not the current 2012 Handsdown.1 upload.",
+        "originalUploadedOn": "2010-07-02",
+        "originalUploadTimeAsListed": "22:06",
+        "downloadedOn": "2026-11-01",
+        "unchangedDownload": true,
+        "upstreamProcessing": "Published processed JPEG; retained software tag Paint.NET v3.5.5. Not RAW or a camera-original file.",
+        "license": {
+          "identifier": "CC-BY-SA-3.0",
+          "name": "Creative Commons Attribution-ShareAlike 3.0 Unported",
+          "url": "https://creativecommons.org/licenses/by-sa/3.0/",
+          "legalCode": "https://creativecommons.org/licenses/by-sa/3.0/legalcode",
+          "notice": "LICENSE.md",
+          "checkedOn": "2026-11-01",
+          "basis": "Root reviewer verified the author's own-work declaration and selected CC BY-SA 3.0 on the cited primary Commons revision.",
+          "distributedAdaptations": "Retain Zephyris credit, source and license links, identify changes and retain the selected CC BY-SA 3.0 license; no endorsement is implied."
+        }
+      },
+      "technicalMetadata": {
+        "componentDepthBits": 8,
+        "encoding": "Baseline DCT, Huffman coding",
+        "chromaSubsampling": "4:2:0",
+        "software": "Paint.NET v3.5.5",
+        "embeddedIccProfile": false,
+        "exifColorSpaceDeclaration": false,
+        "colorInterpretation": "Assumed sRGB for authored-raster SDR review; not a calibrated or verified source color profile."
+      },
+      "intendedCoverage": [
+        "Qualitative SDR skin appearance under intensity, mixer and grading controls",
+        "Qualitative SDR skin texture and individual body-hair preservation",
+        "Bounded denoising and detail-sharpening review of a published authored JPEG",
+        "Ordinary enlargement review without a claim of newly recovered captured detail"
+      ],
+      "limitations": [
+        "Published processed JPEG, not RAW, an unprocessed camera capture or scene-linear color truth.",
+        "No clean/noisy ground-truth pair, calibrated sensor noise, known high-ISO calibration or HDR evidence.",
+        "No portrait-face coverage; skin/body-hair content alone does not establish general portrait quality.",
+        "Existing JPEG processing, compression, focus and lighting remain part of the input.",
+        "Fixture inclusion and privacy review do not accept any processing operator or constitute a photographic-quality pass.",
+        "Generated evidence remains outside Git; distributed adapted photographs retain the selected CC BY-SA 3.0 terms and identify changes.",
+        "Exclude from production bundles, demonstration workspaces and automatic user-library imports."
+      ]
+    }
+  ],
+  "privacyReview": {
+    "reviewedOn": "2026-11-01",
+    "completeOriginalDimensions": { "width": 4272, "height": 2848 },
+    "visualReviewers": [
+      { "role": "Intake agent", "completeOriginalViewed": true },
+      { "role": "Independent root agent", "completeOriginalViewed": true }
+    ],
+    "visualFinding": "Macro skin and body hair; no face, private documents or screens, addresses, or readily identifying marks observed.",
+    "metadataTool": "Bundled ExifTool 13.59, read-only",
+    "metadataOptions": [
+      "-j",
+      "-G1:4",
+      "-a",
+      "-u",
+      "-U",
+      "-ee3",
+      "-api",
+      "RequestAll=3",
+      "-all:all",
+      "-struct"
+    ],
+    "fullMetadataTagsReviewed": 51,
+    "metadataScope": "All returned EXIF, XMP, IPTC, unknown and MakerNote fields; no private GPS, device serial, owner or contact identifiers found.",
+    "makerNoteTagCount": 0,
+    "binaryPreviewTags": 0,
+    "previewExtraction": "ExifTool Preview:All with binary extraction produced zero files; no embedded previews or thumbnails to inspect.",
+    "originalPreserved": true,
+    "pixelsOrMetadataRewritten": false,
+    "sourceHashVerifiedOn": "2026-11-01",
+    "privateHostMetadataIncluded": false,
+    "scope": "Repository privacy and fixture provenance only; no processing-quality acceptance."
+  },
+  "distribution": {
+    "productionBundle": false,
+    "automaticDemoImport": false,
+    "photographLicense": "CC-BY-SA-3.0",
+    "projectApacheDefaultDoesNotRelicensePhotograph": true
+  }
+}
