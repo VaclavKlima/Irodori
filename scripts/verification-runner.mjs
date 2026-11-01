@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { createHash, randomUUID } from 'node:crypto'
 import { cpus, totalmem, platform, release, arch } from 'node:os'
 import { promisify } from 'node:util'
-import { renderSummary } from './verification-report.mjs'
+import { renderDetails, renderSummary } from './verification-report.mjs'
 const require = createRequire(import.meta.url)
 const exec = promisify(execFile)
 export const INCOMPLETE_EXIT_CODE = 2
@@ -396,12 +396,13 @@ export async function executePlan(
       : failureCode || (result.incomplete.length ? INCOMPLETE_EXIT_CODE : 0)
     if (plan.routine && result.durationMs > 60_000)
       result.warnings.push(
-        'Routine verification exceeded 60 seconds. Review the ten slowest tests below; no assertions were removed or cut short.',
+        'Routine verification exceeded 60 seconds. Review the ten slowest tests in details.md; no assertions were removed or cut short.',
       )
     if (plan.label === '--fast' && result.durationMs > 15_000)
       result.warnings.push('Fast checks exceeded the 15 second target.')
     try {
       await writeFile(join(artifacts, 'result.json'), JSON.stringify(result, null, 2) + '\n')
+      await writeFile(join(artifacts, 'details.md'), renderDetails(result))
       await writeFile(join(artifacts, 'summary.md'), renderSummary(result))
     } finally {
       process.removeListener('SIGINT', interrupt)

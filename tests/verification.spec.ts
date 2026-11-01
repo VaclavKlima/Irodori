@@ -18,7 +18,8 @@ import {
   runCommand,
   INCOMPLETE_EXIT_CODE,
 } from '../scripts/verification-runner.mjs'
-import type { CaseResult } from '../scripts/verification-types'
+import { renderDetails, renderSummary, SUMMARY_MAX_BYTES } from '../scripts/verification-report.mjs'
+import type { CaseResult, VerificationResult } from '../scripts/verification-types'
 import VerificationReporter from '../scripts/verification-reporter'
 
 const files = (args: string[]) => selectPlan(args).groups.flatMap((group) => group.files)
@@ -73,6 +74,70 @@ const mockRun: typeof runCommand = async (_command, args, options) => {
 }
 const harness = (plan: VerificationPlan, directory: string, run = mockRun, signal?: AbortSignal) =>
   executePlan(plan, { directory, run, lockDirectory: join(directory, '.lock'), signal })
+
+const reportCase = (overrides: Partial<CaseResult> = {}): CaseResult => ({
+  target: 'verification',
+  title: 'synthetic report case',
+  file: 'tests/verification.spec.ts',
+  line: 1,
+  status: 'passed',
+  durationMs: 123,
+  worker: 0,
+  errors: [],
+  annotations: [],
+  evidence: [],
+  rerun: "npx playwright test 'tests/verification.spec.ts' --grep 'synthetic report case$'",
+  benchmarks: [],
+  ...overrides,
+})
+
+const reportResult = (overrides: Partial<VerificationResult> = {}): VerificationResult => ({
+  scope: 'targets',
+  uiMode: 'background',
+  plan: selectPlan(['--target', 'verification', '--background']),
+  targets: ['verification'],
+  exitCode: 0,
+  status: 'passed',
+  passed: 1,
+  failed: 0,
+  skipped: 0,
+  interrupted: 0,
+  durationMs: 1234,
+  artifacts: '/tmp/synthetic-verification',
+  stages: [
+    {
+      name: 'node',
+      phase: 'functional',
+      status: 'passed',
+      code: 0,
+      durationMs: 1234,
+      log: '/tmp/synthetic-verification/node.log',
+      targets: ['verification'],
+      workers: 2,
+      rerun: "npx playwright test 'tests/verification.spec.ts' --project=node",
+    },
+  ],
+  tests: [reportCase()],
+  benchmarks: [],
+  incomplete: [],
+  warnings: [],
+  runtime: {
+    platform: 'linux',
+    node: 'v24.0.0',
+    gpu: ['Synthetic adapter'],
+    git: { revision: '1234567890abcdef1234567890abcdef12345678', dirty: true, changes: [] },
+  },
+  baseline: { status: 'not-required' },
+  ...overrides,
+})
+
+function expectCompactReport(report: string) {
+  expect(SUMMARY_MAX_BYTES).toBe(4096)
+  expect(Buffer.byteLength(report, 'utf8')).toBeLessThanOrEqual(SUMMARY_MAX_BYTES)
+  expect(report).toContain('](details.md)')
+  expect(report).toContain('](result.json)')
+  expect(report).not.toContain('\uFFFD')
+}
 
 async function withBaseline(path: string | undefined, action: () => Promise<void>) {
   const previous = process.env.IRODORI_PREVIEW_BASELINE
@@ -433,6 +498,11 @@ test('missing baseline, skipped hardware, and missing reports are incomplete, wi
     expect(missing.exitCode).toBe(INCOMPLETE_EXIT_CODE)
     expect(missing.status).toBe('incomplete')
     expect(missing.incomplete.join(' ')).toContain('15%')
+    const summary = await readFile(join(missing.artifacts, 'summary.md'), 'utf8')
+    expectCompactReport(summary)
+    expect(summary).toContain('INCOMPLETE')
+    expect(summary).toContain('missing')
+    expect(summary).toContain('15%')
   })
   const invalidPath = info.outputPath('invalid-baseline.json')
   await writeFile(invalidPath, JSON.stringify({ sample: 'wrong.ARW', medians: { cpu: 1, gpu: 1 } }))
@@ -464,9 +534,9 @@ test('missing baseline, skipped hardware, and missing reports are incomplete, wi
     },
   )
   expect(skipped.exitCode).toBe(INCOMPLETE_EXIT_CODE)
-  expect(await readFile(join(skipped.artifacts, 'summary.md'), 'utf8')).toContain(
-    'No hardware adapter.',
-  )
+  const skippedSummary = await readFile(join(skipped.artifacts, 'summary.md'), 'utf8')
+  expectCompactReport(skippedSummary)
+  expect(skippedSummary).toContain('No hardware adapter.')
   const absent = await harness(
     selectPlan(['--fast']),
     info.outputPath('missing-reports'),
@@ -474,6 +544,10 @@ test('missing baseline, skipped hardware, and missing reports are incomplete, wi
   )
   expect(absent.status).toBe('incomplete')
   expect(absent.incomplete.join(' ')).toContain('no test report')
+  const absentSummary = await readFile(join(absent.artifacts, 'summary.md'), 'utf8')
+  expectCompactReport(absentSummary)
+  expect(absentSummary).toContain('no test report')
+  expect(await readFile(join(absent.artifacts, 'details.md'), 'utf8')).toContain('no test report')
   const exitTwoFailure = await harness(
     selectPlan(['--fast', '--background']),
     info.outputPath('command-exit-two'),
@@ -487,7 +561,7 @@ test('missing baseline, skipped hardware, and missing reports are incomplete, wi
   expect(exitTwoFailure.stages.find((stage) => stage.name === 'lint')!.status).toBe('failed')
 })
 
-test('compact report retains failed cases, reruns, timings, evidence, hardware and revision', async ({}, info) => {
+test('compact report keeps the decision and details retain failure diagnostics, timings and provenance', async ({}, info) => {
   const result = await harness(
     selectPlan(['--fast']),
     info.outputPath('report'),
@@ -510,6 +584,25 @@ test('compact report retains failed cases, reruns, timings, evidence, hardware a
     },
   )
   const report = await readFile(join(result.artifacts, 'summary.md'), 'utf8')
+  const details = await readFile(join(result.artifacts, 'details.md'), 'utf8')
+  expectCompactReport(report)
+  for (const text of [
+    'FAILED',
+    `${result.passed} passed`,
+    '1 failed',
+    '0 skipped',
+    '0 interrupted',
+    'exit 9',
+    'Requested targets',
+    'UI mode: `background`',
+    'Stages',
+    'Baseline',
+    'Revision:',
+    'dirty',
+    'concise failing assertion',
+    result.tests[0].rerun,
+  ])
+    expect(report).toContain(text)
   for (const text of [
     'concise failing assertion',
     '--grep',
@@ -520,11 +613,271 @@ test('compact report retains failed cases, reruns, timings, evidence, hardware a
     'dirty',
     'Baseline provenance',
   ])
-    expect(report).toContain(text)
+    expect(details).toContain(text)
+  expect(details).toContain('](result.json)')
+  expect(details).toContain(result.targets.at(-1)!)
   expect(result.tests.some((t) => t.durationMs === 123)).toBe(true)
-  const slowTable = report.split('## Ten slowest tests')[1].split('## Baseline provenance')[0]
+  const slowTable = details.split('## Ten slowest tests')[1].split('## Baseline provenance')[0]
   expect(slowTable.match(/\| (passed|failed) \|/g)).toHaveLength(10)
-  expect(JSON.parse(await readFile(join(result.artifacts, 'result.json'), 'utf8')).exitCode).toBe(9)
+  expect(JSON.parse(await readFile(join(result.artifacts, 'result.json'), 'utf8'))).toEqual(result)
+})
+
+test('summary prioritizes a failed or interrupted case, then a stage, then deferred work and warnings', () => {
+  const deferred = reportCase({
+    status: 'skipped',
+    annotations: [{ type: 'skip', description: 'Deferred secondary diagnosis.' }],
+  })
+  for (const status of ['failed', 'interrupted'] as const) {
+    const primary = reportCase({ status, errors: ['Primary case diagnosis.'] })
+    const result = reportResult({
+      status: 'failed',
+      exitCode: 9,
+      passed: 0,
+      failed: status === 'failed' ? 2 : 1,
+      interrupted: status === 'interrupted' ? 1 : 0,
+      skipped: 1,
+      tests: [
+        deferred,
+        primary,
+        reportCase({ status: 'failed', errors: ['Later case diagnosis.'] }),
+      ],
+      incomplete: ['Incomplete secondary diagnosis.'],
+      warnings: ['Warning secondary diagnosis.'],
+    })
+    result.stages[0] = {
+      ...result.stages[0],
+      status: 'failed',
+      code: 9,
+      error: 'Stage secondary diagnosis.',
+    }
+    const summary = renderSummary(result)
+    expectCompactReport(summary)
+    expect(summary).toContain('Primary case diagnosis.')
+    expect(summary).toContain(primary.rerun)
+    for (const secondary of [
+      'Deferred secondary diagnosis.',
+      'Later case diagnosis.',
+      'Incomplete secondary diagnosis.',
+      'Warning secondary diagnosis.',
+      'Stage secondary diagnosis.',
+    ])
+      expect(summary).not.toContain(secondary)
+    const details = renderDetails(result)
+    for (const secondary of [
+      'Deferred secondary diagnosis.',
+      'Later case diagnosis.',
+      'Incomplete secondary diagnosis.',
+      'Warning secondary diagnosis.',
+      'Stage secondary diagnosis.',
+    ])
+      expect(details).toContain(secondary)
+  }
+  for (const status of ['failed', 'interrupted'] as const) {
+    const result = reportResult({ tests: [], passed: 0, status, exitCode: 143 })
+    result.stages[0] = {
+      ...result.stages[0],
+      status,
+      code: 143,
+      error: 'Primary stage diagnosis.',
+    }
+    const summary = renderSummary(result)
+    expectCompactReport(summary)
+    expect(summary).toContain('Primary stage diagnosis.')
+    expect(summary).toContain(result.stages[0].rerun)
+    expect(renderDetails(result)).toContain(result.stages[0].rerun)
+  }
+  const incomplete = renderSummary(
+    reportResult({
+      status: 'incomplete',
+      exitCode: INCOMPLETE_EXIT_CODE,
+      passed: 0,
+      skipped: 1,
+      tests: [deferred],
+      warnings: ['Warning secondary diagnosis.'],
+    }),
+  )
+  expectCompactReport(incomplete)
+  expect(incomplete).toContain('Deferred secondary diagnosis.')
+  expect(incomplete).not.toContain('Warning secondary diagnosis.')
+  const warning = renderSummary(reportResult({ warnings: ['Primary budget warning.'] }))
+  expectCompactReport(warning)
+  expect(warning).toContain('Primary budget warning.')
+  expect(warning).not.toContain('exact rerun')
+})
+
+test('summary preserves exact fenced commands and details retain the slowest ten and baseline provenance', () => {
+  const rerun = "npx playwright test --grep 'literal ``` marker$'"
+  const issue = reportCase({
+    status: 'failed',
+    title: 'Diagnostic `title` | [with] <markup>',
+    errors: ['Assertion failed.\n```sh\nthis-is-diagnostic-text\n```'],
+    rerun,
+  })
+  const summary = renderSummary(
+    reportResult({ status: 'failed', exitCode: 1, passed: 0, failed: 1, tests: [issue] }),
+  )
+  expectCompactReport(summary)
+  expect(summary).toContain(rerun)
+  expect(summary).toContain(`\n\`\`\`\`sh\n${rerun}\n\`\`\`\``)
+  expect(summary).not.toContain('\n```sh\nthis-is-diagnostic-text')
+
+  const baseline = {
+    status: 'available' as const,
+    path: '/tmp/original-baseline.json',
+    snapshot: '/tmp/synthetic-verification/baseline.json',
+    sha256: 'd'.repeat(64),
+    sample: 'sony-zv1.ARW',
+    medians: { cpu: 2000, gpu: 1000 },
+  }
+  const result = reportResult({
+    passed: 12,
+    tests: Array.from({ length: 12 }, (_, index) =>
+      reportCase({ title: `ranked-case-${index}`, durationMs: (index + 1) * 100 }),
+    ),
+    baseline,
+  })
+  const details = renderDetails(result)
+  const slowTable = details.split('## Ten slowest tests')[1].split('\n## ')[0]
+  expect(slowTable.match(/\| passed \|/g)).toHaveLength(10)
+  expect(slowTable.indexOf('ranked-case-11')).toBeLessThan(slowTable.indexOf('ranked-case-10'))
+  expect(slowTable).not.toContain('ranked-case-0 |')
+  expect(slowTable).not.toContain('ranked-case-1 |')
+  for (const value of [baseline.path, baseline.snapshot, baseline.sha256, baseline.sample])
+    expect(details).toContain(value)
+  expect(details).toContain('Synthetic adapter')
+  expect(renderSummary(result)).toContain('Baseline: `available`')
+})
+
+test('oversized Unicode lists and diagnostics stay bounded while details retain every issue and command', () => {
+  const description = 'Photograph \u{1F4F7} \u{1F308} \u6771\u4EAC e\u0301 '.repeat(500)
+  const command = `npx playwright test 'oversized-command-${description}' --grep 'exact$'`
+  const tests = Array.from({ length: 120 }, (_, index) =>
+    reportCase({
+      target: `target-${index}`,
+      title: `case-${index}: ${description}`,
+      status: index < 60 ? 'failed' : 'skipped',
+      errors: index < 60 ? [`failure-${index}: ${description}`] : [],
+      annotations:
+        index < 60 ? [] : [{ type: 'skip', description: `skip-${index}: ${description}` }],
+      evidence: [`/tmp/synthetic-verification/evidence-${index}.txt`],
+      rerun: index === 0 ? command : `npx playwright test --grep 'case-${index}$'`,
+      foregroundRerun: index >= 60 ? `IRODORI_TEST_UI_MODE=foreground ${command}` : undefined,
+    }),
+  )
+  const result = reportResult({
+    scope: description,
+    status: 'failed',
+    exitCode: 9,
+    passed: 0,
+    failed: 60,
+    skipped: 60,
+    tests,
+    targets: Array.from(
+      { length: 200 },
+      (_, index) => `selected-${index}-${'\u{1F4F7}\u6771\u4EAC'.repeat(10)}`,
+    ),
+    incomplete: Array.from({ length: 40 }, (_, index) => `incomplete-${index}: ${description}`),
+    warnings: Array.from({ length: 40 }, (_, index) => `warning-${index}: ${description}`),
+  })
+  result.plan = { ...result.plan, requestedTargets: result.targets }
+  result.stages = Array.from({ length: 40 }, (_, index) => ({
+    ...result.stages[0],
+    name: `stage-${index}`,
+    status: 'failed' as const,
+    code: 9,
+    reason: `stage-reason-${index}: ${description}`,
+    error: `stage-error-${index}: ${description}`,
+    targets: result.targets,
+  }))
+  const original = structuredClone(result)
+  const summary = renderSummary(result)
+  const details = renderDetails(result)
+  expectCompactReport(summary)
+  expect(summary).toContain('60 failed')
+  expect(summary).toContain('60 skipped')
+  expect(summary).toContain('failure-0:')
+  expect(summary).not.toContain('oversized-command-')
+  expect(summary).not.toContain('```sh')
+  for (const retained of [
+    command,
+    tests[59].errors[0],
+    tests[119].annotations[0].description!,
+    'evidence-119.txt',
+    result.incomplete.at(-1)!,
+    result.warnings.at(-1)!,
+    result.stages.at(-1)!.error!,
+    result.targets.at(-1)!,
+  ])
+    expect(details).toContain(retained)
+  expect(result).toEqual(original)
+})
+
+test('large measurement payloads remain in result JSON while reports retain outcomes, gates and evidence', async ({}, info) => {
+  const measurements = {
+    p95Ms: 999_999,
+    histogram: Array.from({ length: 4000 }, (_, index) => `raw-measurement-only-${index}`),
+  }
+  const result = await harness(
+    selectPlan(['--fast']),
+    info.outputPath('large-measurements'),
+    async (command, args, options) => {
+      await mockRun(command, args, options)
+      if (!args.some((arg) => arg.startsWith('--project='))) return 0
+      const path = join(
+        options.env!.IRODORI_VERIFICATION_DIR!,
+        options.env!.IRODORI_TEST_GROUP!,
+        'summary.json',
+      )
+      const summary = JSON.parse(await readFile(path, 'utf8'))
+      summary.tests[0].title = 'recorded passing benchmark with an out-of-limit metric'
+      summary.tests[0].benchmarks = [
+        {
+          family: 'preview',
+          measurements,
+          gates: [{ metric: 'p95Ms', operator: '<=', limit: 33 }],
+          evidence: [join(options.env!.IRODORI_VERIFICATION_DIR!, 'benchmark-evidence.txt')],
+        },
+      ]
+      await writeFile(path, JSON.stringify(summary))
+      return 0
+    },
+  )
+  const summary = await readFile(join(result.artifacts, 'summary.md'), 'utf8')
+  const details = await readFile(join(result.artifacts, 'details.md'), 'utf8')
+  const saved = JSON.parse(await readFile(join(result.artifacts, 'result.json'), 'utf8'))
+  expectCompactReport(summary)
+  expect(result.status).toBe('passed')
+  expect(result.failed).toBe(0)
+  expect(summary).toContain('PASSED')
+  expect(summary).toContain('0 failed')
+  expect(details).toContain('p95Ms <= 33')
+  expect(details).toContain('benchmark-evidence.txt')
+  expect(details).toContain('recorded passing benchmark with an out-of-limit metric — passed')
+  expect(details).toContain('](result.json)')
+  for (const report of [summary, details]) expect(report).not.toContain('raw-measurement-only-')
+  expect(saved).toEqual(result)
+  expect(saved.benchmarks[0].measurements).toEqual(measurements)
+  expect(saved.tests[0].benchmarks[0].measurements).toEqual(measurements)
+
+  const failed = reportResult({
+    status: 'failed',
+    exitCode: 1,
+    passed: 0,
+    failed: 1,
+    tests: [
+      reportCase({
+        status: 'failed',
+        title: 'recorded failed benchmark with an in-limit metric',
+        errors: ['Independent benchmark assertion failed.'],
+        benchmarks: [{ ...result.benchmarks[0], measurements: { p95Ms: 1 } }],
+      }),
+    ],
+    benchmarks: [{ ...result.benchmarks[0], measurements: { p95Ms: 1 } }],
+  })
+  expect(renderSummary(failed)).toContain('FAILED')
+  const failedDetails = renderDetails(failed)
+  expect(failedDetails).toContain('Independent benchmark assertion failed.')
+  expect(failedDetails).toContain('recorded failed benchmark with an in-limit metric — failed')
 })
 
 test('routine budget warnings retain all selected work without terminating tests', async ({}, info) => {
@@ -787,7 +1140,13 @@ test('interruption stops further stages, preserves a partial report and releases
   expect(result.status).toBe('interrupted')
   expect(result.stages.find((s) => s.name === 'build')!.status).toBe('interrupted')
   expect(result.stages.slice(1).every((s) => s.code === null)).toBe(true)
-  expect(await readFile(join(result.artifacts, 'summary.md'), 'utf8')).toContain('INTERRUPTED')
+  const summary = await readFile(join(result.artifacts, 'summary.md'), 'utf8')
+  const details = await readFile(join(result.artifacts, 'details.md'), 'utf8')
+  expectCompactReport(summary)
+  expect(summary).toContain('INTERRUPTED')
+  expect(summary).toContain(result.stages[0].rerun)
+  expect(details).toContain('build.log')
+  expect(JSON.parse(await readFile(join(result.artifacts, 'result.json'), 'utf8'))).toEqual(result)
   await expect(access(join(result.artifacts, '.lock'))).rejects.toThrow()
 })
 

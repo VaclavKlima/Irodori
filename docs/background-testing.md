@@ -26,7 +26,7 @@ Native-only cases carry `@foreground` with a reason. They cover native keyboard 
 
 If a background selection includes required foreground cases, compatible cases run and the report lists the deferred checks with a foreground rerun command. The verification runner reports **incomplete (exit 2)** even if every executed case passes. Missing hardware, fixtures or required measurements also remain incomplete. A failed assertion remains a failure.
 
-Read the invocation's `summary.md` first. Use its exact rerun command; direct Playwright reruns reuse the existing build and need the mode in the environment:
+Read the invocation's `summary.md` first (at most 4096 UTF-8 bytes). Stop after successful complete relevant checks unless a concrete concern remains. For failures, deferred native cases or a concrete concern, open only the linked section of `details.md` or relevant log excerpt; complete reruns live there when they do not fit in the summary. Rerun a failed case first. Direct Playwright reruns reuse the existing build and need the mode in the environment:
 
 ```sh
 IRODORI_TEST_UI_MODE=foreground npx playwright test tests/preview.spec.ts --project=electron
@@ -44,7 +44,7 @@ Omitting `IRODORI_TEST_UI_MODE` selects background mode. Its only accepted value
 - Keep DOM focus, accessibility, keyboard navigation, screenshots and real renderer assertions in background coverage when they do not require native desktop ownership. Never fake `document.hidden`, disable GPU acceleration, replace native dimensions with viewport emulation, or remove assertions to obtain a background pass.
 - Capture native windows with the shared hidden-safe capture path (`capturePage` uses `stayHidden: true`). Supply native picker/confirmation responses through the existing test adapters. Unexpected native windows or unhandled dialogs must fail clearly instead of interrupting the desktop.
 - Tag the smallest complete case that requires native focus, pointer lock, full screen or display behavior with `@foreground`, and explain why beside the tag. Preserve that case's assertions and include its explicit foreground command in acceptance evidence. A background helper must not show or focus the application to repair input delivery.
-- Verify visibility, activation, rendering, cleanup and case counts when migrating a suite. Exercise error paths and restart behavior. Run affected targets in focused batches; a migration does not authorize a full checkpoint, benchmarks or manual desktop inspection.
+- Verify visibility, activation, rendering, cleanup and case counts when migrating a suite. Exercise error paths and restart behavior. Batch affected explicit targets after a coherent change, reuse applicable completed evidence and require a concrete question or changed code for extra runs. A migration does not authorize a full checkpoint, benchmarks or manual desktop inspection; existing visual/native requirements still apply.
 
 A native case in `tests/` declares its requirement alongside its assertions:
 
