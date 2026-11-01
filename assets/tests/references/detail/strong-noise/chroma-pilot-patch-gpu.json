@@ -1,0 +1,556 @@
+{
+  "version": 1,
+  "referenceKind": "chroma-pilot-patch-decimal80-host-f64-v1",
+  "candidateId": "noise-scaled-k40-c14-pilot-match5-owner-r10",
+  "license": "CC0-1.0",
+  "licenseNotice": "Original synthetic Irodori numeric vectors dedicated to the public domain; see README.md in this directory. Contains no photographs.",
+  "provenance": {
+    "method": "Copied fields from existing approved independent C16 JSON. Select the named scenes, both primaries and equal 75/100 controls for core or 75 for alpha; retain every selected point outputWords unchanged. signed-zero-identity supplies only neutral input. No filter, inverse transform or numeric reference generation is executed by extraction.",
+    "origins": {
+      "core": {
+        "path": "artifacts/verification/playwright-1793446687314-5ebad49a-0e57-4fe4-837b-109a709c6fe8/playwright/results/strong-noise-chroma-pilot--a0ec9-amping-publication-and-halo-service/reference.json",
+        "referenceSha256": "9c5f5f6b6bcf47cf360dd11dd4b72e122a1000cbeb6a7882f9c3b4cdad5cbb89",
+        "generatorSha256": "b448efc7b1ba8b2636166d1f0034f93129a0fd8dcda0afe600106545e89c1104",
+        "hostAdapterSha256": "23f4b65f49e448612462a653efb29a79c6d7a25daa0d5e6f87c1f9cbaea7be47",
+        "approvalSha256": "2786144571d7b132e6e8452c362dab6070045a3ef79282573cf76517a4711f25",
+        "planSha256": "545b8e6eea73dca451de1ad715da883e7039002a524c2281bcd283fbfb91fb01"
+      },
+      "alpha": {
+        "path": "artifacts/verification/playwright-1793445691948-aaf1156c-07ad-4c50-97fe-8d010622074b/playwright/results/strong-noise-chroma-pilot--b8383-r-weights-and-uncapped-self-service/reference.json",
+        "referenceSha256": "4936e100d0145f4c951dc04ac6052c2fc51605bc73a63ceb3884017fc09789ba",
+        "generatorSha256": "b448efc7b1ba8b2636166d1f0034f93129a0fd8dcda0afe600106545e89c1104",
+        "hostAdapterSha256": "23f4b65f49e448612462a653efb29a79c6d7a25daa0d5e6f87c1f9cbaea7be47",
+        "approvalSha256": "7432ada44b4baf7c2361158ac01a83d995e3ba205431d7293f2aa70087baa9a1",
+        "planSha256": "016577853b0e0affc93caa0be3fecb168c5c8daa9ccf56c4ef8f2731a425d3d4"
+      }
+    }
+  },
+  "limits": {
+    "absolute": 2e-6,
+    "relative": 2e-5,
+    "alpha": "exact-source-word",
+    "hiddenRgba": "exact-source-words",
+    "scope": "Bounded GPU feasibility only; selected published RGB owners, complete clamped-bias output and full-frame alpha/hidden copies. No photographic quality, estimator or full-stage word-parity acceptance."
+  },
+  "scenes": [
+    {
+      "id": "signed-zero-identity",
+      "origin": "core",
+      "width": 3,
+      "height": 2,
+      "frozenVariance": [0.0036, 0.0064, 0.01],
+      "inputRgba32leHex": "000000800000000000000080000000800000008000000000000000800000803f000000800000000000000080000000800000008000000000000000800000803f000000800000000000000080000000800000008000000000000000800000803f",
+      "sourceSha256": "e0ab85c66d46d5b20f72091c2a751cef3066ca7abd0d7ff0f257d153edf951c1",
+      "completeRgbOracle": false,
+      "cases": []
+    },
+    {
+      "id": "noise-like-low",
+      "origin": "core",
+      "width": 7,
+      "height": 5,
+      "frozenVariance": [0.000144, 0.0001, 0.000225],
+      "inputRgba32leHex": "ec51343e9a991b3e8fc2f33d0000803fec513c3e9a99173e8fc2f73d0000803fec513b3e9a19183e8f42f73d0000803fec513a3e9a99183e8fc2f63d0000803fec51393e9a19193e8f42f63d0000803fec51383e9a99193e8fc2f53d0000803fec51373e9a191a3e8f42f53d0000803fec51363e9a991a3e8fc2f43d0000803fec51353e9a191b3e8f42f43d0000803fec51343e9a991b3e8fc2f33d0000803fec513c3e9a99173e8fc2f73d0000803fec513b3e9a19183e8f42f73d0000803fec513a3e9a99183e8fc2f63d0000803fec51393e9a19193e8f42f63d0000803fec51383e9a99193e8fc2f53d0000803fec51373e9a191a3e8f42f53d0000803fec51363e9a991a3e8fc2f43d0000803fec51353e9a191b3e8f42f43d0000803fec51343e9a991b3e8fc2f33d0000803fec513c3e9a99173e8fc2f73d0000803fec513b3e9a19183e8f42f73d0000803fec513a3e9a99183e8fc2f63d0000803fec51393e9a19193e8f42f63d0000803fec51383e9a99193e8fc2f53d0000803fec51373e9a191a3e8f42f53d0000803fec51363e9a991a3e8fc2f43d0000803fec51353e9a191b3e8f42f43d0000803fec51343e9a991b3e8fc2f33d0000803fec513c3e9a99173e8fc2f73d0000803fec513b3e9a19183e8f42f73d0000803fec513a3e9a99183e8fc2f63d0000803fec51393e9a19193e8f42f63d0000803fec51383e9a99193e8fc2f53d0000803fec51373e9a191a3e8f42f53d0000803fec51363e9a991a3e8fc2f43d0000803f",
+      "sourceSha256": "294671700885e63505fca4b3cf08e96a476ae57b7da373e5babf197bbaf4c07c",
+      "completeRgbOracle": false,
+      "cases": [
+        {
+          "primaries": "srgb",
+          "luminance": 75,
+          "chroma": 75,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["3e3808de", "3e19e163", "3df5a50c", "3f800000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["3e3815a1", "3e19a96a", "3df5804b", "3f800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["3e38239c", "3e19d8a8", "3df5c613", "3f800000"]
+            }
+          ]
+        },
+        {
+          "primaries": "srgb",
+          "luminance": 100,
+          "chroma": 100,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["3e380e81", "3e19df87", "3df5a8ac", "3f800000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["3e38186b", "3e19a87f", "3df58216", "3f800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["3e382731", "3e19d779", "3df5c862", "3f800000"]
+            }
+          ]
+        },
+        {
+          "primaries": "rec2020",
+          "luminance": 75,
+          "chroma": 75,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["3e37faa6", "3e19d607", "3df59a22", "3f800000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["3e381859", "3e19af2a", "3df59418", "3f800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["3e381544", "3e19cb26", "3df5b11f", "3f800000"]
+            }
+          ]
+        },
+        {
+          "primaries": "rec2020",
+          "luminance": 100,
+          "chroma": 100,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["3e37febe", "3e19d456", "3df59c7b", "3f800000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["3e381a64", "3e19ae53", "3df59544", "3f800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["3e3817c5", "3e19ca1e", "3df5b28e", "3f800000"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "signed-hdr",
+      "origin": "core",
+      "width": 7,
+      "height": 5,
+      "frozenVariance": [0.0036, 0.0064, 0.01],
+      "inputRgba32leHex": "000000c1000080c00000c0c00000803f000080c0000080c00000a0c00000803f00000000000080c0000080c00000803f00008040000080c0000040c00000803f00000041000080c0000000c00000803f00004041000080c0000080bf0000803f00008041000080c0000000000000803f000000c1000000c00000a0c00000803f000080c0000000c0000080c00000803f00000000000000c0000040c00000803f00008040000000c0000000c00000803f00000041000000c0000080bf0000803f00004041000000c0000000000000803f00008041000000c00000803f0000803f000000c100000000000080c00000803f000080c000000000000040c00000803f0000000000000000000000c00000803f0000804000000000000080bf0000803f0000004100000000000000000000803f00004041000000000000803f0000803f0000804100000000000000400000803f000000c100000040000040c00000803f000080c000000040000000c00000803f0000000000000040000080bf0000803f0000804000000040000000000000803f00000041000000400000803f0000803f0000404100000040000000400000803f0000804100000040000040400000803f000000c100008040000000c00000803f000080c000008040000080bf0000803f0000000000008040000000000000803f00008040000080400000803f0000803f0000004100008040000000400000803f0000404100008040000040400000803f0000804100008041000080410000803f",
+      "sourceSha256": "3d569b44c5c1f95e104510859012058b8f30ec1ac59b79d1ac7a434da4a83412",
+      "completeRgbOracle": false,
+      "cases": [
+        {
+          "primaries": "srgb",
+          "luminance": 75,
+          "chroma": 75,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["c1000000", "c0800000", "c0c00000", "3f800000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["40800000", "00000000", "bf800000", "3f800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["41800000", "41800000", "41800000", "3f800000"]
+            }
+          ]
+        },
+        {
+          "primaries": "srgb",
+          "luminance": 100,
+          "chroma": 100,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["c1000000", "c0800000", "c0c00000", "3f800000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["40800000", "00000000", "bf800000", "3f800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["41800000", "41800000", "41800000", "3f800000"]
+            }
+          ]
+        },
+        {
+          "primaries": "rec2020",
+          "luminance": 75,
+          "chroma": 75,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["c1000000", "c0800000", "c0c00000", "3f800000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["40800000", "00000000", "bf800000", "3f800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["41800000", "41800000", "41800000", "3f800000"]
+            }
+          ]
+        },
+        {
+          "primaries": "rec2020",
+          "luminance": 100,
+          "chroma": 100,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["c1000000", "c0800000", "c0c00000", "3f800000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["40800000", "8a24a50f", "bf800000", "3f800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["41800000", "41800000", "41800000", "3f800000"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "clamped-bias",
+      "origin": "core",
+      "width": 2,
+      "height": 2,
+      "frozenVariance": [0.01, 0.0036, 0.0064],
+      "inputRgba32leHex": "ec51383e9a99193e8fc2f53d0000803fa4703d3ee3a51b3efca9f13d0000803f5839343e508d173e6de7fb3d0000803f355e3a3e2db21d3e46b6f33d0000803f",
+      "sourceSha256": "ca566cf6aeccec1790ff9abb5a1e5eecf21b03040985914f6809f784887a3d88",
+      "completeRgbOracle": true,
+      "cases": [
+        {
+          "primaries": "srgb",
+          "luminance": 75,
+          "chroma": 75,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["3e38ba45", "3e1a49bc", "3df584a1", "3f800000"]
+            },
+            {
+              "x": 1,
+              "y": 0,
+              "rgba32Words": ["3e39be99", "3e1b0b84", "3df5fa08", "3f800000"]
+            },
+            {
+              "x": 0,
+              "y": 1,
+              "rgba32Words": ["3e383d37", "3e1a2275", "3df5c5f5", "3f800000"]
+            },
+            {
+              "x": 1,
+              "y": 1,
+              "rgba32Words": ["3e3999b1", "3e1b003a", "3df5eade", "3f800000"]
+            }
+          ]
+        },
+        {
+          "primaries": "srgb",
+          "luminance": 100,
+          "chroma": 100,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["3e38ba4a", "3e1a49be", "3df58469", "3f800000"]
+            },
+            {
+              "x": 1,
+              "y": 0,
+              "rgba32Words": ["3e39be89", "3e1b0b84", "3df5fa66", "3f800000"]
+            },
+            {
+              "x": 0,
+              "y": 1,
+              "rgba32Words": ["3e383d47", "3e1a2275", "3df5c599", "3f800000"]
+            },
+            {
+              "x": 1,
+              "y": 1,
+              "rgba32Words": ["3e3999af", "3e1b0038", "3df5eb1f", "3f800000"]
+            }
+          ]
+        },
+        {
+          "primaries": "rec2020",
+          "luminance": 75,
+          "chroma": 75,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["3e38bbc7", "3e1a4b70", "3df588de", "3f800000"]
+            },
+            {
+              "x": 1,
+              "y": 0,
+              "rgba32Words": ["3e39c848", "3e1b111f", "3df5fd11", "3f800000"]
+            },
+            {
+              "x": 0,
+              "y": 1,
+              "rgba32Words": ["3e38364f", "3e1a1f1c", "3df5c716", "3f800000"]
+            },
+            {
+              "x": 1,
+              "y": 1,
+              "rgba32Words": ["3e3994f3", "3e1afc4e", "3df5e51c", "3f800000"]
+            }
+          ]
+        },
+        {
+          "primaries": "rec2020",
+          "luminance": 100,
+          "chroma": 100,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["3e38bbca", "3e1a4b72", "3df588a5", "3f800000"]
+            },
+            {
+              "x": 1,
+              "y": 0,
+              "rgba32Words": ["3e39c839", "3e1b1121", "3df5fd72", "3f800000"]
+            },
+            {
+              "x": 0,
+              "y": 1,
+              "rgba32Words": ["3e38365e", "3e1a1f1a", "3df5c6b6", "3f800000"]
+            },
+            {
+              "x": 1,
+              "y": 1,
+              "rgba32Words": ["3e3994f1", "3e1afc4c", "3df5e55f", "3f800000"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hidden-zero-a",
+      "origin": "alpha",
+      "width": 7,
+      "height": 5,
+      "frozenVariance": [0.0036, 0.0064, 0.01],
+      "inputRgba32leHex": "00008041000000c1000080400000000000008041000000c1000080400000000000008041000000c1000080400000000000008041000000c1000080400000000000008041000000c1000080400000000000008041000000c1000080400000000000008041000000c1000080400000000000008041000000c10000804000000000ec51353e9a191b3e8f42f43d0000803fec51343e9a991b3e8fc2f33d0000803fec513c3e9a99173e8fc2f73d0000803fec513b3e9a19183e8f42f73d0000803fec513a3e9a99183e8fc2f63d0000803f00008041000000c1000080400000000000008041000000c10000804000000000ec51373e9a191a3e8f42f53d0000803fec51363e9a991a3e8fc2f43d0000803fec51353e9a191b3e8f42f43d0000803fec51343e9a991b3e8fc2f33d0000803fec513c3e9a99173e8fc2f73d0000803f00008041000000c1000080400000000000008041000000c10000804000000000ec51393e9a19193e8f42f63d0000803fec51383e9a99193e8fc2f53d0000803fec51373e9a191a3e8f42f53d0000803fec51363e9a991a3e8fc2f43d0000803fec51353e9a191b3e8f42f43d0000803f00008041000000c1000080400000000000008041000000c1000080400000000000008041000000c1000080400000000000008041000000c1000080400000000000008041000000c1000080400000000000008041000000c1000080400000000000008041000000c1000080400000000000008041000000c10000804000000000",
+      "sourceSha256": "4fad1e8fe2d1b5615bcf26cca6c1c36fad2b93019eea9b33e751ec2e1487629a",
+      "completeRgbOracle": false,
+      "cases": [
+        {
+          "primaries": "srgb",
+          "luminance": 75,
+          "chroma": 75,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["41800000", "c1000000", "40800000", "00000000"]
+            },
+            {
+              "x": 1,
+              "y": 2,
+              "rgba32Words": ["3e37cc3e", "3e19fe8a", "3df59f3c", "3f800000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["3e37c8c6", "3e19f39d", "3df580bd", "3f800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["41800000", "c1000000", "40800000", "00000000"]
+            }
+          ]
+        },
+        {
+          "primaries": "rec2020",
+          "luminance": 75,
+          "chroma": 75,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["41800000", "c1000000", "40800000", "00000000"]
+            },
+            {
+              "x": 1,
+              "y": 2,
+              "rgba32Words": ["3e37c070", "3e19f2d9", "3df5892e", "3f800000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["3e37bf25", "3e19ed1b", "3df57a56", "3f800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["41800000", "c1000000", "40800000", "00000000"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hidden-zero-b",
+      "origin": "alpha",
+      "width": 7,
+      "height": 5,
+      "frozenVariance": [0.0036, 0.0064, 0.01],
+      "inputRgba32leHex": "000000c200008042000080c100000000000000c200008042000080c100000000000000c200008042000080c100000000000000c200008042000080c100000000000000c200008042000080c100000000000000c200008042000080c100000000000000c200008042000080c100000000000000c200008042000080c100000000ec51353e9a191b3e8f42f43d0000803fec51343e9a991b3e8fc2f33d0000803fec513c3e9a99173e8fc2f73d0000803fec513b3e9a19183e8f42f73d0000803fec513a3e9a99183e8fc2f63d0000803f000000c200008042000080c100000000000000c200008042000080c100000000ec51373e9a191a3e8f42f53d0000803fec51363e9a991a3e8fc2f43d0000803fec51353e9a191b3e8f42f43d0000803fec51343e9a991b3e8fc2f33d0000803fec513c3e9a99173e8fc2f73d0000803f000000c200008042000080c100000000000000c200008042000080c100000000ec51393e9a19193e8f42f63d0000803fec51383e9a99193e8fc2f53d0000803fec51373e9a191a3e8f42f53d0000803fec51363e9a991a3e8fc2f43d0000803fec51353e9a191b3e8f42f43d0000803f000000c200008042000080c100000000000000c200008042000080c100000000000000c200008042000080c100000000000000c200008042000080c100000000000000c200008042000080c100000000000000c200008042000080c100000000000000c200008042000080c100000000000000c200008042000080c100000000",
+      "sourceSha256": "fa8a1973738ffe806a0559a6d3d01ea42d7b8e169b85444a18b190574dc77f09",
+      "completeRgbOracle": false,
+      "cases": [
+        {
+          "primaries": "srgb",
+          "luminance": 75,
+          "chroma": 75,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["c2000000", "42800000", "c1800000", "00000000"]
+            },
+            {
+              "x": 1,
+              "y": 2,
+              "rgba32Words": ["3e37cc3e", "3e19fe8a", "3df59f3c", "3f800000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["3e37c8c6", "3e19f39d", "3df580bd", "3f800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["c2000000", "42800000", "c1800000", "00000000"]
+            }
+          ]
+        },
+        {
+          "primaries": "rec2020",
+          "luminance": 75,
+          "chroma": 75,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["c2000000", "42800000", "c1800000", "00000000"]
+            },
+            {
+              "x": 1,
+              "y": 2,
+              "rgba32Words": ["3e37c070", "3e19f2d9", "3df5892e", "3f800000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["3e37bf25", "3e19ed1b", "3df57a56", "3f800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["c2000000", "42800000", "c1800000", "00000000"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "partial-alpha",
+      "origin": "alpha",
+      "width": 7,
+      "height": 5,
+      "frozenVariance": [0.0036, 0.0064, 0.01],
+      "inputRgba32leHex": "ec51343e9a991b3e8fc2f33d00000000ec513c3e9a99173e8fc2f73d00008035ec513b3e9a19183e8f42f73d0000803eec513a3e9a99183e8fc2f63d0000003fec51393e9a19193e8f42f63d0000803fec51383e9a99193e8fc2f53d00000000ec51373e9a191a3e8f42f53d00008035ec51363e9a991a3e8fc2f43d0000803eec51353e9a191b3e8f42f43d0000003fec51343e9a991b3e8fc2f33d0000803fec513c3e9a99173e8fc2f73d00000000ec513b3e9a19183e8f42f73d00008035ec513a3e9a99183e8fc2f63d0000803eec51393e9a19193e8f42f63d0000003fec51383e9a99193e8fc2f53d0000803fec51373e9a191a3e8f42f53d00000000ec51363e9a991a3e8fc2f43d00008035ec51353e9a191b3e8f42f43d0000803eec51343e9a991b3e8fc2f33d0000003fec513c3e9a99173e8fc2f73d0000803fec513b3e9a19183e8f42f73d00000000ec513a3e9a99183e8fc2f63d00008035ec51393e9a19193e8f42f63d0000803eec51383e9a99193e8fc2f53d0000003fec51373e9a191a3e8f42f53d0000803fec51363e9a991a3e8fc2f43d00000000ec51353e9a191b3e8f42f43d00008035ec51343e9a991b3e8fc2f33d0000803eec513c3e9a99173e8fc2f73d0000003fec513b3e9a19183e8f42f73d0000803fec513a3e9a99183e8fc2f63d00000000ec51393e9a19193e8f42f63d00008035ec51383e9a99193e8fc2f53d0000803eec51373e9a191a3e8f42f53d0000003fec51363e9a991a3e8fc2f43d0000803f",
+      "sourceSha256": "4df656a6942e343359a2ea63083d46eb9fbe7120efe175104f9ef41d5011a5be",
+      "completeRgbOracle": false,
+      "cases": [
+        {
+          "primaries": "srgb",
+          "luminance": 75,
+          "chroma": 75,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["3e3451ec", "3e1b999a", "3df3c28f", "00000000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["3e38046f", "3e19b0f8", "3df57704", "3e800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["3e3789de", "3e1a2237", "3df57a79", "3f800000"]
+            }
+          ]
+        },
+        {
+          "primaries": "rec2020",
+          "luminance": 75,
+          "chroma": 75,
+          "points": [
+            {
+              "x": 0,
+              "y": 0,
+              "rgba32Words": ["3e3451ec", "3e1b999a", "3df3c28f", "00000000"]
+            },
+            {
+              "x": 3,
+              "y": 2,
+              "rgba32Words": ["3e3806f4", "3e19b74f", "3df58b00", "3e800000"]
+            },
+            {
+              "x": 6,
+              "y": 4,
+              "rgba32Words": ["3e377ccc", "3e1a15cf", "3df56582", "3f800000"]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

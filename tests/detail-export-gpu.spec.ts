@@ -77,32 +77,50 @@ test('tiny raster, scene-HDR and paired authored exports retain GPU filtering an
         }
         if (hdr && !authored) {
           process.env.IRODORI_EXPORT_BACKEND = 'auto'
-          const recovered = await exportRenditions(
-            {
-              ...f.exportJob,
-              directory: await f.directory('cpu-recovery'),
-              preparationDirectory: gpuPreparation,
-            },
-            async () => {
-              throw new Error('Injected final GPU conversion unavailability.')
-            },
-          )
-          expect(recovered.diagnostics).toMatchObject({
-            renderer: 'cpu',
-            rendererFallback: 'Injected final GPU conversion unavailability.',
+          const failure = new Error('Injected final GPU conversion unavailability.'),
+            preparedPath = join(gpuPreparation, 'detail-working.f32'),
+            preparedMarker = join(gpuPreparation, 'detail-working.json'),
+            preparedBytes = await readFile(preparedPath),
+            markerBytes = await readFile(preparedMarker),
+            upstreamBytes = await f.originalWorkingBytes()
+          let attempts = 0
+          await expect(
+            exportRenditions(
+              {
+                ...f.exportJob,
+                directory: await f.directory('gpu-refusal'),
+                preparationDirectory: gpuPreparation,
+              },
+              async () => {
+                attempts++
+                throw failure
+              },
+            ),
+          ).rejects.toBe(failure)
+          expect(attempts).toBe(1)
+          expect(await readFile(preparedPath)).toEqual(preparedBytes)
+          expect(await readFile(preparedMarker)).toEqual(markerBytes)
+          expect(await f.originalWorkingBytes()).toEqual(upstreamBytes)
+          const retried = await exportRenditions({
+            ...f.exportJob,
+            directory: await f.directory('gpu-retry'),
+            preparationDirectory: gpuPreparation,
           })
-          expect(recovered.diagnostics.detail!.working!.preparation).toBe('retained')
-          let recoveredCode = 0,
-            recoveredHalf = 0
+          expect(retried.diagnostics.renderer).toBe('gpu')
+          expect(retried.diagnostics.rendererFallback).toBeUndefined()
+          expect(retried.diagnostics.detail!.working!.preparation).toBe('retained')
+          expect(await readFile(preparedPath)).toEqual(preparedBytes)
+          let retryCode = 0,
+            retryHalf = 0
           for (let i = 0; i < gpu.rgb.length; i++)
-            recoveredCode = Math.max(recoveredCode, Math.abs(gpu.rgb[i] - recovered.rgb[i]))
+            retryCode = Math.max(retryCode, Math.abs(gpu.rgb[i] - retried.rgb[i]))
           for (let i = 0; i < gpu.half!.length; i++)
-            recoveredHalf = Math.max(
-              recoveredHalf,
-              Math.abs(fromHalf(gpu.half![i]) - fromHalf(recovered.half![i])),
+            retryHalf = Math.max(
+              retryHalf,
+              Math.abs(fromHalf(gpu.half![i]) - fromHalf(retried.half![i])),
             )
-          expect(recoveredCode).toBeLessThanOrEqual(1)
-          expect(recoveredHalf).toBeLessThanOrEqual(0.004)
+          expect(retryCode).toBeLessThanOrEqual(1)
+          expect(retryHalf).toBeLessThanOrEqual(0.004)
         }
         expect(await readFile(f.original)).toEqual(f.originalBytes)
       } finally {

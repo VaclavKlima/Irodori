@@ -7,6 +7,37 @@ import {
   exportResizeCapabilities,
   EXPORT_MAX_PIXELS,
 } from '../src/shared/export'
+import { exportResizePolicy, validateExportResizePolicy } from '../src/main/export/resize-policy'
+import type { ExportRenderJob } from '../src/main/export/types'
+
+test('GPU resize policy refuses incompatible frozen jobs while legacy export options stay readable', () => {
+  const legacy = {
+      ...defaultExportOptions,
+      size: { mode: 'longest' as const, edge: 9 },
+    },
+    options = validateExportOptions(JSON.parse(JSON.stringify(legacy))),
+    // Policy validation does not read source files or render pixels.
+    job = { options, resizePolicy: { ...exportResizePolicy } } as ExportRenderJob
+  expect(exportResizeCapabilities.version).toBe(exportResizePolicy.filter)
+  expect(() => validateExportResizePolicy(job)).not.toThrow()
+  expect(() =>
+    validateExportResizePolicy({
+      ...job,
+      resizePolicy: { filter: 'linear-lanczos3-pixel-centers-replicate-v1' },
+    }),
+  ).toThrow('This export resize policy is unsupported. Its files were preserved.')
+  expect(validateExportOptions(options)).toEqual(legacy)
+  expect(() => validateExportResizePolicy({ ...job, resizePolicy: undefined })).not.toThrow()
+  expect(options).toEqual(legacy)
+  expect(exportAllowsEnlargement(options.size)).toBe(false)
+  expect(defaultExportOptions.size).toEqual({ mode: 'original' })
+  expect(
+    exportGeometry(17, 11, {
+      mode: 'longest',
+      edge: 34,
+    }),
+  ).toEqual({ width: 17, height: 11 })
+})
 
 test('explicit Lanczos3 enlargement preserves legacy options and rejects ambiguous resize choices', () => {
   const legacy = { ...defaultExportOptions, size: { mode: 'longest' as const, edge: 34 } }

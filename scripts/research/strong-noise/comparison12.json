@@ -1,0 +1,66 @@
+{
+  "version": "detail-chroma-wide-search-comparison-12-v1",
+  "state": "Prospectively declared examined regression screen after C11 rejection; no generation, quality or adoption claimed.",
+  "policy": "assets/tests/references/detail/strong-noise/chroma-wide-search.md",
+  "mathModule": "chroma-wide-patchwise.py",
+  "referenceModule": "reference/chroma-wide.py",
+  "candidate": {
+    "id": "noise-scaled-k40-chroma-uniform-r10",
+    "variance": "frozen-global-directional-mad-v1",
+    "correction": "both",
+    "adaptive": "none",
+    "blend": "quadratic-to-50-v1",
+    "selfPolicy": "legacy",
+    "luminanceBandwidthMaximum": 0.024,
+    "chromaBandwidthMaximum": 0.024,
+    "chromaSigmaFactor": 0.4,
+    "bandwidthPolicy": "global-chroma-sigma-floor-v1",
+    "chromaSpatialPolicy": "uniform-search-v1",
+    "aggregation": "normalized-patch-estimates-f32-zero-v1",
+    "adoptionCandidate": true,
+    "role": "Unenabled chroma-only wider-support hypothesis; original luminance search and all fixed gates retained.",
+    "luminanceSearchRadius": 3,
+    "chromaSearchRadius": 10
+  },
+  "retainedInputs": {
+    "edges": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9-gpu/run-vcolhc_q",
+      "resultsSha256": "9d93d63665f500a43c4d794ec8c0774de2295b67454eb0826971527fb86e9fd7",
+      "estimator": "diagnostics.estimate"
+    },
+    "flatStress": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9-gpu/run-6zfo1gji",
+      "resultsSha256": "2d7319a7eb7d225d810ff74fcac77504705a6f41056159b581941284f68f1c0e",
+      "estimator": "diagnostics.estimate"
+    },
+    "qualifiedTextures": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9/run-jtxn_2oh",
+      "resultsSha256": "83ac36b7dce015fb4893fa669d41a1448ccea331d84cac15dcae96782b15cc72",
+      "estimator": "diagnostics.estimator"
+    }
+  },
+  "stages": [
+    {
+      "id": "edge-regression",
+      "source": "edges",
+      "rows": [0, 1, 2, 3, 4, 5, 6, 7],
+      "requiredEarlierStages": []
+    },
+    {
+      "id": "flat-stress",
+      "source": "flatStress",
+      "rows": [
+        4, 5, 10, 11, 28, 29, 34, 35, 52, 53, 58, 59, 76, 77, 82, 83, 100, 101, 106, 107, 124, 125,
+        130, 131
+      ],
+      "requiredEarlierStages": ["edge-regression"]
+    },
+    {
+      "id": "texture-regression",
+      "source": "qualifiedTextures",
+      "rows": [12, 13, 20, 21, 48, 49, 52, 53, 56, 57, 60, 61],
+      "requiredEarlierStages": ["edge-regression", "flat-stress"]
+    }
+  ],
+  "interpretation": "Forty-four examined regression inputs, not new holdouts. Only chroma support grows from radius3 to radius10 relative to rejected C11; L keeps original Gaussian radius3 and chroma guidance. Preserve all older rejections, input words, frozen estimators, coefficients and gates. A required failure rejects this candidate and stops later stages. No production or photographic acceptance follows from this screen."
+}

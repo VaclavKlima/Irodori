@@ -213,84 +213,106 @@ test('GPU export retains white balance, extreme combined edits, alpha and round-
   }
 })
 
-test('native-size streaming avoids scratch renditions and a failed second tile rerenders the complete frozen source', async ({}, info) => {
+test('native-size streaming avoids scratch renditions and propagates a failed second tile after GPU retirement', async ({}, info) => {
+  const previous = process.env.IRODORI_EXPORT_BACKEND
   const directory = info.outputPath('stream')
   await mkdir(directory)
   const source = await syntheticExportSource(directory, 17, 129, (x, y) => [x / 16, y / 32, 0.1])
-  const job = { source, options: defaultExportOptions, directory, hdr: true }
-  const expected = await exportRenditions(job)
-  expect(expected.diagnostics.renderer).toBe('gpu')
-  await expect(access(join(directory, 'rendition.f32'))).rejects.toThrow()
-  const sdr = await exportRenditions({ ...job, hdr: false })
-  expect(sdr.diagnostics.renderer).toBe('gpu')
-  expect(sdr.half).toBeUndefined()
-  for (let i = 0; i < expected.rgb.length; i++)
-    expect(Math.abs(expected.rgb[i] - sdr.rgb[i])).toBeLessThanOrEqual(1)
-  let calls = 0,
-    closed = false
-  const recovered = await exportRenditions(job, async (...args) => {
-    const real = await createExportGpu(...args)
-    return {
-      ...real,
-      render: async (pixels) => {
-        if (++calls === 2) throw new Error('Injected device loss')
-        return real.render(pixels)
-      },
-      close: async () => {
-        closed = true
-        await real.close()
-      },
-    }
-  })
-  expect(calls).toBe(2)
-  expect(closed).toBe(true)
-  expect(recovered.diagnostics).toMatchObject({
-    renderer: 'cpu',
-    rendererFallback: 'Injected device loss',
-  })
-  for (let i = 0; i < expected.rgb.length; i++)
-    expect(Math.abs(expected.rgb[i] - recovered.rgb[i])).toBeLessThanOrEqual(1)
-  for (let i = 0; i < expected.half!.length; i++)
-    expect(
-      Math.abs(fromHalf(expected.half![i]) - fromHalf(recovered.half![i])),
-    ).toBeLessThanOrEqual(0.004)
-  const damaged = await readFile(source.path)
-  damaged[damaged.length - 1] ^= 1
-  await writeFile(source.path, damaged)
-  await expect(exportRenditions(job)).rejects.toThrow('Damaged HDR')
+  const job = { source, options: defaultExportOptions, directory, hdr: true },
+    original = await readFile(source.path)
+  try {
+    process.env.IRODORI_EXPORT_BACKEND = 'auto'
+    const expected = await exportRenditions(job)
+    expect(expected.diagnostics.renderer).toBe('gpu')
+    expect(expected.diagnostics.adapter).toBeTruthy()
+    info.annotations.push({ type: 'gpu-adapter', description: expected.diagnostics.adapter })
+    await expect(access(join(directory, 'rendition.f32'))).rejects.toThrow()
+    const sdr = await exportRenditions({ ...job, hdr: false })
+    expect(sdr.diagnostics.renderer).toBe('gpu')
+    expect(sdr.half).toBeUndefined()
+    for (let i = 0; i < expected.rgb.length; i++)
+      expect(Math.abs(expected.rgb[i] - sdr.rgb[i])).toBeLessThanOrEqual(1)
+    let calls = 0,
+      closed = false
+    const failure = new Error('Injected device loss')
+    await expect(
+      exportRenditions(job, async (...args) => {
+        const real = await createExportGpu(...args)
+        return {
+          ...real,
+          render: async (pixels) => {
+            if (++calls === 2) throw failure
+            return real.render(pixels)
+          },
+          close: async () => {
+            await real.close()
+            closed = true
+          },
+        }
+      }),
+    ).rejects.toBe(failure)
+    expect(calls).toBe(2)
+    expect(closed).toBe(true)
+    expect(await readFile(source.path)).toEqual(original)
+    const damaged = Buffer.from(original)
+    damaged[damaged.length - 1] ^= 1
+    await writeFile(source.path, damaged)
+    await expect(exportRenditions(job)).rejects.toThrow('Damaged HDR')
+  } finally {
+    if (previous === undefined) delete process.env.IRODORI_EXPORT_BACKEND
+    else process.env.IRODORI_EXPORT_BACKEND = previous
+  }
 })
 
-test('a staged HDR failure drains early JPEG work before complete CPU recovery', async ({}, info) => {
+test('a staged HDR failure drains early JPEG work and closes the GPU before propagating the original error', async ({}, info) => {
+  const previous = process.env.IRODORI_EXPORT_BACKEND
   const directory = info.outputPath('staged-failure')
   await mkdir(directory)
-  const source = await syntheticExportSource(directory, 17, 67, (x, y) => [x / 8, y / 20, 0.1])
+  const source = await syntheticExportSource(directory, 17, 67, (x, y) => [x / 8, y / 20, 0.1]),
+    original = await readFile(source.path),
+    failure = new Error('Injected HDR stage loss')
   let earlyStarted = false,
-    earlyFinished = false
-  const recovered = await exportRenditions(
-    { source, directory, options: defaultExportOptions, hdr: true },
-    async (...args) => {
-      const gpu = await createExportGpu(...args)
-      expect(gpu.hdrDeferred).toBe(true)
-      return {
-        ...gpu,
-        finishHdr: async () => {
-          throw new Error('Injected HDR stage loss')
+    earlyFinished = false,
+    earlyPendingAtFailure = false,
+    closed = false,
+    closedAfterEarly = false
+  try {
+    process.env.IRODORI_EXPORT_BACKEND = 'auto'
+    await expect(
+      exportRenditions(
+        { source, directory, options: defaultExportOptions, hdr: true },
+        async (...args) => {
+          const gpu = await createExportGpu(...args)
+          expect(gpu.hdrDeferred).toBe(true)
+          return {
+            ...gpu,
+            finishHdr: async () => {
+              earlyPendingAtFailure = earlyStarted && !earlyFinished
+              throw failure
+            },
+            close: async () => {
+              closedAfterEarly = earlyFinished
+              await gpu.close()
+              closed = true
+            },
+          }
         },
-      }
-    },
-    async () => {
-      earlyStarted = true
-      await new Promise<void>((accept) => setTimeout(accept, 50))
-      earlyFinished = true
-      return Buffer.from('discarded JPEG work')
-    },
-  )
-  expect(earlyStarted).toBe(true)
-  expect(earlyFinished).toBe(true)
-  expect(recovered.earlyPrimary).toBeUndefined()
-  expect(recovered.diagnostics).toMatchObject({
-    renderer: 'cpu',
-    rendererFallback: 'Injected HDR stage loss',
-  })
-  expect(recovered.rgb.some((value) => value > 0)).toBe(true)
+        async () => {
+          earlyStarted = true
+          await new Promise<void>((accept) => setTimeout(accept, 50))
+          earlyFinished = true
+          return Buffer.from('discarded JPEG work')
+        },
+      ),
+    ).rejects.toBe(failure)
+    expect(earlyStarted).toBe(true)
+    expect(earlyPendingAtFailure).toBe(true)
+    expect(earlyFinished).toBe(true)
+    expect(closed).toBe(true)
+    expect(closedAfterEarly).toBe(true)
+    expect(await readFile(source.path)).toEqual(original)
+  } finally {
+    if (previous === undefined) delete process.env.IRODORI_EXPORT_BACKEND
+    else process.env.IRODORI_EXPORT_BACKEND = previous
+  }
 })

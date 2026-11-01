@@ -26,6 +26,8 @@ Version the stage graph: decode/characterize → linear preparation and lens geo
 
 Start from current 384 MiB retained CPU, 1 GiB native GPU, 512 MiB float-asset and renderer allocation limits, and 2 GiB preview disk LRU. Account for masks, mipmaps, tile overlap, and streams. Research tiled processing and cancellation with peak allocation measurements; reject inputs safely when no bounded path exists. Durable merged data is never evicted as preview cache.
 
+New or rewritten editing/rendering stages use one shared [GPU production path](../gpu-processing.md). CPU decoding, codecs, orchestration and bounded parameter/statistical preparation remain appropriate. Independent CPU calculations and historical proofs verify correctness without requiring a duplicate production renderer.
+
 ## API/MCP implications
 
 Extend typed asset and render descriptors with processing version, dynamic range, color/brightness reference, supported operations, and target identity. Keep photo IDs and expected revisions; never expose worker paths. UI and MCP obtain the same capabilities and errors. A future master cannot be mislabeled as the existing RGBA8 frame contract.
@@ -40,13 +42,13 @@ Requires the stage-1 [display feasibility](hdr-display.md) findings and current 
 
 ## Failure handling
 
-Reject malformed descriptors, nonfinite samples, resource overflow, and unsupported transforms explicitly. Cancel obsolete jobs and release leases on device loss, deletion, and shutdown. CPU fallback must preserve HDR data even when presentation falls back to SDR. Never substitute an SDR cache for a missing HDR master.
+Reject malformed descriptors, nonfinite samples, resource overflow, and unsupported transforms explicitly. Cancel obsolete jobs and release leases on device loss, deletion, and shutdown. GPU failures preserve HDR working data, committed settings, originals and completed outputs, and allow an appropriate GPU retry after retirement. Do not silently rerender on the CPU or substitute an SDR cache for a missing HDR master.
 
 ## Acceptance criteria
 
 - Preserve distinct synthetic values at 0, 0.18, 1, 2, 4, and 16 through edit/save/reload; exposure +1 then −1 recovers inputs within the recorded precision tolerance before output conversion.
 - Validate a single RAW, a merged fixture, and imported HDR against independent linear references; report any source clipping separately from display clipping.
-- CPU/GPU results pass fixed absolute/relative float tolerances, including negative channels and alpha; define tolerances and precision choice in the foundation decision record before acceptance.
+- GPU results pass fixed absolute/relative float tolerances against independent references, including negative channels and alpha; define tolerances and precision choice in the foundation decision record before acceptance. Verify explicit capability refusal and device-loss/retry cleanup.
 - Existing numeric histories remain intact through automatic rendering cutover; Undo/Redo, migration rollback, cache invalidation, stale requests, and crash recovery pass.
 - Peak allocations stay within declared bounds on maximum supported dimensions and concurrent import; cancellation releases resources. Preserve the roadmap's SDR performance gates and record separate HDR timings.
 

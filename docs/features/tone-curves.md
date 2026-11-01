@@ -22,6 +22,8 @@ Research a scene-linear versus logarithmic/shaper-domain editor. The selected re
 
 Compare shape-preserving interpolation candidates on dense ramps; forbid accidental overshoot and document whether nonmonotonic user curves are allowed. Specify Master luminance scaling near zero and per-channel order relative to global light/color operations. Identity curves bypass exactly. LUT acceleration needs an error bound over HDR values and a defined out-of-domain path; no hidden 8-bit lookup limit.
 
+Use one production [GPU path](../gpu-processing.md), with independent scalar references for interpolation and output verification. CPU parameter validation and coefficient construction do not require a second CPU rendering backend.
+
 ## API/MCP implications
 
 Expose bounded arrays of typed points, curve domain/version, and channel selector via atomic edit patches. Validate point count, finite coordinates, duplicates, ordering, and extrapolation parameters in main. MCP can create the same curves without manipulating UI coordinates.
@@ -36,7 +38,7 @@ Requires [HDR processing](hdr-processing.md) and [tone mapping](tone-mapping.md)
 
 ## Failure handling
 
-Invalid points leave the last confirmed curve intact with a field-level explanation. Reject unsupported curve versions; do not silently replace them with identity. Conflicting revisions reload confirmed settings and discard stale gesture results.
+Invalid points leave the last confirmed curve intact with a field-level explanation. Reject unsupported curve versions; do not silently replace them with identity. Unsupported GPU capabilities, allocation refusal or device loss preserve saved curves and originals, release resources and expose an appropriate GPU retry. Do not silently execute a CPU renderer. Conflicting revisions reload confirmed settings and discard stale gesture results.
 
 ## Acceptance criteria
 
@@ -44,7 +46,7 @@ Invalid points leave the last confirmed curve intact with a field-level explanat
 - Dense-ramp tests establish interpolation continuity, endpoint/extrapolation behavior, and the recorded LUT error limit; monotone point sets do not introduce reversals.
 - RGB curves affect only their declared channels before downstream transforms; Master follows its luminance rule and preserves alpha.
 - Add/move/delete/reset works with keyboard and numeric entry; one gesture commits once, Escape cancels, and focus remains usable at minimum window size.
-- Migration, Undo/Redo, restart, CPU/GPU agreement, maximum point count, and UI/MCP curve equivalence pass.
+- Migration, Undo/Redo, restart, GPU agreement with independent references, maximum point count, capability refusal/retry cleanup and UI/MCP curve equivalence pass.
 
 ## References
 

@@ -1,0 +1,273 @@
+{
+  "version": "detail-chroma-pilot-pointwise-comparison-15-v1",
+  "state": "Prospective CPU research declaration for one pilot-guided pointwise chroma hypothesis after rejected C14. Algorithm/publication and host-Float64 exact-word-oracle designs selected; independent implementation/plan review, numerical verification and every quality/resource/GPU/adoption gate remain pending.",
+  "policy": "assets/tests/references/detail/strong-noise/chroma-pilot-pointwise.md",
+  "mathModule": "chroma-pilot-pointwise.py",
+  "referenceModule": "reference/chroma-pilot.py",
+  "candidate": {
+    "id": "noise-scaled-k40-c14-pilot-pointwise-r10",
+    "variance": "frozen-global-directional-mad-v1",
+    "varianceDomain": "original-prepared-features-v1",
+    "correction": "fixed-c14-pilot-both-final-none-v1",
+    "adaptive": "none",
+    "blend": "quadratic-to-50-v1",
+    "selfPolicy": "legacy",
+    "luminanceBandwidthMaximum": 0.024,
+    "chromaBandwidthMaximum": 0.024,
+    "chromaSigmaFactor": 0.4,
+    "bandwidthPolicy": "global-chroma-sigma-floor-v1",
+    "chromaSpatialPolicy": "uniform-search-v1",
+    "aggregation": "normalized-l9-patch-c1-owner-estimates-f32-zero-v1",
+    "guidePolicy": "fixed-c14-100-100-preinverse-feature-rn32-v1",
+    "chromaDistancePolicy": "pointwise-pilot-l08-ab-sum-hc-no-bias-v1",
+    "valuePolicy": "original-features-only-v1",
+    "neighborAlphaPolicy": "squared-visible-neighbor-v1",
+    "luminanceSearchRadius": 3,
+    "chromaSearchRadius": 10,
+    "luminanceMatchingRadius": 1,
+    "chromaMatchingRadius": 0,
+    "luminanceTargetRadius": 1,
+    "chromaTargetRadius": 0,
+    "guideScalars": 3,
+    "stageScalars": 11,
+    "stageLayout": "l9-row-major-c1-ab-owner-v1",
+    "adoptionCandidate": true,
+    "role": "One disabled CPU research hypothesis: fixed pre-inverse C14 guide, pointwise pilot similarities, original-value chroma estimation. Original L feature proposal/E words and exact C0 route preserved; no final RGB dot-product luminance identity claim."
+  },
+  "pilot": {
+    "operatorId": "noise-scaled-k40-chroma-r10-full5",
+    "policySource": {
+      "path": "scripts/research/strong-noise/comparison14.json",
+      "sha256": "1aa98d1f270c21e578beb58dcf0751c07ea2d603ef74581a89466febdb74271a"
+    },
+    "implementationSource": {
+      "path": "scripts/research/strong-noise/chroma-full-patchwise.py",
+      "sha256": "780e2bf713f43da251bc046fbbe59eccb44686bde7b02bc4a4808d0021e15b5c"
+    },
+    "controls": {
+      "luminance": 100,
+      "chroma": 100
+    },
+    "source": "same-unchanged-original-prepared-features",
+    "variance": "same-original-full-source-frozen-descriptor",
+    "centerStageScalars": 59,
+    "centerStageLayout": "l9-row-major-c25-ab-row-major-v1",
+    "guideScalars": 3,
+    "guideLayout": "l-a-b-per-pixel-v1",
+    "guideDomain": "pre-inverse-original-feature-plus-ordered-float64-pilot-proposal-v1",
+    "guidePublication": "rn32-after-declared-float64-feature-gather-division-addition-v1",
+    "guideZeroPolicy": "generic-ieee-visible-zero-sign-hidden-positive-zero-v1",
+    "immutableBeforeFinalPass": true,
+    "rgbRoundTrip": false,
+    "useForGuidanceOnly": true,
+    "standaloneOutputOperatorRejected": true,
+    "sourceHalo": {
+      "luminance": 5,
+      "chroma": 14
+    }
+  },
+  "finalMetric": {
+    "luminanceGuideScale": 0.08,
+    "luminanceDistance": "(GL(p)-GL(v))^2",
+    "chromaDistance": "(GA(p)-GA(v))^2+(GB(p)-GB(v))^2",
+    "channelCountNormalization": false,
+    "noiseBiasSubtraction": false,
+    "weight": "alpha(v)*alpha(v)*exp(-DL/(.08*.08)-DC/(hC*hC))",
+    "hC": "sqrt(.024*.024+.4*.4*(vA+vB))*(C/100)^2",
+    "offsetOrder": "dy=-10..10 outer; dx=-10..10 inner",
+    "sample": "v=global-clamp(p+d); preserve every enumerated clamped duplicate",
+    "self": "Single d=0 offset has alpha(p)^2. Other offsets may also clamp to p; retain their additional coalesced self mass without cap, deduplication or replacement.",
+    "accumulation": "For each offset: Z+=W; NA+=W*(FA(v)-FA(p)); NB+=W*(FB(v)-FB(p)); all Float64 in declared order.",
+    "publication": "EA=C32(NA/Z), EB=C32(NB/Z); C32 nearest-even binary32 with canonical delta zeros",
+    "finalChromaOuterGather": false,
+    "blend": "Apply existing own-strength B(C) once after final E publication"
+  },
+  "identity": {
+    "luminance": "Exact original C9 Float64 L feature proposal and nine E words at user L; no final RGB dot-product Y identity is implied.",
+    "chromaZero": "Exact unchanged C9 bypass before pilot construction; preserve physical27 when present and neutral-none presence.",
+    "hidden": "Skip alpha0 guide/features before reads, hidden guide sentinels+0; copy original hidden RGBA/alpha words exactly.",
+    "inverse": "Existing stable inverse from original RGB/Y/scale; final RGB32 publication and original alpha words unchanged in policy."
+  },
+  "sourceSupport": {
+    "sourceHalo": {
+      "luminance": 5,
+      "chroma": 24
+    },
+    "pilotLuminanceGuideDependencyRadius": 15,
+    "guideQueryRadius": 10,
+    "proposalBoundRadii": [3, 10, 10],
+    "combinedMaximumSharpeningHalo": 33,
+    "varianceEstimatorRemainsGlobal": true,
+    "oldHaloAdmissionSufficient": false
+  },
+  "publicationContract": {
+    "pilotCenterWords": 59,
+    "guideWordsPerPixel": 3,
+    "activeFinalWordsPerPixel": 11,
+    "activeFinalLayout": "l9-row-major-c1-ab-owner-v1",
+    "chromaSlotsAreOwnerEstimates": true,
+    "c0PhysicalLegacyWords": 27,
+    "neutralMayHaveNoPhysicalStage": true,
+    "stageWordTolerance": 0,
+    "guideWordTolerance": 0,
+    "peakMemoryAccountingApproved": false
+  },
+  "readiness": {
+    "algorithmDesignRootApproved": true,
+    "publicationDesignRootApproved": true,
+    "implementationPrepared": true,
+    "independentNumericPlanReviewed": false,
+    "exactGuideWordOracleReviewed": false,
+    "approvedGroupCounts": null,
+    "referenceGenerationApproved": false,
+    "qualityExecutionApproved": false,
+    "gpuExecutionApproved": false,
+    "productionAdoption": false,
+    "exactWordOracleDesignReviewed": true,
+    "implementationSourceReviewed": true
+  },
+  "numericPrerequisites": [
+    "Independently validated exact Float64 operand/order model or certified rounding intervals for RN32 of source features plus ordered pilot gather/division/addition, including binary32 ties. Ideal Decimal80 real sums are not automatically an exact guide-word oracle.",
+    "Retain separate Decimal80 strict pre-final/final RGB gates and exact pilot/guide/final publication checks; no epsilon relaxation or candidate-word substitution at ambiguous ties.",
+    "Prospectively reviewed halo24 dependency witness, publication ties, alpha/self/clamp/hidden/signed/HDR/asymmetric controls, actual numerical counterfeits and derived group/coverage counts.",
+    "Independent implementation/reference source review and explicit source/plan approval before any numerical execution."
+  ],
+  "inputBaselines": {
+    "c12FrozenDeclaration": {
+      "path": "artifacts/detail-research/strong-noise/c12-chroma-wide-screen-zmxaqv83/freeze-cowbzvrh/declaration.json",
+      "sha256": "27f7538061c6a0af8d46ba48f16912c94855e6581912afa5078b8acf783cc663"
+    },
+    "priorC14SelectionAudit": {
+      "path": "artifacts/detail-research/strong-noise/c14-independent-selection-urVLkr/receipt.json",
+      "sha256": "9c719a2d53d1adbc0550e4976926ab0f6c828a6bfe7b2a96044fa34ecb4c8a39"
+    },
+    "scope": "Prior source-selection evidence only. A new independent C15 audit/freeze must prove all44 complete C12 records unchanged apart from stage labels."
+  },
+  "retainedInputs": {
+    "edges": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9-gpu/run-vcolhc_q",
+      "resultsSha256": "9d93d63665f500a43c4d794ec8c0774de2295b67454eb0826971527fb86e9fd7",
+      "estimator": "diagnostics.estimate"
+    },
+    "flatStress": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9-gpu/run-6zfo1gji",
+      "resultsSha256": "2d7319a7eb7d225d810ff74fcac77504705a6f41056159b581941284f68f1c0e",
+      "estimator": "diagnostics.estimate"
+    },
+    "qualifiedTextures": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9/run-jtxn_2oh",
+      "resultsSha256": "83ac36b7dce015fb4893fa669d41a1448ccea331d84cac15dcae96782b15cc72",
+      "estimator": "diagnostics.estimator"
+    }
+  },
+  "stages": [
+    {
+      "id": "context-edge-regression",
+      "source": "edges",
+      "rows": [0, 2],
+      "requiredEarlierStages": []
+    },
+    {
+      "id": "edge-regression-anchors",
+      "source": "edges",
+      "rows": [1, 3, 4, 5, 6, 7],
+      "requiredEarlierStages": ["context-edge-regression"]
+    },
+    {
+      "id": "flat-stress",
+      "source": "flatStress",
+      "rows": [
+        4, 5, 10, 11, 28, 29, 34, 35, 52, 53, 58, 59, 76, 77, 82, 83, 100, 101, 106, 107, 124, 125,
+        130, 131
+      ],
+      "requiredEarlierStages": ["context-edge-regression", "edge-regression-anchors"]
+    },
+    {
+      "id": "texture-regression",
+      "source": "qualifiedTextures",
+      "rows": [12, 13, 20, 21, 48, 49, 52, 53, 56, 57, 60, 61],
+      "requiredEarlierStages": ["context-edge-regression", "edge-regression-anchors", "flat-stress"]
+    }
+  ],
+  "fixedGatePolicy": "Every original required cohort/gate and threshold from the pinned archived metric helpers remains mandatory: leakage<=.03, existing edge-width/noise/bias gates, texture .90..1.05, exact alpha and finite output. No new or relaxed gate is introduced.",
+  "interpretation": "Exactly one candidate; no guide, coefficient, bandwidth, radius, alpha or publication sweep. The same44 examined records remain mandatory, ordered2/6/24/12 with complete passing predecessors. Finish all rows in a selected stage, preserve partial/error evidence, reject on any required failure and stop later stages. Retain all older rejections including C14. A reused-regression pass would not establish fresh-population, photographic, GPU/CPU, resource, compatibility, responsiveness or performance acceptance. Numerical and quality execution remain unapproved.",
+  "rejectionEvidence": {
+    "c12Results": {
+      "path": "artifacts/detail-research/strong-noise/c12-chroma-wide-screen-zmxaqv83/run-edge-regression-nn9o_0u7/results.json",
+      "sha256": "62c667d9bb96bb722492d8706df8f0ca13186102392eb0c833a8f3f348358ca0"
+    },
+    "inverseDiagnosis": {
+      "path": "artifacts/detail-research/strong-noise/c12-retained-inverse-diagnosis-vvur2nm4/diagnosis.json",
+      "sha256": "65d7135d42746c69118c1105f422f85eef8cab524dc03acf21ed4fb048b810db"
+    },
+    "c13AnchorResults": {
+      "path": "artifacts/detail-research/strong-noise/c13-screen-draft-6l17zm95/run-edge-regression-anchors-4zdu9350/results.json",
+      "sha256": "2f68091c1b992483324126aaaee04304e248e84d316020ecc49d9f6e6609575a"
+    },
+    "c13HardResults": {
+      "path": "artifacts/detail-research/strong-noise/c13-screen-draft-6l17zm95/run-hard-edge-regression-k_cwlgz3/results.json",
+      "sha256": "e45ce40358acb410d7d43f7b6db5775ff6730dd9f0568e7720fd37ad4d3f5c6f"
+    },
+    "c13InverseDiagnosis": {
+      "path": "artifacts/detail-research/strong-noise/c13-retained-context-diagnosis-d1cevr9s/diagnosis.json",
+      "sha256": "0675315c8c25aa323fee5d65e0c35800264e35b4c166e06dfd2a17ca864e2059"
+    },
+    "c13BoundaryWeights": {
+      "path": "artifacts/detail-research/strong-noise/c13-boundary-effective-weights-draft-20261030/run-1024-owners-v1/diagnosis.json",
+      "sha256": "5a053128643fd85bc760ee727aa9d9673526f4d90fc036966c38864f6728c48d"
+    },
+    "c14Results": {
+      "path": "artifacts/detail-research/strong-noise/c14-full-patch-screen-draft-kzUT9uyq/run-context-edge-regression-h8gqmt_m/results.json",
+      "sha256": "34453e019c326f23b3cf56e8f530c9b235f0fc794cb4134da36b96bb22d883a1"
+    },
+    "c14Summary": {
+      "path": "artifacts/detail-research/strong-noise/c14-full-patch-screen-draft-kzUT9uyq/run-context-edge-regression-h8gqmt_m/summary.json",
+      "sha256": "9efe471a1dc392375897904309ed3ac18a65901eda3702b280323b8f37d09da1"
+    },
+    "c14Cleanup": {
+      "path": "artifacts/detail-research/strong-noise/c14-full-patch-screen-draft-kzUT9uyq/run-context-edge-regression-h8gqmt_m/cleanup.json",
+      "sha256": "b8b9c53ac8b2a7706db62de41d7dbe9bcc40e4160162dc6bd7494fd9d257308e"
+    },
+    "c14FrozenDeclaration": {
+      "path": "artifacts/detail-research/strong-noise/c14-full-patch-screen-draft-kzUT9uyq/freeze-7qi1e42r/declaration.json",
+      "sha256": "28ed367db91614ab5052687859db095c3ace95759f11a1efda0dc7fab80edc24"
+    }
+  },
+  "primaryResearch": [
+    {
+      "title": "A two-stage denoising filter: the preprocessed Yaroslavsky filter",
+      "url": "https://josephsalmon.eu/papers/SSP12.pdf"
+    },
+    {
+      "title": "Image denoising by sparse 3D transform-domain collaborative filtering",
+      "url": "https://webpages.tuni.fi/foi/GCF-BM3D/BM3D_TIP_2007.pdf"
+    },
+    {
+      "title": "Implementation of the Non-Local Bayes image denoising algorithm",
+      "url": "https://www.ipol.im/pub/art/2013/16/article.pdf"
+    }
+  ],
+  "researchScope": "Algorithm inspiration only, not proof for this signed/HDR experiment. No third-party implementation or copyleft code is imported. No code, numeric plan, reference outputs, quality filtering or adoption is created by this ignored JSON draft.",
+  "designRecord": {
+    "path": "artifacts/detail-research/strong-noise/pilot-pointwise-policy-draft-hcvmUn/POLICY-v2.md",
+    "sha256": "9ac3341f60bd9f3fd14b072046cc15a4e373b9f11ee5bdc78702fda44d6c49ee",
+    "scope": "Preserved earlier design draft; the repository policy and this declaration govern future source review."
+  },
+  "exactWordOracleDesign": {
+    "version": "independent-host-f64-publication-graph-v1",
+    "scope": "Pinned host Python/libm agreement only, not a portable correctly-rounded transcendental proof.",
+    "candidateImports": false,
+    "candidateIntermediateInputs": false,
+    "independentPilotWords": true,
+    "float32RepresentabilityRequired": true,
+    "independentCoefficientBitsRequired": true,
+    "separateDecimal80RgbAndBounds": true,
+    "publicationSeamTiesRequired": true,
+    "sourceImplementationReviewed": false
+  },
+  "implementationSource": {
+    "path": "scripts/research/strong-noise/chroma-pilot-pointwise.py",
+    "sha256": "3378dd0a5fc40022ff50078b42fb3de484bb39ea763e26fa519a7d906541a9f3",
+    "scope": "Source-reviewed CPU research implementation; no numerical verification or production adoption."
+  }
+}

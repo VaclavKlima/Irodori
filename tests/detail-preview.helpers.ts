@@ -37,7 +37,9 @@ export async function detailPreviewFixture(hdr = false, authored = false) {
       },
     }
   await mkdir(base)
-  let asset: DetailPreviewJob['asset'], originalBytes: Buffer
+  let asset: DetailPreviewJob['asset'],
+    primaryAsset: DetailPreviewJob['asset'] | undefined,
+    originalBytes: Buffer
   try {
     const pixels = Buffer.alloc(width * height * 4)
     for (let y = 0; y < height; y++)
@@ -94,6 +96,21 @@ export async function detailPreviewFixture(hdr = false, authored = false) {
       frame.transform = asset.transform
       frame.hdr = undefined
     }
+    if (hdr && authored) {
+      const primaryDirectory = join(root, 'primary')
+      await mkdir(primaryDirectory)
+      const primary = await engine.renderFull(original, primaryDirectory, undefined, {
+        ...options,
+        processing: 'display-referred-v1',
+        prepareLinear: true,
+      })
+      primaryAsset = {
+        path: join(primaryDirectory, 'linear.f32'),
+        width: primary.width,
+        height: primary.height,
+        ...primary.linear!,
+      }
+    }
   } finally {
     await engine.close()
   }
@@ -114,6 +131,13 @@ export async function detailPreviewFixture(hdr = false, authored = false) {
     originalBytes,
     frame,
     job,
+    primaryJob: primaryAsset
+      ? {
+          ...job,
+          asset: primaryAsset,
+          options: { ...job.options, processing: 'display-referred-v1' as const },
+        }
+      : undefined,
     directory: async (name: string) => {
       const path = join(root, name)
       await mkdir(path)

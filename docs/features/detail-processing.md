@@ -17,7 +17,22 @@ noise-aware alternatives require a separately frozen comparison before adoption.
 Earlier dated checkpoints below retain their status at that point; the latest
 public-adoption checkpoint supersedes their public-tool availability statements.
 
+**2026-10-31 GPU cleanup:** default/automatic preview and export detail requests
+now use strict GPU execution. The GPU owner no longer repairs tiles on the CPU;
+unsupported tiny positive alpha and non-finite output return explicit errors.
+Neutral tiles copy exactly. The focused five-target checkpoint passes 898 checks
+in 52.49 seconds; see [GPU processing](../gpu-processing.md) for its evidence,
+adapter and remaining legacy routes. Supported equations/settings/cache identities
+are unchanged. Historical CPU fallback descriptions below do not govern the new
+default. This does not accept a strong-noise replacement or close the full goal.
+
 ## Candidates and source policy
+
+The [published-method review](denoising-method-review.md) records the user's
+2026-10-31 direction to ground the next decision in complete established methods
+and realistic noise modelling. It distinguishes BM3D, sensor-noise modelling and
+a learned alternative, including unresolved GPU/domain/licensing work. No new
+operator is adopted by that review.
 
 Compare a bounded bilateral filter with a bounded patch non-local means filter.
 [Paris and Durand](https://people.csail.mit.edu/sparis/bf/) describe the bilateral
@@ -189,8 +204,9 @@ pixel ratio. The combined maximum halo is 13 pixels. Candidate tile edge is 256;
 at most 282×282 source pixels feed one combined tile. Reject malformed dimensions,
 missing halo, aliases, nonfinite parameters and size-arithmetic overflow before allocation.
 Reject nonfinite computed pixels before publication.
-Use bounded strips/tiles and cancellation between dispatches/tiles. Keep a finite
-CPU fallback and explicit GPU-loss/retirement ownership. Do not weaken existing
+Use bounded strips/tiles and cancellation between dispatches/tiles. The original
+CPU-fallback requirement is superseded by [GPU-only processing](../gpu-processing.md);
+retain explicit GPU-loss/retirement ownership. Do not weaken existing
 managed image budgets, admission policy, fences or preview timing thresholds.
 
 GPU features should prepare once per tile/source variant, use shared neighborhood
@@ -290,7 +306,9 @@ output band and the maximum 13-pixel native halo; horizontal windows stay bounde
 by the existing tile plan. Every tile uses global source coordinates. CPU fallback
 yields between tiles, and GPU recovery waits for the failed owner's retirement
 before allocating the equivalent CPU result. Precision-recovery tiles count as CPU
-work, separately from successful GPU tiles.
+work, separately from successful GPU tiles. This describes the historical
+automatic executor; the 2026-10-31 production default uses strict GPU handling
+and no GPU-owner CPU repair, as recorded above.
 
 The [prepared-file adapter](../../src/main/processing/detail-preparation.ts) consumes
 the existing verified HDR strip reader, including its final whole-file digest.

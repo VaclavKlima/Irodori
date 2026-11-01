@@ -3,6 +3,7 @@ import {
   exportGpuAllocation,
   exportRenderMemoryPlan,
   exportResizeBytes,
+  exportResizeGpuAllocation,
   exportInputMemoryPlan,
   exportSdrEncodePlan,
   exportHdrEncodePlan,
@@ -11,6 +12,7 @@ import {
   EXPORT_ENCODER_LIMIT_BYTES,
 } from '../src/shared/export-resources'
 import { detailFrameJob } from './detail-frame.helpers'
+import { compileResizeGpu } from '../src/shared/export-resize-gpu'
 
 const admission = () => structuredClone(detailFrameJob().admission!)
 const layout = {
@@ -111,6 +113,35 @@ test('SDR encoding may fit after rendering retires even when concurrent encoding
     exportSdrEncodePlan(layout.width, layout.height, { ...concurrent, policy: a.policy }).accepted,
   ).toBe(false)
   expect(sdr.outputLimitBytes).toBeLessThanOrEqual(256 * 1024 ** 2)
+})
+
+test('GPU resize reserves a separate phase and refuses either frozen memory budget before allocation', () => {
+  const a = admission(),
+    dimensions = [17, 11, 34, 22, 6] as const,
+    resize = exportResizeGpuAllocation(...dimensions, a),
+    actual = compileResizeGpu(...dimensions),
+    render = exportRenderMemoryPlan({ ...layout, outWidth: 6875, outHeight: 4590 }, a)
+  expect(resize.accepted).toBe(true)
+  expect(resize.bytes.ramBytes).toBeGreaterThanOrEqual(actual.hostBytes)
+  expect(resize.bytes.vramBytes).toBeGreaterThanOrEqual(actual.gpuBytes)
+  expect(render.resizeGpu.total.vramBytes).toBe(
+    a.reservation.vramBytes + render.resizeGpu.bytes.vramBytes,
+  )
+  expect(render.resizeGpu.total.ramBytes).toBe(
+    a.reservation.ramBytes + render.retainedBytes + render.resizeGpu.bytes.ramBytes,
+  )
+  const tight = admission()
+  Object.assign(tight.policy.vram, { effectiveBytes: resize.total.vramBytes - 1 })
+  expect(() => requireExportAllocation(exportResizeGpuAllocation(...dimensions, tight))).toThrow(
+    'budgets',
+  )
+  Object.assign(tight.policy.vram, { effectiveBytes: resize.total.vramBytes })
+  Object.assign(tight.policy.ram, { effectiveBytes: resize.total.ramBytes - 1 })
+  expect(() => requireExportAllocation(exportResizeGpuAllocation(...dimensions, tight))).toThrow(
+    'budgets',
+  )
+  Object.assign(tight.policy.ram, { effectiveBytes: resize.total.ramBytes })
+  expect(exportResizeGpuAllocation(...dimensions, tight).accepted).toBe(true)
 })
 
 test('encoder admission retains codec limits and accounts for native versus simultaneous WASM output storage', () => {

@@ -222,6 +222,7 @@ test('crop-aware enlargement keeps authored HDR and primary independent through 
     expect([ordinary.info.width, ordinary.info.height]).toEqual([10, 15])
     expect([gain.info.width, gain.info.height]).toEqual([10, 15])
     expect(result.diagnostics!.resize).toEqual({
+      renderer: 'cpu',
       policy: exportResizePolicy,
       input: { width: 4, height: 6 },
       output: { width: 10, height: 15 },

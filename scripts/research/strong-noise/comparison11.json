@@ -1,0 +1,64 @@
+{
+  "version": "detail-chroma-uniform-search-comparison-11-v1",
+  "state": "Prospectively declared examined regression screen; no candidate quality or adoption is claimed.",
+  "policy": "assets/tests/references/detail/strong-noise/chroma-uniform-search.md",
+  "mathModule": "chroma-uniform-patchwise.py",
+  "referenceModule": "reference/chroma-uniform.py",
+  "candidate": {
+    "id": "noise-scaled-k40-chroma-uniform",
+    "variance": "frozen-global-directional-mad-v1",
+    "correction": "both",
+    "adaptive": "none",
+    "blend": "quadratic-to-50-v1",
+    "selfPolicy": "legacy",
+    "luminanceBandwidthMaximum": 0.024,
+    "chromaBandwidthMaximum": 0.024,
+    "chromaSigmaFactor": 0.4,
+    "bandwidthPolicy": "global-chroma-sigma-floor-v1",
+    "chromaSpatialPolicy": "uniform-search-v1",
+    "aggregation": "normalized-patch-estimates-f32-zero-v1",
+    "adoptionCandidate": true,
+    "role": "Unenabled chroma-only spatial-prior hypothesis; all fixed gates required."
+  },
+  "retainedInputs": {
+    "edges": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9-gpu/run-vcolhc_q",
+      "resultsSha256": "9d93d63665f500a43c4d794ec8c0774de2295b67454eb0826971527fb86e9fd7",
+      "estimator": "diagnostics.estimate"
+    },
+    "flatStress": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9-gpu/run-6zfo1gji",
+      "resultsSha256": "2d7319a7eb7d225d810ff74fcac77504705a6f41056159b581941284f68f1c0e",
+      "estimator": "diagnostics.estimate"
+    },
+    "qualifiedTextures": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9/run-jtxn_2oh",
+      "resultsSha256": "83ac36b7dce015fb4893fa669d41a1448ccea331d84cac15dcae96782b15cc72",
+      "estimator": "diagnostics.estimator"
+    }
+  },
+  "stages": [
+    {
+      "id": "edge-regression",
+      "source": "edges",
+      "rows": [0, 1, 2, 3, 4, 5, 6, 7],
+      "requiredEarlierStages": []
+    },
+    {
+      "id": "flat-stress",
+      "source": "flatStress",
+      "rows": [
+        4, 5, 10, 11, 28, 29, 34, 35, 52, 53, 58, 59, 76, 77, 82, 83, 100, 101, 106, 107, 124, 125,
+        130, 131
+      ],
+      "requiredEarlierStages": ["edge-regression"]
+    },
+    {
+      "id": "texture-regression",
+      "source": "qualifiedTextures",
+      "rows": [12, 13, 20, 21, 48, 49, 52, 53, 56, 57, 60, 61],
+      "requiredEarlierStages": ["edge-regression", "flat-stress"]
+    }
+  ],
+  "interpretation": "Forty-four examined regression inputs. Luminance spatial guidance remains Gaussian; only chroma changes. Preserve all C9/C10 rejection, frozen input words, estimator descriptors, coefficients and gates. A failure rejects the candidate and stops later stages. No fresh-holdout, production or photographic acceptance follows from this screen."
+}

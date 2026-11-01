@@ -17,7 +17,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 LOCK = ROOT/'artifacts/verification/.invocation-lock'
 OUTPUT = ROOT/'artifacts/detail-research/strong-noise'
-NOMINAL_STAGES = ('nominal','fresh-nominal','comparison4-nominal-regression','comparison7-nominal-regression')
+NOMINAL_STAGES = ('nominal','fresh-nominal','fresh-population','comparison4-nominal-regression','comparison7-nominal-regression')
 DOSE_STAGES = ('dosage','dose-corners')
 
 
@@ -45,6 +45,10 @@ def source_pins(protocol):
     names += [HERE/name for name in ('patchwise.py','pixelwise.py','cases.py','dose-diagnostics.py','run.py','README.md')]
     names=list(dict.fromkeys(names))
     names += [ROOT/name for name in ('scripts/research/detail-candidates.py','scripts/research/color-reference.py','scripts/research/detail-reference.py','tests/fixtures/detail-reference.json','tests/fixtures/detail-quality.json','AGENTS.md','assets/README.md')]
+    if protocol.get('version') == 'detail-texture-population-comparison-9-v1':
+        names += [HERE/'qualification.py', HERE/'comparison8.json',
+                  ROOT/'assets/tests/references/detail/strong-noise/texture-population.md']
+    names = list(dict.fromkeys(names))
     return [{'path':str(path),'sha256':hash_file(path)} for path in names]
 
 
@@ -109,7 +113,11 @@ def main():
     action.add_argument('--plan',action='store_true')
     action.add_argument('--execute',action='store_true')
     parser.add_argument('--declaration',type=Path)
-    parser.add_argument('--comparison',choices=['7','8'],default='7')
+    comparison = parser.add_mutually_exclusive_group()
+    comparison.add_argument('--comparison',choices=['7','8','9'],default='7')
+    comparison.add_argument('--comparison9',action='store_const',const='9',dest='comparison')
+    parser.add_argument('--qualification',type=Path)
+    parser.add_argument('--qualification-sha256')
     parser.add_argument('--stage',choices=['screen',*NOMINAL_STAGES,'high-noise','weak-stress',*DOSE_STAGES])
     parser.add_argument('--candidate',action='append')
     parser.add_argument('--scene',action='append')
@@ -119,8 +127,8 @@ def main():
     parser.add_argument('--strength',type=int,action='append')
     args = parser.parse_args()
     global ACTIVE_PROTOCOL,OUTPUT
-    ACTIVE_PROTOCOL=HERE/('protocol.json' if args.comparison=='7' else 'comparison8.json')
-    OUTPUT=ROOT/'artifacts/detail-research/strong-noise'/('comparison8' if args.comparison=='8' else '')
+    ACTIVE_PROTOCOL=HERE/('protocol.json' if args.comparison=='7' else f'comparison{args.comparison}.json')
+    OUTPUT=ROOT/'artifacts/detail-research/strong-noise'/(f'comparison{args.comparison}' if args.comparison!='7' else '')
     protocol = json.loads(ACTIVE_PROTOCOL.read_text())
     if args.freeze:
         OUTPUT.mkdir(parents=True,exist_ok=True)
@@ -156,6 +164,9 @@ def main():
         'partial':len(selected)!=len(declared) or len(candidate_ids)!=len(protocol['candidates']),
         'adoptionClaim':False,
         'limits':'Independent Float64 chart screen/control diagnostics only. Decimal80/GPU/alpha-HDR/resource/native-photo proofs remain required; later stages need separate root review; no production adoption.'}
+    if args.comparison == '9':
+        plan.update({'qualificationRequiredBeforeCandidateImport':True,
+                     'qualificationStage':'fresh-population','allQualificationSources':64})
     if args.plan:
         print(json.dumps(plan,indent=2))
         return
@@ -165,6 +176,15 @@ def main():
     if declaration['protocol'] != protocol:
         raise RuntimeError('Current protocol differs from its declaration.')
     check_pins(declaration['sources'])
+    qualification = qualified_records = None
+    if args.comparison == '9':
+        if args.qualification is None or args.qualification_sha256 is None:
+            parser.error('Every C9 execution requires --qualification RECEIPT and --qualification-sha256 SHA256 before candidate imports.')
+        qualification = load('comparison9_source_qualification', HERE/'qualification.py')
+        qualified_records = qualification.validate_receipt(args.qualification,
+            args.qualification_sha256,args.declaration,protocol,cases)
+        plan['qualification'] = {'path':str(args.qualification.resolve()),
+                                 'sha256':args.qualification_sha256,'qualifiedSources':64}
     token = str(uuid.uuid4())
     try:
         LOCK.parent.mkdir(parents=True,exist_ok=True)
@@ -184,6 +204,22 @@ def main():
         json_file(output/'plan.json',plan)
         shutil.copyfile(args.declaration,output/'declaration.json')
         baseline = load('comparison7_baseline',ROOT/'scripts/research/detail-candidates.py')
+        if qualification is not None:
+            # Qualify/reproduce every selected fresh source before importing any
+            # candidate, then repeat the same hash check on the actual filter input.
+            check_pins(declaration['sources'])
+            qualification.validate_receipt(args.qualification,args.qualification_sha256,
+                args.declaration,protocol,cases)
+            reproduction = []
+            for recipe in selected:
+                if recipe.get('cohort') == 'fresh-population-required':
+                    case = cases.scene(baseline,**recipe)
+                    hashes = qualification.check_regenerated(case,recipe,qualified_records)
+                    reproduction.append({'recipe':recipe,'sourceHashes':hashes,
+                                         'width':case['width'],'height':case['height']})
+            json_file(output/'qualification-reproduction.json',{
+                'receipt':plan['qualification'],'selectedFreshSources':len(reproduction),
+                'records':reproduction,'candidateImported':False})
         method = load('comparison_noise_aware',HERE/protocol.get('mathModule','patchwise.py'))
         dose = load('comparison7_dose',HERE/'dose-diagnostics.py')
         cases.verify_original_inputs(baseline)
@@ -194,6 +230,8 @@ def main():
         with (output/'results.jsonl').open('w') as stream:
             for case_index,recipe in enumerate(selected):
                 case = cases.scene(baseline,**recipe)
+                if qualification is not None and recipe.get('cohort') == 'fresh-population-required':
+                    qualification.check_regenerated(case,recipe,qualified_records)
                 input_files = []
                 for kind in ('clean','entering'):
                     path = output/f'case-{case_index}-{kind}.f32'
@@ -263,6 +301,8 @@ def main():
         if dose_rows:
             json_file(output/'dose-intervals.json',dose_interval_summary(dose_rows))
         check_pins(declaration['sources'])
+        if qualification is not None and hash_file(args.qualification) != args.qualification_sha256:
+            raise RuntimeError('The reviewed qualification receipt changed during filtering.')
         json_file(output/'summary.json',{'state':'research-complete-no-adoption','completed':completed,
             'plan':plan,'elapsedSeconds':time.monotonic()-started,'originalNominalInputsMatched':True,
             'historicalIdentityChecks':identity_checks,'requiredFailures':required_failures,

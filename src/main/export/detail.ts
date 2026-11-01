@@ -5,6 +5,7 @@ import type { WorkingFrame } from '../../shared/adjustments'
 import type { DetailAdmission } from '../../shared/detail-resources'
 import { detailFrameMemoryPlan, detailStreamMemoryPlan } from '../../shared/detail-resources'
 import { detailWorkingFrame } from '../processing/detail-frame'
+import { spatialExecutionBackend } from '../processing/spatial-backend'
 import { prepareDetailWorkingAsset } from '../processing/detail-preparation'
 import { readRasterWorking } from '../processing/detail-preview'
 import {
@@ -134,7 +135,7 @@ export async function prepareExportDetailStage(
   }
   let completed = false
   try {
-    const mode = (process.env.IRODORI_EXPORT_BACKEND ?? 'auto') as 'auto' | 'cpu' | 'gpu'
+    const mode = spatialExecutionBackend(process.env.IRODORI_EXPORT_BACKEND, 'detail')
     let asset: WorkingAsset,
       frame: WorkingFrame | undefined,
       work: NonNullable<ExportDetailStageDiagnostics['work']>

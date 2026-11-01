@@ -8,8 +8,13 @@ model and passing independent scalar, native C++, WebGPU and hidden WebGL eviden
 GPU/CPU preview/export and shipping native adapters have focused coverage.
 Settings 10/catalog 20, partial API/MCP patches, inspector wheel/numeric controls,
 reset, shared history and small-raster frozen export have hidden/service evidence.
-Full HDR application, real-photo, native visual/input and source-matched performance
-acceptance remain unfinished. This is part of Goal 1 in [professional editing](professional-editing.md).
+Combined real Sony RAW, photographic raster, synthetic ISO gain-map and genuine
+v4 merge edits, frozen export and restart with source/master preservation also pass
+focused checks. Native keyboard/minimum-size checks pass on Bazzite after the GPU
+cleanup; see the [acceptance record](professional-editing-processing.md) and current
+[GPU migration boundaries](../gpu-processing.md). Broader photographic appearance,
+physical HDR and source-matched sustained performance acceptance remain unfinished.
+This is part of Goal 1 in [professional editing](professional-editing.md).
 
 ## Goal
 
@@ -58,13 +63,15 @@ frozen export jobs. Neutral grading preserves the existing intensity path exactl
 Reuse the established [global intensity model](vibrance-saturation.md),
 [mixer](color-mixer.md), inspector disclosures, shared gesture/history service and
 [input conventions](../input-design.md). Goal 1 does not depend on Goal 2 curves or
-local adjustments. Source retention, CPU fallback and resource admission remain shared.
+local adjustments. Source retention, GPU resource admission and explicit capability/retry handling remain shared under the [GPU-only direction](../gpu-processing.md).
 
 ## Failure handling
 
 Reject unknown tones, malformed versions and nonfinite/out-of-range controls before
 history writes or allocation. Unsupported backend arithmetic cannot silently bypass
 a saved grade. Cancel obsolete work and preserve the last matching confirmed frame.
+GPU faults preserve edits and originals, drain resources and expose an appropriate
+GPU retry; new processing must not add CPU repair or a duplicate CPU renderer.
 
 ## Acceptance criteria
 
@@ -72,7 +79,7 @@ a saved grade. Cancel obsolete work and preserve the last matching confirmed fra
   Blending and Balance; alpha remains unchanged.
 - Independent references verify hue directions, normalized continuous tonal weights,
   balance direction, tint/luminance behavior and signed/16×-white values.
-- CPU, native, WebGPU, WebGL and exported pixels retain the fixed numerical limits.
+- Production GPU and exported pixels retain the fixed numerical limits against independent references; historical CPU/native proofs remain evidence without requiring duplicate production backends.
   Single-pass integration and retained source reuse meet existing resource gates.
 - Each gesture commits once through shared history, including reset, Undo/Redo,
   restart, stale revisions and equivalent typed UI/MCP edits.

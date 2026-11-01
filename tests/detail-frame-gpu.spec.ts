@@ -4,9 +4,9 @@ import { createSpatialDetailGpu } from '../src/main/gpu/spatial-detail'
 import { detailFrame, detailFrameJob } from './detail-frame.helpers'
 import { sha } from './export.helpers'
 
-test('tiny GPU frame bands preserve both primary domains, exact coverage and equivalent precision recovery', async () => {
+test('tiny GPU frame bands preserve both primary domains and exact coverage without CPU repair', async () => {
   for (const primaries of ['srgb', 'rec2020'] as const) {
-    const frame = detailFrame(19, 131, primaries === 'rec2020', true),
+    const frame = detailFrame(19, 131, primaries === 'rec2020'),
       job = detailFrameJob(primaries),
       before = Buffer.from(frame.data.buffer).toString('hex'),
       gpu = createSpatialDetailGpu()
@@ -38,10 +38,10 @@ test('tiny GPU frame bands preserve both primary domains, exact coverage and equ
       expect(maximum).toBeLessThanOrEqual(1)
       expect(alphaExact && transparentExact).toBe(true)
       expect(result.diagnostics).toMatchObject({
-        backend: 'mixed',
-        gpuTiles: 2,
-        cpuTiles: 1,
-        precisionRecoveryTiles: 1,
+        backend: 'gpu',
+        gpuTiles: 3,
+        cpuTiles: 0,
+        precisionRecoveryTiles: 0,
         maxSourceStrips: 3,
       })
       expect(result.diagnostics.adapter).toBeTruthy()
@@ -59,5 +59,30 @@ test('tiny GPU frame bands preserve both primary domains, exact coverage and equ
     } finally {
       await gpu.close()
     }
+  }
+})
+
+test('unsupported tiny alpha after a completed GPU band refuses the frame and retires GPU resources without changing its source', async () => {
+  const frame = detailFrame(19, 131),
+    job = detailFrameJob('srgb'),
+    gpu = createSpatialDetailGpu()
+  frame.data[(130 * frame.width + 1) * 4 + 3] = 2 ** -80
+  const before = new Uint32Array(frame.data.buffer).slice()
+  try {
+    await expect(
+      detailWorkingFrame(
+        frame,
+        { ...job, backend: 'gpu' },
+        new AbortController().signal,
+        () => gpu,
+      ),
+    ).rejects.toThrow('Detail GPU precision is unsupported for positive alpha below 2^-20.')
+    expect(gpu.adapter).toBeTruthy()
+    expect(gpu.allocatedBytes).toBe(0)
+    expect(gpu.programCount).toBe(0)
+    expect(gpu.precisionRecoveryTiles).toBe(0)
+    expect(new Uint32Array(frame.data.buffer)).toEqual(before)
+  } finally {
+    await gpu.close()
   }
 })

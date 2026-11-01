@@ -140,6 +140,46 @@ export function exportResizeBytes(
     rows = Math.min(height, Math.ceil(6 * Math.max(1, height / outHeight)) + 2)
   return bytes(taps * 128 + width * channels * 4 + (rows + 2) * outWidth * channels * 4 + 16 * 1024)
 }
+
+/** Conservative GPU row-cache phase; rendition buffers retire before this allocation. */
+export function exportResizeGpuAllocation(
+  width: number,
+  height: number,
+  outWidth: number,
+  outHeight: number,
+  channels: number,
+  admission: ExportAdmission,
+) {
+  const referenceHostBytes = exportResizeBytes(width, height, outWidth, outHeight, channels)
+  if (width === outWidth && height === outHeight)
+    return Object.freeze({ ...allocation(admission, 0), rowCapacity: 0, gpuLimitBytes: 0 })
+  const rowCapacity = Math.min(height, Math.ceil(6 * Math.max(1, height / outHeight)) + 2),
+    horizontalTaps = Math.ceil(6 * Math.max(width, outWidth) + 2 * outWidth),
+    verticalTaps = Math.ceil(6 * Math.max(height, outHeight) + 2 * outHeight),
+    // Four words per descriptor/tap also cover split-weight packets without relying on their layout.
+    tableBytes = bytes(16 * (outWidth + outHeight + horizontalTaps + verticalTaps)),
+    inputRowBytes = bytes(width * channels * 4),
+    outputRowBytes = bytes(outWidth * channels * 4),
+    rowMapBytes = bytes(height * 4),
+    gpuBytes = bytes(
+      256 + inputRowBytes + (rowCapacity + 2) * outputRowBytes + tableBytes + rowMapBytes,
+    ),
+    // Retain the existing conservative host allowance, plus snapshots/uploads/readback.
+    hostBytes = bytes(
+      referenceHostBytes + 4 * tableBytes + 2 * inputRowBytes + 3 * outputRowBytes + rowMapBytes,
+    ),
+    plan = allocation(admission, hostBytes, gpuBytes),
+    gpuLimitBytes = Math.min(
+      EXPORT_GPU_LIMIT_BYTES,
+      Math.max(0, admission.policy.vram.effectiveBytes - admission.reservation.vramBytes),
+    )
+  return Object.freeze({
+    ...plan,
+    accepted: plan.accepted && gpuBytes <= gpuLimitBytes,
+    rowCapacity,
+    gpuLimitBytes,
+  })
+}
 export interface ExportRenderLayout {
   readonly width: number
   readonly height: number
@@ -197,6 +237,20 @@ export function exportRenderMemoryPlan(layout: ExportRenderLayout, admission: Ex
       availableVram,
     ),
     gpuWorkBytes = bytes(capacity * (3 * 16 + 2 * gpuBuffers.stride * 4) + controls),
+    resizeGpu = exportResizeGpuAllocation(
+      layout.width,
+      layout.height,
+      layout.outWidth,
+      layout.outHeight,
+      channels,
+      {
+        policy: admission.policy,
+        reservation: {
+          ramBytes: bytes(admission.reservation.ramBytes + retainedBytes),
+          vramBytes: admission.reservation.vramBytes,
+        },
+      },
+    ),
     cpu = allocation(admission, retainedBytes + Math.max(cpuWorkBytes, resizeBytes)),
     gpu = allocation(
       admission,
@@ -209,6 +263,7 @@ export function exportRenderMemoryPlan(layout: ExportRenderLayout, admission: Ex
     cpuWorkBytes,
     gpuWorkBytes,
     resizeBytes,
+    resizeGpu,
     cpu,
     gpu,
     gpuAccepted: layout.gpuAllowed && gpuBuffers.accepted && gpu.accepted,

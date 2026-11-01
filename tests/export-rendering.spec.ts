@@ -13,12 +13,14 @@ import { renderHdrContent } from '../src/shared/display-rendering'
 import { adjustHdr } from '../src/shared/hdr'
 import { PreviewEngine } from '../src/main/preview-engine'
 import { ExportProcess } from '../src/main/export/process'
+import { exportResizePolicy } from '../src/main/export/resize-policy'
 import { workingSourceIdentity, validateWorkingAsset } from '../src/main/working-assets'
 import { automaticLensSettings } from '../src/shared/lens'
 import { processingMetadata } from '../src/main/processing/metadata'
 import type { ExportSource } from '../src/main/export/types'
 import { exportFixture, sha, syntheticExportSource } from './export.helpers'
 import { fromHalf, readGainJpeg, reconstruct, srgbLinear, to2020 } from './export-reference'
+import { cropAdmission } from './crop-frame.helpers'
 
 test('independent Float64 reconstruction matches licensed black-offset and partial-headroom vectors', () => {
   for (const vector of vectors.vectors) {
@@ -195,6 +197,8 @@ test('Lanczos3 resizes both renditions with identical odd geometry in linear lig
   const result = await renderExport({
     source,
     options: { ...defaultExportOptions, size: { mode: 'fit', width: 31, height: 29 } },
+    resizePolicy: { ...exportResizePolicy },
+    resizeAdmission: cropAdmission(),
     directory,
     hdr: true,
   })
@@ -290,6 +294,8 @@ test('real Sony RAW prepares independently, retains frozen white balance/lens ed
           metadata: 'camera-copyright',
           size: { mode: 'longest', edge: 97 },
         },
+        resizePolicy: { ...exportResizePolicy },
+        resizeAdmission: cropAdmission(),
         directory,
         hdr: true,
       },

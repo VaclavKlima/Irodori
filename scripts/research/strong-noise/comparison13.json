@@ -1,0 +1,85 @@
+{
+  "version": "detail-chroma-matching-context-comparison-13-v1",
+  "state": "Prospectively declared examined regression screen after C12 rejection; no C13 generation, quality or adoption claimed.",
+  "policy": "assets/tests/references/detail/strong-noise/chroma-matching-context.md",
+  "mathModule": "chroma-context-patchwise.py",
+  "referenceModule": "reference/chroma-context.py",
+  "candidate": {
+    "id": "noise-scaled-k40-chroma-r10-match5",
+    "variance": "frozen-global-directional-mad-v1",
+    "correction": "both",
+    "adaptive": "none",
+    "blend": "quadratic-to-50-v1",
+    "selfPolicy": "legacy",
+    "luminanceBandwidthMaximum": 0.024,
+    "chromaBandwidthMaximum": 0.024,
+    "chromaSigmaFactor": 0.4,
+    "bandwidthPolicy": "global-chroma-sigma-floor-v1",
+    "chromaSpatialPolicy": "uniform-search-v1",
+    "aggregation": "normalized-patch-estimates-f32-zero-v1",
+    "adoptionCandidate": true,
+    "role": "Unenabled larger chroma-matching-context hypothesis; luminance arithmetic and every fixed quality gate retained.",
+    "luminanceSearchRadius": 3,
+    "chromaSearchRadius": 10,
+    "luminanceMatchingRadius": 1,
+    "chromaMatchingRadius": 2,
+    "targetPatchRadius": 1
+  },
+  "retainedInputs": {
+    "edges": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9-gpu/run-vcolhc_q",
+      "resultsSha256": "9d93d63665f500a43c4d794ec8c0774de2295b67454eb0826971527fb86e9fd7",
+      "estimator": "diagnostics.estimate"
+    },
+    "flatStress": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9-gpu/run-6zfo1gji",
+      "resultsSha256": "2d7319a7eb7d225d810ff74fcac77504705a6f41056159b581941284f68f1c0e",
+      "estimator": "diagnostics.estimate"
+    },
+    "qualifiedTextures": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9/run-jtxn_2oh",
+      "resultsSha256": "83ac36b7dce015fb4893fa669d41a1448ccea331d84cac15dcae96782b15cc72",
+      "estimator": "diagnostics.estimator"
+    }
+  },
+  "stages": [
+    {
+      "id": "hard-edge-regression",
+      "source": "edges",
+      "rows": [5, 7],
+      "requiredEarlierStages": []
+    },
+    {
+      "id": "edge-regression-anchors",
+      "source": "edges",
+      "rows": [0, 1, 2, 3, 4, 6],
+      "requiredEarlierStages": ["hard-edge-regression"]
+    },
+    {
+      "id": "flat-stress",
+      "source": "flatStress",
+      "rows": [
+        4, 5, 10, 11, 28, 29, 34, 35, 52, 53, 58, 59, 76, 77, 82, 83, 100, 101, 106, 107, 124, 125,
+        130, 131
+      ],
+      "requiredEarlierStages": ["hard-edge-regression", "edge-regression-anchors"]
+    },
+    {
+      "id": "texture-regression",
+      "source": "qualifiedTextures",
+      "rows": [12, 13, 20, 21, 48, 49, 52, 53, 56, 57, 60, 61],
+      "requiredEarlierStages": ["hard-edge-regression", "edge-regression-anchors", "flat-stress"]
+    }
+  ],
+  "interpretation": "All44 original examined inputs remain mandatory for a full screen pass. Test the two C12 failure cases first, then the six remaining edges,24 flats and12 textures, with exactly passing prior receipts. Reject on any required failed stage; no stage, assertion, fixed gate, old rejection or fresh-holdout requirement is waived. Only chroma matching context changes from3x3 to5x5 relative toC12; target estimates remain3x3. No production or photographic acceptance follows from this screen.",
+  "rejectionEvidence": {
+    "c12Results": {
+      "path": "artifacts/detail-research/strong-noise/c12-chroma-wide-screen-zmxaqv83/run-edge-regression-nn9o_0u7/results.json",
+      "sha256": "62c667d9bb96bb722492d8706df8f0ca13186102392eb0c833a8f3f348358ca0"
+    },
+    "inverseDiagnosis": {
+      "path": "artifacts/detail-research/strong-noise/c12-retained-inverse-diagnosis-vvur2nm4/diagnosis.json",
+      "sha256": "65d7135d42746c69118c1105f422f85eef8cab524dc03acf21ed4fb048b810db"
+    }
+  }
+}

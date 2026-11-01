@@ -2,12 +2,26 @@
 
 ## Status
 
-**Implemented; acceptance in progress.** Bounded read-only proposals and explicit
+**Functional implementation; measured-neutral accuracy remains pending.** Bounded read-only proposals and explicit
 Apply share existing Temperature, Tint and As Shot history. Independent synthetic
 D50/D65, rejection, coordinate, real isolated-worker/service and synthetic UI-component
 checks pass. [Verification receipts](professional-editing-processing.md#inspector-implementation-evidence)
-keep those scopes distinct. Actual Sony photo, native pointer/visual and physical-neutral
-acceptance remain pending; this is not a claim of physical camera calibration.
+keep those scopes distinct.
+
+Focused real-Sony-RAW functional/native acceptance also passes on Bazzite:
+[872 checks, zero failures or skips, 53.45 seconds](../../artifacts/verification/2026-10-30T17-56-47.992Z-check-Pgdcs1/summary.md),
+including shared checks. Numeric and pointer sampling, sample-size controls,
+Fit/100% pan, Escape, one combined Kelvin/Tint edit, Undo/Redo, restart and As Shot
+pass at 1100 × 700 with the Console open; originals remain unchanged.
+These checks use Electron-delivered keyboard/pointer events under native focus
+guards, not physical input-device certification. The Sony fixture and its
+lighting are unmeasured. Neutral accuracy under two measured physical illuminants
+remains pending; no physical camera calibration is claimed.
+Later combined real-source and native editor checkpoints retain the functional
+editing paths after the GPU cleanup; see the
+[acceptance record](professional-editing-processing.md) and current
+[GPU migration boundaries](../gpu-processing.md). Broader photographic quality,
+physical HDR and sustained performance acceptance remain separate.
 [Shared requirements](README.md#shared-implementation-requirements) apply.
 
 ## Initial estimator decision
@@ -21,7 +35,10 @@ selecting the last pixel. A 7, 15 or 31 pixel square clips at image boundaries.
 At most two authenticated 64-row strips are read, copying at most 961 pixels.
 No rendered canvas pixels, additional RAW decode or full-image GPU readback is used
 when the working asset is prepared. Estimation is small CPU work in the isolated
-image worker; the accepted edit uses the ordinary GPU preview and CPU fallback.
+image worker; the accepted edit uses the ordinary GPU pipeline with explicit
+capability errors, resource retirement and GPU retry under the
+[GPU-only direction](../gpu-processing.md). This sampled estimator is host work,
+not a second white-balance rendering backend.
 
 Before integration, freeze these initial bounds: at least 16 valid pixels and 75%
 coverage; alpha at least 0.99; every reconstructed camera channel at least 0.005 of
@@ -45,7 +62,8 @@ The independent initial checks use the published
 [D50/D65 chromaticities](https://www.w3.org/TR/2026/CRD-css-color-4-20261022/#predefined)
 and synthetic camera responses. They verify recovery and rejection against these
 fixed limits; they are not measured photographs under two physical illuminants.
-That photographic criterion and real Sony source acceptance remain pending.
+That photographic criterion remains pending. The real Sony functional/native
+check above uses an unmeasured scene and does not replace it.
 
 ## Goal
 

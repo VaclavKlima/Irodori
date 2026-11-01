@@ -1,0 +1,59 @@
+{
+  "version": "detail-patch-mean-guard-comparison-10-v1",
+  "state": "Prospectively declared regression diagnostic; no candidate filtering or adoption is claimed.",
+  "policy": "assets/tests/references/detail/strong-noise/patch-mean-guard.md",
+  "mathModule": "mean-guard-patchwise.py",
+  "referenceModule": "mean-guard-reference.py",
+  "candidate": {
+    "id": "noise-scaled-k55-mean-guard",
+    "variance": "frozen-global-directional-mad-v1",
+    "correction": "both",
+    "adaptive": "none",
+    "blend": "quadratic-to-50-v1",
+    "selfPolicy": "legacy",
+    "luminanceBandwidthMaximum": 0.024,
+    "chromaBandwidthMaximum": 0.024,
+    "chromaSigmaFactor": 0.55,
+    "bandwidthPolicy": "global-chroma-sigma-floor-v1",
+    "chromaDistancePolicy": "patch-mean-covariance-floor-v1",
+    "aggregation": "normalized-patch-estimates-f32-zero-v1",
+    "adoptionCandidate": true,
+    "role": "Unenabled original hypothesis; all unchanged quality gates required."
+  },
+  "retainedInputs": {
+    "highNoise": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9-gpu/run-6zfo1gji",
+      "resultsSha256": "2d7319a7eb7d225d810ff74fcac77504705a6f41056159b581941284f68f1c0e",
+      "estimator": "diagnostics.estimate"
+    },
+    "qualifiedTextures": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9/run-jtxn_2oh",
+      "resultsSha256": "83ac36b7dce015fb4893fa669d41a1448ccea331d84cac15dcae96782b15cc72",
+      "estimator": "diagnostics.estimator"
+    }
+  },
+  "stages": [
+    {
+      "id": "edge-regression",
+      "source": "highNoise",
+      "rows": [292, 298, 317, 323],
+      "requiredEarlierStages": []
+    },
+    {
+      "id": "flat-stress",
+      "source": "highNoise",
+      "rows": [
+        4, 5, 10, 11, 28, 29, 34, 35, 52, 53, 58, 59, 76, 77, 82, 83, 100, 101, 106, 107, 124, 125,
+        130, 131
+      ],
+      "requiredEarlierStages": ["edge-regression"]
+    },
+    {
+      "id": "texture-regression",
+      "source": "qualifiedTextures",
+      "rows": [12, 13, 20, 21, 48, 49, 52, 53, 56, 57, 60, 61],
+      "requiredEarlierStages": ["edge-regression", "flat-stress"]
+    }
+  ],
+  "interpretation": "Forty examined regression inputs, not fresh holdouts. No source regeneration or estimator changes; original C9 gates and rejected comparison evidence are preserved. Any required failure rejects this candidate and prevents later screen stages. A pass does not establish production or photographic acceptance."
+}

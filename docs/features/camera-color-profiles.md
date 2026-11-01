@@ -22,6 +22,8 @@ Extend camera providers with characterization identity and supported camera/reco
 
 White balance and characterization must compose once in a defined order, retaining HDR values and avoiding a second application of gains. Compare current Sony As Shot output before selecting defaults. Keep tone rendering and gamut compression in the separate output pipeline. Research format/library choices and redistribution licenses before shipping profile data; the present `CameraProfile` interface is not a general profile loader.
 
+New characterization transforms use the shared [GPU pipeline](../gpu-processing.md), with independent numerical references. Existing decoders, provider matching, calibration validation and coefficient preparation may remain CPU work; do not add a parallel production CPU transform.
+
 ## API/MCP implications
 
 Expose compatible profile IDs, versions, availability reasons, and a revision-checked profile edit through the shared service. MCP uses the same validation as the selector. Do not accept profile paths or arbitrary executable plugins.
@@ -36,7 +38,7 @@ Requires [HDR processing](hdr-processing.md) and current camera/white-balance pr
 
 ## Failure handling
 
-Reject singular matrices, nonfinite LUTs, invalid illuminants, or mismatched camera modes. Keep normal viewing available with an explicit fallback profile label where supported; block unavailable historical rendering instead of misrepresenting it as exact.
+Reject singular matrices, nonfinite LUTs, invalid illuminants, or mismatched camera modes. Keep normal viewing available with an explicit fallback profile label where supported; block unavailable historical rendering instead of misrepresenting it as exact. Unsupported GPU capabilities or device loss preserve settings and originals, retire resources and permit an appropriate GPU retry without CPU rendering recovery.
 
 ## Acceptance criteria
 
@@ -44,7 +46,7 @@ Reject singular matrices, nonfinite LUTs, invalid illuminants, or mismatched cam
 - Verify neutral ramps, skin, foliage, saturated lights, mixed light, and above-white samples in both SDR and HDR transforms; record visual review separately from chart metrics.
 - As Shot and legacy settings preserve their established output; profile edits, white balance, history branching, restart, and UI/MCP parity pass.
 - A second camera provider integrates without camera names or aliases added to GPU algorithms. Unsupported modes and invalid profile data return deterministic reasons.
-- CPU/GPU transforms meet foundation tolerances, and cache keys distinguish profile versions without changing originals.
+- GPU transforms meet foundation tolerances against independent references; capability refusal, device loss/retry and cleanup pass, and cache keys distinguish profile versions without changing originals.
 
 ## References
 

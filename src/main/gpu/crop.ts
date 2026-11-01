@@ -2,7 +2,6 @@ import { RawGpuRenderer } from './raw-renderer'
 import type { CropGeometry } from '../../shared/crop'
 import {
   CROP_COVERAGE_FLOOR,
-  resampleCropTile,
   type CropRectangle,
   type CropSourceWindow,
 } from '../../shared/crop-filter'
@@ -68,14 +67,13 @@ export async function createCropGpu(): Promise<CropGpu> {
         ],
       })
     let disposed = false,
-      recoveries = 0,
       pending: Promise<Float32Array> | undefined,
       closing: Promise<void> | undefined
     return {
       adapter,
       bytes: CROP_GPU_BYTES,
       get precisionRecoveryTiles() {
-        return recoveries
+        return 0
       },
       render(geometry, tile, source, signal) {
         if (disposed || pending)
@@ -128,10 +126,7 @@ export async function createCropGpu(): Promise<CropGpu> {
                 break
               }
             if (!partial) throw new Error('The GPU crop lost opaque source coverage.')
-            // Near the discontinuous coverage guard, reconstruct with canonical
-            // Float64 coordinates instead of trusting a rounded GPU classification.
-            result = resampleCropTile(geometry, tile, source)
-            recoveries++
+            throw new Error('GPU crop precision is unsupported near the alpha coverage cutoff.')
           }
           signal.throwIfAborted()
           return result

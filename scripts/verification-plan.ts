@@ -14,6 +14,7 @@ interface Suite {
   scopes: Scope[]
   exclusive?: boolean
   family?: BenchmarkFamily
+  explicitOnly?: boolean
 }
 const definitions: Suite[] = [
   { file: 'camera-runtime', group: 'node', scopes: ['mcp'] },
@@ -26,6 +27,7 @@ const definitions: Suite[] = [
   { file: 'edit-transfer-journal', group: 'service', scopes: ['adjustments', 'library'] },
   { file: 'jpeg-ycbcr-model', group: 'node', scopes: ['adjustments', 'library'] },
   { file: 'jpeg-ycbcr-reference', group: 'service', scopes: ['adjustments', 'library'] },
+  { file: 'jpeg-ycbcr-fullsize-reference', group: 'service', scopes: [], exclusive: true },
   {
     file: 'professional-editing-acceptance',
     group: 'raw-gpu',
@@ -45,6 +47,9 @@ const definitions: Suite[] = [
     scopes: ['adjustments', 'preview'],
     exclusive: true,
   },
+  { file: 'professional-spatial-commit', group: 'raw-gpu', scopes: [], exclusive: true },
+  { file: 'professional-spatial-contention', group: 'raw-gpu', scopes: [], exclusive: true },
+  { file: 'professional-color-photo-proof', group: 'raw-gpu', scopes: [], exclusive: true },
   {
     file: 'edit-transfer-visual',
     group: 'electron',
@@ -57,16 +62,125 @@ const definitions: Suite[] = [
     scopes: ['adjustments', 'preview', 'ui'],
     exclusive: true,
   },
+  { file: 'professional-picker-native', group: 'raw-gpu', scopes: [], exclusive: true },
+  { file: 'professional-dropdown-native', group: 'raw-gpu', scopes: [], exclusive: true },
+  { file: 'professional-enlargement-hdr-reference', group: 'service', scopes: [], exclusive: true },
   { file: 'edit-transfer-ui', group: 'electron', scopes: ['adjustments', 'library', 'mcp', 'ui'] },
   { file: 'profile-migration', group: 'node', scopes: ['library'] },
   { file: 'app-identity', group: 'node', scopes: ['ui', 'library'] },
   { file: 'spatial-detail', group: 'node', scopes: ['adjustments', 'preview'] },
-  { file: 'strong-noise-reference', group: 'service', scopes: [], exclusive: true },
-  { file: 'strong-noise-estimate', group: 'service', scopes: [], exclusive: true },
-  { file: 'strong-noise-scaled-reference', group: 'service', scopes: [], exclusive: true },
+  {
+    file: 'strong-noise-reference',
+    group: 'service',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
+    file: 'strong-noise-estimate',
+    group: 'service',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
+    file: 'strong-noise-scaled-reference',
+    group: 'service',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
+    file: 'strong-noise-mean-guard',
+    group: 'service',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
+    file: 'strong-noise-chroma-uniform',
+    group: 'service',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
+    file: 'strong-noise-chroma-wide',
+    group: 'service',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
+    file: 'strong-noise-chroma-context',
+    group: 'service',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
+    file: 'strong-noise-chroma-full',
+    group: 'service',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
+    file: 'strong-noise-chroma-pilot',
+    group: 'service',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
+    file: 'strong-noise-chroma-pilot-patch',
+    group: 'service',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
+    file: 'strong-noise-pilot-screen',
+    group: 'service',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  { file: 'strong-noise-gpu', group: 'raw-gpu', scopes: [], exclusive: true, explicitOnly: true },
+  {
+    file: 'strong-noise-chroma-uniform-gpu',
+    group: 'raw-gpu',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
+    file: 'strong-noise-pilot-patch-gpu',
+    group: 'raw-gpu',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
+    file: 'strong-noise-pilot-patch-quality',
+    group: 'raw-gpu',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
+    file: 'strong-noise-gpu-child',
+    group: 'raw-gpu',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  { file: 'strong-noise-study-audit', group: 'node', scopes: [] },
   { file: 'detail-quality', group: 'service', scopes: ['adjustments', 'preview'] },
   { file: 'spatial-detail-gpu', group: 'raw-gpu', scopes: ['adjustments', 'preview'] },
   { file: 'detail-resources', group: 'node', scopes: ['adjustments', 'preview'] },
+  { file: 'detail-gpu-policy', group: 'service', scopes: ['adjustments', 'preview', 'library'] },
+  { file: 'crop-gpu-policy', group: 'service', scopes: ['adjustments', 'preview', 'library'] },
   { file: 'spatial-detail-owner', group: 'raw-gpu', scopes: ['adjustments', 'preview'] },
   { file: 'detail-preparation', group: 'service', scopes: ['adjustments', 'preview'] },
   { file: 'detail-preparation-gpu', group: 'raw-gpu', scopes: ['adjustments', 'preview'] },
@@ -186,6 +300,7 @@ const definitions: Suite[] = [
   { file: 'export-model', group: 'node', scopes: ['library'] },
   { file: 'export-enlargement-model', group: 'node', scopes: ['library', 'adjustments'] },
   { file: 'export-enlargement-gpu', group: 'raw-gpu', scopes: ['library', 'adjustments'] },
+  { file: 'export-resize-gpu', group: 'raw-gpu', scopes: ['library', 'adjustments'] },
   { file: 'professional-enlargement-fullsize', group: 'raw-gpu', scopes: [], exclusive: true },
   {
     file: 'export-enlargement',
@@ -196,6 +311,7 @@ const definitions: Suite[] = [
   { file: 'export-enlargement-ui', group: 'electron', scopes: ['ui', 'library', 'mcp'] },
   { file: 'export-jpeg', group: 'node', scopes: ['library'] },
   { file: 'export-gpu', group: 'raw-gpu', scopes: ['preview', 'library'] },
+  { file: 'export-gpu-policy', group: 'service', scopes: ['adjustments', 'library'] },
   { file: 'export-native', group: 'raw-gpu', scopes: ['library'] },
   { file: 'export-native-fullsize', group: 'raw-gpu', scopes: [] },
   { file: 'export-context', group: 'service', scopes: ['library', 'mcp'] },
@@ -350,6 +466,7 @@ const definitions: Suite[] = [
   { file: 'hdr-cpu-presenter', group: 'node', scopes: ['preview', 'adjustments'] },
   { file: 'write-hdr-strip', group: 'node', scopes: ['preview'] },
   { file: 'editor-input-pacing', group: 'node', scopes: ['preview', 'adjustments'] },
+  { file: 'editor-pacing-trace', group: 'node', scopes: [] },
   { file: 'edit-gesture-commit', group: 'node', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-gesture-handoff', group: 'node', scopes: ['preview', 'adjustments'] },
   {
@@ -365,6 +482,14 @@ const definitions: Suite[] = [
     exclusive: true,
   },
   { file: 'editor-responsiveness-benchmark', group: 'benchmark', scopes: [], family: 'hdr' },
+  {
+    file: 'editor-pacing-diagnostic',
+    group: 'benchmark',
+    scopes: [],
+    family: 'hdr',
+    exclusive: true,
+    explicitOnly: true,
+  },
   { file: 'editor-responsiveness-interference', group: 'benchmark', scopes: [], family: 'hdr' },
   {
     file: 'editor-navigation-responsiveness-benchmark',
@@ -565,7 +690,9 @@ export function selectPlan(args: string[]): VerificationPlan {
       requestedTargets.push(target)
     }
     requestedTargets = [...new Set(requestedTargets)]
-    selected = suites.filter((s) => s.group === 'node' || requestedTargets.includes(s.target))
+    selected = suites.filter(
+      (s) => (s.group === 'node' && !s.explicitOnly) || requestedTargets.includes(s.target),
+    )
     mcp = requestedTargets.includes(isolatedMcp.target)
   } else if (mode === '--adjustment-benchmark') {
     if (
@@ -613,6 +740,9 @@ export function selectPlan(args: string[]): VerificationPlan {
     )
     mcp = requested.includes('mcp')
   }
+  // Unadopted research and instrumented diagnostics require deliberate targets;
+  // they are not production regressions or ordinary benchmark checkpoints.
+  if (mode !== '--target') selected = selected.filter((suite) => !suite.explicitOnly)
   const groups: ExecutionGroup[] = []
   const add = (
     name: Group,

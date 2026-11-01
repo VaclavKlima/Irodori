@@ -173,6 +173,11 @@ export function App() {
     hydrate,
   } = library
   const edits = useEdits(photo?.id, workspace === 'editor')
+  const flushEdits = edits.flush
+  const flushPresentationFailure = useCallback(() => {
+    // Save the active draft before its input is disabled; useEdits owns history and errors.
+    void flushEdits().catch(() => undefined)
+  }, [flushEdits])
   const displayTarget = useDisplayState()
   const previewTools = usePreviewTools(photo?.id)
   const [interactivePhoto, setInteractivePhoto] = useState<string | null>(null)
@@ -1125,6 +1130,7 @@ export function App() {
             editingEpoch={edits.epoch}
             gestureCommit={edits.gestureCommit?.photoId === photo?.id ? edits.gestureCommit : null}
             onEditingReady={setInteractivePhoto}
+            onPresentationFailure={flushPresentationFailure}
             total={total}
             position={position}
             onNavigate={navigate}

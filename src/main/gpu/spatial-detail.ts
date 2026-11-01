@@ -11,7 +11,6 @@ import {
 import {
   compileNoiseReduction,
   compileDetailSharpening,
-  spatialDetailTile,
   spatialDetailSourceBounds,
   detailSourceBounds,
   validateDetailWindow,
@@ -64,7 +63,6 @@ export function createSpatialDetailGpu(
     pending: Promise<Float32Array> | undefined,
     initializing: Promise<void> | undefined,
     closing: Promise<void> | undefined,
-    recoveries = 0,
     input: GPUBuffer,
     features: GPUBuffer,
     intermediate: GPUBuffer,
@@ -131,7 +129,7 @@ export function createSpatialDetailGpu(
       return programs.size
     },
     get precisionRecoveryTiles() {
-      return recoveries
+      return 0
     },
     render(job, signal) {
       if (disposed || pending)
@@ -160,7 +158,21 @@ export function createSpatialDetailGpu(
           throw new Error(
             'The retained detail GPU buffers exceed the frozen managed image budgets.',
           )
-        if (!active) return spatialDetailTile(image, tile, job.source, noise, sharp, primaries)
+        if (!active) {
+          const result = new Float32Array(tile.width * tile.height * 4),
+            outputWords = new Uint32Array(result.buffer),
+            sourceWords = new Uint32Array(
+              job.source.data.buffer,
+              job.source.data.byteOffset,
+              job.source.data.length,
+            )
+          for (let y = 0; y < tile.height; y++) {
+            const at =
+              ((tile.top + y - job.source.top) * job.source.width + tile.left - job.source.left) * 4
+            outputWords.set(sourceWords.subarray(at, at + tile.width * 4), y * tile.width * 4)
+          }
+          return result
+        }
         const source = {
           left: job.source.left,
           top: job.source.top,
@@ -168,19 +180,10 @@ export function createSpatialDetailGpu(
           height: job.source.height,
           data: new Float32Array(job.source.data),
         }
-        // Tiny coverage products can underflow on the GPU. Use the same Float64
-        // operator, retaining exact alpha and RGB rather than omitting the edit.
-        let lowAlpha = false
+        // Coverage products below the supported GPU precision domain can underflow.
         for (let i = 3; i < source.data.length; i += 4)
-          if (source.data[i] > 0 && source.data[i] < 2 ** -20) {
-            lowAlpha = true
-            break
-          }
-        if (lowAlpha) {
-          const recovered = spatialDetailTile(image, tile, source, noise, sharp, primaries)
-          recoveries++
-          return recovered
-        }
+          if (source.data[i] > 0 && source.data[i] < 2 ** -20)
+            throw new Error('Detail GPU precision is unsupported for positive alpha below 2^-20.')
         if (!memory.gpuAccepted)
           throw new Error('Detail GPU processing exceeds the frozen managed image budgets.')
         await initialize(signal)
@@ -262,7 +265,6 @@ export function createSpatialDetailGpu(
         } finally {
           staging.unmap()
         }
-        let finite = true
         const actualWords = new Uint32Array(result.buffer),
           sourceWords = new Uint32Array(source.data.buffer)
         for (let y = 0; y < tile.height; y++)
@@ -271,12 +273,12 @@ export function createSpatialDetailGpu(
               at = ((tile.top + y - source.top) * source.width + tile.left + x - source.left) * 4
             if (actualWords[i + 3] !== sourceWords[at + 3])
               throw new Error('The GPU detail result changed source alpha.')
-            for (let c = 0; c < 3; c++) if (!Number.isFinite(result[i + c])) finite = false
+            for (let c = 0; c < 3; c++)
+              if (!Number.isFinite(result[i + c]))
+                throw new Error(
+                  'The GPU detail result contains non-finite RGB; this precision domain is unsupported.',
+                )
           }
-        if (!finite) {
-          result = spatialDetailTile(image, tile, source, noise, sharp, primaries)
-          recoveries++
-        }
         signal.throwIfAborted()
         return result
       })()

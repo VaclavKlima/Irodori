@@ -6,7 +6,7 @@ export const exportResizePolicy: Readonly<ExportResizePolicy> = Object.freeze({
   filter: EXPORT_RESIZE_VERSION,
 })
 
-/** Old jobs keep their no-enlargement default; new enlargement freezes policy and resources. */
+/** Prior resize versions are explicitly refused; saved options/results remain readable. */
 export function validateExportResizePolicy(job: ExportRenderJob): void {
   const policy = job.resizePolicy
   if (

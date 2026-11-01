@@ -74,6 +74,10 @@ export interface ExportDiagnostics {
     input: { width: number; height: number }
     output: { width: number; height: number }
     enlarged: boolean
+    renderer?: 'gpu' | 'cpu'
+    adapter?: string
+    gpuMemoryBytes?: number
+    peakCachedRows?: number
   }
   renderer: 'gpu' | 'cpu'
   encoder: 'native' | 'wasm' | 'sdr'

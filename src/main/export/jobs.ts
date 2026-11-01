@@ -7,7 +7,6 @@ import {
   defaultExportOptions,
   exportFilename,
   exportPresets,
-  exportAllowsEnlargement,
   validateExportOptions,
   validateExportPhotoIds,
   EXPORT_CODEC_VERSION,
@@ -324,7 +323,7 @@ export class ExportJobs {
                 sourceValidationMs += performance.now() - validationStarted
                 const detailActive = resolveDetailSettings(source.processing).active,
                   cropActive = source.processing.crop && !isUncropped(source.processing.crop),
-                  resizeActive = exportAllowsEnlargement(manifest.options.size),
+                  resizeActive = manifest.options.size.mode !== 'original',
                   admission =
                     cropActive || detailActive || resizeActive
                       ? await this.requireImageAdmission(

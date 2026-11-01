@@ -24,7 +24,7 @@ Test the exact bundled Electron/Chromium runtime, GPU backend, compositor, OS HD
 
 Production integration consumes a validated float frame and the selected tone/gamut transform. Declare canvas color space, reference white, alpha/compositing policy, and ownership of OS color conversion to prevent double transforms. Capability changes, monitor movement, scaling, sleep/wake, OS HDR toggles, and GPU/context loss invalidate the presentation target generation. Rapid changes must not flash stale HDR pixels or alter photo history.
 
-SDR fallback renders the same master and edit revision through the controlled SDR transform, with a matching placeholder or neutral loader. Never route HDR data through RGBA8 and still label it HDR. Native decoders and filesystem access remain outside the renderer; any renderer WebGPU use is presentation of validated data.
+SDR selection or a supported SDR monitor renders the same master and edit revision through the controlled SDR transform, with a matching placeholder or neutral loader. This output-target policy is separate from GPU failure under the [GPU-only direction](../gpu-processing.md). Never route HDR data through RGBA8 and still label it HDR. Native decoders and filesystem access remain outside the renderer; any renderer WebGPU use is presentation of validated data.
 
 ## API/MCP implications
 
@@ -40,13 +40,13 @@ The initial spike has no dependency on a production master: use synthetic float 
 
 ## Failure handling
 
-If HDR is unavailable, unknown, or lost, select SDR and show the reason without changing edits. A failed presentation device can use the current SDR fallback path after proper tone mapping. Do not imply that CPU rendering or a float texture alone guarantees HDR display.
+Unavailable or unknown monitor HDR headroom selects the supported SDR target with an accurate reason. GPU capability failure or device loss instead shows an explicit unavailable state and GPU retry, preserves pending/committed edits and source identity, and retires resources. It must not silently invoke CPU presentation or replace an active authored HDR source with its SDR primary. Retry refreshes the existing capability probe; healthy target changes retain the GPU source. Do not imply that a float texture alone guarantees HDR display.
 
 ## Acceptance criteria
 
 - Measure a neutral patch ladder containing 1×, 2×, and 4× reference white up to available headroom on actual HDR hardware. Record meter readings, OS settings, display model, calibration, runtime, GPU/driver, and output mode; distinguish panel limits from processing clipping.
 - Verify neutral/chromatic patches, SDR UI white, target gamut, and SDR/HDR comparison against known references. A screenshot or successful API call alone cannot pass this gate.
-- Monitor moves, HDR toggles, sleep/wake, context loss, mixed DPI, and missing capability queries produce correct target changes, stale-frame rejection, and labeled SDR fallback.
+- Monitor moves, HDR toggles, sleep/wake, mixed DPI and missing headroom queries produce correct target changes, stale-frame rejection and labeled supported SDR output. GPU/context loss separately verifies explicit errors, matching source/history preservation, resource cleanup and GPU retry against independent pixel references.
 - Maintain CSS-pixel zoom, pointer anchoring, pan constraints, capture cleanup, retries, and 1100 × 700 console layout. Record actual Electron presentation latency and memory separately from compute.
 - Complete the platform matrix below with evidence or a concrete unsupported reason before release; no unverified row may be marketed as working HDR.
 

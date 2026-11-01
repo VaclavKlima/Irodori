@@ -402,6 +402,39 @@ test uses direct DOM scrolling after a hidden Wayland resize, with explicit nati
 content-size bounds; compositor-visible visual/input and performance gates remain
 deferred while the user is playing.
 
+## Native SDR skin appearance — 2026-11-01
+
+The privacy-reviewed [Zephyris forearm fixture](../../assets/tests/images/raster/wikimedia/forearm-hair/README.md)
+is published unchanged under CC BY-SA 3.0 in fixture commit
+`ba7984e98a5637dc1fca186b3a59346d7df77c86`, integrated locally as `3bc8cb9`.
+It is an untagged processed JPEG interpreted as assumed sRGB, not calibrated
+color or RAW/HDR truth. The rejected serial-bearing candidate remains private.
+
+`professional-color-photo-proof` generates four actual application preview crops:
+baseline, moderate mixer, moderate grading and combined intensity/mixer/grading.
+Its focused **foreground** case passes **one check, zero failures/skips, 22.52 s**:
+`artifacts/verification/playwright-1793534598062-4faabf0a-c465-4ed6-8f62-58ede239d101/playwright/summary.json`.
+Current types, affected-file lint and formatting pass. The earlier registered
+selection's 883 shared passes and failed photograph case remain separate.
+
+All four proofs bind region (1880, 1168), 512 × 512, 100%/DPR 1, actual AMD RX
+7900 XTX/ANGLE hardware WebGL2, current source replies/settings and four persisted
+snapshots. Input, managed original and reused linear source hashes are preserved.
+The [credited gallery](../../artifacts/verification/playwright-1793534598062-4faabf0a-c465-4ed6-8f62-58ede239d101/playwright/results/professional-color-photo-p-15855-ve-WebGL-color-review-crops-raw-gpu/gallery.html)
+and [visual review](../../artifacts/verification/playwright-1793534598062-4faabf0a-c465-4ed6-8f62-58ede239d101/playwright/results/professional-color-photo-p-15855-ve-WebGL-color-review-crops-raw-gpu/review.md)
+record subtle skin-color shifts with recognizable hair/skin texture and no obvious
+banding in this region. This does not accept other skin tones, portrait faces,
+RAW/HDR, blue/purple lighting, export, denoising/detail or performance.
+
+The complete case is tagged `@foreground`: native capture stalled on the hidden
+Wayland surface, then succeeded with an explicitly mapped window. Source/capture
+assertions are retained; background runs defer it without opening a visible
+window. Retained harness failures include the unsupported `findLast` type,
+hidden capture timeout, and snapshotting before the new full-frame reply arrived.
+The final test awaits the actual matching reply and its frame revision. No color
+math, numeric threshold, production renderer or rendering version changed.
+Legacy raster preparation/export remains separate GPU-only migration work.
+
 ## Primary sources and provenance
 
 - [W3C CSS Color 4, 22 October 2026](https://www.w3.org/TR/2026/CRD-css-color-4-20261022/#color-conversion-code):

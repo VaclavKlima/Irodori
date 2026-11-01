@@ -141,7 +141,11 @@ export async function renderExport(
     renderer: rendition.diagnostics.renderer,
     adapter: rendition.diagnostics.adapter,
     rendererFallback: rendition.diagnostics.rendererFallback,
-    gpuMemoryBytes: rendition.diagnostics.gpuPeakBytes,
+    gpuMemoryBytes:
+      Math.max(
+        rendition.diagnostics.gpuPeakBytes ?? 0,
+        rendition.diagnostics.resize?.gpuMemoryBytes ?? 0,
+      ) || undefined,
     encoder: 'sdr',
     stages: {
       renditionMs: rendition.diagnostics.renderMs,

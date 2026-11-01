@@ -24,6 +24,8 @@ Specify the order between existing light controls, new creative operators, gamut
 
 Research the appropriate HDR color appearance model and gamut mapping method with fixed reference images and numerical tolerances. Preview and export share the chosen transform and version. Display changes may select another target descriptor but never renormalize exposure from edited pixels. No operator can reconstruct clipped sensor information.
 
+New or rewritten transforms follow the [GPU-only direction](../gpu-processing.md), using independent numerical and photographic references without a duplicate production CPU renderer. CPU codecs and parameter preparation remain appropriate.
+
 ## API/MCP implications
 
 Add typed rendition settings and target descriptors with reference white, target peak, primaries, and transfer function. Saved parameters use expected revisions; transient display targets use generation checks. Return which transform produced each frame/statistic/export.
@@ -38,13 +40,13 @@ Requires [HDR processing](hdr-processing.md) and [camera color profiles](camera-
 
 ## Failure handling
 
-Reject invalid target peaks or missing color descriptors. If HDR presentation fails, render the controlled SDR target and report the mode change. Unsupported saved transforms must not silently substitute a new look.
+Reject invalid target peaks or missing color descriptors. A supported SDR display or explicit SDR choice uses the controlled SDR target and reports its mode. GPU capability failure or device loss instead produces an explicit error, preserves settings and originals, releases resources and permits an appropriate GPU retry; it cannot silently select CPU rendering or replace the working source with SDR. Unsupported saved transforms must not silently substitute a new look.
 
 ## Acceptance criteria
 
 - Neutral and colored ramps through 16× reference white remain finite; the neutral ramp is monotonic with no shoulder discontinuity or unintended shadow plateau.
 - Freeze measurable hue, gamut, and gradient-error limits in the research record; pass them on independent references for SDR and at least two HDR headrooms.
-- Verify neutral defaults, extreme combined adjustments, alpha, CPU/GPU agreement, history/restart, and byte preservation of originals and masters.
+- Verify neutral defaults, extreme combined adjustments, alpha, GPU agreement with independent references, capability refusal/retry cleanup, history/restart, and byte preservation of originals and masters.
 - Preview and export agree for the same target within the codec's declared tolerance; switching monitors does not change master bytes or edit revisions.
 - Publish comparison images and brightness plots showing preserved shadow separation and smooth highlights, with no unreported channel clipping.
 

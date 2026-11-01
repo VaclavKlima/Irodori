@@ -10,12 +10,6 @@ import { HdrPresenter } from '../preview/hdr-presenter'
 import type { EditState } from '../../../shared/edits'
 import type { EditGestureCommit } from '../preview/edit-gesture'
 import { useForegroundActivity } from '../hooks/useForegroundActivity'
-import { HdrCpuPresenter } from '../preview/hdr-cpu-presenter'
-import {
-  hdrPresentationMemory,
-  HDR_BITMAP_RESERVATION,
-  type HdrMemoryLimits,
-} from '../preview/hdr-memory'
 import {
   neutralAdjustments,
   sameAdjustments,
@@ -94,6 +88,7 @@ interface Props {
   confirmedEdits?: EditState | null
   gestureCommit?: EditGestureCommit | null
   onEditingReady: (photoId: string | null) => void
+  onPresentationFailure: () => void
   photo: Photo | null
   total: number
   position: number
@@ -120,6 +115,7 @@ export function PhotoPreview({
   gesturing,
   editingEpoch = 0,
   onEditingReady,
+  onPresentationFailure,
   total,
   position,
   onNavigate,
@@ -144,13 +140,17 @@ export function PhotoPreview({
   const viewport = useRef<HTMLDivElement>(null)
   const image = useRef<HTMLCanvasElement>(null)
   const retainedSurface = useRef<HTMLCanvasElement>(null)
-  const presenter = useRef<PreviewPresenter | HdrPresenter | HdrCpuPresenter | null>(null)
+  const presenter = useRef<PreviewPresenter | HdrPresenter | null>(null)
+  const hdrRetirement = useRef<Promise<void>>(Promise.resolve())
+  const failHdrPresentation = useRef<((reason: string) => void) | undefined>(undefined)
   const firstSurfacePolicyOwner = useRef<HdrPresenter | null>(null)
   const [retainedFrame, setRetained] = useState<{
     sourceSpace: string
     revision: number
     comparison: string
     binding: string
+    hdrOwner?: string
+    targetGeneration?: string
   } | null>(null)
   const [geometryRevision, setGeometryRevision] = useState(0)
   const restoreCanvasFocus = useRef(false)
@@ -165,7 +165,7 @@ export function PhotoPreview({
   }, [])
   const attachCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
     if (!canvas) {
-      restoreCanvasFocus.current = document.activeElement === image.current
+      restoreCanvasFocus.current ||= document.activeElement === image.current
       const previous = image.current,
         surface = retainedSurface.current
       if (mounted.current && surface && previous?.dataset.editing === 'ready') {
@@ -174,6 +174,8 @@ export function PhotoPreview({
           revision: Number(previous.dataset.frameGeometryRevision ?? -1),
           comparison: previous.dataset.comparison ?? 'after',
           binding: previous.dataset.spatialComparisonBinding ?? 'single',
+          hdrOwner: previous.dataset.hdrPresentationOwner,
+          targetGeneration: previous.dataset.targetGeneration,
         }
         try {
           if (previous.dataset.backend === 'webgpu-hdr') {
@@ -200,7 +202,7 @@ export function PhotoPreview({
     image.current = canvas
     if (canvas && restoreCanvasFocus.current) {
       canvas.focus({ preventScroll: true })
-      restoreCanvasFocus.current = false
+      restoreCanvasFocus.current = document.activeElement !== canvas
     }
   }, [])
   const [model, setModel] = useState<Model>({
@@ -212,10 +214,57 @@ export function PhotoPreview({
   const current = useRef(model)
   const framingView = useRef<{ image: Size; view: View } | null>(null)
   const [fallback, setFallback] = useState(false)
+  const [hdrAttempt, setHdrAttempt] = useState(0)
+  const [presenterGeneration, setPresenterGeneration] = useState(0)
+  const [hdrFailure, setHdrFailure] = useState<{
+    owner: string
+    capabilityGeneration: number
+    reason: string
+  } | null>(null)
+  const [authoredHdrDemand, setAuthoredHdrDemand] = useState<{
+    monitor: string
+    headroomStops: number
+  } | null>(null)
+  const monitorIdentity = displayTarget.capabilities?.monitor
+    ? JSON.stringify(displayTarget.capabilities.monitor)
+    : null
+  const headroomStops = displayTarget.capabilities?.headroomStops
+  const gpuCapabilityFailure = [
+    'device-lost',
+    'adapter-unavailable',
+    'canvas-unsupported',
+  ].includes(displayTarget.capabilities?.failure ?? '')
+  const holdAuthoredHdrSource = Boolean(
+    hdrJpeg &&
+    authoredHdrDemand &&
+    authoredHdrDemand.monitor === monitorIdentity &&
+    authoredHdrDemand.headroomStops > 0 &&
+    typeof headroomStops === 'number' &&
+    headroomStops > 0 &&
+    displayTarget.requested !== 'sdr' &&
+    gpuCapabilityFailure,
+  )
+  useEffect(() => {
+    if (
+      !authoredHdrDemand ||
+      (hdrJpeg &&
+        displayTarget.requested !== 'sdr' &&
+        monitorIdentity === authoredHdrDemand.monitor &&
+        !(
+          displayTarget.capabilities?.hardware &&
+          displayTarget.capabilities.extended &&
+          !(typeof headroomStops === 'number' && headroomStops > 0)
+        ))
+    )
+      return
+    // A real display/source choice releases the interrupted HDR demand.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAuthoredHdrDemand(null)
+  }, [authoredHdrDemand, hdrJpeg, displayTarget, monitorIdentity, headroomStops])
   const firstSurfaceRequest = useMemo<HdrFirstSurfaceRequest | undefined>(() => {
     if (
       !photo ||
-      fallback ||
+      (hdrFailure && hdrFailure.capabilityGeneration === displayTarget.generation) ||
       suspended ||
       gesturing ||
       cropping ||
@@ -250,7 +299,7 @@ export function PhotoPreview({
     }
   }, [
     photo,
-    fallback,
+    hdrFailure,
     suspended,
     gesturing,
     confirmedEdits,
@@ -268,7 +317,7 @@ export function PhotoPreview({
   const full = useFullPreview(
     photo?.id,
     !suspended,
-    fallback ? 'sdr' : displayTarget.mode,
+    holdAuthoredHdrSource ? 'hdr' : displayTarget.mode,
     firstSurfaceRequest,
     !!photo &&
       confirmedEdits?.photoId === photo.id &&
@@ -287,19 +336,33 @@ export function PhotoPreview({
   const maskPublication = useRef<string | undefined>(undefined)
   const hdrLoaded = useCallback(() => {
     setHdrReady(true)
+    const target = currentTarget.current,
+      caps = target.capabilities
+    if (
+      hdrJpeg &&
+      target.mode === 'hdr' &&
+      target.requested !== 'sdr' &&
+      caps?.monitor &&
+      typeof caps.headroomStops === 'number' &&
+      caps.headroomStops > 0
+    ) {
+      const monitor = JSON.stringify(caps.monitor),
+        headroomStops = caps.headroomStops
+      setAuthoredHdrDemand((previous) =>
+        previous?.monitor === monitor && previous.headroomStops === headroomStops
+          ? previous
+          : { monitor, headroomStops },
+      )
+    }
     const owner = presenter.current
-    const key =
-      owner instanceof HdrPresenter || owner instanceof HdrCpuPresenter
-        ? owner.maskPublicationKey
-        : undefined
+    const key = owner instanceof HdrPresenter ? owner.maskPublicationKey : undefined
     // Overlay state also causes same-pixel redraws. Only a different actual
     // normal publication retries analysis after presentation preemption.
     if (key !== undefined && key !== maskPublication.current) {
       maskPublication.current = key
       setAnalysisPresentationSerial((value) => value + 1)
     }
-  }, [])
-  const [cpuFullBlocked, setCpuFullBlocked] = useState(false)
+  }, [hdrJpeg])
   const [cachedDisplayReady, setCachedDisplayReady] = useState(false)
   const [firstSurfaceReady, setFirstSurfaceReady] = useState(false)
   const [firstSurfacePainted, setFirstSurfacePainted] = useState(false)
@@ -382,13 +445,10 @@ export function PhotoPreview({
     if (presented) firstUsefulMs.current ??= performance.now() - selectedAt.current
     setCachedDisplayReady(presented)
   }, [])
-  const fallbackReason = useRef('')
-  const fallbackMemoryLimits = useRef<Readonly<HdrMemoryLimits> | undefined>(undefined)
-  const fallbackRetirement = useRef<Promise<void>>(Promise.resolve())
   const fullVisible = Boolean(full.preview && (displayedUrl || full.preview.linear?.hdr))
   const live = useWorkingPreview(full.preview, fullVisible && !suspended)
   const { generation } = live
-  const working = fallback && hdrJpeg ? null : live.working
+  const working = live.working
   const { mode, split, hdrRanges, analyze, update } = tools
   const comparisonRequired =
     !!full.preview?.requiresUnfilteredComparison && mode !== 'after' && !cropping
@@ -422,18 +482,11 @@ export function PhotoPreview({
         comparison.preview?.linear?.sha256 ?? 'pending',
       ])
     : 'single'
-  const retained =
-    !!retainedFrame &&
-    retainedFrame.sourceSpace === (cropping ? 'framing' : 'confirmed') &&
-    retainedFrame.revision >= geometryRevision &&
-    retainedFrame.comparison === mode &&
-    retainedFrame.binding === comparisonBinding
   const analysisWorking = mode === 'before' && comparisonRequired ? beforeWorking : working
-  const hdrCapable = hdrJpeg || !!working?.hdr
   const editingSurface = !!working
   const firstSurface =
     full.firstSurface && full.isFirstSurfaceCurrent(full.firstSurface) ? full.firstSurface : null
-  const hdrSurface = !fallback && !!(firstSurface || full.preview?.linear?.hdr || working?.hdr)
+  const hdrSurface = !!(firstSurface || full.preview?.linear?.hdr || working?.hdr)
   // Rendered raster revisions do not replace the already uploaded working source.
   const hdrOwnerKey = !(hdrSurface || working?.hdr)
     ? 'raster'
@@ -446,20 +499,71 @@ export function PhotoPreview({
         full.preview?.linear?.sha256 ??
         working?.hdr?.sha256 ??
         'pending')
-  const presenterRoute = hdrSurface
-    ? 'hdr'
-    : working?.hdr
-      ? 'hdr-cpu'
-      : editingSurface
-        ? 'raster-edit'
-        : 'raster-preview'
+  const presenterRoute = hdrSurface ? 'hdr' : editingSurface ? 'raster-edit' : 'raster-preview'
+  const hdrPresentationOwner = JSON.stringify([hdrOwnerKey, generation, hdrAttempt])
+  const retryOwner = useRef(hdrPresentationOwner)
+  useLayoutEffect(() => {
+    retryOwner.current = hdrPresentationOwner
+  }, [hdrPresentationOwner])
+  const gpuError =
+    presenterRoute === 'hdr' && hdrFailure?.owner === hdrPresentationOwner ? hdrFailure.reason : ''
+  const retained =
+    !!retainedFrame &&
+    retainedFrame.hdrOwner === (hdrSurface ? hdrPresentationOwner : undefined) &&
+    (!hdrSurface || retainedFrame.targetGeneration === String(displayTarget.generation)) &&
+    retainedFrame.sourceSpace === (cropping ? 'framing' : 'confirmed') &&
+    retainedFrame.revision >= geometryRevision &&
+    retainedFrame.comparison === mode &&
+    retainedFrame.binding === comparisonBinding
+  const retryGpu = useCallback(() => {
+    restoreCanvasFocus.current = true
+    onEditingReady(null)
+    // Reuse the existing display probe; keep the user's current preference and actual target.
+    void window.irodori.setPreviewPreference(currentTarget.current.requested).then(
+      () => {
+        if (!mounted.current || retryOwner.current !== hdrPresentationOwner) return
+        setHdrFailure(null)
+        setHdrAttempt((value) => value + 1)
+      },
+      (error) => {
+        if (!mounted.current || retryOwner.current !== hdrPresentationOwner) return
+        setHdrFailure((previous) =>
+          previous?.owner === hdrPresentationOwner
+            ? {
+                ...previous,
+                reason: `GPU capability refresh failed: ${String(error)}`.slice(0, 512),
+              }
+            : previous,
+        )
+      },
+    )
+  }, [onEditingReady, hdrPresentationOwner])
+  useEffect(() => {
+    if (
+      hdrFailure?.owner !== hdrPresentationOwner ||
+      hdrFailure.capabilityGeneration === displayTarget.generation ||
+      !displayTarget.capabilities?.hardware ||
+      !displayTarget.capabilities.extended
+    )
+      return
+    // Only a failed owner restarts after a fresh capability probe; healthy owners use setTarget.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHdrFailure(null)
+    setHdrAttempt((value) => value + 1)
+  }, [
+    hdrFailure,
+    hdrPresentationOwner,
+    displayTarget.generation,
+    displayTarget.capabilities?.hardware,
+    displayTarget.capabilities?.extended,
+  ])
   const analysisPending = useCallback(
     (pending: boolean) => update({ analysisPending: pending }),
     [update],
   )
   const actualTarget = useMemo(
     () =>
-      fallback
+      fallback && !hdrSurface
         ? {
             ...SDR_TARGET,
             generation: displayTarget.generation,
@@ -467,7 +571,7 @@ export function PhotoPreview({
             headroom: displayTarget.headroom,
           }
         : displayTarget,
-    [fallback, displayTarget],
+    [fallback, hdrSurface, displayTarget],
   )
   const hdrOverlay = hdrRanges
     ? 0
@@ -502,9 +606,7 @@ export function PhotoPreview({
   )
   const reserveNativeMask = useCallback<ReserveNativeMask>((frame, cancel, drained) => {
     const owner = presenter.current
-    return owner instanceof HdrPresenter || owner instanceof HdrCpuPresenter
-      ? owner.reserveMask(frame, cancel, drained)
-      : undefined
+    return owner instanceof HdrPresenter ? owner.reserveMask(frame, cancel, drained) : undefined
   }, [])
   const nativeMaskContext = useMemo(
     () => ({
@@ -536,7 +638,7 @@ export function PhotoPreview({
     analyze,
     setMask,
     gesturing,
-    fallback,
+    false,
     beginActivity,
     nativeMaskContext,
   )
@@ -544,7 +646,11 @@ export function PhotoPreview({
     if (gesturing && mode === 'before') update({ mode: 'after' })
   }, [gesturing, mode, update])
   const histogramError =
-    full.error || live.error || comparisonError || (working?.hdr ? analysisError : sdrAnalysisError)
+    gpuError ||
+    full.error ||
+    live.error ||
+    comparisonError ||
+    (working?.hdr ? analysisError : sdrAnalysisError)
   useEffect(
     () => update({ analysisError: histogramError, clippingError: maskError }),
     [histogramError, maskError, update],
@@ -553,7 +659,7 @@ export function PhotoPreview({
   useEffect(() => {
     const preview = full.preview
     if ((!preview && !firstSurface) || suspended) return
-    const ready = working?.hdr ? hdrReady : !!displayedUrl
+    const ready = !gpuError && (working?.hdr ? hdrReady : !!displayedUrl)
     let cancelled = false
     const report = () => {
       if (cancelled) return
@@ -565,24 +671,10 @@ export function PhotoPreview({
           ? (preview.settingsRevision ?? 0)
           : firstSurface!.identity.settingsRevision,
         targetGeneration: displayTarget.generation,
-        backend:
-          fallback && hdrJpeg
-            ? 'canvas2d-hdr-sdr'
-            : hdrSurface || working?.hdr
-              ? fallback
-                ? 'canvas2d-hdr-sdr'
-                : 'webgpu-hdr'
-              : 'legacy',
-        mode: (hdrSurface || working?.hdr) && !fallback ? displayTarget.mode : 'sdr',
-        stage: ready ? 'presented' : 'loading',
-        reason:
-          fallback && hdrJpeg
-            ? 'HDR renderer unavailable; showing the JPEG SDR primary.'
-            : hdrSurface || working?.hdr
-              ? fallback
-                ? fallbackReason.current
-                : displayTarget.reason
-              : 'Legacy SDR processing.',
+        backend: hdrSurface ? 'webgpu-hdr' : 'legacy',
+        mode: hdrSurface ? displayTarget.mode : 'sdr',
+        stage: gpuError ? 'failed' : ready ? 'presented' : 'loading',
+        reason: gpuError || (hdrSurface ? displayTarget.reason : 'Legacy SDR processing.'),
         timings:
           ready || cachedDisplayReady || firstSurfacePainted
             ? {
@@ -616,15 +708,14 @@ export function PhotoPreview({
     hdrReady,
     cachedDisplayReady,
     displayedUrl,
-    fallback,
-    hdrJpeg,
+    gpuError,
     displayTarget.generation,
     displayTarget.mode,
     displayTarget.reason,
   ])
   const placeholderView = constrain(model.view, full.placeholder ?? model.image, model.viewport)
   const bindWorkingSource = useCallback(
-    (owner: PreviewPresenter | HdrPresenter | HdrCpuPresenter) => {
+    (owner: PreviewPresenter | HdrPresenter) => {
       if (working) {
         if (owner instanceof HdrPresenter) {
           if (
@@ -655,20 +746,18 @@ export function PhotoPreview({
     if (presenter.current) {
       try {
         bindWorkingSource(presenter.current)
-      } catch {
-        full.displayFailed()
+      } catch (error) {
+        if (presenter.current instanceof HdrPresenter) failHdrPresentation.current?.(String(error))
+        else full.displayFailed()
         return
       }
     }
     if (image.current) image.current.dataset.spatialComparisonBinding = comparisonBinding
-    if (presenter.current instanceof HdrPresenter || presenter.current instanceof HdrCpuPresenter)
+    if (presenter.current instanceof HdrPresenter) {
       presenter.current.setHdrRanges(hdrRanges)
-    if (presenter.current instanceof HdrCpuPresenter)
-      presenter.current.setPresentationState(confirmedEdits)
-    else if (previewPolicy.presentationCache && presenter.current instanceof HdrPresenter)
-      presenter.current.setPresentationState(presentationState)
-    if (presenter.current instanceof HdrPresenter)
+      if (previewPolicy.presentationCache) presenter.current.setPresentationState(presentationState)
       presenter.current.setEditing(gesturing, editingEpoch, gestureCommit, gestureConfirmation)
+    }
     if (previewPolicy.presentationCache && working?.hdr && !presentationState) return
     presenter.current?.draw(
       model.image,
@@ -694,6 +783,7 @@ export function PhotoPreview({
     if (canvas.width !== canvasWidth) canvas.width = canvasWidth
     if (canvas.height !== canvasHeight) canvas.height = canvasHeight
     context.clearRect(0, 0, canvas.width, canvas.height)
+    if (gpuError) return
     if (!comparisonReady || !analysisWorking || !mask || !working) return
     const { image, viewport, view } = model
     let levelIndex = 0
@@ -781,8 +871,17 @@ export function PhotoPreview({
     model.viewport.height &&
     (!full.preview?.linear?.hdr || hdrReady) &&
     comparisonReady &&
+    !gpuError &&
     !full.error,
   )
+  useLayoutEffect(() => {
+    // A replacement canvas can still be hidden when its ref attaches.
+    const canvas = image.current
+    if (ready && canvas && restoreCanvasFocus.current) {
+      canvas.focus({ preventScroll: true })
+      restoreCanvasFocus.current = document.activeElement !== canvas
+    }
+  }, [ready])
   const { view } = model
   const panX = model.image.width * view.scale > model.viewport.width + 0.5
   const panY = model.image.height * view.scale > model.viewport.height + 0.5
@@ -925,59 +1024,96 @@ export function PhotoPreview({
       return
     }
     const recoverySurface = retainedSurface.current ?? undefined
-    let activePresenter: PreviewPresenter | HdrPresenter | HdrCpuPresenter | null = null
-    try {
-      if (presenterRoute === 'hdr' || presenterRoute === 'hdr-cpu') {
-        // A replacement surface has no validated pixels yet.
+    let active = true,
+      failed = false,
+      activePresenter: PreviewPresenter | HdrPresenter | null = null
+    const fail = (reason: string) => {
+      if (!active || failed || (activePresenter && presenter.current !== activePresenter)) return
+      failed = true
+      // Finalize the owner's pending gesture before disabling controls suppresses pointer release.
+      onPresentationFailure()
+      canvas.style.visibility = 'hidden'
+      canvas.dataset.editing = 'unavailable'
+      canvas.dataset.presentationError = reason.slice(0, 512)
+      setHdrFailure({
+        owner: hdrPresentationOwner,
+        capabilityGeneration: currentTarget.current.generation,
+        reason: reason.slice(0, 512) || 'The GPU preview is unavailable.',
+      })
+      setHdrReady(false)
+      setCachedDisplayReady(false)
+      setFirstSurfaceReady(false)
+      setFirstSurfacePainted(false)
+      firstSurfaceId.current = ''
+      setRetained(null)
+      onEditingReady(null)
+      if (activePresenter instanceof HdrPresenter) {
+        activePresenter.dispose()
+        hdrRetirement.current = activePresenter.whenDisposed
+        void hdrRetirement.current.catch(() => undefined)
+      }
+      if (presenter.current === activePresenter) presenter.current = null
+    }
+    if (presenterRoute === 'hdr') {
+      failHdrPresentation.current = fail
+      // A failed owner waits for an explicit retry, a new source or a fresh capability generation.
+      if (!gpuError) {
         setHdrReady(false)
-        setCpuFullBlocked(false)
-        activePresenter = fallback
-          ? new HdrCpuPresenter(
-              canvas,
-              hdrLoaded,
-              displayFailed,
-              beginActivity,
-              fallbackRetirement.current,
-              undefined,
-              setCpuFullBlocked,
-            )
-          : new HdrPresenter(
+        setCachedDisplayReady(false)
+        setFirstSurfaceReady(false)
+        setFirstSurfacePainted(false)
+        void hdrRetirement.current
+          .then(() => {
+            if (!active || image.current !== canvas) return
+            activePresenter = new HdrPresenter(
               canvas,
               currentTarget.current,
               previewPolicy,
-              (reason) => {
-                fallbackReason.current = reason.slice(0, 512)
-                fallbackMemoryLimits.current =
-                  activePresenter instanceof HdrPresenter ? activePresenter.memoryLimits : undefined
-                setFallback(true)
+              fail,
+              () => {
+                if (active && !failed && presenter.current === activePresenter) hdrLoaded()
               },
-              hdrLoaded,
               analyze,
               recoverySurface,
               beginActivity,
               analysisPending,
-              cachedPresented,
-              firstSurfacePresented,
+              (presented) => {
+                if (active && !failed) cachedPresented(presented)
+              },
+              (offer, phase) => {
+                if (active && !failed) firstSurfacePresented(offer, phase)
+              },
             )
-      } else
+            presenter.current = activePresenter
+            setPresenterGeneration((value) => value + 1)
+          })
+          .catch((error) => fail(String(error)))
+      }
+    } else {
+      try {
         activePresenter = new PreviewPresenter(
           canvas,
           fallback || presenterRoute === 'raster-preview',
           () => setFallback(true),
         )
-    } catch {
-      // Canvas capability checks can require replacing the DOM canvas with a 2D surface.
-      setFallback(true)
+      } catch {
+        // The separate legacy raster presenter can replace a failed GPU canvas with a 2D surface.
+        setFallback(true)
+      }
+      presenter.current = activePresenter
     }
-    presenter.current = activePresenter
     return () => {
+      active = false
+      if (failHdrPresentation.current === fail) failHdrPresentation.current = undefined
       // Effect cleanup can precede ref detachment during a canvas replacement.
       // Keep the completed CPU snapshot accessible to attachCanvas in either order.
-      if (mounted.current && activePresenter instanceof HdrPresenter)
+      if (!failed && mounted.current && activePresenter instanceof HdrPresenter)
         activePresenter.recoverCompletedFrame(recoverySurface)
       activePresenter?.dispose()
-      if (activePresenter instanceof HdrPresenter || activePresenter instanceof HdrCpuPresenter)
-        fallbackRetirement.current = activePresenter.whenDisposed
+      if (activePresenter instanceof HdrPresenter) {
+        hdrRetirement.current = activePresenter.whenDisposed
+        void hdrRetirement.current.catch(() => undefined)
+      }
       if (presenter.current === activePresenter) presenter.current = null
     }
   }, [
@@ -985,6 +1121,8 @@ export function PhotoPreview({
     generation,
     presenterRoute,
     hdrOwnerKey,
+    hdrPresentationOwner,
+    gpuError,
     displayFailed,
     suspended,
     analyze,
@@ -994,6 +1132,8 @@ export function PhotoPreview({
     firstSurfacePresented,
     previewPolicy,
     hdrLoaded,
+    onEditingReady,
+    onPresentationFailure,
   ])
 
   useEffect(() => {
@@ -1025,6 +1165,8 @@ export function PhotoPreview({
     hdrOwnerKey,
     presenterRoute,
     generation,
+    presenterGeneration,
+    gpuError,
     suspended,
     full.isFirstSurfaceCurrent,
     change,
@@ -1062,8 +1204,9 @@ export function PhotoPreview({
         if (!cropping && photo?.id)
           onViewChange?.(savedView(photo.id, current.current.view, dimensions))
       }
-    } catch {
-      if (!fallback) setFallback(true)
+    } catch (error) {
+      if (presenter.current instanceof HdrPresenter) failHdrPresentation.current?.(String(error))
+      else if (!fallback) setFallback(true)
       else displayFailed()
     }
   }, [
@@ -1073,6 +1216,7 @@ export function PhotoPreview({
     displayFailed,
     fallback,
     generation,
+    presenterGeneration,
     editingSurface,
     suspended,
     photo,
@@ -1081,25 +1225,24 @@ export function PhotoPreview({
   ])
 
   useEffect(() => {
-    if (suspended) {
+    if (suspended || gpuError) {
       onEditingReady(null)
       return
     }
     try {
-      if (presenter.current instanceof HdrCpuPresenter)
-        presenter.current.setPresentationState(confirmedEdits)
-      else if (previewPolicy.presentationCache && presenter.current instanceof HdrPresenter)
+      if (previewPolicy.presentationCache && presenter.current instanceof HdrPresenter)
         presenter.current.setPresentationState(presentationState)
       if (presenter.current) bindWorkingSource(presenter.current)
       onEditingReady(
-        working && (!previewPolicy.presentationCache || !working.hdr || hdrReady)
+        presenter.current &&
+          working &&
+          (!previewPolicy.presentationCache || !working.hdr || hdrReady)
           ? (photo?.id ?? null)
           : null,
       )
-    } catch {
-      // Canvas capability checks can require replacing the DOM canvas with a 2D surface.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setFallback(true)
+    } catch (error) {
+      if (presenter.current instanceof HdrPresenter) failHdrPresentation.current?.(String(error))
+      else setFallback(true)
     }
     return () => onEditingReady(null)
   }, [
@@ -1110,6 +1253,8 @@ export function PhotoPreview({
     comparisonReady,
     fallback,
     generation,
+    presenterGeneration,
+    gpuError,
     photo?.id,
     onEditingReady,
     suspended,
@@ -1152,61 +1297,13 @@ export function PhotoPreview({
   ])
 
   useEffect(() => {
-    if (
-      hdrCapable &&
-      displayTarget.capabilities?.hardware &&
-      displayTarget.capabilities.extended &&
-      fallback
-    ) {
-      // A new capability probe allows recovery after device loss.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setFallback(false)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- A failed presenter waits for a fresh capability generation.
-  }, [
-    displayTarget.generation,
-    displayTarget.capabilities?.hardware,
-    displayTarget.capabilities?.extended,
-    hdrCapable,
-  ])
-  useEffect(() => {
-    if (presenter.current instanceof HdrPresenter || presenter.current instanceof HdrCpuPresenter)
-      presenter.current.setTarget(displayTarget)
-  }, [displayTarget, working, fallback, presenterRoute, hdrOwnerKey, generation])
-
-  useEffect(() => {
-    if (!fallback || !working?.hdr || !fallbackReason.current.includes('resource budget')) return
-    const limits = fallbackMemoryLimits.current
-    if (!limits || model.viewport.width <= 0 || model.viewport.height <= 0) return
-    const dpr = window.devicePixelRatio || 1
-    if (
-      hdrPresentationMemory(
-        {
-          width: working.width,
-          height: working.height,
-          canvasWidth: Math.round(model.viewport.width * dpr),
-          canvasHeight: Math.round(model.viewport.height * dpr),
-          bitmapReservation: HDR_BITMAP_RESERVATION,
-        },
-        limits,
-      ).accepted
-    ) {
-      // A smaller viewport can recover without changing the photograph or display target.
-      // The GPU presenter drains retained surfaces if ordinary planning needs their headroom.
-      setFallback(false)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Retry only when allocation dimensions change.
-  }, [model.viewport.width, model.viewport.height, working?.width, working?.height])
+    if (presenter.current instanceof HdrPresenter) presenter.current.setTarget(displayTarget)
+  }, [displayTarget, working, presenterRoute, hdrOwnerKey, generation, presenterGeneration])
 
   useEffect(() => {
     if (suspended) cancel()
-    // Submit HDR edits without waiting for a paint callback. CPU work coalesces
-    // its pending inputs; viewport motion uses the shared frame callback.
-    else if (
-      presenter.current instanceof HdrPresenter ||
-      presenter.current instanceof HdrCpuPresenter
-    )
-      flush()
+    // Submit HDR edits without waiting for a paint callback; viewport motion uses the shared frame callback.
+    else if (presenter.current instanceof HdrPresenter) flush()
     else schedule()
   }, [
     suspended,
@@ -1230,7 +1327,9 @@ export function PhotoPreview({
     working,
     fallback,
     generation,
+    presenterGeneration,
     gesturing,
+    gpuError,
     editingEpoch,
     presentationState,
     gestureCommit,
@@ -1369,7 +1468,9 @@ export function PhotoPreview({
           data-scale={view.scale}
           data-pan-x={view.x}
           data-pan-y={view.y}
-          data-loading={Boolean(photo && !fullVisible && !firstSurfaceReady && !full.error)}
+          data-loading={Boolean(
+            photo && !fullVisible && !firstSurfaceReady && !full.error && !gpuError,
+          )}
           data-resolution={
             cachedDisplayReady && !hdrReady
               ? 'cached-exact'
@@ -1446,7 +1547,7 @@ export function PhotoPreview({
                 />
               )}
               <canvas
-                key={`${fallback}-${generation}-${presenterRoute}-${hdrSurface ? hdrOwnerKey : editingSurface}`}
+                key={`${fallback}-${generation}-${presenterRoute}-${hdrSurface ? hdrPresentationOwner : editingSurface}`}
                 ref={attachCanvas}
                 className={styles.canvas}
                 role="img"
@@ -1463,6 +1564,8 @@ export function PhotoPreview({
                 data-source-admission-finished-at={full.admissionTimings?.admissionFinishedAt}
                 data-source-request-started-at={full.requestStartedAt}
                 data-first-surface-painted={firstSurfacePainted}
+                data-presentation-error={gpuError || undefined}
+                data-hdr-presentation-owner={hdrSurface ? hdrPresentationOwner : undefined}
                 data-src={full.preview?.url}
                 tabIndex={0}
                 aria-keyshortcuts="+ - 0 1 ArrowLeft ArrowRight ArrowUp ArrowDown"
@@ -1470,6 +1573,7 @@ export function PhotoPreview({
                   width: model.viewport.width || undefined,
                   height: model.viewport.height || undefined,
                   visibility:
+                    !gpuError &&
                     comparisonReady &&
                     ((!suspended && !full.error && (cachedDisplayReady || firstSurfaceReady)) ||
                       (fullVisible && ready && (!full.preview?.linear?.hdr || hdrReady)))
@@ -1486,7 +1590,7 @@ export function PhotoPreview({
                   width: model.viewport.width || undefined,
                   height: model.viewport.height || undefined,
                   visibility:
-                    retained && !hdrReady && !cachedDisplayReady && !firstSurfaceReady
+                    !gpuError && retained && !hdrReady && !cachedDisplayReady && !firstSurfaceReady
                       ? 'visible'
                       : 'hidden',
                   pointerEvents: 'none',
@@ -1497,6 +1601,7 @@ export function PhotoPreview({
                 className={styles.overlay}
                 aria-hidden="true"
                 data-testid="clipping-overlay"
+                style={{ visibility: gpuError ? 'hidden' : undefined }}
               />
               {crop &&
                 cropping &&
@@ -1583,7 +1688,8 @@ export function PhotoPreview({
                   }}
                 />
               )}
-              {((comparisonRequired && !comparisonReady) ||
+              {(!!gpuError ||
+                (comparisonRequired && !comparisonReady) ||
                 (!fullVisible && !firstSurfaceReady) ||
                 (!!full.preview?.linear?.hdr &&
                   !hdrReady &&
@@ -1592,9 +1698,16 @@ export function PhotoPreview({
                   !firstSurfaceReady)) && (
                 <div
                   className={styles.message}
-                  role={full.error || comparisonError ? 'alert' : 'status'}
+                  role={gpuError || full.error || comparisonError ? 'alert' : 'status'}
+                  data-testid={gpuError ? 'preview-gpu-error' : undefined}
                 >
-                  {full.error || comparisonError ? (
+                  {gpuError ? (
+                    <>
+                      <span>GPU preview unavailable</span>
+                      <span style={{ maxWidth: 480, overflowWrap: 'anywhere' }}>{gpuError}</span>
+                      <button onClick={retryGpu}>Retry GPU</button>
+                    </>
+                  ) : full.error || comparisonError ? (
                     <span>
                       {comparisonError
                         ? 'Could not load this comparison.'
@@ -1704,8 +1817,9 @@ export function PhotoPreview({
             className={styles.resolution}
             data-testid="preview-resolution"
             role="status"
-            aria-description={full.error || live.error || comparisonError || undefined}
+            aria-description={gpuError || full.error || live.error || comparisonError || undefined}
             title={
+              gpuError ||
               full.error ||
               live.error ||
               comparisonError ||
@@ -1714,7 +1828,9 @@ export function PhotoPreview({
                 : 'Loading the full-resolution image.')
             }
           >
-            {full.error ? (
+            {gpuError ? (
+              <span>Preview unavailable</span>
+            ) : full.error ? (
               <>
                 <span>Full resolution unavailable</span>
                 <button onClick={full.retry} aria-description={full.error}>
@@ -1750,10 +1866,6 @@ export function PhotoPreview({
                     Retry live preview
                   </button>
                 </>
-              ) : cpuFullBlocked ? (
-                <span data-testid="preview-memory-limitation">
-                  Reduced detail: preview memory limit reached.
-                </span>
               ) : working ? (
                 'Full resolution'
               ) : (

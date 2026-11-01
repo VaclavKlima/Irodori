@@ -16,9 +16,13 @@ share the filters and cache leases; an independently authorized original source
 supports Before/Split. Small hidden application cases verify UI/MCP, history,
 comparison pixels, cancellation, keyboard/layout and restart; a tiny real JPEG
 export retains frozen settings through foreground retry and subsequent editing.
-Later focused checkpoints add real RAW/HDR/gain-map/merge application and export,
-whole-source CPU/GPU agreement, exact full-RAW admission/cancellation/retry and
-native keyboard/composition checks; see the [acceptance record](professional-editing-processing.md).
+Focused checkpoints also pass combined real Sony RAW, photographic raster,
+synthetic ISO gain-map and genuine v4 merge edits, frozen export and restart with
+source/master preservation, plus native keyboard/minimum-size checks on Bazzite.
+Full-RAW admission/cancellation/retry and independent whole-source comparisons have
+separate coverage in the [acceptance record](professional-editing-processing.md).
+Default detail preparation now uses strict GPU processing; current supported
+domains and remaining legacy routes are listed in [GPU-only processing](../gpu-processing.md).
 Actual ISO 6400 portrait review still shows weak cleanup with NR v1 at 50 and 100.
 On 2026-10-29 the user chose to improve strong-noise removal before Goal 1
 acceptance. Noise-aware candidates remain research until their independent gates,
@@ -45,7 +49,7 @@ Research bounded, tileable classical methods before committing to a library or l
 
 Noise estimates should use validated camera/ISO information where available and measured image statistics otherwise, with confidence recorded. For merges, account for exposure weighting, rejected samples, and deghosted reference regions. Imported HDR needs a distinct estimation path when no sensor data exists. Preserve above-white values, legitimate chroma, negative-channel policy, and alpha. Tiled processing requires defined overlap and no visible seams.
 
-Research must freeze the algorithm, dependency/license, support range, reference metrics and thresholds, and bounded CPU/GPU behavior. Do not promise recovery of detail absent from the input or add generated detail without a separate feature decision.
+Research must freeze the algorithm, dependency/license, support range, reference metrics and thresholds, and bounded GPU execution under the [GPU-only direction](../gpu-processing.md). Reuse independent references without requiring a second production CPU denoiser. Source-wide sampled estimation and parameter derivation may remain bounded CPU work. Do not promise recovery of detail absent from the input or add generated detail without a separate feature decision.
 
 ## API/MCP implications
 
@@ -61,14 +65,14 @@ Requires [HDR processing](hdr-processing.md) and [camera characterization](camer
 
 ## Failure handling
 
-Missing calibration disables only the calibrated estimator, with a supported manual path if available. Excessive allocations fail safely or use bounded CPU processing. A render failure must not silently bypass a saved nonzero denoising setting in export.
+Missing calibration disables only the calibrated estimator, with a supported manual path if available. Unsupported GPU domains, device loss and excessive allocations produce explicit errors, retire in-flight resources and allow an appropriate GPU retry while preserving settings and originals. Do not repair or rerender on the CPU. A render failure must not silently bypass a saved nonzero denoising setting in export.
 
 ## Acceptance criteria
 
 - Zero strength reproduces the input; synthetic and paired real captures meet fixed noise-reduction and texture-retention thresholds recorded before algorithm approval.
 - Verify dark textures, skin, stars, saturated highlights, and fine repeating detail at native scale; quantify edge broadening and chroma bleeding.
 - Merged fixtures include regions sourced from one frame and multiple frames; demonstrate no denoising seam across deghost boundaries.
-- Compare CPU/GPU and tiled/untiled references within foundation tolerances; test alpha, extreme HDR values, memory bounds, and cancellation.
+- Compare GPU output with independent numeric and photographic references, including tiled/untiled agreement, within foundation tolerances; test alpha, extreme HDR values, memory bounds, cancellation, explicit unsupported-domain errors and GPU retry cleanup.
 - History, restart, migration, combined local edits, UI/MCP parity, and full-resolution export equivalence pass; report processing cost separately.
 
 ## References

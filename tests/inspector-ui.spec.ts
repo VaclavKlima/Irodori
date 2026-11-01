@@ -2,6 +2,7 @@ import { test, expect } from './electron.fixture'
 import { activateButton } from './button.helpers'
 import { importPhotos } from './import.helpers'
 import { DEFAULT_INSPECTOR_SECTIONS } from '../src/shared/workspace'
+import { managedOriginalHashes } from './professional-editing-acceptance.helpers'
 
 test('every inspector section uses keyboard disclosures without remounting controls or adding photo history', async ({
   irodori: { app, page },
@@ -16,6 +17,7 @@ test('every inspector section uses keyboard disclosures without remounting contr
     ['Crop', 'crop-controls'],
     ['Color Mixer', 'color-mixer-controls'],
     ['Color Grading', 'color-grading-controls'],
+    ['Detail', 'detail-controls'],
     ['Lens corrections', 'lens-controls'],
     ['Metadata', 'photo-metadata'],
   ]) {
@@ -106,6 +108,60 @@ test('collapsed section retains a pending edit and receives external revisions w
   await expect(field).toBeEnabled()
 })
 
+test('Detail collapse commits one pending radius edit and reopens at the external revision without changing its source', async ({
+  irodori,
+}) => {
+  test.setTimeout(60000)
+  const { app, page } = irodori
+  await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
+  const photo = (await page.evaluate(() => window.irodori.listPhotos())).photos[0],
+    before = await page.evaluate((id) => window.irodori.getEditHistory(id), photo.id),
+    originals = await managedOriginalHashes(irodori.userDataDir, [photo]),
+    toggle = page.getByRole('button', { name: 'Detail', exact: true }),
+    body = page.locator('#detail-controls'),
+    radius = page.getByRole('spinbutton', { name: 'Radius value', exact: true })
+  await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
+    timeout: 40000,
+  })
+  await activateButton(toggle)
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(radius).toBeEnabled()
+  expect(before.settings.detailSharpening.amount).toBe(0)
+  await body.evaluate((element) => element.setAttribute('data-retained', 'pending-detail'))
+  await radius.fill('1.2')
+  expect(await page.evaluate((id) => window.irodori.getEditHistory(id), photo.id)).toEqual(before)
+  await activateButton(toggle)
+  await expect(body).toBeHidden()
+  await expect(body).toHaveAttribute('data-retained', 'pending-detail')
+  await expect
+    .poll(() => page.evaluate((id) => window.irodori.getEdits(id), photo.id))
+    .toMatchObject({
+      revision: before.revision + 1,
+      settings: { detailSharpening: { amount: 0, radius: 1.2 } },
+    })
+  const committed = await page.evaluate((id) => window.irodori.getEditHistory(id), photo.id)
+  expect(committed.snapshots).toHaveLength(before.snapshots.length + 1)
+  expect(committed.snapshots.slice(0, -1)).toEqual(before.snapshots)
+  const external = await page.evaluate(
+    ({ id, revision }) =>
+      window.irodori.updateEdits(id, { detailSharpening: { radius: 1.4 } }, revision),
+    { id: photo.id, revision: committed.revision },
+  )
+  expect(external.revision).toBe(committed.revision + 1)
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(body).toBeHidden()
+  await activateButton(toggle)
+  await expect(radius).toHaveValue('1.4')
+  await expect(radius).toBeEnabled()
+  await expect(body).toHaveAttribute('data-retained', 'pending-detail')
+  const reopened = await page.evaluate((id) => window.irodori.getEditHistory(id), photo.id)
+  expect(reopened.revision).toBe(external.revision)
+  expect(reopened.settings).toEqual(external.settings)
+  expect(reopened.snapshots).toHaveLength(committed.snapshots.length + 1)
+  expect(reopened.snapshots.slice(0, -1)).toEqual(committed.snapshots)
+  expect(await managedOriginalHashes(irodori.userDataDir, [photo])).toEqual(originals)
+})
+
 test('disclosure choices survive photo changes, crash recovery and normal restart', async ({
   irodori,
 }) => {
@@ -120,6 +176,8 @@ test('disclosure choices survive photo changes, crash recovery and normal restar
     'Lens corrections',
     'Color Mixer',
     'Color Grading',
+    'Detail',
+    'Crop',
   ])
     await activateButton(page.getByRole('button', { name: title, exact: true }))
   const expected = {
@@ -131,6 +189,8 @@ test('disclosure choices survive photo changes, crash recovery and normal restar
     lens: true,
     colorMixer: true,
     colorGrading: true,
+    detail: !DEFAULT_INSPECTOR_SECTIONS.detail,
+    crop: !DEFAULT_INSPECTOR_SECTIONS.crop,
   }
   await expect
     .poll(
@@ -145,6 +205,11 @@ test('disclosure choices survive photo changes, crash recovery and normal restar
     'aria-expanded',
     'false',
   )
+  for (const title of ['Detail', 'Crop'])
+    await expect(page.getByRole('button', { name: title, exact: true })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
   ;({ page } = await irodori.crashAndRestart())
   for (const title of ['Histogram · After', 'Light', 'Color', 'Metadata'])
     await expect(page.getByRole('button', { name: title, exact: true })).toHaveAttribute(
@@ -155,7 +220,7 @@ test('disclosure choices survive photo changes, crash recovery and normal restar
     'aria-expanded',
     'true',
   )
-  for (const title of ['Color Mixer', 'Color Grading'])
+  for (const title of ['Color Mixer', 'Color Grading', 'Detail', 'Crop'])
     await expect(page.getByRole('button', { name: title, exact: true })).toHaveAttribute(
       'aria-expanded',
       'true',
@@ -170,6 +235,11 @@ test('disclosure choices survive photo changes, crash recovery and normal restar
     'aria-expanded',
     'false',
   )
+  for (const title of ['Detail', 'Crop'])
+    await expect(page.getByRole('button', { name: title, exact: true })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
   await expect
     .poll(
       async () => (await page.evaluate(() => window.irodori.getWorkspaceState())).state?.inspector,

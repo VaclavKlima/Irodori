@@ -198,14 +198,17 @@ struct WarpCase { position:vec4f, control:vec4f }
   }
 })
 
-test('the reusable native GPU owner drains work and repairs low-coverage classification with canonical coordinates', async () => {
+test('the reusable native GPU owner drains work and explicitly refuses unsupported low-coverage precision', async () => {
   const owner = await createCropGpu(),
     size = { width: 9, height: 9 },
     identity = cropGeometry(size, identityCrop),
     tile = { left: 0, top: 0, width: 3, height: 3 },
     data = new Float32Array(9 * 9 * 4)
   for (let i = 0; i < data.length; i += 4) data.set([4, -0, 16, 1], i)
-  const source = { ...size, left: 0, top: 0, data }
+  const source = { ...size, left: 0, top: 0, data },
+    sourceWords = new Uint32Array(data.buffer).slice()
+  test.info().annotations.push({ type: 'gpu-adapter', description: owner.adapter })
+  let refused = 0
   try {
     expect(owner.bytes).toBe(CROP_COMPUTE_BYTES)
     const first = owner.render(identity, tile, source, new AbortController().signal)
@@ -245,16 +248,20 @@ test('the reusable native GPU owner drains work and repairs low-coverage classif
           for (let x = 0; x < bounds.width; x++)
             pixels.set([8, 0.4, -1, x + bounds.left >= 23500 ? 1 : 0], (y * bounds.width + x) * 4)
         const window = { ...bounds, data: pixels },
-          actual = await owner.render(geometry, pointTile, window, new AbortController().signal),
-          canonical = resampleCropTile(geometry, pointTile, window)
-        expect(new Uint32Array(actual.buffer, actual.byteOffset, actual.length)).toEqual(
-          new Uint32Array(canonical.buffer, canonical.byteOffset, canonical.length),
-        )
+          before = new Uint32Array(pixels.buffer).slice()
+        await expect(
+          owner.render(geometry, pointTile, window, new AbortController().signal),
+        ).rejects.toThrow('GPU crop precision is unsupported near the alpha coverage cutoff.')
+        expect(new Uint32Array(pixels.buffer)).toEqual(before)
+        expect(owner.precisionRecoveryTiles).toBe(0)
+        refused++
       }
-    expect(owner.precisionRecoveryTiles).toBe(6)
+    expect(refused).toBe(6)
+    expect(owner.precisionRecoveryTiles).toBe(0)
   } finally {
     await owner.close()
   }
+  expect(new Uint32Array(data.buffer)).toEqual(sourceWords)
   await expect(owner.render(identity, tile, source, new AbortController().signal)).rejects.toThrow(
     'unavailable',
   )

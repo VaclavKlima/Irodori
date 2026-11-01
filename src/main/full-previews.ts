@@ -108,6 +108,7 @@ import {
   resolveDetailSettings,
   type DetailSourceLineage,
 } from './processing/detail-identity'
+import { spatialExecutionBackend } from './processing/spatial-backend'
 import {
   preparedWorkingIdentity,
   validatePreparedPreviewLineage,
@@ -1640,8 +1641,7 @@ export class FullPreviews {
                     firstSurface: undefined,
                   },
                   workingOnly: hdrSource,
-                  backend: (process.env.IRODORI_PREVIEW_BACKEND ?? 'auto') as
-                    'auto' | 'cpu' | 'gpu',
+                  backend: spatialExecutionBackend(process.env.IRODORI_PREVIEW_BACKEND, 'detail'),
                 },
                 signal,
               ),
@@ -1689,8 +1689,7 @@ export class FullPreviews {
                   settings,
                   options: { ...options, noiseReduction: undefined, detailSharpening: undefined },
                   workingOnly: flags.workingOnly,
-                  backend: (process.env.IRODORI_PREVIEW_BACKEND ?? 'auto') as
-                    'auto' | 'cpu' | 'gpu',
+                  backend: spatialExecutionBackend(process.env.IRODORI_PREVIEW_BACKEND, 'crop'),
                 },
                 signal,
               ).then((frame) => ({ ...frame, detail: base!.detail })),

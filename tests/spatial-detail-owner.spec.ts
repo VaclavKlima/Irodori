@@ -169,7 +169,7 @@ test('frozen detail jobs survive caller mutation and close waits for the owned i
   }
 })
 
-test('detail cancellation, budget rejection and tiny-alpha precision recovery preserve ownership without initializing unused GPU work', async () => {
+test('detail cancellation, budget rejection and unsupported tiny alpha preserve ownership without initializing GPU work', async () => {
   let creations = 0
   const owner = createSpatialDetailGpu(() => {
       creations++
@@ -194,16 +194,106 @@ test('detail cancellation, budget rejection and tiny-alpha precision recovery pr
       ),
     ).rejects.toThrow('sharpening settings')
     for (let i = 3; i < j.source.data.length; i += 4) j.source.data[i] = 2 ** -80
-    const result = await owner.render(j, new AbortController().signal)
-    agree(result, expected(j))
-    expect(result).not.toEqual(j.source.data)
+    j.source.data[3] = -0
+    j.source.data[(2 * j.image.width + 1) * 4] = -0
+    j.source.data[(2 * j.image.width + 2) * 4 + 3] = -0
+    const before = new Uint32Array(j.source.data.buffer).slice()
+    await expect(owner.render(j, new AbortController().signal)).rejects.toThrow(
+      'Detail GPU precision is unsupported for positive alpha below 2^-20.',
+    )
+    const neutral = {
+        ...j,
+        tile: { left: 1, top: 2, width: 4, height: 3 },
+        noiseReduction: neutralNoiseReduction,
+        detailSharpening: neutralDetailSharpening,
+      },
+      copied = await owner.render(neutral, new AbortController().signal)
+    expect(new Uint32Array(copied.buffer)).toEqual(new Uint32Array(expected(neutral).buffer))
+    expect(copied.buffer).not.toBe(j.source.data.buffer)
+    expect(new Uint32Array(j.source.data.buffer)).toEqual(before)
     expect(creations).toBe(0)
     expect(owner.programCount).toBe(0)
     expect(owner.allocatedBytes).toBe(0)
-    expect(owner.precisionRecoveryTiles).toBe(1)
+    expect(owner.precisionRecoveryTiles).toBe(0)
   } finally {
     await owner.close()
   }
+})
+
+test('non-finite GPU readback is refused without CPU repair and close retires every owned buffer', async () => {
+  const { globals } = await import('webgpu')
+  Object.assign(globalThis, globals)
+  const j = job(2, 1),
+    before = new Uint32Array(j.source.data.buffer).slice(),
+    readback = new Float32Array(j.source.data),
+    buffers: GPUBuffer[] = []
+  readback[4] = Number.NaN
+  let submitted = 0,
+    unmapped = 0,
+    destroyed = 0,
+    closed = 0
+  const device = {
+      limits: { maxBufferSize: 1024 ** 3, maxStorageBufferBindingSize: 1024 ** 3 },
+      createBuffer: ({ size }: GPUBufferDescriptor) => {
+        const buffer = {
+          size,
+          mapAsync: async () => {},
+          getMappedRange: (offset: number, length: number) =>
+            readback.buffer.slice(offset, offset + length),
+          unmap: () => {
+            unmapped++
+          },
+          destroy: () => {
+            destroyed++
+          },
+        } as unknown as GPUBuffer
+        buffers.push(buffer)
+        return buffer
+      },
+      createShaderModule: () => ({}),
+      createComputePipelineAsync: async () => ({ getBindGroupLayout: () => ({}) }),
+      createBindGroup: () => ({}),
+      createCommandEncoder: () => ({
+        beginComputePass: () => ({
+          setPipeline: () => {},
+          setBindGroup: () => {},
+          dispatchWorkgroups: () => {},
+          end: () => {},
+        }),
+        copyBufferToBuffer: () => {},
+        finish: () => ({}),
+      }),
+      queue: {
+        writeBuffer: () => {},
+        submit: () => {
+          submitted++
+        },
+        onSubmittedWorkDone: async () => {},
+      },
+    } as unknown as GPUDevice,
+    owner = createSpatialDetailGpu(() => ({
+      mergeDevice: async () => ({ device, adapter: 'controlled non-finite readback' }),
+      close: () => {
+        closed++
+      },
+    }))
+  try {
+    await expect(owner.render(j, new AbortController().signal)).rejects.toThrow(
+      'The GPU detail result contains non-finite RGB; this precision domain is unsupported.',
+    )
+    expect(submitted).toBe(1)
+    expect(unmapped).toBe(1)
+    expect(owner.allocatedBytes).toBe(DETAIL_GPU_BYTES)
+    expect(owner.precisionRecoveryTiles).toBe(0)
+    expect(new Uint32Array(j.source.data.buffer)).toEqual(before)
+  } finally {
+    await owner.close()
+  }
+  expect(buffers.length).toBeGreaterThan(0)
+  expect(destroyed).toBe(buffers.length)
+  expect(closed).toBe(1)
+  expect(owner.allocatedBytes).toBe(0)
+  expect(owner.programCount).toBe(0)
 })
 
 test('cancellation during device preparation allocates no image buffers and close retires the acquired device', async () => {

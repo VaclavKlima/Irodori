@@ -17,12 +17,18 @@ import { CROP_GEOMETRY_VERSION, cropGeometry, identityCrop } from '../../shared/
 import { CROP_FILTER_VERSION } from '../../shared/crop-filter'
 import { readHdrStrips } from '../processing/hdr-processing'
 import { prepareCropWorkingAsset } from '../processing/crop-preparation'
+import { spatialExecutionBackend } from '../processing/spatial-backend'
 import { cropFrameReader } from '../processing/crop-frame'
 import { halfFloat } from './codec'
 import { createExportGpu } from './gpu'
 import { rasterLinear } from './raster'
-import { resizeLinear } from './resize'
-import type { ExportCropDiagnostics, ExportDetailDiagnostics, ExportRenderJob } from './types'
+import { resizeLinear, resizeLinearGpu } from './resize'
+import type {
+  ExportCropDiagnostics,
+  ExportDetailDiagnostics,
+  ExportDiagnostics,
+  ExportRenderJob,
+} from './types'
 import type { HdrWorkingAsset } from '../../shared/hdr'
 import { validateExportCropPolicy } from './crop-policy'
 import { prepareCreativeColor } from '../../shared/creative-color'
@@ -177,7 +183,16 @@ export async function exportRenditions(
           admission,
         )
       : undefined
-  if (memory) requireExportAllocation(memory.cpu)
+  if (!original && mode !== 'cpu' && !job.resizeAdmission)
+    throw new Error('GPU export resize requires frozen resource admission.')
+  if (!original && mode !== 'cpu' && !job.resizePolicy)
+    throw new Error(
+      'GPU export resize requires the current frozen resize policy. Its files were preserved.',
+    )
+  if (memory) {
+    requireExportAllocation(memory.cpu)
+    if (!original && mode !== 'cpu') requireExportAllocation(memory.resizeGpu)
+  }
   // Source filtering/cropping retires before rendition buffers and the converter are allocated.
   const admitted = admission
     ? {
@@ -250,7 +265,7 @@ export async function exportRenditions(
       {
         asset,
         settings: cropSettings,
-        backend: mode as 'auto' | 'cpu' | 'gpu',
+        backend: spatialExecutionBackend(mode, 'crop'),
         ...admitted!,
         reservation: {
           ramBytes: admitted!.reservation.ramBytes,
@@ -328,7 +343,7 @@ export async function exportRenditions(
                     },
                   }
                 : admitted,
-            backend: mode as 'auto' | 'cpu' | 'gpu',
+            backend: spatialExecutionBackend(mode, 'crop'),
           },
           new AbortController().signal,
         )
@@ -396,7 +411,6 @@ export async function exportRenditions(
     }
   }
   let backend: 'gpu' | 'cpu' = 'cpu',
-    fallback: string | undefined,
     adapter: string | undefined
   let converter: Awaited<ReturnType<typeof createExportGpu>> | undefined
   let gpuInitializeMs = 0,
@@ -482,7 +496,7 @@ export async function exportRenditions(
                 reservation: concurrent,
               }).accepted
           if (earlyAccepted) earlyPrimary = onSdrReady?.(rgb, geometry, concurrent)
-          // A later GPU failure drains and discards this encoding before CPU overwrite.
+          // A later GPU failure drains this encoding before retiring the failed attempt.
           void earlyPrimary?.catch(() => {})
           for (let top = 0; top < height; top += 64) {
             const count = width * Math.min(64, height - top),
@@ -512,10 +526,7 @@ export async function exportRenditions(
       } catch (error) {
         await earlyPrimary?.catch(() => {})
         earlyPrimary = undefined
-        if (mode === 'gpu') throw error
-        fallback = error instanceof Error ? error.message : String(error)
-        // A failed tile never publishes partial output; rerender all frozen source pixels.
-        contentHeadroom = 1.01
+        throw error
       } finally {
         await converter?.close()
       }
@@ -526,16 +537,42 @@ export async function exportRenditions(
   }
   const renderMs = performance.now() - started
   const resizeStarted = performance.now()
-  if (!original)
-    await resizeLinear(
-      linearPath,
-      width,
-      height,
-      geometry.width,
-      geometry.height,
-      channels,
-      quantize,
-    )
+  let resizeDiagnostics: Pick<
+    NonNullable<ExportDiagnostics['resize']>,
+    'renderer' | 'adapter' | 'gpuMemoryBytes' | 'peakCachedRows'
+  > = {}
+  if (!original) {
+    if (mode === 'cpu') {
+      await resizeLinear(
+        linearPath,
+        width,
+        height,
+        geometry.width,
+        geometry.height,
+        channels,
+        quantize,
+      )
+      resizeDiagnostics = { renderer: 'cpu' }
+    } else {
+      const resizeAdmission = job.resizeAdmission!
+      resizeDiagnostics = await resizeLinearGpu(
+        linearPath,
+        width,
+        height,
+        geometry.width,
+        geometry.height,
+        channels,
+        quantize,
+        {
+          policy: resizeAdmission.policy,
+          reservation: {
+            ramBytes: resizeAdmission.reservation.ramBytes + memory!.retainedBytes,
+            vramBytes: resizeAdmission.reservation.vramBytes,
+          },
+        },
+      )
+    }
+  }
   return {
     rgb,
     half,
@@ -552,10 +589,11 @@ export async function exportRenditions(
             input: { width, height },
             output: { ...geometry },
             enlarged: geometry.width > width || geometry.height > height,
+            ...resizeDiagnostics,
           },
       renderer: backend,
       adapter,
-      rendererFallback: fallback,
+      rendererFallback: undefined,
       renderMs,
       resizeMs: performance.now() - resizeStarted,
       gpuInitializeMs,

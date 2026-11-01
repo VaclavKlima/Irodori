@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process'
 import { writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { promisify } from 'node:util'
 import type { EditHistory } from '../src/shared/edits'
 import { test, expect } from './electron.fixture'
 import { foregroundTest } from './foreground'
@@ -14,6 +16,20 @@ import {
   readyNativeEditor,
 } from './professional-editor-native.helpers'
 
+const run = promisify(execFile)
+const nativeFixture = {
+  path: 'assets/tests/images/raw/sony-zv-1a/fog-dogs/originals/DSC03280.ARW',
+  sha256: 'dead1a70a02909faf8458119fcc8f7067733b756978fd26921710e3008364605',
+} as const
+
+async function reviewedNativeFixture() {
+  await run('git', ['ls-files', '--error-unmatch', '--', nativeFixture.path])
+  await run('git', ['diff', '--quiet', 'HEAD', '--', nativeFixture.path])
+  const source = resolve(nativeFixture.path)
+  expect(await nativeOriginalHash(source)).toBe(nativeFixture.sha256)
+  return source
+}
+
 test(
   'real Sony editing retains native keyboard focus, grouped tools and current photo pixels at 1100 × 700 with Console open',
   foregroundTest(
@@ -23,9 +39,9 @@ test(
     test.setTimeout(900000)
     const { app, page } = irodori,
       native = await app.browserWindow(page),
-      source = resolve('tests/fixtures/sony-zv1.ARW'),
+      source = await reviewedNativeFixture(),
       originalHash = await nativeOriginalHash(source)
-    expect(originalHash).toBe('14c9d2912584a3ccc5cf10f554fbe495fc960c36758a14d7d858b36ac5ca88e2')
+    expect(originalHash).toBe(nativeFixture.sha256)
     // Wait for the compositor's real client geometry before import starts preparing a source.
     await native.evaluate((window) => {
       window.unmaximize()
@@ -79,7 +95,7 @@ test(
         id = photo.id,
         state = () => page.evaluate((id) => window.irodori.getEditHistory(id), id),
         originalPath = join(irodori.userDataDir, 'library', 'originals', id, 'original.arw')
-      expect(photo).toMatchObject({ filename: 'sony-zv1.ARW', format: 'ARW' })
+      expect(photo).toMatchObject({ filename: 'DSC03280.ARW', format: 'ARW' })
       expect(id).toBe(originalHash)
       expect(await nativeOriginalHash(originalPath)).toBe(originalHash)
       const initial = await state()
@@ -409,9 +425,9 @@ test(
   async ({ irodori }, info) => {
     test.setTimeout(300000)
     const { app, page } = irodori,
-      source = resolve('tests/fixtures/sony-zv1.ARW'),
+      source = await reviewedNativeFixture(),
       hash = await nativeOriginalHash(source)
-    expect(hash).toBe('14c9d2912584a3ccc5cf10f554fbe495fc960c36758a14d7d858b36ac5ca88e2')
+    expect(hash).toBe(nativeFixture.sha256)
     await minimumAdjustmentWindow(app, page)
     const input = await nativeEditorInput(app, page, irodori.userDataDir)
     let inputEvidence: Awaited<ReturnType<typeof input.stop>> | undefined

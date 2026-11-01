@@ -10,7 +10,8 @@ import {
   ACES_INTERACTIVE_PREVIEW_VERSION,
   selectInteractivePreviewPolicy,
 } from '../src/shared/aces-preview-wgsl'
-import { encodeHdr } from '../src/shared/hdr'
+import { encodeHdr, matrixRgb, REC2020_TO_P3, REC2020_TO_SRGB } from '../src/shared/hdr'
+import { inverseMatrix } from '../src/shared/white-balance'
 import {
   assertHdrMemory,
   readHdrMemory,
@@ -18,11 +19,7 @@ import {
 } from './hdr-memory-policy.helpers'
 import type { AdjustmentParameters } from '../src/shared/adjustments'
 import type { EditState } from '../src/shared/edits'
-import {
-  observeNativeCpuReplies,
-  requireTrustedNativeBridge,
-  expectCpuPair,
-} from './native-cpu-preview-ui.helpers'
+import { observeNativeCpuReplies } from './native-cpu-preview-ui.helpers'
 
 const fixture = 'tests/fixtures/sony-zv1.ARW'
 const originalSha256 = '14c9d2912584a3ccc5cf10f554fbe495fc960c36758a14d7d858b36ac5ca88e2'
@@ -30,7 +27,6 @@ const raster = 'tests/fixtures/photos/alpine-lake.jpg'
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const requestedTileBatch = String(editorTestPreviewPolicy.tileBatch)
 const requestedInteractiveFence = editorTestPreviewPolicy.interactiveFence
-const usesNativeCpuRenderer = process.platform === 'linux' && process.arch === 'x64'
 type NativeCpuReplies = Awaited<ReturnType<typeof observeNativeCpuReplies>>
 const parameters: AdjustmentParameters = {
   saturation: 0,
@@ -83,6 +79,7 @@ interface FaultController {
   armRetention: () => void
   armRetentionRejection: () => void
   release: () => void
+  restoreGpu: () => void
   close: () => void | Promise<void>
 }
 type FaultWindow = Window & { interactiveLifecycle: FaultController }
@@ -150,6 +147,7 @@ async function installFaults(page: Page, rejectInteractive = false) {
         retentionCanvases = new Set<HTMLCanvasElement>(),
         resources = new WeakMap<object, number>()
       const original = {
+        navigatorGpu: Object.getOwnPropertyDescriptor(navigator, 'gpu'),
         shader: GPUDevice.prototype.createShaderModule,
         pipeline: GPUDevice.prototype.createComputePipelineAsync,
         buffer: GPUDevice.prototype.createBuffer,
@@ -460,6 +458,11 @@ async function installFaults(page: Page, rejectInteractive = false) {
         rejectRetention = false
         for (const resolve of pending.splice(0)) resolve()
       }
+      const restoreGpu = () => {
+        if (original.navigatorGpu) Object.defineProperty(navigator, 'gpu', original.navigatorGpu)
+        else if (!Reflect.deleteProperty(navigator, 'gpu'))
+          throw new Error('The original GPU capability descriptor could not be restored.')
+      }
       Object.assign(window, {
         interactiveLifecycle: {
           observation,
@@ -474,10 +477,12 @@ async function installFaults(page: Page, rejectInteractive = false) {
             rejectRetention = true
           },
           release,
+          restoreGpu,
           close: () => {
             observeResourcePlan()
             resourceObserver.disconnect()
             release()
+            restoreGpu()
             GPUDevice.prototype.createShaderModule = original.shader
             GPUDevice.prototype.createComputePipelineAsync = original.pipeline
             GPUDevice.prototype.createBuffer = original.buffer
@@ -517,7 +522,10 @@ async function installFaults(page: Page, rejectInteractive = false) {
 
 const observation = (page: Page) =>
   page.evaluate(() => (window as unknown as FaultWindow).interactiveLifecycle.observation)
-const gate = (page: Page, action: 'arm' | 'armRetention' | 'armRetentionRejection' | 'release') =>
+const gate = (
+  page: Page,
+  action: 'arm' | 'armRetention' | 'armRetentionRejection' | 'release' | 'restoreGpu',
+) =>
   page.evaluate(
     (action) => (window as unknown as FaultWindow).interactiveLifecycle[action](),
     action,
@@ -551,7 +559,12 @@ async function exact(page: Page, exposure = parameters.exposureEv) {
   )
 }
 
-async function setup(app: ElectronApplication, page: Page, withRaster = false) {
+async function setup(
+  app: ElectronApplication,
+  page: Page,
+  withRaster = false,
+  expectGpuFailure = false,
+) {
   await (await app.browserWindow(page)).evaluate((window) => window.setContentSize(1100, 700))
   const workspaces = page.getByRole('navigation', { name: 'Workspaces' })
   await workspaces.getByRole('button', { name: 'Library', exact: true }).click()
@@ -567,7 +580,9 @@ async function setup(app: ElectronApplication, page: Page, withRaster = false) {
   )
   await workspaces.getByRole('button', { name: 'Editor', exact: true }).click()
   await page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }).click()
-  await exact(page)
+  if (expectGpuFailure)
+    await expect(page.getByTestId('preview-gpu-error')).toContainText('GPU preview unavailable')
+  else await exact(page)
   const requestId = randomUUID()
   try {
     const source = await page.evaluate(
@@ -798,115 +813,246 @@ async function retainedSnapshot(page: Page) {
   })
 }
 
-async function cpuProof(page: Page, id: string, sourceIdentity: string, exposure: number) {
-  await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'canvas2d-hdr-sdr')
+async function gpuProof(
+  app: ElectronApplication,
+  page: Page,
+  info: TestInfo,
+  id: string,
+  sourceIdentity: string,
+  exposure: number,
+) {
+  const canvas = page.getByTestId('main-preview')
+  await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr')
   await page.getByLabel('Preview zoom', { exact: true }).selectOption('1')
   await exact(page, exposure)
-  const state = await page.evaluate((id) => window.irodori.getEdits(id), id)
-  const samples = await page.getByTestId('main-preview').evaluate((element) => {
+  const state = await page.evaluate((id) => window.irodori.getEdits(id), id),
+    target = await page.evaluate(() => window.irodori.getDisplayState())
+  await expect(canvas).toHaveAttribute('data-presented-settings-revision', String(state.revision))
+  const geometry = await canvas.evaluate((element) => {
     const canvas = element as HTMLCanvasElement,
-      context = canvas.getContext('2d')!,
       viewport = canvas.parentElement!,
+      bounds = viewport.getBoundingClientRect(),
+      canvasBounds = canvas.getBoundingClientRect(),
       width = Number(viewport.dataset.imageWidth),
       height = Number(viewport.dataset.imageHeight),
-      dpr = devicePixelRatio,
-      bounds = viewport.getBoundingClientRect(),
-      left = (bounds.width - width) / 2 + Number(viewport.dataset.panX),
-      top = (bounds.height - height) / 2 + Number(viewport.dataset.panY)
-    return [-48, 0, 48].flatMap((dy) =>
+      scale = Number(viewport.dataset.scale),
+      configuration = canvas.getContext('webgpu')!.getConfiguration()!
+    return {
+      requested: canvas.dataset.requestedSourceIdentity,
+      presented: canvas.dataset.presentedSourceIdentity,
+      dpr: devicePixelRatio,
+      canvasPixels: { width: canvas.width, height: canvas.height },
+      image: { width, height },
+      scale,
+      viewport: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+      left: (bounds.width - width * scale) / 2 + Number(viewport.dataset.panX),
+      top: (bounds.height - height * scale) / 2 + Number(viewport.dataset.panY),
+      capture: {
+        x: Math.round(canvasBounds.x),
+        y: Math.round(canvasBounds.y),
+        width: Math.round(canvasBounds.width),
+        height: Math.round(canvasBounds.height),
+      },
+      configuration: {
+        format: configuration.format,
+        colorSpace: configuration.colorSpace,
+        alphaMode: configuration.alphaMode,
+        toneMapping: configuration.toneMapping,
+      },
+    }
+  })
+  expect(geometry.requested).toBeTruthy()
+  expect(geometry.presented).toBe(geometry.requested)
+  // WebGPU's transient drawing buffer can be discarded after presentation.
+  // Read the composited native surface, as the existing HDR content test does.
+  const captured = await (
+    await app.browserWindow(page)
+  ).evaluate(async (window, geometry) => {
+    const image = await window.capturePage(geometry.capture, { stayHidden: true }),
+      size = image.getSize(),
+      bitmap = image.toBitmap()
+    if (bitmap.length !== size.width * size.height * 4)
+      throw new Error('Native capture dimensions do not describe its BGRA bitmap.')
+    const samples = [-48, 0, 48].flatMap((dy) =>
       [-64, 0, 64].map((dx) => {
-        const px = Math.floor(canvas.width / 2 + dx * dpr),
-          py = Math.floor(canvas.height / 2 + dy * dpr)
+        const px = Math.floor(size.width / 2 + (dx * size.width) / geometry.capture.width),
+          py = Math.floor(size.height / 2 + (dy * size.height) / geometry.capture.height),
+          cssX = geometry.capture.x + ((px + 0.5) * geometry.capture.width) / size.width,
+          cssY = geometry.capture.y + ((py + 0.5) * geometry.capture.height) / size.height,
+          at = (py * size.width + px) * 4
         return {
-          x: Math.floor((px + 0.5) / dpr - left),
-          y: Math.floor((py + 0.5) / dpr - top),
-          rgba: Array.from(context.getImageData(px, py, 1, 1).data),
+          capturePixel: { x: px, y: py },
+          css: { x: cssX, y: cssY },
+          x: Math.floor((cssX - geometry.viewport.x - geometry.left) / geometry.scale),
+          y: Math.floor((cssY - geometry.viewport.y - geometry.top) / geometry.scale),
+          rgba: [bitmap[at + 2], bitmap[at + 1], bitmap[at], bitmap[at + 3]],
         }
       }),
     )
-  })
-  const expected = []
-  for (const sample of samples) {
-    const pixel = await page.evaluate(
-      ({ id, revision, x, y }) =>
-        window.irodori.getPhotoPixel(id, revision, x, y, { domain: 'output', target: 'sdr' }),
-      { id, revision: state.revision, x: sample.x, y: sample.y },
-    )
-    expect(pixel.renderingIdentity).toBe(sourceIdentity)
-    expect(pixel.alpha).toBe(1)
-    const rgb = pixel.rgb.map((value) => Math.round(encodeHdr(value) * 255))
-    expect(
-      Math.max(...rgb.map((value, c) => Math.abs(value - sample.rgba[c]))),
-    ).toBeLessThanOrEqual(1)
-    expect(sample.rgba[3]).toBe(255)
-    expected.push({ ...sample, expected: rgb })
+    return { size, samples, png: image.toPNG().toString('base64') }
+  }, geometry)
+  const png = Buffer.from(captured.png, 'base64'),
+    colorProfileChunks: Array<{
+      type: string
+      bytes: number
+      sha256: string
+      profileName?: string
+    }> = []
+  for (let offset = 8; offset + 12 <= png.length;) {
+    const length = png.readUInt32BE(offset),
+      type = png.toString('ascii', offset + 4, offset + 8),
+      data = png.subarray(offset + 8, offset + 8 + length)
+    if (['iCCP', 'sRGB', 'cHRM', 'gAMA'].includes(type))
+      colorProfileChunks.push({
+        type,
+        bytes: length,
+        sha256: sha(data),
+        ...(type === 'iCCP' ? { profileName: data.toString('ascii', 0, data.indexOf(0)) } : {}),
+      })
+    offset += length + 12
   }
-  return expected
+  await writeFile(info.outputPath('gpu-retry-canonical.png'), png)
+  const samples = []
+  for (const sample of captured.samples) {
+    const pixel = await page.evaluate(
+      ({ id, revision, x, y, targetGeneration }) =>
+        window.irodori.getPhotoPixel(id, revision, x, y, {
+          domain: 'output',
+          target: 'current',
+          targetGeneration,
+        }),
+      {
+        id,
+        revision: state.revision,
+        x: sample.x,
+        y: sample.y,
+        targetGeneration: target.generation,
+      },
+    )
+    // ACES output for the current P3 target differs from ACES output for an
+    // sRGB target. Convert its already-rendered linear P3 values for the native
+    // sRGB capture; do not render the source a second time with another target.
+    const rgb =
+        pixel.colorSpace === 'display-p3'
+          ? matrixRgb(REC2020_TO_SRGB, matrixRgb(inverseMatrix(REC2020_TO_P3), pixel.rgb))
+          : pixel.rgb,
+      expected = rgb.map((value) => Math.round(encodeHdr(Math.max(0, Math.min(1, value))) * 255))
+    samples.push({
+      ...sample,
+      pixel,
+      captureLinear: rgb,
+      expected,
+      maximumCodeDifference: Math.max(
+        ...expected.map((value, c) => Math.abs(value - sample.rgba[c])),
+      ),
+    })
+  }
+  const proof = {
+    sourceIdentity,
+    revision: state.revision,
+    target,
+    geometry,
+    capture: {
+      size: captured.size,
+      colorProfileChunks,
+      pixelFormat: 'BGRA8 converted to RGBA',
+      outputDomain:
+        'Native composited sRGB; current linear P3 oracle converted with existing HDR matrices when needed.',
+    },
+    samples,
+  }
+  // Retain every actual/expected sample before the first numerical assertion.
+  await writeFile(info.outputPath('gpu-retry-pixels.json'), JSON.stringify(proof, null, 2))
+  expect(target.mode).toBe('sdr')
+  expect(geometry.configuration.colorSpace).toBe(target.colorSpace)
+  for (const sample of samples) {
+    expect(sample.pixel.renderingIdentity).toBe(sourceIdentity)
+    expect(sample.pixel.colorSpace).toBe(target.colorSpace)
+    expect(sample.pixel.alpha).toBe(1)
+    expect(sample.rgba[3]).toBe(255)
+    expect(sample.maximumCodeDifference).toBeLessThanOrEqual(1)
+  }
+  return proof
 }
 
-/** Bind the actual displayed full-detail pair to the unchanged main CPU handler. */
-async function assertNativeCpuPublication(
+async function previewView(page: Page) {
+  return page.getByTestId('main-preview').evaluate((canvas) => {
+    const viewport = canvas.parentElement!,
+      width = Number(viewport.dataset.imageWidth),
+      height = Number(viewport.dataset.imageHeight),
+      scale = Number(viewport.dataset.scale),
+      panX = Number(viewport.dataset.panX),
+      panY = Number(viewport.dataset.panY)
+    return {
+      mode: viewport.dataset.mode,
+      scale: viewport.dataset.scale,
+      imageWidth: viewport.dataset.imageWidth,
+      imageHeight: viewport.dataset.imageHeight,
+      panX: viewport.dataset.panX,
+      panY: viewport.dataset.panY,
+      center: { x: 0.5 - panX / (width * scale), y: 0.5 - panY / (height * scale) },
+      zoom: (document.querySelector('[aria-label="Preview zoom"]') as HTMLSelectElement | null)
+        ?.value,
+    }
+  })
+}
+
+async function assertGpuUnavailable(page: Page, info: TestInfo, replies: NativeCpuReplies) {
+  const error = page.getByTestId('preview-gpu-error')
+  await expect(error).toHaveAttribute('role', 'alert')
+  await expect(error).toContainText('GPU preview unavailable')
+  await expect(error.getByRole('button', { name: 'Retry GPU', exact: true })).toBeVisible()
+  await expect(page.getByTestId('main-preview')).toBeHidden()
+  await expect(page.getByTestId('retained-preview')).toBeHidden()
+  await expect(page.getByTestId('clipping-overlay')).toBeHidden()
+  await expect.poll(async () => (await observation(page)).liveBytes).toBe(0)
+  await expect.poll(async () => (await observation(page)).waiting).toBe(0)
+  await expect.poll(async () => (await observation(page)).retentionStageLive).toBe(0)
+  expect((await observation(page)).cpuRequests).toEqual([])
+  const native = await replies.evaluate((control) => control.state())
+  expect(native.requests).toEqual([])
+  expect(native.pairs).toEqual([])
+  await page.screenshot({ path: info.outputPath('gpu-unavailable.png') })
+  return { observed: await observation(page), native }
+}
+
+async function retryGpu(
+  app: ElectronApplication,
   page: Page,
+  info: TestInfo,
   replies: NativeCpuReplies,
   prepared: Awaited<ReturnType<typeof setup>>,
-  expectedParameters: AdjustmentParameters,
+  exposure: number,
+  authoritativeGeometryMayChange = false,
 ) {
-  const canvas = page.getByTestId('main-preview')
-  await expect(canvas).toHaveAttribute('data-cpu-renderer', 'native')
-  const pairId = await canvas.getAttribute('data-native-cpu-pair')
-  expect(pairId).toBeTruthy()
-  const observed = await replies.evaluate((control) => control.state())
-  expect(observed.omitted).toBe(0)
-  const pairs = observed.pairs.filter((pair) => pair.pairId === pairId)
-  expect(pairs).toHaveLength(1)
-  const pair = pairs[0]
-  if (!pair) throw new Error('The displayed normal CPU pair was not observed from main.')
-  const requests = observed.requests.filter((request) => request.requestId === pair.requestId)
-  expect(requests).toHaveLength(1)
-  const request = requests[0]
-  if (!request) throw new Error('The displayed CPU pair has no observed real request.')
-  const current = await page.evaluate((id) => window.irodori.getEdits(id), prepared.raw.id)
-  const hdr = prepared.source.linear?.hdr
-  if (!hdr || !prepared.source.cpuSource)
-    throw new Error('The corrected source has no trusted native CPU identity.')
-  expect(pair.quality).toBe('normal')
-  expect(pair.source).toEqual(prepared.source.cpuSource)
-  expect(pair.source).toMatchObject({
-    photoId: prepared.raw.id,
-    renderingIdentity: prepared.source.renderId,
-    workingSha256: hdr.sha256,
-  })
-  expect(pair.parameters).toEqual(expectedParameters)
-  expect(pair.settingsRevision).toBe(current.revision)
-  expect(request).toMatchObject({
-    requestId: pair.requestId,
-    sessionId: pair.sessionId,
-    generation: pair.generation,
-    source: pair.source,
-    parameters: expectedParameters,
-    expectedSettingsRevision: current.revision,
-    quality: 'normal',
-    hdrRanges: pair.hdrRanges,
-    headroom: pair.headroom,
-  })
-  expect(pair.sourceDimensions).toEqual({ width: hdr.width, height: hdr.height })
-  for (const plane of [pair.after, pair.before]) {
-    expect(plane).toMatchObject({
-      format: 'rgba8-srgb',
-      width: hdr.width,
-      height: hdr.height,
-      byteLength: hdr.width * hdr.height * 4,
-    })
-    expect(plane.sha256).toMatch(/^[a-f0-9]{64}$/)
-  }
-  expect(observed.events).toContainEqual({
-    phase: 'delivered',
-    channel: 'preview:cpu-render',
-    requestId: pair.requestId,
-    pairId: pair.pairId,
-  })
-  await expectCpuPair(page, pair)
-  return { publishedPairId: pairId, request, pair }
+  const history = await page.evaluate((id) => window.irodori.getEditHistory(id), prepared.raw.id),
+    view = await previewView(page)
+  await gate(page, 'restoreGpu')
+  await page.getByRole('button', { name: 'Retry GPU', exact: true }).click()
+  await exact(page, exposure)
+  await expect(page.getByTestId('preview-gpu-error')).toHaveCount(0)
+  await expect(page.getByTestId('main-preview')).toBeVisible()
+  await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'webgpu-hdr')
+  await expect(page.getByTestId('main-preview')).toHaveAttribute(
+    'aria-label',
+    prepared.raw.filename,
+  )
+  const retriedView = await previewView(page)
+  if (authoritativeGeometryMayChange) {
+    // First successful RAW presentation may replace provisional catalog dimensions.
+    expect(retriedView.mode).toBe(view.mode)
+    expect(retriedView.zoom).toBe(view.zoom)
+    expect(Number.isFinite(view.center.x) && Number.isFinite(view.center.y)).toBe(true)
+    expect(retriedView.center.x).toBeCloseTo(view.center.x, 8)
+    expect(retriedView.center.y).toBeCloseTo(view.center.y, 8)
+  } else expect(retriedView).toEqual(view)
+  expect(await page.evaluate((id) => window.irodori.getEditHistory(id), prepared.raw.id)).toEqual(
+    history,
+  )
+  expect((await observation(page)).cpuRequests).toEqual([])
+  expect((await replies.evaluate((control) => control.state())).requests).toEqual([])
+  const proof = await gpuProof(app, page, info, prepared.raw.id, prepared.source.renderId, exposure)
+  return { history, view, retriedView, proof }
 }
 
 async function closeNativeCpuObservation(replies: NativeCpuReplies | undefined, info: TestInfo) {
@@ -914,11 +1060,13 @@ async function closeNativeCpuObservation(replies: NativeCpuReplies | undefined, 
   try {
     const observed = await replies.evaluate((control) => control.close())
     await writeFile(
-      info.outputPath('interactive-native-cpu.json'),
+      info.outputPath('interactive-cpu-refusal-observation.json'),
       JSON.stringify(observed, null, 2),
     )
     expect(observed.omitted).toBe(0)
     expect(observed.held).toBeNull()
+    expect(observed.requests).toEqual([])
+    expect(observed.pairs).toEqual([])
   } finally {
     await replies.dispose()
   }
@@ -992,7 +1140,7 @@ async function evidence(
         memory:
           'peakBytes counts explicit GPU textures/buffers and is compared to the contemporaneous GPU budget; separate planned RAM/GPU peaks retain their own admitted limits and observed source/geometry witnesses. Browser/driver physical residency is not measured.',
         oracle:
-          'CPU recovery samples use the canonical application pixel API; independent CTL numerical conformance is verified by the separate GPU quality targets.',
+          'GPU retry samples use actual GPU-canvas readback and the canonical exact-source application pixel API; independent CTL numerical conformance is verified by the separate GPU quality targets.',
       },
       null,
       2,
@@ -1016,7 +1164,7 @@ async function evidence(
 }
 
 test(
-  'a native interactive-pipeline rejection recovers complete corrected CPU pixels without changing history',
+  'a native interactive-pipeline rejection reports GPU failure and retries exact corrected pixels without changing history',
   foreground,
   async ({ irodori }, info) => {
     test.setTimeout(180000)
@@ -1025,28 +1173,22 @@ test(
     const detail: unknown[] = []
     try {
       await installFaults(page, true)
-      if (usesNativeCpuRenderer) {
-        await requireTrustedNativeBridge(page)
-        native = await observeNativeCpuReplies(app)
-      }
-      const prepared = await setup(app, page)
+      native = await observeNativeCpuReplies(app)
+      const prepared = await setup(app, page, false, true)
       id = prepared.raw.id
+      detail.push(await assertGpuUnavailable(page, info, native))
       const observed = await observation(page)
       expect(observed.rejectedPipelines).toBe(1)
       expect(observed.rejection).toMatchObject({ name: 'GPUPipelineError', reason: 'validation' })
       expect(observed.interactiveDispatches).toBe(0)
-      detail.push(await cpuProof(page, id, prepared.source.renderId, parameters.exposureEv))
       expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(
         prepared.history,
       )
-      if (usesNativeCpuRenderer)
-        detail.push(await assertNativeCpuPublication(page, native!, prepared, parameters))
-      else
-        expect((await observation(page)).cpuRequests.at(-1)).toEqual({
-          sha256: prepared.source.linear!.hdr!.sha256,
-          parameters,
-        })
-      await expect.poll(async () => (await observation(page)).liveBytes).toBe(0)
+      detail.push(await retryGpu(app, page, info, native, prepared, parameters.exposureEv, true))
+      expect((await observation(page)).canonicalDispatches).toBeGreaterThan(0)
+      expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(
+        prepared.history,
+      )
     } finally {
       try {
         await evidence(page, info, userDataDir, id, detail)
@@ -1211,15 +1353,16 @@ test(
 )
 
 test(
-  'device loss before staged CPU capture preserves the last published recovery image and committed edit',
+  'device loss before staged capture hides recovery surfaces and retries the single committed edit on GPU',
   foreground,
   async ({ irodori }, info) => {
     test.setTimeout(180000)
     const { app, page, userDataDir } = irodori
-    let id: string | undefined
+    let id: string | undefined, native: NativeCpuReplies | undefined
     const detail: unknown[] = []
     try {
       await installFaults(page)
+      native = await observeNativeCpuReplies(app)
       const prepared = await setup(app, page)
       id = prepared.raw.id
       const slider = await beginGesture(page)
@@ -1233,7 +1376,8 @@ test(
         )
         .toBe(true)
       const before = await retainedSnapshot(page),
-        previous = await observation(page)
+        previous = await observation(page),
+        view = await previewView(page)
       expect(before.nonblack).toBe(true)
       expect(before.serial).toBe(
         await page.getByTestId('main-preview').getAttribute('data-presentation-serial'),
@@ -1255,30 +1399,38 @@ test(
         device.destroy()
       })
       await gate(page, 'release')
-      await expect(page.getByTestId('main-preview')).toHaveAttribute(
-        'data-backend',
-        'canvas2d-hdr-sdr',
-      )
-      await expect(page.getByTestId('retained-preview')).toBeVisible()
+      detail.push(await assertGpuUnavailable(page, info, native))
       expect(await retainedSnapshot(page)).toEqual(before)
       expect((await observation(page)).retentionReads).toBe(previous.retentionReads)
-      await expect.poll(async () => (await observation(page)).retentionStageLive).toBe(0)
+      expect(await previewView(page)).toEqual(view)
       await page.mouse.up()
-      detail.push(before, held, await cpuProof(page, id, prepared.source.renderId, 1.75))
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate((id) => window.irodori.getEditHistory(id), id!)).snapshots.length,
+        )
+        .toBe(prepared.history.snapshots.length + 1)
       const history = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
       expect(history.settings).toEqual({ ...prepared.history.settings, exposureEv: 1.75 })
-      expect(history.snapshots).toHaveLength(prepared.history.snapshots.length + 1)
       expect(history.snapshots.slice(0, -1)).toEqual(prepared.history.snapshots)
-      await expect.poll(async () => (await observation(page)).liveBytes).toBe(0)
+      detail.push(
+        { before, held, history },
+        await retryGpu(app, page, info, native, prepared, 1.75),
+      )
+      expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(history)
     } finally {
       await page.mouse.up().catch(() => undefined)
-      await evidence(page, info, userDataDir, id, detail)
+      try {
+        await evidence(page, info, userDataDir, id, detail)
+      } finally {
+        await closeNativeCpuObservation(native, info)
+      }
     }
   },
 )
 
 test(
-  'device loss during an actual Float32 gesture drains completion and recovers its single committed edit on CPU',
+  'device loss during an actual Float32 gesture drains GPU resources and retries its single committed edit',
   foreground,
   async ({ irodori }, info) => {
     test.setTimeout(180000)
@@ -1287,13 +1439,11 @@ test(
     const detail: unknown[] = []
     try {
       await installFaults(page)
-      if (usesNativeCpuRenderer) {
-        await requireTrustedNativeBridge(page)
-        native = await observeNativeCpuReplies(app)
-      }
+      native = await observeNativeCpuReplies(app)
       const prepared = await setup(app, page)
       id = prepared.raw.id
-      const slider = await beginGesture(page)
+      const slider = await beginGesture(page),
+        view = await previewView(page)
       await gate(page, 'arm')
       await inputExposure(slider, 1.75)
       await expect.poll(async () => (await observation(page)).waiting).toBe(1)
@@ -1307,35 +1457,23 @@ test(
         device.destroy()
       })
       await gate(page, 'release')
+      detail.push(await assertGpuUnavailable(page, info, native))
+      expect(await previewView(page)).toEqual(view)
       await page.mouse.up()
-      await page.getByTestId('main-preview').focus()
       await expect
         .poll(
           async () =>
             (await page.evaluate((id) => window.irodori.getEditHistory(id), id!)).snapshots.length,
         )
         .toBe(prepared.history.snapshots.length + 1)
-      detail.push(await cpuProof(page, id, prepared.source.renderId, 1.75))
       const history = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
       expect(history.settings).toEqual({ ...prepared.history.settings, exposureEv: 1.75 })
       expect(history.snapshots.slice(0, -1)).toEqual(prepared.history.snapshots)
       const observed = await observation(page)
       expect(observed.interactiveDispatches).toBeGreaterThan(0)
       expect(observed.held).toBe(1)
-      if (usesNativeCpuRenderer)
-        detail.push(
-          await assertNativeCpuPublication(page, native!, prepared, {
-            ...parameters,
-            exposureEv: 1.75,
-          }),
-        )
-      else
-        expect(observed.cpuRequests.at(-1)).toEqual({
-          sha256: prepared.source.linear!.hdr!.sha256,
-          parameters: { ...parameters, exposureEv: 1.75 },
-        })
-      await expect.poll(async () => (await observation(page)).liveBytes).toBe(0)
-      detail.push(history)
+      detail.push({ history, observed }, await retryGpu(app, page, info, native, prepared, 1.75))
+      expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(history)
     } finally {
       await page.mouse.up().catch(() => undefined)
       try {

@@ -1,0 +1,275 @@
+{
+  "version": "pilot-patch-retained-quality-inputs-v1",
+  "license": "CC0-1.0",
+  "licenseNotice": "../README.md",
+  "scope": "Four unchanged synthetic numerical inputs for the first two retained context-edge cases. No photographs, new generated inputs, expected filter outputs or quality acceptance.",
+  "format": {
+    "component": "IEEE-754 binary32",
+    "endianness": "little",
+    "layout": "row-major interleaved RGBA",
+    "bytesPerPixel": 16
+  },
+  "provenance": {
+    "declaration": {
+      "path": "artifacts/detail-research/strong-noise/comparison15-retained/freeze-k7yqo6oi/declaration.json",
+      "sha256": "9709b26a1f0132278a66de13235d27b6620dd9f5eff119fdfbfbfe935aa3843b",
+      "bytes": 337578
+    },
+    "inputBaseline": {
+      "path": "artifacts/detail-research/strong-noise/c12-chroma-wide-screen-zmxaqv83/freeze-cowbzvrh/declaration.json",
+      "sha256": "27f7538061c6a0af8d46ba48f16912c94855e6581912afa5078b8acf783cc663",
+      "bytes": 279867
+    },
+    "sourcePolicy": {
+      "path": "scripts/research/strong-noise/comparison15.json",
+      "sha256": "379412c11a6da3acc020ac732a7444c8c6887493ed15e81b435a1ad81b9fdad2",
+      "bytes": 14419
+    },
+    "generatorSources": [
+      {
+        "path": "artifacts/detail-research/strong-noise/comparison9-gpu/run-vcolhc_q/sources/scripts/research/detail-candidates.py",
+        "sha256": "c394c7816a6fadacca9a00583c738cf6ee27e48d7d688fa3fa62ef5209a44706",
+        "bytes": 16004
+      },
+      {
+        "path": "artifacts/detail-research/strong-noise/comparison9-gpu/run-vcolhc_q/sources/scripts/research/strong-noise/cases.py",
+        "sha256": "fa063055831ce76dca82b5dce62c1079159c36ce5cf54891b1c20009ef63597b",
+        "bytes": 11529
+      }
+    ],
+    "metricSources": [
+      {
+        "path": "scripts/research/detail-candidates.py",
+        "sha256": "c394c7816a6fadacca9a00583c738cf6ee27e48d7d688fa3fa62ef5209a44706",
+        "bytes": 16004
+      },
+      {
+        "path": "scripts/research/strong-noise/cases.py",
+        "sha256": "fa063055831ce76dca82b5dce62c1079159c36ce5cf54891b1c20009ef63597b",
+        "bytes": 11529
+      }
+    ],
+    "assetLicenseNotice": {
+      "path": "assets/tests/references/detail/strong-noise/README.md",
+      "sha256": "f0feec88181fd6603b491a1718dda2fad5b8dc1e9544fac71ac69bf72ef0a02d",
+      "bytes": 2284
+    },
+    "historicalSources": "Declaration, generator and source-policy paths identify preserved historical inputs; tests consume the four local files and current metricSources, without requiring artifacts/.",
+    "promotion": "Exact byte copy only; source descriptors and old metrics copied unchanged. No filters or numeric input generation executed."
+  },
+  "gateLimits": {
+    "edgeLeakageMaximum": 0.03,
+    "edgeWidthGrowthMaximum": 0.5,
+    "finite": true,
+    "alphaExact": true
+  },
+  "oldMetricsRole": "Historical baseline measurements and gate outcomes only; recompute candidate metrics against clean inputs. Frozen estimates are supplied parameters, not newly estimated values.",
+  "cases": [
+    {
+      "row": 0,
+      "width": 136,
+      "height": 136,
+      "recipe": {
+        "name": "isoluminant",
+        "seed": 1,
+        "primaries": "srgb",
+        "sigma": 0.1,
+        "strength": 75,
+        "high": true,
+        "weak": false,
+        "fresh": false
+      },
+      "estimate": {
+        "version": "frozen-global-directional-mad-v1",
+        "source": {
+          "width": 136,
+          "height": 136,
+          "identity": "1be719dd37190e1b4735966406980748e8ca2c95ab8c6289ad773dadf2bbb99c",
+          "sha256": "1be719dd37190e1b4735966406980748e8ca2c95ab8c6289ad773dadf2bbb99c",
+          "primaries": "srgb",
+          "verification": "caller-owned-source-lease-and-hashes"
+        },
+        "directions": [
+          {
+            "direction": [1, 0],
+            "availablePairs": 18360,
+            "stratifiedPairs": 18360,
+            "validPairs": 18360,
+            "centers": [-0.0007409238634257242, -0.0007386590506658283, -0.00026017592762279766],
+            "sigma": [0.10126886003008642, 0.0999438876543871, 0.10220142313429581]
+          },
+          {
+            "direction": [0, 1],
+            "availablePairs": 18360,
+            "stratifiedPairs": 18360,
+            "validPairs": 18360,
+            "centers": [0.0004405384416147906, 0.0002102320367838445, 0.0005586386891290977],
+            "sigma": [0.10092704246190426, 0.10028322853899573, 0.10047939518721571]
+          },
+          {
+            "direction": [1, 1],
+            "availablePairs": 18225,
+            "stratifiedPairs": 18225,
+            "validPairs": 18225,
+            "centers": [0.0012986607666141126, -0.000608637931196504, -0.00021372431284009952],
+            "sigma": [0.09914390127865602, 0.09975433513465057, 0.10223291763684575]
+          },
+          {
+            "direction": [1, -1],
+            "availablePairs": 18225,
+            "stratifiedPairs": 18225,
+            "validPairs": 18225,
+            "centers": [-0.00023787007334408194, -0.0031323262165561527, -0.0013536686684920696],
+            "sigma": [0.10006481031944357, 0.09993374110200703, 0.10046698389846122]
+          }
+        ],
+        "sigma": [0.09914390127865602, 0.09975433513465057, 0.10046698389846122],
+        "variance": [0.00982951316075189, 0.00995092737815618, 0.010093614853653666],
+        "available": true,
+        "memory": {
+          "maximumPairs": 18360,
+          "statisticsBytes": 660960,
+          "rowBytes": 4352,
+          "scratchBytes": 176,
+          "workingBytes": 665488
+        },
+        "limits": "Empirical global minimum, not calibrated sensor noise or an unbiased estimate."
+      },
+      "inputs": [
+        {
+          "kind": "clean",
+          "file": "row-0-clean.f32",
+          "sha256": "423d1ea1b921e55db6a54ef58a0481a2566f98664d37bb74936d192bf2805fd4",
+          "bytes": 295936,
+          "originalPath": "artifacts/detail-research/strong-noise/comparison9-gpu/run-vcolhc_q/case-0-clean.f32"
+        },
+        {
+          "kind": "entering",
+          "file": "row-0-entering.f32",
+          "sha256": "1be719dd37190e1b4735966406980748e8ca2c95ab8c6289ad773dadf2bbb99c",
+          "bytes": 295936,
+          "originalPath": "artifacts/detail-research/strong-noise/comparison9-gpu/run-vcolhc_q/case-0-entering.f32"
+        }
+      ],
+      "oldMetrics": {
+        "luminanceRmsRatio": 0.42835287346155937,
+        "chromaRmsRatio": 0.3756389657446073,
+        "meanBias": [0.001447107059255683, -0.00017121011748126537, -0.0017432737218132037],
+        "gates": {
+          "edgeLeakage": false,
+          "edgeWidth": true,
+          "finite": true,
+          "alphaExact": true
+        },
+        "edgeLeakage": 0.033762834121445984,
+        "edgeWidthGrowth": -0.03381356515851053,
+        "metricSamples": 16384,
+        "required": true,
+        "cohort": "high-required"
+      }
+    },
+    {
+      "row": 2,
+      "width": 136,
+      "height": 136,
+      "recipe": {
+        "name": "isoluminant",
+        "seed": 1,
+        "primaries": "rec2020",
+        "sigma": 0.1,
+        "strength": 75,
+        "high": true,
+        "weak": false,
+        "fresh": false
+      },
+      "estimate": {
+        "version": "frozen-global-directional-mad-v1",
+        "source": {
+          "width": 136,
+          "height": 136,
+          "identity": "17e48f4c401086f631d2866df2c51261a8df5e96ac57597e7047f0801cdd5488",
+          "sha256": "17e48f4c401086f631d2866df2c51261a8df5e96ac57597e7047f0801cdd5488",
+          "primaries": "rec2020",
+          "verification": "caller-owned-source-lease-and-hashes"
+        },
+        "directions": [
+          {
+            "direction": [1, 0],
+            "availablePairs": 18360,
+            "stratifiedPairs": 18360,
+            "validPairs": 18360,
+            "centers": [-0.0007409246311011475, -0.0007386696329930512, -0.00026017342531539124],
+            "sigma": [0.101268865257238, 0.09994390813567675, 0.10220140722805471]
+          },
+          {
+            "direction": [0, 1],
+            "availablePairs": 18360,
+            "stratifiedPairs": 18360,
+            "validPairs": 18360,
+            "centers": [0.00044053015728440226, 0.00021020481236891375, 0.0005586195358234167],
+            "sigma": [0.10092707813516402, 0.10028324079667855, 0.10047936550567638]
+          },
+          {
+            "direction": [1, 1],
+            "availablePairs": 18225,
+            "stratifiedPairs": 18225,
+            "validPairs": 18225,
+            "centers": [0.001298687894488948, -0.0006086432137991371, -0.00021374281898869918],
+            "sigma": [0.09914383887137378, 0.09975433457477696, 0.10223288636252255]
+          },
+          {
+            "direction": [1, -1],
+            "availablePairs": 18225,
+            "stratifiedPairs": 18225,
+            "validPairs": 18225,
+            "centers": [-0.0002378881911666575, -0.003132335631609917, -0.001353685658411069],
+            "sigma": [0.10006477726828161, 0.09993369871052801, 0.10046700046413296]
+          }
+        ],
+        "sigma": [0.09914383887137378, 0.09975433457477696, 0.10046700046413296],
+        "variance": [0.009829500786152925, 0.009950927266456543, 0.010093618182260091],
+        "available": true,
+        "memory": {
+          "maximumPairs": 18360,
+          "statisticsBytes": 660960,
+          "rowBytes": 4352,
+          "scratchBytes": 176,
+          "workingBytes": 665488
+        },
+        "limits": "Empirical global minimum, not calibrated sensor noise or an unbiased estimate."
+      },
+      "inputs": [
+        {
+          "kind": "clean",
+          "file": "row-2-clean.f32",
+          "sha256": "a2ec45a0e2affcb9ad28507d95096c52cd40da8f06a0a355c9f967adbc9903ed",
+          "bytes": 295936,
+          "originalPath": "artifacts/detail-research/strong-noise/comparison9-gpu/run-vcolhc_q/case-2-clean.f32"
+        },
+        {
+          "kind": "entering",
+          "file": "row-2-entering.f32",
+          "sha256": "17e48f4c401086f631d2866df2c51261a8df5e96ac57597e7047f0801cdd5488",
+          "bytes": 295936,
+          "originalPath": "artifacts/detail-research/strong-noise/comparison9-gpu/run-vcolhc_q/case-2-entering.f32"
+        }
+      ],
+      "oldMetrics": {
+        "luminanceRmsRatio": 0.4283535020634169,
+        "chromaRmsRatio": 0.3756390130871699,
+        "meanBias": [0.0014471011080926543, -0.0001712015479699428, -0.001743267594635988],
+        "gates": {
+          "edgeLeakage": false,
+          "edgeWidth": true,
+          "finite": true,
+          "alphaExact": true
+        },
+        "edgeLeakage": 0.033762915589360044,
+        "edgeWidthGrowth": -0.033813577095259006,
+        "metricSamples": 16384,
+        "required": true,
+        "cohort": "high-required"
+      }
+    }
+  ]
+}

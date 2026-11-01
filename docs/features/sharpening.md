@@ -15,10 +15,14 @@ geometry/manual WB. CPU/GPU kernels, bounded source adapters and preview/export
 leases retain independent small-fixture evidence. Focused public application
 checks cover UI/MCP, original Before/Split pixels, keyboard gestures, cancellation,
 minimum Console-open layout and restart. A tiny actual JPEG export freezes saved
-detail controls across foreground retry and later edits. Real RAW/HDR/gain-map/
-merge application, native input/visual, photographic and full-size performance
-acceptance remain pending. Final-output-size proof and output sharpening are
-separate unfinished Goal 2 features.
+detail controls across foreground retry and later edits. Combined real Sony RAW,
+photographic raster, synthetic ISO gain-map and genuine v4 merge edits, frozen
+export and restart with source/master preservation pass focused checks, as do
+native keyboard/minimum-size checks on Bazzite; see the
+[acceptance record](professional-editing-processing.md). Default detail preparation
+uses [strict GPU processing](../gpu-processing.md). Broader photographic quality,
+full-size performance and sustained responsiveness remain unfinished.
+Final-output-size proof and output sharpening are separate unfinished Goal 2 features.
 [Shared requirements](README.md#shared-implementation-requirements) apply.
 
 ## Goal
@@ -39,6 +43,8 @@ Research bounded unsharp/deconvolution candidates using edges, texture, noise, a
 
 Reference calculations and measurements must quantify overshoot/undershoot, edge spread, texture retention, and noise amplification. A radius is never interpreted in CSS pixels or changed by device pixel ratio. Full-resolution computation or a validated approximation must underpin Fit; proof at 100% uses actual output pixels. Tile overlap must cover the filter support.
 
+Implement production filtering through the shared [GPU pipeline](../gpu-processing.md). Independent scalar references remain verification evidence; a parallel production CPU filter is not required.
+
 ## API/MCP implications
 
 Persist detail parameters via ordinary revision-checked edits. Include output parameters in typed export/proof requests and frozen job descriptors. Report source/output dimensions and the operator version so MCP can distinguish detail edits from export-only processing.
@@ -53,14 +59,14 @@ Requires [HDR processing](hdr-processing.md), [tone mapping](tone-mapping.md), a
 
 ## Failure handling
 
-Validate radius and allocation bounds before committing settings. On unsupported GPU operations, use the bounded reference CPU path. Export must report an unsupported sharpening mode rather than silently omitting it. Stale proof jobs cannot replace the active photo preview.
+Validate radius and allocation bounds before committing settings. Unsupported GPU operations or device loss produce explicit errors, preserve settings and originals, retire resources and permit an appropriate GPU retry without CPU repair. Export must report an unsupported sharpening mode rather than silently omitting it. Stale proof jobs cannot replace the active photo preview.
 
 ## Acceptance criteria
 
 - Amount 0 is identical to baseline; flat fields remain unchanged and alpha is preserved.
 - Edge/impulse fixtures meet predeclared overshoot, halo-width, and noise-amplification thresholds across SDR and 16×-white samples.
 - Verify native 100%, Fit, multiple device pixel ratios, and two export sizes; radius behavior follows source or output pixels as specified.
-- Tiled and reference output agree within fixed tolerances without seams; test CPU/GPU fallback, bounded memory, and cancellation.
+- GPU tiled and independent reference output agree within fixed tolerances without seams; test explicit capability refusal, device loss/retry, bounded memory, cancellation and resource cleanup.
 - Detail history/restart, export preset round trips, UI/MCP parity, and preview/export proof agreement pass with real noisy and merged fixtures.
 
 ## References

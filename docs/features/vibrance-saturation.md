@@ -4,6 +4,8 @@
 
 **Implemented; acceptance in progress.** Saturation and Vibrance are enabled with
 shared history, typed MCP, preview/export GPU paths and equivalent CPU fallbacks.
+That CPU fallback coverage records the earlier implementation; current production
+routing and remaining legacy paths follow the [GPU-only direction](../gpu-processing.md).
 The [processing decision record](professional-editing-processing.md#implemented-saturationvibrance-decision)
 defines CIE Lab/D65 intensity, frozen numerical limits, migrations and focused
 verification. Real-photo HDR/visual and source-matched performance gates remain
@@ -41,14 +43,14 @@ Requires [HDR processing](hdr-processing.md), [camera profiles](camera-color-pro
 
 ## Failure handling
 
-Reject unsupported processing versions and malformed edits without altering confirmed state. Use the reference CPU operator on GPU failure. Invalid color-model results fail the render with a retry path rather than storing clipped replacement data.
+Reject unsupported processing versions and malformed edits without altering confirmed state. Follow the [GPU-only direction](../gpu-processing.md): GPU capability failures or device loss report the reason, preserve edits and originals, release resources and allow an appropriate GPU retry without a CPU editing fallback. Invalid color-model results fail the render with a retry path rather than storing clipped replacement data.
 
 ## Acceptance criteria
 
 - Both zero values reproduce baseline pixels; Saturation −100 produces equal working neutral channels within the chosen neutral-axis tolerance and preserves alpha.
 - Test a brightness sweep from near black through 16× reference white and hue sweeps across the full circle; no NaNs, abrupt hue shifts, or clipping of the master.
 - Vibrance measurably applies its documented weighting; record hue/luminance errors against fixed independent references.
-- CPU/GPU output meets foundation tolerances; combined extremes, migrations, history/restart, stale requests, and MCP parity pass.
+- GPU output meets foundation tolerances against independent references; combined extremes, migrations, history/restart, stale requests, capability refusal/retry cleanup and MCP parity pass. Historical CPU evidence does not require a second production backend.
 - Gestures retain one commit and keyboard cancellation; meet existing SDR interaction gates and record HDR latency separately.
 
 ## References

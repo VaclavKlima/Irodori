@@ -8,8 +8,13 @@ and hidden WebGL references pass for the original eight-range model in the
 shipping native adapters have focused coverage. Settings 10/catalog 20 migrate
 complete neutral groups through existing histories. Inspector controls, partial
 typed API/MCP patches, section reset, shared history and small-raster frozen export
-have hidden/service evidence. Full HDR application, real-photo, native visual/input
-and source-matched performance acceptance remain unfinished.
+have hidden/service evidence. Combined real Sony RAW, photographic raster,
+synthetic ISO gain-map and genuine v4 merge edits, frozen export and restart with
+source/master preservation also pass focused checks. Native keyboard/minimum-size
+checks pass on Bazzite after the GPU cleanup; see the
+[acceptance record](professional-editing-processing.md) and current
+[GPU migration boundaries](../gpu-processing.md). Broader photographic appearance,
+physical HDR and source-matched sustained performance acceptance remain unfinished.
 [Shared requirements](README.md#shared-implementation-requirements) apply.
 
 ## Goal
@@ -49,14 +54,14 @@ Requires [HDR processing](hdr-processing.md), [tone mapping](tone-mapping.md), a
 
 ## Failure handling
 
-Reject unknown ranges, invalid dimensions, and nonfinite values. Unsupported processing versions remain clearly unavailable. GPU loss uses the same bounded CPU operator; failures never rewrite confirmed settings or original pixels.
+Reject unknown ranges, invalid dimensions, and nonfinite values. Unsupported processing versions remain clearly unavailable. Follow the [GPU-only direction](../gpu-processing.md): unsupported GPU capabilities or device loss fail explicitly, retire resources and allow an appropriate GPU retry without a CPU editing fallback. Failures never rewrite confirmed settings or original pixels.
 
 ## Acceptance criteria
 
 - All-zero mixer output is identical to the preceding pipeline; changing one range follows its documented influence weights on a synthetic hue wheel.
 - Dense hue sweeps cross 0°/360° and every range boundary without discontinuities above the fixed research tolerance.
 - Near-neutral colors remain stable; exercise dark, saturated, and 16×-white samples, preserving finite values and alpha.
-- Compare RGB/hue/luminance errors against the independent reference with fixed tolerances; test overlapping extreme settings and CPU/GPU agreement.
+- Compare GPU RGB/hue/luminance errors against the independent reference with fixed tolerances; test overlapping extreme settings, explicit capability refusal, device loss/retry and resource cleanup. Retain historical CPU proofs without requiring another production backend.
 - Shared history, migrations, restart, stale revisions, keyboard use, and equivalent UI/MCP edits pass.
 
 ## References

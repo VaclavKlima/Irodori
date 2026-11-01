@@ -111,11 +111,44 @@ test('every spec has one unique target and group; fast checks exclude build, Ele
   expect(fast.mcp).toBe(false)
   expect(fast.benchmark).toBe(false)
   expect(files(['--full'])).toHaveLength(
-    specs.length - suites.filter((s) => s.group === 'benchmark').length,
+    specs.length - suites.filter((s) => s.group === 'benchmark' || s.explicitOnly).length,
   )
   expect(selectPlan(['--full']).mcp).toBe(true)
-  expect(files(['--all'])).toHaveLength(specs.length)
+  expect(files(['--all'])).toHaveLength(specs.length - suites.filter((s) => s.explicitOnly).length)
   expect(selectPlan(['--all']).mcp).toBe(true)
+})
+
+test('instrumented diagnostics require explicit target selection', () => {
+  const diagnostic = 'tests/editor-pacing-diagnostic.spec.ts'
+  expect(files(['--target', 'editor-pacing-diagnostic'])).toContain(diagnostic)
+  for (const args of [
+    ['--fast'],
+    ['--full'],
+    ['--all'],
+    ['--benchmark-all'],
+    ['--hdr-benchmark'],
+    ['preview'],
+    ['ui'],
+  ])
+    expect(files(args)).not.toContain(diagnostic)
+})
+
+test('unadopted denoising studies stay available only through deliberate targets', () => {
+  const studies = suites.filter(
+    (suite) =>
+      suite.target.startsWith('strong-noise-') && suite.target !== 'strong-noise-study-audit',
+  )
+  expect(studies).not.toHaveLength(0)
+  for (const study of studies) {
+    expect(files(['--target', study.target])).toContain(study.file)
+    for (const mode of ['--fast', '--full', '--all', '--functional'])
+      expect(files([mode])).not.toContain(study.file)
+  }
+  for (const mode of ['--fast', '--full', '--all'])
+    expect(files([mode])).toContain('tests/strong-noise-study-audit.spec.ts')
+  expect(selectPlan(['--full']).targets).toEqual(
+    expect.arrayContaining(['detail-quality', 'spatial-detail-gpu']),
+  )
 })
 
 test('explicit targets add only cheap checks, deduplicate and reject unknown or mixed selections', () => {
@@ -301,7 +334,9 @@ test('one shared build, sequential phases, benchmark-only flags and measurement 
       expect(c.args).toContain('--workers=1')
     }
     expect(commands.slice(0, mcp).every((c) => c.env.IRODORI_PREVIEW_BENCHMARK === '0')).toBe(true)
-    expect(result.benchmarks).toHaveLength(suites.filter((suite) => suite.family).length)
+    expect(result.benchmarks).toHaveLength(
+      suites.filter((suite) => suite.family && !suite.explicitOnly).length,
+    )
     expect(result.baseline).toMatchObject({
       status: 'available',
       path: baseline,

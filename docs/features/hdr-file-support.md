@@ -84,7 +84,7 @@ Bound decompressed dimensions, auxiliary images, metadata, time, and memory. Rej
 - Every advertised matrix variant has licensed real files and independent reference vectors covering dark values, above-white values, saturated colors, orientation, alpha where supported, and metadata.
 - Compare decoded linear values and color/brightness descriptors against an independent implementation within fixed codec-specific tolerances.
 - Gain-map fixtures include varying headroom, per-channel parameters, reduced-resolution maps, absent optional fields, invalid required fields, and unsupported variants; verify HDR and SDR outcomes separately.
-- Import, duplicate detection, cancellation, restart, interpretation history, cache rebuild, CPU fallback, and malformed-file limits pass without changing originals.
+- Import, duplicate detection, cancellation, restart, interpretation history, cache rebuild, supported decoder/codec recovery, and malformed-file limits pass without changing originals. Editing/rendering follows the [GPU-only direction](../gpu-processing.md), with explicit capability errors and retry cleanup rather than CPU rendering fallback.
 - Export/reimport and an independent viewer validate each enabled writer; publish Linux/Windows/macOS codec/reader results and unsupported reasons, separate from display capability.
 
 ## References

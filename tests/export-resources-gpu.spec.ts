@@ -55,7 +55,7 @@ test('the tiny GPU owner obeys exact allocation limits, streams without retained
   await closing
 })
 
-test('constrained real exports reuse retained filtering, stream within available VRAM and recover completely below the tile limit', async () => {
+test('constrained real exports reuse retained filtering, stream within available VRAM and refuse below the GPU tile limit', async () => {
   const previous = process.env.IRODORI_EXPORT_BACKEND,
     f = await detailExportFixture(true)
   try {
@@ -95,29 +95,25 @@ test('constrained real exports reuse retained filtering, stream within available
     Object.assign(admission.policy.vram, {
       effectiveBytes: admission.policy.vram.effectiveBytes - 1,
     })
-    const recovered = await exportRenditions(
-      { ...job, directory: await f.directory('below-tile-limit') },
-      makeGpu,
-    )
+    const refusedDirectory = await f.directory('below-tile-limit')
+    await expect(
+      exportRenditions({ ...job, directory: refusedDirectory }, makeGpu),
+    ).rejects.toThrow('GPU export exceeds the frozen managed image budgets.')
     expect(allocations).toBe(1)
-    expect(recovered.diagnostics).toMatchObject({
-      renderer: 'cpu',
-      rendererFallback: 'GPU export exceeds the frozen managed image budgets.',
-      detail: { working: { preparation: 'retained' } },
-    })
-    for (const result of [streamed, recovered]) {
-      let codeError = 0,
-        halfError = 0
-      for (let i = 0; i < result.rgb.length; i++)
-        codeError = Math.max(codeError, Math.abs(result.rgb[i] - reference.rgb[i]))
-      for (let i = 0; i < result.half!.length; i++)
-        halfError = Math.max(
-          halfError,
-          Math.abs(fromHalf(result.half![i]) - fromHalf(reference.half![i])),
-        )
-      expect(codeError).toBeLessThanOrEqual(1)
-      expect(halfError).toBeLessThanOrEqual(0.004)
-    }
+    expect(await readdir(refusedDirectory)).toEqual([])
+    expect(await readFile(filteredPath)).toEqual(filtered)
+    expect(await readFile(f.original)).toEqual(f.originalBytes)
+    let codeError = 0,
+      halfError = 0
+    for (let i = 0; i < streamed.rgb.length; i++)
+      codeError = Math.max(codeError, Math.abs(streamed.rgb[i] - reference.rgb[i]))
+    for (let i = 0; i < streamed.half!.length; i++)
+      halfError = Math.max(
+        halfError,
+        Math.abs(fromHalf(streamed.half![i]) - fromHalf(reference.half![i])),
+      )
+    expect(codeError).toBeLessThanOrEqual(1)
+    expect(halfError).toBeLessThanOrEqual(0.004)
     process.env.IRODORI_EXPORT_BACKEND = 'gpu'
     const directory = await f.directory('forced-gpu-refusal')
     await expect(exportRenditions({ ...job, directory }, makeGpu)).rejects.toThrow('budgets')

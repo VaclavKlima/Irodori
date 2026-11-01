@@ -2,15 +2,28 @@
 
 ## Status
 
-**Goal 1 functional implementation; acceptance in progress, 2026-10-25.** Crop is
+**Implemented; focused real-source/native functional checks pass.** Crop is
 available through the UI and shared revision-checked edit API/MCP. Transient controls,
 native geometry validation, history/migration, prepared variants, production resource
 admission and frozen export policies have focused checks. A small oriented PNG passes
 independent pixel comparison, histogram, export, Undo/Redo and restart; the actual
-hidden application passes Apply/Cancel and view restoration. HDR adapters and CPU/GPU
-filtering retain synthetic/native-kernel evidence. Real RAW/gain-map/merge round trips,
-native visual/input and source-matched performance acceptance remain open.
+hidden application passes Apply/Cancel and view restoration. HDR adapters and
+filtering retain independent synthetic/native-kernel evidence. The current
+[combined workflow](../../artifacts/verification/2026-10-31T19-59-26.702Z-check-9x6X1C/summary.md)
+refreshes actual Sony RAW/raster/encoded-synthetic-ISO/genuine-v4 round trips,
+frozen enlarged export and restart. The
+[native Sony check](../../artifacts/verification/2026-10-31T19-47-16.142Z-check-WoHjVX/summary.md)
+passes minimum-size/Console-open keyboard interaction with inspected captures.
+Photographic, full-size and sustained-performance requirements retain their
+individual open scopes; functional receipts do not establish them.
 [Shared requirements](README.md#shared-implementation-requirements) apply.
+
+The [GPU-only cleanup](../gpu-processing.md) makes default/automatic fractional
+crop preparation strict GPU execution on both available Radeon adapters. The
+existing near-cutoff alpha guard now refuses former CPU-repair cases, including
+some fully transparent outputs from partial-alpha source windows. Identity and
+integer-aligned crops retain exact copies; accepted-domain equations, versions
+and quality thresholds are unchanged. Explicit CPU diagnostic routes remain.
 
 ## Goal
 
@@ -77,7 +90,7 @@ Identity bypasses resampling. Integer crops and exact quarter turns select/permu
 Float32 channel bits, including alpha. Fractional origins and straighten use the
 [Catmull-Rom/alpha policy and comparison](crop-filter-processing.md), with independent
 numeric and small native GPU evidence. Support, premultiplied-alpha behavior,
-texture/ringing gates and CPU/GPU tolerance are frozen; photographic acceptance remains open. Keep the existing
+texture/ringing gates and GPU/reference tolerance are frozen; photographic acceptance remains open. Keep the existing
 signed/HDR numerical requirements. Scalar affine error is bounded to 2e-9 native
 pixels against the independent oracle, and fitted normalized extents to 2e-14.
 
@@ -90,7 +103,8 @@ placement still requires its own quality decision.
 
 Framing reuses existing GPU source/viewport resources and inverse native-coordinate
 mapping, without preparing another full-size image on each drag. Committed geometry
-uses bounded GPU preparation tiles with equivalent worker/native CPU paths.
+uses bounded preparation tiles through one production GPU path. Independent
+worker/native CPU references remain evidence, not automatic recovery backends.
 Identity adds no upload/pass, and color-only edits, pan/zoom and monitor changes reuse
 committed geometry. Charge all source/destination/overlap/in-flight memory to existing
 admission; do not retain an unmanaged second full-size image. No GPU/RAW-heavy acceptance
@@ -165,11 +179,12 @@ sharpening remains Goal 2.
 1. Complete real RAW/gain-map/merge preview, analysis, inverse picker and frozen
    individual/batch export round trips, with original/master preservation and native
    100% comparison. Small-PNG and synthetic HDR evidence do not close those gates.
-2. Verify actual GPU/native CPU fallback, full-size RAM/VRAM, cancellation and source
+2. Verify actual GPU execution, explicit capability refusal/retry, full-size RAM/VRAM, cancellation and source
    reuse under the existing saved performance gates. Production admission queries
    active/retiring renderer owners and current policy before crop work and each export
    attempt. Counts remain conservative model bounds, not process RSS or physical VRAM.
-   Unknown native adapter capacity retains bounded CPU fallback.
+   Unknown native adapter capacity uses conservative admission and actual device limits;
+   refuse work explicitly when a bounded supported GPU path cannot be established.
 3. Inspect framing, quarter turns, straighten, keyboard/pointer capture and dropdowns
    at native 1100 × 700 with Console open. Keep source-oriented draft framing explicit
    and evaluate its usability before calling the feature accepted.
@@ -181,7 +196,9 @@ sharpening remains Goal 2.
 Invalid/outside/too-small/ratio-incompatible settings preserve the confirmed edit
 and explain the reason. Failed/cancelled preparation cannot publish partial assets
 or mutate originals/masters. Preserve leases, source identity, stale-result rejection,
-deletion/shutdown coordination and bounded CPU fallback. Never silently ignore a crop.
+deletion/shutdown coordination, explicit GPU capability/precision errors and safe
+GPU retry after resource retirement under the [GPU-only direction](../gpu-processing.md).
+Never silently ignore a crop or repair it through a CPU resampler.
 
 ## Acceptance criteria
 
@@ -192,7 +209,7 @@ deletion/shutdown coordination and bounded CPU fallback. Never silently ignore a
   authoritative dimensions, reset and inverse coordinates survive Undo/Redo/restart.
 - Freeze and satisfy filter texture/ringing/alpha/numeric limits on ramps, diagonal
   and repeating detail, signed/HDR inputs and real photos. Check boundary support,
-  CPU/GPU agreement and tile seams without an SDR intermediate or hidden enlargement.
+  GPU agreement with independent references and tile seams without an SDR intermediate or hidden enlargement.
 - Preview, exact 100%, histogram/analysis, picker and independently decoded exports
   use matching geometry. Authored HDR and SDR-primary color semantics remain distinct.
 - Handles, numeric edits, aspect/rotate/angle/Apply/Cancel support keyboard, focus,

@@ -1,9 +1,9 @@
 import { MAX_FRAME_BYTES } from './preview-frame'
 
 export const EXPORT_VERSION = 1 as const
-export const EXPORT_RENDERING_VERSION = 'jpeg-linear-lanczos3-v5-enlargement'
+export const EXPORT_RENDERING_VERSION = 'jpeg-linear-lanczos3-v6-gpu-resize'
 export const EXPORT_CODEC_VERSION = 'libultrahdr-2.0.2-iso-native-v1'
-export const EXPORT_RESIZE_VERSION = 'linear-lanczos3-pixel-centers-replicate-v1'
+export const EXPORT_RESIZE_VERSION = 'linear-lanczos3-pixel-centers-replicate-gpu-v2'
 export const EXPORT_MAX_DIMENSION = 32768
 export const EXPORT_MAX_PIXELS = MAX_FRAME_BYTES / 16
 export const exportResizeCapabilities = {

@@ -26,11 +26,55 @@ from the shipping Ultra HDR bundle's pinned libjpeg-turbo 3.1.0. Every result re
 the actual shared-library realpath and SHA-256, package/source version, Python
 version, JPEG color model, sampling and output layout.
 
-The current scope is three-component, full-resolution **4:4:4 YCbCr JPEG** exports,
-at most 1,048,576 pixels and 16 MiB per compressed input. Unsupported sampling/color
+The original stdout transport accepts three-component **4:4:4 YCbCr JPEG** exports,
+at most 1,048,576 pixels and 16 MiB per compressed input. These limits remain unchanged.
+Unsupported sampling/color
 models fail explicitly. Both reader modes request `TJFLAG_ACCURATEDCT`, the accurate
 integer IDCT. This bounds the helper's host memory and declares its JPEG precision
 without reducing which channels the acceptance evaluates.
+
+## Full-size file transport
+
+`jpeg-ycbcr-fullsize-reference.helpers.ts` selects a separate, explicit
+`--file-transport-v1` mode in the same Python reader. Its fixed limits are
+33,554,432 pixels, 32,768 pixels per side and 128 MiB per compressed input. It
+retains the same accurate integer IDCT, three-component 4:4:4 requirement and
+base/gain sample meanings. These are test transport bounds; no application or
+shipping codec limit changes.
+
+The helper snapshots the compressed input into an owned directory with mode 0700. Input and sample files use exclusive creation and mode 0600. Python
+allocates its bounded full decoded sample buffer, writes it to a private binary
+file in at most 1 MiB chunks, then emits only a JSON header of at most 16 KiB.
+The sample buffer is at most 96 MiB; this is not a claim that libjpeg-turbo itself
+decodes by stripes. The header binds exact dimensions/layout/length, input and
+sample SHA-256, the reader script, actual Python executable/version/hash and
+the already pinned shared-library identity. TypeScript verifies the complete
+sample hash before exposing a handle and checks file identity and exact length
+around subsequent reads.
+
+`readRows(top, count)` returns at most 64 rows and 16 MiB. Planar Y, Cb and Cr
+offsets use the returned stripe's local height; gain samples remain interleaved
+RGB8. Callers retain `top` when mapping rows to the full image. Repeated reads
+support independent comparison at multiple headrooms without retaining a full
+decoded Node sample frame. Color conversion and gain reconstruction remain in
+the existing TypeScript oracle.
+
+On Linux/macOS, each Python command or allowed wrapper runs in its own POSIX
+process group. Abort, timeout and oversized-output refusal signal that group
+and escalate to SIGKILL. Leader exit also retires remaining group members,
+including ordinary wrapper workers that inherit stdout/stderr. The transport
+waits for the leader's stdio `close` event before removing its private files.
+Wrapper workers must remain in the owned group; independently detached services
+are outside this test toolchain contract. Windows retains the existing
+unavailable-prerequisite result, with no fallback decoder or weaker cleanup path.
+
+The handle's `close()` is idempotent. Failed opens, failed/invalid stripe reads
+and cancellation remove owned files after producer retirement and file-handle
+closure. The `jpeg-ycbcr-fullsize-reference` service target checks small generated
+JPEG equivalence, limits, corruption, abort and real wrapper-descendant retirement.
+Passing this transport target establishes neither full-size photographic HDR
+reconstruction nor the application's export/restart acceptance; those require
+their separately selected real-source cases.
 
 For the **base image**, the reader returns the native decoded Y, Cb and Cr planes
 without RGB conversion. The independent TypeScript oracle uses binary64 full-range

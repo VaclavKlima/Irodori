@@ -1,0 +1,620 @@
+{
+  "version": "detail-chroma-pilot-patch-comparison-16-v1",
+  "state": "Prospective CPU research design only: fixed C15/C14 guide with final 5x5 guide-patch similarities and owner-only original-value chroma estimates. No C16 implementation, numeric input plan, independent implementation/reference-plan review, reference generation, quality execution, GPU work or application adoption is approved or claimed.",
+  "policy": "assets/tests/references/detail/strong-noise/chroma-pilot-patch.md",
+  "mathModule": "chroma-pilot-patch.py",
+  "referenceModule": "reference/chroma-pilot-patch.py",
+  "candidate": {
+    "id": "noise-scaled-k40-c14-pilot-match5-owner-r10",
+    "variance": "frozen-global-directional-mad-v1",
+    "varianceDomain": "original-prepared-features-v1",
+    "correction": "fixed-c14-pilot-both-final-none-v1",
+    "adaptive": "none",
+    "blend": "quadratic-to-50-v1",
+    "selfPolicy": "legacy",
+    "luminanceBandwidthMaximum": 0.024,
+    "chromaBandwidthMaximum": 0.024,
+    "chromaSigmaFactor": 0.4,
+    "bandwidthPolicy": "global-chroma-sigma-floor-v1",
+    "chromaSpatialPolicy": "uniform-search-v1",
+    "aggregation": "normalized-l9-patch-c1-owner-estimates-f32-zero-v1",
+    "guidePolicy": "fixed-c14-100-100-preinverse-feature-rn32-v1",
+    "chromaDistancePolicy": "patch5-pilot-l08-ab-sum-qnormalized-hc-no-bias-v1",
+    "valuePolicy": "original-features-only-v1",
+    "neighborAlphaPolicy": "squared-visible-neighbor-v1",
+    "luminanceSearchRadius": 3,
+    "chromaSearchRadius": 10,
+    "luminanceMatchingRadius": 1,
+    "chromaMatchingRadius": 2,
+    "luminanceTargetRadius": 1,
+    "chromaTargetRadius": 0,
+    "guideScalars": 3,
+    "stageScalars": 11,
+    "stageLayout": "l9-row-major-c1-ab-owner-v1",
+    "adoptionCandidate": true,
+    "role": "One disabled prospective CPU research hypothesis: unchanged fixed pre-inverse C14 guide; direct 5x5 guide-patch similarities; original-value owner chroma E2 without target-patch publication or gather. Original user-L proposal/E9 and exact research-C9 C0 route remain mandatory.",
+    "matchingAlphaPolicy": "product-visible-matching-pair-v1"
+  },
+  "pilot": {
+    "operatorId": "noise-scaled-k40-chroma-r10-full5",
+    "policySource": {
+      "path": "scripts/research/strong-noise/comparison14.json",
+      "sha256": "1aa98d1f270c21e578beb58dcf0751c07ea2d603ef74581a89466febdb74271a"
+    },
+    "implementationSource": {
+      "path": "scripts/research/strong-noise/chroma-full-patchwise.py",
+      "sha256": "780e2bf713f43da251bc046fbbe59eccb44686bde7b02bc4a4808d0021e15b5c"
+    },
+    "controls": {
+      "luminance": 100,
+      "chroma": 100
+    },
+    "source": "same-unchanged-original-prepared-features",
+    "variance": "same-original-full-source-frozen-descriptor",
+    "centerStageScalars": 59,
+    "centerStageLayout": "l9-row-major-c25-ab-row-major-v1",
+    "guideScalars": 3,
+    "guideLayout": "l-a-b-per-pixel-v1",
+    "guideDomain": "pre-inverse-original-feature-plus-ordered-float64-pilot-proposal-v1",
+    "guidePublication": "rn32-after-declared-float64-feature-gather-division-addition-v1",
+    "guideZeroPolicy": "generic-ieee-visible-zero-sign-hidden-positive-zero-v1",
+    "immutableBeforeFinalPass": true,
+    "rgbRoundTrip": false,
+    "useForGuidanceOnly": true,
+    "standaloneOutputOperatorRejected": true,
+    "sourceHalo": {
+      "luminance": 5,
+      "chroma": 14
+    }
+  },
+  "finalMetric": {
+    "luminanceGuideScale": 0.08,
+    "matchingRadius": 2,
+    "matchingShape": "5x5 square; uy=-2..2 outer; ux=-2..2 inner",
+    "matchingCoordinates": "First v=globalClamp(p+d); then a=globalClamp(p+u), b=globalClamp(v+u), independently in each axis. Do not replace b with globalClamp(p+d+u).",
+    "matchingAlpha": "q=Float64(alpha(a))*Float64(alpha(b)); skip q=0 before either guide read",
+    "matchingNormalization": "Q=sum(q); SL=sum(q*(GL(a)-GL(b))^2); SC=sum(q*((GA(a)-GA(b))^2+(GB(a)-GB(b))^2); DL=SL/Q; DC=SC/Q",
+    "zeroMatchingCoverage": "Q=0 gives W=0 defensively; visible p/v have Q>0 because central u=0 contributes alpha(p)*alpha(v)>0 in Float64. No fallback, pseudocount or divisor replacement.",
+    "channelCountNormalization": false,
+    "matchingAreaNormalization": "Normalize only by actual ordered Q, never an extra 25 or two-channel divisor.",
+    "noiseBiasSubtraction": false,
+    "weight": "alpha(v)*alpha(v)*exp(-DL/(.08*.08)-DC/(hC*hC))",
+    "hC": "sqrt(.024*.024+.4*.4*(vA+vB))*(C/100)^2",
+    "offsetOrder": "dy=-10..10 outer; dx=-10..10 inner",
+    "sample": "v=globalClamp(p+d); preserve every enumerated clamped search offset and each of the 25 clamped matching samples",
+    "hiddenOwner": "alpha(p)=0 bypasses all feature/guide reads and copies original RGBA words exactly",
+    "hiddenNeighbor": "alpha(v)=0 skips patch construction and original-value/guide reads before weighting",
+    "self": "For d=0 and any distinct offset whose clamped v=p, patches are identical, Q>0 for visible owner, and W=alpha(p)^2. Retain every such contribution without cap, replacement or deduplication.",
+    "patchAccumulation": "Q=SL=SC=+0. For each matching sample in direct row order: q=alpha(a)*alpha(b); if q=0 continue; dL=Float64(GL(a))-Float64(GL(b)); dA=Float64(GA(a))-Float64(GA(b)); dB=Float64(GB(a))-Float64(GB(b)); Q+=q; SL+=q*(dL*dL); SC+=q*((dA*dA)+(dB*dB)). Then DL=SL/Q; DC=SC/Q.",
+    "accumulation": "Z=NA=NB=+0. For each search offset in direct row order: Z+=W; NA+=W*(FA(v)-FA(p)); NB+=W*(FB(v)-FB(p)); Float64 in the declared operation order.",
+    "reassociationApproved": false,
+    "publication": "EA=C32(NA/Z), EB=C32(NB/Z); nearest-even binary32 with canonical delta zeros; retain exact Float64 division before publication",
+    "finalChromaOuterGather": false,
+    "finalChromaTargetRadius": 0,
+    "blend": "For integer 0<C<50, B(C)=(C/50)^2; for C>=50, B(C)=1. Apply B(C) exactly once after final C32 owner E2 publication; C=0 bypasses the entire pass.",
+    "valueDomain": "original prepared source features only; guide values affect similarities only"
+  },
+  "identity": {
+    "luminance": "Exact original C9 Float64 L feature proposal and nine E words at user L; no final RGB dot-product Y identity is implied.",
+    "chromaZero": "Exact unchanged C9 bypass before pilot construction; preserve physical27 when present and neutral-none presence.",
+    "hidden": "Skip alpha0 guide/features before reads, hidden guide sentinels+0; copy original hidden RGBA/alpha words exactly.",
+    "inverse": "Existing stable inverse from original RGB/Y/scale; final RGB32 publication and original alpha words unchanged in policy."
+  },
+  "sourceSupport": {
+    "sourceHalo": {
+      "luminance": 5,
+      "chroma": 26
+    },
+    "pilotLuminanceGuideDependencyRadius": 17,
+    "guideQueryRadius": 12,
+    "proposalBoundRadii": [3, 10, 10],
+    "combinedMaximumSharpeningHalo": 35,
+    "logicalInteriorTileSideN": {
+      "guideSide": "N+24 (12 per side)",
+      "pilotCenterSide": "N+28 (14 per side)",
+      "sourceSide": "N+52 (26 per side)",
+      "scope": "Required support extents before global-image clipping; not allocated lifetimes, peak-memory approval or whole-source performance evidence"
+    },
+    "varianceEstimatorRemainsGlobal": true,
+    "oldHaloAdmissionSufficient": false
+  },
+  "publicationContract": {
+    "pilotCenterWords": 59,
+    "guideWordsPerPixel": 3,
+    "activeFinalWordsPerPixel": 11,
+    "activeFinalLayout": "l9-row-major-c1-ab-owner-v1",
+    "chromaSlotsAreOwnerEstimates": true,
+    "c0PhysicalLegacyWords": 27,
+    "neutralMayHaveNoPhysicalStage": true,
+    "stageWordTolerance": 0,
+    "guideWordTolerance": 0,
+    "peakMemoryAccountingApproved": false
+  },
+  "readiness": {
+    "algorithmDesignRootSelected": true,
+    "publicationDesignInheritedFromC15": true,
+    "implementationPrepared": true,
+    "implementationSourceReviewed": true,
+    "independentNumericPlanPrepared": true,
+    "independentNumericPlanReviewed": false,
+    "exactWordOracleDesignReviewed": true,
+    "prefixReusePlanReviewed": true,
+    "approvedGroupCounts": null,
+    "referenceGenerationApproved": false,
+    "qualityExecutionApproved": false,
+    "gpuExecutionApproved": false,
+    "productionAdoption": false,
+    "prospectiveFilesPrepared": true,
+    "mechanismDesignReviewed": true
+  },
+  "numericPrerequisites": [
+    "Retain all 447 original C15 logical configurations and their unchanged strict assertions: core156/alpha84/asymmetric12/identity180/publication15. Add a new halo26 dependency witness and direct-patch-versus-pointwise metric witness; derive and review new final group counts before approval. Do not replace old halo24 coverage. Each new halo26/wrong-pointwise witness must be numerically observable at selected-owner published stage/guide/RGB, not just geometric reach or metadata; the old halo24 proof is insufficient.",
+    "Independently compute the changed final patch Q/SL/SC, E2 and strict pre-final/final RGB. Prior C15 final E2/RGB are not new-operator expected outputs. Keep exact pilot59, F64 pilot proposals, guide3, original L9/proposals, final11, C0 physical27/neutral-none, alpha/hidden/signed/HDR/asymmetric, coefficient words and publication-tie checks.",
+    "Reuse independent C15 prefix references only after successful full five-group proof/actual counterfeits, exact sourceBindings13, actual reference/comparison/approval hashes, exact original RGBA32 bytes (including alpha and signed zero), dimensions, primaries/coefficient words, frozen variance and runtimeFingerprint are validated. Changed source or host Python/math-extension/libm invalidates a silent reuse claim.",
+    "Run the actual composed public candidate entrypoint for every logical case. Any later memoization must key actual inputs, component/runtime identity and exact frozen variance; isolate canonical/mutant caches, preserve dispatch/source-mutation observability, and report unique prefix computations separately from logical reused comparisons. No caching implementation or reassociation is approved by this draft.",
+    "Retain all eight C15 meaningful counterfeits and add a wrong-pointwise-final-metric counterfeit plus new halo25-insufficient-for26 evidence. Review numerical observability rather than relying on filenames, metadata rejection or disconnected helper tests.",
+    "Keep independent host-Float64 exact publication agreement and separate Decimal80 strict RGB/bounds. No stage epsilon, candidate-prefix oracle substitution, approximate exp, prefix sum reassociation, FMA, denominator replacement or new coefficient.",
+    "Review actual new implementation/reference/test source, complete input plan, source hashes, witness/counterfeit coverage and exact counts; issue fresh explicit generation/check approval before numerical execution. Old C15 approval does not approve C16.",
+    "Canonical proof retains every declared configuration (currently459planned, including447inherited). Named counterfeit-only probes use prospectively bound witness scenes with both primaries/all group controls/all selected points, the same numerical predicates and full reference/prefix validation. Report actual counts, comparisonScope=counterfeit-witness-only, completeGroup=false and fullPlanConfigurations; never accept these as canonical/full quality proof. An unobserved fault is incomplete verification. No canonical assertion is removed."
+  ],
+  "inputBaselines": {
+    "c12FrozenDeclaration": {
+      "path": "artifacts/detail-research/strong-noise/c12-chroma-wide-screen-zmxaqv83/freeze-cowbzvrh/declaration.json",
+      "sha256": "27f7538061c6a0af8d46ba48f16912c94855e6581912afa5078b8acf783cc663"
+    },
+    "priorC14SelectionAudit": {
+      "path": "artifacts/detail-research/strong-noise/c14-independent-selection-urVLkr/receipt.json",
+      "sha256": "9c719a2d53d1adbc0550e4976926ab0f6c828a6bfe7b2a96044fa34ecb4c8a39"
+    },
+    "scope": "Evidence for preserving all44 complete C12 records. A new independent C16 audit/freeze must prove exact source/row/input/full-estimator/old-metric/comparator/gate identity apart from stage labels.",
+    "priorC15SelectionAudit": {
+      "path": "artifacts/detail-research/strong-noise/c15-independent-selection-8lz5v5ro/receipt.json",
+      "sha256": "3086d21610092856caceece57f918a798e3ecd0a73d554a49497723a53e04e2a"
+    }
+  },
+  "retainedInputs": {
+    "edges": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9-gpu/run-vcolhc_q",
+      "resultsSha256": "9d93d63665f500a43c4d794ec8c0774de2295b67454eb0826971527fb86e9fd7",
+      "estimator": "diagnostics.estimate"
+    },
+    "flatStress": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9-gpu/run-6zfo1gji",
+      "resultsSha256": "2d7319a7eb7d225d810ff74fcac77504705a6f41056159b581941284f68f1c0e",
+      "estimator": "diagnostics.estimate"
+    },
+    "qualifiedTextures": {
+      "directory": "artifacts/detail-research/strong-noise/comparison9/run-jtxn_2oh",
+      "resultsSha256": "83ac36b7dce015fb4893fa669d41a1448ccea331d84cac15dcae96782b15cc72",
+      "estimator": "diagnostics.estimator"
+    }
+  },
+  "stages": [
+    {
+      "id": "context-edge-regression",
+      "source": "edges",
+      "rows": [0, 2],
+      "requiredEarlierStages": []
+    },
+    {
+      "id": "edge-regression-anchors",
+      "source": "edges",
+      "rows": [1, 3, 4, 5, 6, 7],
+      "requiredEarlierStages": ["context-edge-regression"]
+    },
+    {
+      "id": "flat-stress",
+      "source": "flatStress",
+      "rows": [
+        4, 5, 10, 11, 28, 29, 34, 35, 52, 53, 58, 59, 76, 77, 82, 83, 100, 101, 106, 107, 124, 125,
+        130, 131
+      ],
+      "requiredEarlierStages": ["context-edge-regression", "edge-regression-anchors"]
+    },
+    {
+      "id": "texture-regression",
+      "source": "qualifiedTextures",
+      "rows": [12, 13, 20, 21, 48, 49, 52, 53, 56, 57, 60, 61],
+      "requiredEarlierStages": ["context-edge-regression", "edge-regression-anchors", "flat-stress"]
+    }
+  ],
+  "fixedGatePolicy": "Every original required cohort/gate and threshold from the pinned archived metric helpers remains mandatory: leakage<=.03, existing edge-width/noise/bias gates, texture .90..1.05, exact alpha and finite output. No new or relaxed gate is introduced.",
+  "interpretation": "Exactly one prospective mechanism change: final 5x5 guide-patch comparison replaces C15 pointwise guide comparison; fixed pilot, original-value owner estimator, hC/max/.4/strength-squared, gL=.08, no2v, user-L, C0, publications, input44 and all gates remain. No coefficient/radius/bandwidth/alpha/publication sweep. Order2/6/24/12 and full passing predecessor lineage remain mandatory. Finish every row of a selected stage, preserve partial/error/cleanup evidence, reject any required failure and stop later stages. C7-C15 stay rejected. Existing mathematical and explanatory ledgers do not grant new numeric/quality execution, photographic, fresh-population, GPU/CPU, resource, compatibility, performance or public adoption acceptance.",
+  "rejectionEvidence": {
+    "c12Results": {
+      "path": "artifacts/detail-research/strong-noise/c12-chroma-wide-screen-zmxaqv83/run-edge-regression-nn9o_0u7/results.json",
+      "sha256": "62c667d9bb96bb722492d8706df8f0ca13186102392eb0c833a8f3f348358ca0"
+    },
+    "inverseDiagnosis": {
+      "path": "artifacts/detail-research/strong-noise/c12-retained-inverse-diagnosis-vvur2nm4/diagnosis.json",
+      "sha256": "65d7135d42746c69118c1105f422f85eef8cab524dc03acf21ed4fb048b810db"
+    },
+    "c13AnchorResults": {
+      "path": "artifacts/detail-research/strong-noise/c13-screen-draft-6l17zm95/run-edge-regression-anchors-4zdu9350/results.json",
+      "sha256": "2f68091c1b992483324126aaaee04304e248e84d316020ecc49d9f6e6609575a"
+    },
+    "c13HardResults": {
+      "path": "artifacts/detail-research/strong-noise/c13-screen-draft-6l17zm95/run-hard-edge-regression-k_cwlgz3/results.json",
+      "sha256": "e45ce40358acb410d7d43f7b6db5775ff6730dd9f0568e7720fd37ad4d3f5c6f"
+    },
+    "c13InverseDiagnosis": {
+      "path": "artifacts/detail-research/strong-noise/c13-retained-context-diagnosis-d1cevr9s/diagnosis.json",
+      "sha256": "0675315c8c25aa323fee5d65e0c35800264e35b4c166e06dfd2a17ca864e2059"
+    },
+    "c13BoundaryWeights": {
+      "path": "artifacts/detail-research/strong-noise/c13-boundary-effective-weights-draft-20261030/run-1024-owners-v1/diagnosis.json",
+      "sha256": "5a053128643fd85bc760ee727aa9d9673526f4d90fc036966c38864f6728c48d"
+    },
+    "c14Results": {
+      "path": "artifacts/detail-research/strong-noise/c14-full-patch-screen-draft-kzUT9uyq/run-context-edge-regression-h8gqmt_m/results.json",
+      "sha256": "34453e019c326f23b3cf56e8f530c9b235f0fc794cb4134da36b96bb22d883a1"
+    },
+    "c14Summary": {
+      "path": "artifacts/detail-research/strong-noise/c14-full-patch-screen-draft-kzUT9uyq/run-context-edge-regression-h8gqmt_m/summary.json",
+      "sha256": "9efe471a1dc392375897904309ed3ac18a65901eda3702b280323b8f37d09da1"
+    },
+    "c14Cleanup": {
+      "path": "artifacts/detail-research/strong-noise/c14-full-patch-screen-draft-kzUT9uyq/run-context-edge-regression-h8gqmt_m/cleanup.json",
+      "sha256": "b8b9c53ac8b2a7706db62de41d7dbe9bcc40e4160162dc6bd7494fd9d257308e"
+    },
+    "c14FrozenDeclaration": {
+      "path": "artifacts/detail-research/strong-noise/c14-full-patch-screen-draft-kzUT9uyq/freeze-7qi1e42r/declaration.json",
+      "sha256": "28ed367db91614ab5052687859db095c3ace95759f11a1efda0dc7fab80edc24"
+    },
+    "c7ReservedBoundarySummary": {
+      "path": "artifacts/detail-research/strong-noise/run-b2i3rw_t/summary.json",
+      "sha256": "f381519e7b38eb5130f8257d2421f476622a86d99ef1198d3daeda5c868d9925"
+    },
+    "c7ReservedBoundaryDeclaration": {
+      "path": "artifacts/detail-research/strong-noise/run-b2i3rw_t/declaration.json",
+      "sha256": "4b0bd56a06e15efd083a4048bddf4ec2128ecfc7eb4def1faba203ae86a857bd"
+    },
+    "c8FreshFailureSummary": {
+      "path": "artifacts/detail-research/strong-noise/comparison8/run-zalu54va/summary.json",
+      "sha256": "e1dd4999541259dc23cdfb18f52be3acf5e54737fc22ff2d47d314bc0ab3d1f8"
+    },
+    "c8FreshFailureDeclaration": {
+      "path": "artifacts/detail-research/strong-noise/comparison8/run-zalu54va/declaration.json",
+      "sha256": "eec17c7009077c73b12ab1f023c39e3ba3444fc02a8679098fa62fb6ece2bf87"
+    },
+    "c9K55InterruptedFailure": {
+      "path": "artifacts/detail-research/strong-noise/comparison9-gpu/run-6zfo1gji/failure.json",
+      "sha256": "e4b2e6b9d4298d972877893e0e71d1269de18d6e4da3bf02431631c4716ce894"
+    },
+    "c9K55ArchivedCpuReplaySummary": {
+      "path": "artifacts/detail-research/strong-noise/four-row-cpu-replay-7f_z_frt/summary.json",
+      "sha256": "be5468573bb0f0578216b5e865f8ed0c33b13177a504e03828280c2c284860b2"
+    },
+    "c9K40FailureSummary": {
+      "path": "artifacts/detail-research/strong-noise/comparison9-gpu/run-vcolhc_q/summary.json",
+      "sha256": "ffa4ccefb4fe6be6c4eb46808016b61859ff8477753592653f18646e05a0ba37"
+    },
+    "c10FailureSummary": {
+      "path": "artifacts/detail-research/strong-noise/c10-mean-guard-screen-20261030/run-edge-regression-hydk6meh/summary.json",
+      "sha256": "4f32d9ec2202d36c8292fe64e0732c21180791214c4c48073db84b6998e4b211"
+    },
+    "c10FailureDeclaration": {
+      "path": "artifacts/detail-research/strong-noise/c10-mean-guard-screen-20261030/run-edge-regression-hydk6meh/declaration.json",
+      "sha256": "817cb5ee18a4a2e68ee90860d71404fa8f0cec6f1802dbc63dd7e6e1d96341e5"
+    },
+    "c11FailureSummary": {
+      "path": "artifacts/detail-research/strong-noise/c11-chroma-uniform-screen-v2-q84x78l7/run-edge-regression-on90xff5/summary.json",
+      "sha256": "9de7b2a308bcb50c7d4f64b840a2a881e6633a2f45172732ba6c422e22625e8a"
+    },
+    "c11FailureDeclaration": {
+      "path": "artifacts/detail-research/strong-noise/c11-chroma-uniform-screen-v2-q84x78l7/run-edge-regression-on90xff5/declaration.json",
+      "sha256": "cc9abd8a2f15202be4ce57e07c04ac182381ce2d5d82a55ad92d1fd7d959ffd4"
+    },
+    "c15ContextResults": {
+      "path": "artifacts/detail-research/strong-noise/comparison15-retained/run-context-edge-regression-egtqw4ge/results.json",
+      "sha256": "263c39df15b4e178a62767bdff700c831c16d989da22305dd0b262b4fc91b927"
+    },
+    "c15ContextSummary": {
+      "path": "artifacts/detail-research/strong-noise/comparison15-retained/run-context-edge-regression-egtqw4ge/summary.json",
+      "sha256": "2ed460d890326ae08a8c33fae4d0395519b68e79ecf25a11923c49250e86cb1d"
+    },
+    "c15ContextCleanup": {
+      "path": "artifacts/detail-research/strong-noise/comparison15-retained/run-context-edge-regression-egtqw4ge/cleanup.json",
+      "sha256": "41cd7248cbf94d049275b150beff189d4f69e965389488863845b09133327217"
+    },
+    "c15AnchorResults": {
+      "path": "artifacts/detail-research/strong-noise/comparison15-retained/run-edge-regression-anchors-eiirs64x/results.json",
+      "sha256": "303277055f5a972eb3dbd2edad511eeefc5436231f98562d4fc507cf498029dd"
+    },
+    "c15AnchorSummary": {
+      "path": "artifacts/detail-research/strong-noise/comparison15-retained/run-edge-regression-anchors-eiirs64x/summary.json",
+      "sha256": "cb7b6ea77199dad33cb8a7639c9c3930522a27db850e30cefdbbe001c5889ae8"
+    },
+    "c15AnchorCleanup": {
+      "path": "artifacts/detail-research/strong-noise/comparison15-retained/run-edge-regression-anchors-eiirs64x/cleanup.json",
+      "sha256": "8dd17dab8e62dea47eac9d1bf1a03a591496c96d4dc439d43deb82503292777d"
+    },
+    "c15FrozenDeclaration": {
+      "path": "artifacts/detail-research/strong-noise/comparison15-retained/freeze-k7yqo6oi/declaration.json",
+      "sha256": "9709b26a1f0132278a66de13235d27b6620dd9f5eff119fdfbfbfe935aa3843b"
+    }
+  },
+  "primaryResearch": [
+    {
+      "title": "Image denoising by sparse 3D transform-domain collaborative filtering",
+      "url": "https://webpages.tuni.fi/foi/GCF-BM3D/BM3D_TIP_2007.pdf",
+      "relevance": "SectionIII Step2 andIII-B2 use block matching within a basic estimate to select locations and filter original noisy data. This motivates patch context in preliminary guidance only; no collaborative transform/Wiener implementation or Gaussian-to-signed/HDR/unbiasedness result is adopted."
+    }
+  ],
+  "researchScope": "Ignored prospective policy/metadata only. No candidate implementation, numeric plan, oracle source review, reference generation, filter output, GPU port or application migration is created or approved. Public NRv1(.048/.16) remains unchanged; C0/L identity is research-C9 compatibility only.",
+  "exactWordOracleDesign": {
+    "version": "prospective-independent-host-f64-patch-publication-graph-v1",
+    "scope": "Retained unchanged prefix provenance plus independently authored changed final graph; pinned host Python/libm agreement only, not portable correctly-rounded transcendental proof.",
+    "candidateImports": false,
+    "candidateIntermediateInputs": false,
+    "independentPilotWords": true,
+    "float32RepresentabilityRequired": true,
+    "independentCoefficientBitsRequired": true,
+    "separateDecimal80RgbAndBounds": true,
+    "publicationSeamTiesRequired": true,
+    "sourceImplementationReviewed": false,
+    "finalPatchGraphPrepared": false,
+    "numericPlanPrepared": false,
+    "reuseApprovalIssued": false
+  },
+  "draftOnly": true,
+  "controlDomain": {
+    "luminance": "integer 0..100",
+    "chroma": "integer 0..100",
+    "continuousControlsApproved": false
+  },
+  "diagnosticEvidence": {
+    "c15BoundaryLedgerSummary": {
+      "path": "artifacts/detail-research/strong-noise/c15-boundary-ledger/freeze-cvewf6vh/summary.json",
+      "sha256": "1c7fc7235ab444026c2a5061cdf8ae68dfb1c31fbb7ac3b793345ba2fc287749"
+    },
+    "c15BoundaryLedgerPlan": {
+      "path": "artifacts/detail-research/strong-noise/c15-boundary-ledger/freeze-cvewf6vh/plan.json",
+      "sha256": "bfa29c96a67da6a4979b284115aca854b65f0dc2a7eebb28d66a29812df9c7ef"
+    },
+    "c15BoundaryLedgerCleanup": {
+      "path": "artifacts/detail-research/strong-noise/c15-boundary-ledger/freeze-cvewf6vh/cleanup.json",
+      "sha256": "a2ea4a6ab6f097d8c7095c6e015a8951b29cfc184b5e76dd72bb1eb7fdecdf8c"
+    },
+    "c15BoundaryLedgerRow4": {
+      "path": "artifacts/detail-research/strong-noise/c15-boundary-ledger/freeze-cvewf6vh/row4-ledger.json",
+      "sha256": "d1a3ac1ad6003b6ac49db3f9315d21ceacf64f021b1d8aae92d13f7b07d14484"
+    },
+    "c15BoundaryLedgerRow5": {
+      "path": "artifacts/detail-research/strong-noise/c15-boundary-ledger/freeze-cvewf6vh/row5-ledger.json",
+      "sha256": "bb58a01a135cbb16690628e16cb3c5b13275596e10e8d0b9df0e8ca53c77c217"
+    }
+  },
+  "diagnosticInterpretation": {
+    "scope": "Exact unchanged two-row explanatory replay, not independent quality or a new acceptance gate",
+    "completeRgba32ReplayExact": true,
+    "fixedGuideEqual": true,
+    "row4Strength": 75,
+    "row5Strength": 100,
+    "row4RightBoundaryOppositeTrueSideMass": 7.921522671266194e-30,
+    "row4MeanCleanTransportA": -1.5178830414797062e-18,
+    "row4MeanWeightedOriginalNoiseA": -0.01831195369793477,
+    "row4MeanFinalTargetErrorA": -0.018311953922833683,
+    "row4MaximumClosureResidual": 4.839878497975292e-16,
+    "conclusion": "Observed failing boundary mean is almost entirely same-side weighted original noise, with negligible opposite-side mass; do not equate edgeLeakage metric with actual cross-edge mixing.",
+    "hypothesis": "Spatial context in a pilot-patch comparison may change noise-correlated selection; it does not establish unbiasedness, independence, HDR validity or a quality pass."
+  },
+  "priorMathProof": {
+    "scope": "Immutable C15 component/reference provenance only; not C16 generation or full-operator approval",
+    "candidateId": "noise-scaled-k40-c14-pilot-pointwise-r10",
+    "candidateSource": {
+      "path": "scripts/research/strong-noise/chroma-pilot-pointwise.py",
+      "sha256": "3378dd0a5fc40022ff50078b42fb3de484bb39ea763e26fa519a7d906541a9f3"
+    },
+    "approval": {
+      "path": "artifacts/detail-research/strong-noise/c15-complete-math-20261031084920/approval.json",
+      "sha256": "7675e5ce020d88ce18410e9c8cbe6d2685c90d979648cfed87d554d022516953"
+    },
+    "testSource": {
+      "path": "tests/strong-noise-chroma-pilot.spec.ts",
+      "sha256": "6551659b67468108a6de43b95a5562faf6df38903d9d15b2d2f65fd2dc5cc281"
+    },
+    "sourceBindings": {
+      "scripts/research/strong-noise/reference/chroma-pilot.py": "c57b55dddd647cb9bf5fe9f792029520aee19db9309292ec11528e82c16a022c",
+      "scripts/research/strong-noise/reference/pilot-host-f64.py": "ef5825e2d25494320a79406a6668794798e7706d3547f869512824f5169233d5",
+      "scripts/research/strong-noise/reference/reference.py": "d6d0ebae09cf18b318243ac98d6aaeb0a58180709e86e0e4a1a6f1aabfe40b4c",
+      "scripts/research/strong-noise/reference/input-plan.json": "45c23385b10e573b271706e67031cd17922e2360d1f43825dce437584487e050",
+      "scripts/research/strong-noise/reference/chroma-full.py": "8e2ad85757fa7964f27bcdf046d09949778ae07c0110eb32c608483b1e4743c2",
+      "assets/tests/references/detail/strong-noise/chroma-pilot-pointwise.md": "f6e089cb91b4250d0aadd56d8c982f7bddbef93f9a85c02b64a3ae7d5e7430c8",
+      "scripts/research/strong-noise/comparison15.json": "379412c11a6da3acc020ac732a7444c8c6887493ed15e81b435a1ad81b9fdad2",
+      "scripts/research/detail-candidates.py": "c394c7816a6fadacca9a00583c738cf6ee27e48d7d688fa3fa62ef5209a44706",
+      "scripts/research/color-reference.py": "0158ee5bbff8e03d25933bc32cf58e29590cf35756a07b14763e333553cb6b85",
+      "scripts/research/strong-noise/noise-scaled-patchwise.py": "9a0d14586fb1440e9f8357ddb2ab6687eed55051a6fe2aab17899a5d9eb318b9",
+      "scripts/research/strong-noise/chroma-pilot-pointwise.py": "3378dd0a5fc40022ff50078b42fb3de484bb39ea763e26fa519a7d906541a9f3",
+      "scripts/research/strong-noise/patchwise.py": "a9f360717c6d997c708313dee31a3d600ffe67e693d9ec782318753cc7e1c6e6",
+      "scripts/research/strong-noise/pixelwise.py": "d494253fd5cfaca065dc44e759f4070ac65c543f62eadeb827bbd2bc5a8d1ebc"
+    },
+    "groups": {
+      "core": {
+        "comparison": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/comparison.json",
+          "sha256": "4bf263ec8aa47661fd4bb1f83be1cd2d2f0d600b8324475d8bb1f92f69ba254c"
+        },
+        "reference": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/reference.json",
+          "sha256": "a29a784ede14c763f7b3bc600bfcac19df1be2d737b271bdb097bad796e8d04c"
+        },
+        "generationApproval": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/approval.json",
+          "sha256": "5655f0ba28ca35be99922d7cf13bfc5332cd715e2010e9495dce6e52b493daba"
+        },
+        "planSha256": "d388dcae2154198258834d3cd33168619242d52437f9b3799649ff7e75526c34",
+        "configurations": 156
+      },
+      "alpha": {
+        "comparison": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--8b7c6-r-weights-and-uncapped-self-service/comparison.json",
+          "sha256": "1d770da62e78e25b62bf7fcf97f5e21263cf705f97b50c1a3f91d603290c734d"
+        },
+        "reference": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--8b7c6-r-weights-and-uncapped-self-service/reference.json",
+          "sha256": "4e088ae5ed1e675536ff62a207c3867afd21df80357ea17e6fdc45f0de59f553"
+        },
+        "generationApproval": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--8b7c6-r-weights-and-uncapped-self-service/approval.json",
+          "sha256": "1f23586ddee9d27fca47b2765c1355efce90f1ffbeae4aad97bf9d7a7b6975fc"
+        },
+        "planSha256": "83c9172e4dbda99af092e7119e0d9574d6de49d6dd7a3cbebafd82e6e8b557ef",
+        "configurations": 84
+      },
+      "asymmetric": {
+        "comparison": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--b9b9f-unchanged-strict-RGB-limits-service/comparison.json",
+          "sha256": "be91a447bcef9a64b5f241aa621d65df8cf1a6ab8a0b51eeb3733472c1111d98"
+        },
+        "reference": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--b9b9f-unchanged-strict-RGB-limits-service/reference.json",
+          "sha256": "2b1ff26f5d3176aa18fef507cdf277437abf2fa9dc8cfdd398db6fa2f698e477"
+        },
+        "generationApproval": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--b9b9f-unchanged-strict-RGB-limits-service/approval.json",
+          "sha256": "6ff09aa3d8daabec70105b34255c9d3b58720cdc6b2b234afb7a8aaa88fb7a67"
+        },
+        "planSha256": "a953ec32ddb02c92cac596165adb47b65198d4d0ec783f1d59e8efc32a129b39",
+        "configurations": 12
+      },
+      "identity": {
+        "comparison": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--1a0a1--absence-of-pilot-and-guide-service/comparison.json",
+          "sha256": "981d26871a86fe8a9191ca150aa3e3e82b19ce1dc76a6a780285f778e1002e00"
+        },
+        "reference": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--1a0a1--absence-of-pilot-and-guide-service/reference.json",
+          "sha256": "4e33067d59d81ea91aa338cb071598e9ae39c8e54364493167ec30c8ac077d0b"
+        },
+        "generationApproval": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--1a0a1--absence-of-pilot-and-guide-service/approval.json",
+          "sha256": "ee4e781c0b6dee138e4d664bea8125e64980de9142b3d48b65f6275762a4775c"
+        },
+        "planSha256": "310bc6746adc0273d8f74a5dbdaab3d314964e341d6e79f0009dd441c6b8fa1e",
+        "configurations": 180
+      },
+      "publication": {
+        "comparison": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--90201-tain-tie-and-zero-semantics-service/comparison.json",
+          "sha256": "1d472a079ee1fcf532044d16fce4a6956630f7d0a8fd68c854f89dac30682ff1"
+        },
+        "reference": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--90201-tain-tie-and-zero-semantics-service/reference.json",
+          "sha256": "d33092c6e8c280f444aefe63b0e931ae2fdc473e5502dfbf986e593a24b25ec9"
+        },
+        "generationApproval": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--90201-tain-tie-and-zero-semantics-service/approval.json",
+          "sha256": "25fa24da6ea8b587fabddb8c3a9998c7b8bf4f239118b7aa7fc496c8c86bfa6a"
+        },
+        "planSha256": "8a036020458684a5dda922caaa377e00a3ed591c29ea80669248fbb0ad745035",
+        "configurations": 15
+      }
+    },
+    "logicalConfigurations": 447,
+    "requiredCounterfeits": [
+      "raw-source-guide",
+      "guide-values-instead-of-original",
+      "unpublished-pilot",
+      "unpublished-guide",
+      "rgb-roundtrip-guide",
+      "short-halo23",
+      "linear-alpha",
+      "capped-self"
+    ],
+    "completeVerification": {
+      "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/result.json",
+      "sha256": "6b3f6d664afbf8bf02a2f0337b4b34b20889d9fee8a4244ef571d8a542d3ef42"
+    },
+    "counterfeitEvidence": {
+      "raw-source-guide": {
+        "group": "core",
+        "comparison": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/raw-source-guide-comparison.json",
+          "sha256": "1a885a878f7e4267512ba238993d297eafddb2a0dac151db360c1468e6c0fad7"
+        },
+        "candidate": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/raw-source-guide.py",
+          "sha256": "2016fd009aff5f36cfb218d89b88d8b8143fe219fa6c2fb6f44ae244f42b2569"
+        }
+      },
+      "guide-values-instead-of-original": {
+        "group": "core",
+        "comparison": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/guide-values-instead-of-original-comparison.json",
+          "sha256": "4eab6a7b6baf8d2b1717b03525e0ea181b80f546d3c14e74ebe0e5c6a836c86c"
+        },
+        "candidate": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/guide-values-instead-of-original.py",
+          "sha256": "8bf617022b422e2fe55799f697d1ba77c7a6baae21d7fcc618824a64a12db3e8"
+        }
+      },
+      "unpublished-pilot": {
+        "group": "core",
+        "comparison": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/unpublished-pilot-comparison.json",
+          "sha256": "1fcd9cace4b8eb3eea21618e98ba44a298cbb7f99af9f2740d4cb82478e75b6f"
+        },
+        "candidate": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/unpublished-pilot.py",
+          "sha256": "5e62091f564acef6eaf4a6ac8ca7ffd159bcf61b7715b699f1819bbc287e098f"
+        }
+      },
+      "unpublished-guide": {
+        "group": "core",
+        "comparison": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/unpublished-guide-comparison.json",
+          "sha256": "368439f751837fbb77b0b7335ee72f1ce07493265e2d576e179199432f3061e4"
+        },
+        "candidate": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/unpublished-guide.py",
+          "sha256": "3db0abd0368eadacd2eb220488c2d092971efbb942cb9c4d4e5aed8f269e180c"
+        }
+      },
+      "rgb-roundtrip-guide": {
+        "group": "core",
+        "comparison": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/rgb-roundtrip-guide-comparison.json",
+          "sha256": "27f078070b7805525340234c8cf01e6c42992cde5760e9875ce5da809f032103"
+        },
+        "candidate": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/rgb-roundtrip-guide.py",
+          "sha256": "0d3bb10c6ae7e4819ee0a524581418373cadd7088f03f4dc040bf65efa2112b9"
+        }
+      },
+      "short-halo23": {
+        "group": "core",
+        "comparison": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/short-halo23-comparison.json",
+          "sha256": "529b1284327288f0f11fbd0231e477d7dbe73f9769d68207312236f486e5839c"
+        },
+        "candidate": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--0697e-idance-publication-and-halo-service/short-halo23.py",
+          "sha256": "e8aa00a6ca4ec710fc3a27b347cac7f64fef8b61b622bb7e41f4a3fc7d8135e9"
+        }
+      },
+      "linear-alpha": {
+        "group": "alpha",
+        "comparison": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--8b7c6-r-weights-and-uncapped-self-service/linear-alpha-comparison.json",
+          "sha256": "f40f0f7d65200125f05d300b2807bbe562da4ad55ab814ef5a85e6f89a5ac63a"
+        },
+        "candidate": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--8b7c6-r-weights-and-uncapped-self-service/linear-alpha.py",
+          "sha256": "c06567e28c4a90326a84ab3a93d087873b489074ef32723c8f94745ebb755d1e"
+        }
+      },
+      "capped-self": {
+        "group": "alpha",
+        "comparison": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--8b7c6-r-weights-and-uncapped-self-service/capped-self-comparison.json",
+          "sha256": "40d831e4106f6eed6396f6126b8e84852a3ed64e90b2baa143b7292bd0b4ab9d"
+        },
+        "candidate": {
+          "path": "artifacts/verification/2026-10-31T08-49-21.018Z-check-FBppKa/functional/service-exclusive/results/strong-noise-chroma-pilot--8b7c6-r-weights-and-uncapped-self-service/capped-self.py",
+          "sha256": "0adbd3f24f1682253c660bff98461505619f18d789f6547ddc9c4a62c63d4c38"
+        }
+      }
+    }
+  }
+}
