@@ -1,6 +1,7 @@
 import { CollectionChangedError } from '../shared/collections'
 import { APP_TITLE } from '../shared/app-identity'
 import { configureAppIdentity } from './app-identity'
+import { configureDesktopIdentity, desktopIcon } from './desktop-identity'
 import { mergeFailure } from '../shared/merge'
 import { DisplayState } from './display-state'
 import { installWaylandDisplayRefresh } from './wayland-display'
@@ -63,6 +64,7 @@ import {
 const importDevices = new ImportDevices()
 
 configureAppIdentity(app)
+configureDesktopIdentity()
 app.enableSandbox()
 app.commandLine.appendSwitch('enable-blink-features', 'ScreenDetailedHdrHeadroom')
 if (process.platform === 'linux' && process.env.WAYLAND_DISPLAY) {
@@ -294,6 +296,7 @@ function trusted(event: IpcMainInvokeEvent): void {
 function createWindow(): void {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
   const window = createAppWindow({
+    icon: desktopIcon,
     title: APP_TITLE,
     width: Math.min(1440, width),
     height: Math.min(900, height),
@@ -301,7 +304,7 @@ function createWindow(): void {
     minHeight: 700,
     useContentSize: true,
     show: false,
-    backgroundColor: '#17191a',
+    backgroundColor: '#161616',
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),

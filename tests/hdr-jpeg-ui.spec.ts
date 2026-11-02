@@ -1,3 +1,4 @@
+import { openPreviewOptions } from './preview-options.helpers'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, expect } from './electron.fixture'
@@ -42,6 +43,7 @@ test(
         id,
       ),
     ).rejects.toThrow('SDR output analysis')
+    await openPreviewOptions(page)
     await page.getByRole('combobox', { name: 'Preview display mode' }).selectOption('sdr')
     await expect(page.getByTestId('main-preview')).toHaveAttribute(
       'data-backend',
@@ -65,6 +67,7 @@ test(
         }, box),
       )
       .toBeLessThanOrEqual(4)
+    await openPreviewOptions(page)
     await page.getByRole('combobox', { name: 'Preview display mode' }).selectOption('hdr')
     await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'webgpu-hdr')
     const destination = join(irodori.userDataDir, 'exports')
@@ -98,10 +101,11 @@ test('an invalid ISO gain map imports its preserved SDR primary with a counted f
   const path = join(directory, 'broken-hdr.jpg')
   await writeFile(path, readGainJpeg(image.bytes).primary)
   await importPhotos(irodori.app, irodori.page, [path])
+  await openPreviewOptions(irodori.page)
   await irodori.page.getByRole('combobox', { name: 'Preview display mode' }).selectOption('hdr')
   const details = irodori.page.getByLabel('Display details', { exact: true })
   await expect(details).toContainText('SDR fallback')
-  await details.click()
+  await openPreviewOptions(irodori.page)
   await expect(irodori.page.getByText(/HDR gain map unavailable; displaying SDR:/)).toBeVisible()
 })
 
@@ -136,6 +140,7 @@ test(
       retry = page.getByRole('button', { name: 'Retry GPU', exact: true }),
       zoom = page.getByRole('combobox', { name: 'Preview zoom', exact: true }),
       display = page.getByRole('combobox', { name: 'Preview display mode', exact: true })
+    await openPreviewOptions(page)
     await expect(page.getByText('GPU preview unavailable', { exact: true })).toBeVisible()
     await expect(error).toHaveAttribute('role', 'alert')
     await expect(error).toContainText('HDR canvas unavailable')
@@ -214,6 +219,7 @@ test(
     let fault: Awaited<ReturnType<typeof destroyMainPreviewDevice>> | undefined
     try {
       await importPhotos(app, page, [image.path], false, 'keyboard')
+      await openPreviewOptions(page)
       await display.selectOption('hdr')
       await expect
         .poll(() => page.evaluate(() => window.irodori.getDisplayState()))

@@ -1,16 +1,28 @@
+import { useEffect, useRef, type ReactNode } from 'react'
 import type { DisplayTarget } from '../../../shared/hdr'
 import styles from './DisplayDetails.module.css'
 export function DisplayDetails({
+  controls,
   target,
   photoId,
   hdr,
   hdrJpeg,
 }: {
+  controls?: ReactNode
   target: DisplayTarget
   photoId?: string
   hdr: boolean
   hdrJpeg?: import('../../../shared/lens').ProcessingMetadata['hdrJpeg']
 }) {
+  const details = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    const dismiss = (event: PointerEvent) => {
+      if (details.current && !details.current.contains(event.target as Node))
+        details.current.open = false
+    }
+    document.addEventListener('pointerdown', dismiss)
+    return () => document.removeEventListener('pointerdown', dismiss)
+  }, [])
   const presentation =
     target.presentation?.photoId === photoId &&
     target.presentation?.targetGeneration === target.generation
@@ -41,11 +53,22 @@ export function DisplayDetails({
   const caps = target.capabilities
   return (
     <div className={styles.container}>
-      <details className={styles.details}>
+      <details
+        ref={details}
+        className={styles.details}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && details.current?.open) {
+            event.stopPropagation()
+            details.current.open = false
+            details.current.querySelector('summary')?.focus()
+          }
+        }}
+      >
         <summary aria-label="Display details" aria-description={label}>
           {label}
         </summary>
         <div className={styles.panel}>
+          {controls}
           <strong>Display details</strong>
           <p>
             Requested: {target.requested.toUpperCase()} · Presented:{' '}

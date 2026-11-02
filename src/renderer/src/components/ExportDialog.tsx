@@ -1,3 +1,4 @@
+import { Button, IconButton } from './ui/Controls'
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import {
@@ -132,9 +133,7 @@ export function ExportDialog({
     >
       <header>
         <h2 id="export-heading">{custom ? 'Custom JPEG export' : 'Export JPEG'}</h2>
-        <button aria-label="Close export" disabled={busy} onClick={onClose}>
-          <X size={16} />
-        </button>
+        <IconButton icon={X} label="Close export" disabled={busy} onClick={onClose} />
       </header>
       <div className={styles.body} aria-busy={busy || !preparation}>
         <p className={styles.summary}>
@@ -150,9 +149,9 @@ export function ExportDialog({
               {destination?.label ?? 'Choose a folder on first export'}
             </p>
           </div>
-          <button disabled={busy} onClick={() => void changeFolder()}>
+          <Button disabled={busy} onClick={() => void changeFolder()}>
             Change folder…
-          </button>
+          </Button>
         </div>
         {destination && !destination.available && (
           <p role="status">This folder is unavailable. Choose another folder to export.</p>
@@ -161,16 +160,16 @@ export function ExportDialog({
           <>
             <div className={styles.presets} aria-label="JPEG export presets">
               {exportPresets.map((preset) => (
-                <button
+                <Button
                   key={preset.id}
                   disabled={busy || !preparation}
                   onClick={() => void start(preset.id)}
                 >
                   <strong>{preset.label}</strong>
                   <span>JPEG quality {preset.quality} · Original size · Auto</span>
-                </button>
+                </Button>
               ))}
-              <button
+              <Button
                 disabled={busy || !preparation || !prefs?.lastCustom || lastUnsupported > 0}
                 onClick={() => void start('last-custom')}
               >
@@ -182,11 +181,11 @@ export function ExportDialog({
                       : `JPEG quality ${prefs.lastCustom.quality} · ${lastCounts?.hdr} HDR · ${lastCounts?.sdr} SDR · Saved settings`
                     : 'No custom export saved yet'}
                 </span>
-              </button>
-              <button disabled={busy || !preparation} onClick={() => setCustom(true)}>
+              </Button>
+              <Button disabled={busy || !preparation} onClick={() => setCustom(true)}>
                 <strong>Custom…</strong>
                 <span>Output, size, names and metadata</span>
-              </button>
+              </Button>
             </div>
             <p>
               Auto uses HDR JPEG for supported RAWs, merges and HDR JPEGs. Other photos use SDR
@@ -429,24 +428,25 @@ export function ExportDialog({
       </div>
       <footer>
         {custom ? (
-          <button disabled={busy} onClick={() => setCustom(false)}>
+          <Button disabled={busy} onClick={() => setCustom(false)}>
             Back
-          </button>
+          </Button>
         ) : (
           <span />
         )}
         <div>
-          <button disabled={busy} onClick={onClose}>
+          <Button disabled={busy} onClick={onClose}>
             Cancel
-          </button>
+          </Button>
           {custom && (
-            <button
+            <Button
+              variant="primary"
               type="submit"
               form="custom-export"
               disabled={busy || !preparation || !!validation || unsupported > 0}
             >
               {busy ? 'Starting…' : 'Export'}
-            </button>
+            </Button>
           )}
         </div>
       </footer>

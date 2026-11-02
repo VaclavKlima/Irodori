@@ -1,3 +1,4 @@
+import { openInspectorTool } from './inspector.helpers'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { resolve } from 'node:path'
@@ -44,13 +45,18 @@ test('RAW editing MCP combines white balance, lens and light history, statistics
       ['Temperature', '7000'],
       ['Tint', '15'],
       ['Highlights', '-65'],
-    ])
+    ]) {
+      await openInspectorTool(
+        irodori.page,
+        ['Temperature', 'Tint'].includes(label) ? 'Color' : 'Light',
+      )
       await expect(irodori.page.getByRole('spinbutton', { name: `${label} value` })).toHaveValue(
         value,
       )
+    }
     await expect(irodori.page.getByTestId('lens-corrections')).toBeHidden()
     await expect(irodori.page.getByTestId('lens-corrections')).toHaveAttribute('data-revision', '1')
-    await irodori.page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
+    await openInspectorTool(irodori.page, 'Lens corrections')
     await expect(
       irodori.page.getByRole('checkbox', { name: 'Distortion', exact: true }),
     ).not.toBeChecked()

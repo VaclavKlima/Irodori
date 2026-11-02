@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Crop, RotateCcw, RotateCw } from 'lucide-react'
 import type { CropController } from '../hooks/useCrop'
-import { quarterTurnedSize } from '../../../shared/crop'
+import { quarterTurnedSize, type CropSettings, type CropSize } from '../../../shared/crop'
 import { AdjustmentInput } from './AdjustmentInput'
 import styles from './CropControls.module.css'
 
@@ -13,53 +13,51 @@ const ratios = [
 ] as const
 const closeRatio = (a: number | null, b: number) => a !== null && Math.abs(a - b) <= 1e-12 * b
 
-export function CropControls({ crop }: { crop: CropController }) {
+export function CropControls({
+  crop,
+  settings,
+  source,
+}: {
+  crop: CropController
+  settings?: CropSettings
+  source?: CropSize
+}) {
   const [custom, setCustom] = useState(false)
   const draft = crop.draft,
     context = crop.context,
-    turned = context && draft ? quarterTurnedSize(context.source, draft.quarterTurns) : null,
+    value = draft ?? settings,
+    nativeSize = context?.source ?? source,
+    turned = nativeSize && value ? quarterTurnedSize(nativeSize, value.quarterTurns) : null,
     originalRatio = turned ? turned.width / turned.height : 1,
-    disabled = crop.pending || crop.stale,
+    disabled = !crop.active || crop.pending || crop.stale,
     aspectValue =
-      !draft || draft.aspectRatio === null
+      !value || value.aspectRatio === null
         ? 'free'
         : custom
           ? 'custom'
-          : closeRatio(draft.aspectRatio, originalRatio)
+          : closeRatio(value.aspectRatio, originalRatio)
             ? 'original'
-            : (ratios.find(([, value]) => closeRatio(draft.aspectRatio, value))?.[0] ?? 'custom')
+            : (ratios.find(([, ratio]) => closeRatio(value.aspectRatio, ratio))?.[0] ?? 'custom')
   return (
     <div className={styles.tool}>
-      <button
-        type="button"
-        disabled={!crop.supported || crop.pending}
-        aria-pressed={crop.active}
-        onClick={() => (crop.active ? crop.cancel() : void crop.start())}
-      >
-        <Crop size={13} aria-hidden="true" /> Crop and straighten
-      </button>
-      {crop.active && draft && context && turned && (
-        <div className={styles.controls}>
-          <p id="crop-instructions">
-            Drag the frame or its corners. Arrow keys move a focused handle; Shift moves ten pixels.
-            Apply accepts the shown framing.
-          </p>
+      {value && (
+        <>
           <label className={styles.aspect}>
             Aspect ratio
             <select
               value={aspectValue}
               disabled={disabled}
               onChange={(event) => {
-                const value = event.currentTarget.value
-                setCustom(value === 'custom')
+                const next = event.currentTarget.value
+                setCustom(next === 'custom')
                 crop.aspect(
-                  value === 'free'
+                  next === 'free'
                     ? null
-                    : value === 'original'
+                    : next === 'original'
                       ? originalRatio
-                      : value === 'custom'
-                        ? (draft.aspectRatio ?? 3 / 2)
-                        : ratios.find(([label]) => label === value)![1],
+                      : next === 'custom'
+                        ? (value.aspectRatio ?? 3 / 2)
+                        : ratios.find(([label]) => label === next)![1],
                 )
               }}
             >
@@ -76,7 +74,7 @@ export function CropControls({ crop }: { crop: CropController }) {
           {aspectValue === 'custom' && (
             <AdjustmentInput
               label="Custom ratio"
-              value={draft.aspectRatio!}
+              value={value.aspectRatio!}
               min={0.000001}
               max={32768}
               step={0.000001}
@@ -106,11 +104,11 @@ export function CropControls({ crop }: { crop: CropController }) {
             >
               <RotateCw size={13} />
             </button>
-            <span>{draft.quarterTurns * 90}°</span>
+            <span>{value.quarterTurns * 90}°</span>
           </div>
           <AdjustmentInput
             label="Straighten"
-            value={draft.angle}
+            value={value.angle}
             min={-45}
             max={45}
             step={0.01}
@@ -122,6 +120,22 @@ export function CropControls({ crop }: { crop: CropController }) {
             onCommit={crop.commitGesture}
             onCancel={crop.cancelGesture}
           />
+        </>
+      )}
+      <button
+        type="button"
+        disabled={!crop.supported || crop.pending}
+        aria-pressed={crop.active}
+        onClick={() => (crop.active ? crop.cancel() : void crop.start())}
+      >
+        <Crop size={13} aria-hidden="true" /> Crop and straighten
+      </button>
+      {crop.active && draft && context && turned && (
+        <div className={styles.controls}>
+          <p id="crop-instructions">
+            Drag the frame or its corners. Arrow keys move a focused handle; Shift moves ten pixels.
+            Apply accepts the shown framing.
+          </p>
           {(['centerX', 'centerY', 'width', 'height'] as const).map((key) => {
             const horizontal = key === 'centerX' || key === 'width',
               size = horizontal ? turned.width : turned.height,

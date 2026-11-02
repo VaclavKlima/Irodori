@@ -1,5 +1,9 @@
 # Sunflower prototype handoff
 
+This document retains the 2026-11-01 prototype-only handoff. Application adoption
+is documented in the [design system](../design-system.md), [desktop integration](../desktop-integration.md)
+and [migration acceptance](sunflower-acceptance.md).
+
 On **2026-11-01**, the user selected **Sunflower** and the **Original Little Jizō**
 icon. [prototype.html](prototype.html) is the retained design reference. Unused
 layout variants and alternative icon studies have been removed from the handoff.

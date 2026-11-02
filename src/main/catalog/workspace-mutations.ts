@@ -4,6 +4,9 @@ import {
   DEFAULT_WORKSPACE,
   DEFAULT_INSPECTOR_SECTIONS,
   WORKSPACE_VERSION,
+  inspectorGroups,
+  colorTabs,
+  recoverWorkspaceNavigation,
   type WorkspaceChange,
   type WorkspaceState,
 } from '../../shared/workspace'
@@ -37,6 +40,9 @@ function validate(state: WorkspaceState) {
     !['editor', 'library'].includes(state.mode) ||
     ![state.activeId, state.editorFocusId, state.libraryFocusId, state.rangeAnchorId].every(id) ||
     typeof state.consoleOpen !== 'boolean' ||
+    !inspectorGroups.includes(state.inspectorGroup) ||
+    !colorTabs.includes(state.colorTab) ||
+    typeof state.hoverControls !== 'boolean' ||
     !state.inspector ||
     typeof state.inspector !== 'object' ||
     Array.isArray(state.inspector) ||
@@ -108,6 +114,7 @@ export class WorkspaceMutations extends WorkspaceStore {
       const state = {
         ...DEFAULT_WORKSPACE,
         ...saved,
+        ...recoverWorkspaceNavigation(saved),
         inspector: { ...DEFAULT_INSPECTOR_SECTIONS, ...saved?.inspector },
         ...change.state,
       } as WorkspaceState

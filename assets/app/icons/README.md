@@ -3,8 +3,8 @@
 The user selected **Original Little Jizō** on 2026-11-01 alongside the Sunflower
 UI direction. [little-jizo.png](little-jizo.png) is the unchanged generated
 original: a pale-stone seated figure with a muted vermilion bib and transparent
-background. It appears in the prototype Components gallery. Application branding,
-packaging and platform-icon exports remain deferred.
+background. It appears in the prototype Components gallery and the application.
+Host-native packaging and platform derivatives are described below.
 
 The built-in `image_gen.imagegen` tool created this original artwork on
 2026-11-01 without reference photographs or third-party mascot artwork. The
@@ -15,10 +15,26 @@ alpha channel and embedded C2PA provenance unchanged.
 
 The image was visually reviewed at full resolution and at 128, 64, 32 and 16 CSS
 pixels on dark/light prototype surfaces. Fine stone and face detail merge at
-small sizes; optical adjustments and platform exports are later work. ExifTool
+small sizes. Platform derivatives preserve that selected silhouette; optical
+redesign remains separate work. ExifTool
 and PNG inspection found no private capture metadata. The C2PA generation
 assertions, signatures and timestamps remain present and are recorded as such.
 
 Rejected icon studies have been removed from the maintained asset set; local
 copies remain under ignored verification artifacts. Only this selected original
 and its provenance are part of the design handoff.
+
+## Application adoption
+
+The original supplies the application header mark, desktop application icon and
+runtime/platform identity. The header uses the [64px PNG](generated/icon-64.png)
+at 32px beside the Irodori wordmark. On 2026-11-02 the user explicitly requested
+this replacement of the aperture mark shown in the retained prototype. Follow
+that approved header override; leave the prototype unchanged as historical
+evidence.
+
+`npm run icons:generate` verifies its original hash and regenerates the PNG, ICNS
+and ICO derivatives in [generated/](generated/manifest.json). Derivative hashes,
+encoder versions and conversion policy live in that separate manifest; original
+bytes and embedded provenance stay unchanged. See [desktop integration](../../../docs/desktop-integration.md)
+for host-native packaging, user-local Bazzite launchers and platform acceptance limits.

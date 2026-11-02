@@ -1,3 +1,4 @@
+import { openPreviewOptions } from './preview-options.helpers'
 import { build } from 'esbuild'
 import sharp from 'sharp'
 import { writeFile } from 'node:fs/promises'
@@ -31,6 +32,7 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
       await expect(preview).toHaveAttribute('data-editing', 'ready', { timeout: 40000 })
       const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
       if (fixture === 'raw') {
+        await openPreviewOptions(page)
         await page.getByLabel('Preview display mode').selectOption('sdr')
         await expect(preview).toHaveAttribute('data-backend', 'webgpu-hdr')
         await expect(preview).toHaveAttribute('data-quality', 'normal')

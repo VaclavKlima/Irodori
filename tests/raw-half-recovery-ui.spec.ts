@@ -1,3 +1,4 @@
+import { openPreviewOptions } from './preview-options.helpers'
 import { createHash } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -232,6 +233,7 @@ for (const mode of ['sdr', 'hdr'] as const)
         expect(
           hash(await readFile(join(userDataDir, 'library', 'originals', id, 'original.arw'))),
         ).toBe(originalSha256)
+        await openPreviewOptions(page)
         await page.getByRole('combobox', { name: 'Preview display mode' }).selectOption(mode)
         await expect
           .poll(() => page.evaluate(() => window.irodori.getDisplayState()))

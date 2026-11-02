@@ -9,15 +9,22 @@ export const DEFAULT_INSPECTOR_SECTIONS = {
   histogram: true,
   light: true,
   color: true,
-  colorMixer: false,
-  colorGrading: false,
-  detail: false,
-  crop: false,
-  lens: false,
+  colorIntensity: true,
+  colorMixer: true,
+  colorGrading: true,
+  toneBlending: true,
+  detail: true,
+  sharpening: true,
+  crop: true,
+  lens: true,
   metadata: true,
 }
 export type InspectorSectionId = keyof typeof DEFAULT_INSPECTOR_SECTIONS
 export type InspectorSections = Record<InspectorSectionId, boolean>
+export const inspectorGroups = ['light', 'color', 'detail', 'geometry', 'info'] as const
+export type InspectorGroup = (typeof inspectorGroups)[number]
+export const colorTabs = ['basic', 'mixer', 'grading'] as const
+export type ColorTab = (typeof colorTabs)[number]
 export interface CreativeColorSelection {
   range: ColorRangeId
   tone: GradingToneId
@@ -46,6 +53,9 @@ export interface WorkspaceState {
   libraryAnchor: CollectionAnchor | null
   consoleOpen: boolean
   inspector: InspectorSections
+  inspectorGroup: InspectorGroup
+  colorTab: ColorTab
+  hoverControls: boolean
   creativeColor: CreativeColorSelection
   preview: PreviewViewState | null
 }
@@ -73,6 +83,24 @@ export const DEFAULT_WORKSPACE: WorkspaceState = {
   libraryAnchor: null,
   consoleOpen: false,
   inspector: DEFAULT_INSPECTOR_SECTIONS,
+  inspectorGroup: 'light',
+  colorTab: 'basic',
+  hoverControls: false,
   creativeColor: DEFAULT_CREATIVE_COLOR_SELECTION,
   preview: null,
+}
+export function recoverWorkspaceNavigation(value?: {
+  inspectorGroup?: unknown
+  colorTab?: unknown
+  hoverControls?: unknown
+}): Pick<WorkspaceState, 'inspectorGroup' | 'colorTab' | 'hoverControls'> {
+  return {
+    inspectorGroup: inspectorGroups.includes(value?.inspectorGroup as InspectorGroup)
+      ? (value!.inspectorGroup as InspectorGroup)
+      : 'light',
+    colorTab: colorTabs.includes(value?.colorTab as ColorTab)
+      ? (value!.colorTab as ColorTab)
+      : 'basic',
+    hoverControls: typeof value?.hoverControls === 'boolean' ? value.hoverControls : false,
+  }
 }

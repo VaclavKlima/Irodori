@@ -16,6 +16,7 @@ assets/
 ├── README.md
 ├── app/
 │   ├── icons/                         Application and platform icons
+│   ├── fonts/                         Bundled fonts, licenses and provenance
 │   ├── camera-runtime/                Development runtime pins and provenance
 │   └── images/                        Bundled interface artwork
 └── tests/
@@ -42,8 +43,8 @@ assets/
 Use lowercase, hyphenated names for new directories and descriptive asset names.
 Preserve original capture filenames, dataset identifiers and complete sequence
 membership. Keep manifests, credits, permission notices and licenses beside
-their assets. Add a descriptive type folder for future resources, such as
-`app/fonts/`, when needed.
+their assets. Add a descriptive type folder when introducing a new bundled
+resource kind.
 
 Only `app/` assets belong in application packages. Keep all `tests/` assets out
 of production bundles and automatic user-library imports. Generators remain

@@ -4,7 +4,7 @@
   min-height: 0;
   min-width: 0;
   flex-direction: column;
-  background: #1d1d1d;
+  background: var(--canvas);
 }
 .browser[hidden] {
   display: none;
@@ -21,7 +21,7 @@
 .toolbar h1 {
   margin: 0;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
 }
 .search {
   display: flex;
@@ -30,8 +30,8 @@
   max-width: 420px;
   min-width: 0;
   flex: 1;
-  border: 1px solid #454545;
-  background: #252525;
+  border: 1px solid var(--line-subtle);
+  background: var(--surface);
   border-radius: 4px;
   padding: 7px 10px;
   color: var(--muted);
@@ -57,20 +57,20 @@
   white-space: nowrap;
 }
 .grouping select {
-  border: 1px solid #454545;
+  border: 1px solid var(--line-subtle);
   border-radius: 4px;
   padding: 6px 10px;
-  background: #292929;
+  background: var(--surface);
   color: var(--text);
   font-size: 12px;
 }
 .foldAll {
   margin-left: auto;
   flex-shrink: 0;
-  border: 1px solid #454545;
+  border: 1px solid var(--line-subtle);
   border-radius: 4px;
   padding: 6px 10px;
-  background: #292929;
+  background: var(--surface);
   color: var(--text);
   font-size: 11px;
 }
@@ -82,19 +82,19 @@
   padding: 10px 20px;
   color: var(--muted);
   font-size: 11px;
-  border-bottom: 1px solid #303030;
+  border-bottom: 1px solid var(--line-subtle);
 }
 .selection button {
   background: transparent;
   color: var(--text);
-  border: 1px solid #494949;
+  border: 1px solid var(--line);
   border-radius: 3px;
   padding: 4px 8px;
   font-size: 11px;
 }
 .help {
   margin-left: auto;
-  color: #858585;
+  color: var(--quiet);
 }
 .viewport {
   min-height: 0;
@@ -139,7 +139,7 @@
   font-size: 12px;
 }
 .foldGroup:hover {
-  background: #2a2a2a;
+  background: var(--surface);
 }
 .foldGroup svg {
   flex-shrink: 0;
@@ -150,7 +150,6 @@
 }
 .section input {
   margin: 0;
-  accent-color: #a9a175;
 }
 .section span {
   color: var(--muted);
@@ -175,19 +174,19 @@
   flex-direction: column;
   width: 100%;
   height: 100%;
-  background: #272727;
-  border: 1px solid #3a3a3a;
+  background: var(--surface);
+  border: 1px solid var(--line-subtle);
   border-radius: 4px;
   padding: 5px;
   text-align: left;
   user-select: none;
 }
 .card[aria-pressed='true'] {
-  border-color: #aaa27c;
-  background: #35342e;
+  border-color: var(--line);
+  background: var(--surface-raised);
 }
 .card[data-focused='true'] {
-  outline: 2px solid #a3a3a3;
+  outline: 2px solid var(--line);
   outline-offset: 2px;
 }
 .thumbnail {
@@ -197,7 +196,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #161616;
+  background: var(--canvas);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -210,7 +209,7 @@
   position: absolute;
   right: 5px;
   bottom: 5px;
-  color: #ddd;
+  color: var(--text);
   background: #161616bd;
   border-radius: 2px;
   padding: 2px 4px;
@@ -231,14 +230,14 @@
   overflow: hidden;
 }
 .origin {
-  color: #aaa;
+  color: var(--muted);
   flex-shrink: 0;
 }
 .placeholder {
   height: 100%;
-  border: 1px solid #303030;
+  border: 1px solid var(--line-subtle);
   border-radius: 4px;
-  background: #242424;
+  background: var(--surface);
 }
 .empty {
   color: var(--muted);
@@ -250,8 +249,8 @@
   display: block;
   margin: 16px auto;
   padding: 7px 12px;
-  border: 1px solid #555;
+  border: 1px solid var(--line);
   border-radius: 4px;
-  background: #292929;
+  background: var(--surface);
   color: var(--text);
 }

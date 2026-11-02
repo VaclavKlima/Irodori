@@ -1,3 +1,4 @@
+import { navigateInspector } from './inspector.helpers'
 import { execFile } from 'node:child_process'
 import { realpath, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
@@ -319,6 +320,7 @@ test(
         expect(await state()).toEqual(initial)
       }
 
+      await navigateInspector(page, 'Color', (button) => input.activate(button))
       const color = page.getByRole('button', { name: 'Color', exact: true })
       if ((await color.getAttribute('aria-expanded')) !== 'true') await input.activate(color)
       const toggle = () => page.getByRole('button', { name: 'Neutral white balance', exact: true }),

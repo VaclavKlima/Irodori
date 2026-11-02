@@ -49,7 +49,9 @@
     "benchmark:all": "node scripts/verify.mjs --benchmark-all",
     "research:pipeline": "node scripts/verify.mjs --target research-pipeline --target research-native",
     "research:measure": "node scripts/verify.mjs --target research-measurements --target research-libraries --target research-gpu",
-    "research:presentation": "node scripts/verify.mjs --target research-presentation"
+    "research:presentation": "node scripts/verify.mjs --target research-presentation",
+    "icons:generate": "node scripts/generate-icons.mjs",
+    "package:desktop": "npm run build && node scripts/package-desktop.mjs"
   },
   "dependencies": {
     "@colorhythm/libraw-wasm": "^1.1.1",
@@ -62,6 +64,7 @@
     "sharp": "^0.35.4"
   },
   "devDependencies": {
+    "@electron/packager": "^20.3.0",
     "@eslint/js": "10.0.1",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@playwright/mcp": "0.0.81",

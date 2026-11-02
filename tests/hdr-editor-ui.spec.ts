@@ -1,3 +1,4 @@
+import { openPreviewOptions } from './preview-options.helpers'
 import { HDR_SOURCE_VERSION, HDR_OUTPUT_VERSION } from '../src/shared/hdr'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
@@ -232,6 +233,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     'Red: above current display headroom',
   )
   for (const mode of ['before', 'split', 'after']) {
+    await openPreviewOptions(page)
     await page
       .getByRole('button', {
         name: mode === 'before' ? 'Before' : 'Compare before and after',
@@ -264,6 +266,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     ),
     contentType: 'application/json',
   })
+  await openPreviewOptions(page)
   await page.getByLabel('Preview display mode').selectOption('sdr')
   expect((await page.evaluate(() => window.irodori.getDisplayState())).mode).toBe('sdr')
   await expect(page.getByText('Rec.2020 · HDR content')).toBeVisible()
@@ -284,6 +287,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   }, id)
   expect(statistics.exact).toBe(true)
   expect(statistics.aboveWhite).toBeGreaterThan(0)
+  await openPreviewOptions(page)
   await page.getByLabel('Preview display mode').selectOption('hdr')
   const display = await page.evaluate(() => window.irodori.getDisplayState())
   expect(display.physicalOutputVerified).toBe(false)
@@ -424,6 +428,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
       name: 'irodori_set_preview_preference',
       arguments: { preference: 'sdr' },
     })
+    await openPreviewOptions(page)
     await expect(page.getByLabel('Preview display mode')).toHaveValue('sdr')
     expect((await page.evaluate((id) => window.irodori.getEdits(id), id)).revision).toBe(revision)
   } finally {
@@ -443,6 +448,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     BrowserWindow.getAllWindows()[0].setContentSize(1100, 700),
   )
   await page.getByTestId('console-toggle').click()
+  await openPreviewOptions(page)
   await expect(page.getByLabel('Preview display mode')).toBeInViewport()
   await ranges.click()
   await expect(ranges).toBeInViewport()
@@ -538,6 +544,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     window.dispatchEvent(new Event('focus'))
     window.dispatchEvent(new Event('focus'))
   })
+  await openPreviewOptions(page)
   await page.getByLabel('Preview display mode').selectOption('hdr')
   await expect
     .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
@@ -555,7 +562,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
       mode: 'sdr',
       capabilities: { monitor: { label: 'Zero-headroom test monitor' } },
     })
-  await page.getByLabel('Display details').click()
+  await openPreviewOptions(page)
   await expect(page.getByText('Reported headroom: 0.000 stops (1.00×)')).toBeVisible()
   await page.getByLabel('Display details').click()
   await page.evaluate(() => {
@@ -579,6 +586,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     '511',
   )
   await page.screenshot({ path: info.outputPath('hdr-histogram-stops.png') })
+  await openPreviewOptions(page)
   await page.getByLabel('Preview display mode').selectOption('sdr')
   await irodori.app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setContentSize(1100, 700),
@@ -622,6 +630,7 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
     'false',
   )
   expect(await reopened.evaluate((id) => window.irodori.getEdits(id), id)).toEqual(beforeLoss)
+  await openPreviewOptions(reopened)
   await expect(reopened.getByLabel('Preview display mode')).toHaveValue('sdr')
   await reopened.getByRole('button', { name: 'Show HDR ranges' }).click()
   await importPhotos(reopenedApp, reopened, ['tests/fixtures/photos/mountain-ridge.jpg'], false)

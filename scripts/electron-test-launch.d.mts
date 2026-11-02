@@ -16,3 +16,9 @@ export function launchTestElectron(options: {
   offline?: boolean
 }): Promise<{ app: ElectronApplication; child: ChildProcess; evidenceFile: string }>
 export function assertTestWindowPolicy(evidenceFile: string): Promise<WindowPolicyEvidence>
+export function launchPackagedTestElectron(options: {
+  executablePath: string
+  userDataDir: string
+  artifacts: string
+  env?: NodeJS.ProcessEnv
+}): Promise<{ app: ElectronApplication; child: ChildProcess; evidenceFile: string }>

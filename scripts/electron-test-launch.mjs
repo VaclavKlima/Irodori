@@ -86,3 +86,75 @@ export async function assertTestWindowPolicy(evidenceFile) {
     throw new Error(`Background Electron exposed a native window. ${evidenceFile}`)
   return evidence
 }
+
+/** Real packaged startup cannot be wrapped before main runs. It is explicitly foreground-only. */
+export async function launchPackagedTestElectron({
+  executablePath,
+  userDataDir,
+  artifacts,
+  env = process.env,
+}) {
+  if (testUiMode(env) !== 'foreground')
+    throw new Error('Packaged startup requires explicit foreground testing.')
+  const profile = await realpath(userDataDir),
+    directory = resolve(artifacts)
+  await mkdir(directory, { recursive: true })
+  const launchEnv = Object.fromEntries(
+    Object.entries(env).filter(([, value]) => value !== undefined),
+  )
+  for (const key of [
+    'ELECTRON_RUN_AS_NODE',
+    'ELECTRON_RENDERER_URL',
+    'FORCE_COLOR',
+    'NODE_OPTIONS',
+  ])
+    delete launchEnv[key]
+  const app = await electron.launch({
+    executablePath,
+    args: [`--user-data-dir=${profile}`],
+    env: launchEnv,
+    chromiumSandbox: true,
+    offline: true,
+    timeout: 20000,
+  })
+  const child = app.process(),
+    evidenceFile = join(directory, 'window-policy.json')
+  try {
+    const observed = await app.evaluate(({ app, BrowserWindow }) => ({
+      packaged: app.isPackaged,
+      profile: app.getPath('userData'),
+      pid: process.pid,
+      windows: BrowserWindow.getAllWindows().map((w) => ({
+        id: w.id,
+        showEvents: w.isVisible() ? 1 : 0,
+        focusEvents: w.isFocused() ? 1 : 0,
+        closed: false,
+      })),
+    }))
+    if (!observed.packaged || (await realpath(observed.profile)) !== profile)
+      throw new Error('Packaged startup profile isolation failed.')
+    await writeFile(
+      evidenceFile,
+      JSON.stringify(
+        {
+          mode: 'foreground',
+          pid: observed.pid,
+          profile,
+          windows: observed.windows,
+          violations: [],
+        },
+        null,
+        2,
+      ),
+    )
+    return { app, child, evidenceFile }
+  } catch (error) {
+    await app.close().catch(() => undefined)
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, 'exit')
+      child.kill('SIGKILL')
+      await exited
+    }
+    throw error
+  }
+}

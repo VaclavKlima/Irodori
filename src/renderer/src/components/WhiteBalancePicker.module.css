@@ -24,6 +24,3 @@
 .sizes {
   margin-bottom: 8px;
 }
-.sizes button[aria-pressed='true'] {
-  border-color: var(--muted);
-}

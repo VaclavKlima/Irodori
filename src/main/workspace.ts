@@ -3,6 +3,7 @@ import type { Photo, PhotoReference } from '../shared/contracts'
 import {
   DEFAULT_WORKSPACE,
   DEFAULT_INSPECTOR_SECTIONS,
+  recoverWorkspaceNavigation,
   type WorkspaceState,
   type WorkspaceSnapshot,
 } from '../shared/workspace'
@@ -81,6 +82,7 @@ export class WorkspaceStore {
       ? this.prune({
           ...DEFAULT_WORKSPACE,
           ...saved,
+          ...recoverWorkspaceNavigation(saved),
           inspector: { ...DEFAULT_INSPECTOR_SECTIONS, ...saved.inspector },
         })
       : null

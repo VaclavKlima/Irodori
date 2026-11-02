@@ -6,6 +6,7 @@ import {
   type GalleryRead,
   type GalleryChunk,
   type GallerySummary,
+  type GalleryGroupSpan,
   type GalleryRevision,
   type GalleryEntry,
   type GalleryLocation,
@@ -40,6 +41,7 @@ export class StackStore {
       mergeSourceCount?: number
     }[]
     positions: Map<string, number>
+    groups: GalleryGroupSpan[]
     revision: GalleryRevision
   }
   constructor(protected db: DatabaseSync) {}
@@ -198,7 +200,7 @@ export class StackStore {
           .all() as { id: string; count: number }[]
       ).map((r) => [r.id, r.count]),
     )
-    const entries = ordered.flatMap((photo) => {
+    const entries: NonNullable<StackStore['index']>['entries'] = ordered.flatMap((photo) => {
       const stack = memberships.get(photo.id)
       if (!stack) return [{ id: photo.id, mergeSourceCount: counts.get(photo.id) }]
       if (stack.coverId !== photo.id) return []
@@ -213,6 +215,13 @@ export class StackStore {
           mergeSourceCount: counts.get(id),
         }))
     })
+    const groups: GalleryGroupSpan[] = []
+    entries.forEach((entry, index) => {
+      if (!entry.stack) return
+      const previous = groups.at(-1)
+      if (previous?.stackId === entry.stack.id) previous.count++
+      else groups.push({ stackId: entry.stack.id, start: index, count: 1 })
+    })
     this.index = {
       key,
       references,
@@ -220,6 +229,7 @@ export class StackStore {
       covers,
       entries,
       positions: new Map(entries.map((entry, index) => [entry.id, index])),
+      groups,
       revision: { catalogRevision, revision },
     }
     return this.index
@@ -235,6 +245,7 @@ export class StackStore {
       ...view.revision,
       total: view.entries.length,
       storedTotal: view.references.size,
+      groups: view.groups,
       hiddenSelectedIds: selectedIds.filter(
         (id) => !view.positions.has(id) && view.references.has(id),
       ),
@@ -248,7 +259,14 @@ export class StackStore {
       !Number.isSafeInteger(expected.revision) ||
       Object.keys(expected).some(
         (k) =>
-          !['catalogRevision', 'revision', 'total', 'storedTotal', 'hiddenSelectedIds'].includes(k),
+          ![
+            'catalogRevision',
+            'revision',
+            'total',
+            'storedTotal',
+            'hiddenSelectedIds',
+            'groups',
+          ].includes(k),
       )
     )
       throw new Error('Invalid gallery collection revision.')

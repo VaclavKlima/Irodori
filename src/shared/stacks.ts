@@ -34,6 +34,13 @@ export interface GallerySummary extends GalleryRevision {
   total: number
   storedTotal: number
   hiddenSelectedIds: string[]
+  /** Source-index spans from the same cached, revision-bound order as chunk reads. */
+  groups: GalleryGroupSpan[]
+}
+export interface GalleryGroupSpan {
+  stackId: string
+  start: number
+  count: number
 }
 export interface GalleryRead extends GallerySummary {
   entries: GalleryEntry[]

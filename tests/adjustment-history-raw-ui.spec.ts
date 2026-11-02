@@ -1,3 +1,4 @@
+import { openInspectorTool } from './inspector.helpers'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 
@@ -5,9 +6,10 @@ test('toolbar history restores mixed light and lens edits across restart', async
   test.setTimeout(90000)
   let { page } = irodori
   await importPhotos(irodori.app, page, ['tests/fixtures/sony-zv1.ARW'])
-  await page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
+  await openInspectorTool(page, 'Lens corrections')
   const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
   const enter = async (value: string) => {
+    await openInspectorTool(page, 'Light')
     const field = page.getByRole('spinbutton', { name: 'Exposure value' })
     await expect(field).toBeEnabled({ timeout: 30000 })
     await field.fill(value)
@@ -18,9 +20,11 @@ test('toolbar history restores mixed light and lens edits across restart', async
     await expect
       .poll(() => page.evaluate((id) => window.irodori.getEdits(id), id))
       .toMatchObject({ settings: { exposureEv, contrast, lens: { vignetting } } })
+    await openInspectorTool(page, 'Light')
     await expect(page.getByRole('spinbutton', { name: 'Exposure value' })).toHaveValue(
       exposureEv.toFixed(2),
     )
+    await openInspectorTool(page, 'Lens corrections')
     await expect(page.getByRole('checkbox', { name: 'Vignetting', exact: true })).toBeChecked({
       checked: vignetting,
     })
@@ -33,12 +37,13 @@ test('toolbar history restores mixed light and lens edits across restart', async
   await expect
     .poll(() => page.evaluate((id) => window.irodori.getEdits(id), id))
     .toMatchObject({ settings: { contrast: 40 } })
+  await openInspectorTool(page, 'Lens corrections')
   await page.getByRole('checkbox', { name: 'Vignetting', exact: true }).uncheck()
   await confirm(0.5, false)
   await enter('-0.5')
   await confirm(-0.5, false)
   ;({ page } = await irodori.restart())
-  await page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
+  await openInspectorTool(page, 'Lens corrections')
   await confirm(-0.5, false)
   for (const [exposure, lens, contrast] of [
     [0.5, false, 40],

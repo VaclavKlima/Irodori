@@ -1,3 +1,4 @@
+import { openInspectorTool } from './inspector.helpers'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from './electron.fixture'
@@ -7,6 +8,7 @@ test('imports and browses the real Sony ZV-1 compressed ARW through the preview 
   irodori,
 }) => {
   await importPhotos(irodori.app, irodori.page, ['tests/fixtures/sony-zv1.ARW'])
+  await openInspectorTool(irodori.page, 'Metadata')
   await expect(irodori.page.getByTestId('photo-metadata')).toContainText('ZV-1')
   await expect(irodori.page.getByTestId('preview-viewport')).toHaveAttribute(
     'data-resolution',

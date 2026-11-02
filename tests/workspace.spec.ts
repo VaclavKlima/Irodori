@@ -1,3 +1,4 @@
+import { navigateInspector, openInspectorTool } from './inspector.helpers'
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { readFile, realpath, writeFile } from 'node:fs/promises'
 import type { IrodoriApi, Photo } from '../src/shared/contracts'
@@ -84,7 +85,13 @@ async function expectCompactFooter(page: Page, width: number, height: number) {
       expect(bounds.y + bounds.height).toBeLessThanOrEqual(
         layout.bounds.y + layout.bounds.height + 1,
       )
-      if (index) expect(layout.children[index - 1].right).toBeLessThanOrEqual(bounds.x + 1)
+      for (const other of layout.children.slice(0, index))
+        expect(
+          bounds.left >= other.right - 1 ||
+            other.left >= bounds.right - 1 ||
+            bounds.top >= other.bottom - 1 ||
+            other.top >= bounds.bottom - 1,
+        ).toBe(true)
     }
   }).toPass({ timeout: 7500 })
 }
@@ -205,9 +212,16 @@ test('starts the built desktop application with its isolated preload bridge', as
       'reportDisplayCapabilities',
       'onDisplayState',
       'onDisplayRefresh',
+      'getEditClipboard',
+      'copyEdits',
+      'preparePasteEdits',
+      'disposePastePreparation',
+      'startPasteEdits',
+      'getEditApplicationResults',
       'onFlushEdits',
       'getPhotoStatistics',
       'getEdits',
+      'getEditCapabilities',
       'getCropContext',
       'proposeWhiteBalance',
       'getPhotoPixel',
@@ -221,6 +235,7 @@ test('starts the built desktop application with its isolated preload bridge', as
       'listPhotos',
       'requestHdrPreview',
       'requestEditingPreview',
+      'requestComparisonPreview',
       'requestCropPreview',
       'requestFullPreview',
       'releaseFullPreview',
@@ -389,16 +404,22 @@ test(
     await resizeWindow(app, page, 1100, 700)
     await activateButton(page.getByTestId('console-toggle'))
     const metadata = page.getByTestId('preview-metadata')
-    const lens = page.getByRole('button', { name: 'Lens corrections', exact: true })
-    await expect(lens).toHaveAttribute('aria-expanded', 'false')
-    await lens.press('Enter')
+    await navigateInspector(page, 'Lens corrections')
+    const lens = page.getByRole('button', {
+      name: 'Lens corrections',
+      exact: true,
+      includeHidden: true,
+    })
+    await expect(lens).toHaveAttribute('aria-expanded', 'true')
+    await openInspectorTool(page, 'Metadata')
     for (const c of cases) {
       const filename = c.displayFilename ?? c.filename
       await activateButton(page.getByRole('button', { name: `Select ${filename}`, exact: true }))
       await expect(page.getByTestId('preview-filename')).toHaveText(filename)
       await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
       await expect(lens).toHaveAttribute('aria-expanded', 'true')
-      await expectInsideWindow(metadata, 1100, 700)
+      await metadata.scrollIntoViewIfNeeded()
+      await expectInsideWindow(page.getByTestId('inspector-scroll'), 1100, 700)
       await expect(metadata.getByTestId('preview-equipment').locator('span')).toHaveText(
         c.equipment,
       )
@@ -413,28 +434,28 @@ test(
         for (const name of c.equipment) {
           const field = metadata.getByText(name, { exact: true })
           await expect(field).toHaveAttribute('title', name)
-          expect(await field.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true)
+          expect(await field.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true)
         }
         await captureWindow(app, page, info.outputPath('compact-metadata-1100-console.png'))
       }
       expect(await metadata.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true)
-      await expect(page.getByTestId('preview-view-controls')).toContainText('/ 1234567')
+      await expect(page.getByTestId('group-navigation')).toContainText('of 1234567')
       await expectCompactFooter(page, 1100, 700)
     }
-    const order = await page
-      .getByTestId('adjustments-panel')
-      .locator('section > :first-child')
-      .allTextContents()
-    expect(order.map((s) => s.trim())).toEqual([
-      'Histogram · After',
+    const rail = page.getByRole('tablist', { name: 'Editing groups' })
+    expect(await rail.getByRole('tab').allTextContents()).toEqual([
       'Light',
       'Color',
-      'Lens corrections',
-      'Metadata',
+      'Detail',
+      'Geometry',
+      'Info',
     ])
+    await expect(page.getByRole('tab', { name: 'Info', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
     const scrolling = await page.evaluate(() => {
-      const inspector = document.querySelector<HTMLElement>('[data-testid="adjustments-panel"]')!
-        .lastElementChild as HTMLElement
+      const inspector = document.querySelector<HTMLElement>('[data-testid="inspector-scroll"]')!
       const candidates = Array.from(
         document.querySelectorAll<HTMLElement>('[data-testid="photo-library"] *'),
       )
@@ -459,11 +480,14 @@ test(
     expect(scrolling.libraryAfter).toBeGreaterThan(scrolling.libraryTop)
     expect(scrolling.after).toEqual(scrolling.before)
     await activateButton(page.getByTestId('console-toggle'))
-    await expectInsideWindow(metadata, 1100, 700)
+    await metadata.scrollIntoViewIfNeeded()
+    await expectInsideWindow(page.getByTestId('inspector-scroll'), 1100, 700)
     await activateButton(page.getByTestId('console-toggle'))
-    await expectInsideWindow(metadata, 1100, 700)
+    await metadata.scrollIntoViewIfNeeded()
+    await expectInsideWindow(page.getByTestId('inspector-scroll'), 1100, 700)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.reload()
+    await navigateInspector(page, 'Lens corrections')
     await expect(
       page.getByRole('button', { name: 'Lens corrections', exact: true }),
     ).toHaveAttribute('aria-expanded', 'true')
@@ -472,10 +496,10 @@ test(
 )
 
 for (const [width, height, canvasWidth, canvasHeight, consoleCanvasHeight] of [
-  [1100, 700, 628, 518, 338],
-  [1280, 800, 754, 618, 402],
-  [1440, 900, 914, 718, 502],
-  [1920, 1080, 1346, 898, 682],
+  [1100, 700, 474, 583, 403],
+  [1280, 800, 622, 679, 463],
+  [1440, 900, 782, 779, 563],
+  [1920, 1080, 1262, 959, 743],
 ]) {
   test(
     `keeps the workspace and console usable at ${width} × ${height}`,
@@ -511,7 +535,7 @@ for (const [width, height, canvasWidth, canvasHeight, consoleCanvasHeight] of [
         1100,
         700,
       )
-      await expectViewportSize(page, 628, 338)
+      await expectViewportSize(page, 474, 403)
       await resizeWindow(app, page, width, height)
       await expectInsideWindow(
         page.getByTestId('console-panel').locator('.xterm-screen'),
@@ -548,7 +572,7 @@ test('keeps loading, errors and keyboard retry inside the compact footer', async
     const status = page.getByTestId('preview-resolution')
     await expect(status).toContainText('Loading full resolution…')
     await expect(status).toHaveAttribute('title', 'Loading the full-resolution image.')
-    await expectViewportSize(page, 628, 338)
+    await expectViewportSize(page, 474, 403)
     await expectCompactFooter(page, 1100, 700)
     // Release before waiting for import completion: the held preview owns foreground admission.
     await gate.evaluate((control) => control.release())
@@ -556,7 +580,7 @@ test('keeps loading, errors and keyboard retry inside the compact footer', async
     await expect(status).toContainText('Full resolution unavailable')
     await expect(status).toHaveAttribute('aria-description', 'Preview generation timed out.')
     await expectCompactFooter(page, 1100, 700)
-    await expectViewportSize(page, 628, 338)
+    await expectViewportSize(page, 474, 403)
     await gate.evaluate((control) => control.succeed())
     const retry = status.getByRole('button', { name: 'Retry', exact: true })
     await retry.focus()

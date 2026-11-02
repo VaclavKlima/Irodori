@@ -1,3 +1,4 @@
+import { openInspectorTool } from './inspector.helpers'
 import { writeFile } from 'node:fs/promises'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
@@ -35,6 +36,7 @@ for (const adjustment of [
         },
       )
       if (adjustment === 'temperature') {
+        await openInspectorTool(irodori.page, 'Color')
         await expect(
           irodori.page.getByRole('spinbutton', { name: 'Temperature value' }),
         ).toBeEnabled()

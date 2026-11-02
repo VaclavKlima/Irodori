@@ -1,5 +1,9 @@
 # Continuous scrolling and workspace recovery
 
+Follow the shared [Sunflower design system](design-system.md) for semantic tokens,
+typography, dimensions and reusable presentation components. This document owns
+the behavior and contracts of its controls.
+
 Continuous scrolling is the default for collections in Irodori. Future collections must use the shared collection controller and declare their identity and ordering, availability, selection semantics, loading and retry behavior, recovery state, and focused verification. Do not add page-number controls or a separate pagination engine. Bounded transport chunks are not UI pages.
 
 ## Collection behavior

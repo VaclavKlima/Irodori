@@ -1,3 +1,4 @@
+import { openPreviewOptions } from './preview-options.helpers'
 import { expect, test } from './electron.fixture'
 import { foregroundTest } from './foreground'
 import { importPhotos } from './import.helpers'
@@ -131,12 +132,14 @@ test(
     expect(
       (await page.evaluate(() => window.irodori.getPreviewDiagnostics())).renderingIdentity,
     ).toBe(source)
+    await openPreviewOptions(page)
     await page.getByRole('combobox', { name: 'Preview display mode' }).selectOption('sdr')
     await expect
       .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
       .toMatchObject({ mode: 'sdr', peak: 1 })
     await expect(canvas).toHaveAttribute('data-editing', 'ready')
     await expect(viewport).toHaveAttribute('data-scale', '1')
+    await openPreviewOptions(page)
     await page.getByRole('button', { name: 'Before', exact: true }).click()
     await expect(canvas).toHaveAttribute('data-comparison', 'before')
     await expect(canvas).toHaveAttribute('data-editing', 'ready')

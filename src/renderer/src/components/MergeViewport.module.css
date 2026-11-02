@@ -37,7 +37,8 @@
   touch-action: none;
   overscroll-behavior: contain;
   user-select: none;
-  background: repeating-conic-gradient(#222 0% 25%, #303030 0% 50%) 0 / 16px 16px;
+  background: repeating-conic-gradient(var(--surface) 0% 25%, var(--surface-raised) 0% 50%) 0 / 16px
+    16px;
 }
 .viewport:focus-visible {
   outline: 1px solid var(--accent);

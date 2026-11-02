@@ -1,0 +1,65 @@
+{
+  "source": "../little-jizo.png",
+  "sourceSha256": "42c43377dab4d25b4fef059255c248c7adeafab462a607fbe90388c967e96de5",
+  "generator": "npm run icons:generate",
+  "sharp": "0.35.4",
+  "libvips": "8.18.6",
+  "policy": "Unchanged original; deterministic Lanczos3 downsampling, preserved alpha, stripped derivative metadata. PNG payloads in ICNS and ICO.",
+  "files": [
+    {
+      "file": "icon-16.png",
+      "bytes": 789,
+      "sha256": "f50c1fd10c229231f2a5e58a8f8cbb6bd568687fd1b9ae1d4c2896fb1d813a0d"
+    },
+    {
+      "file": "icon-24.png",
+      "bytes": 1398,
+      "sha256": "715e5d4978531e9cfd58f1b7d26f3054e2a450fe93b023eddebf7172bf075560"
+    },
+    {
+      "file": "icon-32.png",
+      "bytes": 2181,
+      "sha256": "68f93581ff60113047d7da9f7322404b5ca32cabc89a655f84b379f518687a83"
+    },
+    {
+      "file": "icon-48.png",
+      "bytes": 4275,
+      "sha256": "e268320b1ecb1bc9ee5446256bd399bbb87d06785a27b1878d26d5969a54c0b1"
+    },
+    {
+      "file": "icon-64.png",
+      "bytes": 6868,
+      "sha256": "b3625e96484b7e5ac346c046f326c72240252d19a25cd6c463ffda456f44e96f"
+    },
+    {
+      "file": "icon-128.png",
+      "bytes": 22330,
+      "sha256": "fedd46014fec04cc92ab3fb7589a8ab02e951b294962e1f228745bb7db955f71"
+    },
+    {
+      "file": "icon-256.png",
+      "bytes": 78117,
+      "sha256": "9037f557de13c7347d8f72db07e7172eeb39a7c1508178d40bdb13564633ca99"
+    },
+    {
+      "file": "icon-512.png",
+      "bytes": 301548,
+      "sha256": "0851e5b19fd8a421f51fda3e44aff1154e3ae8cfe231830df4444c11731767cc"
+    },
+    {
+      "file": "icon-1024.png",
+      "bytes": 1238356,
+      "sha256": "4c42713806b8cd5b49af0c64bc7ceff2d69cce1dcce77af101454020b7725e50"
+    },
+    {
+      "file": "irodori.icns",
+      "bytes": 1650253,
+      "sha256": "9a8d1ac6070396c2a4f3fd97c41f46a3b50e004bda705975a6ce2a2c7a524248"
+    },
+    {
+      "file": "irodori.ico",
+      "bytes": 116076,
+      "sha256": "f50fe50ed610687660de241095090ab9ea37843283e2db71801b93a641535627"
+    }
+  ]
+}

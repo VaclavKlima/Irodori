@@ -153,6 +153,43 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     [accept, syncGestureCommit],
   )
   const flush = useCallback(() => flushGesture(true), [flushGesture])
+  const commitPatch = async (patch: EditPatch) => {
+    if (!commits.current.isActive(confirmationScope)) return
+    const photo = current.current?.photoId
+    if (!photo || historyGuards.current.size)
+      throw new Error('Finish or cancel the crop before continuing.')
+    await flush()
+    if (
+      !commits.current.isActive(confirmationScope) ||
+      busy.current ||
+      current.current?.photoId !== photo
+    )
+      return
+    if (historyGuards.current.size) throw new Error('Finish or cancel the crop before continuing.')
+    commits.current.invalidate()
+    syncGestureCommit()
+    busy.current = true
+    setSaving(true)
+    const work = window.irodori
+      .updateEdits(photo, patch, current.current.revision)
+      .then((next) => {
+        if (current.current?.photoId === photo) {
+          accept(next)
+          setError('')
+        }
+      })
+      .catch((error) => {
+        if (current.current?.photoId === photo) setError(String(error))
+        throw error
+      })
+      .finally(() => {
+        busy.current = false
+        setSaving(false)
+      })
+    pending.current = work.catch(() => undefined)
+    flushes.current.track(photo, work)
+    return work
+  }
   useEffect(() => {
     const tracker = commits.current
     let active = true,
@@ -342,6 +379,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     gesturing: !!draft,
     epoch,
     change,
+    commitPatch,
     cancel,
     flush,
     history,

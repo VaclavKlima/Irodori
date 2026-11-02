@@ -1,0 +1,100 @@
+.button {
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-weight: 600;
+}
+.button.secondary {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+.button.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+}
+.button.primary:enabled:hover {
+  background: color-mix(in srgb, var(--accent) 85%, white);
+}
+.button.quiet {
+  background: transparent;
+  border-color: transparent;
+}
+.button.danger {
+  background: var(--error-surface);
+  color: var(--error);
+  border-color: var(--error);
+}
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  padding: 4px;
+}
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  margin: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+}
+.tabs button {
+  flex: 1;
+  min-width: 0;
+  min-height: 24px;
+  padding: 3px 9px;
+  font-size: 11px;
+  border-color: transparent;
+  background: transparent;
+}
+.rail {
+  flex: 0 0 var(--inspector-rail);
+  width: var(--inspector-rail);
+  padding: 6px 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  border-right: 1px solid var(--line-subtle);
+}
+.rail button {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex: 0 0 40px;
+  min-height: 40px;
+  height: 40px;
+  padding: 3px 0;
+  line-height: 11px;
+  font-size: 9px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.rail button[aria-selected='true']::before {
+  content: '';
+  position: absolute;
+  left: -3px;
+  width: 2px;
+  height: 24px;
+  background: var(--accent);
+}
+.rail button:focus-visible {
+  outline-offset: -3px;
+}
+.rail button[aria-selected='true'],
+.tabs button[aria-selected='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-surface);
+}

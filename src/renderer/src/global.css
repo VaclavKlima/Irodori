@@ -1,31 +1,37 @@
-:root {
-  font-family:
-    Inter,
-    'Segoe UI',
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
-  color: #dfdfdc;
-  background: #191919;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  --surface: #222222;
-  --surface-raised: #292929;
-  --canvas: #181818;
-  --line: #343434;
-  --line-subtle: #2c2c2c;
-  --text: #dfdfdc;
-  --muted: #a0a09c;
-  --quiet: #82827f;
-  --accent: #c5bd8e;
-  --accent-surface: #35352e;
-  color-scheme: dark;
+@import './tokens.css';
+@font-face {
+  font-family: Lato;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../../../assets/app/fonts/lato/Lato-Regular.ttf') format('truetype');
 }
-
+@font-face {
+  font-family: Lato;
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../../../assets/app/fonts/lato/Lato-Semibold.ttf') format('truetype');
+}
+@font-face {
+  font-family: Lato;
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../../../assets/app/fonts/lato/Lato-Bold.ttf') format('truetype');
+}
+:root {
+  font-family: Lato, 'Segoe UI', system-ui, sans-serif;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  color: var(--text);
+  background: var(--canvas);
+}
 * {
   box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
 }
 html,
 body,
@@ -36,66 +42,107 @@ body,
   overflow: hidden;
 }
 body {
-  min-width: 900px;
+  min-width: 1100px;
   font-size: 12px;
 }
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
-}
-button {
   color: inherit;
-  cursor: pointer;
-}
-button:disabled {
-  cursor: default;
-}
-button,
-input {
   -webkit-tap-highlight-color: transparent;
 }
-button:focus-visible,
-input:focus-visible,
-[tabindex]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-}
-button:disabled {
-  opacity: 0.35;
+button,
+select {
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  padding: 4px 10px;
+  font-weight: 600;
 }
 button {
+  cursor: pointer;
   -webkit-app-region: no-drag;
+}
+button,
+select,
+input {
+  transition:
+    background-color var(--motion-feedback),
+    border-color var(--motion-feedback),
+    color var(--motion-feedback);
+}
+button:hover:enabled,
+select:hover:enabled {
+  background-color: var(--surface-hover);
+}
+button:active:enabled {
+  background-color: var(--accent-surface);
+}
+button[aria-pressed='true'],
+button[aria-selected='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+button:disabled,
+input:disabled,
+select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+input,
+output {
+  font-variant-numeric: tabular-nums;
+}
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
+}
+:where(input:not([type='range']):not([type='checkbox']):not([type='radio']), textarea) {
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
 }
 svg {
   flex-shrink: 0;
 }
+a {
+  color: var(--muted);
+  text-underline-offset: 3px;
+}
+a:hover {
+  color: var(--text);
+}
 ::selection {
-  background: #77724e;
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
 }
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #646464 transparent;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
+dialog {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
 }
-::-webkit-scrollbar-thumb {
-  border: 1px solid transparent;
-  background: #484846;
-  border-radius: 9px;
-  background-clip: padding-box;
+dialog::backdrop {
+  background: #0008;
 }
-::-webkit-scrollbar-thumb:hover {
-  background-color: #666661;
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     transition: none !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
   }
 }

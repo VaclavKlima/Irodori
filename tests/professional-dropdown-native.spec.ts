@@ -1,3 +1,4 @@
+import { navigateInspector } from './inspector.helpers'
 import { realpath, writeFile } from 'node:fs/promises'
 import type { JSHandle, Locator } from '@playwright/test'
 import sharp from 'sharp'
@@ -339,6 +340,7 @@ for (const scenario of scenarios)
         const id = photos.photos[0].id
         const history = () => page.evaluate((id) => window.irodori.getEditHistory(id), id)
         const initialHistory = await history()
+        await navigateInspector(page, 'Crop', (button) => input.activate(button))
         const cropSection = page.getByRole('button', { name: 'Crop', exact: true })
         if ((await cropSection.getAttribute('aria-expanded')) !== 'true')
           await input.activate(cropSection)

@@ -44,7 +44,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from 'react'
-import { ChevronLeft, ChevronRight, FileImage, Maximize, Minus, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileImage, Layers } from 'lucide-react'
 import type { Photo } from '../../../shared/contracts'
 import {
   constrain,
@@ -66,7 +66,6 @@ import { usePanDrag } from '../hooks/usePanDrag'
 import { usePreviewFrame } from '../hooks/usePreviewFrame'
 import { usePreviewWheel } from '../hooks/usePreviewWheel'
 import { ProgressSpinner } from './ProgressSpinner'
-import { PreviewMetadata } from './PreviewMetadata'
 
 interface Model {
   loaded: boolean
@@ -90,6 +89,7 @@ interface Props {
   onEditingReady: (photoId: string | null) => void
   onPresentationFailure: () => void
   photo: Photo | null
+  group?: { index: number; count: number }
   total: number
   position: number
   onNavigate: (direction: -1 | 1) => Promise<void>
@@ -116,6 +116,7 @@ export function PhotoPreview({
   editingEpoch = 0,
   onEditingReady,
   onPresentationFailure,
+  group,
   total,
   position,
   onNavigate,
@@ -885,7 +886,6 @@ export function PhotoPreview({
   const { view } = model
   const panX = model.image.width * view.scale > model.viewport.width + 0.5
   const panY = model.image.height * view.scale > model.viewport.height + 0.5
-  const minimum = minimumScale(model.image, model.viewport)
 
   const panBy = useCallback(
     (x: number, y: number) => {
@@ -1740,42 +1740,48 @@ export function PhotoPreview({
         </div>
       </div>
       <div className={layout.canvasToolbar} data-testid="preview-footer">
-        {photo ? <PreviewMetadata photo={photo} /> : <div />}
+        <div className={layout.photoPagination} data-testid="group-navigation">
+          <Layers size={13} aria-hidden="true" />
+          <span
+            className={styles.navigationLabel}
+            title={
+              group
+                ? `Photo group / ${group.index + 1} of ${group.count}`
+                : `All photographs / ${photo ? position + 1 : 0} of ${total}`
+            }
+          >
+            {group
+              ? `Photo group / ${group.index + 1} of ${group.count}`
+              : `All photographs / ${photo ? position + 1 : 0} of ${total}`}
+          </span>
+          <button
+            className={layout.iconButton}
+            aria-label="Previous photo"
+            disabled={!photo || position <= 0}
+            onClick={() => void onNavigate(-1)}
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <button
+            className={layout.iconButton}
+            aria-label="Next photo"
+            disabled={!photo || position + 1 >= total}
+            onClick={() => void onNavigate(1)}
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
         <div className={styles.viewControls} data-testid="preview-view-controls">
-          <div className={layout.photoPagination}>
-            <button
-              className={layout.iconButton}
-              aria-label="Previous photo"
-              disabled={!photo || position <= 0}
-              onClick={() => void onNavigate(-1)}
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span>
-              <strong>{String(photo ? position + 1 : 0).padStart(2, '0')}</strong>
-              <span> / {String(total).padStart(2, '0')}</span>
+          {photo && (
+            <span className={styles.dimensions}>
+              {model.image.width} × {model.image.height}
             </span>
-            <button
-              className={layout.iconButton}
-              aria-label="Next photo"
-              disabled={!photo || position + 1 >= total}
-              onClick={() => void onNavigate(1)}
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
+          )}
           <div
             className={styles.zoomControls}
             data-testid="zoom-controls"
             title="100% shows one full-resolution image pixel per CSS pixel. Higher zoom enlarges it."
           >
-            <button
-              aria-label="Zoom out"
-              disabled={!ready || view.scale <= minimum + 0.00001}
-              onClick={() => step(-1)}
-            >
-              <Minus size={13} />
-            </button>
             <select
               aria-label="Preview zoom"
               disabled={!ready}
@@ -1795,90 +1801,77 @@ export function PhotoPreview({
                 </option>
               ))}
             </select>
-            <button
-              aria-label="Zoom in"
-              disabled={!ready || view.scale >= 32}
-              onClick={() => step(1)}
-            >
-              <Plus size={13} />
-            </button>
-            <button
-              aria-label="Fit preview"
-              title="Fit preview (0)"
-              disabled={!ready}
-              onClick={fit}
-            >
-              <Maximize size={13} />
-            </button>
           </div>
-        </div>
-        {photo && (
-          <span
-            className={styles.resolution}
-            data-testid="preview-resolution"
-            role="status"
-            aria-description={gpuError || full.error || live.error || comparisonError || undefined}
-            title={
-              gpuError ||
-              full.error ||
-              live.error ||
-              comparisonError ||
-              (fullVisible
-                ? `${model.image.width} × ${model.image.height} · ${working?.hdr ? 'Rec.2020 linear working data' : 'sRGB'} · Original preserved`
-                : 'Loading the full-resolution image.')
-            }
-          >
-            {gpuError ? (
-              <span>Preview unavailable</span>
-            ) : full.error ? (
-              <>
-                <span>Full resolution unavailable</span>
-                <button onClick={full.retry} aria-description={full.error}>
-                  Retry
-                </button>
-              </>
-            ) : comparisonError ? (
-              <>
-                <span>Comparison unavailable</span>
-                <button
-                  onClick={() => {
-                    comparison.retry()
-                    comparisonLive.retry()
-                  }}
-                  aria-description={comparisonError}
-                >
-                  Retry comparison
-                </button>
-                <button onClick={() => update({ mode: 'after' })}>Show After</button>
-              </>
-            ) : comparisonRequired && !comparisonReady ? (
-              <>
-                <span>Preparing comparison…</span>
-                <button onClick={() => update({ mode: 'after' })}>Show After</button>
-              </>
-            ) : firstSurfaceReady && !hdrReady ? (
-              <span>Loading full detail…</span>
-            ) : fullVisible ? (
-              live.error ? (
+          {photo && (
+            <span
+              className={styles.resolution}
+              data-testid="preview-resolution"
+              role="status"
+              aria-description={
+                gpuError || full.error || live.error || comparisonError || undefined
+              }
+              title={
+                gpuError ||
+                full.error ||
+                live.error ||
+                comparisonError ||
+                (fullVisible
+                  ? `${model.image.width} × ${model.image.height} · ${working?.hdr ? 'Rec.2020 linear working data' : 'sRGB'} · Original preserved`
+                  : 'Loading the full-resolution image.')
+              }
+            >
+              {gpuError ? (
+                <span>Preview unavailable</span>
+              ) : full.error ? (
                 <>
-                  <span>Live preview unavailable</span>
-                  <button onClick={live.retry} aria-description={live.error}>
-                    Retry live preview
+                  <span>Full resolution unavailable</span>
+                  <button onClick={full.retry} aria-description={full.error}>
+                    Retry
                   </button>
                 </>
-              ) : working ? (
-                'Full resolution'
+              ) : comparisonError ? (
+                <>
+                  <span>Comparison unavailable</span>
+                  <button
+                    onClick={() => {
+                      comparison.retry()
+                      comparisonLive.retry()
+                    }}
+                    aria-description={comparisonError}
+                  >
+                    Retry comparison
+                  </button>
+                  <button onClick={() => update({ mode: 'after' })}>Show After</button>
+                </>
+              ) : comparisonRequired && !comparisonReady ? (
+                <>
+                  <span>Preparing comparison…</span>
+                  <button onClick={() => update({ mode: 'after' })}>Show After</button>
+                </>
+              ) : firstSurfaceReady && !hdrReady ? (
+                <span>Loading full detail…</span>
+              ) : fullVisible ? (
+                live.error ? (
+                  <>
+                    <span>Live preview unavailable</span>
+                    <button onClick={live.retry} aria-description={live.error}>
+                      Retry live preview
+                    </button>
+                  </>
+                ) : working ? (
+                  'Full resolution'
+                ) : (
+                  'Preparing live preview…'
+                )
               ) : (
-                'Preparing live preview…'
-              )
-            ) : (
-              <>
-                <ProgressSpinner />
-                <span>Loading full resolution…</span>
-              </>
-            )}
-          </span>
-        )}
+                <>
+                  <ProgressSpinner />
+                  <span>Loading full resolution…</span>
+                </>
+              )}
+            </span>
+          )}
+        </div>
       </div>
     </section>
   )

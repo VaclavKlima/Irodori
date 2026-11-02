@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, type CSSProperties } from 'react'
 import styles from './AdjustmentInput.module.css'
 
 interface Props {
@@ -153,6 +153,7 @@ export function AdjustmentInput({
       <input
         id={id}
         className={styles.range}
+        style={{ '--fill': `${((value - min) / (max - min)) * 100}%` } as CSSProperties}
         type="range"
         min={min}
         max={max}

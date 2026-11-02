@@ -553,6 +553,13 @@ const definitions: Suite[] = [
   { file: 'comparison-ui', group: 'electron', scopes: ['ui', 'preview'] },
   { file: 'white-balance-raw', group: 'raw-gpu', scopes: ['adjustments', 'preview'] },
   { file: 'workspace', group: 'electron', scopes: ['ui'] },
+  { file: 'inspector-reset', group: 'node', scopes: ['ui', 'adjustments'] },
+  { file: 'inspector-navigation', group: 'electron', scopes: ['ui', 'adjustments'] },
+  { file: 'sunflower-fidelity', group: 'electron', scopes: ['ui'], exclusive: true },
+  { file: 'desktop-package', group: 'raw-gpu', scopes: [], exclusive: true },
+  { file: 'desktop-integration', group: 'node', scopes: ['ui'] },
+  { file: 'mixed-collection-ui', group: 'electron', scopes: ['ui', 'library'] },
+  { file: 'gallery-layout', group: 'node', scopes: ['ui', 'library'] },
   { file: 'inspector-ui', group: 'electron', scopes: ['ui', 'adjustments'] },
   {
     file: 'adjustment-input-visual',

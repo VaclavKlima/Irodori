@@ -1,5 +1,4 @@
 import { build } from 'esbuild'
-import { readFile } from 'node:fs/promises'
 import type { Frame, Page } from '@playwright/test'
 import { test, expect } from './electron.fixture'
 
@@ -22,6 +21,7 @@ async function component(page: Page) {
       resolveDir: process.cwd(),
       loader: 'tsx',
       contents: `
+import './src/renderer/src/global.css';
 import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {WhiteBalancePicker} from './src/renderer/src/components/WhiteBalancePicker';
@@ -50,13 +50,12 @@ createRoot(document.getElementById('fixture')).render(<Fixture/>);
     bundle: true,
     jsx: 'automatic',
     format: 'iife',
+    loader: { '.ttf': 'dataurl' },
     outfile: 'picker-fixture.js',
     write: false,
   })
   const css = bundle.outputFiles.find((file) => file.path.endsWith('.css'))!.text
-  await frame.setContent(
-    `<style>${await readFile('src/renderer/src/global.css', 'utf8')}\n${css}\nbody{min-width:0}</style><div id="fixture"></div>`,
-  )
+  await frame.setContent(`<style>${css}\nbody{min-width:0}</style><div id="fixture"></div>`)
   await frame.evaluate(bundle.outputFiles.find((file) => file.path.endsWith('.js'))!.text)
   await expect(
     frame.getByRole('button', { name: 'Neutral white balance', exact: true }),
@@ -178,6 +177,11 @@ test('invalid samples, read failures, Escape and loss of focus leave confirmed e
   await frame.getByRole('button', { name: 'Sample neutral area', exact: true }).press('Escape')
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   await toggle.click()
+  // Starting awaits the pending-edit flush; test loss of focus after activation.
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(
+    frame.getByRole('button', { name: 'Sample neutral area', exact: true }),
+  ).toBeEnabled()
   await frame.evaluate(() => window.dispatchEvent(new Event('blur')))
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   expect((await evidence(frame)).writes).toEqual([])

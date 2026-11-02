@@ -1,3 +1,4 @@
+import { navigateInspector, type InspectorTool } from './inspector.helpers'
 import { execFile } from 'node:child_process'
 import { writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
@@ -129,6 +130,7 @@ test(
         return history
       }
       async function section(name: string) {
+        await navigateInspector(page, name as InspectorTool, (button) => input.activate(button))
         const disclosure = page.getByRole('button', { name, exact: true })
         if ((await disclosure.getAttribute('aria-expanded')) !== 'true')
           await input.activate(disclosure)
@@ -253,7 +255,7 @@ test(
       })
       await section('Color Grading')
       const toneButtons = page.getByRole('group', { name: 'Color grading tone' }),
-        grading = page.locator('#color-grading-controls')
+        grading = page.locator('#panel-grading')
       await input.activate(toneButtons.getByRole('button', { name: 'Shadows', exact: true }))
       for (const [label, value, revision] of [
         ['Hue', '210', 10],
@@ -278,7 +280,7 @@ test(
       await capture('native-sony-mixer-grading-controls')
 
       await section('Detail')
-      const detail = page.locator('#detail-controls')
+      const detail = page.locator('#panel-detail')
       for (const [label, value, revision] of [
         ['Luminance noise', '6', 12],
         ['Color noise', '8', 13],
@@ -311,6 +313,7 @@ test(
         scroll = page.getByTestId('inspector-scroll'),
         viewport = page.getByTestId('preview-viewport'),
         consolePanel = page.getByTestId('console-panel')
+      await navigateInspector(page, 'Crop', (button) => input.activate(button))
       await input.focus(page.getByRole('button', { name: 'Crop', exact: true }))
       const pinnedBefore = await pinned.boundingBox(),
         viewportBefore = await viewport.boundingBox(),
@@ -337,6 +340,7 @@ test(
       ).toEqual({ width: 1100, height: 700, horizontalOverflow: false, scrollY: 0 })
       expect(await state()).toEqual(final)
       await capture('native-sony-independent-inspector-scroll')
+      await navigateInspector(page, 'Detail', (button) => input.activate(button))
       await input.focus(detail.getByRole('spinbutton', { name: 'Sharpening value', exact: true }))
       await capture('native-sony-final-detail-keyboard-focus', true)
 
@@ -439,6 +443,7 @@ test(
         tint = page.getByRole('spinbutton', { name: 'Tint value', exact: true }),
         state = () => page.evaluate((id) => window.irodori.getEdits(id), id)
       await readyNativeEditor(page, id, 0)
+      await navigateInspector(page, 'Color', (button) => input.activate(button))
       expect((await state()).whiteBalanceProfile?.provider).toBe('sony-zv1-white-balance')
       await expect(temperature).toBeEditable({ timeout: 40000 })
       await input.number(temperature, '8000')

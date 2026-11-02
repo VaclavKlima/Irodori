@@ -1,3 +1,4 @@
+import { navigateInspector, openInspectorTool } from './inspector.helpers'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { mkdir, readFile } from 'node:fs/promises'
@@ -45,14 +46,14 @@ test('hidden mixer and grading controls share MCP history and restore saved grou
     expect(await call('irodori_get_edit_capabilities')).toEqual(
       await page.evaluate(() => window.irodori.getEditCapabilities()),
     )
-    await activateButton(page.getByRole('button', { name: 'Color Mixer', exact: true }))
+    await openInspectorTool(page, 'Color Mixer')
     await activateButton(
       page
         .getByRole('group', { name: 'Color mixer range' })
         .getByRole('button', { name: 'Blue', exact: true }),
     )
     const mixer = page.locator('#color-mixer-controls'),
-      grade = page.locator('#color-grading-controls')
+      grade = page.locator('#panel-grading')
     const revision = async (value: number) =>
       expect
         .poll(async () => (await call('irodori_get_edits', { photoId: id })).revision)
@@ -61,7 +62,7 @@ test('hidden mixer and grading controls share MCP history and restore saved grou
     await mixer.getByRole('spinbutton', { name: 'Hue value', exact: true }).fill('-30')
     await mixer.getByRole('spinbutton', { name: 'Hue value', exact: true }).press('Enter')
     await revision(1)
-    await activateButton(page.getByRole('button', { name: 'Color Grading', exact: true }))
+    await openInspectorTool(page, 'Color Grading')
     for (const [label, value, next] of [
       ['Hue', '32.5', 2],
       ['Saturation', '20', 3],
@@ -124,6 +125,7 @@ test('hidden mixer and grading controls share MCP history and restore saved grou
       (await call('irodori_redo_edit', { photoId: id, expectedRevision: 6 })).settings,
     ).toEqual(committed.settings)
     await revision(7)
+    await openInspectorTool(page, 'Color Mixer')
     await expect(mixer.getByRole('button', { name: 'Reset color mixer' })).toBeEnabled()
     await activateButton(mixer.getByRole('button', { name: 'Reset color mixer' }))
     await revision(8)
@@ -133,6 +135,7 @@ test('hidden mixer and grading controls share MCP history and restore saved grou
     })
     await activateButton(page.getByRole('button', { name: 'Undo', exact: true }))
     await revision(9)
+    await openInspectorTool(page, 'Color Grading')
     await activateButton(
       page
         .getByRole('group', { name: 'Color grading tone' })
@@ -146,19 +149,19 @@ test('hidden mixer and grading controls share MCP history and restore saved grou
       .toMatchObject({ state: { creativeColor: { range: 'blue', tone: 'highlights' } } })
     const history = await page.evaluate((id) => window.irodori.getEditHistory(id), id)
     ;({ page } = await irodori.restart())
-    await expect(page.getByRole('button', { name: 'Color Mixer', exact: true })).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    )
-    await expect(page.getByRole('button', { name: 'Color Grading', exact: true })).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    )
+    await expect(
+      page.getByRole('button', { name: 'Color Mixer', exact: true, includeHidden: true }),
+    ).toHaveAttribute('aria-expanded', 'true')
+    await expect(
+      page.getByRole('button', { name: 'Color Grading', exact: true, includeHidden: true }),
+    ).toHaveAttribute('aria-expanded', 'true')
+    await navigateInspector(page, 'Color Mixer')
     await expect(
       page
         .getByRole('group', { name: 'Color mixer range' })
         .getByRole('button', { name: 'Blue', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true')
+    await navigateInspector(page, 'Color Grading')
     await expect(
       page
         .locator('#color-grading-controls')
@@ -186,9 +189,9 @@ test('grading wheel groups repeated keys and pointer moves, cancels capture and 
   await importPhotos(app, page, [source], true, 'keyboard')
   const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id,
     history = () => page.evaluate((id) => window.irodori.getEditHistory(id), id),
-    grade = page.locator('#color-grading-controls'),
+    grade = page.locator('#panel-grading'),
     wheel = grade.getByRole('slider', { name: 'Midtones color wheel' })
-  await activateButton(page.getByRole('button', { name: 'Color Grading', exact: true }))
+  await openInspectorTool(page, 'Color Grading')
   await expect(wheel).toHaveAttribute('aria-disabled', 'false')
   await wheel.focus()
   await page.keyboard.down('ArrowRight')
@@ -249,7 +252,13 @@ test('grading wheel groups repeated keys and pointer moves, cancels capture and 
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(1100)
   expect(bounds.y).toBeGreaterThanOrEqual(pinned!.y + pinned!.height)
   expect(bounds.y + bounds.height).toBeLessThanOrEqual(700)
-  await activateButton(page.getByRole('button', { name: 'Color Grading', exact: true }))
-  await activateButton(page.getByRole('button', { name: 'Color Grading', exact: true }))
+  await navigateInspector(page, 'Color Grading')
+  await activateButton(
+    page.getByRole('button', { name: 'Color Grading', exact: true, includeHidden: true }),
+  )
+  await navigateInspector(page, 'Color Grading')
+  await activateButton(
+    page.getByRole('button', { name: 'Color Grading', exact: true, includeHidden: true }),
+  )
   expect(await history()).toEqual(saved)
 })

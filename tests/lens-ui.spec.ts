@@ -1,3 +1,4 @@
+import { navigateInspector } from './inspector.helpers'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 
@@ -5,7 +6,11 @@ test('raster photos explain unavailable corrections without enabling editing', a
   irodori,
 }) => {
   await importPhotos(irodori.app, irodori.page)
+  await navigateInspector(irodori.page, 'Lens corrections')
   const disclosure = irodori.page.getByRole('button', { name: 'Lens corrections', exact: true })
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+  await expect(irodori.page.getByTestId('lens-corrections')).toBeVisible()
+  await disclosure.press('Enter')
   await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
   await expect(irodori.page.getByTestId('lens-corrections')).toBeHidden()
   await disclosure.press('Enter')

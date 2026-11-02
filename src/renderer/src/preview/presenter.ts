@@ -596,7 +596,7 @@ export class PreviewPresenter {
           ? !this.beforeTexture || !this.spatialProgram
           : !this.beforeBitmap || !this.bitmap))
     this.canvas.dataset.comparisonLoading = String(waiting)
-    const sourceWaiting = !!this.fallback && !this.bitmap
+    const sourceWaiting = !this.bitmap && (!this.gl || !this.working)
     this.canvas.style.visibility = waiting || sourceWaiting ? 'hidden' : ''
     if (waiting || sourceWaiting) return
     const gl = this.gl,

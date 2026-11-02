@@ -38,6 +38,8 @@ test('gallery summaries and 60-record chunks share catalog and stack revisions w
     )
     const expanded = t.library.getGallerySummary()
     expect(expanded.total).toBe(185)
+    expect(expanded.groups).toEqual([{ stackId: stack.id, start: cover.index, count: 125 }])
+    expect(collapsed.groups).toEqual([{ stackId: stack.id, start: cover.index, count: 1 }])
     expect(t.library.listGallery(60)).toEqual({ ...t.library.getGalleryChunk(60, expanded) })
     // A metadata update is coherent even when its ID and order stay the same.
     const photo = { ...t.photos[184], camera: 'Updated camera' }

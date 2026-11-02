@@ -1,3 +1,4 @@
+import { openPreviewOptions } from './preview-options.helpers'
 import type { ElectronApplication, Page, TestInfo } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
@@ -34,6 +35,7 @@ async function setup(app: ElectronApplication, page: Page) {
     ],
     false,
   )
+  await openPreviewOptions(page)
   await page.getByLabel('Preview display mode').selectOption('sdr')
   await page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }).click()
   const canvas = page.getByTestId('main-preview')
@@ -533,6 +535,7 @@ test(
       await expect(canvas).toHaveAttribute('data-exposure', '2', { timeout: 60000 })
       await expect(canvas).toHaveAttribute('data-presentation-cache-eligible', 'true')
       await selectRaster(page)
+      await openPreviewOptions(page)
       await page.getByLabel('Preview display mode').selectOption('auto')
       await page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }).click()
       await expect(canvas).toHaveAttribute('data-presentation-cache', 'miss')

@@ -1,3 +1,4 @@
+import { navigateInspector, type InspectorTool } from './inspector.helpers'
 import { expect, type Page } from '@playwright/test'
 import { activateButton } from './button.helpers'
 import { creativeColorCapabilities } from '../src/shared/creative-color-controls'
@@ -41,7 +42,10 @@ const mixerControl = (parameter: CreativeAmount) => ({
 })
 const gradingControl = (parameter: CreativeAmount | 'blending' | 'balance') => ({
   section: 'Color Grading',
-  bodyId: 'color-grading-controls',
+  bodyId:
+    parameter === 'blending' || parameter === 'balance'
+      ? 'tone-blending-controls'
+      : 'color-grading-controls',
   group: 'Color grading tone',
   selection: 'Midtones',
   inputLabel: parameter[0].toUpperCase() + parameter.slice(1),
@@ -79,11 +83,15 @@ export async function prepareSustainedEditorInput(
   options: SustainedEditorInputOptions,
 ) {
   const creative = creativeControls[options.label] ?? null
+  if (!creative && !['Saturation', 'Vibrance'].includes(options.label))
+    await navigateInspector(page, 'Light')
   if (options.label === 'Saturation' || options.label === 'Vibrance') {
+    await navigateInspector(page, 'Color')
     const section = page.getByRole('button', { name: 'Color', exact: true })
     if ((await section.getAttribute('aria-expanded')) !== 'true') await activateButton(section)
   }
   if (creative) {
+    await navigateInspector(page, creative.section as InspectorTool)
     const section = page.getByRole('button', { name: creative.section, exact: true })
     if ((await section.getAttribute('aria-expanded')) !== 'true') await activateButton(section)
     const selection = page
@@ -207,6 +215,8 @@ export async function sustainedEditorInput(
   preparedInput?: Awaited<ReturnType<typeof prepareSustainedEditorInput>>,
 ) {
   const creative = creativeControls[options.label] ?? null
+  if (!creative && !['Saturation', 'Vibrance'].includes(options.label))
+    await navigateInspector(page, 'Light')
   const prepared = preparedInput ?? (await prepareSustainedEditorInput(page, options))
   const pacer = options.pacing
     ? await page.evaluateHandle(createEditorInputPacer, {

@@ -563,7 +563,7 @@ test('missing baseline, skipped hardware, and missing reports are incomplete, wi
 
 test('compact report keeps the decision and details retain failure diagnostics, timings and provenance', async ({}, info) => {
   const result = await harness(
-    selectPlan(['--fast']),
+    { ...selectPlan(['--fast']), uiMode: 'background' },
     info.outputPath('report'),
     async (command, args, options) => {
       await mockRun(command, args, options)

@@ -1,5 +1,6 @@
-import { Images, Plus, ChevronRight, ChevronDown } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { galleryLayout } from '../collections/gallery-layout'
+import { Check, Layers, ChevronRight, ChevronDown } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { GalleryEntry, GallerySummary, StackSummary } from '../../../shared/stacks'
 import type { Photo, PhotoReference } from '../../../shared/contracts'
 import type { CollectionAnchor } from '../../../shared/collections'
@@ -8,15 +9,12 @@ import type { SelectionModifiers } from '../hooks/useLibrary'
 import { useCollection } from '../hooks/useCollection'
 import { useCollectionThumbnails } from '../hooks/useCollectionThumbnails'
 import { currentCollectionPolicy } from '../collections/controller'
-import {
-  captureAnchor,
-  collectionWindow,
-  gridLayout,
-  locateAnchor,
-  revealNearest,
-} from '../collections/layout'
+import { captureAnchor, collectionWindow, locateAnchor, revealNearest } from '../collections/layout'
 import { CollectionThumbnail } from './CollectionThumbnail'
-import styles from '../App.module.css'
+import styles from './Photos.module.css'
+
+// Match the vertical .scroll padding in Photos.module.css when revealing a row.
+const PHOTOS_SCROLL_INSET = 9
 
 interface LibraryProps {
   active: boolean
@@ -32,9 +30,11 @@ interface LibraryProps {
   onSelect: (photo: Photo, modifiers: SelectionModifiers) => void
   onToggle: (photo: Photo) => void
   onContextMenu: (photo: Photo, element: HTMLElement, x: number, y: number) => void
+  onShowCurrent: () => void
   onImport: () => void
   onRefresh: () => Promise<void>
   onExpand: (stack: StackSummary) => void
+  onSelectStack: (stack: StackSummary) => void
 }
 
 export function Library({
@@ -51,21 +51,28 @@ export function Library({
   onContextMenu,
   onSelect,
   onToggle,
+  onShowCurrent,
   onImport,
   onRefresh,
   onExpand,
+  onSelectStack,
 }: LibraryProps) {
   const viewport = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 216, height: 500 })
   const [scrollTop, setScrollTop] = useState(0)
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null)
   const [direction, setDirection] = useState<-1 | 1>(1)
+  const [revealError, setRevealError] = useState('')
+  const [revealRetry, setRevealRetry] = useState(0)
   const scrollRevision = useRef(0)
   const navigation = useRef(0)
   const revealedRequest = useRef<number | null>(null)
-  const controlFocus = useRef<{ photoId: string; stack: boolean; element: HTMLElement } | null>(
-    null,
-  )
+  const controlFocus = useRef<{
+    photoId: string | undefined
+    groupId: string | undefined
+    control: 'photo' | 'toggle' | 'select'
+    element: HTMLElement
+  } | null>(null)
   const savedAnchor = useRef(initialAnchor)
   const restored = useRef(false)
   const restoredLayout = useRef<string | null>(null)
@@ -76,10 +83,10 @@ export function Library({
     return true
   })
   const { controller, records, error, loading } = collection
-  const rowHeight = Math.ceil(Math.max(100, size.width - 34) / 1.75) + 58
+  const rowHeight = 56
   const layout = useMemo(
-    () => gridLayout(summary?.total ?? 0, 1, rowHeight),
-    [summary?.total, rowHeight],
+    () => galleryLayout(summary?.total ?? 0, summary?.groups ?? [], Math.max(0, size.width - 18)),
+    [summary?.total, summary?.groups, size.width],
   )
   const window = useMemo(
     () =>
@@ -136,10 +143,17 @@ export function Library({
       focused !== viewport.current
     ) {
       const photoId = focused.closest<HTMLElement>('[data-photo-id]')?.dataset.photoId
-      if (photoId)
+      const groupId = focused.closest<HTMLElement>('[data-group-id]')?.dataset.groupId
+      if (photoId || groupId)
         controlFocus.current = {
           photoId,
-          stack: focused.hasAttribute('data-stack-toggle'),
+          groupId,
+          control:
+            focused.dataset.groupControl === 'select'
+              ? 'select'
+              : focused.dataset.groupControl === 'toggle'
+                ? 'toggle'
+                : 'photo',
           element: focused,
         }
     }
@@ -148,7 +162,7 @@ export function Library({
       records: (await globalThis.window.irodori.getGalleryChunk(offset, summary)).entries,
     })
     controller.configure(`${summary.catalogRevision}:${summary.revision}`, summary.total, read)
-    const layoutKey = `${summary.catalogRevision}:${summary.revision}:${rowHeight}:${size.height}`
+    const layoutKey = `${summary.catalogRevision}:${summary.revision}:${rowHeight}:${size.width}:${size.height}`
     const unchanged = restoredLayout.current === layoutKey
     restoredLayout.current = layoutKey
     if (unchanged || (reveal && revealedRequest.current !== reveal.request)) {
@@ -186,7 +200,7 @@ export function Library({
     return () => {
       live = false
     }
-  }, [controller, summary, layout, size.height, rowHeight, onRefresh, reveal])
+  }, [controller, summary, layout, size.width, size.height, rowHeight, onRefresh, reveal])
   useEffect(() => {
     controller.setWindow(window)
   }, [controller, window])
@@ -199,15 +213,23 @@ export function Library({
   }, [active])
   useLayoutEffect(() => {
     const recovery = controlFocus.current
-    if (!recovery || recovery.element.isConnected || !viewport.current || !active) return
+    if (!recovery || !viewport.current || !active || !records.size) return
+    if (document.activeElement === recovery.element) {
+      controlFocus.current = null
+      return
+    }
     if (document.activeElement !== document.body && document.activeElement !== viewport.current) {
       controlFocus.current = null
       return
     }
-    const row = viewport.current.querySelector<HTMLElement>(`[data-photo-id="${recovery.photoId}"]`)
-    const target = row?.querySelector<HTMLElement>(
-      recovery.stack ? '[data-stack-toggle]' : '[data-testid^="photo-card-"]',
-    )
+    const target =
+      recovery.control === 'photo'
+        ? viewport.current.querySelector<HTMLElement>(
+            `[data-testid="photo-card-${recovery.photoId}"]`,
+          )
+        : viewport.current.querySelector<HTMLElement>(
+            `[data-group-id="${recovery.groupId}"] [data-group-control="${recovery.control}"]`,
+          )
     if (target) {
       target.focus({ preventScroll: true })
       controlFocus.current = null
@@ -232,22 +254,44 @@ export function Library({
   useEffect(() => {
     if (!active || !reveal || !summary || revealedRequest.current === reveal.request) return
     const ticket = ++navigation.current
-    void globalThis.window.irodori.locateGalleryPhoto(reveal.id, 0, summary).then(
-      async (location) => {
-        if (!location || ticket !== navigation.current || !viewport.current) return
-        await controller.get(location.index)
-        if (ticket !== navigation.current) return
+    let live = true
+    const isCurrent = () => {
+      const current = latest.current
+      return (
+        live &&
+        ticket === navigation.current &&
+        current.active &&
+        current.summary?.catalogRevision === summary.catalogRevision &&
+        current.summary.revision === summary.revision
+      )
+    }
+    setRevealError('')
+    void globalThis.window.irodori
+      .locateGalleryPhoto(reveal.id, 0, summary)
+      .then(async (location) => {
+        if (!location || !isCurrent() || !viewport.current) return
+        const entry = await controller.get(location.index)
+        if (!isCurrent() || !viewport.current) return
+        if (!entry) throw new Error('This photograph is no longer available in the collection.')
         revealedRequest.current = reveal.request
-        const top = revealNearest(viewport.current, layout.top(location.index), rowHeight)
+        const top = revealNearest(
+          viewport.current,
+          layout.top(location.index) + PHOTOS_SCROLL_INSET,
+          layout.box(location.index).height,
+        )
         latest.current.scrollTop = top
         scrollRevision.current++
         setScrollTop(top)
-      },
-      (failure) => {
+      })
+      .catch((failure: unknown) => {
+        if (!isCurrent() || (failure instanceof Error && failure.name === 'AbortError')) return
         if (isCollectionChanged(failure)) void onRefresh()
-      },
-    )
-  }, [active, reveal, summary, controller, layout, rowHeight, onRefresh])
+        else setRevealError(String(failure))
+      })
+    return () => {
+      live = false
+    }
+  }, [active, reveal, summary, controller, layout, rowHeight, onRefresh, revealRetry])
   async function navigateIndex(index: number, modifiers: SelectionModifiers) {
     if (!summary?.total || !viewport.current) return
     const ticket = ++navigation.current
@@ -258,7 +302,11 @@ export function Library({
       setFocusedIndex(index)
       onFocus(entry.photo.id)
       if (!modifiers.toggle || modifiers.shift) onSelect(entry.photo, modifiers)
-      const top = revealNearest(viewport.current, layout.top(index), rowHeight)
+      const top = revealNearest(
+        viewport.current,
+        layout.top(index) + PHOTOS_SCROLL_INSET,
+        layout.box(index).height,
+      )
       scrollRevision.current++
       latest.current.scrollTop = top
       setScrollTop(top)
@@ -267,6 +315,98 @@ export function Library({
       if (isCollectionChanged(failure)) void onRefresh()
     }
   }
+  const renderedGroups = new Map<
+    string,
+    { geometry: NonNullable<ReturnType<typeof layout.group>>; indices: number[] }
+  >()
+  for (const index of window.overscan) {
+    const geometry = layout.group(index)
+    if (!geometry) continue
+    const entry = renderedGroups.get(geometry.stackId) ?? { geometry, indices: [] }
+    entry.indices.push(index)
+    renderedGroups.set(geometry.stackId, entry)
+  }
+  const groupMetadata = new Map<string, GalleryEntry>()
+  for (const entry of records.values()) {
+    if (entry.stack) groupMetadata.set(entry.stack.id, entry)
+  }
+  function renderPhoto(index: number, groupTop?: number) {
+    const geometry = layout.box(index)
+    const entry = records.get(index)
+    const placement = {
+      top: geometry.top - (groupTop === undefined ? 0 : groupTop + 1),
+      left: geometry.left - (groupTop === undefined ? 0 : 1),
+      width: geometry.width,
+      height: geometry.height,
+    }
+    if (!entry)
+      return (
+        <div
+          key={`loading-${index}`}
+          className={styles.placeholder}
+          style={placement}
+          role="status"
+          aria-label="Loading photo"
+        />
+      )
+    const { photo, stack, memberIndex, mergeSourceCount } = entry
+    const isCurrent = activeId === photo.id
+    const status = stack
+      ? [memberIndex === 0 ? 'Cover' : '', isCurrent ? 'Current' : ''].filter(Boolean).join(' / ')
+      : isCurrent
+        ? 'Current'
+        : ''
+    return (
+      <div
+        key={photo.id}
+        className={`${styles.row} ${stack ? '' : styles.individual}`}
+        style={placement}
+        data-stack-id={stack?.id}
+        data-photo-id={photo.id}
+      >
+        <button
+          id={`editor-photo-${photo.id}`}
+          tabIndex={-1}
+          className={styles.card}
+          aria-label={`Select ${photo.filename}`}
+          aria-selected={selectedIds.has(photo.id)}
+          aria-pressed={selectedIds.has(photo.id)}
+          aria-current={isCurrent ? 'true' : undefined}
+          data-testid={`photo-card-${photo.id}`}
+          data-focused={focusId === photo.id}
+          title={
+            mergeSourceCount === undefined
+              ? photo.filename
+              : `${photo.filename} · ${mergeSourceCount} recipe sources`
+          }
+          onClick={(event) => {
+            navigation.current++
+            setFocusedIndex(index)
+            onFocus(photo.id)
+            event.currentTarget.focus({ preventScroll: true })
+            onSelect(photo, { shift: event.shiftKey, toggle: event.ctrlKey || event.metaKey })
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setFocusedIndex(index)
+            onFocus(photo.id)
+            onContextMenu(photo, event.currentTarget, event.clientX, event.clientY)
+          }}
+        >
+          <span className={styles.thumbnail}>
+            <CollectionThumbnail url={photo.thumbnailUrl} />
+          </span>
+          <span className={styles.caption}>{photo.filename}</span>
+          <span className={styles.status} aria-hidden="true">
+            {status}
+          </span>
+          <span className={styles.selection} aria-hidden="true" hidden={!selectedIds.has(photo.id)}>
+            ✓
+          </span>
+        </button>
+      </div>
+    )
+  }
   return (
     <aside
       className={styles.library}
@@ -274,41 +414,22 @@ export function Library({
       data-testid="photo-library"
       tabIndex={-1}
     >
-      <div className={styles.panelHeading}>
+      <div className={styles.heading}>
         <h2>Photos</h2>
-        <button className={styles.iconButton} aria-label="Add photos" onClick={onImport}>
-          <Plus size={15} />
-        </button>
-      </div>
-      <div className={styles.galleryHeading}>
-        <span>
-          <Images size={13} /> All photographs
-        </span>
-        <span className={styles.count} title={`${summary?.total ?? 0} visible photo rows`}>
+        <span className={styles.badge} aria-label={`${summary?.storedTotal ?? 0} photographs`}>
           {summary?.storedTotal ?? 0}
         </span>
       </div>
-      <p className={styles.selectionCount} role="status" data-testid="selection-count">
-        {selectedIds.size} selected
-      </p>
-      {!!summary?.hiddenSelectedIds.length && (
-        <details className={styles.hiddenSelection}>
-          <summary>{summary.hiddenSelectedIds.length} selected in collapsed stacks</summary>
-          <ul>
-            {summary.hiddenSelectedIds.map((id) => (
-              <li key={id}>{selectedIds.get(id)?.filename}</li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {hiddenActiveCover && (
-        <p className={styles.hiddenSelection} role="status">
-          Viewing a member of {hiddenActiveCover.filename}
-        </p>
-      )}
+      <div className={styles.summary}>
+        Local library / {summary?.storedTotal ?? 0} photographs
+        <br />
+        {summary?.groups.length
+          ? `${summary.groups.length} photo ${summary.groups.length === 1 ? 'group' : 'groups'}`
+          : 'All photographs'}
+      </div>
       <div
         ref={viewport}
-        className={styles.libraryScroll}
+        className={styles.scroll}
         data-testid="editor-photo-scroll"
         tabIndex={0}
         role="listbox"
@@ -323,6 +444,9 @@ export function Library({
             : undefined
         }
         data-row-height={rowHeight}
+        data-gallery-revision={
+          summary ? `${summary.catalogRevision}:${summary.revision}` : undefined
+        }
         data-columns={1}
         data-cache-photos={records.size}
         onScroll={(event) => {
@@ -337,7 +461,7 @@ export function Library({
           capture()
         }}
         onKeyDown={(event) => {
-          if (event.altKey || (event.target as HTMLElement).closest('[data-stack-toggle]')) return
+          if (event.altKey || (event.target as HTMLElement).closest('[data-group-control]')) return
           const index = focusedIndex ?? layout.first(scrollTop)
           if (event.key === ' ') {
             event.preventDefault()
@@ -363,119 +487,152 @@ export function Library({
             ].includes(event.key)
           ) {
             event.preventDefault()
-            const amount = Math.max(1, Math.floor(size.height / rowHeight))
-            const target =
-              event.key === 'Home'
-                ? 0
-                : event.key === 'End'
-                  ? (summary?.total ?? 1) - 1
-                  : index +
-                    ({
-                      ArrowLeft: -1,
-                      ArrowRight: 1,
-                      ArrowUp: -1,
-                      ArrowDown: 1,
-                      PageUp: -amount,
-                      PageDown: amount,
-                    }[event.key] ?? 0)
-            void navigateIndex(target, {
+            void navigateIndex(layout.move(index, event.key, size.height), {
               shift: event.shiftKey,
               toggle: event.ctrlKey || event.metaKey,
             })
           }
         }}
       >
-        {error && (
-          <p role="alert" className={styles.collectionError}>
-            {error} <button onClick={() => controller.retry()}>Retry photographs</button>
+        {(error || revealError) && (
+          <p role="alert" className={styles.error}>
+            {error || revealError}{' '}
+            <button
+              onClick={() => {
+                controller.retry()
+                setRevealError('')
+                setRevealRetry((retry) => retry + 1)
+              }}
+            >
+              Retry photographs
+            </button>
           </p>
         )}
         {!summary ? (
-          <p role="status">Loading photographs…</p>
+          <p role="status" className={styles.empty}>
+            Loading photographs…
+          </p>
+        ) : !summary.total ? (
+          <div className={styles.empty}>
+            <button onClick={onImport}>Import photographs</button>
+          </div>
         ) : (
-          <div className={styles.photoList} style={{ height: layout.height }}>
+          <div className={styles.list} style={{ height: layout.height }}>
             {window.overscan.map((index) => {
-              const entry = records.get(index)
-              if (!entry)
+              const group = layout.group(index)
+              if (!group) {
+                const heading = layout.headings.find((candidate) => candidate.index === index)
                 return (
-                  <div
-                    key={`loading-${index}`}
-                    className={styles.photoPlaceholder}
-                    style={{ top: layout.top(index), height: rowHeight - 12 }}
-                    role="status"
-                    aria-label="Loading photo"
-                  />
+                  <Fragment key={`loose-${index}`}>
+                    {heading && (
+                      <h3 className={styles.looseHeading} style={{ top: heading.top }}>
+                        Other photographs
+                      </h3>
+                    )}
+                    {renderPhoto(index)}
+                  </Fragment>
                 )
-              const { photo, stack, memberIndex, mergeSourceCount } = entry
+              }
+              const { geometry, indices } = renderedGroups.get(group.stackId)!
+              if (indices[0] !== index) return null
+              const metadata = groupMetadata.get(geometry.stackId)
+              const stack = metadata?.stack
+              const cover =
+                metadata?.cover ?? (metadata?.memberIndex === 0 ? metadata.photo : undefined)
+              const expanded = geometry.count > 1
+              const origin =
+                stack?.origin === 'merge'
+                  ? 'Merged group'
+                  : stack?.origin === 'capture'
+                    ? 'Capture sequence'
+                    : stack
+                      ? 'Manual group'
+                      : 'Reading group…'
               return (
-                <div
-                  key={photo.id}
-                  className={`${styles.photoRow} ${stack ? styles.stackRow : ''} ${memberIndex ? styles.stackMember : ''}`}
-                  style={{ top: layout.top(index) }}
-                  data-stack-id={stack?.id}
-                  data-photo-id={photo.id}
+                <section
+                  key={geometry.stackId}
+                  className={styles.group}
+                  style={{ top: geometry.top, width: geometry.width, height: geometry.height }}
+                  data-group-id={geometry.stackId}
+                  data-expanded={expanded}
+                  aria-label={
+                    cover ? `${cover.filename}, ${origin.toLowerCase()}` : 'Loading photo group'
+                  }
                 >
+                  <div className={styles.groupHeading}>
+                    <div>
+                      <h3 title={cover?.filename}>{cover?.filename ?? 'Loading group…'}</h3>
+                      <p>{origin}</p>
+                    </div>
+                    <button
+                      className={styles.selectGroup}
+                      data-group-control="select"
+                      aria-label="Select entire group"
+                      title="Select entire group"
+                      disabled={!stack}
+                      onClick={() => {
+                        if (stack) onSelectStack(stack)
+                      }}
+                    >
+                      <Check size={12} aria-hidden="true" />
+                      <span aria-hidden="true">Select</span>
+                    </button>
+                  </div>
                   <button
-                    id={`editor-photo-${photo.id}`}
-                    tabIndex={-1}
-                    className={`${styles.photoCard} ${selectedIds.has(photo.id) ? styles.selectedPhoto : ''} ${activeId === photo.id ? styles.activePhoto : ''}`}
-                    aria-label={`Select ${photo.filename}`}
-                    aria-selected={selectedIds.has(photo.id)}
-                    aria-pressed={selectedIds.has(photo.id)}
-                    aria-current={activeId === photo.id ? 'true' : undefined}
-                    data-testid={`photo-card-${photo.id}`}
-                    data-focused={focusId === photo.id}
-                    onClick={(event) => {
-                      navigation.current++
-                      setFocusedIndex(index)
-                      onFocus(photo.id)
-                      event.currentTarget.focus({ preventScroll: true })
-                      onSelect(photo, {
-                        shift: event.shiftKey,
-                        toggle: event.ctrlKey || event.metaKey,
-                      })
-                    }}
-                    onContextMenu={(event) => {
-                      event.preventDefault()
-                      setFocusedIndex(index)
-                      onFocus(photo.id)
-                      onContextMenu(photo, event.currentTarget, event.clientX, event.clientY)
+                    data-stack-toggle
+                    data-group-control="toggle"
+                    className={styles.groupToggle}
+                    disabled={!stack || !cover}
+                    aria-label={
+                      stack && cover
+                        ? `${expanded ? 'Collapse' : 'Expand'} stack for ${cover.filename}, ${stack.count} photos`
+                        : 'Loading group controls'
+                    }
+                    aria-expanded={expanded}
+                    aria-controls={`group-members-${geometry.stackId}`}
+                    onClick={() => {
+                      if (stack) onExpand(stack)
                     }}
                   >
-                    <div className={styles.thumbnailFrame}>
-                      <CollectionThumbnail url={photo.thumbnailUrl} />
-                      <span className={styles.photoNumber}>{index + 1}</span>
-                      <span className={styles.photoFormat}>{photo.format}</span>
-                    </div>
-                    <span className={styles.thumbnailCaption}>
-                      <span>{photo.filename}</span>
-                      <span className={styles.selectionDot} aria-hidden="true" />
-                    </span>
-                    {mergeSourceCount !== undefined && (
-                      <span className={styles.recipeCount}>{mergeSourceCount} recipe sources</span>
+                    <Layers size={13} aria-hidden="true" />
+                    <span>{stack ? `${stack.count} photos` : 'Loading group…'}</span>
+                    {expanded ? (
+                      <ChevronDown size={13} aria-hidden="true" />
+                    ) : (
+                      <ChevronRight size={13} aria-hidden="true" />
                     )}
                   </button>
-                  {stack && memberIndex === 0 && (
-                    <button
-                      data-stack-toggle
-                      className={styles.stackExpand}
-                      aria-label={`${stack.expanded ? 'Collapse' : 'Expand'} stack for ${photo.filename}, ${stack.count} photos`}
-                      aria-expanded={stack.expanded}
-                      title={`${stack.count} stack members`}
-                      onClick={() => onExpand(stack)}
-                    >
-                      {stack.expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                      <span>{stack.count}</span>
-                    </button>
-                  )}
-                </div>
+                  <div id={`group-members-${geometry.stackId}`} className={styles.groupMembers}>
+                    {indices.map((index) => renderPhoto(index, geometry.top))}
+                  </div>
+                </section>
               )
             })}
           </div>
         )}
       </div>
-      <div className={styles.libraryFooter}>
-        <span className={styles.statusDot} /> Stored on this device
+      <div className={styles.footer}>
+        <span role="status" data-testid="selection-count">
+          {selectedIds.size} selected
+        </span>
+        {!!summary?.hiddenSelectedIds.length && (
+          <details className={styles.hiddenSelection}>
+            <summary>{summary.hiddenSelectedIds.length} selected in collapsed stacks</summary>
+            <ul>
+              {summary.hiddenSelectedIds.map((id) => (
+                <li key={id}>{selectedIds.get(id)?.filename}</li>
+              ))}
+            </ul>
+          </details>
+        )}
+        {hiddenActiveCover && (
+          <p className={styles.hiddenSelection} role="status">
+            Viewing a member of {hiddenActiveCover.filename}
+          </p>
+        )}
+        <button className={styles.showCurrent} disabled={!activeId} onClick={onShowCurrent}>
+          Show current
+        </button>
       </div>
     </aside>
   )

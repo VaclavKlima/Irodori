@@ -1,5 +1,9 @@
 # Adjustment input design
 
+Follow the shared [Sunflower design system](design-system.md) for semantic tokens,
+typography, dimensions and reusable presentation components. This document owns
+the behavior and contracts of its controls.
+
 New inputs should be compact, neutral, and subtle. Use consistent spacing and typography, restrained hover feedback, and an unmistakable keyboard-focus outline. Numeric values use tabular digits and align to the right; units remain quieter than the value. Keep disabled controls visibly unavailable and errors readable without relying only on color.
 
 Photo command menus follow the separate authoritative [menu design standard](menu-design.md): shared model/renderer, explicit targets, hidden structural mismatches, and concise accessible explanations for temporary blockers.

@@ -1,5 +1,10 @@
 .tool {
-  margin: 8px 0 12px;
+  margin: 0;
+}
+.tool > button {
+  width: 100%;
+  justify-content: center;
+  margin-top: 8px;
 }
 .tool > button,
 .actions {
@@ -8,39 +13,40 @@
   gap: 6px;
 }
 .controls {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 .controls p,
 .tool > p {
   color: var(--muted);
-  font-size: 11px;
-  line-height: 1.4;
-  margin: 7px 0;
+  font-size: 10px;
+  line-height: 1.45;
+  margin: 6px 0;
 }
 .aspect {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  color: var(--muted);
   font-size: 11px;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: 6px;
+  margin: 10px 0;
 }
 .aspect select {
-  min-width: 110px;
-  background: var(--surface);
+  width: 100%;
+  min-height: 28px;
+  background: var(--canvas);
   color: var(--text);
   border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 4px;
+  border-radius: var(--radius);
+  padding: 4px 10px;
 }
 .actions {
   flex-wrap: wrap;
   margin: 8px 0;
 }
 .actions span {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--muted);
 }
 .tool .error {
-  color: #edb3b3;
+  color: var(--error);
 }

@@ -1,3 +1,5 @@
+import { openPreviewOptions } from './preview-options.helpers'
+import { openInspectorTool } from './inspector.helpers'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { mkdir, readFile } from 'node:fs/promises'
@@ -66,8 +68,8 @@ test('the hidden application shares detail UI/MCP history, shows original Before
   let { page } = irodori
   await importPhotos(irodori.app, page, [source], true, 'keyboard')
   const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
-  await activateButton(page.getByRole('button', { name: 'Detail', exact: true }))
-  const detail = page.locator('#detail-controls'),
+  await openInspectorTool(page, 'Detail')
+  const detail = page.locator('#panel-detail'),
     luminance = detail.getByRole('spinbutton', { name: 'Luminance noise value', exact: true }),
     radius = detail.getByRole('spinbutton', { name: 'Radius value', exact: true })
   await expect(luminance).toBeEnabled()
@@ -172,6 +174,7 @@ test('the hidden application shares detail UI/MCP history, shows original Before
     await revision(2)
     await gate.evaluate((control) => control.arm())
     const before = page.getByRole('button', { name: 'Before', exact: true })
+    await openPreviewOptions(page)
     await activateButton(before)
     await expect.poll(() => gate.evaluate((control) => control.held())).toBe(true)
     await expect(page.getByTestId('main-preview')).toHaveCSS('visibility', 'hidden')
@@ -179,6 +182,7 @@ test('the hidden application shares detail UI/MCP history, shows original Before
     await activateButton(page.getByRole('button', { name: 'Show After', exact: true }))
     await gate.evaluate((control) => control.release())
     expect((await image(page)).pixels).toEqual(filtered.pixels)
+    await openPreviewOptions(page)
     await activateButton(before)
     await expect(page.getByTestId('main-preview')).toHaveAttribute('data-comparison', 'before')
     const unfiltered = await image(page)
@@ -187,6 +191,7 @@ test('the hidden application shares detail UI/MCP history, shows original Before
       (await page.getByTestId('main-preview').getAttribute('data-spatial-comparison-binding'))!,
     )
     expect(binding[0]).not.toBe(binding[1])
+    await openPreviewOptions(page)
     await activateButton(
       page.getByRole('button', { name: 'Compare before and after', exact: true }),
     )
@@ -247,8 +252,8 @@ test('detail keyboard gestures commit once, Escape cancels and controls remain a
   })
   await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
   await activateButton(page.getByTestId('console-toggle'))
-  await activateButton(page.getByRole('button', { name: 'Detail', exact: true }))
-  const detail = page.locator('#detail-controls'),
+  await openInspectorTool(page, 'Detail')
+  const detail = page.locator('#panel-detail'),
     slider = detail.getByRole('slider', { name: 'Luminance noise', exact: true })
   await slider.evaluate((element) => element.scrollIntoView({ block: 'center' }))
   const box = (await slider.boundingBox())!,

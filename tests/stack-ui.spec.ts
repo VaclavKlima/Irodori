@@ -71,7 +71,9 @@ test('separate keyboard expansion preserves active photo and selection; organiza
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(700)
   await page.screenshot({ path: info.outputPath('stacks-minimum-console.png') })
   await page.getByRole('menuitem', { name: 'Remove this photo from group', exact: true }).click()
-  expect((await page.evaluate(() => window.irodori.listStacks())).stacks[0].count).toBe(2)
+  await expect
+    .poll(async () => (await page.evaluate(() => window.irodori.listStacks())).stacks[0].count)
+    .toBe(2)
   expect((await page.evaluate((id) => window.irodori.getEdits(id), photos[0].id)).revision).toBe(0)
   const restarted = await irodori.restart()
   await expect(

@@ -39,6 +39,13 @@ An [isolated HDR display diagnostic](docs/hdr-diagnostic.md) is available with `
 
 Supported Sony RAWs and merge masters use one [ACES 2 rendering pipeline](docs/display-rendering.md) after white balance and Light edits, in HDR and SDR. Capture scale stays fixed at 1, with no content-based exposure normalization. Already-rendered raster inputs remain color-managed display images. Existing RAWs adopt the current pipeline automatically; numeric history, originals and merge-master bytes remain intact. Measured camera calibration and physical display luminance remain unverified.
 
+The Editor follows the retained [Sunflower prototype](docs/design/prototype.html).
+The display badge beside the filename opens display mode, crop, before/after
+comparison and diagnostics. The lower-right capsule contains dimensions and zoom;
+**Toggle hover** changes whether floating controls stay visible. The exact
+layout, controls and ownership rules are recorded in the
+[design system](docs/design-system.md).
+
 The [scrolling and recovery standard](docs/scrolling-design.md) covers continuous browsing in Editor Photos, Library, import review, and task errors. Mode, selection, focus, search/grouping/folds, list anchors, Console visibility, and active-photo zoom recover from committed workspace checkpoints after restart or a crash.
 
 ## Export photographs
@@ -80,7 +87,12 @@ npm run build
 npm start
 ```
 
-Development and Electron test launches require a graphical session or a provisioned virtual display on Linux. Compatible automated tests use hidden windows by default; see [background testing](docs/background-testing.md). Installers, automated CI and broader platform verification remain separate work.
+For an unsigned host-native macOS application or Linux application directory, run
+`npm run package:desktop`. Linux also supports `-- --install-launcher` for a
+user-local Bazzite desktop entry. See [desktop integration](docs/desktop-integration.md)
+for prerequisites, isolated packaged acceptance and platform limits.
+
+Development and Electron test launches require a graphical session or a provisioned virtual display on Linux. Compatible automated tests use hidden windows by default; see [background testing](docs/background-testing.md). Public installers, signing, automated CI and broader platform verification remain separate work.
 
 ### Linux x64 native prerequisites
 

@@ -1,3 +1,4 @@
+import { openInspectorTool } from './inspector.helpers'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import {
@@ -62,6 +63,7 @@ test('pending numeric saves retain focus, allow Tab and reject busy input withou
     await page.getByTestId('main-preview').focus()
     expect(await history()).toEqual(saved)
     expect(await gate.evaluate((gate) => gate.read())).toEqual({ calls: 1, held: false })
+    await openInspectorTool(page, 'Color')
     // Unsupported RAW white balance remains genuinely disabled for a raster source.
     await expect(
       page.getByRole('spinbutton', { name: 'Temperature value', exact: true }),

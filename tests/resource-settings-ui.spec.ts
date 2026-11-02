@@ -1,3 +1,4 @@
+import { openPreviewOptions } from './preview-options.helpers'
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
 import { expect, test } from './electron.fixture'
@@ -400,6 +401,7 @@ test('real Sony preview keeps active limits and edits while saved budgets apply 
     const initialPreferences = await preferences(page)
     expect(initialPreferences.settings).toEqual({ version: 1, ramMiB: 2048, vramMiB: 2048 })
     await importWithKeyboard(irodori.app, page)
+    await openPreviewOptions(page)
     await page.getByLabel('Preview display mode').selectOption('sdr')
     await activateButton(page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }))
     await normalPreview(page)

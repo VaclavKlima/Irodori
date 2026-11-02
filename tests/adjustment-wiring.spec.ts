@@ -1,3 +1,4 @@
+import { openInspectorTool } from './inspector.helpers'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 
@@ -14,6 +15,7 @@ for (const [label, key, value] of [
   test(`${label} wires numeric edits, preview and history`, async ({ irodori }) => {
     const { page, app } = irodori
     await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
+    await openInspectorTool(page, ['Saturation', 'Vibrance'].includes(label) ? 'Color' : 'Light')
     const field = page.getByRole('spinbutton', { name: `${label} value` })
     await expect(field).toBeEnabled({ timeout: 20000 })
     const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id

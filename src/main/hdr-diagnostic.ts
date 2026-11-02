@@ -1,5 +1,6 @@
 import { app, powerMonitor } from 'electron'
 import { createAppWindow } from './window-presentation'
+import { desktopIcon } from './desktop-identity'
 import { installWaylandDisplayRefresh } from './wayland-display'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -24,9 +25,11 @@ app.commandLine.appendSwitch('enable-blink-features', 'ScreenDetailedHdrHeadroom
 void app
   .whenReady()
   .then(async () => {
+    app.dock?.setIcon(desktopIcon)
     const page = join(import.meta.dirname, '../renderer/hdr-diagnostic.html')
     const trustedUrl = pathToFileURL(page).href
     const window = createAppWindow({
+      icon: desktopIcon,
       title: 'Irodori HDR diagnostic — unverified output',
       width: 1100,
       height: 700,

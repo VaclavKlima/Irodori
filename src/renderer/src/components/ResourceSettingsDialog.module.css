@@ -1,11 +1,11 @@
 .dialog {
-  width: min(520px, calc(100vw - 32px));
+  width: min(460px, calc(100vw - 40px));
   max-height: calc(100dvh - 40px);
   margin: auto;
-  padding: 0;
-  border: 1px solid #505050;
-  border-radius: 8px;
-  background: var(--surface-raised);
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--surface);
   color: var(--text);
   font-size: 12px;
 }
@@ -14,7 +14,7 @@
   flex-direction: column;
 }
 .dialog::backdrop {
-  background: #0009;
+  background: #0008;
 }
 .header,
 .footer {
@@ -22,24 +22,24 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 18px;
-}
-.header {
-  border-bottom: 1px solid var(--line);
+  gap: 8px;
 }
 .header h2 {
   margin: 0;
-  font-size: 15px;
-  font-weight: 550;
+  font-size: 16px;
+  font-weight: 600;
 }
-.header > button {
+.dialog .header > button {
   display: grid;
   place-items: center;
-  padding: 5px;
+  width: 28px;
+  min-height: 28px;
+  padding: 4px;
+  border-color: transparent;
+  background: transparent;
 }
 .footer {
-  border-top: 1px solid var(--line);
+  margin-top: 20px;
 }
 .footer > div {
   display: flex;
@@ -52,20 +52,19 @@
   font-size: 10px;
   line-height: 1.5;
 }
-.dialog button,
 .dialog select,
 .dialog input {
-  min-height: 30px;
-  padding: 6px 9px;
-  border: 1px solid #555;
-  border-radius: 4px;
-  background: #303030;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--canvas);
   color: inherit;
   font: inherit;
 }
 .dialog button:hover:enabled,
 .dialog select:hover:enabled {
-  background: #373737;
+  background: var(--surface-hover);
 }
 .dialog :focus-visible {
   outline: 2px solid var(--accent);
@@ -80,16 +79,16 @@
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
-  gap: 14px;
+  gap: 18px;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  padding: 16px 18px;
+  margin-top: 10px;
 }
 .body p {
   margin: 0;
   font-size: 11px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 .intro {
   display: flex;
@@ -98,20 +97,20 @@
   color: var(--muted);
 }
 .intro .summary {
-  color: var(--text);
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 11px;
 }
 .budget {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 6px;
   min-width: 0;
   margin: 0;
   padding: 0;
   border: 0;
 }
 .budget legend {
-  margin-bottom: 7px;
+  margin-bottom: 6px;
   padding: 0;
   color: var(--text);
   font-size: 11px;
@@ -137,7 +136,7 @@
 .value input {
   width: 12ch;
   min-width: 0;
-  padding: 5px 6px;
+  padding: 4px 6px;
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -146,23 +145,24 @@
   font-size: 10px;
 }
 .value input[aria-invalid='true'] {
-  border-color: #c88d80;
+  border-color: var(--error);
 }
 .hint {
   color: var(--muted);
 }
 .notice {
-  padding: 9px 10px;
-  border: 1px solid #55534a;
-  border-radius: 4px;
-  background: #302f29;
-  color: var(--text);
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
 }
 .notice > button {
   margin-top: 8px;
 }
-.body .error {
-  color: #edb3b3;
+.body .error,
+.body [role='alert'] {
+  color: var(--error);
 }
 .srOnly {
   position: absolute;

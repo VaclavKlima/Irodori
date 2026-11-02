@@ -3,11 +3,11 @@
   max-width: none;
   height: min(680px, calc(100vh - 32px));
   max-height: none;
-  padding: 16px;
-  background: #202020;
-  color: #ddd;
-  border: 1px solid #484848;
-  border-radius: 8px;
+  padding: 22px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
 }
 .dialog[open] {
   display: flex;
@@ -15,26 +15,40 @@
   gap: 12px;
 }
 .dialog::backdrop {
-  background: #0009;
+  background: #0008;
 }
 .dialog header,
 .dialog footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
+}
+.dialog header > button[aria-label] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 28px;
+  padding: 4px;
+  border-color: transparent;
+  background: transparent;
+}
+.dialog footer {
+  margin-top: 8px;
 }
 .dialog h2 {
   margin: 0;
   font-size: 16px;
+  font-weight: 600;
 }
-.dialog button,
 .dialog select {
   color: inherit;
-  background: #303030;
-  border: 1px solid #555;
-  border-radius: 4px;
-  padding: 7px;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  min-height: 28px;
+  padding: 4px 10px;
 }
 .dialog button:disabled {
   opacity: 0.45;
@@ -58,8 +72,9 @@
   margin-bottom: 6px;
 }
 .body aside > button[aria-pressed='true'] {
-  border-color: #aaa;
-  background: #444;
+  border-color: var(--accent);
+  background: var(--accent-surface);
+  color: var(--accent);
 }
 .body aside img {
   width: 48px;
@@ -69,7 +84,7 @@
 .body small {
   display: block;
   font-size: 10px;
-  color: #aaa;
+  color: var(--muted);
   margin-top: 4px;
 }
 .center {
@@ -87,17 +102,19 @@
 }
 .controls label {
   display: block;
+  color: var(--muted);
+  font-size: 11px;
 }
 .controls select {
   display: block;
   width: 100%;
-  margin-top: 5px;
+  margin-top: 6px;
 }
 .dialog p {
   margin: 0;
-  color: #aaa;
+  color: var(--muted);
   font-size: 11px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 .dialog .error {
   display: flex;
@@ -105,5 +122,5 @@
   gap: 8px;
 }
 .dialog .error p {
-  color: #f2a5a5;
+  color: var(--error);
 }

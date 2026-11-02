@@ -1,3 +1,4 @@
+import { Button } from './ui/Controls'
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import {
@@ -104,9 +105,9 @@ export function PasteEditsDialog({
     >
       <header>
         <h2 id="paste-edits-title">Paste edits</h2>
-        <button type="button" aria-label="Close paste edits" disabled={applying} onClick={onClose}>
+        <Button type="button" aria-label="Close paste edits" disabled={applying} onClick={onClose}>
           <X size={16} />
-        </button>
+        </Button>
       </header>
       <div className={styles.body} aria-busy={loading || applying}>
         {clipboard && <p className={styles.summary}>From {clipboard.filename}</p>}
@@ -160,16 +161,17 @@ export function PasteEditsDialog({
       <footer>
         <span />
         <div>
-          <button type="button" disabled={applying} onClick={onClose}>
+          <Button type="button" disabled={applying} onClick={onClose}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             type="button"
             disabled={!prepared || !eligible || loading || applying}
             onClick={() => void apply()}
           >
             {applying ? 'Starting…' : 'Apply edits'}
-          </button>
+          </Button>
         </div>
       </footer>
     </dialog>

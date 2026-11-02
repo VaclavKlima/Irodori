@@ -1,3 +1,4 @@
+import { Button } from './ui/Controls'
 import { useEffect, useRef, useState } from 'react'
 import {
   exposure,
@@ -170,14 +171,14 @@ export function MergeDialog({
         <h2 id="merge-title">
           {(settings?.mode ?? mode) === 'hdr' ? 'Merge to HDR' : 'Stack for noise reduction'}
         </h2>
-        <button disabled={starting} onClick={() => void close()}>
+        <Button disabled={starting} onClick={() => void close()}>
           Cancel
-        </button>
+        </Button>
       </header>
       <div className={styles.body}>
         <aside aria-label="Merge sources">
           {review?.sources.map((source) => (
-            <button
+            <Button
               key={source.photo.id}
               aria-pressed={settings?.referenceId === source.photo.id}
               onClick={() => change({ referenceId: source.photo.id })}
@@ -200,7 +201,7 @@ export function MergeDialog({
                   EV{settings?.referenceId === source.photo.id ? ' · Reference' : ''}
                 </small>
               </span>
-            </button>
+            </Button>
           ))}
         </aside>
         <div className={styles.center}>
@@ -306,7 +307,7 @@ export function MergeDialog({
         <div className={styles.error}>
           <p role="alert">{error}</p>
           {review && !updating && !starting && (
-            <button onClick={() => change({}, true)}>Retry preview</button>
+            <Button onClick={() => change({}, true)}>Retry preview</Button>
           )}
         </div>
       )}
@@ -316,7 +317,8 @@ export function MergeDialog({
             ? `${review.sources.length} sources · ${Math.ceil(review.scratchBytes / 1024 ** 3)} GiB temporary space budget`
             : 'Validating compatibility…'}
         </span>
-        <button
+        <Button
+          variant="primary"
           disabled={
             starting ||
             updating ||
@@ -328,7 +330,7 @@ export function MergeDialog({
           onClick={() => void start()}
         >
           {starting ? 'Starting…' : 'Merge'}
-        </button>
+        </Button>
       </footer>
     </dialog>
   )

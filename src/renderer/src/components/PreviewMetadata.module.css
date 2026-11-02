@@ -1,17 +1,16 @@
 .metadata {
-  flex: 0 0 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 3px;
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 14px;
+  gap: 4px;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.5;
 }
 .equipment,
 .exposure {
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
   align-items: center;
   gap: 7px;
@@ -20,9 +19,7 @@
 .exposure span {
   display: block;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .equipmentField + .equipmentField::before,
 .exposure span + span::before {
@@ -33,5 +30,4 @@
 .exposure {
   color: var(--text);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }

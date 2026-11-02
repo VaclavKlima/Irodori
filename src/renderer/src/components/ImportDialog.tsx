@@ -1,3 +1,4 @@
+import { Button } from './ui/Controls'
 import { CollectionRefresh } from '../collections/controller'
 import { ImportCandidates } from './ImportCandidates'
 import {
@@ -325,14 +326,14 @@ export function ImportDialog({
           <h1 id="import-title">Import photographs</h1>
           <p>Review your selection. Originals will be copied into your library.</p>
         </div>
-        <button
+        <Button
           className={styles.iconButton}
           onClick={close}
           disabled={pending}
           aria-label="Close import"
         >
           <X size={18} />
-        </button>
+        </Button>
       </header>
       <div
         className={styles.importTabs}
@@ -356,7 +357,7 @@ export function ImportDialog({
           switchTab(next)
         }}
       >
-        <button
+        <Button
           id="import-files-tab"
           role="tab"
           tabIndex={tab === 'files' ? 0 : -1}
@@ -366,8 +367,8 @@ export function ImportDialog({
           onClick={() => switchTab('files')}
         >
           Files and folders
-        </button>
-        <button
+        </Button>
+        <Button
           id="import-device-tab"
           role="tab"
           tabIndex={tab === 'device' ? 0 : -1}
@@ -377,7 +378,7 @@ export function ImportDialog({
           onClick={() => switchTab('device')}
         >
           Import from device
-        </button>
+        </Button>
       </div>
       <div
         id="import-source-panel"
@@ -387,20 +388,20 @@ export function ImportDialog({
       >
         {tab === 'files' ? (
           <>
-            <button
+            <Button
               className={styles.secondaryButton}
               disabled={pending || importing}
               onClick={() => choose('files')}
             >
               <Images size={15} /> Choose photos
-            </button>
-            <button
+            </Button>
+            <Button
               className={styles.secondaryButton}
               disabled={pending || importing}
               onClick={() => choose('folder')}
             >
               <FolderOpen size={15} /> Choose folder
-            </button>
+            </Button>
             <label>
               <input
                 type="checkbox"
@@ -413,7 +414,7 @@ export function ImportDialog({
           </>
         ) : deviceId ? (
           <>
-            <button
+            <Button
               className={styles.secondaryButton}
               disabled={pending}
               onClick={() =>
@@ -425,21 +426,21 @@ export function ImportDialog({
               }
             >
               <HardDrive size={15} /> Change device
-            </button>
-            <button
+            </Button>
+            <Button
               className={styles.secondaryButton}
               disabled={refreshingDevices || pending}
               onClick={refreshDevices}
             >
               <RefreshCw size={15} /> Refresh
-            </button>
-            <button
+            </Button>
+            <Button
               className={styles.secondaryButton}
               disabled={pending}
               onClick={() => chooseDevice(deviceId, searchEntire)}
             >
               <RefreshCw size={15} /> Restart review
-            </button>
+            </Button>
             <label>
               <input
                 type="checkbox"
@@ -455,13 +456,13 @@ export function ImportDialog({
             <span className={styles.importDeviceHint}>
               Choose mounted storage to review its photographs.
             </span>
-            <button
+            <Button
               className={styles.secondaryButton}
               disabled={refreshingDevices || pending}
               onClick={refreshDevices}
             >
               <RefreshCw size={15} /> Refresh
-            </button>
+            </Button>
           </>
         )}
       </div>
@@ -512,7 +513,7 @@ export function ImportDialog({
         <p className={styles.errorBanner} role="alert">
           {error || review?.sourceError}
           {error && sessionId && !review?.sourceError && (
-            <button
+            <Button
               disabled={pending}
               onClick={() => {
                 setError('')
@@ -520,20 +521,20 @@ export function ImportDialog({
               }}
             >
               Retry review
-            </button>
+            </Button>
           )}
         </p>
       )}
       {tab === 'device' && deviceError && (
         <p className={`${styles.errorBanner} ${styles.importDeviceError}`} role="alert">
           <span>Could not refresh devices: {deviceError}</span>
-          <button
+          <Button
             className={styles.secondaryButton}
             disabled={refreshingDevices}
             onClick={refreshDevices}
           >
             Retry
-          </button>
+          </Button>
         </p>
       )}
       {review ? (
@@ -567,12 +568,12 @@ export function ImportDialog({
             <span className={styles.importSourceName}>{review.source}</span>
           </div>
           <div className={styles.importSelection}>
-            <button disabled={selectionDisabled} onClick={() => select(null, true)}>
+            <Button disabled={selectionDisabled} onClick={() => select(null, true)}>
               Select all
-            </button>
-            <button disabled={selectionDisabled} onClick={() => select(null, false)}>
+            </Button>
+            <Button disabled={selectionDisabled} onClick={() => select(null, false)}>
               Deselect all
-            </button>
+            </Button>
             <span>
               {review.selected} selected · {formatBytes(review.selectedBytes)}
             </span>
@@ -591,7 +592,7 @@ export function ImportDialog({
       ) : tab === 'device' && !deviceId ? (
         <div className={styles.importDeviceList} aria-label="Mounted import devices">
           {devices.map((device) => (
-            <button
+            <Button
               key={device.id}
               className={styles.importDevice}
               disabled={!device.available || pending}
@@ -611,7 +612,7 @@ export function ImportDialog({
                     : 'Unavailable'}
                 </span>
               </span>
-            </button>
+            </Button>
           ))}
           {!devices.length && (
             <div className={styles.importEmpty}>
@@ -634,11 +635,12 @@ export function ImportDialog({
       )}
       <footer className={styles.importFooter}>
         <span>Original files stay untouched.</span>
-        <button className={styles.secondaryButton} disabled={pending} onClick={close}>
+        <Button className={styles.secondaryButton} disabled={pending} onClick={close}>
           {terminal ? 'Done' : 'Cancel'}
-        </button>
+        </Button>
         {!terminal && (
-          <button
+          <Button
+            variant="primary"
             className={styles.primaryButton}
             disabled={
               pending ||
@@ -664,7 +666,7 @@ export function ImportDialog({
             }
           >
             <Check size={15} /> Import {review?.selected ?? 0} photos
-          </button>
+          </Button>
         )}
       </footer>
     </dialog>

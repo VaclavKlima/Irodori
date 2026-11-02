@@ -1,3 +1,4 @@
+import { navigateInspector, openInspectorTool } from './inspector.helpers'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { PREVIEW_VERSION } from '../src/main/full-previews'
@@ -10,7 +11,7 @@ test('lens settings survive rapid changes, cache variants, restart and preserve 
   test.setTimeout(90_000)
   let { app, page } = irodori
   await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'])
-  await page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
+  await openInspectorTool(page, 'Lens corrections')
   const id = await page.evaluate(async () => (await window.irodori.listPhotos()).photos[0].id)
   const original = await readFile(
     join(irodori.userDataDir, 'library', 'originals', id, 'original.arw'),
@@ -37,11 +38,13 @@ test('lens settings survive rapid changes, cache variants, restart and preserve 
     return { release }
   })
   await page.getByRole('checkbox', { name: 'Distortion', exact: true }).uncheck()
+  await navigateInspector(page, 'Lens corrections')
   await page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
   await expect(page.getByTestId('lens-corrections')).toBeHidden()
   await held.evaluate((gate) => gate.release())
   await held.dispose()
   await expect(page.getByTestId('lens-corrections')).toHaveAttribute('data-revision', '1')
+  await navigateInspector(page, 'Lens corrections')
   await page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
   await expect(page.getByTestId('main-preview')).not.toHaveAttribute('data-src', initialUrl!)
   await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-resolution', 'full')
@@ -78,11 +81,19 @@ test('lens settings survive rapid changes, cache variants, restart and preserve 
   expect(
     await readdir(join(irodori.userDataDir, 'library', 'cache', 'previews', PREVIEW_VERSION)),
   ).toHaveLength(3)
+  await page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.irodori.getWorkspaceState())).state?.inspector.lens,
+    )
+    .toBe(false)
   ;({ app, page } = await irodori.restart())
   await expect(page.getByRole('button', { name: 'Lens corrections', exact: true })).toHaveAttribute(
     'aria-expanded',
     'false',
   )
+  await navigateInspector(page, 'Lens corrections')
   await page.getByRole('button', { name: 'Lens corrections', exact: true }).click()
   await expect(
     page.getByRole('checkbox', { name: 'Lateral chromatic aberration' }),

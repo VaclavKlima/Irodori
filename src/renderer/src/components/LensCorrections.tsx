@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Aperture } from 'lucide-react'
 import { InspectorSection } from './InspectorSection'
 import { correctionKinds, type CorrectionKind, type LensState } from '../../../shared/lens'
-import styles from '../App.module.css'
+import styles from './Inspector.module.css'
 
 const labels: Record<CorrectionKind, string> = {
   distortion: 'Distortion',
@@ -82,7 +81,6 @@ export function LensCorrections({
     <InspectorSection
       id="lens-controls"
       title="Lens corrections"
-      icon={Aperture}
       expanded={expanded}
       onToggle={onToggle}
     >

@@ -1,5 +1,4 @@
 import { build } from 'esbuild'
-import { readFile } from 'node:fs/promises'
 import type { Frame, Page } from '@playwright/test'
 import { test, expect } from './electron.fixture'
 import { activateButton } from './button.helpers'
@@ -20,6 +19,7 @@ async function component(page: Page) {
       resolveDir: process.cwd(),
       loader: 'tsx',
       contents: `
+import './src/renderer/src/global.css';
 import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {useCrop} from './src/renderer/src/hooks/useCrop';
@@ -55,10 +55,11 @@ createRoot(document.getElementById('fixture')).render(<Fixture/>);
     bundle: true,
     jsx: 'automatic',
     format: 'iife',
+    loader: { '.ttf': 'dataurl' },
     outfile: 'crop-fixture.js',
     write: false,
   })
-  await frame.setContent(`<style>${await readFile('src/renderer/src/global.css', 'utf8')}\n${bundle.outputFiles.find((file) => file.path.endsWith('.css'))!.text}
+  await frame.setContent(`<style>${bundle.outputFiles.find((file) => file.path.endsWith('.css'))!.text}
 body{min-width:0}#fixture{display:flex;gap:10px}</style><div id="fixture"></div>`)
   await frame.evaluate(bundle.outputFiles.find((file) => file.path.endsWith('.js'))!.text)
   await expect(

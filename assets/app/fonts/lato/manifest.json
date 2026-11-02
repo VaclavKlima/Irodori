@@ -1,0 +1,34 @@
+{
+  "family": "Lato",
+  "version": "2.015",
+  "source": "https://www.latofonts.com/files/Lato2OFL.zip",
+  "license": "SIL Open Font License 1.1; see OFL.txt",
+  "archiveSha256": "42b54e96c07e299d967fc3227c7bd63a20d6cfb1dc8fd6dae83628091e20a5b8",
+  "files": [
+    {
+      "file": "Lato-Bold.ttf",
+      "sha256": "bf1b8130069b44b9148eeece35e5423bedac49777ba746615b826b8276574a7b",
+      "bytes": 657188
+    },
+    {
+      "file": "Lato-Regular.ttf",
+      "sha256": "6f6940be0835c3ddec9199e5fc42be4cbc61ebcfd58c623fdf719366253f1780",
+      "bytes": 657212
+    },
+    {
+      "file": "Lato-Semibold.ttf",
+      "sha256": "2dc5d31e2cf1e29f3430eb2dfa1ba9911e08ee401b61dd12f40e0acb047a17a3",
+      "bytes": 669228
+    },
+    {
+      "file": "OFL.txt",
+      "sha256": "bac163b7ef3044511d80804165ff7ca3df6677da83ed32f21fa6c17041d6fa28",
+      "bytes": 4494
+    },
+    {
+      "file": "README.txt",
+      "sha256": "e6a71e5f63f5d6204c3294e72cb95fa60ace33750567e2e8a0102044fbef2c3e",
+      "bytes": 3311
+    }
+  ]
+}

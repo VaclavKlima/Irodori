@@ -1,3 +1,4 @@
+import { openPreviewOptions } from './preview-options.helpers'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
@@ -17,32 +18,41 @@ async function openMinimumConsole(app: ElectronApplication, page: Page) {
 }
 
 async function expectCompactFooter(page: Page) {
+  const controls = page.getByTestId('preview-view-controls')
+  await expect(controls.getByTestId('preview-resolution')).toBeVisible()
   await expect(async () => {
-    const [footer, metadata, controls, status] = await Promise.all(
-      ['preview-footer', 'preview-metadata', 'preview-view-controls', 'preview-resolution'].map(
+    const [footer, navigation, view, status] = await Promise.all(
+      ['preview-footer', 'group-navigation', 'preview-view-controls', 'preview-resolution'].map(
         (id) => page.getByTestId(id).boundingBox(),
       ),
     )
-    if (!footer || !metadata || !controls || !status)
-      throw new Error('The photo footer and all three columns must have layout bounds.')
-    expect(footer.height).toBe(48)
+    if (!footer || !navigation || !view || !status)
+      throw new Error(
+        'The floating footer, navigation, view controls and status must have layout bounds.',
+      )
+    expect(footer.height).toBe(26)
     expect(footer.x).toBeGreaterThanOrEqual(0)
+    expect(footer.y).toBeGreaterThanOrEqual(0)
     expect(footer.x + footer.width).toBeLessThanOrEqual(1100)
     expect(footer.y + footer.height).toBeLessThanOrEqual(700)
-    expect(metadata.x + metadata.width).toBeLessThanOrEqual(controls.x - 4)
-    expect(controls.x + controls.width).toBeLessThanOrEqual(status.x - 4)
-    for (const bounds of [metadata, controls, status]) {
+    expect(navigation.x + navigation.width).toBeLessThanOrEqual(view.x)
+    for (const bounds of [navigation, view]) {
+      expect(bounds.x).toBeGreaterThanOrEqual(footer.x)
       expect(bounds.y).toBeGreaterThanOrEqual(footer.y)
-      expect(bounds.y + bounds.height).toBeLessThanOrEqual(footer.y + footer.height)
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(footer.x + footer.width)
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(footer.y + footer.height)
     }
-    expect(
-      await page.getByTestId('preview-footer').evaluate((e) => e.scrollWidth <= e.clientWidth),
-    ).toBe(true)
+    expect(status.x).toBeGreaterThanOrEqual(view.x)
+    expect(status.y).toBeGreaterThanOrEqual(view.y)
+    expect(status.x + status.width).toBeLessThanOrEqual(view.x + view.width)
+    expect(status.y + status.height).toBeLessThanOrEqual(view.y + view.height)
+    for (const element of [page.getByTestId('preview-footer'), controls])
+      expect(await element.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true)
   }).toPass()
 }
 
 async function tabToRetry(page: Page, retry: Locator) {
+  await openPreviewOptions(page)
   await page.getByRole('combobox', { name: 'Preview display mode' }).focus()
   for (let step = 0; step < 24; step++) {
     await page.keyboard.press('Tab')

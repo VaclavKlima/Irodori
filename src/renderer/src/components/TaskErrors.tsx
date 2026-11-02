@@ -1,3 +1,4 @@
+import { Button } from './ui/Controls'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { TaskErrorPage } from '../../../shared/contracts'
 import { collectionWindow, measuredLayout } from '../collections/layout'
@@ -128,7 +129,7 @@ export function TaskErrors({
       {collection.error && (
         <p role="alert">
           {collection.error}{' '}
-          <button onClick={() => collection.controller.retry()}>Retry errors</button>
+          <Button onClick={() => collection.controller.retry()}>Retry errors</Button>
         </p>
       )}
       <ul style={{ height: layout.height }}>

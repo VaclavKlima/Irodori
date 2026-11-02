@@ -6,6 +6,8 @@ import {
   DEFAULT_CREATIVE_COLOR_SELECTION,
   type CreativeColorSelection,
   type InspectorSections,
+  type InspectorGroup,
+  type ColorTab,
   type WorkspaceState,
 } from '../../shared/workspace'
 import { MergeDialog } from './components/MergeDialog'
@@ -24,12 +26,11 @@ import { useWhiteBalancePicker } from './hooks/useWhiteBalancePicker'
 import { useCrop } from './hooks/useCrop'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Aperture,
+  MoreHorizontal,
   ArrowDownToLine,
-  ArrowUpFromLine,
+  Download,
   Columns2,
   Crop,
-  FileImage,
   Images,
   Redo2,
   Settings,
@@ -58,6 +59,7 @@ import { selectEditorPreviewPolicy } from '../../shared/editor-preview-policy'
 import styles from './App.module.css'
 import { imageResourceOwners } from './preview/image-resource-owners'
 import { rendererImageResources } from './preview/hdr-preview-resources'
+import littleJizo from '../../../assets/app/icons/generated/icon-64.png'
 
 interface MenuState {
   x: number
@@ -134,6 +136,9 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [error, setError] = useState('')
   const [consoleOpen, setConsoleOpen] = useState(false)
+  const [inspectorGroup, setInspectorGroup] = useState<InspectorGroup>('light')
+  const [colorTab, setColorTab] = useState<ColorTab>('basic')
+  const [hoverControls, setHoverControls] = useState(false)
   const [inspectorSections, setInspectorSections] = useState<InspectorSections>({
     ...DEFAULT_INSPECTOR_SECTIONS,
   })
@@ -198,6 +203,8 @@ export function App() {
     if (!crop.supported || crop.pending) return
     whiteBalancePicker.cancel()
     previewTools.update({ mode: 'after' })
+    setInspectorGroup('geometry')
+    saveWorkspace({ inspectorGroup: 'geometry' })
     changeInspectorSections({ ...inspectorSections, crop: true })
     await crop.start()
   }
@@ -511,6 +518,9 @@ export function App() {
         workspaceRef.current = state?.mode ?? 'editor'
         setWorkspace(workspaceRef.current)
         setConsoleOpen(state?.consoleOpen ?? false)
+        setInspectorGroup(state?.inspectorGroup ?? 'light')
+        setColorTab(state?.colorTab ?? 'basic')
+        setHoverControls(state?.hoverControls ?? false)
         setInspectorSections({ ...DEFAULT_INSPECTOR_SECTIONS, ...state?.inspector })
         setCreativeColorSelection({ ...DEFAULT_CREATIVE_COLOR_SELECTION, ...state?.creativeColor })
         setEditorFocusId(state?.editorFocusId ?? null)
@@ -871,11 +881,10 @@ export function App() {
     >
       <header className={styles.appHeader}>
         <div className={styles.brand}>
-          <Aperture size={23} strokeWidth={1.35} />
+          <img className={styles.brandIcon} src={littleJizo} width="32" height="32" alt="" />
           <span>{APP_NAME}</span>
-          <span className={styles.brandDivider} />
-          <span className={styles.brandTagline}>{APP_TAGLINE}</span>
         </div>
+        <span className={styles.brandTagline}>{APP_TAGLINE}</span>
         <nav className={styles.workspaceMode} aria-label="Workspaces">
           <button
             aria-current={workspace === 'editor' ? 'page' : undefined}
@@ -952,7 +961,7 @@ export function App() {
               void requestExport()
             }}
           >
-            <ArrowUpFromLine size={14} /> Export
+            <Download size={16} /> Export…
           </button>
         </div>
       </header>
@@ -995,6 +1004,11 @@ export function App() {
             void library.browseSelect(photo, { search: '', grouping: 'date' }, { toggle: true })
           }
           hiddenActiveCover={library.hiddenActiveCover}
+          onSelectStack={(stack) => {
+            void library
+              .selectStack(stack.id, stack.revision)
+              .catch((error) => setError(String(error)))
+          }}
           onExpand={(stack) => {
             void window.irodori
               .setStackExpanded(stack.id, !stack.expanded, stack.revision)
@@ -1011,144 +1025,225 @@ export function App() {
             void select(photo, modifiers)
           }}
           onContextMenu={showContextMenu}
+          onShowCurrent={() => {
+            if (!photo) return
+            const isCurrent = () =>
+              workspaceRef.current === 'editor' && library.getActivePhoto()?.id === photo.id
+            void window.irodori
+              .getPhotoStack(photo.id)
+              .then(async (stack) => {
+                if (!isCurrent()) return
+                if (stack && !stack.expanded) {
+                  await window.irodori.setStackExpanded(stack.id, true, stack.revision)
+                  await refresh()
+                }
+                await openPhoto(photo.id, true, isCurrent)
+              })
+              .catch((error) => setError(String(error)))
+          }}
           onImport={() => void openImport()}
         />
 
         <main className={styles.workspace} aria-label="Photo workspace">
-          <div className={styles.previewToolbar}>
-            <div className={styles.filename}>
-              <FileImage size={13} />
-              <span data-testid="preview-filename" title={photo?.filename}>
-                {photo?.filename ?? 'No photo selected'}
-              </span>
-              <select
-                aria-label="Preview display mode"
-                value={displayTarget.requested}
-                onChange={(event) => {
-                  void window.irodori
-                    .setPreviewPreference(event.target.value as PreviewPreference)
-                    .catch((error) => setError(String(error)))
-                }}
-              >
-                <option value="auto">Auto</option>
-                <option value="hdr">HDR</option>
-                <option value="sdr">SDR</option>
-              </select>
-              <DisplayDetails
-                target={displayTarget}
-                photoId={photo?.id}
-                hdr={edits.state?.settings.processing === 'hdr-v1'}
-                hdrJpeg={edits.state?.hdrJpeg}
-              />
-            </div>
-            <div className={styles.previewActions}>
-              <button
-                className={styles.iconButton}
-                disabled={edits.saving || crop.active || crop.pending || !edits.state?.canUndo}
-                onClick={() => void edits.history('undo')}
-                aria-label="Undo"
-                title="Undo photo edit (Ctrl/Cmd+Z)"
-              >
-                <Undo2 size={15} />
-              </button>
-              <button
-                className={styles.iconButton}
-                disabled={edits.saving || crop.active || crop.pending || !edits.state?.canRedo}
-                onClick={() => void edits.history('redo')}
-                aria-label="Redo"
-                title="Redo photo edit (Ctrl/Cmd+Shift+Z)"
-              >
-                <Redo2 size={15} />
-              </button>
-              <span className={styles.toolbarDivider} />
-              <button
-                className={styles.iconButton}
-                disabled={!crop.supported || crop.pending}
-                aria-label="Crop photo"
-                aria-pressed={crop.active}
-                onClick={() => (crop.active ? crop.cancel() : void startCrop())}
-              >
-                <Crop size={15} />
-              </button>
-              <button
-                className={`${styles.iconButton} ${styles.beforeButton}`}
-                disabled={crop.active || crop.pending || !photo || interactivePhoto !== photo.id}
-                aria-pressed={previewTools.mode === 'before'}
-                onClick={() =>
-                  previewTools.update({ mode: previewTools.mode === 'before' ? 'after' : 'before' })
-                }
-                title="Before (\)"
-              >
-                Before
-              </button>
-              <button
-                className={styles.iconButton}
-                disabled={crop.active || crop.pending || !photo || interactivePhoto !== photo.id}
-                aria-label="Compare before and after"
-                aria-pressed={previewTools.mode === 'split'}
-                onClick={() =>
-                  previewTools.update({ mode: previewTools.mode === 'split' ? 'after' : 'split' })
-                }
-                title="Split (Y)"
-              >
-                <Columns2 size={15} />
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <p role="alert" className={styles.errorBanner}>
-              {error}
-            </p>
-          )}
-          {edits.error && (
-            <p role="alert" className={styles.errorBanner}>
-              {edits.error}
-            </p>
-          )}
-          <PhotoPreview
-            crop={cropTool}
-            whiteBalancePicker={whiteBalancePicker}
-            previewPolicy={editorPreviewPolicy}
-            hdrJpeg={edits.state?.hdrJpeg?.state === 'supported'}
-            suspended={
+          <div
+            className={styles.previewStage}
+            data-hover-controls={hoverControls}
+            data-controls-open={
+              !!contextMenu ||
+              !!deleteTargets ||
               !!mergeTargets ||
-              workspace !== 'editor' ||
-              (mergeHandoffPhoto !== null && mergeHandoffPhoto === photo?.id)
+              !!exportTargets ||
+              importOpen ||
+              settingsOpen ||
+              !!pasteTargets ||
+              tasksOpen
             }
-            displayTarget={displayTarget}
-            key={photo?.id ?? 'empty'}
-            photo={photo}
-            initialView={restoringPreview?.photoId === photo?.id ? restoringPreview : null}
-            onViewChange={savePreviewView}
-            adjustments={edits.adjustments}
-            confirmedEdits={
-              edits.confirmed && edits.state?.photoId === photo?.id ? edits.state : null
-            }
-            tools={presentationTools}
-            gesturing={edits.gesturing}
-            editingEpoch={edits.epoch}
-            gestureCommit={edits.gestureCommit?.photoId === photo?.id ? edits.gestureCommit : null}
-            onEditingReady={setInteractivePhoto}
-            onPresentationFailure={flushPresentationFailure}
-            total={total}
-            position={position}
-            onNavigate={navigate}
-            onImport={() => void openImport()}
-            onContextMenu={showContextMenu}
-          />
+          >
+            <div className={styles.previewToolbar}>
+              <div className={styles.filename}>
+                <span data-testid="preview-filename" title={photo?.filename}>
+                  {photo?.filename ?? 'No photo selected'}
+                </span>
+                <DisplayDetails
+                  controls={
+                    <div className={styles.previewOptions}>
+                      <select
+                        aria-label="Preview display mode"
+                        value={displayTarget.requested}
+                        onChange={(event) => {
+                          void window.irodori
+                            .setPreviewPreference(event.target.value as PreviewPreference)
+                            .catch((error) => setError(String(error)))
+                        }}
+                      >
+                        <option value="auto">Auto</option>
+                        <option value="hdr">HDR</option>
+                        <option value="sdr">SDR</option>
+                      </select>
+                      <button
+                        className={styles.iconButton}
+                        disabled={!crop.supported || crop.pending}
+                        aria-label="Crop photo"
+                        aria-pressed={crop.active}
+                        onClick={() => (crop.active ? crop.cancel() : void startCrop())}
+                      >
+                        <Crop size={15} />
+                      </button>
+                      <button
+                        className={`${styles.iconButton} ${styles.beforeButton}`}
+                        disabled={
+                          crop.active || crop.pending || !photo || interactivePhoto !== photo.id
+                        }
+                        aria-pressed={previewTools.mode === 'before'}
+                        onClick={() =>
+                          previewTools.update({
+                            mode: previewTools.mode === 'before' ? 'after' : 'before',
+                          })
+                        }
+                        title="Before (\)"
+                      >
+                        Before
+                      </button>
+                      <button
+                        className={styles.iconButton}
+                        disabled={
+                          crop.active || crop.pending || !photo || interactivePhoto !== photo.id
+                        }
+                        aria-label="Compare before and after"
+                        aria-pressed={previewTools.mode === 'split'}
+                        onClick={() =>
+                          previewTools.update({
+                            mode: previewTools.mode === 'split' ? 'after' : 'split',
+                          })
+                        }
+                        title="Split (Y)"
+                      >
+                        <Columns2 size={15} />
+                      </button>
+                    </div>
+                  }
+                  target={displayTarget}
+                  photoId={photo?.id}
+                  hdr={edits.state?.settings.processing === 'hdr-v1'}
+                  hdrJpeg={edits.state?.hdrJpeg}
+                />
+              </div>
+              <div className={styles.previewActions}>
+                <button
+                  className={styles.iconButton}
+                  disabled={edits.saving || crop.active || crop.pending || !edits.state?.canUndo}
+                  onClick={() => void edits.history('undo')}
+                  aria-label="Undo"
+                  title="Undo photo edit (Ctrl/Cmd+Z)"
+                >
+                  <Undo2 size={16} />
+                </button>
+                <button
+                  className={styles.iconButton}
+                  disabled={edits.saving || crop.active || crop.pending || !edits.state?.canRedo}
+                  onClick={() => void edits.history('redo')}
+                  aria-label="Redo"
+                  title="Redo photo edit (Ctrl/Cmd+Shift+Z)"
+                >
+                  <Redo2 size={16} />
+                </button>
+                <button
+                  className={styles.hoverToggle}
+                  aria-label="Toggle hover"
+                  title="Toggle hover controls"
+                  aria-pressed={hoverControls}
+                  onClick={() => {
+                    setHoverControls(!hoverControls)
+                    saveWorkspace({ hoverControls: !hoverControls })
+                  }}
+                >
+                  Toggle hover
+                </button>
+                <span className={styles.toolbarDivider} />
+                <button
+                  className={styles.iconButton}
+                  aria-label="Photo actions"
+                  aria-haspopup="menu"
+                  aria-expanded={
+                    !!contextMenu &&
+                    !contextMenu.toolbar &&
+                    contextMenu.context.photo?.id === photo?.id
+                  }
+                  disabled={!photo}
+                  onClick={(event) => {
+                    if (!photo) return
+                    const bounds = event.currentTarget.getBoundingClientRect()
+                    showContextMenu(photo, event.currentTarget, bounds.left, bounds.bottom)
+                  }}
+                >
+                  <MoreHorizontal size={16} />
+                </button>
+              </div>
+            </div>
 
-          {consoleOpen && workspace === 'editor' && (
-            <Console
-              onClose={() => {
-                setConsoleOpen(false)
-                consoleToggleRef.current?.focus()
-              }}
+            {error && (
+              <p role="alert" className={styles.errorBanner}>
+                {error}
+              </p>
+            )}
+            {edits.error && (
+              <p role="alert" className={styles.errorBanner}>
+                {edits.error}
+              </p>
+            )}
+            <PhotoPreview
+              crop={cropTool}
+              whiteBalancePicker={whiteBalancePicker}
+              previewPolicy={editorPreviewPolicy}
+              hdrJpeg={edits.state?.hdrJpeg?.state === 'supported'}
+              suspended={
+                !!mergeTargets ||
+                workspace !== 'editor' ||
+                (mergeHandoffPhoto !== null && mergeHandoffPhoto === photo?.id)
+              }
+              displayTarget={displayTarget}
+              key={photo?.id ?? 'empty'}
+              photo={photo}
+              initialView={restoringPreview?.photoId === photo?.id ? restoringPreview : null}
+              onViewChange={savePreviewView}
+              adjustments={edits.adjustments}
+              confirmedEdits={
+                edits.confirmed && edits.state?.photoId === photo?.id ? edits.state : null
+              }
+              tools={presentationTools}
+              gesturing={edits.gesturing}
+              editingEpoch={edits.epoch}
+              gestureCommit={
+                edits.gestureCommit?.photoId === photo?.id ? edits.gestureCommit : null
+              }
+              onEditingReady={setInteractivePhoto}
+              onPresentationFailure={flushPresentationFailure}
+              group={(() => {
+                const span = library.summary?.groups.find(
+                  (span) => position >= span.start && position < span.start + span.count,
+                )
+                return span ? { index: position - span.start, count: span.count } : undefined
+              })()}
+              total={total}
+              position={position}
+              onNavigate={navigate}
+              onImport={() => void openImport()}
+              onContextMenu={showContextMenu}
             />
-          )}
+          </div>
         </main>
 
         <Inspector
+          group={inspectorGroup}
+          colorTab={colorTab}
+          onGroupChange={(inspectorGroup) => {
+            setInspectorGroup(inspectorGroup)
+            saveWorkspace({ inspectorGroup })
+          }}
+          onColorTabChange={(colorTab) => {
+            setColorTab(colorTab)
+            saveWorkspace({ colorTab })
+          }}
           crop={cropTool}
           whiteBalancePicker={whiteBalancePicker}
           sections={inspectorSections}
@@ -1168,6 +1263,15 @@ export function App() {
           }
         />
       </div>
+
+      {consoleOpen && workspace === 'editor' && (
+        <Console
+          onClose={() => {
+            setConsoleOpen(false)
+            consoleToggleRef.current?.focus()
+          }}
+        />
+      )}
 
       <div className={styles.browserWorkspace} hidden={workspace !== 'library'}>
         {error && (
@@ -1207,8 +1311,18 @@ export function App() {
       </div>
 
       <footer className={styles.statusBar}>
+        <button
+          className={styles.consoleToggle}
+          data-testid="console-toggle"
+          ref={consoleToggleRef}
+          aria-expanded={consoleOpen}
+          aria-controls="agent-console"
+          onClick={() => setConsoleOpen(!consoleOpen)}
+        >
+          <TerminalSquare size={13} /> Console
+        </button>
+
         <div className={styles.statusLeft}>
-          <span className={styles.statusDot} />
           <span>Local library</span>
           {recovery.status && (
             <span role="status">
@@ -1229,16 +1343,6 @@ export function App() {
           getErrors={window.irodori.getTaskErrors}
         />
         <div className={styles.statusRight}>
-          <button
-            className={`${styles.consoleToggle} ${consoleOpen ? styles.consoleToggleOpen : ''}`}
-            data-testid="console-toggle"
-            ref={consoleToggleRef}
-            aria-expanded={consoleOpen}
-            aria-controls="agent-console"
-            onClick={() => setConsoleOpen(!consoleOpen)}
-          >
-            <TerminalSquare size={13} /> Console
-          </button>
           <span className={styles.version} data-testid="app-version">
             {appInfo ? `v${appInfo.version}` : 'Starting…'}
           </span>

@@ -1,5 +1,9 @@
 # Photo menu design standard
 
+Follow the shared [Sunflower design system](design-system.md) for semantic tokens,
+typography, dimensions and reusable presentation components. This document owns
+the behavior and contracts of its controls.
+
 This is the authoritative standard for toolbar **Actions** and photo context menus in Editor and Library. Extend `src/shared/photo-actions.ts` and the shared `PhotoContextMenu` renderer. Every new command must declare its stable ID, target, eligibility, temporary blockers, execution behavior, and verification coverage. Do not add an independent menu implementation or per-selected-photo IPC reads.
 
 ## Hierarchy and targets

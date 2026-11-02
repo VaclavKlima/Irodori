@@ -60,9 +60,10 @@ backlog, rather than a second aggregate checklist here.
 | [#48](README.md#task-48) | Add export-only output sharpening                | Depends on #47 for trustworthy output-pixel review.                                               |
 | [#49](README.md#task-49) | Evaluate optional spatial FSR                    | Optional later task; a justified rejection is a valid outcome.                                    |
 
-Reuse existing #10 for general Linux dropdowns, #32 for the remaining GPU-only
-migration, #33 for grouped right-panel navigation and #34 for the dark design
-system. Keep #25 shutdown recovery, #29 background deletion, #30 queue redesign,
+Reuse existing #10 for general Linux dropdowns and #32 for the remaining GPU-only
+migration. UI work follows the implemented #33 inspector navigation and #34
+[Sunflower design system](../design-system.md). Keep #25 shutdown recovery,
+#29 background deletion, #30 queue redesign,
 #31 merge acceptance, #35 asset migration and camera/branding tasks separate.
 Do not duplicate or automatically pull these items into an editing task.
 

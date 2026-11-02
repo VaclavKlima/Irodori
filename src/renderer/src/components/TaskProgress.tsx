@@ -1,3 +1,4 @@
+import { Button } from './ui/Controls'
 import { Check, ChevronUp, TriangleAlert } from 'lucide-react'
 import { ProgressSpinner } from './ProgressSpinner'
 import type { BackgroundTask } from '../../../shared/contracts'
@@ -23,7 +24,7 @@ export function TaskProgress({
         )
       : undefined
   return (
-    <button
+    <Button
       className={styles.indicator}
       data-testid="task-progress"
       aria-expanded={expanded}
@@ -55,6 +56,6 @@ export function TaskProgress({
       {running && percent !== undefined && <span className={styles.percent}>{percent}%</span>}
       {additionalCount > 0 && <span>+{additionalCount}</span>}
       <ChevronUp size={11} />
-    </button>
+    </Button>
   )
 }

@@ -1,3 +1,4 @@
+import { navigateInspector, openInspectorTool, type InspectorTool } from './inspector.helpers'
 import { test, expect } from './electron.fixture'
 import { activateButton } from './button.helpers'
 import { importPhotos } from './import.helpers'
@@ -14,14 +15,18 @@ test('every inspector section uses keyboard disclosures without remounting contr
     ['Histogram · After', 'histogram'],
     ['Light', 'light-controls'],
     ['Color', 'color-controls'],
+    ['Color intensity', 'color-intensity-controls'],
     ['Crop', 'crop-controls'],
     ['Color Mixer', 'color-mixer-controls'],
     ['Color Grading', 'color-grading-controls'],
+    ['Tone blending', 'tone-blending-controls'],
     ['Detail', 'detail-controls'],
+    ['Sharpening', 'sharpening-controls'],
     ['Lens corrections', 'lens-controls'],
     ['Metadata', 'photo-metadata'],
-  ]) {
-    const toggle = page.getByRole('button', { name: title, exact: true })
+  ] as const) {
+    await navigateInspector(page, title)
+    const toggle = page.getByRole('button', { name: title, exact: true, includeHidden: true })
     const body = page.locator(`#${content}`)
     await expect(toggle).toHaveAttribute('aria-controls', content)
     const initiallyOpen = (await toggle.getAttribute('aria-expanded')) === 'true'
@@ -50,7 +55,7 @@ test('histogram remains pinned while only the adjustment body scrolls at native 
   })
   await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
   await activateButton(page.getByTestId('console-toggle'))
-  await activateButton(page.getByRole('button', { name: 'Lens corrections', exact: true }))
+  await openInspectorTool(page, 'Lens corrections')
   const pinned = page.getByTestId('inspector-pinned')
   const scroll = page.getByTestId('inspector-scroll')
   const before = await pinned.boundingBox()
@@ -93,7 +98,7 @@ test('collapsed section retains a pending edit and receives external revisions w
   const field = page.getByRole('spinbutton', { name: 'Exposure value' })
   await expect(field).toBeEnabled({ timeout: 20000 })
   await field.fill('1.25')
-  const light = page.getByRole('button', { name: 'Light', exact: true })
+  const light = page.getByRole('button', { name: 'Light', exact: true, includeHidden: true })
   await activateButton(light)
   await expect(page.locator('#light-controls')).toBeHidden()
   await expect
@@ -108,7 +113,7 @@ test('collapsed section retains a pending edit and receives external revisions w
   await expect(field).toBeEnabled()
 })
 
-test('Detail collapse commits one pending radius edit and reopens at the external revision without changing its source', async ({
+test('Sharpening collapse commits one pending radius edit and reopens at the external revision without changing its source', async ({
   irodori,
 }) => {
   test.setTimeout(60000)
@@ -117,13 +122,13 @@ test('Detail collapse commits one pending radius edit and reopens at the externa
   const photo = (await page.evaluate(() => window.irodori.listPhotos())).photos[0],
     before = await page.evaluate((id) => window.irodori.getEditHistory(id), photo.id),
     originals = await managedOriginalHashes(irodori.userDataDir, [photo]),
-    toggle = page.getByRole('button', { name: 'Detail', exact: true }),
-    body = page.locator('#detail-controls'),
+    toggle = page.getByRole('button', { name: 'Sharpening', exact: true }),
+    body = page.locator('#sharpening-controls'),
     radius = page.getByRole('spinbutton', { name: 'Radius value', exact: true })
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
     timeout: 40000,
   })
-  await activateButton(toggle)
+  await openInspectorTool(page, 'Sharpening')
   await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   await expect(radius).toBeEnabled()
   expect(before.settings.detailSharpening.amount).toBe(0)
@@ -178,17 +183,21 @@ test('disclosure choices survive photo changes, crash recovery and normal restar
     'Color Grading',
     'Detail',
     'Crop',
-  ])
-    await activateButton(page.getByRole('button', { name: title, exact: true }))
+  ]) {
+    await navigateInspector(page, title as InspectorTool)
+    await activateButton(
+      page.getByRole('button', { name: title, exact: true, includeHidden: true }),
+    )
+  }
   const expected = {
     ...DEFAULT_INSPECTOR_SECTIONS,
     histogram: false,
     light: false,
     color: false,
     metadata: false,
-    lens: true,
-    colorMixer: true,
-    colorGrading: true,
+    lens: !DEFAULT_INSPECTOR_SECTIONS.lens,
+    colorMixer: !DEFAULT_INSPECTOR_SECTIONS.colorMixer,
+    colorGrading: !DEFAULT_INSPECTOR_SECTIONS.colorGrading,
     detail: !DEFAULT_INSPECTOR_SECTIONS.detail,
     crop: !DEFAULT_INSPECTOR_SECTIONS.crop,
   }
@@ -201,45 +210,40 @@ test('disclosure choices survive photo changes, crash recovery and normal restar
     page.getByRole('button', { name: `Select ${photos[1].filename}`, exact: true }),
   )
   await expect(page.getByTestId('preview-filename')).toHaveText(photos[1].filename)
-  await expect(page.getByRole('button', { name: 'Color', exact: true })).toHaveAttribute(
-    'aria-expanded',
-    'false',
-  )
+  await expect(
+    page.getByRole('button', { name: 'Color', exact: true, includeHidden: true }),
+  ).toHaveAttribute('aria-expanded', 'false')
   for (const title of ['Detail', 'Crop'])
-    await expect(page.getByRole('button', { name: title, exact: true })).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    )
+    await expect(
+      page.getByRole('button', { name: title, exact: true, includeHidden: true }),
+    ).toHaveAttribute('aria-expanded', 'false')
   ;({ page } = await irodori.crashAndRestart())
   for (const title of ['Histogram · After', 'Light', 'Color', 'Metadata'])
-    await expect(page.getByRole('button', { name: title, exact: true })).toHaveAttribute(
-      'aria-expanded',
-      'false',
-    )
-  await expect(page.getByRole('button', { name: 'Lens corrections', exact: true })).toHaveAttribute(
-    'aria-expanded',
-    'true',
-  )
+    await expect(
+      page.getByRole('button', { name: title, exact: true, includeHidden: true }),
+    ).toHaveAttribute('aria-expanded', 'false')
+  await expect(
+    page.getByRole('button', { name: 'Lens corrections', exact: true, includeHidden: true }),
+  ).toHaveAttribute('aria-expanded', 'false')
   for (const title of ['Color Mixer', 'Color Grading', 'Detail', 'Crop'])
-    await expect(page.getByRole('button', { name: title, exact: true })).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    )
-  await activateButton(page.getByRole('button', { name: 'Color', exact: true }))
+    await expect(
+      page.getByRole('button', { name: title, exact: true, includeHidden: true }),
+    ).toHaveAttribute('aria-expanded', 'false')
+  await navigateInspector(page, 'Color')
+  await activateButton(
+    page.getByRole('button', { name: 'Color', exact: true, includeHidden: true }),
+  )
   ;({ page } = await irodori.restart())
-  await expect(page.getByRole('button', { name: 'Color', exact: true })).toHaveAttribute(
-    'aria-expanded',
-    'true',
-  )
-  await expect(page.getByRole('button', { name: 'Light', exact: true })).toHaveAttribute(
-    'aria-expanded',
-    'false',
-  )
+  await expect(
+    page.getByRole('button', { name: 'Color', exact: true, includeHidden: true }),
+  ).toHaveAttribute('aria-expanded', 'true')
+  await expect(
+    page.getByRole('button', { name: 'Light', exact: true, includeHidden: true }),
+  ).toHaveAttribute('aria-expanded', 'false')
   for (const title of ['Detail', 'Crop'])
-    await expect(page.getByRole('button', { name: title, exact: true })).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    )
+    await expect(
+      page.getByRole('button', { name: title, exact: true, includeHidden: true }),
+    ).toHaveAttribute('aria-expanded', 'false')
   await expect
     .poll(
       async () => (await page.evaluate(() => window.irodori.getWorkspaceState())).state?.inspector,

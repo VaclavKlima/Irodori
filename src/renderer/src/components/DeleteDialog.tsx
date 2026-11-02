@@ -1,3 +1,4 @@
+import { Button } from './ui/Controls'
 import { useEffect, useRef, useState } from 'react'
 import type { PhotoReference } from '../../../shared/contracts'
 import styles from './PhotoActions.module.css'
@@ -70,12 +71,17 @@ export function DeleteDialog({
         </p>
       )}
       <footer>
-        <button ref={cancel} disabled={pending} onClick={close}>
+        <Button ref={cancel} disabled={pending} onClick={close}>
           Cancel
-        </button>
-        <button className={styles.destructive} disabled={pending} onClick={() => void confirm()}>
+        </Button>
+        <Button
+          variant="danger"
+          className={styles.destructive}
+          disabled={pending}
+          onClick={() => void confirm()}
+        >
           {pending ? 'Starting…' : 'Move to Trash'}
-        </button>
+        </Button>
       </footer>
     </dialog>
   )

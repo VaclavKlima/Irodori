@@ -1,3 +1,4 @@
+import { openInspectorTool } from './inspector.helpers'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 
@@ -23,6 +24,7 @@ test('histogram, clipping and comparison preserve edits and view, with accessibl
   await histogram.focus()
   await histogram.press('ArrowRight')
   await expect(histogram).toHaveAttribute('aria-valuenow', '129')
+  await openInspectorTool(page, 'Color')
   await expect(page.getByRole('spinbutton', { name: 'Temperature value' })).toBeDisabled()
   const filename = await page.getByTestId('preview-filename').textContent()
   const id = (await page.evaluate(() => window.irodori.listPhotos())).photos.find(
@@ -39,9 +41,9 @@ test('histogram, clipping and comparison preserve edits and view, with accessibl
   await expect(divider).toHaveAttribute('aria-valuenow', '51')
   const box = await divider.boundingBox(),
     area = await viewport.boundingBox()
-  await page.mouse.move(box!.x + 4, box!.y + 30)
+  await page.mouse.move(box!.x + 4, box!.y + box!.height / 2)
   await page.mouse.down()
-  await page.mouse.move(area!.x + area!.width * 0.7, box!.y + 30)
+  await page.mouse.move(area!.x + area!.width * 0.7, box!.y + box!.height / 2)
   await page.mouse.up()
   await expect(divider).toHaveAttribute('aria-valuenow', '70')
   await expect(viewport).toHaveAttribute('data-pan-x', pan!)
@@ -56,6 +58,7 @@ test('histogram, clipping and comparison preserve edits and view, with accessibl
   expect((await page.evaluate((id) => window.irodori.getEdits(id), id)).revision).toBe(
     initial.revision,
   )
+  await openInspectorTool(page, 'Light')
   const exposure = page.getByRole('spinbutton', { name: 'Exposure value' })
   await exposure.fill('1')
   await exposure.press('Enter')

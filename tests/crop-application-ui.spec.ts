@@ -1,3 +1,4 @@
+import { openPreviewOptions } from './preview-options.helpers'
 import { mkdir } from 'node:fs/promises'
 import sharp from 'sharp'
 import { test, expect } from './electron.fixture'
@@ -23,6 +24,7 @@ test('the hidden application applies a native crop and Cancel restores the commi
   const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id,
     toolbar = page.getByRole('button', { name: 'Crop photo', exact: true }),
     viewport = page.getByTestId('preview-viewport')
+  await openPreviewOptions(page)
   await expect(toolbar).toBeEnabled()
   await activateButton(toolbar)
   await expect(page.getByTestId('crop-overlay')).toBeVisible()
@@ -44,6 +46,7 @@ test('the hidden application applies a native crop and Cancel restores the commi
   expect(saved.snapshots).toHaveLength(2)
   await page.getByRole('combobox', { name: 'Preview zoom', exact: true }).selectOption('8')
   await expect(viewport).toHaveAttribute('data-scale', '8')
+  await openPreviewOptions(page)
   await expect(toolbar).toBeEnabled()
   await activateButton(toolbar)
   await expect(page.getByTestId('crop-overlay')).toBeVisible()

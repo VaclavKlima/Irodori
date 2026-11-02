@@ -1,3 +1,4 @@
+import { openPreviewOptions } from './preview-options.helpers'
 import { createHash } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import type { ElectronApplication, Page } from '@playwright/test'
@@ -236,6 +237,7 @@ async function numeric(page: Page, name: string, value: number) {
 }
 
 async function displayMode(page: Page, mode: 'hdr' | 'sdr') {
+  await openPreviewOptions(page)
   await page.getByRole('combobox', { name: 'Preview display mode' }).selectOption(mode)
   await expect
     .poll(() => page.evaluate(() => window.irodori.getDisplayState()))
@@ -247,6 +249,7 @@ async function comparison(page: Page, mode: 'before' | 'split' | 'after') {
   const canvas = page.getByTestId('main-preview')
   const current = await canvas.getAttribute('data-comparison')
   if (current === mode) return
+  await openPreviewOptions(page)
   if (current === 'before') await page.getByRole('button', { name: 'Before', exact: true }).click()
   else if (current === 'split')
     await page.getByRole('button', { name: 'Compare before and after', exact: true }).click()

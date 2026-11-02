@@ -1,3 +1,5 @@
+import { openPreviewOptions } from './preview-options.helpers'
+import { openInspectorTool } from './inspector.helpers'
 import { writeFile } from 'node:fs/promises'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
@@ -93,6 +95,7 @@ test('HDR edits retain the photograph, histogram geometry and source upload thro
         (await page.evaluate((id) => window.irodori.getEditHistory(id), id)).snapshots.length,
     )
     .toBe(before.snapshots.length + 1)
+  await openInspectorTool(page, 'Color')
   const temperature = page.getByRole('spinbutton', { name: 'Temperature value' })
   await temperature.fill('6300')
   await temperature.press('Enter')
@@ -136,6 +139,7 @@ test('HDR edits retain the photograph, histogram geometry and source upload thro
   await settledHistogram()
   const paths = await getPaths()
   for (const mode of ['sdr', 'hdr'] as const) {
+    await openPreviewOptions(page)
     await page.getByLabel('Preview display mode').selectOption(mode)
     await expect
       .poll(async () => {

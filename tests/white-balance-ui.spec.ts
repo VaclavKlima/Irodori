@@ -1,3 +1,4 @@
+import { openInspectorTool } from './inspector.helpers'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { activateButton } from './button.helpers'
@@ -9,6 +10,7 @@ test('Sony Temperature and Tint share one As Shot reset, undo, redo and restart 
   let { page } = irodori
   await importPhotos(irodori.app, page, ['tests/fixtures/sony-zv1.ARW'])
   const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
+  await openInspectorTool(page, 'Color')
   const temperature = page.getByRole('spinbutton', { name: 'Temperature value' }),
     tint = page.getByRole('spinbutton', { name: 'Tint value' })
   await expect(temperature).toBeEditable({ timeout: 40000 })

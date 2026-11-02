@@ -1,3 +1,4 @@
+import { activateButton } from './button.helpers'
 import type { Page } from '@playwright/test'
 import sharp from 'sharp'
 import { expect, test } from './electron.fixture'
@@ -44,6 +45,8 @@ test('scroll pans without zooming and mixed gesture bursts present once with mat
     irodori.page.getByTestId('preview-viewport'),
     irodori.page.getByRole('combobox', { name: 'Preview zoom', exact: true }),
   )
+  // A Fit image cannot pan; queue a real native-pixel pan before testing cancellation.
+  await irodori.page.getByRole('combobox', { name: 'Preview zoom' }).selectOption('1')
   const pending = await holdPreviewFrame(irodori.page.getByTestId('preview-viewport'))
   try {
     expect(await pending.evaluate((state) => state.held)).toBe(true)
@@ -100,7 +103,15 @@ test(
     await zoom.selectOption('1')
     let before = await geometry(page)
     expect(before.imageWidth).toBeCloseTo(before.naturalWidth, 1)
-    const point = { x: before.left + before.width / 2 + 65, y: before.top + before.height / 2 + 35 }
+    // Native wheel coordinates are integral; an odd-height viewport has a half-pixel center.
+    const point = {
+      x: Math.round(before.left + before.width / 2 + 65),
+      y: Math.round(before.top + before.height / 2 + 35),
+    }
+    const anchor = {
+      x: point.x - before.left - before.width / 2,
+      y: point.y - before.top - before.height / 2,
+    }
     await page.mouse.move(point.x, point.y)
     await page.keyboard.down('Control')
     await page.mouse.wheel(0, -100)
@@ -108,8 +119,8 @@ test(
     await expect.poll(async () => (await geometry(page)).scale).toBeGreaterThan(1)
     const after = await geometry(page)
     expect(after.scale).toBeCloseTo(1.1 ** (100 / 120), 5)
-    expect((65 - after.x) / after.scale).toBeCloseTo((65 - before.x) / before.scale, 3)
-    expect((35 - after.y) / after.scale).toBeCloseTo((35 - before.y) / before.scale, 3)
+    expect((anchor.x - after.x) / after.scale).toBeCloseTo((anchor.x - before.x) / before.scale, 3)
+    expect((anchor.y - after.y) / after.scale).toBeCloseTo((anchor.y - before.y) / before.scale, 3)
     await page.mouse.down()
     await page.mouse.move(point.x - 60, point.y - 35, { steps: 5 })
     const dragged = await geometry(page)
@@ -187,16 +198,20 @@ test(
     await page.keyboard.press('Delete')
     await expect(page.getByRole('dialog')).toContainText('Move photo to Trash?')
     await page.keyboard.press('Escape')
-    await page.getByRole('button', { name: 'Fit preview', exact: true }).click()
+    await zoom.selectOption('fit')
     await viewport.dblclick()
     await expect(zoom).toHaveValue('1')
     await viewport.dblclick()
     await expect(zoom).toHaveValue('fit')
     await zoom.selectOption('32')
-    await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toBeDisabled()
+    await page.getByTestId('main-preview').focus()
+    await page.keyboard.press('+')
+    await expect(zoom).toHaveValue('32')
     await zoom.selectOption('0.1')
-    await expect(page.getByRole('button', { name: 'Zoom out', exact: true })).toBeDisabled()
-    await page.getByRole('button', { name: 'Fit preview', exact: true }).click()
+    await page.getByTestId('main-preview').focus()
+    await page.keyboard.press('-')
+    await expect(zoom).toHaveValue('0.1')
+    await zoom.selectOption('fit')
     await page.screenshot({ path: testInfo.outputPath('preview-controls.png') })
   },
 )
@@ -205,6 +220,17 @@ test('resizes Fit and manual views, preserves same-photo zoom across imports, an
   irodori,
 }, testInfo) => {
   const { app, page } = irodori
+  // The Console must change the limiting Fit dimension in this resize scenario.
+  await (
+    await app.browserWindow(page)
+  ).evaluate((window) => {
+    window.unmaximize()
+    const [, outer] = window.getSize(),
+      [, content] = window.getContentSize()
+    window.setMinimumSize(1440, 700 + outer - content)
+    window.setContentSize(1440, 700)
+  })
+  await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1440, 700])
   await importPhotos(app, page)
   const zoom = page.getByRole('combobox', { name: 'Preview zoom' })
   const fit = await geometry(page)
@@ -220,7 +246,7 @@ test('resizes Fit and manual views, preserves same-photo zoom across imports, an
   expect((await geometry(page)).x).toBe(manual.x)
   await page.keyboard.down('Control')
   try {
-    await importPhotos(app, page, ['tests/fixtures/photos/forest-light.jpg'])
+    await importPhotos(app, page, ['tests/fixtures/photos/forest-light.jpg'], true, 'renderer')
     await expect(zoom).toHaveValue('1')
     expect((await geometry(page)).x).toBe(manual.x)
     await page.getByTestId('preview-viewport').dispatchEvent('wheel', {
@@ -245,6 +271,9 @@ test('resizes Fit and manual views, preserves same-photo zoom across imports, an
   const nativeWindow = await app.browserWindow(page)
   await nativeWindow.evaluate((window) => {
     window.unmaximize()
+    const [, outer] = window.getSize(),
+      [, content] = window.getContentSize()
+    window.setMinimumSize(1100, 700 + outer - content)
     window.setContentSize(1100, 700)
   })
   await page.getByTestId('console-toggle').click()
@@ -328,7 +357,7 @@ test('keeps controls disabled after invalid frame metadata and recovers through 
     ).toBe(false)
     await gate.evaluate((control) => control.release())
     await expect(page.getByRole('alert')).toContainText('Could not load this preview.')
-    await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toBeDisabled()
+    await expect(page.getByRole('combobox', { name: 'Preview zoom' })).toBeDisabled()
     expect(
       await page.getByTestId('preview-viewport').evaluate((el) => {
         const wheel = new WheelEvent('wheel', { cancelable: true, deltaX: 20, deltaY: 30 })
@@ -338,7 +367,7 @@ test('keeps controls disabled after invalid frame metadata and recovers through 
     ).toBe(false)
     await page.keyboard.down('Control')
     try {
-      await page.getByRole('button', { name: 'Retry', exact: true }).click()
+      await activateButton(page.getByRole('button', { name: 'Retry', exact: true }), 'renderer')
       await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
       await expect(page.getByRole('combobox', { name: 'Preview zoom' })).toHaveValue('fit')
       const before = await geometry(page)

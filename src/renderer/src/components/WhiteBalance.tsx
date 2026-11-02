@@ -1,6 +1,6 @@
 import { AdjustmentInput } from './AdjustmentInput'
 import type { EditController } from '../hooks/useEdits'
-import styles from '../App.module.css'
+import styles from './Inspector.module.css'
 export function WhiteBalance({
   edits,
   previewReady,
@@ -14,18 +14,7 @@ export function WhiteBalance({
   const unavailable = !profile || !previewReady
   return (
     <>
-      <button
-        disabled={unavailable || edits.saving || wb?.mode !== 'custom'}
-        onClick={() =>
-          void edits
-            .change({ whiteBalance: { mode: 'as-shot' } })
-            .then(() => edits.flush())
-            .catch(() => undefined)
-        }
-      >
-        {edits.state?.referenceWhiteBalance ? 'Reference white balance' : 'As Shot'}
-      </button>
-      <p className={styles.demoNote}>
+      <p className={styles.hint}>
         {!profile
           ? 'White balance is unavailable for this photo. Verified Sony ZV-1/ZV-1A RAW required.'
           : wb?.mode === 'custom'
@@ -69,6 +58,19 @@ export function WhiteBalance({
         onCommit={() => void edits.flush().catch(() => undefined)}
         onCancel={edits.cancel}
       />
+      <button
+        type="button"
+        className={styles.fullButton}
+        disabled={unavailable || edits.saving || wb?.mode !== 'custom'}
+        onClick={() =>
+          void edits
+            .change({ whiteBalance: { mode: 'as-shot' } })
+            .then(() => edits.flush())
+            .catch(() => undefined)
+        }
+      >
+        {edits.state?.referenceWhiteBalance ? 'Reference white balance' : 'As Shot'}
+      </button>
     </>
   )
 }

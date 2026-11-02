@@ -1,3 +1,5 @@
+import { openPreviewOptions } from './preview-options.helpers'
+import { navigateInspector } from './inspector.helpers'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { readFile } from 'node:fs/promises'
@@ -40,12 +42,14 @@ test('copy/paste uses the complete Library selection, accessible group choices a
   await activateButton(page.getByTestId(`photo-card-${source.id}`))
   const field = page.getByRole('spinbutton', { name: 'Exposure value', exact: true })
   await expect(field).toBeEnabled()
+  await openPreviewOptions(page)
   await activateButton(page.getByRole('button', { name: 'Crop photo', exact: true }))
   await expect(page.getByRole('button', { name: 'Cancel crop', exact: true })).toBeVisible()
   await expect(page.evaluate((id) => window.irodori.copyEdits(id), source.id)).rejects.toThrow(
     'Finish or cancel the crop',
   )
   await activateButton(page.getByRole('button', { name: 'Cancel crop', exact: true }))
+  await navigateInspector(page, 'Light')
   await field.fill('1.5')
   // Opening Actions flushes the in-progress numeric change through the normal editor owner.
   await activateButton(page.getByRole('button', { name: 'Actions', exact: true }))

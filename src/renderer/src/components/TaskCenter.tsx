@@ -1,3 +1,4 @@
+import { Button } from './ui/Controls'
 import { TaskErrors } from './TaskErrors'
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
@@ -73,7 +74,7 @@ export function TaskCenter({
         >
           <header>
             <strong>Background tasks</strong>
-            <button
+            <Button
               ref={button}
               aria-label="Close task details"
               onClick={() => {
@@ -84,7 +85,7 @@ export function TaskCenter({
               }}
             >
               <X size={14} />
-            </button>
+            </Button>
           </header>
           <div className={styles.taskList}>
             {[...tasks].reverse().map((task) => (
@@ -206,34 +207,34 @@ function TaskDetails({
       )}
       <div className={styles.actions}>
         {task.export && (
-          <button
+          <Button
             disabled={pending}
             onClick={() => void act(() => window.irodori.showExportFolder(task.id))}
           >
             Show in folder
-          </button>
+          </Button>
         )}
         {task.resultPhotoId && (
-          <button onClick={() => void act(() => onOpenResult(task.resultPhotoId!))}>
+          <Button onClick={() => void act(() => onOpenResult(task.resultPhotoId!))}>
             Open result
-          </button>
+          </Button>
         )}
         {task.errorCount > 0 && (
-          <button aria-expanded={errorsOpen} onClick={() => setErrorsOpen(!errorsOpen)}>
+          <Button aria-expanded={errorsOpen} onClick={() => setErrorsOpen(!errorsOpen)}>
             {errorsOpen ? 'Hide' : 'Show'} {task.errorCount} errors
-          </button>
+          </Button>
         )}
         {active ? (
-          <button
+          <Button
             disabled={pending || task.status === 'cancelling'}
             onClick={() => void act(() => onCancel(task.id))}
           >
             {task.status === 'cancelling' ? 'Cancelling…' : 'Cancel task'}
-          </button>
+          </Button>
         ) : (
-          <button disabled={pending} onClick={() => void act(() => onDismiss(task.id))}>
+          <Button disabled={pending} onClick={() => void act(() => onDismiss(task.id))}>
             Dismiss
-          </button>
+          </Button>
         )}
       </div>
       {task.errorCount > 0 && (

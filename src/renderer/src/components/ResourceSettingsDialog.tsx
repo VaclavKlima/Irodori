@@ -1,3 +1,4 @@
+import { Button } from './ui/Controls'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import {
@@ -296,9 +297,9 @@ export function ResourceSettingsDialog({ load, save, onClose }: Props) {
     >
       <header className={styles.header}>
         <h2 id={`${prefix}-heading`}>Preview memory</h2>
-        <button type="button" aria-label="Close memory settings" disabled={saving} onClick={close}>
+        <Button type="button" aria-label="Close memory settings" disabled={saving} onClick={close}>
           <X size={16} />
-        </button>
+        </Button>
       </header>
       <form
         id={`${prefix}-form`}
@@ -323,7 +324,7 @@ export function ResourceSettingsDialog({ load, save, onClose }: Props) {
         ) : loadError ? (
           <div className={styles.notice}>
             <p role="alert">Resource settings could not be loaded. {loadError}</p>
-            <button
+            <Button
               type="button"
               onClick={() => {
                 life.current.loading = undefined
@@ -333,7 +334,7 @@ export function ResourceSettingsDialog({ load, save, onClose }: Props) {
               }}
             >
               Retry
-            </button>
+            </Button>
           </div>
         ) : (
           <>
@@ -388,12 +389,12 @@ export function ResourceSettingsDialog({ load, save, onClose }: Props) {
           {saving ? 'Saving settings…' : 'Changes are saved only when you apply.'}
         </p>
         <div>
-          <button ref={cancel} type="button" disabled={saving} onClick={close}>
+          <Button ref={cancel} type="button" disabled={saving} onClick={close}>
             Cancel
-          </button>
-          <button type="submit" form={`${prefix}-form`} disabled={!canApply}>
+          </Button>
+          <Button variant="primary" type="submit" form={`${prefix}-form`} disabled={!canApply}>
             {saving ? 'Applying…' : 'Apply'}
-          </button>
+          </Button>
         </div>
       </footer>
     </dialog>

@@ -1,3 +1,4 @@
+import { openPreviewOptions } from './preview-options.helpers'
 import { writeFile } from 'node:fs/promises'
 import { test, expect } from './electron.fixture'
 import { importPhotos } from './import.helpers'
@@ -184,6 +185,7 @@ test(
     const measurements = []
     for (const invalidation of ['history', 'comparison', 'display', 'source'] as const) {
       await page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }).click()
+      await openPreviewOptions(page)
       const before = page.getByRole('button', { name: 'Before', exact: true })
       if ((await before.getAttribute('aria-pressed')) === 'true') await before.click()
       await page.getByLabel('Preview display mode').selectOption('hdr')
@@ -272,11 +274,13 @@ test(
               (await window.irodori.getEdits(photo.id)).revision,
             )
           })
-        else if (invalidation === 'comparison')
+        else if (invalidation === 'comparison') {
+          await openPreviewOptions(page)
           await page.getByRole('button', { name: 'Before', exact: true }).click()
-        else if (invalidation === 'display')
+        } else if (invalidation === 'display') {
+          await openPreviewOptions(page)
           await page.getByLabel('Preview display mode').selectOption('sdr')
-        else await page.getByRole('button', { name: 'Select DSC03246.ARW', exact: true }).click()
+        } else await page.getByRole('button', { name: 'Select DSC03246.ARW', exact: true }).click()
         await page.evaluate(
           () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
         )

@@ -1,85 +1,95 @@
 .dialog {
-  width: min(560px, calc(100vw - 32px));
+  width: min(460px, calc(100vw - 40px));
   max-height: calc(100vh - 40px);
-  padding: 0;
-  background: #242424;
-  color: #ddd;
-  border: 1px solid #505050;
-  border-radius: 8px;
+  padding: 22px;
+  overflow: auto;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
 }
 .dialog[open] {
   display: flex;
   flex-direction: column;
 }
 .dialog::backdrop {
-  background: #0009;
+  background: #0008;
 }
 .dialog header,
 .dialog footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 18px;
+  gap: 8px;
   flex-shrink: 0;
 }
-.dialog header {
-  border-bottom: 1px solid #3d3d3d;
+.dialog header > button[aria-label] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 28px;
+  padding: 4px;
+  border-color: transparent;
+  background: transparent;
 }
 .dialog footer {
-  border-top: 1px solid #3d3d3d;
+  margin-top: 20px;
 }
 .dialog footer > div {
   display: flex;
   gap: 8px;
 }
 .dialog h2 {
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 600;
   margin: 0;
 }
-.dialog button,
-.dialog select,
-.dialog input {
-  background: #303030;
-  border: 1px solid #555;
-  border-radius: 4px;
+.form select,
+.form > label > input:not([type='checkbox']),
+.pair > label > input {
+  width: 100%;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   color: inherit;
   font: inherit;
-  padding: 7px 9px;
 }
-.dialog button {
-  cursor: pointer;
+.form select {
+  min-height: 28px;
+  padding: 4px 10px;
 }
-.dialog button:disabled {
-  opacity: 0.45;
-  cursor: default;
+.form > label > input:not([type='checkbox']),
+.pair > label > input {
+  padding: 7px;
 }
 .dialog :focus-visible {
-  outline: 2px solid #b8b8b8;
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 .body {
   overflow: auto;
   min-height: 0;
-  padding: 14px 18px;
+  margin-top: 10px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 .body p {
   margin: 0;
-  color: #aaa;
+  color: var(--muted);
   font-size: 11px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 .body .summary {
-  color: #ddd;
-  font-size: 13px;
+  color: var(--muted);
+  font-size: 11px;
 }
 .destination {
   display: flex;
   align-items: center;
   gap: 12px;
+  margin-bottom: 8px;
 }
 .destination > div {
   flex: 1;
@@ -87,11 +97,11 @@
 }
 .destination span {
   font-size: 11px;
-  color: #bbb;
+  color: var(--muted);
 }
 .destination p {
   overflow-wrap: anywhere;
-  margin-top: 3px;
+  margin-top: 4px;
 }
 .destination > button {
   flex-shrink: 0;
@@ -107,25 +117,26 @@
   justify-content: space-between;
   text-align: left;
   gap: 12px;
-  padding: 11px;
+  min-height: 36px;
+  padding: 6px 10px;
 }
 .presets strong {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
 }
 .presets span {
-  color: #aaa;
+  max-width: 68%;
+  color: var(--muted);
   font-size: 10px;
+  text-align: right;
 }
-.form {
+.form > label,
+.pair > label {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-.form label {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  gap: 6px;
+  margin: 10px 0;
+  color: var(--muted);
   font-size: 11px;
 }
 .pair {
@@ -135,19 +146,23 @@
 .pair label {
   flex: 1;
   min-width: 0;
+  gap: 7px;
 }
 .quality {
-  padding: 2px 0;
+  margin: 10px 0;
 }
 .form .checkbox {
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
+  margin-top: 15px;
 }
 .checkbox input {
   margin: 0;
+  accent-color: var(--accent);
 }
 .body [role='alert'],
 .body .error {
-  color: #edb3b3;
+  color: var(--error);
+  overflow-wrap: anywhere;
 }

@@ -1,3 +1,4 @@
+import { openPreviewOptions } from './preview-options.helpers'
 import { createHash, randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import type { ElectronApplication, Page, TestInfo } from '@playwright/test'
@@ -388,10 +389,12 @@ test('real Sony loss publishes trusted native draft then normal, preserving enab
         ),
     )
     const after = await comparisonSamples(page)
+    await openPreviewOptions(page)
     await activateButton(page.getByRole('button', { name: 'Before', exact: true }))
     await expect(page.getByTestId('main-preview')).toHaveAttribute('data-comparison', 'before')
     const before = await comparisonSamples(page)
     expect(before.sha256).not.toBe(after.sha256)
+    await openPreviewOptions(page)
     await activateButton(
       page.getByRole('button', { name: 'Compare before and after', exact: true }),
     )
@@ -399,6 +402,7 @@ test('real Sony loss publishes trusted native draft then normal, preserving enab
     expect((await comparisonSamples(page)).samples).toEqual(
       before.samples.map((value, i) => (i % 2 === 0 ? value : after.samples[i])),
     )
+    await openPreviewOptions(page)
     await activateButton(
       page.getByRole('button', { name: 'Compare before and after', exact: true }),
     )

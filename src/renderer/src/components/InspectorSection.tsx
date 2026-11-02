@@ -1,6 +1,6 @@
-import { ChevronDown, ChevronRight, type LucideIcon } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { HTMLAttributes, ReactNode } from 'react'
-import styles from '../App.module.css'
+import styles from './Inspector.module.css'
 
 type BodyProps = Omit<
   HTMLAttributes<HTMLDivElement>,
@@ -13,42 +13,49 @@ type BodyProps = Omit<
 export function InspectorSection({
   id,
   title,
-  icon: Icon,
+  heading = title,
   expanded,
   onToggle,
+  className = '',
+  headerActions,
   bodyClassName = styles.sectionContent,
   bodyProps,
   children,
 }: {
   id: string
   title: string
-  icon: LucideIcon
+  heading?: string
   expanded: boolean
   onToggle: () => void
+  className?: string
+  headerActions?: ReactNode
   bodyClassName?: string
   bodyProps?: BodyProps
   children: ReactNode
 }) {
   return (
-    <section className={styles.adjustmentSection} aria-labelledby={`${id}-heading`}>
-      <h3 className={styles.sectionHeading}>
-        <button
-          id={`${id}-heading`}
-          type="button"
-          className={styles.sectionToggle}
-          aria-expanded={expanded}
-          aria-controls={id}
-          onClick={onToggle}
-        >
-          <Icon size={14} aria-hidden="true" />
-          {title}
-          {expanded ? (
-            <ChevronDown size={13} aria-hidden="true" />
-          ) : (
-            <ChevronRight size={13} aria-hidden="true" />
-          )}
-        </button>
-      </h3>
+    <section className={`${styles.section} ${className}`} aria-labelledby={`${id}-heading`}>
+      <div className={styles.sectionHeader}>
+        <h3 className={styles.sectionHeading}>
+          <button
+            id={`${id}-heading`}
+            type="button"
+            className={styles.sectionToggle}
+            aria-label={heading === title ? undefined : title}
+            aria-expanded={expanded}
+            aria-controls={id}
+            onClick={onToggle}
+          >
+            {heading}
+            {expanded ? (
+              <ChevronDown size={13} aria-hidden="true" />
+            ) : (
+              <ChevronRight size={13} aria-hidden="true" />
+            )}
+          </button>
+        </h3>
+        {headerActions && <div className={styles.headerActions}>{headerActions}</div>}
+      </div>
       <div {...bodyProps} id={id} hidden={!expanded} className={bodyClassName}>
         {children}
       </div>

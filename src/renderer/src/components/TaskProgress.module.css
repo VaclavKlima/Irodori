@@ -14,7 +14,7 @@
   padding: 0 10px;
   border: 0;
   background: transparent;
-  color: var(--accent);
+  color: var(--muted);
   font-size: 10px;
 }
 .indicator:hover,
@@ -31,7 +31,7 @@
   width: 60px;
   height: 3px;
   overflow: hidden;
-  background: #515148;
+  background: var(--surface-hover);
   border-radius: 2px;
 }
 .track > span {
@@ -58,11 +58,11 @@
   max-height: min(460px, calc(100vh - 90px));
   display: flex;
   flex-direction: column;
-  background: #282827;
+  background: var(--surface);
   color: var(--text);
-  border: 1px solid #505047;
-  border-radius: 7px;
-  box-shadow: 0 10px 45px #0008;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px #0005;
   z-index: 10;
   font-size: 12px;
 }
@@ -70,43 +70,50 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 15px;
-  border-bottom: 1px solid var(--line);
+  min-height: 36px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-subtle);
 }
 .popover header strong {
-  font-weight: 500;
+  font-weight: 600;
 }
 .popover button {
-  background: transparent;
-  border: 1px solid #505047;
-  border-radius: 4px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   color: var(--text);
-  padding: 5px 8px;
+  min-height: 28px;
+  padding: 4px 10px;
 }
-.popover header button {
+.popover header button[aria-label] {
   border: 0;
-  padding: 3px;
+  width: 28px;
+  padding: 4px;
   display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
 }
 .taskList {
   overflow: auto;
   min-height: 0;
 }
 .task {
-  padding: 16px;
-  border-bottom: 1px solid var(--line);
+  padding: 10px;
+  border-bottom: 1px solid var(--line-subtle);
 }
 .task:last-child {
   border-bottom: 0;
 }
 .task > strong {
-  font-weight: 500;
-  color: var(--accent);
+  font-weight: 600;
+  color: var(--text);
 }
 .task p {
   color: var(--muted);
   font-size: 11px;
-  margin: 9px 0;
+  margin: 6px 0;
+  line-height: 1.55;
 }
 .filename {
   overflow: hidden;
@@ -117,18 +124,18 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 13px;
+  margin-top: 8px;
   font-size: 11px;
 }
 .task .error {
-  color: #eeb7a9;
+  color: var(--error);
   overflow-wrap: anywhere;
 }
 .errors {
   max-height: 240px;
   overflow: auto;
   overflow-anchor: none;
-  margin-top: 14px;
+  margin-top: 10px;
   font-size: 11px;
 }
 .errors ul {
@@ -148,7 +155,7 @@
   overflow-wrap: anywhere;
 }
 .errors li span {
-  color: #cba99f;
+  color: var(--muted);
 }
 @keyframes spin {
   to {

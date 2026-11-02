@@ -131,11 +131,13 @@ test('legacy workspace disclosures default safely and new checkpoints validate a
     expect(t.library.getWorkspaceState().state?.inspector).toEqual({
       ...DEFAULT_INSPECTOR_SECTIONS,
       histogram: false,
+      lens: false,
     })
     await t.library.saveWorkspaceState({ state: { consoleOpen: false } })
     expect(t.library.getWorkspaceState().state?.inspector).toEqual({
       ...DEFAULT_INSPECTOR_SECTIONS,
       histogram: false,
+      lens: false,
     })
     t.db
       .prepare('UPDATE workspace_state SET data = ? WHERE singleton = 1')
@@ -186,6 +188,105 @@ test('legacy workspace disclosures default safely and new checkpoints validate a
       await expect(
         t.library.saveWorkspaceState({
           state: { inspector: invalid as unknown as WorkspaceState['inspector'] },
+          selection: { added: [t.photos[1].id], removed: [] },
+        }),
+      ).rejects.toThrow('Invalid workspace state')
+      expect(t.library.getWorkspaceState()).toEqual(saved)
+    }
+  } finally {
+    await t.close()
+  }
+})
+
+test('older checkpoints recover navigation defaults and reject invalid new preferences atomically', async () => {
+  const t = await stackFixture(2)
+  try {
+    await t.library.saveWorkspaceState({
+      state: {
+        ...DEFAULT_WORKSPACE,
+        inspectorGroup: 'color',
+        colorTab: 'mixer',
+        hoverControls: true,
+        creativeColor: { range: 'blue', tone: 'highlights' },
+      },
+    })
+    const row = t.db.prepare('SELECT data FROM workspace_state WHERE singleton=1').get() as {
+      data: string
+    }
+    const old = JSON.parse(row.data)
+    delete old.inspectorGroup
+    delete old.colorTab
+    delete old.hoverControls
+    t.db.prepare('UPDATE workspace_state SET data=? WHERE singleton=1').run(JSON.stringify(old))
+    await t.restart()
+    expect(t.library.getWorkspaceState().state).toMatchObject({
+      inspectorGroup: 'light',
+      colorTab: 'basic',
+      hoverControls: false,
+      creativeColor: { range: 'blue', tone: 'highlights' },
+    })
+    for (const state of [
+      { inspectorGroup: 'resize' },
+      { colorTab: 'future' },
+      { hoverControls: 'yes' },
+    ])
+      await expect(
+        t.library.saveWorkspaceState({ state: state as unknown as Partial<WorkspaceState> }),
+      ).rejects.toThrow('Invalid workspace state')
+    await t.library.saveWorkspaceState({
+      state: { inspectorGroup: 'geometry', hoverControls: true },
+    })
+    await t.restart()
+    expect(t.library.getWorkspaceState().state).toMatchObject({
+      inspectorGroup: 'geometry',
+      colorTab: 'basic',
+      hoverControls: true,
+    })
+  } finally {
+    await t.close()
+  }
+})
+
+test('split tool disclosures default open for earlier checkpoints and preserve explicit choices through save and restart', async () => {
+  const t = await stackFixture(2)
+  try {
+    const legacy = {
+      ...DEFAULT_WORKSPACE,
+      inspector: {
+        histogram: false,
+        light: true,
+        color: false,
+        colorMixer: false,
+        colorGrading: false,
+        detail: false,
+        crop: false,
+        lens: false,
+        metadata: true,
+      },
+      creativeColor: { range: 'blue', tone: 'highlights' },
+    }
+    t.db.prepare('INSERT INTO workspace_state VALUES (1, 3, ?)').run(JSON.stringify(legacy))
+    const expected = {
+      ...legacy.inspector,
+      colorIntensity: true,
+      sharpening: true,
+      toneBlending: true,
+    }
+    expect(t.library.getWorkspaceState().state?.inspector).toEqual(expected)
+    await t.library.saveWorkspaceState({ state: { consoleOpen: true } })
+    expect(t.library.getWorkspaceState().state?.inspector).toEqual(expected)
+    const choices = { ...expected, colorIntensity: false, sharpening: false, toneBlending: false }
+    await t.library.saveWorkspaceState({ state: { inspector: choices } })
+    await t.restart()
+    const saved = t.library.getWorkspaceState()
+    expect(saved.state?.inspector).toEqual(choices)
+    expect(saved.state?.creativeColor).toEqual(legacy.creativeColor)
+    for (const key of ['colorIntensity', 'sharpening', 'toneBlending'] as const) {
+      await expect(
+        t.library.saveWorkspaceState({
+          state: {
+            inspector: { ...choices, [key]: 'invalid' } as unknown as WorkspaceState['inspector'],
+          },
           selection: { added: [t.photos[1].id], removed: [] },
         }),
       ).rejects.toThrow('Invalid workspace state')
