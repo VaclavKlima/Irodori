@@ -1,18 +1,19 @@
-import { basename, join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { test as base, expect } from '@playwright/test'
 import { createHash } from 'node:crypto'
-import { expect, test as base } from '@playwright/test'
-import { librawDecoder } from '../src/main/processing/decoders/libraw'
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
 import { RawGpuRenderer } from '../src/main/gpu/raw-renderer'
-import { neutralAdjustments } from '../src/shared/adjustments'
 import { PreviewEngine } from '../src/main/preview-engine'
+import { librawDecoder } from '../src/main/processing/decoders/libraw'
 import { readHdrStrips, scanHdr } from '../src/main/processing/hdr-processing'
-import { mkdir, mkdtemp, rm, readdir, chmod, stat, writeFile, readFile } from 'node:fs/promises'
-import { analyzeHdr, hdrStatistics } from '../src/shared/hdr-statistics'
-import { noLensSettings } from '../src/shared/lens'
 import { correctionPlan } from '../src/main/processing/lens-correction'
 import { unavailableProfile } from '../src/main/processing/metadata'
+import { neutralAdjustments } from '../src/shared/adjustments'
 import { SDR_TARGET } from '../src/shared/hdr'
+import { analyzeHdr, hdrStatistics } from '../src/shared/hdr-statistics'
+import { noLensSettings } from '../src/shared/lens'
+import { ReferencePreviewEngine } from './reference-preview-engine'
 
 // Only the two read-only correction checks share preparation. Cold decoding,
 // cache recovery/cancellation and CPU references below always remain fresh.
@@ -188,7 +189,7 @@ test('CPU HDR preparation keeps signed highlights and agrees with GPU corrected 
   correctedHdr,
 }, info) => {
   test.setTimeout(180000)
-  const cpu = new PreviewEngine(undefined, 'cpu')
+  const cpu = new ReferencePreviewEngine()
   const path = 'tests/fixtures/sony-zv1.ARW',
     cpuPath = info.outputPath('cpu'),
     gpuPath = correctedHdr.output

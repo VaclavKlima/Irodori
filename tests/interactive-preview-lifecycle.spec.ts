@@ -1,25 +1,25 @@
+import type { ConsoleMessage, ElectronApplication, Page, TestInfo } from '@playwright/test'
 import { createHash, randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { ConsoleMessage, ElectronApplication, Page, TestInfo } from '@playwright/test'
-import { expect, test } from './electron.fixture'
-import { foregroundTest } from './foreground'
-import { editorTestPreviewPolicy, requireEditorPreviewFeature } from './hdr-test-policy.helpers'
-import { importPhotos } from './import.helpers'
 import {
   ACES_INTERACTIVE_PREVIEW_VERSION,
   selectInteractivePreviewPolicy,
 } from '../src/shared/aces-preview-wgsl'
+import type { AdjustmentParameters } from '../src/shared/adjustments'
+import type { EditState } from '../src/shared/edits'
 import { encodeHdr, matrixRgb, REC2020_TO_P3, REC2020_TO_SRGB } from '../src/shared/hdr'
 import { inverseMatrix } from '../src/shared/white-balance'
+import { expect, test } from './electron.fixture'
+import { foregroundTest } from './foreground'
 import {
   assertHdrMemory,
   readHdrMemory,
   type HdrMemoryObservation,
 } from './hdr-memory-policy.helpers'
-import type { AdjustmentParameters } from '../src/shared/adjustments'
-import type { EditState } from '../src/shared/edits'
-import { observeNativeCpuReplies } from './native-cpu-preview-ui.helpers'
+import { editorTestPreviewPolicy, requireEditorPreviewFeature } from './hdr-test-policy.helpers'
+import { importPhotos } from './import.helpers'
+import { observeNativeCpuReplies } from './retired-presentation.helpers'
 
 const fixture = 'tests/fixtures/sony-zv1.ARW'
 const originalSha256 = '14c9d2912584a3ccc5cf10f554fbe495fc960c36758a14d7d858b36ac5ca88e2'

@@ -1,24 +1,23 @@
 import { expect, test } from '@playwright/test'
 import { access, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { NativeCpuController } from '../src/main/native-cpu-controller'
-import { nativeCpuExecutable, nativeCpuMaskCapability } from '../src/main/native-cpu-executable'
+import {
+  hdrMaskBackend,
+  nativeCpuExecutable,
+  nativeCpuMaskCapability,
+} from '../src/main/native-cpu-executable'
+import { NativeMaskController } from '../src/main/native-mask-controller'
+import { receiveNativeHdrMask } from '../src/renderer/src/preview/native-mask-receiver'
 import { neutralAdjustments } from '../src/shared/adjustments'
 import { SDR_TARGET } from '../src/shared/hdr'
 import { analyzeHdr, hdrStatistics } from '../src/shared/hdr-statistics'
-import { nativeCpuExistingOwners } from '../src/shared/native-cpu-memory'
-import {
-  NATIVE_CPU_PREVIEW_VERSION,
-  type CpuPreviewRequest,
-} from '../src/shared/native-cpu-preview'
 import { NATIVE_HDR_MASK_VERSION, type NativeHdrMaskRequest } from '../src/shared/native-hdr-mask'
-import { receiveNativeHdrMask } from '../src/renderer/src/preview/native-mask-receiver'
 import { detailCacheFixture } from './detail-preview-cache.helpers'
 
-test.skip(process.platform !== 'linux' || process.arch !== 'x64', 'Checked Linux x64 helper.')
+test.skip(hdrMaskBackend() !== 'native', 'Checked Linux x64 helper.')
 const previous = process.env.IRODORI_PREVIEW_BACKEND
 test.beforeEach(() => {
-  process.env.IRODORI_PREVIEW_BACKEND = 'cpu'
+  process.env.IRODORI_PREVIEW_BACKEND = 'gpu'
 })
 test.afterEach(() => {
   if (previous === undefined) delete process.env.IRODORI_PREVIEW_BACKEND
@@ -35,8 +34,8 @@ async function sources(f: Awaited<ReturnType<typeof detailCacheFixture>>) {
       version: NATIVE_HDR_MASK_VERSION,
       requestId: crypto.randomUUID(),
       sessionId: crypto.randomUUID(),
-      source: before.cpuSource!,
-      comparisonOf: after.cpuSource!,
+      source: before.sourceRef!,
+      comparisonOf: after.sourceRef!,
       generation: 1,
       expectedSettingsRevision: f.options.revision,
       comparison: 'before',
@@ -72,7 +71,7 @@ test('an original Before mask lease requires exact After lineage and retains bot
       ).rejects.toThrow()
     lease = await f.previews.acquireCpuMaskWorkingSource(request, signal, policy)
     expect(lease.parameters).toEqual(neutralAdjustments)
-    expect(lease.source).toEqual(before.cpuSource)
+    expect(lease.source).toEqual(before.sourceRef)
     expect(lease.asset.sha256).toBe(f.source.job.asset.sha256)
     const a = f.previews.acquire(new URL(after.linear.url!))!,
       b = f.previews.acquire(new URL(before.linear!.url!))!,
@@ -99,24 +98,14 @@ test('an original Before mask lease requires exact After lineage and retains bot
   }
 })
 
-test('the real native mask uses unfiltered pixels, echoes its After lineage and recognizes only acknowledged CPU source pairs', async () => {
+test('the real native mask uses unfiltered pixels, echoes its After lineage', async () => {
   const f = await detailCacheFixture(true),
     executable = await nativeCpuExecutable(resolve('vendor')),
     capability = await nativeCpuMaskCapability(resolve('vendor')),
-    controller = new NativeCpuController({
+    controller = new NativeMaskController({
       root: join(f.source.root, 'comparison-mask-native'),
       executable: async () => executable,
-      policy: async () => structuredClone(f.source.job.policy),
-      acquireSource: (request, signal, parent) =>
-        f.previews.acquireCpuWorkingSource(request, signal, parent),
       foreground: (work, signal) => f.previews.runCpuForeground(work, signal),
-      existingOwners: (asset, request) =>
-        nativeCpuExistingOwners(
-          asset.width,
-          asset.height,
-          request.viewport.width,
-          request.viewport.height,
-        ),
       mask: {
         arithmeticSha256: capability.arithmeticSha256,
         acquireSource: (request, signal) =>
@@ -126,45 +115,19 @@ test('the real native mask uses unfiltered pixels, echoes its After lineage and 
     })
   try {
     await controller.open()
-    const { after, before, request } = await sources(f),
-      presentation: CpuPreviewRequest = {
-        version: NATIVE_CPU_PREVIEW_VERSION,
-        requestId: crypto.randomUUID(),
-        sessionId: crypto.randomUUID(),
-        source: after.cpuSource!,
-        beforeSource: before.cpuSource!,
-        generation: 1,
-        expectedSettingsRevision: f.options.revision,
-        parameters: structuredClone(f.options.adjustments!),
-        quality: 'normal',
-        hdrRanges: false,
-        headroom: null,
-        viewport: { width: before.width, height: before.height, dpr: 1 },
-      },
-      pair = await controller.render(presentation)
-    expect(controller.hasCpuPresentationSource(before.cpuSource!, after.cpuSource!)).toBe(false)
-    await controller.acknowledge(presentation.sessionId, pair.pairId, null)
-    expect(controller.hasCpuPresentationSource(after.cpuSource!)).toBe(true)
-    expect(controller.hasCpuPresentationSource(before.cpuSource!)).toBe(false)
-    expect(controller.hasCpuPresentationSource(before.cpuSource!, after.cpuSource!)).toBe(true)
-    expect(
-      controller.hasCpuPresentationSource(before.cpuSource!, {
-        ...after.cpuSource!,
-        cacheId: crypto.randomUUID(),
-      }),
-    ).toBe(false)
+    const { after, before, request } = await sources(f)
     expect(() => controller.renderMask({ ...request, comparison: 'after' })).toThrow('lineage')
     expect(() =>
       controller.renderMask({
         ...request,
-        comparisonOf: { ...after.cpuSource!, photoId: '0'.repeat(64) },
+        comparisonOf: { ...after.sourceRef!, photoId: '0'.repeat(64) },
       }),
     ).toThrow('lineage')
     const output = await controller.renderMask(request)
     expect(output.kind).toBe('mask')
     if (output.kind !== 'mask') throw new Error('Tiny native Before mask declined.')
-    expect(output.comparisonOf).toEqual(after.cpuSource)
-    expect(output.source).toEqual(before.cpuSource)
+    expect(output.comparisonOf).toEqual(after.sourceRef)
+    expect(output.source).toEqual(before.sourceRef)
     expect(output.parameters).toEqual(neutralAdjustments)
     const expected = new Uint8Array(before.width * before.height),
       asset = before.linear!.hdr!,
@@ -181,7 +144,7 @@ test('the real native mask uses unfiltered pixels, echoes its After lineage and 
       expect(await readFile(owner.path)).toEqual(Buffer.from(expected))
       await expect(
         receiveNativeHdrMask(
-          { ...output, comparisonOf: { ...after.cpuSource!, cacheId: crypto.randomUUID() } },
+          { ...output, comparisonOf: { ...after.sourceRef!, cacheId: crypto.randomUUID() } },
           request,
           asset,
           new AbortController().signal,
@@ -200,8 +163,6 @@ test('the real native mask uses unfiltered pixels, echoes its After lineage and 
     }
     await f.previews.release(before.requestId)
     await f.previews.release(after.requestId)
-    await controller.release(presentation.sessionId, null)
-    expect(controller.hasCpuPresentationSource(before.cpuSource!, after.cpuSource!)).toBe(false)
     expect(await readFile(f.source.original)).toEqual(f.source.originalBytes)
   } finally {
     await controller.close()

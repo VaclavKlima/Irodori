@@ -1,11 +1,11 @@
-import { validateHdrAsset } from '../preview/hdr-stream'
-import { validateWhiteBalanceProfile } from '../../../shared/white-balance'
-import { useEffect, useLayoutEffect, useState, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { WorkingFrame } from '../../../shared/adjustments'
 import type { DisplayPreview } from '../../../shared/contracts'
 import { frameByteLength } from '../../../shared/preview-frame'
-import type { WorkingFrame } from '../../../shared/adjustments'
-import { useForegroundActivity } from './useForegroundActivity'
+import { validateWhiteBalanceProfile } from '../../../shared/white-balance'
+import { validateHdrAsset } from '../preview/hdr-stream'
 import { imageResourceOwners } from '../preview/image-resource-owners'
+import { useForegroundActivity } from './useForegroundActivity'
 
 export function useWorkingPreview(preview: DisplayPreview | null, presented: boolean) {
   const { begin } = useForegroundActivity(preview?.photoId, undefined, presented)
@@ -122,7 +122,7 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
                 setLoaded({
                   geometryIdentity,
                   frame: {
-                    cpuSource: result.cpuSource,
+                    sourceRef: result.sourceRef,
                     identity: `${asset.url}:${asset.sha256}`,
                     data: new Float32Array(0),
                     width: result.width,

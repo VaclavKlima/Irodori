@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   chmodSync,
+  cpSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -13,8 +14,11 @@ import {
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-if (process.platform !== 'linux' || process.arch !== 'x64')
-  throw new Error('The Rust native export codec currently targets Linux x64.')
+if (!(
+  (process.platform === 'linux' && process.arch === 'x64') ||
+  (process.platform === 'darwin' && process.arch === 'arm64')
+))
+  throw new Error('The native export codec targets macOS arm64 and Linux x64.')
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const archiveDirectory = resolve(
@@ -140,7 +144,16 @@ const manifest = {
   binaryHash: digest(binary),
 }
 writeFileSync(join(working, 'build-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
-const destination = join(root, 'vendor/ultrahdr/native/linux-x64')
+const bundle =
+  process.platform === 'darwin' ? join(working, 'candidate-bundle') : join(root, 'vendor/ultrahdr')
+if (process.platform === 'darwin') mkdirSync(bundle, { recursive: true })
+if (process.platform === 'darwin')
+  for (const name of ['irodori-ultrahdr.mjs', 'irodori-ultrahdr.wasm', 'SHA256SUMS', 'LICENSE'])
+    cpSync(join(root, 'vendor/ultrahdr', name), join(bundle, name), {
+      recursive: true,
+      force: false,
+    })
+const destination = join(bundle, `native/${process.platform}-${process.arch}`)
 mkdirSync(destination, { recursive: true })
 const staged = join(destination, `irodori-ultrahdr-${process.pid}.tmp`)
 copyFileSync(binary, staged)

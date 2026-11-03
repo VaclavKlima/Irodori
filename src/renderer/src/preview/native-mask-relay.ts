@@ -1,8 +1,8 @@
 import type { WorkingFrame } from '../../../shared/adjustments'
 import {
   type NativeHdrMaskBridge,
-  type NativeHdrMaskRequest,
   type NativeHdrMaskOutcome,
+  type NativeHdrMaskRequest,
 } from '../../../shared/native-hdr-mask'
 import { nativeHdrMaskMemory } from '../../../shared/native-hdr-mask-memory'
 import { verifyNativeMaskMath } from './native-mask-math'
@@ -43,8 +43,8 @@ export class NativeMaskRelay {
       return
     }
     if (
-      !this.frame.cpuSource ||
-      JSON.stringify(draft.source) !== JSON.stringify(this.frame.cpuSource) ||
+      !this.frame.sourceRef ||
+      JSON.stringify(draft.source) !== JSON.stringify(this.frame.sourceRef) ||
       draft.source.workingSha256 !== this.frame.hdr?.sha256
     ) {
       this.worker.postMessage({

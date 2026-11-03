@@ -1,43 +1,30 @@
 import { createHash } from 'node:crypto'
 import { open, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { rawDecoder } from '../processing/decoders'
-import { cameraProfile } from '../processing/cameras'
-import { correctionPlan, radial } from '../processing/lens-correction'
 import { SRGB_TO_2020, luminance } from '../../shared/hdr'
+import type { MergeMeasurements, MergePreparation } from '../../shared/merge'
 import {
   MERGE_LIMITS,
-  GPU_CAMERA_PREPARATION,
-  GPU_REFERENCE_PREPARATION,
-  mergeFailure,
   type CameraPreparationPolicy,
-  type ReferencePreparationPolicy,
   type MergeSource,
+  type ReferencePreparationPolicy,
 } from '../../shared/merge'
-import { expandMask, type Plane } from './math'
 import { RawGpuRenderer } from '../gpu/raw-renderer'
-import type { MergeMeasurements } from '../../shared/merge'
 import type { RawSource } from '../gpu/raw-source'
-import { saveSensorCache, type SensorCache } from './sensor-cache'
-import { sourceCorrectionPlan } from './preparation-policy'
-import type { MergePreparation } from '../../shared/merge'
-import { cameraRegistrationWriter, type CameraRegistration } from './camera-registration'
-import {
-  gpuCameraRegistrationWriter,
-  type GpuCameraRegistrationOptions,
-  type GpuCameraRegistrationMetrics,
-} from './gpu-camera-registration'
-import {
-  createGpuReferenceFallback,
-  type GpuReferenceFallbackOptions,
-} from './gpu-reference-fallback'
 import { sensorBlendParameters, sensorBlendRgb } from '../gpu/sensor-blend'
+import { cameraProfile } from '../processing/cameras'
+import { rawDecoder } from '../processing/decoders'
+import { correctionPlan, radial } from '../processing/lens-correction'
+import { cameraRegistrationWriter, type CameraRegistration } from './camera-registration'
 import {
   createAreaReducer,
   createMaskRepairKernel,
   createPreparationKernel,
   createSensorClippingMask,
 } from './cpu-kernels'
+import { expandMask, type Plane } from './math'
+import { sourceCorrectionPlan } from './preparation-policy'
+import { saveSensorCache, type SensorCache } from './sensor-cache'
 
 function preparationWork(): NonNullable<MergeMeasurements['preparation'][number]['work']> {
   return {
@@ -195,9 +182,7 @@ export async function prepareSource(
   checkpoint: () => Promise<void> = async () => {},
   preparation?: MergePreparation,
   cameraPreparation?: CameraPreparationPolicy,
-  cameraOptions?: Pick<GpuCameraRegistrationOptions, 'hooks' | 'signal'> & {
-    observeGpuBytes?: (bytes: number) => void
-  },
+  cameraOptions?: { signal?: AbortSignal; observeGpuBytes?: (bytes: number) => void },
 ): Promise<PreparedSource> {
   cameraOptions?.signal?.throwIfAborted()
   if (cameraOptions?.signal) {
@@ -211,11 +196,14 @@ export async function prepareSource(
   const start = performance.now(),
     work = preparationWork(),
     decoding = decoderWork()
-  let fallback: string | undefined,
-    attemptedGpuBytes = 0,
-    attemptedCameraMetrics: GpuCameraRegistrationMetrics | undefined,
+  if (cameraPreparation)
+    throw new Error('Recomputation unavailable: retired GPU camera preparation executor.')
+  if (!gpu) throw new Error('Merge source preparation requires its GPU owner.')
+  if (process.env.IRODORI_MERGE_BACKEND === 'cpu')
+    throw new Error('The CPU merge override was retired.')
+  let attemptedGpuBytes = 0,
     attemptedSensor: SensorCache | undefined
-  if (gpu && process.env.IRODORI_MERGE_BACKEND !== 'cpu') {
+  {
     const decoder = rawDecoder(path)
     if (!decoder) throw new Error('Merge requires RAW sources.')
     const opening = performance.now(),
@@ -252,58 +240,12 @@ export async function prepareSource(
         alpha = new Uint32Array(Math.ceil((width * height) / 32)),
         invalidated: number[] = []
       work.maskRepairMs += performance.now() - maskStart
-      let camera:
-          | Awaited<ReturnType<typeof cameraRegistrationWriter>>
-          | Awaited<ReturnType<typeof gpuCameraRegistrationWriter>>
-          | undefined,
-        cameraBackend: 'cpu' | 'gpu' = 'cpu',
-        cameraFailure: string | undefined,
-        cameraMetrics: GpuCameraRegistrationMetrics | undefined,
-        cameraGpuBytes = 0,
+      let camera: Awaited<ReturnType<typeof cameraRegistrationWriter>> | undefined,
         maskKernel: Awaited<ReturnType<typeof createMaskRepairKernel>> | undefined
       try {
         if (preparation) {
           const cameraStart = performance.now()
-          if (cameraPreparation === GPU_CAMERA_PREPARATION) {
-            try {
-              // A separately called preparation may inherit a retained RAW frame.
-              // This source has a fresh decoder identity and cannot reuse it.
-              gpu.releaseFrame()
-              const { device } = await gpu.mergeDevice()
-              const gpuCamera = await gpuCameraRegistrationWriter(
-                directory,
-                index,
-                raw,
-                plan,
-                pw,
-                ph,
-                {
-                  device,
-                  availableBytes: 1024 ** 3,
-                  checkpoint,
-                  measurement: work.cpuKernel,
-                  ...cameraOptions,
-                  observeMetrics(metrics) {
-                    attemptedCameraMetrics = metrics
-                    attemptedGpuBytes = Math.max(attemptedGpuBytes, metrics.allocatedGpuBytes)
-                    cameraOptions?.observeGpuBytes?.(attemptedGpuBytes)
-                  },
-                },
-              )
-              camera = gpuCamera
-              cameraBackend = 'gpu'
-              cameraMetrics = gpuCamera.metrics
-              attemptedCameraMetrics = cameraMetrics
-              cameraGpuBytes = cameraMetrics.allocatedGpuBytes
-              attemptedGpuBytes = Math.max(attemptedGpuBytes, cameraGpuBytes)
-              cameraOptions?.observeGpuBytes?.(attemptedGpuBytes)
-            } catch (error) {
-              cameraOptions?.signal?.throwIfAborted()
-              cameraFailure = mergeFailure(error).message
-              await rm(join(directory, `source-${index}.camera.f32`), { force: true })
-            }
-          }
-          camera ??= await cameraRegistrationWriter(
+          camera = await cameraRegistrationWriter(
             directory,
             index,
             raw,
@@ -321,7 +263,7 @@ export async function prepareSource(
           reviewWidth: pw,
           reviewHeight: ph,
           checkpoint,
-          reservedBytes: cameraGpuBytes,
+          reservedBytes: 0,
           observeGpuBytes(bytes) {
             attemptedGpuBytes = Math.max(attemptedGpuBytes, bytes)
             cameraOptions?.observeGpuBytes?.(attemptedGpuBytes)
@@ -344,16 +286,7 @@ export async function prepareSource(
             )
             work.maskRepairMs += performance.now() - maskStart
             const cameraStart = performance.now()
-            if (camera)
-              try {
-                await camera.write(top, bytes)
-              } catch (error) {
-                if (cameraBackend !== 'gpu') throw error
-                await camera.close()
-                camera = undefined
-                cameraOptions?.signal?.throwIfAborted()
-                cameraFailure = mergeFailure(error).message
-              }
+            if (camera) await camera.write(top, bytes)
             work.cameraRegistrationMs += performance.now() - cameraStart
             const hashing = performance.now()
             for (let offset = 0; offset < bytes.length; offset += width * 64 * 16)
@@ -408,50 +341,9 @@ export async function prepareSource(
         )
         attemptedSensor = sensor
         work.sensorCacheMs += performance.now() - sensorStart
-        const cameraStart = performance.now()
-        let cameraRegistration: CameraRegistration | undefined
-        try {
+        const cameraStart = performance.now(),
           cameraRegistration = await camera?.finish()
-        } catch (error) {
-          if (cameraBackend !== 'gpu') throw error
-          await camera?.close()
-          camera = undefined
-          cameraOptions?.signal?.throwIfAborted()
-          cameraFailure = mergeFailure(error).message
-        }
-        if (preparation && !cameraRegistration) {
-          // Replay the original, checksummed working pixels after draining failed
-          // GPU evidence. Never combine partial GPU evidence with CPU reductions.
-          await rm(join(directory, `source-${index}.camera.f32`), { force: true })
-          camera = await cameraRegistrationWriter(
-            directory,
-            index,
-            raw,
-            plan,
-            pw,
-            ph,
-            work.cpuKernel,
-          )
-          cameraRegistration = await replayCameraEvidence(
-            target,
-            width,
-            height,
-            strips,
-            camera,
-            checkpoint,
-          )
-          cameraBackend = 'cpu'
-        }
         work.cameraRegistrationMs += performance.now() - cameraStart
-        if (cameraPreparation)
-          work.cameraPreparation = {
-            ...(cameraMetrics ?? attemptedCameraMetrics),
-            policy: cameraPreparation,
-            backend: cameraFailure ? 'cpu' : cameraBackend,
-            fallback: cameraFailure,
-            allocatedGpuBytes: attemptedCameraMetrics?.allocatedGpuBytes ?? cameraGpuBytes,
-            runtimeMs: work.cameraRegistrationMs,
-          }
         cameraOptions?.signal?.throwIfAborted()
         return {
           path: target,
@@ -490,89 +382,16 @@ export async function prepareSource(
         }
       }
     } catch (error) {
-      fallback = mergeFailure(error).message
+      // Failed GPU output is never published or restarted through another renderer.
+      await rm(join(directory, `source-${index}.f32`), { force: true })
+      await rm(join(directory, `source-${index}.camera.f32`), { force: true })
+      if (attemptedSensor)
+        for (const plane of [attemptedSensor.sensor, attemptedSensor.alpha, attemptedSensor.lens])
+          await rm(plane.path, { force: true })
+      throw error
     } finally {
       session.close()
     }
-    await rm(join(directory, `source-${index}.f32`), { force: true })
-    await rm(join(directory, `source-${index}.camera.f32`), { force: true })
-    if (cameraOptions?.signal?.aborted && attemptedSensor)
-      for (const plane of [attemptedSensor.sensor, attemptedSensor.alpha, attemptedSensor.lens])
-        await rm(plane.path, { force: true })
-  }
-  cameraOptions?.signal?.throwIfAborted()
-  const result = await prepareCpu(
-    path,
-    directory,
-    index,
-    source,
-    reference,
-    checkpoint,
-    preparation,
-    false,
-    decoding,
-  )
-  if (cameraOptions?.signal?.aborted) {
-    await rm(result.path, { force: true })
-    if (result.cameraRegistration) await rm(result.cameraRegistration.path, { force: true })
-    if (result.sensor)
-      for (const plane of [result.sensor.sensor, result.sensor.alpha, result.sensor.lens])
-        await rm(plane.path, { force: true })
-    cameraOptions.signal.throwIfAborted()
-  }
-  result.measurement = {
-    backend: 'cpu',
-    fallback,
-    reused: false,
-    decodingMs: result.measurement!.decodingMs,
-    preparationMs: performance.now() - start - result.measurement!.decodingMs,
-    work: result.measurement!.work,
-    decoder: result.measurement!.decoder,
-  }
-  if (cameraPreparation && result.measurement.work)
-    result.measurement.work.cameraPreparation = {
-      ...attemptedCameraMetrics,
-      policy: cameraPreparation,
-      backend: 'cpu',
-      fallback,
-      allocatedGpuBytes: attemptedCameraMetrics?.allocatedGpuBytes ?? 0,
-      runtimeMs:
-        (attemptedCameraMetrics?.runtimeMs ?? 0) + result.measurement.work.cameraRegistrationMs,
-    }
-  if (attemptedGpuBytes) result.gpuBytes = attemptedGpuBytes
-  if (cameraPreparation) result.cameraPreparation = cameraPreparation
-  return result
-}
-
-async function replayCameraEvidence(
-  path: string,
-  width: number,
-  height: number,
-  hashes: string[],
-  writer: Awaited<ReturnType<typeof cameraRegistrationWriter>>,
-  checkpoint: () => Promise<void>,
-) {
-  const file = await open(path, 'r'),
-    staging = Buffer.allocUnsafe(width * Math.min(64, height) * 16)
-  try {
-    if ((await file.stat()).size !== width * height * 16)
-      throw new Error('Incomplete camera recovery source.')
-    for (let top = 0; top < height; top += 64) {
-      await checkpoint()
-      const bytes = staging.subarray(0, width * Math.min(64, height - top) * 16)
-      let read = 0
-      while (read < bytes.length) {
-        const chunk = await file.read(bytes, read, bytes.length - read, top * width * 16 + read)
-        if (!chunk.bytesRead) throw new Error('Incomplete camera recovery strip.')
-        read += chunk.bytesRead
-      }
-      if (createHash('sha256').update(bytes).digest('hex') !== hashes[top / 64])
-        throw new Error('Damaged camera recovery strip.')
-      await writer.write(top, bytes)
-    }
-    return await writer.finish()
-  } finally {
-    await file.close()
   }
 }
 
@@ -590,8 +409,11 @@ export function prepareReferenceFallback(
   preparation: MergePreparation,
   gpu?: RawGpuRenderer,
   policy?: ReferencePreparationPolicy,
-  options?: Pick<GpuReferenceFallbackOptions, 'signal' | 'hooks' | 'observeMetrics'>,
+  options?: { signal?: AbortSignal },
 ) {
+  if (policy)
+    throw new Error('Recomputation unavailable: retired GPU reference preparation executor.')
+  void gpu
   return prepareCpu(
     path,
     directory,
@@ -601,15 +423,9 @@ export function prepareReferenceFallback(
     checkpoint,
     preparation,
     true,
-    undefined,
-    gpu && policy ? { gpu, policy, options } : undefined,
+    decoderWork(),
+    options?.signal,
   )
-}
-
-interface ReferenceGpuPreparation {
-  gpu: RawGpuRenderer
-  policy: ReferencePreparationPolicy
-  options?: Pick<GpuReferenceFallbackOptions, 'signal' | 'hooks' | 'observeMetrics'>
 }
 
 async function prepareCpu(
@@ -622,15 +438,15 @@ async function prepareCpu(
   preparation?: MergePreparation,
   highlightSafe = false,
   decoding = decoderWork(),
-  referenceGpu?: ReferenceGpuPreparation,
+  signal?: AbortSignal,
 ): Promise<PreparedSource> {
-  referenceGpu?.options?.signal?.throwIfAborted()
-  if (referenceGpu?.options?.signal) {
+  signal?.throwIfAborted()
+  if (signal) {
     const admittedCheckpoint = checkpoint
     checkpoint = async () => {
-      referenceGpu.options!.signal!.throwIfAborted()
+      signal!.throwIfAborted()
       await admittedCheckpoint()
-      referenceGpu.options!.signal!.throwIfAborted()
+      signal!.throwIfAborted()
     }
   }
   const start = performance.now(),
@@ -715,72 +531,6 @@ async function prepareCpu(
     data: new Float32Array(0),
   }
   const strips: string[] = []
-  let referenceGpuStart: number | undefined
-  if (
-    highlightSafe &&
-    referenceGpu?.policy === GPU_REFERENCE_PREPARATION &&
-    process.env.IRODORI_MERGE_BACKEND !== 'cpu'
-  ) {
-    const conversionStart = (referenceGpuStart = performance.now())
-    try {
-      referenceGpu.gpu.releaseFrame()
-      const { device, adapter } = await referenceGpu.gpu.mergeDevice()
-      const converted = await prepareGpuReference(
-        directory,
-        index,
-        device,
-        frame,
-        plan,
-        saturated,
-        gains,
-        { width: plane.width, height: plane.height },
-        checkpoint,
-        work,
-        referenceGpu.options,
-      )
-      referenceGpu.options?.signal?.throwIfAborted()
-      work.referencePreparation = {
-        ...converted.metrics,
-        policy: referenceGpu.policy,
-        backend: 'gpu',
-        runtimeMs: performance.now() - conversionStart,
-      }
-      return {
-        ...converted.prepared,
-        normalization: { ...normal, referenceWhite: 1 },
-        decoder: `${decoder.id}-${decoder.version}`,
-        cameraProfile: `${cameraProfile(source.metadata.make!, source.metadata.model!)!.id}-${cameraProfile(source.metadata.make!, source.metadata.model!)!.version}`,
-        referenceFallbackPreparation: referenceGpu.policy,
-        measurement: {
-          backend: 'gpu',
-          adapter,
-          reused: false,
-          decodingMs,
-          preparationMs: performance.now() - start - decodingMs,
-          work,
-          decoder: decoding,
-        },
-      }
-    } catch (error) {
-      referenceGpu.options?.signal?.throwIfAborted()
-      work.referencePreparation = {
-        ...work.referencePreparation,
-        policy: referenceGpu.policy,
-        backend: 'cpu',
-        fallback: mergeFailure(error).message,
-        allocatedGpuBytes: work.referencePreparation?.allocatedGpuBytes ?? 0,
-        runtimeMs: performance.now() - conversionStart,
-      }
-    }
-  }
-  if (referenceGpu && !work.referencePreparation)
-    work.referencePreparation = {
-      policy: referenceGpu.policy,
-      backend: 'cpu',
-      fallback: 'CPU merge backend requested.',
-      allocatedGpuBytes: 0,
-      runtimeMs: 0,
-    }
   const target = join(directory, `source-${index}.f32`),
     file = await open(target, 'wx')
   let camera: Awaited<ReturnType<typeof cameraRegistrationWriter>> | undefined
@@ -937,9 +687,7 @@ async function prepareCpu(
   plane.data = reduced.data
   plane.mask = reduced.mask
   work.reductionMs += performance.now() - reducing
-  if (referenceGpuStart !== undefined && work.referencePreparation)
-    work.referencePreparation.runtimeMs = performance.now() - referenceGpuStart
-  referenceGpu?.options?.signal?.throwIfAborted()
+  signal?.throwIfAborted()
   return {
     path: target,
     strips,
@@ -958,109 +706,5 @@ async function prepareCpu(
       decoder: decoding,
     },
     cameraRegistration,
-    ...(work.referencePreparation?.allocatedGpuBytes
-      ? { gpuBytes: work.referencePreparation.allocatedGpuBytes }
-      : {}),
-    ...(referenceGpu ? { referenceFallbackPreparation: referenceGpu.policy } : {}),
-  }
-}
-
-async function prepareGpuReference(
-  directory: string,
-  index: number,
-  device: GPUDevice,
-  frame: import('../processing/contracts').LinearFrame,
-  plan: ReturnType<typeof correctionPlan>,
-  saturated: Uint8Array,
-  gains: number[],
-  reduced: { width: number; height: number },
-  checkpoint: () => Promise<void>,
-  work: ReturnType<typeof preparationWork>,
-  options?: Pick<GpuReferenceFallbackOptions, 'signal' | 'hooks' | 'observeMetrics'>,
-) {
-  const converter = await createGpuReferenceFallback(
-      device,
-      frame,
-      plan,
-      saturated,
-      gains,
-      reduced,
-      checkpoint,
-      work.cpuKernel,
-      {
-        ...options,
-        observeMetrics(metrics) {
-          work.referencePreparation = metrics
-          options?.observeMetrics?.(metrics)
-        },
-      },
-    ),
-    { width, height } = converter,
-    target = join(directory, `source-${index}.f32`),
-    strips: string[] = []
-  let file: Awaited<ReturnType<typeof open>> | undefined,
-    ownedFile = false,
-    result:
-      | {
-          prepared: Pick<
-            PreparedSource,
-            'path' | 'width' | 'height' | 'strips' | 'plane' | 'gpuBytes'
-          >
-          metrics: typeof converter.metrics
-        }
-      | undefined
-  try {
-    try {
-      const reduction =
-        converter.reduction ?? createAreaReducer(width, height, reduced, 'luminance')
-      file = await open(target, 'wx')
-      ownedFile = true
-      for (let top = 0; top < height; top += 64) {
-        await checkpoint()
-        const converting = performance.now(),
-          rows = Math.min(64, height - top),
-          native = await converter.convert(top, rows)
-        if (native.rgba.length !== width * rows * 4 || native.luminance.length !== width * rows)
-          throw new Error('Invalid GPU reference fallback strip.')
-        work.conversionMs += performance.now() - converting
-        const reducing = performance.now()
-        reduction.add(top, native.rgba, native.luminance)
-        work.reductionMs += performance.now() - reducing
-        const bytes = Buffer.from(
-            native.rgba.buffer,
-            native.rgba.byteOffset,
-            native.rgba.byteLength,
-          ),
-          hashing = performance.now()
-        strips.push(createHash('sha256').update(bytes).digest('hex'))
-        work.hashingMs += performance.now() - hashing
-        const writing = performance.now()
-        await file.writeFile(bytes)
-        work.writingMs += performance.now() - writing
-      }
-      const plane = reduction.finish()[0]
-      result = {
-        prepared: {
-          path: target,
-          width,
-          height,
-          strips,
-          plane,
-          gpuBytes: converter.metrics.allocatedGpuBytes,
-        },
-        metrics: converter.metrics,
-      }
-    } finally {
-      try {
-        await file?.close()
-      } finally {
-        await converter.close()
-      }
-    }
-    options?.signal?.throwIfAborted()
-    return result!
-  } catch (error) {
-    if (ownedFile) await rm(target, { force: true })
-    throw error
   }
 }

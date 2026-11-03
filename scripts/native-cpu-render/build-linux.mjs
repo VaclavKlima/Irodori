@@ -7,9 +7,15 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const [existingManifest, ...extra] = process.argv.slice(2)
-if (process.platform !== 'linux' || process.arch !== 'x64' || extra.length)
+if (
+  !(
+    (process.platform === 'linux' && process.arch === 'x64') ||
+    (process.platform === 'darwin' && process.arch === 'arm64')
+  ) ||
+  extra.length
+)
   throw new Error(
-    'Usage on Linux x64: node scripts/native-cpu-render/build-linux.mjs [OWNED_BUILD_MANIFEST]',
+    'Usage on macOS arm64 or Linux x64: node scripts/native-cpu-render/build-linux.mjs [OWNED_BUILD_MANIFEST]',
   )
 const maskReference = {
   electron: '44.3.0',
@@ -21,7 +27,8 @@ const matchesReference = (value) =>
   value &&
   Object.keys(value).length === 4 &&
   Object.entries(maskReference).every(([key, expected]) => value[key] === expected)
-const maskCompilerFlags = ['-mno-fma', '-mno-avx', '-mno-sse4.2']
+const maskCompilerFlags =
+  process.platform === 'darwin' ? ['-U__ARM_FEATURE_FMA'] : ['-mno-fma', '-mno-avx', '-mno-sse4.2']
 const maskUpstream = 'native/irodori-cpu-render/upstream/electron-llvm'
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex')
 const bounded = (path, maximum) => {
@@ -58,8 +65,8 @@ const manifestBytes = bounded(manifestPath, 1024 ** 2),
 const executable = join(dirname(manifestPath), 'irodori-cpu-render')
 if (
   manifest.implementation !== 'float64-ctl-cpu-strip-v1' ||
-  manifest.platform !== 'linux' ||
-  manifest.arch !== 'x64' ||
+  manifest.platform !== process.platform ||
+  manifest.arch !== process.arch ||
   manifest.status !== 'built-unverified' ||
   manifest.executable?.path !== executable ||
   !/^[a-f0-9]{64}$/.test(manifest.executable.sha256) ||
@@ -140,7 +147,6 @@ const canonical = (value) => {
 }
 if (
   capability.version !== 'native-cpu-capabilities-v1' ||
-  capability.presentation !== 'IRODCPU3' ||
   capability.mask?.request !== 'MASKCPU3' ||
   capability.mask.output !== 'MASKOUT1' ||
   capability.mask.terminal !== 'MASKDONE' ||
@@ -169,7 +175,7 @@ if (
   throw new Error(
     'The retained native CPU capability does not match the Electron LLVM build receipt.',
   )
-const destination = join(root, 'vendor/native-cpu-render/linux-x64'),
+const destination = join(root, `vendor/native-cpu-render/${process.platform}-${process.arch}`),
   licenses = join(destination, 'licenses')
 mkdirSync(licenses, { recursive: true })
 const temporary = join(destination, `irodori-cpu-render-${process.pid}.tmp`)

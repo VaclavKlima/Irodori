@@ -4,8 +4,8 @@ import { join, resolve } from 'node:path'
 import sharp from 'sharp'
 import { ExportProcess } from '../src/main/export/process'
 import { exportRenditions } from '../src/main/export/renditions'
-import { exportSdrEncodePlan } from '../src/shared/export-resources'
 import type { ExportWorkerPhase } from '../src/shared/export'
+import { exportSdrEncodePlan } from '../src/shared/export-resources'
 import { detailExportFixture } from './detail-export.helpers'
 import { sha } from './export.helpers'
 
@@ -13,7 +13,7 @@ test('the real SDR worker refuses rendition and encoder budgets before output, t
   const previous = process.env.IRODORI_EXPORT_BACKEND,
     f = await detailExportFixture()
   try {
-    process.env.IRODORI_EXPORT_BACKEND = 'cpu'
+    process.env.IRODORI_EXPORT_BACKEND = 'gpu'
     const reference = await exportRenditions(f.exportJob),
       filteredPath = join(f.exportJob.preparationDirectory!, 'detail-primary.f32'),
       filtered = await readFile(filteredPath),

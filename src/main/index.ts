@@ -1,65 +1,55 @@
-import { CollectionChangedError } from '../shared/collections'
-import { APP_TITLE } from '../shared/app-identity'
-import { configureAppIdentity } from './app-identity'
-import { configureDesktopIdentity, desktopIcon } from './desktop-identity'
-import { mergeFailure } from '../shared/merge'
-import { DisplayState } from './display-state'
-import { installWaylandDisplayRefresh } from './wayland-display'
-import { pathToFileURL } from 'node:url'
-import { powerMonitor } from 'electron'
-import { startEditorEndpoint } from './editor-endpoint'
-import { BrowseCatalogChangedError } from '../shared/browse'
-import { randomUUID } from 'node:crypto'
-import { photoExtensions } from './processing/formats'
 import {
   app,
   BrowserWindow,
   dialog,
   ipcMain,
   Menu,
+  powerMonitor,
   protocol,
   screen,
   shell,
   type IpcMainInvokeEvent,
 } from 'electron'
-import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { Readable } from 'node:stream'
+import { pathToFileURL } from 'node:url'
+import { APP_TITLE } from '../shared/app-identity'
+import { BrowseCatalogChangedError } from '../shared/browse'
+import { CollectionChangedError } from '../shared/collections'
+import type { AppInfo } from '../shared/contracts'
+import { SDR_TARGET } from '../shared/hdr'
+import { mergeFailure } from '../shared/merge'
+import {
+  NATIVE_HDR_MASK_VERSION,
+  type NativeHdrMaskOutcome,
+  type NativeHdrMaskRequest,
+} from '../shared/native-hdr-mask'
+import { configureAppIdentity } from './app-identity'
+import { configureDesktopIdentity, desktopIcon } from './desktop-identity'
+import { DisplayState } from './display-state'
+import { startEditorEndpoint } from './editor-endpoint'
+import { queryImageResources } from './image-resource-query'
+import { ImportDevices } from './import-devices'
+import { PhotoLibrary } from './library'
+import {
+  hdrMaskBackend,
+  nativeCpuExecutable,
+  nativeCpuMaskCapability,
+} from './native-cpu-executable'
+import { NativeMaskCancelled, NativeMaskController } from './native-mask-controller'
 import {
   createPreviewAssetStream,
   PREVIEW_STREAM_CHUNK_BYTES,
   type PreviewAssetStreamLease,
 } from './preview-asset-stream'
-import { Readable } from 'node:stream'
-import type { AppInfo } from '../shared/contracts'
-import { PhotoLibrary } from './library'
 import { PreviewProcess } from './preview-process'
-import { ImportDevices } from './import-devices'
-import { createAppWindow, showAppWindow } from './window-presentation'
-import { closeServices } from './shutdown'
+import { photoExtensions } from './processing/formats'
 import { ResourceService } from './resource-service'
-import { queryImageResources } from './image-resource-query'
-import {
-  NativeCpuController,
-  NativeCpuMemoryLimit,
-  NativeCpuCancelled,
-} from './native-cpu-controller'
-import {
-  cpuPreviewBackend,
-  nativeCpuExecutable,
-  nativeCpuMaskCapability,
-} from './native-cpu-executable'
-import { SDR_TARGET } from '../shared/hdr'
-import {
-  NATIVE_HDR_MASK_VERSION,
-  type NativeHdrMaskRequest,
-  type NativeHdrMaskOutcome,
-} from '../shared/native-hdr-mask'
-import { nativeCpuExistingOwners } from '../shared/native-cpu-memory'
-import {
-  NATIVE_CPU_PREVIEW_VERSION,
-  type CpuPreviewOutcome,
-  type CpuPreviewRequest,
-} from '../shared/native-cpu-preview'
+import { closeServices } from './shutdown'
+import { installWaylandDisplayRefresh } from './wayland-display'
+import { createAppWindow, showAppWindow } from './window-presentation'
 
 const importDevices = new ImportDevices()
 
@@ -79,7 +69,7 @@ let displayState: DisplayState
 let mainWindow: BrowserWindow | null = null
 let library: PhotoLibrary | undefined
 let resourceService: ResourceService | undefined
-let nativeCpu: NativeCpuController | undefined
+let nativeCpu: NativeMaskController | undefined
 let editorEndpoint: Awaited<ReturnType<typeof startEditorEndpoint>> | undefined
 let quitting = false
 let picking = false
@@ -586,13 +576,10 @@ app
     if (process.platform === 'linux' && process.arch === 'x64')
       void library.fullPreviews.prewarmHdr('linear64')
     const maskCapability =
-      cpuPreviewBackend() === 'native' ? await nativeCpuMaskCapability() : undefined
-    nativeCpu = new NativeCpuController({
+      hdrMaskBackend() === 'native' ? await nativeCpuMaskCapability() : undefined
+    nativeCpu = new NativeMaskController({
       root: join(app.getPath('userData'), 'library/cache/cpu-presentations'),
       executable: () => nativeCpuExecutable(),
-      policy: () => resourceService!.getPolicy(null),
-      acquireSource: (request, signal, comparisonOf) =>
-        library!.fullPreviews.acquireCpuWorkingSource(request, signal, comparisonOf),
       foreground: (work, signal) => library!.fullPreviews.runCpuForeground(work, signal),
       mask: maskCapability
         ? {
@@ -601,22 +588,7 @@ app
               library!.fullPreviews.acquireCpuMaskWorkingSource(request, signal),
             checkTarget: (request) => {
               const current = displayState.get()
-              const fallback =
-                nativeCpu?.hasCpuPresentationSource(request.source, request.comparisonOf) ||
-                (current.presentation?.photoId === request.source.photoId &&
-                  current.presentation.stage === 'presented' &&
-                  current.presentation.backend === 'canvas2d-hdr-sdr')
-              const expected =
-                request.domain === 'working-hdr'
-                  ? SDR_TARGET
-                  : fallback
-                    ? {
-                        ...SDR_TARGET,
-                        generation: current.generation,
-                        requested: current.requested,
-                        headroom: current.headroom,
-                      }
-                    : current
+              const expected = request.domain === 'working-hdr' ? SDR_TARGET : current
               for (const key of [
                 'generation',
                 'requested',
@@ -631,48 +603,13 @@ app
             },
           }
         : undefined,
-
-      existingOwners: (asset, request) =>
-        nativeCpuExistingOwners(
-          asset.width,
-          asset.height,
-          Math.max(1, Math.round(request.viewport.width * request.viewport.dpr)),
-          Math.max(1, Math.round(request.viewport.height * request.viewport.dpr)),
-        ),
     })
     await nativeCpu.open()
     library.fullPreviews.installCpuController(nativeCpu)
-    handleLibraryRequest('preview:cpu-backend', (event) => {
+    handleLibraryRequest('preview:hdr-mask-backend', (event) => {
       trusted(event)
-      return cpuPreviewBackend()
+      return hdrMaskBackend()
     })
-    handleLibraryRequest(
-      'preview:cpu-render',
-      async (event, request: CpuPreviewRequest): Promise<CpuPreviewOutcome> => {
-        trusted(event)
-        try {
-          return await nativeCpu!.render(request)
-        } catch (error) {
-          if (error instanceof NativeCpuCancelled)
-            return {
-              kind: 'cancelled',
-              version: NATIVE_CPU_PREVIEW_VERSION,
-              requestId: request.requestId,
-              sessionId: request.sessionId,
-              generation: request.generation,
-            }
-          if (!(error instanceof NativeCpuMemoryLimit)) throw error
-          return {
-            kind: 'memory-limit',
-            version: NATIVE_CPU_PREVIEW_VERSION,
-            requestId: request.requestId,
-            sessionId: request.sessionId,
-            generation: request.generation,
-            policy: error.policy,
-          }
-        }
-      },
-    )
     handleLibraryRequest(
       'preview:hdr-mask-render',
       async (event, request: NativeHdrMaskRequest): Promise<NativeHdrMaskOutcome> => {
@@ -680,7 +617,7 @@ app
         try {
           return await nativeCpu!.renderMask(request)
         } catch (error) {
-          if (!(error instanceof NativeCpuCancelled)) throw error
+          if (!(error instanceof NativeMaskCancelled)) throw error
           return {
             kind: 'cancelled',
             version: NATIVE_HDR_MASK_VERSION,
@@ -699,23 +636,10 @@ app
       trusted(event)
       return nativeCpu!.releaseMask(sessionId, maskId)
     })
-    handleLibraryRequest('preview:cpu-cancel', (event, sessionId, requestId) => {
-      trusted(event)
-      return nativeCpu!.cancel(sessionId, requestId)
-    })
-    handleLibraryRequest('preview:cpu-ack', (event, sessionId, pairId, previous) => {
-      trusted(event)
-      return nativeCpu!.acknowledge(sessionId, pairId, previous)
-    })
-    handleLibraryRequest('preview:cpu-release', (event, sessionId, pairId) => {
-      trusted(event)
-      return nativeCpu!.release(sessionId, pairId)
-    })
     editorEndpoint = await startEditorEndpoint(app.getPath('userData'), library, displayState)
     protocol.handle('irodori-photo', async (request) => {
       if (request.method !== 'GET') return new Response(null, { status: 404 })
       const asset: PreviewAssetStreamLease | undefined =
-        nativeCpu?.acquire(new URL(request.url)) ??
         nativeCpu?.acquireMask(new URL(request.url)) ??
         library?.fullPreviews.acquire(new URL(request.url))
       if (asset) {

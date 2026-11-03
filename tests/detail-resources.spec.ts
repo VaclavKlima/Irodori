@@ -1,18 +1,18 @@
 import { expect, test } from '@playwright/test'
 import {
-  detailMemoryPlan,
-  detailStreamMemoryPlan,
-  detailFrameMemoryPlan,
-  detailPreviewMemoryPlan,
-  detailProofMemoryPlan,
   DETAIL_BAND_ROWS,
-  DETAIL_GPU_BYTES,
   DETAIL_CPU_WORK_BYTES,
+  DETAIL_GPU_BYTES,
   DETAIL_GPU_HOST_BYTES,
+  DETAIL_PARAMETER_BYTES,
+  DETAIL_STAGE_BYTES,
   DETAIL_TILE_BYTES,
   DETAIL_WINDOW_BYTES,
-  DETAIL_STAGE_BYTES,
-  DETAIL_PARAMETER_BYTES,
+  detailFrameMemoryPlan,
+  detailMemoryPlan,
+  detailPreviewMemoryPlan,
+  detailProofMemoryPlan,
+  detailStreamMemoryPlan,
 } from '../src/shared/detail-resources'
 import { resolveResourcePolicy } from '../src/shared/resource-policy'
 
@@ -82,15 +82,16 @@ test('prepared proof admission separates fenced GPU phases and prefers filtering
     effectiveBytes: admission.reservation.vramBytes + DETAIL_GPU_BYTES,
   })
   const selected = detailPreviewMemoryPlan(image, tight, options)
-  expect(selected.proofBackend).toBe('cpu')
+  expect(selected.proofBackend).toBe('gpu')
+  expect(selected.peakGpuBytes).toBeGreaterThan(tight.policy.vram.effectiveBytes)
   expect(selected.filter.gpuAccepted).toBe(true)
   expect(
     detailPreviewMemoryPlan(image, admission, { ...options, authoredHdr: true }).proofBackend,
-  ).toBe('cpu')
+  ).toBe('gpu')
   const working = detailPreviewMemoryPlan(image, admission, { ...options, workingOnly: true })
   expect(working.proofBytes).toEqual({ ramBytes: 0, vramBytes: 0 })
   const raster = detailPreviewMemoryPlan(image, admission, { ...options, hdr: false })
-  expect(raster.proofBackend).toBe('cpu')
+  expect(raster.proofBackend).toBe('gpu')
   expect(raster.filter.sourceBytes).toBe(image.width * image.height * 16)
   expect(raster.proofBytes.ramBytes).toBeGreaterThan(image.width * image.height * 24)
 })
@@ -114,8 +115,8 @@ test('cached-source proof admission does not reserve retired filters and retains
   ).toBe(false)
   Object.assign(tight.policy.vram, { effectiveBytes: gpu.total.vramBytes - 1 })
   const cpu = detailProofMemoryPlan(image, tight, options)
-  expect(cpu).toMatchObject({ backend: 'cpu', accepted: true })
-  expect(cpu.bytes.vramBytes).toBe(0)
+  expect(cpu).toMatchObject({ backend: 'gpu', accepted: false })
+  expect(cpu.bytes.vramBytes).toBeGreaterThan(0)
   Object.assign(tight.policy.ram, { effectiveBytes: cpu.total.ramBytes - 1 })
   expect(detailProofMemoryPlan(image, tight, options).accepted).toBe(false)
   for (const domain of [
@@ -123,8 +124,8 @@ test('cached-source proof admission does not reserve retired filters and retains
     { hdr: true, authoredHdr: true },
   ]) {
     const proof = detailProofMemoryPlan(image, admission, { ...options, ...domain })
-    expect(proof).toMatchObject({ backend: 'cpu', accepted: true })
-    expect(proof.bytes.vramBytes).toBe(0)
+    expect(proof).toMatchObject({ backend: 'gpu', accepted: true })
+    expect(proof.bytes.vramBytes).toBeGreaterThan(0)
   }
 })
 

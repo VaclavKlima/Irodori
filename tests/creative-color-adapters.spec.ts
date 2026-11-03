@@ -1,22 +1,22 @@
+import { expect, test } from '@playwright/test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { test, expect } from '@playwright/test'
+import { supportsEditingSettings } from '../src/main/catalog/editing-migration'
 import {
   neutralAdjustments,
   renderAdjustments,
   sameAdjustments,
   srgbTransform,
 } from '../src/shared/adjustments'
-import { prepareCreativeColor } from '../src/shared/creative-color'
-import { neutralColorMixer, type ColorMixerSettings } from '../src/shared/color-mixer'
 import { neutralColorGrading, type ColorGradingSettings } from '../src/shared/color-grading'
+import { neutralColorMixer, type ColorMixerSettings } from '../src/shared/color-mixer'
+import type { ColorPrimaries, ColorTriple } from '../src/shared/color-model'
+import { prepareCreativeColor } from '../src/shared/creative-color'
+import { initialSettings, validatePatch } from '../src/shared/edits'
 import { adjustHdr, HDR_SOURCE_VERSION, SDR_TARGET, type HdrWorkingAsset } from '../src/shared/hdr'
 import { analyzeHdr, hdrStatistics } from '../src/shared/hdr-statistics'
-import { rasterLinear } from '../src/main/export/raster'
-import { initialSettings, validatePatch } from '../src/shared/edits'
-import { supportsEditingSettings } from '../src/main/catalog/editing-migration'
-import type { ColorPrimaries, ColorTriple } from '../src/shared/color-model'
+import { rasterLinear } from './raster-reference'
 
 const reference = JSON.parse(
   readFileSync(new URL('./fixtures/creative-color-reference.json', import.meta.url), 'utf8'),

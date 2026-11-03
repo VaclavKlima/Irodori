@@ -4,8 +4,8 @@ dist/
 artifacts/
 __pycache__/
 native/**/target/
-vendor/ultrahdr/native/linux-x64/
-vendor/native-cpu-render/linux-x64/
+vendor/ultrahdr/native/*/
+vendor/native-cpu-render/*/
 vendor/native-raw/linux-x64/
 test-results/
 playwright-report/

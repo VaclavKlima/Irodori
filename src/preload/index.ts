@@ -1,8 +1,8 @@
-import { CollectionChangedError } from '../shared/collections'
-import { MergeError, type MergeFailure } from '../shared/merge'
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppInfo, LibraryEvent, IrodoriApi } from '../shared/contracts'
 import { BrowseCatalogChangedError } from '../shared/browse'
+import { CollectionChangedError } from '../shared/collections'
+import type { AppInfo, IrodoriApi, LibraryEvent } from '../shared/contracts'
+import { MergeError, type MergeFailure } from '../shared/merge'
 
 async function editTransferResult<T>(response: Promise<{ result: T; error?: string }>): Promise<T> {
   const value = await response
@@ -242,19 +242,12 @@ const api: IrodoriApi = {
   },
   releaseHdrFirstSurface: (requestId, surfaceId) =>
     ipcRenderer.invoke('preview:first-surface-release', requestId, surfaceId),
+  getHdrMaskBackend: () => ipcRenderer.invoke('preview:hdr-mask-backend'),
   renderHdrMask: (request) => ipcRenderer.invoke('preview:hdr-mask-render', request),
   cancelHdrMask: (sessionId, requestId) =>
     ipcRenderer.invoke('preview:hdr-mask-cancel', sessionId, requestId),
   releaseHdrMask: (sessionId, maskId) =>
     ipcRenderer.invoke('preview:hdr-mask-release', sessionId, maskId),
-  getCpuPreviewBackend: () => ipcRenderer.invoke('preview:cpu-backend'),
-  renderCpuPreview: (request) => ipcRenderer.invoke('preview:cpu-render', request),
-  cancelCpuPreview: (sessionId, requestId) =>
-    ipcRenderer.invoke('preview:cpu-cancel', sessionId, requestId),
-  acknowledgeCpuPreview: (sessionId, pairId, previous) =>
-    ipcRenderer.invoke('preview:cpu-ack', sessionId, pairId, previous),
-  releaseCpuPreview: (sessionId, pairId) =>
-    ipcRenderer.invoke('preview:cpu-release', sessionId, pairId),
   requestCachedFullPreview: async (id, token) => {
     const result = await ipcRenderer.invoke('preview:cached', id, token)
     if (result.error) throw new Error(result.error)

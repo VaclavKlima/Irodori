@@ -1,15 +1,15 @@
-import type { CropGeometry } from '../../shared/crop'
 import { setImmediate } from 'node:timers/promises'
+import type { CropGeometry } from '../../shared/crop'
 import {
+  copyCropTile,
   CROP_TILE_EDGE,
   cropTileSourceBounds,
-  resampleCropTile,
   type CropSourceWindow,
 } from '../../shared/crop-filter'
 import type { CropMemoryPlan } from '../../shared/crop-resources'
 import { createCropGpu, type CropGpu } from '../gpu/crop'
 
-export type CropBackend = 'auto' | 'cpu' | 'gpu'
+export type CropBackend = 'auto' | 'gpu'
 export interface CropBandDiagnostics {
   backend: 'copy' | 'cpu' | 'gpu' | 'mixed'
   adapter?: string
@@ -30,7 +30,7 @@ export async function* cropBands(
   makeGpu: () => Promise<CropGpu> = createCropGpu,
 ): AsyncGenerator<Float32Array<ArrayBuffer>> {
   signal.throwIfAborted()
-  if (!['auto', 'cpu', 'gpu'].includes(backend)) throw new Error('Invalid crop processing backend.')
+  if (!['auto', 'gpu'].includes(backend)) throw new Error('Invalid crop processing backend.')
   if (
     source.left !== 0 ||
     source.top !== 0 ||
@@ -41,32 +41,16 @@ export async function* cropBands(
     throw new Error('Invalid complete crop source frame.')
   if (!memory.cpuAccepted)
     throw new Error('Crop preparation exceeds the frozen managed image budgets.')
-  if (!geometry.pixelAligned && backend === 'gpu' && !memory.gpuAccepted)
+  if (!geometry.pixelAligned && !memory.gpuAccepted)
     throw new Error('Crop GPU preparation exceeds the frozen managed image budgets.')
   let gpu: CropGpu | undefined
   const update = () => {
-    diagnostics.backend = geometry.pixelAligned
-      ? 'copy'
-      : diagnostics.gpuTiles
-        ? diagnostics.cpuTiles
-          ? 'mixed'
-          : 'gpu'
-        : 'cpu'
+    diagnostics.backend = geometry.pixelAligned ? 'copy' : 'gpu'
   }
   try {
-    if (!geometry.pixelAligned && backend !== 'cpu') {
-      if (memory.gpuAccepted) {
-        try {
-          gpu = await makeGpu()
-          diagnostics.adapter = gpu.adapter
-        } catch (error) {
-          signal.throwIfAborted()
-          if (backend === 'gpu') throw error
-          diagnostics.fallback = String(error)
-        }
-      } else
-        diagnostics.fallback =
-          'GPU crop admission was unavailable; using the equivalent CPU filter.'
+    if (!geometry.pixelAligned) {
+      gpu = await makeGpu()
+      diagnostics.adapter = gpu.adapter
     }
     signal.throwIfAborted()
     const strip = new Float32Array(geometry.width * Math.min(64, geometry.height) * 4)
@@ -92,21 +76,10 @@ export async function* cropBands(
               row * bounds.width * 4,
             )
           }
-          try {
-            result = await gpu.render(geometry, tile, { ...bounds, data: pixels }, signal)
-            diagnostics.gpuTiles++
-          } catch (error) {
-            signal.throwIfAborted()
-            if (backend === 'gpu') throw error
-            diagnostics.fallback = String(error)
-            diagnostics.precisionRecoveryTiles += gpu.precisionRecoveryTiles
-            await gpu.close()
-            gpu = undefined
-            result = resampleCropTile(geometry, tile, source)
-            diagnostics.cpuTiles++
-          }
+          result = await gpu.render(geometry, tile, { ...bounds, data: pixels }, signal)
+          diagnostics.gpuTiles++
         } else {
-          result = resampleCropTile(geometry, tile, source)
+          result = copyCropTile(geometry, tile, source)
           diagnostics.cpuTiles++
         }
         if (!(result instanceof Float32Array) || result.length !== tile.width * tile.height * 4)

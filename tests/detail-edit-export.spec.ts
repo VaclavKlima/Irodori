@@ -2,16 +2,16 @@ import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import sharp from 'sharp'
+import { exportDetailPolicy } from '../src/main/export/detail-policy'
 import { ExportProcess } from '../src/main/export/process'
 import type { ExportRenderJob } from '../src/main/export/types'
-import { exportDetailPolicy } from '../src/main/export/detail-policy'
-import { neutralNoiseReduction, neutralDetailSharpening } from '../src/shared/spatial-detail'
-import { exportFixture } from './export.helpers'
+import { neutralDetailSharpening, neutralNoiseReduction } from '../src/shared/spatial-detail'
 import { cropAdmission } from './crop-frame.helpers'
+import { exportFixture } from './export.helpers'
 
 const previous = process.env.IRODORI_EXPORT_BACKEND
 test.beforeEach(() => {
-  process.env.IRODORI_EXPORT_BACKEND = 'cpu'
+  process.env.IRODORI_EXPORT_BACKEND = 'gpu'
 })
 test.afterEach(() => {
   if (previous === undefined) delete process.env.IRODORI_EXPORT_BACKEND

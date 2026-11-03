@@ -1,28 +1,28 @@
+import { blacksModule } from './blacks'
+import { applyColorIntensity, colorIntensityModule } from './color-intensity'
+import { contrastModule } from './contrast'
+import {
+  applyCreativeColor,
+  CREATIVE_COLOR_VERSION,
+  prepareCreativeColor,
+  sameCreativeColor,
+  type CreativeColorSettings,
+} from './creative-color'
+import { highlightsModule } from './highlights'
+import { shadowsModule } from './shadows'
 import {
   WHITE_BALANCE_MODEL,
   whiteBalanceMatrix,
   type WhiteBalance,
   type WhiteBalanceProfile,
 } from './white-balance'
-import { shadowsModule } from './shadows'
-export { shadowsModule } from './shadows'
 import { whitesModule } from './whites'
-export { whitesModule } from './whites'
-import { blacksModule } from './blacks'
 export { blacksModule } from './blacks'
-import { highlightsModule } from './highlights'
-export { highlightsModule } from './highlights'
-import { contrastModule } from './contrast'
-export { contrastModule } from './contrast'
-import { applyColorIntensity, colorIntensityModule } from './color-intensity'
-import {
-  applyCreativeColor,
-  prepareCreativeColor,
-  sameCreativeColor,
-  CREATIVE_COLOR_VERSION,
-  type CreativeColorSettings,
-} from './creative-color'
 export { colorIntensityModule } from './color-intensity'
+export { contrastModule } from './contrast'
+export { highlightsModule } from './highlights'
+export { shadowsModule } from './shadows'
+export { whitesModule } from './whites'
 
 export interface AdjustmentParameters extends CreativeColorSettings {
   whiteBalance?: WhiteBalance
@@ -220,7 +220,7 @@ export function renderAdjustments(
   return output
 }
 export interface WorkingFrame {
-  cpuSource?: import('./native-cpu-preview').CpuPreviewSourceRef
+  sourceRef?: import('./prepared-source').PreparedHdrSourceRef
   hdr?: import('./hdr').HdrWorkingAsset
   identity?: string
   data: Float32Array<ArrayBuffer>

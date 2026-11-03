@@ -1,7 +1,7 @@
+import { verifyCaptureSequence, type CaptureMetadata } from './capture-sequence'
 import type { Photo } from './contracts'
 import type { HdrWorkingAsset } from './hdr'
 import type { ProcessingMetadata } from './lens'
-import { verifyCaptureSequence, type CaptureMetadata } from './capture-sequence'
 
 export const MERGE_VERSION = 'sony-merge-v4'
 export type MergeVersion = typeof MERGE_VERSION
@@ -30,6 +30,34 @@ export const GPU_CAMERA_PREPARATION = 'gpu-camera-v2-exact'
 export type CameraPreparationPolicy = typeof GPU_CAMERA_PREPARATION
 export const GPU_REFERENCE_PREPARATION = 'gpu-reference-fallback-v2-compensated'
 export type ReferencePreparationPolicy = typeof GPU_REFERENCE_PREPARATION
+
+/** Saved masters remain readable when their historical recomputation owner retires. */
+export function mergeRecomputationReason(
+  recipe?: Pick<
+    MergeRecipe,
+    'sources' | 'cameraPreparation' | 'referenceFallbackPreparation' | 'measurements'
+  > & {
+    version: string
+  },
+): string | undefined {
+  if (!recipe) return
+  if (recipe.version !== MERGE_VERSION)
+    return `Recomputation unavailable: unsupported merge version ${recipe.version}.`
+  if (recipe.measurements?.accumulation?.backend === 'cpu')
+    return 'Recomputation unavailable: retired CPU accumulation executor.'
+  if (
+    Array.isArray(recipe.measurements?.preparation) &&
+    recipe.measurements.preparation.some((stage) => stage?.backend === 'cpu' && !stage.reused)
+  )
+    return 'Recomputation unavailable: retired CPU source preparation executor.'
+  if (
+    recipe.cameraPreparation !== undefined ||
+    recipe.sources.some((s) => s.cameraPreparation !== undefined)
+  )
+    return 'Recomputation unavailable: retired GPU camera preparation executor.'
+  if (recipe.referenceFallbackPreparation !== undefined)
+    return 'Recomputation unavailable: retired GPU reference preparation executor.'
+}
 export interface MergeReadMeasurements {
   bands: {
     requests: number

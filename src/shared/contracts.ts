@@ -1,13 +1,12 @@
-import type { HdrAnalysisRequest, HdrPhotoStatistics } from './hdr-statistics'
-import type { HdrPhotoPixel } from './hdr-pixel'
-import type { WhiteBalanceSample, PhotoWhiteBalanceProposal } from './white-balance-picker'
-import type { PhotoStatistics } from './statistics'
-import type { AdjustmentParameters } from './adjustments'
-import type { DisplayTransform } from './adjustments'
-import type { HdrWorkingAsset, DisplayTarget, DisplayCapabilities } from './hdr'
+import type { AdjustmentParameters, DisplayTransform } from './adjustments'
+import type { EditFlushScope, EditHistory, EditPatch, EditState } from './edits'
+import type { DisplayCapabilities, DisplayTarget, HdrWorkingAsset } from './hdr'
 import type { PreviewPreference } from './hdr-display'
-import type { EditState, EditPatch, EditHistory, EditFlushScope } from './edits'
+import type { HdrPhotoPixel } from './hdr-pixel'
+import type { HdrAnalysisRequest, HdrPhotoStatistics } from './hdr-statistics'
 import type { CorrectionKind, LensSettings, LensState } from './lens'
+import type { PhotoStatistics } from './statistics'
+import type { PhotoWhiteBalanceProposal, WhiteBalanceSample } from './white-balance-picker'
 export interface AppInfo {
   version: string
   platform: 'linux' | 'darwin' | 'win32'
@@ -21,7 +20,7 @@ export interface ForegroundActivity {
   reviewId?: string
 }
 
-export interface IrodoriApi extends NativeCpuPreviewBridge, NativeHdrMaskBridge {
+export interface IrodoriApi extends NativeHdrMaskBridge {
   getResourceSettings(): Promise<import('./resource-policy').ResourceSettingsView>
   setResourceSettings(
     value: import('./resource-policy').ResourceSettings,
@@ -298,7 +297,7 @@ export interface FullPreview {
   /** A revision-checked uncropped source leased for transient framing. */
   sourceSpace?: 'uncropped'
   crop?: import('./crop').CropGeometry
-  cpuSource?: import('./native-cpu-preview').CpuPreviewSourceRef
+  sourceRef?: import('./prepared-source').PreparedHdrSourceRef
   adjustments?: AdjustmentParameters
   linear?: LinearAsset
   settingsRevision?: number
@@ -457,6 +456,5 @@ export interface LibraryEvent {
 }
 
 export { COLLECTION_CHUNK_SIZE } from './collections'
-import type { NativeCpuPreviewBridge } from './native-cpu-preview'
 
 import type { NativeHdrMaskBridge } from './native-hdr-mask'

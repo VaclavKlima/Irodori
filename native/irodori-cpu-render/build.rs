@@ -19,8 +19,10 @@ fn watch_tree(path: &std::path::Path) {
 }
 
 fn main() {
-    assert_eq!(env::var("CARGO_CFG_TARGET_OS").unwrap(), "linux");
-    assert_eq!(env::var("CARGO_CFG_TARGET_ARCH").unwrap(), "x86_64");
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let apple = target_os == "macos" && target_arch == "aarch64";
+    assert!(apple || (target_os == "linux" && target_arch == "x86_64"), "Native masks support macOS arm64 and Linux x64.");
     let engine = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let project = engine.ancestors().nth(2).unwrap();
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -46,7 +48,7 @@ fn main() {
         if is_mask {
             // Match the actual E probe's baseline LLVM branches. These flags
             // belong only to the mask TU, never ordinary CPU presentation.
-            command.args(["-mno-fma", "-mno-avx", "-mno-sse4.2"])
+            command.args(if apple { vec!["-U__ARM_FEATURE_FMA"] } else { vec!["-mno-fma", "-mno-avx", "-mno-sse4.2"] })
                 .arg("-I").arg(engine.join("upstream/electron-llvm/llvm-libc"));
         }
         run(command.arg("-o").arg(object));
@@ -69,6 +71,6 @@ fn main() {
     }
     println!("cargo:rustc-link-search=native={}", output.display());
     println!("cargo:rustc-link-lib=static=irodori_cpu_render");
-    println!("cargo:rustc-link-lib=dylib=stdc++");
+    println!("cargo:rustc-link-lib=dylib={}", if apple { "c++" } else { "stdc++" });
     println!("cargo:rustc-link-lib=dylib=m");
 }

@@ -2,8 +2,8 @@
 // Irodori's mask-only seam. Exact LLVM sources and full terms are retained in
 // upstream/electron-llvm/llvm-libc/.
 #pragma once
-#if !defined(__linux__) || !defined(__x86_64__)
-#error "The Electron LLVM native mask is scoped to Linux x86_64."
+#if !(defined(__linux__) && defined(__x86_64__)) && !(defined(__APPLE__) && defined(__aarch64__))
+#error "The Electron LLVM native mask supports macOS arm64 and Linux x86_64."
 #endif
 #ifdef LIBC_NAMESPACE
 #error "The mask translation unit must own its isolated LLVM namespace."

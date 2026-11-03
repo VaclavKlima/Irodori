@@ -1,21 +1,19 @@
+import { ExifTool } from 'exiftool-vendored'
 import { createHash } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import sharp from 'sharp'
-import { ExifTool } from 'exiftool-vendored'
-import { exportRenditions } from './renditions'
-import { encodeExportHdr } from './encoder'
-import { validatePrimary } from './jpeg'
-import type { ExportDiagnostics, ExportRenderJob, ExportRenderResult } from './types'
 import type { ExportWorkerPhase } from '../../shared/export'
 import {
+  ExportResourceError,
   exportSdrEncodePlan,
   requireExportAllocation,
-  ExportResourceError,
 } from '../../shared/export-resources'
 import type { ManagedImageBytes } from '../../shared/resource-policy'
-
-export { rasterLinear } from './raster'
+import { encodeExportHdr } from './encoder'
+import { validatePrimary } from './jpeg'
+import { exportRenditions } from './renditions'
+import type { ExportDiagnostics, ExportRenderJob, ExportRenderResult } from './types'
 
 /** Construct a small EXIF allowlist before HDR packaging; never copy source metadata wholesale. */
 async function metadata(

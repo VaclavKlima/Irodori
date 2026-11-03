@@ -1,53 +1,46 @@
 import { open } from 'node:fs/promises'
 import { join } from 'node:path'
 import sharp from 'sharp'
-import { exportGeometry } from '../../shared/export'
-import { neutralAdjustments } from '../../shared/adjustments'
-import {
-  contentHdr,
-  adjustHdr,
-  hdrAdjustmentMatrix,
-  outputHdr,
-  SDR_TARGET,
-  encodeHdr,
-} from '../../shared/hdr'
-import { frameByteLength } from '../../shared/preview-frame'
-import { srgbTransform } from '../../shared/adjustments'
+import { neutralAdjustments, srgbTransform } from '../../shared/adjustments'
+import { creativeColorActive, prepareCreativeColor } from '../../shared/creative-color'
 import { CROP_GEOMETRY_VERSION, cropGeometry, identityCrop } from '../../shared/crop'
 import { CROP_FILTER_VERSION } from '../../shared/crop-filter'
-import { readHdrStrips } from '../processing/hdr-processing'
-import { prepareCropWorkingAsset } from '../processing/crop-preparation'
-import { spatialExecutionBackend } from '../processing/spatial-backend'
+import { exportGeometry } from '../../shared/export'
+import {
+  exportInputMemoryPlan,
+  exportRenderMemoryPlan,
+  ExportResourceError,
+  exportSdrEncodePlan,
+  requireExportAllocation,
+  validateExportAdmission,
+} from '../../shared/export-resources'
+import type { HdrWorkingAsset } from '../../shared/hdr'
+import { encodeHdr, hdrAdjustmentMatrix } from '../../shared/hdr'
+import { frameByteLength } from '../../shared/preview-frame'
+import type { ManagedImageBytes } from '../../shared/resource-policy'
 import { cropFrameReader } from '../processing/crop-frame'
+import { prepareCropWorkingAsset } from '../processing/crop-preparation'
+import { resolveDetailSettings } from '../processing/detail-identity'
+import { readRasterWorking } from '../processing/detail-preview'
+import { readHdrStrips } from '../processing/hdr-processing'
+import { spatialExecutionBackend } from '../processing/spatial-backend'
 import { halfFloat } from './codec'
+import { validateExportCropPolicy } from './crop-policy'
+import { prepareExportDetailStage } from './detail'
+import {
+  exportDetailPolicy,
+  matchesExportWorkingAsset,
+  validateExportDetailPolicy,
+} from './detail-policy'
 import { createExportGpu } from './gpu'
-import { rasterLinear } from './raster'
-import { resizeLinear, resizeLinearGpu } from './resize'
+import { resizeLinearGpu } from './resize'
+import { exportResizePolicy, validateExportResizePolicy } from './resize-policy'
 import type {
   ExportCropDiagnostics,
   ExportDetailDiagnostics,
   ExportDiagnostics,
   ExportRenderJob,
 } from './types'
-import type { HdrWorkingAsset } from '../../shared/hdr'
-import { validateExportCropPolicy } from './crop-policy'
-import { prepareCreativeColor } from '../../shared/creative-color'
-import { creativeColorActive } from '../../shared/creative-color'
-import {
-  exportInputMemoryPlan,
-  exportRenderMemoryPlan,
-  exportSdrEncodePlan,
-  requireExportAllocation,
-  validateExportAdmission,
-  ExportResourceError,
-} from '../../shared/export-resources'
-import type { ManagedImageBytes } from '../../shared/resource-policy'
-import { resolveDetailSettings } from '../processing/detail-identity'
-import { validateExportDetailPolicy, exportDetailPolicy } from './detail-policy'
-import { prepareExportDetailStage } from './detail'
-import { matchesExportWorkingAsset } from './detail-policy'
-import { readRasterWorking } from '../processing/detail-preview'
-import { exportResizePolicy, validateExportResizePolicy } from './resize-policy'
 
 /** Read and validate one strip ahead while native GPU computation is in flight. */
 async function* exportStrips(path: string, asset: HdrWorkingAsset) {
@@ -88,7 +81,7 @@ export async function exportRenditions(
   validateExportResizePolicy(job)
   const started = performance.now()
   const mode = process.env.IRODORI_EXPORT_BACKEND ?? 'auto'
-  if (!['auto', 'gpu', 'cpu'].includes(mode)) throw new Error('Invalid export renderer backend.')
+  if (!['auto', 'gpu'].includes(mode)) throw new Error('Invalid export renderer backend.')
   if (job.hdr && !job.source.hdr) throw new Error('HDR export requires a supported HDR source.')
   const a = job.source.processing.adjustments ?? neutralAdjustments,
     detailControls = resolveDetailSettings(job.source.processing),
@@ -176,22 +169,23 @@ export async function exportRenditions(
             outHeight: geometry.height,
             hdr: job.hdr,
             sourceHdr: Boolean(uncroppedAsset),
-            gpuAllowed: Boolean(uncroppedAsset && !uncroppedAsset.source.display),
+            gpuAllowed: true,
+            authoredHdr: Boolean(uncroppedAsset?.source.display),
             creative: creativeColorActive(prepareCreativeColor(a)),
             inputBytes: predictedInputBytes,
           },
           admission,
         )
       : undefined
-  if (!original && mode !== 'cpu' && !job.resizeAdmission)
+  if (!original && !job.resizeAdmission)
     throw new Error('GPU export resize requires frozen resource admission.')
-  if (!original && mode !== 'cpu' && !job.resizePolicy)
+  if (!original && !job.resizePolicy)
     throw new Error(
       'GPU export resize requires the current frozen resize policy. Its files were preserved.',
     )
   if (memory) {
     requireExportAllocation(memory.cpu)
-    if (!original && mode !== 'cpu') requireExportAllocation(memory.resizeGpu)
+    if (!original) requireExportAllocation(memory.resizeGpu)
   }
   // Source filtering/cropping retires before rendition buffers and the converter are allocated.
   const admitted = admission
@@ -325,101 +319,39 @@ export async function exportRenditions(
       }
     }
   }
-  const cpu = async () => {
-    const wb = asset ? (hdrAdjustmentMatrix(a, asset.whiteBalance) ?? undefined) : undefined
-    const creative = prepareCreativeColor(a)
-    const primary = base
+  let adapter: string | undefined
+  let converter: Awaited<ReturnType<typeof createExportGpu>> | undefined
+  let gpuInitializeMs: number, gpuPeakBytes: number
+  let gpuTilesMs = 0,
+    gpuPackingMs = 0
+  let primary: ReturnType<typeof cropFrameReader> | undefined
+  let earlyPrimary: Promise<Buffer> | undefined
+  try {
+    primary = base
       ? cropFrameReader(
           { data: base, width: sourceWidth, height: sourceHeight, transform: srgbTransform },
           {
             settings: cropSettings,
+            backend: spatialExecutionBackend(mode, 'crop'),
             admission:
               admission && memory
                 ? {
                     policy: admission.policy,
                     reservation: {
-                      ramBytes: memory.cpuLive.ramBytes - base.buffer.byteLength,
-                      vramBytes: memory.cpuLive.vramBytes,
+                      ramBytes:
+                        admission.reservation.ramBytes +
+                        memory.retainedBytes +
+                        memory.gpuWorkBytes -
+                        base.buffer.byteLength,
+                      vramBytes: admission.reservation.vramBytes + memory.gpuBuffers.totalBytes,
                     },
                   }
                 : admitted,
-            backend: spatialExecutionBackend(mode, 'crop'),
           },
           new AbortController().signal,
         )
       : undefined
-    if (cropDiagnostics && primary)
-      cropDiagnostics.primary = {
-        ...primary.diagnostics,
-        memory: primary.memory,
-      }
-    try {
-      if (asset) {
-        let top = 0
-        for await (const strip of readHdrStrips(workingPath!, asset)) {
-          const authored = primary ? await primary.strips.next() : undefined
-          if (authored && (authored.done || authored.value.length !== strip.length))
-            throw new Error('HDR JPEG cropped primary geometry mismatch.')
-          const primaryStrip = authored?.value
-          const data = new Float32Array((strip.length / 4) * channels)
-          for (let i = 0; i < strip.length; i += 4) {
-            const adjusted = adjustHdr([strip[i], strip[i + 1], strip[i + 2]], a, wb, creative)
-            const sdr = primaryStrip
-              ? rasterLinear(
-                  [primaryStrip[i], primaryStrip[i + 1], primaryStrip[i + 2]],
-                  a,
-                  creative,
-                )
-              : outputHdr(adjusted, SDR_TARGET).rgb
-            const hdr = job.hdr ? contentHdr(adjusted, asset.source).rgb : undefined
-            const alpha = strip[i + 3]
-            for (let c = 0; c < 3; c++) {
-              data[(i / 4) * channels + c] = sdr[c] * alpha + 1 - alpha
-              if (hdr) data[(i / 4) * channels + 3 + c] = hdr[c] * alpha + 1 - alpha
-            }
-          }
-          await accept(data, top)
-          top += strip.length / (width * 4)
-        }
-        if (primary && !(await primary.strips.next()).done)
-          throw new Error('Unexpected HDR JPEG primary rows.')
-      } else {
-        let top = 0
-        for await (const strip of primary!.strips) {
-          const data = new Float32Array((strip.length / 4) * 3)
-          for (let i = 0; i < data.length / 3; i++) {
-            const offset = i * 4
-            const value = rasterLinear(
-              [strip[offset], strip[offset + 1], strip[offset + 2]],
-              a,
-              creative,
-            )
-            const alpha = strip[offset + 3]
-            for (let c = 0; c < 3; c++) data[i * 3 + c] = value[c] * alpha + 1 - alpha
-          }
-          await accept(data, top)
-          top += strip.length / (width * 4)
-        }
-      }
-    } finally {
-      await primary?.strips.return(undefined)
-      if (cropDiagnostics && primary)
-        cropDiagnostics.primary = {
-          ...primary.diagnostics,
-          memory: primary.memory,
-        }
-    }
-  }
-  let backend: 'gpu' | 'cpu' = 'cpu',
-    adapter: string | undefined
-  let converter: Awaited<ReturnType<typeof createExportGpu>> | undefined
-  let gpuInitializeMs = 0,
-    gpuTilesMs = 0,
-    gpuPackingMs = 0,
-    gpuPeakBytes = 0
-  let earlyPrimary: Promise<Buffer> | undefined
-  try {
-    if (asset && !asset.source.display && mode !== 'cpu') {
+    {
       try {
         if (memory && !memory.gpuAccepted)
           throw new ExportResourceError('GPU export exceeds the frozen managed image budgets.')
@@ -427,20 +359,42 @@ export async function exportRenditions(
         converter = await makeGpu(
           width * 64,
           a,
-          hdrAdjustmentMatrix(a, asset.whiteBalance) ?? undefined,
+          asset ? (hdrAdjustmentMatrix(a, asset.whiteBalance) ?? undefined) : undefined,
           job.hdr,
           original,
           64,
-          original && job.hdr ? pixels : 0,
+          original && job.hdr && !asset?.source.display ? pixels : 0,
           memory?.gpuLimitBytes,
+          {
+            domain: asset ? (asset.source.display ? 'authored-hdr' : 'scene-linear') : 'raster',
+            primary: Boolean(asset?.source.display),
+          },
         )
         gpuInitializeMs = performance.now() - initializeStarted
         gpuPeakBytes = converter.peakBytes
         adapter = converter.adapter
         let top = 0
-        for await (const strip of exportStrips(workingPath!, asset)) {
+        for await (const strip of asset ? exportStrips(workingPath!, asset) : primary!.strips) {
+          const authored = asset && primary ? await primary.strips.next() : undefined
+          if (authored && (authored.done || authored.value.length !== strip.length))
+            throw new Error('HDR JPEG cropped primary geometry mismatch.')
           const tileStarted = performance.now()
-          const rendered = await converter.render(strip, top * width)
+          if (
+            !(strip.buffer instanceof ArrayBuffer) ||
+            (authored && !(authored.value.buffer instanceof ArrayBuffer))
+          )
+            throw new Error('Invalid GPU input strip.')
+          const rendered = await converter.render(
+            new Float32Array(strip.buffer, strip.byteOffset, strip.length),
+            top * width,
+            authored
+              ? new Float32Array(
+                  authored.value.buffer as ArrayBuffer,
+                  authored.value.byteOffset,
+                  authored.value.length,
+                )
+              : undefined,
+          )
           gpuTilesMs += performance.now() - tileStarted
           const packingStarted = performance.now()
           if (original) {
@@ -522,16 +476,22 @@ export async function exportRenditions(
             gpuPackingMs += performance.now() - packingStarted
           }
         }
-        backend = 'gpu'
+        if (asset && primary && !(await primary.strips.next()).done)
+          throw new Error('Unexpected HDR JPEG primary rows.')
       } catch (error) {
         await earlyPrimary?.catch(() => {})
         earlyPrimary = undefined
         throw error
       } finally {
-        await converter?.close()
+        try {
+          await converter?.close()
+        } finally {
+          await primary?.strips.return(undefined)
+          if (cropDiagnostics && primary)
+            cropDiagnostics.primary = { ...primary.diagnostics, memory: primary.memory }
+        }
       }
     }
-    if (backend === 'cpu') await cpu()
   } finally {
     await linear?.close()
   }
@@ -542,36 +502,23 @@ export async function exportRenditions(
     'renderer' | 'adapter' | 'gpuMemoryBytes' | 'peakCachedRows'
   > = {}
   if (!original) {
-    if (mode === 'cpu') {
-      await resizeLinear(
-        linearPath,
-        width,
-        height,
-        geometry.width,
-        geometry.height,
-        channels,
-        quantize,
-      )
-      resizeDiagnostics = { renderer: 'cpu' }
-    } else {
-      const resizeAdmission = job.resizeAdmission!
-      resizeDiagnostics = await resizeLinearGpu(
-        linearPath,
-        width,
-        height,
-        geometry.width,
-        geometry.height,
-        channels,
-        quantize,
-        {
-          policy: resizeAdmission.policy,
-          reservation: {
-            ramBytes: resizeAdmission.reservation.ramBytes + memory!.retainedBytes,
-            vramBytes: resizeAdmission.reservation.vramBytes,
-          },
+    const resizeAdmission = job.resizeAdmission!
+    resizeDiagnostics = await resizeLinearGpu(
+      linearPath,
+      width,
+      height,
+      geometry.width,
+      geometry.height,
+      channels,
+      quantize,
+      {
+        policy: resizeAdmission.policy,
+        reservation: {
+          ramBytes: resizeAdmission.reservation.ramBytes + memory!.retainedBytes,
+          vramBytes: resizeAdmission.reservation.vramBytes,
         },
-      )
-    }
+      },
+    )
   }
   return {
     rgb,
@@ -591,7 +538,7 @@ export async function exportRenditions(
             enlarged: geometry.width > width || geometry.height > height,
             ...resizeDiagnostics,
           },
-      renderer: backend,
+      renderer: 'gpu' as const,
       adapter,
       rendererFallback: undefined,
       renderMs,

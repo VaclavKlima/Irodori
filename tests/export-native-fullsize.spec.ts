@@ -5,8 +5,8 @@ import { createReadStream } from 'node:fs'
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import sharp from 'sharp'
-import { encodeExportHdr, nativeEncoderPath } from '../src/main/export/encoder'
 import { loadUltraHdr, verifyUltraHdrBundle } from '../src/main/export/codec'
+import { encodeExportHdr, nativeEncoderPath } from '../src/main/export/encoder'
 import { exportShader } from '../src/main/export/gpu'
 import { jpegIdentity, validatePrimary } from '../src/main/export/jpeg'
 import { prepareExportWorkingSource } from '../src/main/export/preparation'
@@ -32,10 +32,20 @@ async function fileEvidence(path: string) {
   return { path, byteLength: (await stat(path)).size, sha256: hash.digest('hex') }
 }
 
-test('Linux full-size Sony native and WASM codecs reconstruct identical frozen input at all retained headrooms', async ({}, info) => {
-  test.skip(process.platform !== 'linux' || process.arch !== 'x64', 'Linux x64 codec parity only.')
+test('Full-size Sony native and WASM codecs reconstruct identical frozen input at all retained headrooms', async ({}, info) => {
+  test.skip(
+    !(
+      (process.platform === 'linux' && process.arch === 'x64') ||
+      (process.platform === 'darwin' && process.arch === 'arm64')
+    ),
+    'Native codec qualification requires macOS arm64 or Linux x64.',
+  )
   test.setTimeout(600000)
-  const bundle = resolve('out/main/ultrahdr')
+  test.skip(
+    process.platform === 'darwin' && !process.env.IRODORI_NATIVE_CODEC_CANDIDATE_BUNDLE,
+    'The macOS Rust-host candidate was rejected; select its retained research bundle explicitly.',
+  )
+  const bundle = resolve(process.env.IRODORI_NATIVE_CODEC_CANDIDATE_BUNDLE ?? 'out/main/ultrahdr')
   await verifyUltraHdrBundle(bundle)
   const executable = await nativeEncoderPath(bundle)
   test.skip(!executable, 'A checksummed Linux native codec candidate is required.')

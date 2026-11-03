@@ -1,14 +1,14 @@
 import { expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
-import type { LinearFrame } from '../src/main/processing/contracts'
-import { correctionPlan, type CorrectionPlan } from '../src/main/processing/lens-correction'
-import { unavailableProfile } from '../src/main/processing/metadata'
-import type { CpuKernelMeasurement } from '../src/main/merge/cpu-kernels'
-import type { Plane } from '../src/main/merge/math'
 import {
   createGpuReferenceFallback,
   gpuReferenceFallbackBytes,
-} from '../src/main/merge/gpu-reference-fallback'
+} from '../scripts/research/merge/gpu-reference-fallback'
+import type { CpuKernelMeasurement } from '../src/main/merge/cpu-kernels'
+import type { Plane } from '../src/main/merge/math'
+import type { LinearFrame } from '../src/main/processing/contracts'
+import { correctionPlan, type CorrectionPlan } from '../src/main/processing/lens-correction'
+import { unavailableProfile } from '../src/main/processing/metadata'
 import { REC2020_LUMINANCE, SRGB_TO_2020 } from '../src/shared/hdr'
 import { automaticLensSettings, type LensProfile } from '../src/shared/lens'
 import { GPU_REFERENCE_PREPARATION, MERGE_LIMITS } from '../src/shared/merge'

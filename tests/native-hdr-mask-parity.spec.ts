@@ -3,35 +3,34 @@ import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { access, mkdir, open, readFile, rm, writeFile, type FileHandle } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
-import type { JSHandle, Page } from '@playwright/test'
-import { expect, test } from './electron.fixture'
-import fixtureJson from './fixtures/native-hdr-mask-parity.json' with { type: 'json' }
-import { NativeCpuController, type CpuWorkingLease } from '../src/main/native-cpu-controller'
 import { nativeCpuExecutable, nativeCpuMaskCapability } from '../src/main/native-cpu-executable'
-import { resolveResourcePolicy } from '../src/shared/resource-policy'
 import {
-  hdrSourceVersion,
-  HDR_SOURCE_VERSION,
+  NativeMaskController,
+  type PreparedHdrSourceLease,
+} from '../src/main/native-mask-controller'
+import { neutralAdjustments, type AdjustmentParameters } from '../src/shared/adjustments'
+import { validatePatch } from '../src/shared/edits'
+import {
   HDR_JPEG_SOURCE_VERSION,
+  HDR_SOURCE_VERSION,
+  hdrSourceVersion,
   SDR_TARGET,
   validateHdrSource,
   validateTarget,
   type DisplayTarget,
   type HdrWorkingAsset,
 } from '../src/shared/hdr'
-import { neutralAdjustments, type AdjustmentParameters } from '../src/shared/adjustments'
-import { validatePatch } from '../src/shared/edits'
 import {
   NATIVE_HDR_MASK_VERSION,
   type NativeHdrMaskRequest,
   type NativeHdrMaskResult,
 } from '../src/shared/native-hdr-mask'
-import type { CpuPreviewSourceRef } from '../src/shared/native-cpu-preview'
-import type {
-  MaskParityResult,
-  MaskParityRuntimeStart,
-  MaskParityStart,
-} from './native-hdr-mask-parity.worker'
+import type { PreparedHdrSourceRef } from '../src/shared/prepared-source'
+import { resolveResourcePolicy } from '../src/shared/resource-policy'
+import { expect, test } from './electron.fixture'
+import fixtureJson from './fixtures/native-hdr-mask-parity.json' with { type: 'json' }
+import { createOracle } from './hdr-mask-oracle.helpers'
+import type { MaskParityResult, MaskParityRuntimeStart } from './native-hdr-mask-parity.worker'
 
 interface Photograph {
   name: string
@@ -122,7 +121,7 @@ const sourceFiles = [
   'src/shared/white-balance.ts',
   'src/renderer/src/preview/hdr-stream.ts',
   'src/renderer/src/preview/native-mask-math.ts',
-  'src/main/native-cpu-controller.ts',
+  'src/main/native-mask-controller.ts',
   'src/main/native-cpu-input.ts',
   'src/main/native-cpu-mask-sink.ts',
   'src/main/native-cpu-executable.ts',
@@ -133,72 +132,10 @@ const sourcePins = async () =>
   Object.fromEntries(
     await Promise.all(sourceFiles.map(async (path) => [path, sha(await readFile(path))])),
   )
-interface WorkerApi {
-  start(value: MaskParityStart): Promise<MaskParityRuntimeStart>
-  source(index: number, bytes: string): Promise<unknown>
-  native(index: number, bytes: string): Promise<unknown>
-  finish(): Promise<MaskParityResult>
-  close(): void
-}
-async function createOracle(page: Page, filename: string) {
-  const handle: JSHandle<WorkerApi> = await page.evaluateHandle((name): WorkerApi => {
-    const worker = new Worker(new URL(`assets/${name}`, location.href), { type: 'module' })
-    let serial = 0
-    const pending = new Map<
-      number,
-      { resolve: (value: unknown) => void; reject: (error: Error) => void }
-    >()
-    const invoke = (command: unknown, transfer: Transferable[] = []) =>
-      new Promise<unknown>((resolve, reject) => {
-        const id = ++serial
-        pending.set(id, { resolve, reject })
-        worker.postMessage({ id, command }, transfer)
-      })
-    const send = (kind: 'source' | 'native', index: number, base64: string) => {
-      const decoded = atob(base64),
-        bytes = new Uint8Array(decoded.length)
-      for (let at = 0; at < decoded.length; at++) bytes[at] = decoded.charCodeAt(at)
-      return invoke({ kind, index, bytes: bytes.buffer }, [bytes.buffer])
-    }
-    worker.onmessage = ({ data }) => {
-      const entry = pending.get(data.id)
-      if (!entry) return
-      pending.delete(data.id)
-      if (data.error) entry.reject(new Error(data.error))
-      else entry.resolve(data.result)
-    }
-    worker.onerror = (event) => {
-      event.preventDefault()
-      for (const entry of pending.values()) entry.reject(new Error(event.message))
-      pending.clear()
-    }
-    return {
-      start: (start) => invoke({ kind: 'start', start }) as Promise<MaskParityRuntimeStart>,
-      source: (index, bytes) => send('source', index, bytes),
-      native: (index, bytes) => send('native', index, bytes),
-      finish: () => invoke({ kind: 'finish' }) as Promise<MaskParityResult>,
-      close: () => {
-        for (const entry of pending.values()) entry.reject(new Error('Parity worker closed.'))
-        pending.clear()
-        worker.terminate()
-      },
-    }
-  }, filename)
-  return {
-    handle,
-    close: async () => {
-      try {
-        await handle.evaluate((control) => control.close())
-      } finally {
-        await handle.dispose()
-      }
-    },
-  }
-}
 interface Source {
   pin: Pinned
   asset: HdrWorkingAsset
-  ref: CpuPreviewSourceRef
+  ref: PreparedHdrSourceRef
   parameters: AdjustmentParameters
   handles: Set<FileHandle>
   acquisitions: number
@@ -272,7 +209,7 @@ test('actual Electron unchanged full-mask oracle matches native at every photogr
   const opened: Pinned[] = [],
     sources: Source[] = []
   let oracle: Awaited<ReturnType<typeof createOracle>> | undefined
-  let controller: NativeCpuController | undefined
+  let controller: NativeMaskController | undefined
   let activeTarget: DisplayTarget | undefined
   let failure: unknown
   let bundleOwned = false
@@ -302,7 +239,7 @@ test('actual Electron unchanged full-mask oracle matches native at every photogr
     const acquire = async (
       request: Pick<NativeHdrMaskRequest, 'source' | 'expectedSettingsRevision'>,
       signal: AbortSignal,
-    ): Promise<CpuWorkingLease> => {
+    ): Promise<PreparedHdrSourceLease> => {
       signal.throwIfAborted()
       const source = sources.find((item) => item.ref.cacheId === request.source.cacheId)
       if (!source || JSON.stringify(source.ref) !== JSON.stringify(request.source))
@@ -332,16 +269,13 @@ test('actual Electron unchanged full-mask oracle matches native at every photogr
         },
       }
     }
-    controller = new NativeCpuController({
+    controller = new NativeMaskController({
       root: join(directory, 'native-output'),
       executable: () => nativeCpuExecutable(resolve('out/main')),
-      policy: async () => policy,
-      acquireSource: acquire,
       foreground: async (work, signal) => {
         signal.throwIfAborted()
         return work()
       },
-      existingOwners: () => ({ ramBytes: 0, gpuBytes: 0 }),
       mask: {
         arithmeticSha256: capability.arithmeticSha256,
         checkTarget: (request) => {

@@ -2,16 +2,16 @@ import { expect, test } from '@playwright/test'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PreviewEngine } from '../src/main/preview-engine'
 import { cropFrameReader, cropWorkingFrame } from '../src/main/processing/crop-frame'
 import { prepareCropWorkingAsset } from '../src/main/processing/crop-preparation'
-import { resampleCropTile } from '../src/shared/crop-filter'
+import { processingMetadata } from '../src/main/processing/metadata'
 import { cropGeometry, fitCrop, identityCrop } from '../src/shared/crop'
+import { resampleCropTile } from '../src/shared/crop-filter'
 import { CROP_COMPUTE_BYTES, cropFrameMemoryPlan } from '../src/shared/crop-resources'
+import { automaticLensSettings } from '../src/shared/lens'
 import { cropAdmission, cropFrame } from './crop-frame.helpers'
 import { workingAsset } from './export.helpers'
-import { PreviewEngine } from '../src/main/preview-engine'
-import { processingMetadata } from '../src/main/processing/metadata'
-import { automaticLensSettings } from '../src/shared/lens'
 
 test('the preview worker refuses an unprepared crop instead of silently displaying the wrong geometry', async () => {
   const engine = new PreviewEngine()
@@ -69,12 +69,12 @@ test('authored frame and authenticated file adapters produce identical cropped n
     ]) {
       const result = await cropWorkingFrame(
           frame,
-          { settings, admission: cropAdmission(), backend: 'cpu' },
+          { settings, admission: cropAdmission(), backend: 'gpu' },
           signal,
         ),
         file = await prepareCropWorkingAsset(
           source,
-          { asset, settings, ...cropAdmission(), backend: 'cpu' },
+          { asset, settings, ...cropAdmission(), backend: 'gpu' },
           join(root, `crop-${settings.angle}.f32`),
           signal,
         )
@@ -103,31 +103,32 @@ test('frame admission charges its existing input once and distinguishes streamed
   expect(streamed.cpu.ramBytes).toBeGreaterThan(
     admission.reservation.ramBytes + frame.data.byteLength,
   )
-  Object.assign(admission.policy.ram, { effectiveBytes: streamed.cpu.ramBytes })
+  Object.assign(admission.policy.ram, { effectiveBytes: streamed.gpu.ramBytes })
   const reader = cropFrameReader(
     frame,
-    { settings, admission, backend: 'cpu' },
+    { settings, admission, backend: 'gpu' },
     new AbortController().signal,
   )
   await expect(
-    cropWorkingFrame(frame, { settings, admission, backend: 'cpu' }, new AbortController().signal),
+    cropWorkingFrame(frame, { settings, admission, backend: 'gpu' }, new AbortController().signal),
   ).rejects.toThrow('managed image budgets')
   Object.assign(admission.policy.ram, { effectiveBytes: 0 })
   // The reader freezes policy/settings before its first iteration.
   expect((await reader.strips.next()).done).toBe(false)
   await reader.strips.return(undefined)
   expect(() =>
-    cropFrameReader(frame, { settings, backend: 'cpu' }, new AbortController().signal),
+    cropFrameReader(frame, { settings, backend: 'gpu' }, new AbortController().signal),
   ).toThrow('resource admission')
 })
 
-test('early iterator return drains GPU work; simulated loss continues with the same source and CPU filter', async () => {
+test('early iterator return drains GPU work and simulated loss rejects without CPU restart', async () => {
   const frame = cropFrame(),
     settings = fitCrop(frame, { ...identityCrop, angle: 4.23, width: 0.9, height: 0.9 }),
     job = { settings, admission: cropAdmission(), backend: 'auto' as const },
     signal = new AbortController().signal
   let closed = 0,
-    calls = 0
+    calls = 0,
+    injectLoss = true
   const factory = async () => ({
     adapter: 'synthetic-frame-loss',
     bytes: CROP_COMPUTE_BYTES,
@@ -137,20 +138,19 @@ test('early iterator return drains GPU work; simulated loss continues with the s
       tile: Parameters<typeof resampleCropTile>[1],
       window: Parameters<typeof resampleCropTile>[2],
     ) {
-      if (++calls === 2) throw new Error('Synthetic frame GPU loss.')
+      if (++calls === 2 && injectLoss) throw new Error('Synthetic frame GPU loss.')
       return resampleCropTile(geometry, tile, window)
     },
     async close() {
       closed++
     },
   })
-  const actual = await cropWorkingFrame(frame, job, signal, factory),
-    expected = await cropWorkingFrame(frame, { ...job, backend: 'cpu' }, signal)
-  expect(actual.diagnostics.backend).toBe('mixed')
-  expect(actual.diagnostics.fallback).toContain('Synthetic frame GPU loss')
-  expect(Buffer.from(actual.frame.data.buffer)).toEqual(Buffer.from(expected.frame.data.buffer))
+  await expect(cropWorkingFrame(frame, job, signal, factory)).rejects.toThrow(
+    'Synthetic frame GPU loss.',
+  )
   expect(closed).toBe(1)
   calls = 0
+  injectLoss = false
   const partial = cropFrameReader(frame, job, signal, factory)
   await partial.strips.next()
   await partial.strips.return(undefined)
@@ -160,7 +160,7 @@ test('early iterator return drains GPU work; simulated loss continues with the s
 test('timer cancellation and invalid pixels abort a frame crop without changing the borrowed source', async () => {
   const frame = cropFrame(),
     settings = fitCrop(frame, { ...identityCrop, angle: 12.34 }),
-    job = { settings, admission: cropAdmission(), backend: 'cpu' as const },
+    job = { settings, admission: cropAdmission(), backend: 'gpu' as const },
     before = new Uint32Array(frame.data.buffer).slice(),
     abort = new AbortController()
   const pending = cropWorkingFrame(frame, job, abort.signal)

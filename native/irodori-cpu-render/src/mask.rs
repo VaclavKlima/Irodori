@@ -1,9 +1,13 @@
 //! Bounded explicit mask mode candidate; ordinary CPU preview mode stays separate.
-#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-compile_error!("The isolated mask host currently supports Linux x86_64 only.");
+#[cfg(not(any(all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64"))))]
+compile_error!("The native mask host supports macOS arm64 and Linux x64.");
+#[cfg(target_os = "linux")]
+const INPUT_FLAGS: i32 = 0o400000 | 0o4000;
+#[cfg(target_os = "macos")]
+const INPUT_FLAGS: i32 = 0x100 | 0x4;
 
 use std::ffi::{c_char, c_int, c_void, CStr};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{self, BufWriter, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -127,9 +131,9 @@ impl Request {
         if !path.is_absolute() {
             return Err("Expected an absolute owned mask request path.".into());
         }
-        // Linux O_NOFOLLOW | O_NONBLOCK: reject links and inspect special files
+        // Platform O_NOFOLLOW | O_NONBLOCK: reject links and inspect special files
         // without blocking on an untrusted FIFO before the regular-file check.
-        let mut file = OpenOptions::new().read(true).custom_flags(0o400000 | 0o4000).open(path)?;
+        let mut file = OpenOptions::new().read(true).custom_flags(INPUT_FLAGS).open(path)?;
         let initial = file.metadata()?;
         if !initial.is_file() || initial.len() != REQUEST_BYTES as u64 {
             return Err("Mask request must be a regular file of exactly 848 bytes.".into());

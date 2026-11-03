@@ -2,18 +2,19 @@ import { expect, test } from '@playwright/test'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { PreviewProcess } from '../src/main/preview-process'
 import {
   prepareCropWorkingAsset,
   type CropPreparationJob,
 } from '../src/main/processing/crop-preparation'
-import { fitCrop, identityCrop } from '../src/shared/crop'
-import { DEFAULT_RESOURCE_SETTINGS, resolveResourcePolicy } from '../src/shared/resource-policy'
-import { workingAsset } from './export.helpers'
-import { PreviewProcess } from '../src/main/preview-process'
-import { cropFrame, cropAdmission } from './crop-frame.helpers'
-import { noLensSettings } from '../src/shared/lens'
 import { processingMetadata } from '../src/main/processing/metadata'
 import { neutralAdjustments } from '../src/shared/adjustments'
+import { fitCrop, identityCrop } from '../src/shared/crop'
+import { noLensSettings } from '../src/shared/lens'
+import { DEFAULT_RESOURCE_SETTINGS, resolveResourcePolicy } from '../src/shared/resource-policy'
+import { cropAdmission, cropFrame } from './crop-frame.helpers'
+import { workingAsset } from './export.helpers'
+import { prepareCropReference } from './spatial-reference'
 
 test('the real preview worker prepares a native GPU HDR crop from a leased source without opening the RAW', async () => {
   const directory = test.info().outputPath('crop-preview'),
@@ -55,7 +56,7 @@ test('the real preview worker prepares a native GPU HDR crop from a leased sourc
         job,
         new AbortController().signal,
       ),
-      expected = await prepareCropWorkingAsset(
+      expected = await prepareCropReference(
         source,
         {
           ...cropAdmission(),
@@ -126,7 +127,7 @@ test('actual native GPU crop preparation and CPU fallback publish agreeing signe
         join(root, 'gpu.f32'),
         new AbortController().signal,
       ),
-      cpu = await prepareCropWorkingAsset(
+      cpu = await prepareCropReference(
         source,
         { ...job, backend: 'cpu' },
         join(root, 'cpu.f32'),

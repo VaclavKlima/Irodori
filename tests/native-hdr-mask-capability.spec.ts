@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { nativeCpuMaskCapability } from '../src/main/native-cpu-executable'
-import { observed, processExists, sha, valueOf } from './native-cpu-controller.helpers'
+import { observed, processExists, sha, valueOf } from './native-mask-controller.helpers'
 
 test.skip(
   process.platform !== 'linux' || process.arch !== 'x64',

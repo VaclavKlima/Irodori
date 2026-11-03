@@ -1,13 +1,13 @@
 /* eslint-disable no-empty-pattern -- Playwright requires destructured fixture arguments. */
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmod, cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import sharp from 'sharp'
-import { encodeExportHdr, nativeEncoderPath, verifyExportEncoder } from '../src/main/export/encoder'
 import { halfFloat, loadUltraHdr } from '../src/main/export/codec'
+import { encodeExportHdr, nativeEncoderPath, verifyExportEncoder } from '../src/main/export/encoder'
 import { validatePrimary } from '../src/main/export/jpeg'
 import { fromHalf, readGainJpeg, reconstruct, srgbLinear, to2020 } from './export-reference'
 
@@ -115,8 +115,7 @@ for (const [quality, tolerance] of [
     }
   })
 
-test('Linux default Auto selects the native encoder and retains the supplied primary', async ({}, info) => {
-  test.skip(process.platform !== 'linux' || process.arch !== 'x64', 'Linux x64 Auto contract.')
+test('default Auto selects the native encoder and retains the supplied primary', async ({}, info) => {
   const directory = info.outputPath('default-auto')
   await mkdir(directory)
   const bundle = resolve('vendor/ultrahdr')
@@ -150,7 +149,9 @@ test('native checksums and allocation guards keep the platform Auto failure poli
   await expect(
     encodeExportHdr(half, 8, 8, sdr, 100, 1.01, directory, 'native', bundle),
   ).rejects.toThrow('checksum')
-  const mandatoryNative = process.platform === 'linux' && process.arch === 'x64'
+  const mandatoryNative =
+    (process.platform === 'linux' && process.arch === 'x64') ||
+    (process.platform === 'darwin' && process.arch === 'arm64')
   if (mandatoryNative) {
     await expect(verifyExportEncoder(bundle, 'auto')).rejects.toThrow('checksum')
     await expect(
@@ -169,8 +170,7 @@ test('native checksums and allocation guards keep the platform Auto failure poli
     bundle,
   )
   expect(result.backend).toBe('wasm')
-  if (!mandatoryNative)
-    expect(result).toMatchObject({ fallback: expect.stringContaining('checksum') })
+  expect(result.fallback).toBeUndefined()
   expect(() => validatePrimary(result.output, sdr)).not.toThrow()
   await expect(
     encodeExportHdr(half, 32768, 32768, sdr, 100, 1.01, directory, 'native'),

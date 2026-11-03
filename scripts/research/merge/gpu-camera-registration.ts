@@ -1,19 +1,20 @@
+// Rejected research candidate; unavailable to production recipe execution.
 import { createHash } from 'node:crypto'
-import { open, rm } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
+import { open, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { MERGE_LIMITS, GPU_CAMERA_PREPARATION } from '../../shared/merge'
-import type { RawSource } from '../gpu/raw-source'
-import type { CorrectionPlan } from '../processing/lens-correction'
+import type { RawSource } from '../../../src/main/gpu/raw-source'
 import {
   CAMERA_REGISTRATION_POLICY,
   cameraRegistrationInverse,
   createCameraValidityProvider,
   type CameraRegistration,
   type CameraValidityProvider,
-} from './camera-registration'
-import { createAreaReducer, type CpuKernelMeasurement } from './cpu-kernels'
-import type { Plane } from './math'
+} from '../../../src/main/merge/camera-registration'
+import { createAreaReducer, type CpuKernelMeasurement } from '../../../src/main/merge/cpu-kernels'
+import type { Plane } from '../../../src/main/merge/math'
+import type { CorrectionPlan } from '../../../src/main/processing/lens-correction'
+import { GPU_CAMERA_PREPARATION, MERGE_LIMITS } from '../../../src/shared/merge'
 
 export const GPU_CAMERA_PIXEL_POLICY = GPU_CAMERA_PREPARATION
 const STRIP_ROWS = 64

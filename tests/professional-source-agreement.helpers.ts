@@ -11,10 +11,11 @@ import {
   type DetailPreparationResult,
 } from '../src/main/processing/detail-preparation'
 import { readHdrStrips } from '../src/main/processing/hdr-processing'
+import { DETAIL_BAND_ROWS } from '../src/shared/detail-resources'
 import type { HdrWorkingAsset } from '../src/shared/hdr'
 import { resolveResourcePolicy } from '../src/shared/resource-policy'
-import { DETAIL_BAND_ROWS } from '../src/shared/detail-resources'
 import { DETAIL_TILE_EDGE, SPATIAL_DETAIL_STAGE } from '../src/shared/spatial-detail'
+import { prepareDetailReference } from './spatial-reference'
 
 export async function sourceAgreementHash(path: string): Promise<string> {
   const digest = createHash('sha256')
@@ -184,7 +185,7 @@ export async function verifyFullSourceDetail(
       sourceIdentity,
       noiseReduction: { version: 1, luminance: 35, chroma: 45 },
       detailSharpening: { version: 1, amount: 40, radius: 1.2, threshold: 50 },
-      backend: 'cpu',
+      backend: 'gpu',
       policy: resolveResourcePolicy(
         { version: 1, ramMiB: 2048, vramMiB: 2048 },
         {
@@ -206,9 +207,9 @@ export async function verifyFullSourceDetail(
     expect(asset.strips.length).toBeGreaterThan(3)
     await sourceAgreementJson(join(root, 'job.json'), job)
     const prepare = async (backend: 'cpu' | 'gpu') =>
-      prepareDetailWorkingAsset(
+      (backend === 'cpu' ? prepareDetailReference : prepareDetailWorkingAsset)(
         sourcePath,
-        { ...job, backend },
+        { ...job, backend: 'gpu' },
         join(root, `${backend}.f32`),
         signal,
         (progress) =>
@@ -258,7 +259,7 @@ export async function verifyFullSourceDetail(
       expect(value.asset.sha256).not.toBe(asset.sha256)
     }
     expect(cpu).toMatchObject({
-      backend: 'cpu',
+      backend: 'gpu',
       cpuTiles: expectedTiles,
       gpuTiles: 0,
     })

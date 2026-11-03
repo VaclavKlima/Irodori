@@ -1,34 +1,58 @@
-import { EditTransfers } from './edit-transfer'
+import { createHash, randomUUID } from 'node:crypto'
+import { existsSync, type Stats } from 'node:fs'
+import { cp, lstat, mkdir, open, readdir, realpath, rename, rm, stat } from 'node:fs/promises'
+import { cpus, totalmem } from 'node:os'
+import { basename, extname, join, relative, resolve, sep } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+import { snapshotAdjustments, srgbTransform } from '../shared/adjustments'
+import { DEFAULT_BROWSE_QUERY, validatedCaptureDate, type BrowseQuery } from '../shared/browse'
+import { CAPTURE_METADATA_VERSION } from '../shared/capture-sequence'
+import { CollectionChangedError, collectionPolicy } from '../shared/collections'
 import {
-  EditApplicationReadStore,
-  EditApplicationStore,
-  type ApplicationCommit,
-} from './edit-application-store'
-import { totalmem, cpus } from 'node:os'
-import { collectionPolicy, CollectionChangedError } from '../shared/collections'
-import { WorkspaceStore } from './workspace'
-import { ExportStore, ExportReadStore } from './export/store'
-import { ExportJobs } from './export/jobs'
-import type { ExportProcess } from './export/process'
-import { identity } from './export/files'
-import { verifyExportEncoder } from './export/encoder'
+  COLLECTION_CHUNK_SIZE,
+  type BackgroundTask,
+  type ForegroundActivity,
+  type ImportCandidate,
+  type ImportReview,
+  type ImportReviewChunk,
+  type ImportReviewSummary,
+  type LibraryEvent,
+  type Photo,
+  type PhotoPage,
+  type ReviewThumbnailRequest,
+  type TaskErrorPage,
+} from '../shared/contracts'
+import { isUncropped } from '../shared/crop'
+import {
+  SETTINGS_VERSION,
+  editCapabilities,
+  mergeEditPatch,
+  validatePatch,
+  type EditFlushScope,
+  type EditHistory,
+  type EditPatch,
+  type EditState,
+} from '../shared/edits'
 import {
   EXPORT_CODEC_VERSION,
   EXPORT_RENDERING_VERSION,
   exportResizeCapabilities,
   validateExportPhotoIds,
 } from '../shared/export'
-import type { WorkspaceChange } from '../shared/workspace'
-import type { GalleryRevision } from '../shared/stacks'
-import { MergeReviews } from './merge/reviews'
-import { StackStore } from './stacks'
-import { BrowseStore } from './browse'
-import { PhotoActionsStore, actionAvailability, originalMergeApplicable } from './photo-actions'
-import { DEFAULT_BROWSE_QUERY, validatedCaptureDate, type BrowseQuery } from '../shared/browse'
-import { CAPTURE_METADATA_VERSION } from '../shared/capture-sequence'
-import { durableJson, recoverMerges, syncDirectory, verifyMaster } from './merge/store'
+import { SDR_TARGET, validateHdrSource, type DisplayTarget } from '../shared/hdr'
+import type { HdrPhotoPixel } from '../shared/hdr-pixel'
+import type { HdrAnalysisRequest, HdrPhotoStatistics } from '../shared/hdr-statistics'
+import {
+  PROCESSING_METADATA_VERSION,
+  automaticLensSettings,
+  correctionKinds,
+  type CorrectionKind,
+  type LensState,
+  type ProcessingOptions,
+} from '../shared/lens'
 import {
   MERGE_VERSION,
+  mergeRecomputationReason,
   validateMergeVersion,
   type MergeBundleManifest,
   type MergeManifest,
@@ -37,89 +61,15 @@ import {
   type MergeSettings,
   type MergeSource,
 } from '../shared/merge'
-import { srgbTransform, snapshotAdjustments } from '../shared/adjustments'
-import type { HdrAnalysisRequest, HdrPhotoStatistics } from '../shared/hdr-statistics'
-import type { HdrPhotoPixel } from '../shared/hdr-pixel'
+import type { GalleryRevision } from '../shared/stacks'
+import type { PhotoStatistics } from '../shared/statistics'
 import {
   validateWhiteBalanceSample,
-  type WhiteBalanceSample,
   type PhotoWhiteBalanceProposal,
+  type WhiteBalanceSample,
 } from '../shared/white-balance-picker'
-import type { PhotoStatistics } from '../shared/statistics'
-import { SDR_TARGET, validateHdrSource, type DisplayTarget } from '../shared/hdr'
-import { isUncropped } from '../shared/crop'
-import {
-  SETTINGS_VERSION,
-  validatePatch,
-  mergeEditPatch,
-  editCapabilities,
-  type EditState,
-  type EditPatch,
-  type EditHistory,
-  type EditFlushScope,
-} from '../shared/edits'
-import { photoExtensions } from './processing/formats'
-import {
-  automaticLensSettings,
-  PROCESSING_METADATA_VERSION,
-  correctionKinds,
-  type CorrectionKind,
-  type LensState,
-  type ProcessingOptions,
-} from '../shared/lens'
-import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, type Stats } from 'node:fs'
-import { cp, mkdir, open, readdir, realpath, rename, rm, stat, lstat } from 'node:fs/promises'
-import { basename, extname, join, relative, resolve, sep } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
-import { CatalogWriter, CatalogWriterFailure } from './catalog/writer'
-import { CatalogMutations } from './catalog/domain'
-import {
-  CATALOG_VERSION,
-  migrateEditingHistory,
-  supportsEditingSettings,
-} from './catalog/editing-migration'
-import type { CatalogCommand, CatalogOperation, CatalogOutput } from './catalog/contracts'
-import { RemovalStore } from './removal-store'
-import { copyOriginal } from './copy-original'
-import {
-  ImportSourceRecords,
-  inspectImportSource,
-  hashImportSource,
-  importSourceKey,
-  sameImportSourceWitness,
-  type ImportSourceWitness,
-} from './import-source-records'
-import { WorkScheduler } from './work-scheduler'
-import { ForegroundActivities } from './foreground-activity'
-import {
-  runImportPipeline,
-  preparationWorkers,
-  type ImportPipelineOptions,
-} from './import-pipeline'
-import { FullPreviews } from './full-previews'
-import { PreviewProcess } from './preview-process'
-import {
-  COLLECTION_CHUNK_SIZE,
-  type ImportCandidate,
-  type ImportReview,
-  type ImportReviewSummary,
-  type ImportReviewChunk,
-  type ReviewThumbnailRequest,
-  type LibraryEvent,
-  type Photo,
-  type PhotoPage,
-  type BackgroundTask,
-  type TaskErrorPage,
-  type ForegroundActivity,
-} from '../shared/contracts'
-import type {
-  CaptureMetadataProcessor,
-  FullPreviewProcessor,
-  PreviewProcessor,
-} from './preview-types'
-import { ReviewThumbnails, type ReviewThumbnailState } from './review-thumbnails'
-import { DeviceDirectoryVisibility } from './device-directory-visibility'
+import type { WorkspaceChange } from '../shared/workspace'
+import { BrowseStore } from './browse'
 import {
   CameraRecognition,
   cameraMetadataMatches,
@@ -127,12 +77,63 @@ import {
   sampleCameraOriginal,
   type CameraSourceKey,
 } from './camera-recognition'
+import type { CatalogCommand, CatalogOperation, CatalogOutput } from './catalog/contracts'
+import { CatalogMutations } from './catalog/domain'
+import {
+  CATALOG_VERSION,
+  migrateEditingHistory,
+  supportsEditingSettings,
+} from './catalog/editing-migration'
+import { CatalogWriter, CatalogWriterFailure } from './catalog/writer'
+import { copyOriginal } from './copy-original'
+import { DeviceDirectoryVisibility } from './device-directory-visibility'
+import {
+  EditApplicationReadStore,
+  EditApplicationStore,
+  type ApplicationCommit,
+} from './edit-application-store'
+import { EditTransfers } from './edit-transfer'
+import { verifyExportEncoder } from './export/encoder'
+import { identity } from './export/files'
+import { ExportJobs } from './export/jobs'
+import type { ExportProcess } from './export/process'
+import { ExportReadStore, ExportStore } from './export/store'
+import { ForegroundActivities } from './foreground-activity'
+import { FullPreviews } from './full-previews'
 import {
   DeviceUnavailableError,
   assertDevicePathContained,
   pathWithin,
   type DeviceSource,
 } from './import-devices'
+import {
+  preparationWorkers,
+  runImportPipeline,
+  type ImportPipelineOptions,
+} from './import-pipeline'
+import {
+  ImportSourceRecords,
+  hashImportSource,
+  importSourceKey,
+  inspectImportSource,
+  sameImportSourceWitness,
+  type ImportSourceWitness,
+} from './import-source-records'
+import { MergeReviews } from './merge/reviews'
+import { durableJson, recoverMerges, syncDirectory, verifyMaster } from './merge/store'
+import { PhotoActionsStore, actionAvailability, originalMergeApplicable } from './photo-actions'
+import { PreviewProcess } from './preview-process'
+import type {
+  CaptureMetadataProcessor,
+  FullPreviewProcessor,
+  PreviewProcessor,
+} from './preview-types'
+import { photoExtensions } from './processing/formats'
+import { RemovalStore } from './removal-store'
+import { ReviewThumbnails, type ReviewThumbnailState } from './review-thumbnails'
+import { StackStore } from './stacks'
+import { WorkScheduler } from './work-scheduler'
+import { WorkspaceStore } from './workspace'
 
 const extensions = new Set(photoExtensions.map((extension) => `.${extension}`))
 const hashPattern = /^[a-f0-9]{64}$/
@@ -2804,7 +2805,7 @@ export class PhotoLibrary {
       manifest,
       reproducible:
         manifest.version === MERGE_VERSION &&
-        manifest.recipe.version === MERGE_VERSION &&
+        !mergeRecomputationReason(manifest.recipe) &&
         supportedSource &&
         available.every(Boolean),
     }

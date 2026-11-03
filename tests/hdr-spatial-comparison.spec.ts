@@ -1,23 +1,23 @@
+import type { Frame, Page } from '@playwright/test'
 import { build } from 'esbuild'
 import { createHash } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
-import type { Frame, Page } from '@playwright/test'
-import { expect, test } from './electron.fixture'
 import { neutralAdjustments, type AdjustmentParameters } from '../src/shared/adjustments'
+import { neutralColorGrading } from '../src/shared/color-grading'
 import {
-  HDR_SOURCE_VERSION,
   HDR_JPEG_SOURCE_VERSION,
+  HDR_SOURCE_VERSION,
   SDR_TARGET,
   adjustHdr,
-  outputHdr,
   encodeHdr,
+  outputHdr,
   type DisplayTarget,
   type HdrWorkingAsset,
 } from '../src/shared/hdr'
-import { hdrStatistics, analyzeHdr, type HdrStatistics } from '../src/shared/hdr-statistics'
-import { neutralColorGrading } from '../src/shared/color-grading'
+import { analyzeHdr, hdrStatistics, type HdrStatistics } from '../src/shared/hdr-statistics'
 import { resolveResourcePolicy } from '../src/shared/resource-policy'
+import { expect, test } from './electron.fixture'
 
 test.use({ hdrDisplay: true })
 const width = 8,
@@ -205,7 +205,7 @@ function source(input,corrupt=false){
   samples[input.asset.sha256]={sample:[...sample],draft:[...draft]};}));
  return {width:8,height:6,data:new Float32Array(0),transform:{...srgbTransform},
    identity:input.identity||'fixture-'+input.asset.sha256,
-   cpuSource:{photoId:'a'.repeat(64),cacheId:input.asset.sha256.slice(0,8)+'-'+input.asset.sha256.slice(8,12)+
+   sourceRef:{photoId:'a'.repeat(64),cacheId:input.asset.sha256.slice(0,8)+'-'+input.asset.sha256.slice(8,12)+
     '-'+input.asset.sha256.slice(12,16)+'-'+input.asset.sha256.slice(16,20)+'-'+input.asset.sha256.slice(20,32),
     renderingIdentity:'fixture-'+input.asset.sha256,workingSha256:input.asset.sha256},
    hdr:{...structuredClone(input.asset),url}};

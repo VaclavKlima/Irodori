@@ -1,16 +1,16 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { constants, existsSync } from 'node:fs'
-import { access, readFile, writeFile, stat } from 'node:fs/promises'
+import { access, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { loadUltraHdr, verifyUltraHdrBundle } from './codec'
 import {
   exportHdrEncodePlan,
-  requireExportAllocation,
   ExportResourceError,
+  requireExportAllocation,
   type ExportAdmission,
 } from '../../shared/export-resources'
+import { loadUltraHdr, verifyUltraHdrBundle } from './codec'
 
 const execute = promisify(execFile)
 
@@ -18,8 +18,16 @@ function validateEncoderMode(mode: string) {
   if (!['auto', 'native', 'wasm'].includes(mode)) throw new Error('Invalid export encoder backend.')
 }
 
-const nativeRequired = (mode: string) =>
-  mode === 'native' || (mode === 'auto' && process.platform === 'linux' && process.arch === 'x64')
+/** Choose before execution. The existing native codec is selected on both supported hosts. The macOS
+ * Rust-host replacement remains research-only after its full-image gate failed. */
+export function selectedExportEncoder(mode = 'auto'): 'native' | 'wasm' {
+  validateEncoderMode(mode)
+  if (mode !== 'auto') return mode as 'native' | 'wasm'
+  return (process.platform === 'linux' && process.arch === 'x64') ||
+    (process.platform === 'darwin' && process.arch === 'arm64')
+    ? 'native'
+    : 'wasm'
+}
 
 export async function nativeEncoderPath(directory?: string): Promise<string | undefined> {
   const target =
@@ -54,15 +62,9 @@ export async function verifyExportEncoder(
 ): Promise<void> {
   validateEncoderMode(mode)
   const bundle = await verifyUltraHdrBundle(directory?.replace('app.asar/', 'app.asar.unpacked/'))
-  if (mode === 'wasm') return
-  try {
-    if (await nativeEncoderPath(bundle)) return
-    if (nativeRequired(mode))
-      throw new Error('No bundled native HDR encoder is available on this platform.')
-  } catch (error) {
-    if (nativeRequired(mode)) throw error
-    // Other platforms retain their existing validated WASM recovery policy.
-  }
+  if (selectedExportEncoder(mode) === 'wasm') return
+  if (!(await nativeEncoderPath(bundle)))
+    throw new Error('No bundled native HDR encoder is available on this platform.')
 }
 
 export async function encodeExportHdr(
@@ -80,87 +82,80 @@ export async function encodeExportHdr(
   if (process.versions.electron) throw new Error('HDR export requires the isolated Node worker.')
   validateEncoderMode(mode)
   bundle = bundle?.replace('app.asar/', 'app.asar.unpacked/')
-  let fallback: string | undefined
   let primaryWritten = false
-  if (mode !== 'wasm') {
-    try {
-      const executable = await nativeEncoderPath(bundle)
-      if (!executable)
-        throw new Error('No bundled native HDR encoder is available on this platform.')
-      const plan = admission
-        ? exportHdrEncodePlan(width, height, sdr.byteLength, 'native', admission)
-        : undefined
-      if (plan) requireExportAllocation(plan)
-      const pixels = width * height
-      if (
-        !Number.isSafeInteger(pixels) ||
-        pixels < 1 ||
-        width < 1 ||
-        height < 1 ||
-        width > 32768 ||
-        height > 32768 ||
-        !Number.isInteger(width) ||
-        !Number.isInteger(height) ||
-        pixels * 16 > 512 * 1024 ** 2 ||
-        half.byteLength !== pixels * 8 ||
-        pixels * 56 + sdr.byteLength * 3 + 128 * 1024 ** 2 > 2 * 1024 ** 3 ||
-        !Number.isInteger(quality) ||
-        quality < 1 ||
-        quality > 100 ||
-        !Number.isFinite(headroom) ||
-        headroom < 1 ||
-        headroom > 10
-      )
-        throw new Error('HDR JPEG exceeds the supported encoder allocation limit.')
-      const hdrPath = join(directory, 'encoder.rgba16'),
-        sdrPath = join(directory, 'sdr.jpg'),
-        outputPath = join(directory, 'encoder-output.jpg')
-      await writeFile(hdrPath, Buffer.from(half.buffer, half.byteOffset, half.byteLength), {
-        flag: 'wx',
-      })
-      await writeFile(sdrPath, sdr, { flag: 'wx' })
-      primaryWritten = true
-      const { stdout } = await execute(
-        executable,
-        [
-          String(width),
-          String(height),
-          String(quality),
-          String(headroom),
-          hdrPath,
-          sdrPath,
-          outputPath,
-        ],
-        { timeout: 120000, maxBuffer: 1024 * 1024, windowsHide: true },
-      )
-      const info = JSON.parse(stdout) as {
-        width: number
-        height: number
-        peakBytes: number
-        implementation?: string
-      }
-      if (
-        info.width !== width ||
-        info.height !== height ||
-        !Number.isSafeInteger(info.peakBytes) ||
-        info.peakBytes < 1 ||
-        info.peakBytes > 2 * 1024 ** 3 ||
-        (process.platform === 'linux' && info.implementation !== 'rust-ultrahdr-v1')
-      )
-        throw new Error('Invalid native HDR JPEG rendition geometry.')
-      if (plan && (await stat(outputPath)).size > plan.outputLimitBytes)
-        throw new ExportResourceError('The HDR JPEG exceeded its admitted output storage.')
-      return {
-        admission: plan,
-        output: await readFile(outputPath),
-        path: outputPath,
-        primaryWritten,
-        backend: 'native' as const,
-        memory: { kind: 'process-rss' as const, peakBytes: info.peakBytes },
-      }
-    } catch (error) {
-      if (nativeRequired(mode) || error instanceof ExportResourceError) throw error
-      fallback = error instanceof Error ? error.message : String(error)
+  if (selectedExportEncoder(mode) === 'native') {
+    const executable = await nativeEncoderPath(bundle)
+    if (!executable) throw new Error('No bundled native HDR encoder is available on this platform.')
+    const plan = admission
+      ? exportHdrEncodePlan(width, height, sdr.byteLength, 'native', admission)
+      : undefined
+    if (plan) requireExportAllocation(plan)
+    const pixels = width * height
+    if (
+      !Number.isSafeInteger(pixels) ||
+      pixels < 1 ||
+      width < 1 ||
+      height < 1 ||
+      width > 32768 ||
+      height > 32768 ||
+      !Number.isInteger(width) ||
+      !Number.isInteger(height) ||
+      pixels * 16 > 512 * 1024 ** 2 ||
+      half.byteLength !== pixels * 8 ||
+      pixels * 56 + sdr.byteLength * 3 + 128 * 1024 ** 2 > 2 * 1024 ** 3 ||
+      !Number.isInteger(quality) ||
+      quality < 1 ||
+      quality > 100 ||
+      !Number.isFinite(headroom) ||
+      headroom < 1 ||
+      headroom > 10
+    )
+      throw new Error('HDR JPEG exceeds the supported encoder allocation limit.')
+    const hdrPath = join(directory, 'encoder.rgba16'),
+      sdrPath = join(directory, 'sdr.jpg'),
+      outputPath = join(directory, 'encoder-output.jpg')
+    await writeFile(hdrPath, Buffer.from(half.buffer, half.byteOffset, half.byteLength), {
+      flag: 'wx',
+    })
+    await writeFile(sdrPath, sdr, { flag: 'wx' })
+    primaryWritten = true
+    const { stdout } = await execute(
+      executable,
+      [
+        String(width),
+        String(height),
+        String(quality),
+        String(headroom),
+        hdrPath,
+        sdrPath,
+        outputPath,
+      ],
+      { timeout: 120000, maxBuffer: 1024 * 1024, windowsHide: true },
+    )
+    const info = JSON.parse(stdout) as {
+      width: number
+      height: number
+      peakBytes: number
+      implementation?: string
+    }
+    if (
+      info.width !== width ||
+      info.height !== height ||
+      !Number.isSafeInteger(info.peakBytes) ||
+      info.peakBytes < 1 ||
+      info.peakBytes > 2 * 1024 ** 3 ||
+      (process.platform === 'linux' && info.implementation !== 'rust-ultrahdr-v1')
+    )
+      throw new Error('Invalid native HDR JPEG rendition geometry.')
+    if (plan && (await stat(outputPath)).size > plan.outputLimitBytes)
+      throw new ExportResourceError('The HDR JPEG exceeded its admitted output storage.')
+    return {
+      admission: plan,
+      output: await readFile(outputPath),
+      path: outputPath,
+      primaryWritten,
+      backend: 'native' as const,
+      memory: { kind: 'process-rss' as const, peakBytes: info.peakBytes },
     }
   }
   const plan = admission
@@ -191,7 +186,7 @@ export async function encodeExportHdr(
     path: undefined,
     primaryWritten,
     backend: 'wasm' as const,
-    fallback,
+    fallback: undefined,
     memory: { kind: 'wasm-heap' as const, peakBytes: codec.memory() },
   }
 }

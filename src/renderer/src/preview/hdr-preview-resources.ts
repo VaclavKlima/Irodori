@@ -1,10 +1,10 @@
 // These are the existing owners moved out of HdrPresenter, not additional caches.
-import { HdrPresentationCache } from './hdr-presentation-cache'
-import { HdrSourceCache } from './hdr-source-cache'
-import { HDR_BITMAP_RESERVATION } from './hdr-memory'
 import type { HdrFirstSurfaceManagedBytes } from '../../../shared/hdr-first-surface'
 import { presentationBitmapBytes } from './frame-cache'
+import { HDR_BITMAP_RESERVATION } from './hdr-memory'
+import { HdrPresentationCache } from './hdr-presentation-cache'
 import { hdrSampleMemory } from './hdr-sample'
+import { HdrSourceCache } from './hdr-source-cache'
 
 export const presentationCache = new HdrPresentationCache<GPUTexture>()
 export const sourceCache = new HdrSourceCache<GPUTexture>()
@@ -27,7 +27,7 @@ export function hdrHasCompletedPhoto(photoId: string): boolean {
 export function hdrForgetCompletedPhoto(photoId: string): void {
   sourceCache.forgetPhoto(photoId)
 }
-// Disposed GPU and CPU presenters retain all submitted reads/receivers until drain.
+// Disposed GPU presenters retain all submitted reads/receivers until drain.
 export const retiredPreviewOwners = new Set<Promise<void>>()
 
 /** Capture only earlier owners: never resample after registering this owner's drain. */
@@ -52,13 +52,4 @@ export function hdrFirstSurfaceExistingOwners(photoId?: string): HdrFirstSurface
       hdrSampleMemory((buffer) => sourceCache.ownsSampleBuffer(buffer)),
     vramBytes: source.vramBytes + presentationCache.bytes + HDR_BITMAP_RESERVATION.vramBytes,
   }
-}
-/** Exceptional CPU fallback releases optional GPU owners only while its owner is current. */
-export async function prepareHdrCpuFallback(previous: Promise<void>, signal: AbortSignal) {
-  await previous
-  signal.throwIfAborted()
-  await sourceCache.clearAndDrain()
-  signal.throwIfAborted()
-  await presentationCache.clearAndDrain()
-  signal.throwIfAborted()
 }

@@ -84,6 +84,7 @@ export function exportGpuAllocation(
   creative: boolean,
   deferredPixels = 0,
   limitBytes = EXPORT_GPU_LIMIT_BYTES,
+  primary = false,
 ) {
   if (
     !Number.isSafeInteger(capacity) ||
@@ -99,7 +100,7 @@ export function exportGpuAllocation(
     outputBytes = bytes(4 + capacity * stride * 4),
     baseBytes = bytes(
       192 +
-        capacity * 16 +
+        capacity * 16 * (primary ? 2 : 1) +
         2 * outputBytes +
         2 * ACES_DATA_BYTES +
         acesPrecisionData.byteLength +
@@ -188,6 +189,7 @@ export interface ExportRenderLayout {
   readonly hdr: boolean
   readonly sourceHdr: boolean
   readonly gpuAllowed: boolean
+  readonly authoredHdr?: boolean
   readonly creative: boolean
   /** Distinct original/filtered backing allocations, already retained before output allocation. */
   readonly inputBytes: number
@@ -233,10 +235,13 @@ export function exportRenderMemoryPlan(layout: ExportRenderLayout, admission: Ex
       layout.hdr,
       original,
       layout.creative,
-      original && layout.hdr ? count : 0,
+      original && layout.hdr && !layout.authoredHdr ? count : 0,
       availableVram,
+      layout.authoredHdr === true,
     ),
-    gpuWorkBytes = bytes(capacity * (3 * 16 + 2 * gpuBuffers.stride * 4) + controls),
+    gpuWorkBytes = bytes(
+      capacity * (3 * 16 + 2 * gpuBuffers.stride * 4 + (layout.authoredHdr ? 32 : 0)) + controls,
+    ),
     resizeGpu = exportResizeGpuAllocation(
       layout.width,
       layout.height,

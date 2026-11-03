@@ -15,6 +15,7 @@ import {
   HDR_RAW_SOURCE_VERSION,
 } from '../src/shared/hdr'
 import { automaticLensSettings, noLensSettings, type ProcessingOptions } from '../src/shared/lens'
+import { ReferencePreviewEngine } from './reference-preview-engine'
 
 const sourcePath = 'tests/fixtures/sony-zv1.ARW',
   sourceSha256 = '14c9d2912584a3ccc5cf10f554fbe495fc960c36758a14d7d858b36ac5ca88e2'
@@ -73,7 +74,7 @@ test('real Sony corrected CPU and GPU frames agree, reuse linear data and genera
   test.setTimeout(180_000)
   const root = test.info().outputPath('corrected')
   await mkdir(root, { recursive: true })
-  const cpu = new PreviewEngine(undefined, 'cpu'),
+  const cpu = new ReferencePreviewEngine(),
     gpu = new PreviewEngine(undefined, 'gpu')
   const output = async (name: string) => {
     const directory = join(root, name)

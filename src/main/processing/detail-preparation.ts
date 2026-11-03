@@ -1,26 +1,26 @@
 import { createHash } from 'node:crypto'
 import { open, rm } from 'node:fs/promises'
 import {
-  compileNoiseReduction,
-  compileDetailSharpening,
-  SPATIAL_DETAIL_VERSION,
-  SPATIAL_DETAIL_STAGE,
-  type NoiseReductionSettings,
-  type DetailSharpeningSettings,
-} from '../../shared/spatial-detail'
-import {
   detailMemoryPlan,
   detailStreamMemoryPlan,
   type DetailAdmission,
   type DetailStreamMemoryPlan,
 } from '../../shared/detail-resources'
-import { frameByteLength, MAX_FRAME_BYTES } from '../../shared/preview-frame'
 import { validateHdrSource, type HdrWorkingAsset } from '../../shared/hdr'
+import { frameByteLength, MAX_FRAME_BYTES } from '../../shared/preview-frame'
+import {
+  compileDetailSharpening,
+  compileNoiseReduction,
+  SPATIAL_DETAIL_STAGE,
+  SPATIAL_DETAIL_VERSION,
+  type DetailSharpeningSettings,
+  type NoiseReductionSettings,
+} from '../../shared/spatial-detail'
 import { createSpatialDetailGpu, type SpatialDetailGpu } from '../gpu/spatial-detail'
 import { detailBands, type DetailBackend, type DetailBandDiagnostics } from './detail-bands'
+import { DETAIL_PREPARATION_VERSION, detailPreparationKey } from './detail-identity'
 import { readHdrStrips } from './hdr-processing'
 import { writeHdrStrip } from './write-hdr-strip'
-import { DETAIL_PREPARATION_VERSION, detailPreparationKey } from './detail-identity'
 
 export { DETAIL_PREPARATION_VERSION } from './detail-identity'
 export interface DetailPreparationJob extends DetailAdmission {
@@ -92,12 +92,12 @@ export async function prepareDetailWorkingAsset(
   validateAsset(asset)
   if (!/^[a-f0-9]{64}$/.test(frozen.sourceIdentity))
     throw new Error('Invalid detail source identity.')
-  if (!['auto', 'cpu', 'gpu'].includes(frozen.backend))
+  if (!['auto', 'gpu'].includes(frozen.backend))
     throw new Error('Invalid detail processing backend.')
   // Validate the frozen policy even on reuse; no new image allocation is admitted.
   detailMemoryPlan(frozen, false)
   const diagnostics: DetailBandDiagnostics = {
-      backend: active ? 'cpu' : 'identity',
+      backend: active ? 'gpu' : 'identity',
       cpuTiles: 0,
       gpuTiles: 0,
       precisionRecoveryTiles: 0,
@@ -124,7 +124,7 @@ export async function prepareDetailWorkingAsset(
   const memory = detailStreamMemoryPlan(asset, frozen, true)
   if (!memory.cpuAccepted)
     throw new Error('Detail preparation exceeds the frozen managed image budgets.')
-  if (frozen.backend === 'gpu' && !memory.gpuAccepted)
+  if (!memory.gpuAccepted)
     throw new Error('Detail GPU preparation exceeds the frozen managed image budgets.')
   const key = detailPreparationKey(
       frozen.sourceIdentity,

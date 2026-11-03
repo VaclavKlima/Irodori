@@ -1,43 +1,42 @@
-import { imageStatistics } from '../shared/statistics'
-import { captureMetadata, type CaptureMetadata } from '../shared/capture-sequence'
-import { extname } from 'node:path'
-import { renderHdr } from './processing/hdr-processing'
-import type { HdrRawSourceFactory } from './native-raw-source'
-import type { HdrRawPreparation } from './preview-types'
-import { resolveWhiteBalance } from './processing/white-balance'
+import { LibRaw } from '@colorhythm/libraw-wasm'
+import { ExifTool, type Tags } from 'exiftool-vendored'
+import { createHash } from 'node:crypto'
+import { readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { extname, join } from 'node:path'
+import sharp from 'sharp'
+import { prepareHdrPipelines } from '../renderer/src/preview/hdr-pipelines'
+import type { HdrCacheKernelKind } from '../renderer/src/preview/hdr-shader'
 import {
-  renderAdjustments,
+  ADJUSTMENT_VERSION,
   neutralAdjustments,
   srgbTransform,
-  ADJUSTMENT_VERSION,
   type WorkingFrame,
 } from '../shared/adjustments'
-import { createHash } from 'node:crypto'
-import { frameByteLength, PREPARED_PROOF_VERSION } from '../shared/preview-frame'
-import { RawGpuRenderer } from './gpu/raw-renderer'
-import { prepareFirstSurfaceOrientationPipeline } from './gpu/hdr-first-surface'
-import { prepareHdrPipelines } from '../renderer/src/preview/hdr-pipelines'
+import { captureMetadata, type CaptureMetadata } from '../shared/capture-sequence'
+import type { PhotoMetadata } from '../shared/contracts'
 import { prepareHdrRenderingTableData } from '../shared/hdr-rendering-tables'
-import { LibRaw } from '@colorhythm/libraw-wasm'
-import type { HdrCacheKernelKind } from '../renderer/src/preview/hdr-shader'
-import { rawDecoder } from './processing/decoders'
-import { processingMetadata } from './processing/metadata'
-import { inspectHdrJpeg, renderHdrJpeg } from './processing/hdr-jpeg'
-import { LENS_RENDER_VERSION } from './processing/lens-correction'
 import type { ProcessingMetadata, ProcessingOptions } from '../shared/lens'
 import { appliedCorrections, automaticLensSettings } from '../shared/lens'
-import { readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import sharp from 'sharp'
-import { ExifTool, type Tags } from 'exiftool-vendored'
-import type { PhotoMetadata } from '../shared/contracts'
+import { frameByteLength, PREPARED_PROOF_VERSION } from '../shared/preview-frame'
+import { imageStatistics } from '../shared/statistics'
+import { prepareFirstSurfaceOrientationPipeline } from './gpu/hdr-first-surface'
+import { createPointGpu } from './gpu/point-renderer'
+import { RawGpuRenderer } from './gpu/raw-renderer'
+import type { HdrRawSourceFactory } from './native-raw-source'
 import type {
   FullPreviewResult,
+  HdrRawPreparation,
   PreviewResult,
   PreviewStage,
-  ThumbnailResult,
   PreviewWarmResult,
+  ThumbnailResult,
 } from './preview-types'
+import { rawDecoder } from './processing/decoders'
+import { inspectHdrJpeg, renderHdrJpeg } from './processing/hdr-jpeg'
+import { renderHdr } from './processing/hdr-processing'
+import { LENS_RENDER_VERSION } from './processing/lens-correction'
+import { processingMetadata } from './processing/metadata'
+import { resolveWhiteBalance } from './processing/white-balance'
 
 type ExtractEmbedded = (tool: ExifTool, path: string, output: string) => Promise<void>
 const extractEmbedded: ExtractEmbedded = async (tool, path, output) => {
@@ -140,7 +139,7 @@ export class PreviewEngine {
     private extract: ExtractEmbedded = extractEmbedded,
     private backend = process.env.IRODORI_PREVIEW_BACKEND ?? 'auto',
     private gpu: Pick<RawGpuRenderer, 'render' | 'close' | 'releaseFrame'> &
-      Partial<Pick<RawGpuRenderer, 'mergeDevice'>> = new RawGpuRenderer(),
+      Partial<Pick<RawGpuRenderer, 'mergeDevice' | 'failure'>> = new RawGpuRenderer(),
   ) {
     sharp.concurrency(1)
     sharp.cache({ memory: 32, files: 0, items: 20 })
@@ -344,14 +343,24 @@ export class PreviewEngine {
     }
   }
 
+  /** A later explicit request may retry after a terminal owner has drained.
+   * Healthy owners and their prepared sources remain reusable. */
+  private renewFailedGpu() {
+    if (this.gpu.failure) {
+      this.gpu.close()
+      this.gpu = new RawGpuRenderer()
+    }
+  }
+
   /** Render an admitted derived source without reopening its original or decoding a camera JPEG. */
   async renderPreparedFull(
     output: string,
     options: ProcessingOptions,
     backend: 'cpu' | 'gpu' | 'auto' = this.backend as 'cpu' | 'gpu' | 'auto',
   ): Promise<FullPreviewResult> {
-    if (!options.workingAsset || options.crop || !['cpu', 'gpu', 'auto'].includes(backend))
+    if (!options.workingAsset || options.crop || !['gpu', 'auto'].includes(backend))
       throw new Error('Invalid prepared preview request.')
+    this.renewFailedGpu()
     if (options.workingAsset.hdr) this.releaseFrame()
     const frame = options.workingAsset.hdr
       ? await renderHdr(options.workingAsset.path, output, options, this.gpu, backend)
@@ -359,7 +368,7 @@ export class PreviewEngine {
     return {
       ...frame,
       diagnostics: frame.diagnostics
-        ? { ...frame.diagnostics, proofBackend: frame.diagnostics.proofBackend ?? 'cpu' }
+        ? { ...frame.diagnostics, proofBackend: frame.diagnostics.proofBackend ?? 'gpu' }
         : undefined,
       preparedProofVersion: PREPARED_PROOF_VERSION,
       renderId: `${frame.renderId}-${PREPARED_PROOF_VERSION}-${options.workingAsset.sha256}`,
@@ -375,6 +384,10 @@ export class PreviewEngine {
     rawSource?: HdrRawSourceFactory,
     rawPreparation?: HdrRawPreparation,
   ): Promise<FullPreviewResult> {
+    this.renewFailedGpu()
+    if (this.backend === 'cpu' || process.env.IRODORI_PREVIEW_BACKEND === 'cpu')
+      throw new Error('The CPU preview override was retired. Use the shared GPU stages.')
+
     if (options?.crop)
       throw new Error('Crop geometry requires a prepared preview variant before rendering.')
     if (options?.metadata.hdrJpeg?.state === 'supported' && options.workingOnly)
@@ -465,10 +478,34 @@ export class PreviewEngine {
     }
     const input = sharp(path).autoOrient()
     let frame: { data: Buffer; width: number; height: number } | undefined
-    const backend: 'cpu' | 'gpu' = 'cpu'
+    const backend = 'gpu' as const
+    const renderRaster = async (source: WorkingFrame) => {
+      const converter = await createPointGpu(
+        source.width * 64,
+        adjustments,
+        undefined,
+        false,
+        true,
+        64,
+        0,
+        undefined,
+        { domain: 'raster', preserveAlpha: true, transform: source.transform },
+      )
+      const data = Buffer.alloc(source.width * source.height * 4)
+      try {
+        for (let top = 0; top < source.height; top += 64) {
+          const strip = source.data.subarray(top * source.width * 4, (top + 64) * source.width * 4)
+          const rendered = await converter.render(strip)
+          rendered.data.copy(data, top * source.width * 4)
+        }
+      } finally {
+        await converter.close()
+      }
+      return data
+    }
     if (working) {
       frame = {
-        data: Buffer.from(renderAdjustments(working.data, adjustments, working.transform)),
+        data: await renderRaster(working),
         width: working.width,
         height: working.height,
       }
@@ -493,7 +530,7 @@ export class PreviewEngine {
       }
       original = true
       frame = {
-        data: Buffer.from(renderAdjustments(working.data, adjustments, working.transform)),
+        data: await renderRaster(working),
         width: info.width,
         height: info.height,
       }
@@ -552,7 +589,7 @@ export class PreviewEngine {
       byteLength,
       sha256,
       renderId:
-        'raster-display-referred-v1' +
+        'raster-display-referred-v2' +
         '-' +
         ADJUSTMENT_VERSION +
         '-' +

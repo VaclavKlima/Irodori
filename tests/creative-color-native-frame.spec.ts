@@ -1,24 +1,22 @@
+import { expect, test } from '@playwright/test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
-import { expect, test } from '@playwright/test'
 import { nativeCpuMaskCapability } from '../src/main/native-cpu-executable'
 import { neutralAdjustments, type AdjustmentParameters } from '../src/shared/adjustments'
-import type { ColorMixerSettings } from '../src/shared/color-mixer'
 import type { ColorGradingSettings } from '../src/shared/color-grading'
+import type { ColorMixerSettings } from '../src/shared/color-mixer'
 import { SDR_TARGET } from '../src/shared/hdr'
 import { analyzeHdr, hdrStatistics } from '../src/shared/hdr-statistics'
 import {
-  nativeColorValues,
   NATIVE_CPU_COLOR_OFFSET,
   NATIVE_MASK_COLOR_OFFSET,
-  NATIVE_CPU_REQUEST_BYTES,
   NATIVE_MASK_REQUEST_BYTES,
+  nativeColorValues,
 } from '../src/shared/native-color-protocol'
-import { buildAcesReference, referenceAces } from './aces-reference'
-import { controllerFixture, readPlane, sha } from './native-cpu-controller.helpers'
+import { controllerFixture, sha } from './native-mask-controller.helpers'
 
 test.skip(
   process.platform !== 'linux' || process.arch !== 'x64',
@@ -50,84 +48,6 @@ const settings = (index: number): AdjustmentParameters => {
     colorGrading: structuredClone(c.grading),
   }
 }
-const encode = (v: number) =>
-  Math.round(
-    Math.min(1, Math.max(0, v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055)) * 255,
-  )
-
-test('shipping native CPU pairs compose every independent grading reference with CTL and freeze the full color packet', async () => {
-  const t = await controllerFixture()
-  try {
-    const directory = test.info().outputPath('ctl')
-    await mkdir(directory)
-    const ctl = buildAcesReference(directory),
-      vectors = vectorsFor(0),
-      width = vectors.length,
-      pixels = new Float32Array(vectors.flatMap((v, i) => [...v.input, (i % 4) / 3])),
-      source = await t.source('independent-creative-native', width, 1, pixels),
-      before = referenceAces(
-        ctl,
-        vectors.map((v) => v.input),
-        1,
-        'srgb',
-      )
-    let previous: string | null = null,
-      count = 0
-    for (let index = 0; index < reference.configurations.length; index++) {
-      const request = t.request(source, { parameters: settings(index) }),
-        pending = t.controller.render(request)
-      Object.assign(request.parameters.colorGrading!.tones.shadows, { hue: 23, saturation: 100 })
-      const result = await pending
-      await t.controller.acknowledge(request.sessionId, result.pairId, previous)
-      previous = result.pairId
-      expect(result.parameters).toEqual(settings(index))
-      const owner = t.controller.acquire(new URL(result.after.url))!
-      assert.ok(owner)
-      try {
-        const wire = await readFile(join(dirname(owner.path), 'request.bin'))
-        expect(wire.length).toBe(NATIVE_CPU_REQUEST_BYTES)
-        expect(wire.toString('ascii', 0, 8)).toBe('IRODCPU3')
-        const expected = nativeColorValues(settings(index))
-        for (let i = 0; i < expected.length; i++)
-          expect(wire.readDoubleLE(NATIVE_CPU_COLOR_OFFSET + i * 8)).toBe(expected[i])
-      } finally {
-        owner.release()
-      }
-      const afterBytes = await readPlane(t.controller, result.after.url),
-        beforeBytes = await readPlane(t.controller, result.before.url),
-        expected = referenceAces(
-          ctl,
-          vectorsFor(index).map((v) => v.output),
-          1,
-          'srgb',
-        )
-      for (let x = 0; x < width; x++) {
-        for (let c = 0; c < 3; c++) {
-          expect(
-            Math.abs(afterBytes[x * 4 + c] - encode(expected[x][c])),
-            `grade ${index}, pixel ${x}, channel ${c}`,
-          ).toBeLessThanOrEqual(1)
-          expect(Math.abs(beforeBytes[x * 4 + c] - encode(before[x][c]))).toBeLessThanOrEqual(1)
-        }
-        expect(afterBytes[x * 4 + 3]).toBe(Math.round(pixels[x * 4 + 3] * 255))
-        expect(beforeBytes[x * 4 + 3]).toBe(afterBytes[x * 4 + 3])
-      }
-      if (index === 0) expect(afterBytes.equals(beforeBytes)).toBe(true)
-      count += width
-    }
-    expect(count).toBe(1260)
-    expect(sha(await readFile(source.path))).toBe(source.asset.sha256)
-    expect(source.acquisitions).toBe(1)
-    expect(source.releases).toBe(0)
-    expect(source.handles.size).toBe(1)
-    await t.controller.reset()
-    expect(source.handles.size).toBe(0)
-    expect(source.acquisitions).toBe(source.releases)
-  } finally {
-    await t.close()
-  }
-})
-
 test('shipping native range analysis includes the confirmed grade and preserves its exact source, request and arithmetic identity', async () => {
   const capability = await nativeCpuMaskCapability(resolve('vendor'))
   let confirmed = settings(0)
@@ -226,7 +146,7 @@ async function rejectsBeforeOutput(executable: string, path: string, bytes: Buff
   }
 }
 
-test('both shipping native modes reject malformed color packets and obsolete requests before their first output byte', async () => {
+test('shipping native masks reject malformed color packets and obsolete requests before their first output byte', async () => {
   const capability = await nativeCpuMaskCapability(resolve('vendor')),
     confirmed = settings(9),
     t = await controllerFixture({
@@ -237,14 +157,10 @@ test('both shipping native modes reject malformed color packets and obsolete req
     })
   try {
     const source = await t.source('malformed-native-creative', 3, 1)
-    for (const mask of [false, true]) {
-      const result = mask
-          ? await t.controller.renderMask(t.maskRequest(source, { parameters: confirmed }))
-          : await t.controller.render(t.request(source, { parameters: confirmed })),
-        owner =
-          'kind' in result
-            ? (assert.equal(result.kind, 'mask'), t.controller.acquireMask(new URL(result.url)))
-            : t.controller.acquire(new URL(result.after.url))
+    for (const mask of [true]) {
+      const result = await t.controller.renderMask(t.maskRequest(source, { parameters: confirmed }))
+      assert.equal(result.kind, 'mask')
+      const owner = t.controller.acquireMask(new URL(result.url))
       assert.ok(owner)
       let wire: Buffer
       try {
@@ -311,8 +227,7 @@ test('both shipping native modes reject malformed color packets and obsolete req
         await writeFile(path, change(Buffer.from(wire!)), { flag: 'wx', mode: 0o600 })
         await rejectsBeforeOutput(t.executable, path, source.bytes, mask)
       }
-      if ('kind' in result) await t.controller.releaseMask(result.sessionId, result.maskId)
-      else await t.controller.release(result.sessionId, result.pairId)
+      await t.controller.releaseMask(result.sessionId, result.maskId)
     }
     expect(sha(await readFile(source.path))).toBe(source.asset.sha256)
     await t.controller.reset()

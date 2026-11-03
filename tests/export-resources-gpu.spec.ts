@@ -1,13 +1,14 @@
 import { expect, test } from '@playwright/test'
-import { createExportGpu } from '../src/main/export/gpu'
-import { exportGpuAllocation, exportSdrEncodePlan } from '../src/shared/export-resources'
-import { neutralAdjustments } from '../src/shared/adjustments'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import sharp from 'sharp'
+import { createExportGpu } from '../src/main/export/gpu'
 import { exportRenditions } from '../src/main/export/renditions'
+import { neutralAdjustments } from '../src/shared/adjustments'
+import { exportGpuAllocation, exportSdrEncodePlan } from '../src/shared/export-resources'
 import { detailExportFixture } from './detail-export.helpers'
 import { fromHalf } from './export-reference'
+import { exportRenditionsReference } from './export-rendering-reference'
 
 test('the tiny GPU owner obeys exact allocation limits, streams without retained HDR, and drains one active request on close', async () => {
   const capacity = 16,
@@ -59,8 +60,8 @@ test('constrained real exports reuse retained filtering, stream within available
   const previous = process.env.IRODORI_EXPORT_BACKEND,
     f = await detailExportFixture(true)
   try {
-    process.env.IRODORI_EXPORT_BACKEND = 'cpu'
-    const reference = await exportRenditions(f.exportJob),
+    process.env.IRODORI_EXPORT_BACKEND = 'auto'
+    const reference = await exportRenditionsReference(f.exportJob),
       memory = reference.diagnostics.memory!,
       filteredPath = join(f.exportJob.preparationDirectory!, 'detail-working.f32'),
       filtered = await readFile(filteredPath),
@@ -132,8 +133,8 @@ test('a tight RAM budget defers early SDR encoding until the real GPU has retire
   const previous = process.env.IRODORI_EXPORT_BACKEND,
     f = await detailExportFixture(true)
   try {
-    process.env.IRODORI_EXPORT_BACKEND = 'cpu'
-    const reference = await exportRenditions(f.exportJob),
+    process.env.IRODORI_EXPORT_BACKEND = 'auto'
+    const reference = await exportRenditionsReference(f.exportJob),
       memory = reference.diagnostics.memory!,
       admission = structuredClone(f.exportJob.detailAdmission!),
       retired = {

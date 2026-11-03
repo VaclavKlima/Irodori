@@ -2,23 +2,23 @@ import { createHash } from 'node:crypto'
 import { setImmediate } from 'node:timers/promises'
 import type { WorkingFrame } from '../../shared/adjustments'
 import type { ColorPrimaries } from '../../shared/color-model'
-import { validateHdrSource, type HdrWorkingAsset } from '../../shared/hdr'
-import { frameByteLength, MAX_FRAME_BYTES } from '../../shared/preview-frame'
 import {
-  compileNoiseReduction,
-  compileDetailSharpening,
-  detailLuminance,
-  SPATIAL_DETAIL_STAGE,
-  SPATIAL_DETAIL_VERSION,
-  type NoiseReductionSettings,
-  type DetailSharpeningSettings,
-} from '../../shared/spatial-detail'
-import {
-  detailFrameMemoryPlan,
   DETAIL_BAND_ROWS,
+  detailFrameMemoryPlan,
   type DetailAdmission,
   type DetailFrameMemoryPlan,
 } from '../../shared/detail-resources'
+import { validateHdrSource, type HdrWorkingAsset } from '../../shared/hdr'
+import { frameByteLength, MAX_FRAME_BYTES } from '../../shared/preview-frame'
+import {
+  compileDetailSharpening,
+  compileNoiseReduction,
+  detailLuminance,
+  SPATIAL_DETAIL_STAGE,
+  SPATIAL_DETAIL_VERSION,
+  type DetailSharpeningSettings,
+  type NoiseReductionSettings,
+} from '../../shared/spatial-detail'
 import type { SpatialDetailGpu } from '../gpu/spatial-detail'
 import { detailBands, type DetailBackend, type DetailBandDiagnostics } from './detail-bands'
 import { validateDetailTransform } from './detail-identity'
@@ -71,7 +71,7 @@ function reader(
     !(data.buffer instanceof ArrayBuffer) ||
     data.byteLength !== byteLength ||
     data.buffer.byteLength > MAX_FRAME_BYTES ||
-    !['auto', 'cpu', 'gpu'].includes(frozen.backend)
+    !['auto', 'gpu'].includes(frozen.backend)
   )
     throw new Error('Invalid detail working frame.')
   const transform = active ? structuredClone(frame.transform) : frame.transform
@@ -98,7 +98,7 @@ function reader(
       throw new Error('Invalid detail source HDR descriptor.')
   }
   const diagnostics: DetailBandDiagnostics = {
-      backend: active ? 'cpu' : 'identity',
+      backend: active ? 'gpu' : 'identity',
       cpuTiles: 0,
       gpuTiles: 0,
       precisionRecoveryTiles: 0,
@@ -135,7 +135,7 @@ function reader(
   )
   if (!memory.cpuAccepted)
     throw new Error('Detail frame processing exceeds the frozen managed image budgets.')
-  if (frozen.backend === 'gpu' && !memory.gpuAccepted)
+  if (!memory.gpuAccepted)
     throw new Error('Detail frame GPU processing exceeds the frozen managed image budgets.')
   const strips = (async function* () {
     if (hdr) {

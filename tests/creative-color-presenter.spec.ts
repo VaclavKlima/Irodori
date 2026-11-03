@@ -1,12 +1,10 @@
+import type { Frame, Page } from '@playwright/test'
 import { build } from 'esbuild'
 import { readFileSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
-import { pathToFileURL } from 'node:url'
-import type { Frame, Page } from '@playwright/test'
-import { expect, test } from './electron.fixture'
 import { neutralAdjustments, type AdjustmentParameters } from '../src/shared/adjustments'
-import type { ColorMixerSettings } from '../src/shared/color-mixer'
 import type { ColorGradingSettings } from '../src/shared/color-grading'
+import type { ColorMixerSettings } from '../src/shared/color-mixer'
+import { expect, test } from './electron.fixture'
 
 const reference = JSON.parse(
   readFileSync(new URL('./fixtures/creative-color-reference.json', import.meta.url), 'utf8'),
@@ -50,14 +48,6 @@ interface Snapshot {
   data: Record<string, string>
 }
 async function harness(page: Page) {
-  const worker = await build({
-    entryPoints: ['src/renderer/src/preview/presentation-worker.ts'],
-    bundle: true,
-    format: 'iife',
-    write: false,
-  })
-  const workerFile = test.info().outputPath('presentation-worker.mjs')
-  await writeFile(workerFile, worker.outputFiles[0].text)
   const bundle = await build({
     stdin: {
       resolveDir: process.cwd(),
@@ -66,11 +56,7 @@ import {PreviewPresenter} from './src/renderer/src/preview/presenter';
 import {srgbTransform,renderAdjustments,neutralAdjustments,sameAdjustments} from './src/shared/adjustments';
 import {imageResourceOwners} from './src/renderer/src/preview/image-resource-owners';
 let source,canvas,presenter,gl,parameters,requested,proof,mode='after',hold=false,uploads=0,programs=0,draws=0,lost=0,fail=false;
-const NativeWorker=window.Worker;
-const workerUrl=${JSON.stringify(pathToFileURL(workerFile).href)};
-window.Worker=class extends NativeWorker {constructor(url,options){
- if(!String(url).endsWith('/presentation-worker.ts'))throw Error('Unexpected isolated worker');
- super(workerUrl,options)}};
+window.Worker=class {constructor(){throw Error('Retired CPU presentation worker requested')}};
 window.presenterHarness={
  initialize(input){source=input},
  async create(fallback=false,pause=false,reject=false){
@@ -242,7 +228,7 @@ test('actual hidden SDR presenter compiles grading lazily, keeps the resident so
   }
 })
 
-test('failed or disposed grading preparation cannot publish late pixels and the actual CPU worker retains the same grade', async ({
+test('failed or disposed grading preparation cannot publish late pixels or restart CPU presentation', async ({
   irodori: { page },
 }) => {
   const frame = await harness(page)
@@ -263,14 +249,9 @@ test('failed or disposed grading preparation cannot publish late pixels and the 
     await expect
       .poll(async () => (await snapshot(frame)).owner)
       .toEqual({ ramBytes: 0, vramBytes: 0 })
-    await act(frame, 'create', true)
-    for (const index of [0, 1, 6, 9]) {
-      await act(frame, 'draw', parameters(index))
-      await ready(frame, parameters(index))
-      comparePixels((await snapshot(frame)).pixels, referencePixels(index))
-    }
-    await act(frame, 'draw', parameters(9), 'before')
-    comparePixels((await snapshot(frame)).pixels, referencePixels(0))
+    await expect(act(frame, 'create', true)).rejects.toThrow(
+      'Floating-point GPU raster presentation is unavailable.',
+    )
   } finally {
     await act(frame, 'finish')
     await expect

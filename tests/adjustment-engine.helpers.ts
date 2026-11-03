@@ -1,19 +1,20 @@
 import { expect, test } from '@playwright/test'
-import { access, mkdir, readFile } from 'node:fs/promises'
-import { createReadStream } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
+import { access, mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import sharp from 'sharp'
 import { PreviewEngine } from '../src/main/preview-engine'
+import type { FullPreviewResult } from '../src/main/preview-types'
 import {
-  renderAdjustments,
   neutralAdjustments,
+  renderAdjustments,
   type AdjustmentParameters,
 } from '../src/shared/adjustments'
-import { adjustHdr, outputHdr, encodeHdr, hdrAdjustmentMatrix, SDR_TARGET } from '../src/shared/hdr'
-import type { FullPreviewResult } from '../src/main/preview-types'
+import { adjustHdr, encodeHdr, hdrAdjustmentMatrix, outputHdr, SDR_TARGET } from '../src/shared/hdr'
 import type { ProcessingMetadata } from '../src/shared/lens'
 import { noLensSettings } from '../src/shared/lens'
+import { ReferencePreviewEngine } from './reference-preview-engine'
 
 async function fileHash(path: string) {
   const hash = createHash('sha256')
@@ -114,7 +115,7 @@ async function rawEngineAgreement(
       await warm(`warm-${key}`, { ...neutralAdjustments, [key]: key === 'blacks' ? -65 : 75 })
     await engine.close()
     for (const key of ['highlights', 'shadows', 'whites', 'blacks'] as const) {
-      const cold = new PreviewEngine(undefined, 'cpu')
+      const cold = new ReferencePreviewEngine()
       const output = join(root, `cold-${key}`)
       await mkdir(output)
       try {
@@ -152,7 +153,7 @@ export function engineAgreement(formats: readonly ('png' | 'tiff' | 'jpeg' | 'ra
         })
           .toFormat(format)
           .toFile(source)
-      const engine = new PreviewEngine(undefined, 'cpu')
+      const engine = new ReferencePreviewEngine()
       try {
         const metadata = await engine.inspect(source)
         if (format === 'raw') {

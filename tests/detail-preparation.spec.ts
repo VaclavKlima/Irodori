@@ -2,26 +2,27 @@ import { expect, test } from '@playwright/test'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import type { DetailGpuJob, SpatialDetailGpu } from '../src/main/gpu/spatial-detail'
+import { PreviewProcess } from '../src/main/preview-process'
 import {
   prepareDetailWorkingAsset,
   type DetailPreparationJob,
 } from '../src/main/processing/detail-preparation'
-import { PreviewProcess } from '../src/main/preview-process'
 import { readHdrStrips } from '../src/main/processing/hdr-processing'
-import {
-  compileNoiseReduction,
-  compileDetailSharpening,
-  neutralNoiseReduction,
-  neutralDetailSharpening,
-  spatialDetailTile,
-  spatialDetailSourceBounds,
-  SPATIAL_DETAIL_STAGE,
-} from '../src/shared/spatial-detail'
 import { DETAIL_GPU_BYTES } from '../src/shared/detail-resources'
-import type { SpatialDetailGpu, DetailGpuJob } from '../src/main/gpu/spatial-detail'
 import { resolveResourcePolicy } from '../src/shared/resource-policy'
-import { workingAsset, sha } from './export.helpers'
+import {
+  compileDetailSharpening,
+  compileNoiseReduction,
+  neutralDetailSharpening,
+  neutralNoiseReduction,
+  SPATIAL_DETAIL_STAGE,
+  spatialDetailSourceBounds,
+  spatialDetailTile,
+} from '../src/shared/spatial-detail'
+import { sha, workingAsset } from './export.helpers'
 import { detailWindow } from './spatial-detail.helpers'
+import { expectFloatReference } from './spatial-reference'
 
 async function fixture(width = 259, height = 131) {
   const root = await mkdtemp(join(tmpdir(), 'irodori-detail-')),
@@ -45,7 +46,7 @@ async function fixture(width = 259, height = 131) {
       sourceIdentity: sha(Buffer.from('isolated native reference-WB/lens source')),
       noiseReduction: { version: 1, luminance: 35, chroma: 45 },
       detailSharpening: { version: 1, amount: 40, radius: 1.2, threshold: 50 },
-      backend: 'cpu',
+      backend: 'gpu',
       policy: resolveResourcePolicy(
         { version: 1, ramMiB: 2048, vramMiB: 2048 },
         {
@@ -105,10 +106,10 @@ test('streamed combined processing and real Node dispatch retain hashes, snapsho
       )
     expect(progress).toEqual([64, 128, 131])
     expect(result).toMatchObject({
-      backend: 'cpu',
+      backend: 'gpu',
       reused: false,
-      cpuTiles: 6,
-      gpuTiles: 0,
+      cpuTiles: 0,
+      gpuTiles: 6,
       maxSourceStrips: 3,
       sourceSha256: frozen.asset.sha256,
       sourceIdentity: frozen.sourceIdentity,
@@ -142,7 +143,7 @@ test('streamed combined processing and real Node dispatch retain hashes, snapsho
           (y * frozen.asset.width + x) * 4,
         )
     }
-    expect(bytes.equals(Buffer.from(expected.buffer))).toBe(true)
+    expectFloatReference(bytes, expected)
     expect(result.asset.source).toEqual(frozen.asset.source)
     expect(result.asset.sha256).toBe(sha(bytes))
     let verified = 0
@@ -167,16 +168,9 @@ test('streamed combined processing and real Node dispatch retain hashes, snapsho
   }
 })
 
-test('automatic recovery drains the failed GPU owner before CPU work and preserves the same output', async () => {
+test('automatic GPU loss drains before rejection and removes the partial output without CPU restart', async () => {
   const f = await fixture(259, 3)
   try {
-    const cpu = await prepareDetailWorkingAsset(
-        f.path,
-        f.job,
-        join(f.root, 'cpu.f32'),
-        new AbortController().signal,
-      ),
-      baseline = await readFile(cpu.path)
     let calls = 0,
       retired = false,
       release!: () => void,
@@ -187,36 +181,35 @@ test('automatic recovery drains the failed GPU owner before CPU work and preserv
       hold = new Promise<void>((done) => {
         release = done
       }),
-      output = join(f.root, 'recovered.f32'),
-      pending = prepareDetailWorkingAsset(
-        f.path,
-        { ...f.job, backend: 'auto' },
-        output,
-        new AbortController().signal,
-        undefined,
-        () =>
-          fakeGpu(
-            async (job) => {
-              if (++calls === 2) throw new Error('Synthetic GPU loss.')
-              return canonicalTile(job)
-            },
-            async () => {
-              entered()
-              await hold
-              retired = true
-            },
-          ),
-      )
+      output = join(f.root, 'failed.f32')
+    const pending = prepareDetailWorkingAsset(
+      f.path,
+      { ...f.job, backend: 'auto' },
+      output,
+      new AbortController().signal,
+      undefined,
+      () =>
+        fakeGpu(
+          async (job) => {
+            if (++calls === 2) throw new Error('Synthetic GPU loss.')
+            return canonicalTile(job)
+          },
+          async () => {
+            entered()
+            await hold
+            retired = true
+          },
+        ),
+    )
+    const failed = expect(pending).rejects.toThrow('Synthetic GPU loss.')
     await closing
     expect(retired).toBe(false)
-    expect((await stat(output)).size).toBe(0)
     release()
-    const result = await pending
+    await failed
     expect(retired).toBe(true)
-    expect(result).toMatchObject({ backend: 'mixed', gpuTiles: 1, cpuTiles: 1 })
-    expect(result.fallback).toContain('Synthetic GPU loss')
-    expect((await readFile(result.path)).equals(baseline)).toBe(true)
-    expect((await readFile(f.path)).equals(f.bytes)).toBe(true)
+    expect(calls).toBe(2)
+    await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(f.path)).toEqual(f.bytes)
   } finally {
     await f.close()
   }
@@ -281,16 +274,17 @@ test('admission precedes source I/O and GPU setup; identity reuses the previousl
     await expect(stat(output)).rejects.toThrow()
     const cpuOnly = structuredClone(f.job)
     Object.assign(cpuOnly.policy.vram, { effectiveBytes: 0 })
-    const result = await prepareDetailWorkingAsset(
-      f.path,
-      { ...cpuOnly, backend: 'auto' },
-      output,
-      new AbortController().signal,
-      undefined,
-      factory,
-    )
-    expect(result.backend).toBe('cpu')
-    expect(result.fallback).toContain('admission')
+    await expect(
+      prepareDetailWorkingAsset(
+        f.path,
+        { ...cpuOnly, backend: 'auto' },
+        output,
+        new AbortController().signal,
+        undefined,
+        factory,
+      ),
+    ).rejects.toThrow('budgets')
+    await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
     const identity = await prepareDetailWorkingAsset(
       f.path,
       {
@@ -353,9 +347,7 @@ test('cache identity freezes native source provenance and active controls while 
           join(f.root, `${i}.f32`),
           new AbortController().signal,
           undefined,
-          () => {
-            throw new Error('Fixture CPU preference.')
-          },
+          () => fakeGpu(async (job) => canonicalTile(job)),
         ),
       )
     }

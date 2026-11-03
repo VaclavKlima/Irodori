@@ -1,5 +1,5 @@
-import type { WorkingFrame } from '../../shared/adjustments'
 import { setImmediate } from 'node:timers/promises'
+import type { WorkingFrame } from '../../shared/adjustments'
 import { cropGeometry, type CropGeometry, type CropSettings } from '../../shared/crop'
 import {
   cropFrameMemoryPlan,
@@ -44,8 +44,7 @@ function reader(
     frame.data.byteLength > 512 * 1024 ** 2
   )
     throw new Error('Invalid crop working frame.')
-  if (!['auto', 'cpu', 'gpu'].includes(frozen.backend))
-    throw new Error('Invalid crop processing backend.')
+  if (!['auto', 'gpu'].includes(frozen.backend)) throw new Error('Invalid crop processing backend.')
   const diagnostics: CropBandDiagnostics = {
     backend: 'cpu',
     cpuTiles: 0,
@@ -68,7 +67,7 @@ function reader(
   const memory = cropFrameMemoryPlan(geometry, frozen.admission, retainOutput)
   if (!memory.cpuAccepted)
     throw new Error('Crop preparation exceeds the frozen managed image budgets.')
-  if (!geometry.pixelAligned && frozen.backend === 'gpu' && !memory.gpuAccepted)
+  if (!geometry.pixelAligned && !memory.gpuAccepted)
     throw new Error('Crop GPU preparation exceeds the frozen managed image budgets.')
   const strips = (async function* () {
     // Sharp-authored frames have no strip hashes. Validate once without a second full plane.

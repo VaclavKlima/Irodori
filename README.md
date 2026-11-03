@@ -16,18 +16,14 @@ enlargement. Selective copy/paste and bounded batch edits share normal photo his
 conflict checks and retained task results; the clipboard clears on application restart.
 Advanced curves, named presets and output-proof/sharpening tools remain separate backlog tasks.
 
-The [GPU-only direction](docs/gpu-processing.md) governs new and rewritten editing
-and rendering stages. Irodori targets the user's own PCs and avoids duplicate
-production CPU implementations and fallback/parity work. Existing CPU routes still
-await incremental migration; historical backend evidence below describes what was
-actually implemented and tested. Independent quality references and necessary
-CPU decoding, codecs and orchestration remain.
-Default and automatic noise-reduction/detail-sharpening and fractional-crop
-preparation now use strict GPU handling with explicit precision limits and failure cleanup. Existing explicit CPU
-diagnostic routes and other rendering/resize paths remain migration work.
-The existing scene-linear RAW/merge export rendition also reports GPU faults
-after cleanup instead of silently rerendering on the CPU; raster/authored-HDR
-rendition semantics and the row resizer remain separate legacy routes.
+The [GPU-first processing policy](docs/gpu-processing.md) selects one common
+production backend per stage across macOS and Bazzite. Suitable image operations
+prefer GPU execution; native multicore/SIMD CPU kernels and TypeScript orchestration
+remain appropriate. The [stage inventory](docs/processing-stages.md) records current
+owners, limits and unfinished consolidation. Backend failures are explicit and
+retryable, with no silent equivalent CPU restart. Algorithms, quality, precision,
+memory and performance gates remain unchanged. Historical platform/backend evidence
+below retains its original scope.
 
 The **0.2.0 Bazzite milestone** adopts ordinary GPU editing feedback, exact completed-frame reuse, a dedicated catalog writer, native RAW preparation and recovery helpers, native HDR JPEG encoding, and Automatic or custom RAM/VRAM budgets. It verifies the eight enabled sliders, navigation and spatial input at the minimum Console-open, large and maximized ultrawide layouts, including actual import/export/merge contention. See the [0.2.0 release notes](CHANGELOG.md) and the [Bazzite implementation and acceptance ledger](docs/bazzite-native-engine.md) for measured scope and retained limitations. The native CPU helper uses a Rust process/protocol bridge with checked generated C++ numerical math. This release's performance acceptance is scoped to Bazzite; macOS testing and the separate whole-merge timing targets remain separate.
 
@@ -58,7 +54,7 @@ Background tasks retain exported/skipped/failed counts and **Show in folder**. Y
 
 ## Start developing
 
-Use Node.js **24 or newer** and npm. Node.js **24 LTS** is the recommended development version, also recorded in `.nvmrc`. On Linux x64, prepare the [native helpers](#linux-x64-native-prerequisites) after installation and before launching development or building. Run these commands from the repository root:
+Use Node.js **24 or newer** and npm. Node.js **24 LTS** is the recommended development version, also recorded in `.nvmrc`. On macOS arm64 and Linux x64, prepare the [native helpers](#linux-x64-native-prerequisites) after installation and before launching development or building. Run these commands from the repository root:
 
 ```sh
 npm ci
@@ -94,17 +90,22 @@ for prerequisites, isolated packaged acceptance and platform limits.
 
 Development and Electron test launches require a graphical session or a provisioned virtual display on Linux. Compatible automated tests use hidden windows by default; see [background testing](docs/background-testing.md). Public installers, signing, automated CI and broader platform verification remain separate work.
 
-### Linux x64 native prerequisites
+<a id="linux-x64-native-prerequisites"></a>
 
-Development and production builds require the checked native CPU renderer, RAW source host and HDR encoder. `npm ci` does not create their ignored runtime directories. Supply the matching checked distributions, or build them from the pinned sources:
+### Native prerequisites
+
+macOS arm64 and Linux x64 builds require the native HDR clipping-mask host and the accepted native HDR encoder. Linux additionally requires its native RAW source host. The CPU presentation entry point was retired. `npm ci` does not create their ignored runtime directories. Supply the matching checked distributions, or build them from the pinned sources:
 
 ```sh
 npm run build:cpu-native
+# Linux x64 only:
 npm run build:raw-native -- /absolute/path/LibRaw-0.22.1.tar.gz
 IRODORI_CODEC_ARCHIVE_DIR=/absolute/path/to/verified-codec-archives npm run build:export-native
 ```
 
-See the [CPU renderer](native/irodori-cpu-render/README.md#build-and-compare), [RAW source host](native/raw-source/README.md) and [HDR encoder](native/irodori-codec/README.md#build-and-package) for required tools, exact archive names and hashes, licenses and tool overrides. The Linux builders use pinned inputs without downloading dependencies. Native compilation alone does not establish image quality or application acceptance.
+The mask build needs Rust, a C++17 compiler, Python 3 and an archiver, with no Cargo crate downloads. macOS codec builds use CMake and the existing C++ host; Linux codec builds also use Rust.
+
+See the [mask host](native/irodori-cpu-render/README.md#build-and-compare), [RAW source host](native/raw-source/README.md) and [HDR encoder](native/irodori-codec/README.md#build-and-package) for required tools, exact archive names and hashes, licenses and tool overrides. The Linux builders use pinned inputs without downloading dependencies. Native compilation alone does not establish image quality or application acceptance.
 
 Keep each runtime's executable, checksums, build records and licenses together. The application build validates and copies the runtime directories beside its workers; missing or invalid required helpers fail the build. Preserve the matching checked merge WASM and manifest with their source as well. Installing JavaScript dependencies is insufficient to reconstruct these runtime assets.
 
@@ -237,8 +238,8 @@ Manual exposure/contrast/highlights/shadows/whites/blacks/lens editing and the d
 | `npm run benchmark:hdr -- --foreground`        | HDR edit and selection latency                                              |
 | `npm run benchmark:merge -- --foreground`      | Isolated merge worker runtime, memory, and scratch measurements             |
 | `npm run benchmark:export`                     | Quality-100 original-size HDR export through durable publication            |
-| `npm run build:export-native`                  | Rebuild the Linux x64 or macOS arm64 HDR encoder from pinned sources        |
-| `npm run build:cpu-native`                     | Build and stage the Linux x64 CPU renderer and clipping-mask helper         |
+| `npm run build:export-native`                  | Rebuild the accepted host-native HDR encoder from pinned sources            |
+| `npm run build:cpu-native`                     | Build and stage the macOS arm64 / Linux x64 native HDR mask host            |
 | `npm run build:raw-native -- <archive>`        | Build and stage the Linux x64 RAW host from the pinned LibRaw archive       |
 | `npm run benchmark:all -- --foreground`        | Every benchmark family, including all named adjustments                     |
 | `npm run dev:mcp`                              | Alias for `npm run dev`                                                     |

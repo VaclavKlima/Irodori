@@ -1,4 +1,25 @@
-# Linux native HDR codec
+# Native HDR codec hosts
+
+## Consolidation checkpoint — 2026-11-03
+
+Production keeps the accepted macOS C++ host and Linux Rust host around the same
+pinned libultrahdr/libjpeg-turbo implementation. Auto selects native before
+execution on these hosts; missing/corrupt native support and failed encoding are
+explicit errors, not automatic WASM restart. WASM decoding and independent encoding
+references remain live. `npm run build:export-native` keeps the accepted Mac C++
+build and the Linux Rust build.
+
+The attempted common Rust host now compiles on macOS, but its exact full-size
+binary16 reconstruction gate failed at headrooms 2 and 4. It is **not adopted**.
+Directly invoking `scripts/ultrahdr/build-linux.mjs` on macOS produces only a unique
+ignored `artifacts/native-codec-build/build-*/candidate-bundle`, never a production
+runtime. The retained failure and memory receipts are linked in the
+[stage inventory](../../docs/processing-stages.md). Stop this candidate without
+changing the codec algorithm, quality or tolerances; current cross-platform host
+qualification remains open. The standalone accepted C++ host is not removed until
+a replacement qualifies.
+
+## Retained Linux native HDR codec record
 
 This is a small, headless Rust host for the existing pinned libultrahdr 2.0.2 /
 libjpeg-turbo 3.1.0 codec. It targets Linux x64 and has no Rust crate dependencies.

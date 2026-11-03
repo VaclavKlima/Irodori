@@ -1,23 +1,23 @@
 import { expect, test } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
-import { setImmediate } from 'node:timers/promises'
 import { join } from 'node:path'
+import { setImmediate } from 'node:timers/promises'
 import { PREVIEW_VERSION } from '../src/main/full-previews'
-import { PREPARED_PROOF_VERSION } from '../src/shared/preview-frame'
-import { detailLineageKey } from '../src/main/processing/detail-identity'
 import { cropWorkingFrame } from '../src/main/processing/crop-frame'
+import { detailLineageKey } from '../src/main/processing/detail-identity'
 import { neutralAdjustments, renderAdjustments } from '../src/shared/adjustments'
 import { cropGeometry, fitCrop, identityCrop } from '../src/shared/crop'
 import { SDR_TARGET } from '../src/shared/hdr'
-import { neutralNoiseReduction, neutralDetailSharpening } from '../src/shared/spatial-detail'
+import { PREPARED_PROOF_VERSION } from '../src/shared/preview-frame'
+import { neutralDetailSharpening, neutralNoiseReduction } from '../src/shared/spatial-detail'
 import { canonicalDetailFrame, detailFrameJob } from './detail-frame.helpers'
 import { detailCacheFixture } from './detail-preview-cache.helpers'
 import { sha } from './export.helpers'
 
 const previousBackend = process.env.IRODORI_PREVIEW_BACKEND
 test.beforeEach(() => {
-  process.env.IRODORI_PREVIEW_BACKEND = 'cpu'
+  process.env.IRODORI_PREVIEW_BACKEND = 'gpu'
 })
 test.afterEach(() => {
   if (previousBackend === undefined) delete process.env.IRODORI_PREVIEW_BACKEND
@@ -67,7 +67,7 @@ test('raster detail is cached before crop and reused across point edits, crop dr
         {
           settings,
           admission: { policy: f.source.job.policy, reservation: f.source.job.reservation },
-          backend: 'cpu',
+          backend: 'gpu',
         },
         signal,
       ),
@@ -128,12 +128,12 @@ test('HDR CPU references, statistics and frozen working leases bind filtered pix
     expect(filtered.linear.sha256).not.toBe(original.linear.sha256)
     await expect(
       f.previews.acquireCpuWorkingSource(
-        { source: original.cpuSource!, expectedSettingsRevision: f.options.revision },
+        { source: original.sourceRef!, expectedSettingsRevision: f.options.revision },
         signal,
       ),
     ).rejects.toThrow('identity changed')
     const cpu = await f.previews.acquireCpuWorkingSource(
-        { source: filtered.cpuSource!, expectedSettingsRevision: f.options.revision },
+        { source: filtered.sourceRef!, expectedSettingsRevision: f.options.revision },
         signal,
       ),
       frozenOwner = (await f.previews.acquireWorkingAsset(f.id, frozen, signal))!
@@ -204,7 +204,7 @@ test('independent filtered stream and CPU leases survive cache pressure until bo
     const first = (await f.previews.requestHdr(f.id, randomUUID()))!,
       stream = f.previews.acquire(new URL(first.linear.url!))!,
       cpu = await f.previews.acquireCpuWorkingSource(
-        { source: first.cpuSource!, expectedSettingsRevision: f.options.revision },
+        { source: first.sourceRef!, expectedSettingsRevision: f.options.revision },
         signal,
       )
     try {

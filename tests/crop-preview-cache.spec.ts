@@ -1,24 +1,23 @@
 import { expect, test } from '@playwright/test'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
-import { createHash } from 'node:crypto'
 import { join } from 'node:path'
-import { cropGeometry, identityCrop } from '../src/shared/crop'
-import { neutralAdjustments, srgbTransform } from '../src/shared/adjustments'
-import { SDR_TARGET } from '../src/shared/hdr'
-import { cropWorkingFrame } from '../src/main/processing/crop-frame'
-import { workingSourceIdentity } from '../src/main/working-assets'
+import sharp from 'sharp'
 import { PREVIEW_VERSION } from '../src/main/full-previews'
+import { PreviewEngine } from '../src/main/preview-engine'
+import { cropWorkingFrame } from '../src/main/processing/crop-frame'
+import { processingMetadata } from '../src/main/processing/metadata'
+import { workingSourceIdentity } from '../src/main/working-assets'
+import { neutralAdjustments, srgbTransform } from '../src/shared/adjustments'
+import { cropGeometry, identityCrop } from '../src/shared/crop'
+import { SDR_TARGET } from '../src/shared/hdr'
+import { noLensSettings } from '../src/shared/lens'
 import { cropAdmission } from './crop-frame.helpers'
 import { cropPreviewFixture, gate } from './crop-preview.helpers'
-import sharp from 'sharp'
-import { PreviewEngine } from '../src/main/preview-engine'
-import { noLensSettings } from '../src/shared/lens'
-import { processingMetadata } from '../src/main/processing/metadata'
 
 const previousBackend = process.env.IRODORI_PREVIEW_BACKEND
 test.beforeEach(() => {
-  process.env.IRODORI_PREVIEW_BACKEND = 'cpu'
+  process.env.IRODORI_PREVIEW_BACKEND = 'gpu'
 })
 test.afterEach(() => {
   if (previousBackend === undefined) delete process.env.IRODORI_PREVIEW_BACKEND
@@ -141,7 +140,7 @@ test('raster crop variants reuse the uncropped decode across grading, authoring 
           height: info.height,
           transform: srgbTransform,
         },
-        { settings: initial, admission: cropAdmission(), backend: 'cpu' },
+        { settings: initial, admission: cropAdmission(), backend: 'gpu' },
         new AbortController().signal,
       ),
       lease = f.previews.acquire(new URL(first.linear!.url!))!
@@ -199,7 +198,7 @@ test('HDR preview, CPU recovery and statistics use cropped data while white-bala
     expect(frame.crop).toEqual(geometry)
     expect(frame.linear.hdr.width).toBe(geometry.width)
     const cpu = await f.previews.acquireCpuWorkingSource(
-      { source: frame.cpuSource!, expectedSettingsRevision: 0 },
+      { source: frame.sourceRef!, expectedSettingsRevision: 0 },
       signal,
     )
     try {
@@ -234,7 +233,7 @@ test('HDR preview, CPU recovery and statistics use cropped data while white-bala
     f.change({ crop: { ...f.options.crop!, centerX: 0.55 } })
     await expect(
       f.previews.acquireCpuWorkingSource(
-        { source: frame.cpuSource!, expectedSettingsRevision: 1 },
+        { source: frame.sourceRef!, expectedSettingsRevision: 1 },
         signal,
       ),
     ).rejects.toThrow('identity changed')
@@ -286,7 +285,7 @@ for (const hdr of [false, true])
       expect(f.options).toEqual(before)
       if (hdr) {
         const cpu = await f.previews.acquireCpuWorkingSource(
-          { source: source.cpuSource!, expectedSettingsRevision: 0 },
+          { source: source.sourceRef!, expectedSettingsRevision: 0 },
           signal,
         )
         try {
@@ -296,7 +295,7 @@ for (const hdr of [false, true])
           await expect(cpu.check(0, signal)).rejects.toThrow('identity changed')
           await expect(
             f.previews.acquireCpuWorkingSource(
-              { source: source.cpuSource!, expectedSettingsRevision: 0 },
+              { source: source.sourceRef!, expectedSettingsRevision: 0 },
               signal,
             ),
           ).rejects.toThrow('identity changed')

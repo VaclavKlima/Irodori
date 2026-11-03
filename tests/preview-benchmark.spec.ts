@@ -1,12 +1,11 @@
 import { build } from 'esbuild'
-import { mkdir, readFile, writeFile, rm } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { PreviewProcess } from '../src/main/preview-process'
 import type { PreviewPresenter } from '../src/renderer/src/preview/presenter'
 import { automaticLensSettings } from '../src/shared/lens'
-import { expect, test } from './electron.fixture'
 import { recordBenchmark } from './benchmark.helpers'
+import { expect, test } from './electron.fixture'
 import { foregroundTest, requiresForeground } from './foreground'
 
 const foregroundReason =
@@ -52,10 +51,14 @@ process.on('message',async ({path,output,type})=>{
     )
     const legacy = new PreviewProcess(legacyPath)
     const cpuPath = join(root, 'cpu.mjs')
-    await writeFile(
-      cpuPath,
-      `process.env.IRODORI_PREVIEW_BACKEND = 'cpu';\nawait import(${JSON.stringify(pathToFileURL(resolve('out/main/preview-worker.js')).href)});\n`,
-    )
+    await build({
+      entryPoints: ['tests/reference-preview-worker.ts'],
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      packages: 'external',
+      outfile: cpuPath,
+    })
     const cpu = new PreviewProcess(cpuPath)
     const current = new PreviewProcess(resolve('out/main/preview-worker.js'))
     const correctedCpu = new PreviewProcess(cpuPath)

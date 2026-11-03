@@ -1,5 +1,5 @@
-import { mkdir, readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
+import { mkdir, readFile } from 'node:fs/promises'
 import { exportRenditions } from '../src/main/export/renditions'
 import { defaultExportOptions } from '../src/shared/export'
 import { detailExportFixture } from './detail-export.helpers'
@@ -43,31 +43,32 @@ for (const mode of [undefined, 'auto'] as const)
 
 // Generated PNG and synthetic HDR descriptors; no gain-map decoder is exercised.
 for (const authored of [false, true])
-  test(`automatic ${authored ? 'authored HDR working/primary' : 'raster'} export retains its distinct legacy source domain`, async () => {
+  test(`automatic ${authored ? 'authored HDR working/primary' : 'raster'} export selects shared GPU and reports failure without CPU restart`, async () => {
     process.env.IRODORI_EXPORT_BACKEND = 'auto'
-    const f = await detailExportFixture(authored, authored)
+    const f = await detailExportFixture(authored, authored),
+      failure = new Error('Injected shared GPU source-domain failure.')
     let calls = 0
     try {
-      const result = await exportRenditions(
-        {
-          ...f.exportJob,
-          source: {
-            ...f.source,
-            processing: {
-              ...f.source.processing,
-              noiseReduction: undefined,
-              detailSharpening: undefined,
+      await expect(
+        exportRenditions(
+          {
+            ...f.exportJob,
+            source: {
+              ...f.source,
+              processing: {
+                ...f.source.processing,
+                noiseReduction: undefined,
+                detailSharpening: undefined,
+              },
             },
           },
-        },
-        async () => {
-          calls++
-          throw new Error('The scene-linear GPU shader cannot replace this source domain.')
-        },
-      )
-      expect(result.diagnostics.renderer).toBe('cpu')
-      expect(result.diagnostics.rendererFallback).toBeUndefined()
-      expect(calls).toBe(0)
+          async () => {
+            calls++
+            throw failure
+          },
+        ),
+      ).rejects.toBe(failure)
+      expect(calls).toBe(1)
       expect(await readFile(f.original)).toEqual(f.originalBytes)
     } finally {
       await f.close()

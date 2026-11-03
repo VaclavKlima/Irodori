@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test'
 import { mkdir, readdir, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { renderHdr } from '../src/main/processing/hdr-processing'
-import { unavailableProfile } from '../src/main/processing/metadata'
 import { GpuResourceBudgetError, type RawGpuRenderer } from '../src/main/gpu/raw-renderer'
 import { nativeRawPreparationMemory } from '../src/main/native-raw-owner'
 import type { HdrRawSourceFactory, NativeRawPreparedSource } from '../src/main/native-raw-source'
 import type { HdrRawPreparation } from '../src/main/preview-types'
+import { renderHdr } from '../src/main/processing/hdr-processing'
+import { unavailableProfile } from '../src/main/processing/metadata'
 import { noLensSettings, type ProcessingOptions } from '../src/shared/lens'
 import { DEFAULT_RESOURCE_SETTINGS, resolveResourcePolicy } from '../src/shared/resource-policy'
 
@@ -148,7 +148,7 @@ async function run(source: HdrRawSourceFactory, admission: HdrRawPreparation, fa
   }
 }
 
-test('a fitting native and GPU stage cannot allocate lazy WASM when CPU overlap exceeds the frozen budget', async () => {
+test('a GPU preparation fault remains terminal when CPU overlap exceeds the frozen budget', async () => {
   const admission = context(1024)
   expect(nativeRawPreparationMemory(inputBytes, admission).accepted).toBe(true)
   const attempted = await run(
@@ -159,14 +159,14 @@ test('a fitting native and GPU stage cannot allocate lazy WASM when CPU overlap 
   const outcome = await attempted.outcome
   expect(outcome.ok).toBe(false)
   if (outcome.ok) throw new Error('An injected GPU fault must not publish a working frame.')
-  expect(outcome.error).toBeInstanceOf(GpuResourceBudgetError)
+  expect(String(outcome.error)).toContain('Deliberate GPU preparation fault.')
   expect(outcome.error).not.toMatchObject({ code: 'ENOENT' })
   expect(attempted.gpuCalls).toBe(1)
   expect(attempted.releases).toBe(1)
   expect(await readdir(attempted.output)).toEqual([])
 })
 
-test('a generous frozen CPU budget reaches the real lazy decoder open after the same GPU fault', async () => {
+test('a generous frozen budget preserves the same GPU fault without opening a lazy decoder', async () => {
   const attempted = await run(
     async () => synthetic,
     context(8192),
@@ -175,7 +175,7 @@ test('a generous frozen CPU budget reaches the real lazy decoder open after the 
   const outcome = await attempted.outcome
   expect(outcome.ok).toBe(false)
   if (outcome.ok) throw new Error('The deliberately absent RAW must not produce a frame.')
-  expect(outcome.error).toMatchObject({ code: 'ENOENT', path: attempted.missing })
+  expect(String(outcome.error)).toContain('Deliberate GPU preparation fault.')
   expect(outcome.error).not.toBeInstanceOf(GpuResourceBudgetError)
   expect(attempted.gpuCalls).toBe(1)
   expect(attempted.releases).toBe(1)

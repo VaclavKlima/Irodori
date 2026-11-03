@@ -14,10 +14,21 @@ ask the user when substantial effort buys a small or uncertain benefit. This is
 an effort and interaction policy, not permission to weaken quality, preservation,
 resource, or existing numerical acceptance gates.
 
-The user also confirmed [GPU-only editing/rendering](gpu-processing.md) to reduce
-duplicate code and agent-credit costs. Target their own hardware, reuse existing
-stages and tests, and avoid a parallel production CPU implementation or broad
-speculative compatibility work.
+The [GPU-first processing policy](gpu-processing.md) selects one common production
+backend per stage across macOS and Bazzite. Prefer GPU image operations, native
+multicore/SIMD kernels where appropriate, and TypeScript orchestration or inexpensive
+calculations. Hardware and implementation language are independent choices. This
+November 2 decision supersedes the earlier GPU-only requirement.
+
+Measure complete cold RAW opening, merge preparation and export separately,
+including decode, transfers, computation, readback, encoding and publication. Use
+matched inputs, quality and cold/warm conditions. Report absolute times, percentage
+changes, memory and the actual selected hardware. High CPU/GPU utilization is useful
+bottleneck evidence, not an acceptance criterion. Adopt a replacement only when its
+complete-workflow benefit justifies the implementation and maintenance cost.
+Retain the existing owner after a failed bounded candidate; do not automatically
+start another optimization experiment. Competing platform-specific production
+backends require explicit approval and a very large, perceptible workflow benefit.
 
 ## Expectations by action
 
@@ -119,7 +130,7 @@ The remaining ten-control/native-120-Hz acceptance stays open; this is not a
 demonstrated product latency failure. The separate 15% uncorrected-preview gate
 does not apply to this HDR benchmark and remains a separate baseline-bound gate.
 
-Following the GPU-only clarification, retain the completed CPU mathematical
+The following November 1 research stop decision remains in force under GPU-first processing: retain the completed CPU mathematical
 research and use it where helpful for reference vectors. Stop the proposed
 CPU-only quality-driver extension. Continue with a bounded GPU implementation and
 its retained photographic references instead of building duplicate product or

@@ -1,17 +1,17 @@
 import {
+  blacksModule,
   contrastModule,
   highlightsModule,
   shadowsModule,
   whitesModule,
-  blacksModule,
   type AdjustmentParameters,
-} from '../../shared/adjustments'
-import { applyColorIntensity } from '../../shared/color-intensity'
+} from '../src/shared/adjustments'
+import { applyColorIntensity } from '../src/shared/color-intensity'
 import {
   applyCreativeColor,
   prepareCreativeColor,
   type CompiledCreativeColor,
-} from '../../shared/creative-color'
+} from '../src/shared/creative-color'
 
 export function rasterLinear(
   rgb: number[],

@@ -5,10 +5,11 @@ import { exportRenditions } from '../src/main/export/renditions'
 import { exportResizePolicy } from '../src/main/export/resize-policy'
 import { defaultExportOptions } from '../src/shared/export'
 import { compileResizeGpu } from '../src/shared/export-resize-gpu'
-import { syntheticExportSource } from './export.helpers'
 import { cropAdmission } from './crop-frame.helpers'
 import { detailExportFixture } from './detail-export.helpers'
 import { fromHalf } from './export-reference'
+import { exportRenditionsReference } from './export-rendering-reference'
+import { syntheticExportSource } from './export.helpers'
 
 test('tiny HDR enlargement retains GPU rendition agreement and propagates GPU initialization failure', async () => {
   const previous = process.env.IRODORI_EXPORT_BACKEND,
@@ -39,9 +40,9 @@ test('tiny HDR enlargement retains GPU rendition agreement and propagates GPU in
     }
   }
   try {
-    process.env.IRODORI_EXPORT_BACKEND = 'cpu'
+    process.env.IRODORI_EXPORT_BACKEND = 'auto'
     const cpuJob = await job('cpu'),
-      cpu = await exportRenditions(cpuJob)
+      cpu = await exportRenditionsReference(cpuJob)
     process.env.IRODORI_EXPORT_BACKEND = 'gpu'
     const gpuJob = await job('gpu'),
       gpu = await exportRenditions(gpuJob)

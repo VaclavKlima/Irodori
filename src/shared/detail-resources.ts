@@ -1,13 +1,14 @@
+import { ACES_DATA_BYTES } from './aces-data'
+import { exportGpuAllocation } from './export-resources'
+import { frameByteLength, MAX_FRAME_BYTES } from './preview-frame'
 import {
   RESOURCE_POLICY_VERSION,
   validateManagedImageBytes,
-  type ResourcePolicySnapshot,
   type ManagedImageBytes,
+  type ResourcePolicySnapshot,
 } from './resource-policy'
-import { DETAIL_MAX_WINDOW_EDGE, DETAIL_MAX_STAGE_EDGE, DETAIL_TILE_EDGE } from './spatial-detail'
 import type { DetailSize } from './spatial-detail'
-import { frameByteLength, MAX_FRAME_BYTES } from './preview-frame'
-import { ACES_DATA_BYTES } from './aces-data'
+import { DETAIL_MAX_STAGE_EDGE, DETAIL_MAX_WINDOW_EDGE, DETAIL_TILE_EDGE } from './spatial-detail'
 
 export const DETAIL_PARAMETER_BYTES = 208
 export const DETAIL_BAND_ROWS = 64
@@ -71,8 +72,8 @@ function detailProofBytes(
         ? 0
         : (options.hdr ? capacity * 40 : imageBytes * 1.5) +
           96 * 96 * 16 +
-          (proofGpu ? 2 * ACES_DATA_BYTES : 0),
-      vramBytes: proofGpu ? ACES_DATA_BYTES + 176 + capacity * 24 : 0,
+          (proofGpu ? 4 * ACES_DATA_BYTES + capacity * 24 + 4096 : 0),
+      vramBytes: proofGpu ? exportGpuAllocation(capacity, false, true, true).baseBytes : 0,
     }
   validateManagedImageBytes(bytes)
   return Object.freeze(bytes)
@@ -107,11 +108,7 @@ export function detailProofMemoryPlan(
         total.vramBytes <= frozen.policy.vram.effectiveBytes,
     })
   }
-  if (options.hdr && !options.authoredHdr && options.preferGpu) {
-    const gpu = make(true)
-    if (gpu.accepted) return gpu
-  }
-  return make(false)
+  return make(true)
 }
 
 /** Filter GPU resources retire before proof allocation; CPU image ownership stays reserved. */
@@ -154,18 +151,7 @@ export function detailPreviewMemoryPlan(
       peakGpuBytes: Math.max(filter.gpu.vramBytes, frozen.reservation.vramBytes + vramBytes),
     })
   }
-  const cpu = make(false)
-  if (!options.workingOnly && options.hdr && !options.authoredHdr && options.preferGpu) {
-    const gpu = make(true)
-    if (
-      frozen.reservation.vramBytes + gpu.proofBytes.vramBytes <=
-        frozen.policy.vram.effectiveBytes &&
-      gpu.filter.cpuAccepted &&
-      (gpu.filter.gpuAccepted || !cpu.filter.gpuAccepted)
-    )
-      return gpu
-  }
-  return cpu
+  return make(!options.workingOnly)
 }
 
 /** Borrowed input is charged once by backing allocation; no copied source-strip planes. */

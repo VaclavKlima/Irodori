@@ -1,15 +1,15 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import sharp from 'sharp'
-import { PreviewEngine } from '../src/main/preview-engine'
+import type { DetailPreviewJob } from '../src/main/processing/detail-preview'
 import { processingMetadata } from '../src/main/processing/metadata'
-import { noLensSettings } from '../src/shared/lens'
 import { neutralAdjustments } from '../src/shared/adjustments'
 import { HDR_JPEG_SOURCE_VERSION } from '../src/shared/hdr'
-import type { DetailPreviewJob } from '../src/main/processing/detail-preview'
+import { noLensSettings } from '../src/shared/lens'
 import { detailFrame, detailFrameJob } from './detail-frame.helpers'
 import { sha } from './export.helpers'
+import { ReferencePreviewEngine } from './reference-preview-engine'
 
 /** CC0-1.0 synthetic inputs; no user library or real camera metadata. */
 export async function detailPreviewFixture(hdr = false, authored = false) {
@@ -18,7 +18,7 @@ export async function detailPreviewFixture(hdr = false, authored = false) {
     height = 17,
     frame = detailFrame(width, height, hdr),
     original = join(root, 'original.png'),
-    engine = new PreviewEngine(undefined, 'cpu'),
+    engine = new ReferencePreviewEngine(),
     base = join(root, 'base'),
     options = {
       metadata: {
@@ -122,7 +122,7 @@ export async function detailPreviewFixture(hdr = false, authored = false) {
       noiseReduction: { version: 1, luminance: 60, chroma: 50 },
       detailSharpening: { version: 1, amount: 35, radius: 1.2, threshold: 40 },
       options: { ...options, ...(hdr ? { processing: 'hdr-v1' as const } : {}) },
-      backend: 'cpu',
+      backend: 'gpu',
       workingOnly: false,
     }
   return {

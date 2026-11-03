@@ -1,16 +1,12 @@
-import { openPreviewOptions } from './preview-options.helpers'
-import { HDR_SOURCE_VERSION, HDR_OUTPUT_VERSION } from '../src/shared/hdr'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { resolve } from 'node:path'
-import { readdir } from 'node:fs/promises'
+import { HDR_OUTPUT_VERSION } from '../src/shared/hdr'
 import { expect, test } from './electron.fixture'
 import { foregroundTest } from './foreground'
-import { importPhotos } from './import.helpers'
 import { assertHdrMemory, readHdrMemory } from './hdr-memory-policy.helpers'
-import { encodeHdr, outputHdr, SDR_TARGET, type RGB } from '../src/shared/hdr'
-import { renderHdrContent } from '../src/shared/display-rendering'
-import { hdrRangeColor } from '../src/renderer/src/preview/hdr-ranges'
+import { importPhotos } from './import.helpers'
+import { openPreviewOptions } from './preview-options.helpers'
 test.use({ hdrDisplay: true })
 
 test(
@@ -683,122 +679,6 @@ test('new Sony imports edit in HDR with SDR comparison and domain-aware analysis
   await expect(saved.page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
     timeout: 60000,
   })
-})
-
-test('CPU presentation worker preserves SDR pixels, Before/After range colors, warning stripes and analysis samples', async ({
-  irodori,
-}) => {
-  const workerFile = (await readdir(resolve('out/renderer/assets'))).find((name) =>
-    /^hdr-presentation-worker-.*\.js$/.test(name),
-  )!
-  expect(workerFile).toBeTruthy()
-  const actual = await irodori.page.evaluate(
-    async ({ workerFile, sourceVersion }) => {
-      const values = [0.5, 1, 1.01, 2, 4, 8, 16, 0]
-      const data = new Float32Array(
-        [...values, ...values].flatMap((v, i) => [v, v, v, i === 15 ? 0 : 1]),
-      )
-      data.set([0.9, 0.2, 0.1, 1], 0)
-      data.set([0.05, 0.5, 0.9, 1], 12 * 4)
-      const hash = Array.from(
-        new Uint8Array(await crypto.subtle.digest('SHA-256', data.buffer)),
-        (v) => v.toString(16).padStart(2, '0'),
-      ).join('')
-      const url = URL.createObjectURL(new Blob([data.buffer]))
-      const worker = new Worker(new URL(`assets/${workerFile}`, location.href), { type: 'module' })
-      const asset = {
-        kind: 'hdr-working-v1',
-        url,
-        width: 8,
-        height: 2,
-        byteLength: data.byteLength,
-        sha256: hash,
-        strips: [{ byteLength: data.byteLength, sha256: hash }],
-        source: {
-          version: sourceVersion,
-          processing: 'hdr-v1',
-          colorSpace: 'rec2020',
-          whitePoint: 'D65',
-          transfer: 'linear',
-          alpha: 'straight',
-          decoder: 'synthetic',
-          cameraProfile: 'synthetic',
-          orientation: 'applied-once',
-          normalization: {
-            black: [64, 64, 64, 64],
-            gains: [1, 1, 1, 1],
-            maximum: 1000,
-            restoreGain: 1,
-            referenceWhite: 1,
-            sourceSaturation: null,
-          },
-        },
-      }
-      const parameters = {
-        exposureEv: 1,
-        contrast: 0,
-        highlights: 0,
-        shadows: 0,
-        whites: 0,
-        blacks: 0,
-        whiteBalance: { mode: 'as-shot' },
-      }
-      const request = (hdrRanges: boolean, generation: number) =>
-        new Promise<{ after: number[]; before: number[]; sample: number[] }>((resolve, reject) => {
-          worker.onerror = (event) => reject(new Error(event.message))
-          worker.onmessage = ({ data }) => {
-            if (data.error) {
-              reject(new Error(data.error))
-              return
-            }
-            const read = (bitmap: ImageBitmap) => {
-              const canvas = new OffscreenCanvas(8, 2),
-                context = canvas.getContext('2d')!
-              context.drawImage(bitmap, 0, 0)
-              bitmap.close()
-              return Array.from(context.getImageData(0, 0, 8, 2).data)
-            }
-            resolve({
-              after: read(data.bitmap),
-              before: read(data.neutral),
-              sample: Array.from(data.sample),
-            })
-          }
-          worker.postMessage({ asset, parameters, hdrRanges, generation })
-        })
-      try {
-        return { off: await request(false, 1), on: await request(true, 2), data: Array.from(data) }
-      } finally {
-        worker.terminate()
-        URL.revokeObjectURL(url)
-      }
-    },
-    { workerFile, sourceVersion: HDR_SOURCE_VERSION },
-  )
-  expect(actual.off.sample).toEqual(actual.on.sample)
-  expect(actual.on.sample).toEqual(actual.data)
-  for (let i = 0; i < 15; i++) {
-    const rgb = actual.data.slice(i * 4, i * 4 + 3) as RGB
-    for (const [name, gain] of [
-      ['before', 1],
-      ['after', 2],
-    ] as const) {
-      const output = outputHdr(rgb.map((v) => v * gain) as RGB, SDR_TARGET)
-      const normal = output.rgb.map((v) => Math.round(encodeHdr(v) * 255))
-      const ranges = hdrRangeColor(
-        renderHdrContent(rgb.map((v) => v * gain) as RGB).rgb,
-        SDR_TARGET,
-        i % 8,
-        Math.floor(i / 8),
-      )
-      expect(actual.off[name].slice(i * 4, i * 4 + 3)).toEqual(normal)
-      expect(actual.on[name].slice(i * 4, i * 4 + 3)).toEqual(
-        ranges ? ranges.slice(0, 3).map((v) => Math.round(v * 255)) : normal,
-      )
-    }
-  }
-  expect(actual.on.before.slice(60)).toEqual([0, 0, 0, 0])
-  expect(actual.on.after.slice(60)).toEqual([0, 0, 0, 0])
 })
 
 test('monitor tracking survives pending GPU probes and missed compositor events', async ({

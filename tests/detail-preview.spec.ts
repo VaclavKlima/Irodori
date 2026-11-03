@@ -1,16 +1,17 @@
 import { expect, test } from '@playwright/test'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { PreviewEngine } from '../src/main/preview-engine'
 import { PreviewProcess } from '../src/main/preview-process'
 import { prepareDetailPreview } from '../src/main/processing/detail-preview'
 import { renderAdjustments } from '../src/shared/adjustments'
-import { adjustHdr, hdrAdjustmentMatrix, outputHdr, SDR_TARGET, encodeHdr } from '../src/shared/hdr'
-import { neutralNoiseReduction, neutralDetailSharpening } from '../src/shared/spatial-detail'
 import { identityCrop } from '../src/shared/crop'
-import { detailPreviewFixture } from './detail-preview.helpers'
+import { adjustHdr, encodeHdr, hdrAdjustmentMatrix, outputHdr, SDR_TARGET } from '../src/shared/hdr'
+import { neutralDetailSharpening, neutralNoiseReduction } from '../src/shared/spatial-detail'
 import { canonicalDetailFrame, detailFrameJob } from './detail-frame.helpers'
+import { detailPreviewFixture } from './detail-preview.helpers'
 import { sha } from './export.helpers'
+import { ReferencePreviewEngine } from './reference-preview-engine'
+import { expectDisplayReference, expectFloatReference } from './spatial-reference'
 
 test('a real PNG passes through frozen worker detail preparation and point rendering with matching frame/placeholder identity', async () => {
   const f = await detailPreviewFixture(),
@@ -28,10 +29,10 @@ test('a real PNG passes through frozen worker detail preparation and point rende
     Object.assign(f.job.asset, { sha256: '0'.repeat(64) })
     const result = await pending,
       linear = await readFile(join(output, 'linear.f32'))
-    expect(linear.equals(Buffer.from(expected.buffer))).toBe(true)
+    expectFloatReference(linear, expected)
     expect(linear.equals(await readFile(frozen.asset.path))).toBe(false)
-    expect((await readFile(join(output, 'full.rgba'))).equals(rgba)).toBe(true)
-    expect(result.sha256).toBe(sha(rgba))
+    expectDisplayReference(await readFile(join(output, 'full.rgba')), rgba)
+    expect(result.sha256).toBe(sha(await readFile(join(output, 'full.rgba'))))
     expect(result.linear!.sha256).toBe(sha(linear))
     expect(result.settingsRevision).toBe(7)
     expect(result.adjustments).toEqual(frozen.options.adjustments)
@@ -40,7 +41,7 @@ test('a real PNG passes through frozen worker detail preparation and point rende
       sourceIdentity: frozen.sourceIdentity,
       noiseReduction: frozen.noiseReduction,
       detailSharpening: frozen.detailSharpening,
-      proofBackendRequest: 'cpu',
+      proofBackendRequest: 'gpu',
     })
     expect(result.renderId).toContain(result.detail!.key)
     expect(result.renderId).toContain(result.linear!.sha256)
@@ -67,7 +68,7 @@ test('a real PNG passes through frozen worker detail preparation and point rende
 test('prepared HDR scene and authored sources render the filtered float data through their own output domain', async () => {
   for (const authored of [false, true]) {
     const f = await detailPreviewFixture(true, authored),
-      engine = new PreviewEngine(undefined, 'cpu')
+      engine = new ReferencePreviewEngine()
     try {
       const output = await f.directory('hdr-proof'),
         filtered = canonicalDetailFrame(f.frame, { ...detailFrameJob('rec2020'), ...f.job }),
@@ -170,7 +171,7 @@ test('neutral/geometry/domain and admission checks reject invalid preview jobs b
 
 test('proof cancellation and mismatching rendered identity remove only this job outputs', async () => {
   const f = await detailPreviewFixture(),
-    engine = new PreviewEngine(undefined, 'cpu')
+    engine = new ReferencePreviewEngine()
   try {
     const output = await f.directory('cancelled'),
       controller = new AbortController()

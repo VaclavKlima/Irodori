@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
-import { rasterLinear } from '../src/main/export/raster'
 import { createExportGpu } from '../src/main/export/gpu'
 import { neutralAdjustments } from '../src/shared/adjustments'
 import { buildAcesReference, referenceAces } from './aces-reference'
 import reference from './fixtures/color-intensity-reference.json' with { type: 'json' }
+import { rasterLinear } from './raster-reference'
 
 test('authored raster export applies color in linear sRGB before its output clamp', () => {
   const vectors = reference.vectors.filter(

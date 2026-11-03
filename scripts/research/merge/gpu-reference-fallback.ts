@@ -1,14 +1,15 @@
-import { GPU_REFERENCE_PREPARATION, MERGE_LIMITS } from '../../shared/merge'
-import { REC2020_LUMINANCE, SRGB_TO_2020 } from '../../shared/hdr'
-import type { LinearFrame } from '../processing/contracts'
-import { radial, type CorrectionPlan } from '../processing/lens-correction'
-import type { CpuKernelMeasurement } from './cpu-kernels'
+// Rejected research candidate; unavailable to production recipe execution.
+import type { CpuKernelMeasurement } from '../../../src/main/merge/cpu-kernels'
 import {
   createFallbackGeometryProvider,
   FALLBACK_GEOMETRY_PIXEL_WORDS,
   type FallbackGeometryProvider,
   type FallbackGeometryStrip,
-} from './fallback-geometry'
+} from '../../../src/main/merge/fallback-geometry'
+import type { LinearFrame } from '../../../src/main/processing/contracts'
+import { radial, type CorrectionPlan } from '../../../src/main/processing/lens-correction'
+import { REC2020_LUMINANCE, SRGB_TO_2020 } from '../../../src/shared/hdr'
+import { GPU_REFERENCE_PREPARATION, MERGE_LIMITS } from '../../../src/shared/merge'
 
 const STRIP_ROWS = 64
 const UNIFORM_BYTES = 304

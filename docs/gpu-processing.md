@@ -1,31 +1,72 @@
-# GPU-only editing and rendering
+# GPU-first processing and shared stage ownership
 
-## Decision — 2026-10-31
+<a id="gpu-only-editing-and-rendering"></a>
 
-The user confirmed the direction in [backlog #32](features/README.md#workspace-feedback-backlog):
-Irodori runs on their own PCs, and avoiding duplicate implementations, maintenance
-and agent-credit costs is a priority. New or rewritten editing/rendering stages
-target the GPU. They do not require equivalent production CPU implementations or
-CPU fallback layers. This supersedes the older professional-editing requirements
-to ship CPU/GPU feature parity and CPU recovery for each new tool.
+## Decision — 2026-11-02
 
-Use the existing shared pipeline and GPU abstraction. Add architecture-specific
-GPU stages only when the user's hardware needs them. Unsupported GPU capabilities
-must produce a clear reason instead of silently running a CPU implementation.
-GPU failure must preserve committed settings, originals and completed outputs,
-retire resources safely, and allow an appropriate GPU retry.
+[Backlog #32](features/README.md#workspace-feedback-backlog) consolidates processing
+around **one common production backend per stage across macOS and Bazzite**.
+GPU execution is preferred for suitable image operations. Native multicore/SIMD
+CPU execution is appropriate where it gives the best complete workflow, and
+TypeScript owns orchestration and inexpensive calculations. Hardware choice and
+implementation language are separate decisions. This supersedes the October 31
+GPU-only requirement and older blanket CPU/GPU parity requirements. The dated
+records below retain the scope and results of their original checkpoints.
 
-Independent numeric and photographic references remain part of correctness
-verification. Prefer existing references and compact fixtures; a full second CPU
-implementation and exhaustive intermediate-word parity are not prerequisites for
-GPU adoption. Keep the existing quality and output tolerances. Historical CPU
-proofs and failed candidates remain evidence, not ongoing backend obligations.
+Select a stage's backend before execution. A GPU failure reports the actual reason,
+drains its owners and permits safe retry; it must not silently restart equivalent
+CPU processing. Preserve originals, committed edits, completed outputs, source
+leases, cancellation, revision checks and resource admission throughout failure
+and retry. Reuse the established pipeline and its owners.
 
-CPU orchestration, file I/O, catalog/history work and existing image decoders and
-codecs remain appropriate. This decision removes duplicate editing/rendering
-backends; it does not require a GPU rewrite of every service.
+Default to the same backend on both platforms. Retaining competing platform-specific
+backends requires explicit user approval supported by a very large, perceptible
+workflow benefit. Do not infer that approval from a historical platform exception.
+The [stage inventory](processing-stages.md) records production ownership, domains,
+capabilities, resource limits, reference tests, remaining duplication and removal
+checkpoints. Keep it current with code; unexplained duplication blocks completion.
 
-## Current implementation and bounded migration
+Optimize user-visible completion time, responsiveness and image quality. Machine
+utilization diagnoses bottlenecks; maximizing utilization is not an acceptance
+criterion. Follow [performance decisions](performance-decisions.md) for matched
+cold/warm workflow measurements and bounded adoption/rejection decisions. Reuse
+existing Rust, C++, WASM SIMD and native libraries. Rewrite substantial JavaScript
+image math only when profiling demonstrates worthwhile benefit.
+
+Keep established algorithms, precision, memory, quality and performance gates.
+Backend removal never justifies weakening tolerances or changing image semantics.
+Independent compact numerical and photographic references remain outside production
+bundles. Exact identity/copy operations, bounded coefficient/LUT preparation,
+analytic geometry, sampled statistics and inexpensive pixel queries are useful CPU
+work, not competing renderers. Scheduler redesign, new tools and denoising research
+remain separately scoped tasks.
+
+## Consolidation checkpoint — 2026-11-03
+
+The [inventory](processing-stages.md) records the implemented removals and remaining
+gates. Dead CPU presentation and raster recovery workers/IPC are gone. Detail,
+fractional crop, resize, RAW preparation, proofs and point rendition now use their
+selected GPU owners without equivalent CPU restart. Raster/authored HDR preserves
+its own output semantics and independent SDR primary. Native full HDR masks are
+common to macOS arm64 and Linux x64; sampled CPU analysis remains inexpensive work.
+Merge adopted-stage restarts and rejected camera/reference executors are retired;
+historical master bytes and truthful recomputation availability remain protected.
+
+The bounded Float32 mask candidate and macOS Rust codec-host replacement failed
+their unchanged exact gates. Their evidence stays retained and neither triggers
+another optimization experiment. Keep the accepted native codec hosts. Decoder,
+remaining analysis/CPU-kernel and platform acceptance checkpoints keep #32 open.
+
+## Historical GPU-only migration — superseded policy, retained evidence
+
+The following records describe the October 31–November 1 implementation and its
+actual verification. Their GPU-only prescriptions are superseded by the decision
+above. They do not establish current backend availability after removal; consult
+the [stage inventory](processing-stages.md) for the current state.
+
+<a id="current-implementation-and-bounded-migration"></a>
+
+## Historical implementation and bounded migration
 
 GPU-only migration is **not complete**. Current scope after the focused
 detail/crop cleanup and November 1 export/presentation continuation:

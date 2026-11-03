@@ -60,8 +60,8 @@ backlog, rather than a second aggregate checklist here.
 | [#48](README.md#task-48) | Add export-only output sharpening                | Depends on #47 for trustworthy output-pixel review.                                               |
 | [#49](README.md#task-49) | Evaluate optional spatial FSR                    | Optional later task; a justified rejection is a valid outcome.                                    |
 
-Reuse existing #10 for general Linux dropdowns and #32 for the remaining GPU-only
-migration. UI work follows the implemented #33 inspector navigation and #34
+Reuse existing #10 for general Linux dropdowns and #32 for the remaining GPU-first
+consolidation. The [stage inventory](../processing-stages.md) records current owners, retired executors, rejected candidates and remaining platform/removal gates. UI work follows the implemented #33 inspector navigation and #34
 [Sunflower design system](../design-system.md). Keep #25 shutdown recovery,
 #29 background deletion, #30 queue redesign,
 #31 merge acceptance, #35 asset migration and camera/branding tasks separate.
@@ -79,7 +79,7 @@ Do not duplicate or automatically pull these items into an editing task.
   changes need formatting/link/whitespace checks, not Electron or GPU runs.
 - Preserve originals/masters, history, HDR/SDR contracts, frozen exports,
   cancellation, resource limits and explicit capability handling for the affected
-  behavior. Follow the [GPU-only direction](../gpu-processing.md); do not build
+  behavior. Follow the [GPU-first direction](../gpu-processing.md); do not build
   duplicate production CPU backends or CPU repair/fallback paths.
 - Apply the [effort/benefit policy](../performance-decisions.md). Expensive
   committed denoising may load while the interface remains usable. Review one

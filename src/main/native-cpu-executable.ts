@@ -1,13 +1,16 @@
-import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { access, open, type FileHandle } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
 const BINARY_LIMIT = 128 * 1024 ** 2
 
-export function cpuPreviewBackend(): 'native' | 'javascript' {
-  return process.platform === 'linux' && process.arch === 'x64' ? 'native' : 'javascript'
+export function hdrMaskBackend(): 'native' | 'unavailable' {
+  return (process.platform === 'linux' && process.arch === 'x64') ||
+    (process.platform === 'darwin' && process.arch === 'arm64')
+    ? 'native'
+    : 'unavailable'
 }
 
 async function checkedFile(path: string, maximum: number) {
@@ -37,12 +40,12 @@ async function read(file: FileHandle, bytes: Buffer, position: number) {
 export async function nativeCpuExecutable(
   trustedRuntimeRoot = import.meta.dirname,
 ): Promise<string> {
-  if (cpuPreviewBackend() !== 'native')
-    throw new Error('Native CPU preview is not bundled for this platform.')
+  if (hdrMaskBackend() !== 'native')
+    throw new Error('Native HDR masks are unavailable for this platform.')
   if (!isAbsolute(trustedRuntimeRoot)) throw new Error('Expected an absolute trusted runtime root.')
   const root = join(
     trustedRuntimeRoot.replace(/\/app\.asar(?=\/|$)/, '/app.asar.unpacked'),
-    'native-cpu-render/linux-x64',
+    `native-cpu-render/${process.platform}-${process.arch}`,
   )
   const executable = join(root, 'irodori-cpu-render')
   const manifest = await checkedFile(join(root, 'SHA256SUMS'), 256)
@@ -157,7 +160,6 @@ export async function nativeCpuMaskCapability(
   const sha = /^[a-f0-9]{64}$/
   if (
     capability?.version !== 'native-cpu-capabilities-v1' ||
-    capability.presentation !== 'IRODCPU3' ||
     mask?.request !== 'MASKCPU3' ||
     mask.output !== 'MASKOUT1' ||
     mask.terminal !== 'MASKDONE' ||
@@ -174,7 +176,11 @@ export async function nativeCpuMaskCapability(
     reference.chromium !== '152.0.7977.78' ||
     reference.llvmLibcRevision !== '3ea89f4304312567e31a8eb45e0737577e65b676' ||
     JSON.stringify(arithmetic.maskCompilerFlags) !==
-      JSON.stringify(['-mno-fma', '-mno-avx', '-mno-sse4.2']) ||
+      JSON.stringify(
+        process.platform === 'darwin'
+          ? ['-U__ARM_FEATURE_FMA']
+          : ['-mno-fma', '-mno-avx', '-mno-sse4.2'],
+      ) ||
     arithmetic.substitution?.count !== 1 ||
     arithmetic.substitution.before !== 'double h_rad = atan2(Aab[2], Aab[1]);' ||
     arithmetic.substitution.after !==

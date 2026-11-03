@@ -6,8 +6,8 @@ import {
   mkdir,
   mkdtemp,
   open,
-  readFile,
   readdir,
+  readFile,
   rm,
   writeFile,
   type FileHandle,
@@ -16,27 +16,19 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  NativeCpuController,
-  type CpuControllerOptions,
-  type CpuWorkingLease,
-} from '../src/main/native-cpu-controller'
-import type { CpuPreviewRequest, CpuPreviewSourceRef } from '../src/shared/native-cpu-preview'
-import { NATIVE_CPU_PREVIEW_VERSION } from '../src/shared/native-cpu-preview'
+  NativeMaskController,
+  type NativeMaskControllerOptions,
+  type PreparedHdrSourceLease,
+} from '../src/main/native-mask-controller'
 import { neutralAdjustments, type AdjustmentParameters } from '../src/shared/adjustments'
-import { NATIVE_HDR_MASK_VERSION, type NativeHdrMaskRequest } from '../src/shared/native-hdr-mask'
 import {
-  adjustHdr,
-  contentHdr,
-  encodeHdr,
-  hdrAdjustmentMatrix,
-  outputHdr,
-  SDR_TARGET,
   HDR_SOURCE_VERSION,
   hdrSourceVersion,
+  SDR_TARGET,
   type HdrWorkingAsset,
 } from '../src/shared/hdr'
-import { hdrRangeColor } from '../src/renderer/src/preview/hdr-ranges'
-import { nativeCpuExistingOwners } from '../src/shared/native-cpu-memory'
+import { NATIVE_HDR_MASK_VERSION, type NativeHdrMaskRequest } from '../src/shared/native-hdr-mask'
+import type { PreparedHdrSourceRef } from '../src/shared/prepared-source'
 import { resolveResourcePolicy, type ResourcePolicySnapshot } from '../src/shared/resource-policy'
 
 export const sha = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex')
@@ -84,7 +76,7 @@ export async function realNativeExecutable() {
   return executable
 }
 export interface SourceRecord {
-  readonly ref: CpuPreviewSourceRef
+  readonly ref: PreparedHdrSourceRef
   readonly asset: HdrWorkingAsset
   readonly pixels: Float32Array<ArrayBuffer>
   readonly bytes: Buffer
@@ -118,7 +110,7 @@ interface FixtureOptions {
     checkTarget?: (request: Pick<NativeHdrMaskRequest, 'domain' | 'target' | 'source'>) => void
     policy?: () => ResourcePolicySnapshot
   }
-  foreground?: CpuControllerOptions['foreground']
+  foreground?: NativeMaskControllerOptions['foreground']
   policy?: () => Promise<ResourcePolicySnapshot>
   check?: (record: SourceRecord, signal: AbortSignal, directory: string) => Promise<void>
   release?: (record: SourceRecord) => Promise<void>
@@ -136,9 +128,8 @@ export async function controllerFixture(options: FixtureOptions = {}) {
     control = join(root, 'protocol-control')
   await mkdir(control)
   const records: SourceRecord[] = []
-  let policyCalls = 0,
-    executableCalls = 0
-  let policy = options.policy ?? (async () => resourcePolicy(policyCalls))
+  const policyCalls = 0
+  let executableCalls = 0
   let executable: string
   if (options.synthetic) {
     const config = join(control, 'config.json'),
@@ -237,7 +228,10 @@ export async function controllerFixture(options: FixtureOptions = {}) {
     records.push(record)
     return record
   }
-  const acquireSource = async (request: Pick<CpuPreviewRequest, 'source'>, signal: AbortSignal) => {
+  const acquireSource = async (
+    request: Pick<NativeHdrMaskRequest, 'source'>,
+    signal: AbortSignal,
+  ) => {
     const record = records.find((entry) => entry.ref.cacheId === request.source.cacheId)
     if (!record || JSON.stringify(record.ref) !== JSON.stringify(request.source))
       throw new Error('Unknown test-domain source reference.')
@@ -246,7 +240,7 @@ export async function controllerFixture(options: FixtureOptions = {}) {
     record.acquisitions++
     record.handles.add(file)
     let released = false
-    const lease: CpuWorkingLease = {
+    const lease: PreparedHdrSourceLease = {
       source: structuredClone(record.ref),
       asset: structuredClone(record.asset),
       file,
@@ -275,17 +269,12 @@ export async function controllerFixture(options: FixtureOptions = {}) {
     }
     return lease
   }
-  const controller = new NativeCpuController({
+  const controller = new NativeMaskController({
     root: directory,
     executable: async () => {
       executableCalls++
       return executable
     },
-    policy: async () => {
-      policyCalls++
-      return policy()
-    },
-    acquireSource,
     foreground:
       options.foreground ??
       (async (work, signal) => {
@@ -307,34 +296,10 @@ export async function controllerFixture(options: FixtureOptions = {}) {
           },
         }
       : undefined,
-    existingOwners: (asset, request) =>
-      nativeCpuExistingOwners(
-        asset.width,
-        asset.height,
-        Math.round(request.viewport.width * request.viewport.dpr),
-        Math.round(request.viewport.height * request.viewport.dpr),
-      ),
   })
   await controller.open()
   const sessionId = randomUUID()
   let generation = 0
-  const request = (
-    record: SourceRecord,
-    patch: Partial<CpuPreviewRequest> = {},
-  ): CpuPreviewRequest => ({
-    version: NATIVE_CPU_PREVIEW_VERSION,
-    requestId: randomUUID(),
-    sessionId,
-    source: structuredClone(record.ref),
-    generation: ++generation,
-    expectedSettingsRevision: record.revision,
-    parameters: { ...neutralAdjustments },
-    quality: 'normal',
-    hdrRanges: false,
-    headroom: null,
-    viewport: { width: 64, height: 32, dpr: 1 },
-    ...patch,
-  })
   const maskRequest = (
     record: SourceRecord,
     patch: Partial<NativeHdrMaskRequest> = {},
@@ -384,7 +349,6 @@ export async function controllerFixture(options: FixtureOptions = {}) {
     control,
     controller,
     source,
-    request,
     maskRequest,
     events,
     event,
@@ -393,7 +357,7 @@ export async function controllerFixture(options: FixtureOptions = {}) {
     executableCalls: () => executableCalls,
     policyCalls: () => policyCalls,
     setPolicy: (next: () => Promise<ResourcePolicySnapshot>) => {
-      policy = next
+      void next
     },
     allow: (name: 'output' | 'exit', forGeneration: number) =>
       writeFile(join(control, `allow-${name}-${forGeneration}`), ''),
@@ -421,57 +385,6 @@ export async function controllerFixture(options: FixtureOptions = {}) {
   }
 }
 
-export async function readPlane(controller: NativeCpuController, url: string) {
-  const owner = controller.acquire(new URL(url))
-  if (!owner) throw new Error('Expected an available owned CPU plane.')
-  try {
-    const bytes = await readFile(owner.path)
-    expect(bytes.length).toBe(owner.byteLength)
-    return bytes
-  } finally {
-    owner.release()
-  }
-}
-/** Independent unchanged application CPU functions, not native generated math or
- * its request encoder. This deliberately covers tiny full-resolution fixtures. */
-export function cpuOracle(
-  record: Pick<SourceRecord, 'pixels' | 'asset'>,
-  request: CpuPreviewRequest,
-) {
-  const after = new Uint8ClampedArray(record.asset.width * record.asset.height * 4)
-  const before = new Uint8ClampedArray(after.length),
-    wb = hdrAdjustmentMatrix(request.parameters, record.asset.whiteBalance) ?? undefined
-  for (let index = 0; index < after.length / 4; index++) {
-    const at = index * 4,
-      rgb: [number, number, number] = [
-        record.pixels[at],
-        record.pixels[at + 1],
-        record.pixels[at + 2],
-      ]
-    const adjusted = adjustHdr(rgb, request.parameters, wb),
-      target = { ...SDR_TARGET, headroom: request.headroom }
-    const ranges = (value: [number, number, number]) =>
-      request.hdrRanges
-        ? hdrRangeColor(
-            contentHdr(value, record.asset.source).rgb,
-            target,
-            index % record.asset.width,
-            Math.floor(index / record.asset.width),
-          )
-        : null
-    for (const [output, value] of [
-      [after, adjusted],
-      [before, rgb],
-    ] as const) {
-      const converted = outputHdr(value, SDR_TARGET, record.asset.source).rgb,
-        range = ranges(value)
-      for (let channel = 0; channel < 3; channel++)
-        output[at + channel] = Math.round((range?.[channel] ?? encodeHdr(converted[channel])) * 255)
-      output[at + 3] = Math.round(record.pixels[at + 3] * 255)
-    }
-  }
-  return { after: Buffer.from(after), before: Buffer.from(before) }
-}
 export async function scratchNames(directory: string) {
   return (await readdir(directory)).filter((name) => name.startsWith('cpu-'))
 }

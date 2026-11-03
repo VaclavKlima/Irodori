@@ -3,18 +3,18 @@ import { readFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import sharp from 'sharp'
-import { resizeLinear } from '../src/main/export/resize'
+import { exportCropPolicy } from '../src/main/export/crop-policy'
 import { ExportProcess } from '../src/main/export/process'
 import { renderExport } from '../src/main/export/render'
 import { exportResizePolicy } from '../src/main/export/resize-policy'
-import { exportCropPolicy } from '../src/main/export/crop-policy'
 import type { ExportRenderJob } from '../src/main/export/types'
-import { defaultExportOptions } from '../src/shared/export'
 import { identityCrop } from '../src/shared/crop'
+import { defaultExportOptions } from '../src/shared/export'
 import { HDR_JPEG_SOURCE_VERSION } from '../src/shared/hdr'
-import { exportFixture, sha, syntheticExportSource } from './export.helpers'
 import { cropAdmission } from './crop-frame.helpers'
 import { readGainJpeg, reconstruct, srgbLinear, to2020 } from './export-reference'
+import { resizeLinear } from './export-resize-reference'
+import { exportFixture, sha, syntheticExportSource } from './export.helpers'
 
 const reference = JSON.parse(
   readFileSync(resolve('tests/fixtures/export-resize-reference.json'), 'utf8'),
@@ -34,7 +34,7 @@ const reference = JSON.parse(
 }
 const previous = process.env.IRODORI_EXPORT_BACKEND
 test.beforeEach(() => {
-  process.env.IRODORI_EXPORT_BACKEND = 'cpu'
+  process.env.IRODORI_EXPORT_BACKEND = 'gpu'
 })
 test.afterEach(() => {
   if (previous === undefined) delete process.env.IRODORI_EXPORT_BACKEND

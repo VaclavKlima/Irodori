@@ -4,20 +4,20 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import sharp from 'sharp'
-import { PhotoLibrary } from './photo-library.helpers'
-import { PreviewProcess } from '../src/main/preview-process'
 import { ExportProcess } from '../src/main/export/process'
+import { PreviewProcess } from '../src/main/preview-process'
 import { processingMetadata } from '../src/main/processing/metadata'
+import type { LibraryEvent } from '../src/shared/contracts'
 import { cropGeometry, identityCrop } from '../src/shared/crop'
 import { defaultExportOptions } from '../src/shared/export'
-import type { LibraryEvent } from '../src/shared/contracts'
 import { cropAdmission } from './crop-frame.helpers'
+import { PhotoLibrary } from './photo-library.helpers'
 
 const previousPreview = process.env.IRODORI_PREVIEW_BACKEND,
   previousExport = process.env.IRODORI_EXPORT_BACKEND
 test.beforeEach(() => {
-  process.env.IRODORI_PREVIEW_BACKEND = 'cpu'
-  process.env.IRODORI_EXPORT_BACKEND = 'cpu'
+  process.env.IRODORI_PREVIEW_BACKEND = 'gpu'
+  process.env.IRODORI_EXPORT_BACKEND = 'gpu'
 })
 test.afterEach(() => {
   if (previousPreview === undefined) delete process.env.IRODORI_PREVIEW_BACKEND

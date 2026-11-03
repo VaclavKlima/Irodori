@@ -1,26 +1,27 @@
+import { prepareSourceReference } from './merge-preparation-reference'
+import { runMerge as runMergeReference } from './merge-reference-engine'
 /* eslint-disable no-empty-pattern -- Playwright requires destructured fixtures for TestInfo. */
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
-import { cp, mkdtemp, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { join, basename, resolve } from 'node:path'
+import { cp, mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { basename, join, resolve } from 'node:path'
 import sharp from 'sharp'
-import { PhotoLibrary } from './photo-library.helpers'
-import { PreviewProcess } from '../src/main/preview-process'
-import { PreviewEngine } from '../src/main/preview-engine'
 import { RawGpuRenderer } from '../src/main/gpu/raw-renderer'
-import { prepareSource } from '../src/main/merge/prepare'
+import { loadPreparation, savePreparation } from '../src/main/merge/preparation-cache'
 import { mergePreparation } from '../src/main/merge/preparation-policy'
-import { detectCaptureSequences } from '../src/shared/capture-sequence'
-import { MERGE_VERSION, type MergeSource } from '../src/shared/merge'
-import { brkFixtures } from './brk.helpers'
-import { nativeMasterCrop } from './brk-native.helpers'
-import { scan, commit } from './library.helpers'
+import { prepareSource } from '../src/main/merge/prepare'
 import { readSensorCache } from '../src/main/merge/sensor-cache'
+import { PreviewEngine } from '../src/main/preview-engine'
+import { PreviewProcess } from '../src/main/preview-process'
 import { librawDecoder } from '../src/main/processing/decoders/libraw'
-import { runMerge } from '../src/main/merge/engine'
-import { outputHdr, encodeHdr, SDR_TARGET } from '../src/shared/hdr'
-import { savePreparation, loadPreparation } from '../src/main/merge/preparation-cache'
+import { detectCaptureSequences } from '../src/shared/capture-sequence'
+import { encodeHdr, outputHdr, SDR_TARGET } from '../src/shared/hdr'
+import { MERGE_VERSION, type MergeSource } from '../src/shared/merge'
+import { nativeMasterCrop } from './brk-native.helpers'
+import { brkFixtures } from './brk.helpers'
+import { commit, scan } from './library.helpers'
+import { PhotoLibrary } from './photo-library.helpers'
 
 const stems = [
   'DSC03243',
@@ -213,8 +214,8 @@ for (const stem of stems)
         const previous = process.env.IRODORI_MERGE_BACKEND,
           cpuOutput = join(root, 'cpu-comparison')
         try {
-          process.env.IRODORI_MERGE_BACKEND = 'cpu'
-          const cpu = await runMerge({
+          process.env.IRODORI_MERGE_BACKEND = 'gpu'
+          const cpu = await runMergeReference({
             directory: join(root, 'merge-reviews', review.id, 'prepared'),
             sources: review.sources,
             paths: review.sources.map((s) => files.find((f) => f.name === s.photo.filename)!.path),
@@ -409,14 +410,13 @@ test('BRK source-specific correction tables and common crop agree on CPU/GPU, in
         undefined,
         preparation,
       ),
-      cpu = await prepareSource(
+      cpu = await prepareSourceReference(
         files[2].path,
         directory,
         1,
         sources[2],
         sources[0],
-        undefined,
-        undefined,
+        async () => {},
         preparation,
       )
     expect(actual.measurement?.backend).toBe('gpu')

@@ -1,5 +1,5 @@
-import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import { defineConfig } from 'electron-vite'
 import { randomBytes } from 'node:crypto'
 import { cp, mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -22,21 +22,6 @@ export default defineConfig(({ command }) => {
                 throw new Error(
                   'The Linux native HDR codec is missing. Supply the pinned source archives and run npm run build:export-native before building Irodori.',
                 )
-              try {
-                await nativeCpuExecutable(resolve('vendor'))
-              } catch (cause) {
-                throw new Error(
-                  'The Linux native CPU renderer is missing or invalid. Run npm run build:cpu-native before building Irodori.',
-                  { cause },
-                )
-              }
-              await cp(
-                'vendor/native-cpu-render/linux-x64',
-                'out/main/native-cpu-render/linux-x64',
-                {
-                  recursive: true,
-                },
-              )
               const raw = await prepareNativeRawExecutable(resolve('vendor'))
               if (raw.status !== 'ready')
                 throw new Error(
@@ -45,6 +30,26 @@ export default defineConfig(({ command }) => {
               await cp('vendor/native-raw/linux-x64', 'out/main/native-raw/linux-x64', {
                 recursive: true,
               })
+            }
+            if (
+              (process.platform === 'linux' && process.arch === 'x64') ||
+              (process.platform === 'darwin' && process.arch === 'arm64')
+            ) {
+              try {
+                await nativeCpuExecutable(resolve('vendor'))
+              } catch (cause) {
+                throw new Error(
+                  'The native HDR mask helper is missing or invalid. Run npm run build:cpu-native before building Irodori.',
+                  { cause },
+                )
+              }
+              await cp(
+                `vendor/native-cpu-render/${process.platform}-${process.arch}`,
+                `out/main/native-cpu-render/${process.platform}-${process.arch}`,
+                {
+                  recursive: true,
+                },
+              )
             }
             await mkdir('out/main/opencv', { recursive: true })
             await cp('vendor/opencv', 'out/main/opencv', { recursive: true })

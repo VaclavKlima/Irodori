@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { cropWorkingFrame } from '../src/main/processing/crop-frame'
 import { fitCrop, identityCrop } from '../src/shared/crop'
 import { cropAdmission, cropFrame } from './crop-frame.helpers'
+import { cropFrameReference } from './spatial-reference'
 
 test('native GPU authored-frame adapter preserves color semantics and agrees with CPU over multiple bands', async () => {
   const frame = cropFrame(97, 131),
@@ -13,7 +14,7 @@ test('native GPU authored-frame adapter preserves color semantics and agrees wit
     },
     signal = new AbortController().signal,
     actual = await cropWorkingFrame(frame, job, signal),
-    expected = await cropWorkingFrame(frame, { ...job, backend: 'cpu' }, signal)
+    expected = await cropFrameReference(frame, { ...job, backend: 'cpu' }, signal)
   expect(actual.diagnostics.backend).toBe('gpu')
   expect(actual.diagnostics.gpuTiles).toBeGreaterThan(1)
   expect(actual.diagnostics.adapter).toBeTruthy()

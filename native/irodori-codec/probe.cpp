@@ -34,7 +34,10 @@ int irodori_codec_probe(unsigned width, unsigned height) noexcept {
 uint64_t irodori_codec_peak_bytes() noexcept {
   struct rusage usage{};
   if (getrusage(RUSAGE_SELF, &usage) || usage.ru_maxrss <= 0) return 0;
-  // Linux reports KiB; the existing macOS helper reports bytes.
+#if defined(__APPLE__)
+  return static_cast<uint64_t>(usage.ru_maxrss);
+#else
   return static_cast<uint64_t>(usage.ru_maxrss) * 1024;
+#endif
 }
 }

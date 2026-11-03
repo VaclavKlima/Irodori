@@ -1,5 +1,9 @@
-#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-compile_error!("The native codec currently targets Linux x86_64 only.");
+#[cfg(not(any(all(target_os = "linux", target_arch = "x86_64"), all(target_os = "macos", target_arch = "aarch64"))))]
+compile_error!("The native codec supports macOS arm64 and Linux x86_64.");
+#[cfg(target_os = "linux")]
+const NOFOLLOW: i32 = 0o400000;
+#[cfg(target_os = "macos")]
+const NOFOLLOW: i32 = 0x100;
 
 use std::env;
 use std::ffi::{c_char, c_int, c_void, CStr, OsStr};
@@ -60,7 +64,7 @@ impl Input {
         }
         let file = OpenOptions::new()
             .read(true)
-            .custom_flags(0o400000)
+            .custom_flags(NOFOLLOW)
             .open(path)?;
         let metadata = file.metadata()?;
         let length = metadata.len();
@@ -72,7 +76,7 @@ impl Input {
             return Err("Invalid native encoder input length.".into());
         }
         let length = usize::try_from(length)?;
-        // SAFETY: Linux x86_64 mmap ABI; the file is a validated regular file,
+        // SAFETY: Supported Unix mmap ABI; the file is a validated regular file,
         // length is bounded and nonzero, offset is zero, PROT_READ/MAP_PRIVATE.
         // The owned input is immutable until this job exits.
         let address = unsafe { mmap(std::ptr::null_mut(), length, 1, 2, file.as_raw_fd(), 0) };

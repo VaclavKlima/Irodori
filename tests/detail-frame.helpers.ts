@@ -1,15 +1,15 @@
-import { srgbTransform, type WorkingFrame } from '../src/shared/adjustments'
-import { resolveResourcePolicy } from '../src/shared/resource-policy'
-import type { ColorPrimaries } from '../src/shared/color-model'
 import type { DetailFrameJob } from '../src/main/processing/detail-frame'
+import { srgbTransform, type WorkingFrame } from '../src/shared/adjustments'
+import type { ColorPrimaries } from '../src/shared/color-model'
+import { resolveResourcePolicy } from '../src/shared/resource-policy'
 import {
-  compileNoiseReduction,
   compileDetailSharpening,
-  spatialDetailTile,
+  compileNoiseReduction,
   spatialDetailSourceBounds,
+  spatialDetailTile,
 } from '../src/shared/spatial-detail'
+import { sha, workingAsset } from './export.helpers'
 import { detailWindow } from './spatial-detail.helpers'
-import { workingAsset, sha } from './export.helpers'
 
 /** CC0-1.0 synthetic linear frame, including padding outside the borrowed view. */
 export function detailFrame(
@@ -41,7 +41,7 @@ export function detailFrame(
     data,
     transform: { ...srgbTransform, white: 0.83 },
     identity: 'isolated-upstream-frame',
-    cpuSource: {
+    sourceRef: {
       photoId: 'isolated-detail-frame',
       cacheId: 'isolated-upstream-cache',
       renderingIdentity: 'isolated-upstream-rendering',
@@ -55,7 +55,7 @@ export function detailFrameJob(primaries: ColorPrimaries = 'srgb'): DetailFrameJ
     noiseReduction: { version: 1, luminance: 35, chroma: 45 },
     detailSharpening: { version: 1, amount: 40, radius: 1.2, threshold: 50 },
     primaries,
-    backend: 'cpu',
+    backend: 'gpu',
     admission: {
       policy: resolveResourcePolicy(
         { version: 1, ramMiB: 2048, vramMiB: 2048 },

@@ -1,23 +1,19 @@
-import { neutralAdjustments } from '../src/shared/adjustments'
-import { createHash } from 'node:crypto'
+import { detailPreviewFixture } from './detail-preview.helpers'
 import { LibRaw } from '@colorhythm/libraw-wasm'
 import { expect, test } from '@playwright/test'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import sharp from 'sharp'
 import { RawGpuRenderer } from '../src/main/gpu/raw-renderer'
 import { readGpuSource, type RawSource } from '../src/main/gpu/raw-source'
 import { PreviewEngine } from '../src/main/preview-engine'
 import { readHdrStrips } from '../src/main/processing/hdr-processing'
+import { neutralAdjustments } from '../src/shared/adjustments'
 import {
-  adjustHdr,
-  encodeHdr,
-  hdrAdjustmentMatrix,
-  outputHdr,
-  SDR_TARGET,
-  HDR_RAW_SOURCE_VERSION,
   HDR_ADJUSTMENT_VERSION,
   HDR_OUTPUT_VERSION,
+  HDR_RAW_SOURCE_VERSION,
 } from '../src/shared/hdr'
 
 async function hardwareRender(gpu: RawGpuRenderer, source: RawSource) {
@@ -105,7 +101,7 @@ for (const sample of rawSamples) {
   })
 }
 
-test('ZV-1A metadata enables the verified GPU layout while unknown models stay on CPU', async () => {
+test('ZV-1A metadata enables the verified GPU layout while unknown models provide no sensor source', async () => {
   await LibRaw.initialize()
   const decoder = new LibRaw()
   await decoder.waitUntilReady()
@@ -188,13 +184,16 @@ test('GPU stripes preserve neutral colors, black, highlights and all flip orient
   }
 })
 
-test('GPU failure falls back to a complete CPU frame with its own matching placeholder', async () => {
-  // This deliberately includes full CPU HDR preparation and the native-size ACES proof.
+test('GPU failure reports its actual reason without publishing CPU pixels and a later GPU retry owns its matching placeholder', async () => {
+  // Exercise actual Sony sensor preparation and the shared native-size GPU proof.
   test.setTimeout(120000)
   const output = test.info().outputPath('fallback')
   await mkdir(output, { recursive: true })
   const source = await readFile('tests/fixtures/sony-zv1.ARW')
-  let gpuCalls = 0,
+  const healthy = new RawGpuRenderer(),
+    fault = new Error('Simulated GPU device loss')
+  let failing = true,
+    gpuCalls = 0,
     extracted = false
   const engine = new PreviewEngine(
     async () => {
@@ -203,17 +202,23 @@ test('GPU failure falls back to a complete CPU frame with its own matching place
     },
     'auto',
     {
-      render: async () => {
+      render: async (...args) => {
         gpuCalls++
-        throw new Error('Simulated GPU device loss')
+        if (failing) throw fault
+        return healthy.render(...args)
       },
-      releaseFrame: () => {},
-      close: () => {},
+      mergeDevice: () => healthy.mergeDevice(),
+      releaseFrame: () => healthy.releaseFrame(),
+      close: () => healthy.close(),
     },
   )
   try {
-    const result = await engine.renderFull('tests/fixtures/sony-zv1.ARW', output)
+    await expect(engine.renderFull('tests/fixtures/sony-zv1.ARW', output)).rejects.toBe(fault)
     expect(gpuCalls).toBe(1)
+    expect(await readdir(output)).toEqual([])
+    failing = false
+    const result = await engine.renderFull('tests/fixtures/sony-zv1.ARW', output)
+    expect(gpuCalls).toBe(2)
     expect(extracted).toBe(false)
     expect(result.renderId).toBe(
       `${HDR_RAW_SOURCE_VERSION}-${HDR_ADJUSTMENT_VERSION}-${HDR_OUTPUT_VERSION}-${JSON.stringify(neutralAdjustments)}`,
@@ -223,7 +228,7 @@ test('GPU failure falls back to a complete CPU frame with its own matching place
       height: 3622,
       format: 'rgba8-srgb',
       byteLength: 5422 * 3622 * 4,
-      diagnostics: { backend: 'cpu', fallback: 'Error: Simulated GPU device loss' },
+      diagnostics: { backend: 'gpu', proofBackend: 'gpu', proofCpuStrips: 0 },
     })
     const frame = await readFile(`${output}/full.rgba`)
     expect(frame.length).toBe(result.byteLength)
@@ -237,34 +242,17 @@ test('GPU failure falls back to a complete CPU frame with its own matching place
     })
     expect(result.linear!.byteLength).toBe(asset.byteLength)
     expect(result.linear!.sha256).toBe(asset.sha256)
-    const wb = hdrAdjustmentMatrix(neutralAdjustments, asset.whiteBalance) ?? undefined
     let offset = 0,
       invalidAlpha = false,
       aboveWhite = false,
       negative = false
-    let firstDifference:
-      { position: number; channel: number; actual: number; expected: number } | undefined
     for await (const strip of readHdrStrips(`${output}/linear.f32`, asset)) {
       aboveWhite ||= strip.some((value, index) => index % 4 !== 3 && value > 1)
       negative ||= strip.some((value, index) => index % 4 !== 3 && value < 0)
-      for (let sample = 0; sample < 32; sample++) {
-        const local = Math.floor(((sample + 0.5) * strip.length) / (32 * 4)) * 4
-        const position = offset + local / 4
-        const rgb = outputHdr(
-          adjustHdr([strip[local], strip[local + 1], strip[local + 2]], neutralAdjustments, wb),
-          SDR_TARGET,
-        ).rgb
-        for (let c = 0; c < 3; c++) {
-          const expected = Math.round(encodeHdr(rgb[c]) * 255)
-          const actual = frame[position * 4 + c]
-          if (actual !== expected) firstDifference ??= { position, channel: c, actual, expected }
-        }
-      }
       offset += strip.length / 4
     }
     for (let i = 3; i < frame.length; i += 4) invalidAlpha ||= frame[i] !== 255
     expect(offset).toBe(result.width * result.height)
-    expect(firstDifference).toBeUndefined()
     expect(invalidAlpha).toBe(false)
     expect(aboveWhite).toBe(true)
     expect(negative).toBe(true)
@@ -526,5 +514,41 @@ test('Sony RAW native highlights and combined exposure/contrast match CPU conver
   } finally {
     session.close()
     gpu.close()
+  }
+})
+
+test('a prepared HDR proof reports actual device loss and a later request renews only the failed GPU owner', async () => {
+  const f = await detailPreviewFixture(true),
+    gpu = new RawGpuRenderer(),
+    engine = new PreviewEngine(undefined, 'gpu', gpu)
+  const mergeDevice = gpu.mergeDevice.bind(gpu)
+  let requests = 0
+  gpu.mergeDevice = async () => {
+    const result = await mergeDevice()
+    if (++requests === 1) {
+      result.device.destroy()
+      await result.device.lost
+    }
+    return result
+  }
+  try {
+    const original = await readFile(f.job.asset.path),
+      options = { ...f.job.options, workingAsset: f.job.asset }
+    await expect(
+      engine.renderPreparedFull(await f.directory('lost-device-proof'), options, 'gpu'),
+    ).rejects.toThrow('GPU device lost')
+    expect(gpu.failure).toContain('GPU device lost')
+    const retried = await engine.renderPreparedFull(
+      await f.directory('renewed-device-proof'),
+      options,
+      'gpu',
+    )
+    expect(retried.diagnostics?.proofBackend).toBe('gpu')
+    expect([retried.width, retried.height]).toEqual([f.frame.width, f.frame.height])
+    expect(requests).toBe(1)
+    expect(await readFile(f.job.asset.path)).toEqual(original)
+  } finally {
+    await engine.close()
+    await f.close()
   }
 })

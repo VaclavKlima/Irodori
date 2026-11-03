@@ -2,17 +2,18 @@ import { expect, test } from '@playwright/test'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { PreviewProcess } from '../src/main/preview-process'
 import {
   prepareCropWorkingAsset,
   type CropPreparationJob,
 } from '../src/main/processing/crop-preparation'
-import { PreviewProcess } from '../src/main/preview-process'
-import { CROP_COMPUTE_BYTES } from '../src/shared/crop-resources'
+import { readHdrStrips } from '../src/main/processing/hdr-processing'
 import { fitCrop, identityCrop } from '../src/shared/crop'
 import { resampleCropTile } from '../src/shared/crop-filter'
+import { CROP_COMPUTE_BYTES } from '../src/shared/crop-resources'
 import { DEFAULT_RESOURCE_SETTINGS, resolveResourcePolicy } from '../src/shared/resource-policy'
-import { readHdrStrips } from '../src/main/processing/hdr-processing'
 import { workingAsset } from './export.helpers'
+import { expectFloatReference } from './spatial-reference'
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'irodori-straighten-')),
@@ -32,7 +33,7 @@ async function fixture() {
   const job: CropPreparationJob = {
     asset,
     settings: fitCrop(asset, { ...identityCrop, angle: 4.23, width: 0.9, height: 0.8 }),
-    backend: 'cpu',
+    backend: 'gpu',
     policy: resolveResourcePolicy(
       DEFAULT_RESOURCE_SETTINGS,
       {
@@ -63,9 +64,9 @@ test('bounded crop preparation and the real Node worker retain frozen geometry, 
           if (value.phase === 'source') Object.assign(f.job.settings, { angle: 0 })
         },
       )
-    expect(result.backend).toBe('cpu')
-    expect(result.cpuTiles).toBeGreaterThan(3)
-    expect(result.gpuTiles).toBe(0)
+    expect(result.backend).toBe('gpu')
+    expect(result.gpuTiles).toBeGreaterThan(3)
+    expect(result.cpuTiles).toBe(0)
     expect(progress).toEqual([64, 128, result.geometry.height])
     const bytes = await readFile(output),
       pixels = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4),
@@ -84,7 +85,7 @@ test('bounded crop preparation and the real Node worker retain frozen geometry, 
             source,
           ),
           offset = (y * result.geometry.width + x) * 4
-        expect([...pixels.subarray(offset, offset + 4)]).toEqual([...expected])
+        expectFloatReference(pixels.subarray(offset, offset + 4), expected)
       }
     let read = 0
     for await (const strip of readHdrStrips(output, result.asset)) read += strip.length
@@ -95,7 +96,7 @@ test('bounded crop preparation and the real Node worker retain frozen geometry, 
       original,
       new AbortController().signal,
     )
-    expect(dispatched.backend).toBe('cpu')
+    expect(dispatched.backend).toBe('gpu')
     expect(dispatched.asset).toEqual(result.asset)
     expect(await readFile(dispatched.path)).toEqual(bytes)
     expect(await readFile(f.path)).toEqual(f.bytes)
@@ -105,16 +106,9 @@ test('bounded crop preparation and the real Node worker retain frozen geometry, 
   }
 })
 
-test('automatic GPU recovery waits for retirement before continuing with equivalent CPU pixels', async () => {
+test('automatic GPU loss drains before rejection without publishing a CPU replacement', async () => {
   const f = await fixture()
   try {
-    const cpu = await prepareCropWorkingAsset(
-        f.path,
-        f.job,
-        join(f.root, 'cpu.f32'),
-        new AbortController().signal,
-      ),
-      baseline = await readFile(cpu.path)
     let calls = 0,
       retired = false,
       release!: () => void,
@@ -124,15 +118,16 @@ test('automatic GPU recovery waits for retirement before continuing with equival
       }),
       hold = new Promise<void>((done) => {
         release = done
-      })
+      }),
+      output = join(f.root, 'failed.f32')
     const pending = prepareCropWorkingAsset(
       f.path,
       { ...f.job, backend: 'auto' },
-      join(f.root, 'recovered.f32'),
+      output,
       new AbortController().signal,
       undefined,
       async () => ({
-        adapter: 'synthetic-device-loss-fixture',
+        adapter: 'synthetic-device-loss',
         bytes: CROP_COMPUTE_BYTES,
         precisionRecoveryTiles: 0,
         async render(geometry, tile, source) {
@@ -146,23 +141,21 @@ test('automatic GPU recovery waits for retirement before continuing with equival
         },
       }),
     )
+    const failed = expect(pending).rejects.toThrow('Synthetic GPU loss.')
     await closing
     expect(retired).toBe(false)
     release()
-    const result = await pending
+    await failed
     expect(retired).toBe(true)
-    expect(result.backend).toBe('mixed')
-    expect(result.gpuTiles).toBe(1)
-    expect(result.cpuTiles).toBeGreaterThan(0)
-    expect(result.fallback).toContain('Synthetic GPU loss')
-    expect(await readFile(result.path)).toEqual(baseline)
+    expect(calls).toBe(2)
+    await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(await readFile(f.path)).toEqual(f.bytes)
   } finally {
     await f.close()
   }
 })
 
-test('admission refuses new allocations or chooses CPU without creating a GPU owner', async () => {
+test('admission refuses unavailable GPU resources before creating an owner', async () => {
   const f = await fixture()
   try {
     const denied = structuredClone(f.job),
@@ -186,16 +179,17 @@ test('admission refuses new allocations or chooses CPU without creating a GPU ow
     await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
     const cpu = structuredClone(f.job)
     Object.assign(cpu.policy.vram, { effectiveBytes: 0 })
-    const result = await prepareCropWorkingAsset(
-      f.path,
-      { ...cpu, backend: 'auto' },
-      output,
-      new AbortController().signal,
-      undefined,
-      unavailable,
-    )
-    expect(result.backend).toBe('cpu')
-    expect(result.fallback).toContain('admission')
+    await expect(
+      prepareCropWorkingAsset(
+        f.path,
+        { ...cpu, backend: 'auto' },
+        output,
+        new AbortController().signal,
+        undefined,
+        unavailable,
+      ),
+    ).rejects.toThrow('budgets')
+    await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(attempted).toBe(0)
     expect(await readFile(f.path)).toEqual(f.bytes)
   } finally {

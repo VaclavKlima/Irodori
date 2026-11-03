@@ -1,22 +1,22 @@
-import { test, expect } from '@playwright/test'
-import { syntheticMerge } from './merge.helpers'
-import {
-  ALIGNMENT_CONSTANTS,
-  GPU_CAMERA_PREPARATION,
-  GPU_REFERENCE_PREPARATION,
-} from '../src/shared/merge'
+import { expect, test } from '@playwright/test'
+import { createHash } from 'node:crypto'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   cameraPreparationPolicy,
   referencePreparationPolicy,
 } from '../src/main/merge/camera-preparation-policy'
 import { CAMERA_REGISTRATION_POLICY } from '../src/main/merge/camera-registration'
+import { runMerge } from '../src/main/merge/engine'
 import { loadPreparation, savePreparation } from '../src/main/merge/preparation-cache'
 import type { PreparedSource } from '../src/main/merge/prepare'
-import { runMerge } from '../src/main/merge/engine'
-import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import {
+  ALIGNMENT_CONSTANTS,
+  GPU_CAMERA_PREPARATION,
+  GPU_REFERENCE_PREPARATION,
+} from '../src/shared/merge'
+import { syntheticMerge } from './merge.helpers'
 
 type PreparationPolicy = Pick<PreparedSource, 'cameraPreparation' | 'referenceFallbackPreparation'>
 const cameraPolicy: PreparationPolicy = { cameraPreparation: GPU_CAMERA_PREPARATION },
@@ -232,9 +232,9 @@ test('versioned camera policy keeps legacy recipes exact and rejects unknown ari
   try {
     process.env.IRODORI_MERGE_CAMERA_PREPARATION = 'gpu'
     process.env.IRODORI_MERGE_REFERENCE_PREPARATION = 'gpu'
-    expect(cameraPreparationPolicy()).toBe(GPU_CAMERA_PREPARATION)
+    expect(cameraPreparationPolicy()).toBeUndefined()
     expect(cameraPreparationPolicy(f.result.recipe)).toBeUndefined()
-    expect(referencePreparationPolicy()).toBe(GPU_REFERENCE_PREPARATION)
+    expect(referencePreparationPolicy()).toBeUndefined()
     expect(referencePreparationPolicy(f.result.recipe)).toBeUndefined()
     const replay = await runMerge({
       ...f.job,
@@ -252,24 +252,22 @@ test('versioned camera policy keeps legacy recipes exact and rejects unknown ari
     expect(fresh.recipe.referenceFallbackPreparation).toBeUndefined()
     const unknown = structuredClone(f.result.recipe)
     Object.assign(unknown, { cameraPreparation: 'gpu-camera-unknown' })
-    expect(() => cameraPreparationPolicy(unknown)).toThrow('Unsupported camera preparation policy')
+    expect(() => cameraPreparationPolicy(unknown)).toThrow('Recomputation unavailable')
     const mismatched = structuredClone(f.result.recipe)
     mismatched.sources[0].cameraPreparation = GPU_CAMERA_PREPARATION
-    expect(() => cameraPreparationPolicy(mismatched)).toThrow(
-      'Unsupported source camera preparation policy',
-    )
+    expect(() => cameraPreparationPolicy(mismatched)).toThrow('Recomputation unavailable')
     const versioned = structuredClone(mismatched)
     versioned.cameraPreparation = GPU_CAMERA_PREPARATION
-    expect(cameraPreparationPolicy(versioned)).toBe(GPU_CAMERA_PREPARATION)
+    expect(() => cameraPreparationPolicy(versioned)).toThrow('Recomputation unavailable')
     await expect(
       runMerge({ ...f.job, recipe: versioned, output: join(f.directory, 'invalid-policy') }),
-    ).rejects.toThrow('requires a verified RAW bracket')
+    ).rejects.toThrow('Recomputation unavailable')
     const unsupportedReference = structuredClone(f.result.recipe)
     Object.assign(unsupportedReference, {
       referenceFallbackPreparation: 'unknown-reference-policy',
     })
     expect(() => referencePreparationPolicy(unsupportedReference)).toThrow(
-      'Unsupported reference fallback preparation policy',
+      'Recomputation unavailable',
     )
     const versionedReference = structuredClone(f.result.recipe)
     versionedReference.referenceFallbackPreparation = GPU_REFERENCE_PREPARATION
@@ -279,7 +277,7 @@ test('versioned camera policy keeps legacy recipes exact and rejects unknown ari
         recipe: versionedReference,
         output: join(f.directory, 'invalid-reference-policy'),
       }),
-    ).rejects.toThrow('requires a verified RAW bracket')
+    ).rejects.toThrow('Recomputation unavailable')
   } finally {
     if (previous === undefined) delete process.env.IRODORI_MERGE_CAMERA_PREPARATION
     else process.env.IRODORI_MERGE_CAMERA_PREPARATION = previous
@@ -388,7 +386,7 @@ test('source exclusions retain independently valid contributors and reference de
         runtimeMs: 0,
         wasmMemoryBytes: 0,
       }
-    process.env.IRODORI_MERGE_BACKEND = 'cpu'
+    process.env.IRODORI_MERGE_BACKEND = 'gpu'
     const result = await runMerge({ ...f.job, recipe, output: join(f.directory, 'excluded') }),
       bytes = await readFile(join(f.directory, 'excluded', 'linear.f32')),
       pixels = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4)

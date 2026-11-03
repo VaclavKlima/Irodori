@@ -1,11 +1,12 @@
+import { exportResizePolicy } from '../src/main/export/resize-policy'
 import { expect, test } from '@playwright/test'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import sharp from 'sharp'
-import { exportRenditions } from '../src/main/export/renditions'
-import { ExportProcess } from '../src/main/export/process'
 import { exportCropPolicy } from '../src/main/export/crop-policy'
-import { rasterLinear } from '../src/main/export/raster'
+import { ExportProcess } from '../src/main/export/process'
+import { exportRenditions } from '../src/main/export/renditions'
+import type { ExportRenderJob, ExportSource } from '../src/main/export/types'
 import { cropWorkingFrame } from '../src/main/processing/crop-frame'
 import { workingSourceIdentity } from '../src/main/working-assets'
 import { neutralAdjustments, srgbTransform } from '../src/shared/adjustments'
@@ -18,13 +19,13 @@ import {
   encodeHdr,
   outputHdr,
 } from '../src/shared/hdr'
-import type { ExportRenderJob, ExportSource } from '../src/main/export/types'
 import { cropAdmission } from './crop-frame.helpers'
 import { sha, syntheticExportSource } from './export.helpers'
+import { rasterLinear } from './raster-reference'
 
 const priorBackend = process.env.IRODORI_EXPORT_BACKEND
 test.beforeEach(() => {
-  process.env.IRODORI_EXPORT_BACKEND = 'cpu'
+  process.env.IRODORI_EXPORT_BACKEND = 'gpu'
 })
 test.afterEach(() => {
   if (priorBackend === undefined) delete process.env.IRODORI_EXPORT_BACKEND
@@ -108,17 +109,19 @@ test('oriented authored-raster export crops linear pixels before grading and alp
         options: defaultExportOptions,
         cropPolicy: { ...exportCropPolicy },
         cropAdmission: cropAdmission(),
+        resizePolicy: { ...exportResizePolicy },
+        resizeAdmission: cropAdmission(),
       }),
       expected = await cropWorkingFrame(
         input,
-        { settings, admission: cropAdmission(), backend: 'cpu' },
+        { settings, admission: cropAdmission(), backend: 'gpu' },
         new AbortController().signal,
       )
     expect(rendered.geometry).toEqual({
       width: expected.frame.width,
       height: expected.frame.height,
     })
-    expect(rendered.diagnostics.crop!.primary!.backend).toBe(settings.angle ? 'cpu' : 'copy')
+    expect(rendered.diagnostics.crop!.primary!.backend).toBe(settings.angle ? 'gpu' : 'copy')
     const rgba = expected.frame.data,
       bytes = Buffer.alloc((rgba.length / 4) * 3)
     for (let i = 0; i < rgba.length; i += 4) {
@@ -163,9 +166,11 @@ test('HDR export uses cropped native geometry for fit sizing and preserves its b
     options: { ...defaultExportOptions, size },
     cropPolicy: { ...exportCropPolicy },
     cropAdmission: cropAdmission(),
+    resizePolicy: { ...exportResizePolicy },
+    resizeAdmission: cropAdmission(),
   })
   expect(rendered.geometry).toEqual(exportGeometry(crop.width, crop.height, size))
-  expect(rendered.diagnostics.crop!.working!.backend).toBe('cpu')
+  expect(rendered.diagnostics.crop!.working!.backend).toBe('gpu')
   expect(rendered.diagnostics.crop!.geometry).toEqual(crop)
   expect(rendered.half!.length).toBe(rendered.geometry.width * rendered.geometry.height * 4)
   expect(workingSourceIdentity(source.photo.id, source.processing)).toBe(baseKey)
@@ -212,6 +217,8 @@ test('paired authored HDR and SDR-primary exports share geometry while retaining
       options: defaultExportOptions,
       cropPolicy: { ...exportCropPolicy },
       cropAdmission: cropAdmission(),
+      resizePolicy: { ...exportResizePolicy },
+      resizeAdmission: cropAdmission(),
     }),
     result = await exportRenditions({
       source: paired,
@@ -220,10 +227,12 @@ test('paired authored HDR and SDR-primary exports share geometry while retaining
       options: defaultExportOptions,
       cropPolicy: { ...exportCropPolicy },
       cropAdmission: cropAdmission(),
+      resizePolicy: { ...exportResizePolicy },
+      resizeAdmission: cropAdmission(),
     })
   expect(result.geometry).toEqual(plain.geometry)
-  expect(result.diagnostics.crop!.working!.backend).toBe('cpu')
-  expect(result.diagnostics.crop!.primary!.backend).toBe('cpu')
+  expect(result.diagnostics.crop!.working!.backend).toBe('gpu')
+  expect(result.diagnostics.crop!.primary!.backend).toBe('gpu')
   // The red HDR input exceeds 1 and stays distinct from its authored SDR primary.
   expect(new Set(result.half).size).toBeGreaterThan(2)
   expect(result.half![2]).toBeGreaterThan(0x3c00)
@@ -244,11 +253,13 @@ test('isolated export freezes crop/admission and reuses the uncropped source wit
       hdr: false,
       cropPolicy: { ...exportCropPolicy },
       cropAdmission: cropAdmission(),
+      resizePolicy: { ...exportResizePolicy },
+      resizeAdmission: cropAdmission(),
       options: { ...defaultExportOptions, metadata: 'none', quality: 100 },
       workingAsset: {
         identity: workingSourceIdentity(source.photo.id, source.processing),
         asset,
-        backend: 'cpu',
+        backend: 'gpu',
       },
     }
   source.processing.crop = crop
@@ -353,6 +364,8 @@ test('missing or unsupported crop policy fails before source decoding or output 
       options: defaultExportOptions,
       cropPolicy,
       cropAdmission: cropAdmission(),
+      resizePolicy: { ...exportResizePolicy },
+      resizeAdmission: cropAdmission(),
     }
     await expect(exportRenditions(job)).rejects.toThrow(/crop export.*policy/i)
     await expect(exporter.render(job, new AbortController().signal)).rejects.toThrow(

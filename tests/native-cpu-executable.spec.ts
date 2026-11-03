@@ -4,12 +4,12 @@ import { createHash } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, open, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { cpuPreviewBackend, nativeCpuExecutable } from '../src/main/native-cpu-executable'
+import { hdrMaskBackend, nativeCpuExecutable } from '../src/main/native-cpu-executable'
 
 test.beforeEach(() => {
   test.skip(
-    process.platform !== 'linux' || process.arch !== 'x64',
-    'Linux x64 executable-resolution contract only; other platforms remain unverified.',
+    hdrMaskBackend() !== 'native',
+    'Native executable-resolution contract on the supported host; other platforms remain unverified.',
   )
 })
 
@@ -28,7 +28,7 @@ async function scratch(work: (directory: string) => Promise<void>) {
   }
 }
 async function bundle(runtime: string) {
-  const directory = join(runtime, 'native-cpu-render/linux-x64'),
+  const directory = join(runtime, `native-cpu-render/${process.platform}-${process.arch}`),
     executable = join(directory, 'irodori-cpu-render'),
     manifest = join(directory, 'SHA256SUMS')
   await mkdir(directory, { recursive: true })
@@ -40,7 +40,7 @@ async function bundle(runtime: string) {
 
 test('trusted source preflight and built-main runtime roots resolve their own checksummed regular files', async () => {
   await scratch(async (directory) => {
-    expect(cpuPreviewBackend()).toBe('native')
+    expect(hdrMaskBackend()).toBe('native')
     for (const relative of ['vendor', 'out/main']) {
       const runtime = join(directory, relative),
         fixture = await bundle(runtime)

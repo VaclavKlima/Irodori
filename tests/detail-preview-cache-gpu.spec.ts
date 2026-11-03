@@ -2,11 +2,11 @@ import { expect, test } from '@playwright/test'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { PreviewEngine } from '../src/main/preview-engine'
 import { prepareDetailPreview } from '../src/main/processing/detail-preview'
 import { workingSourceIdentity } from '../src/main/working-assets'
 import { PREPARED_PROOF_VERSION } from '../src/shared/preview-frame'
 import { detailCacheFixture } from './detail-preview-cache.helpers'
+import { ReferencePreviewEngine } from './reference-preview-engine'
 
 const digest = (bytes: Uint8Array) => ({
   bytes: bytes.byteLength,
@@ -24,7 +24,7 @@ test('tiny raster, scene-HDR and authored-HDR application cache variants retain 
     ]) {
       process.env.IRODORI_PREVIEW_BACKEND = 'gpu'
       const f = await detailCacheFixture(hdr, undefined, authored),
-        engine = new PreviewEngine(undefined, 'cpu'),
+        engine = new ReferencePreviewEngine(),
         tag = !hdr ? 'raster' : authored ? 'authored-hdr' : 'scene-hdr',
         evidenceDirectory = info.outputPath(tag),
         retained = new Map<string, Uint8Array>()
@@ -168,7 +168,7 @@ test('tiny raster, scene-HDR and authored-HDR application cache variants retain 
         expect(filtered.metadata.detail.adapter).toBeTruthy()
         expect(filtered.metadata.sourceKey).toBe(cpu.detail!.key)
         expect(proof.metadata.preparedProofVersion).toBe(PREPARED_PROOF_VERSION)
-        expect(proof.metadata.diagnostics.proofBackend).toBe(hdr && !authored ? 'gpu' : 'cpu')
+        expect(proof.metadata.diagnostics.proofBackend).toBe('gpu')
         if (hdr && !authored) {
           expect(proof.metadata.diagnostics.proofGpuStrips).toBeGreaterThan(0)
           expect(proof.metadata.diagnostics.proofCpuStrips).toBe(0)

@@ -2,19 +2,20 @@ import { expect, test } from '@playwright/test'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { SpatialDetailGpu } from '../src/main/gpu/spatial-detail'
 import { detailFrameReader, detailWorkingFrame } from '../src/main/processing/detail-frame'
 import { prepareDetailWorkingAsset } from '../src/main/processing/detail-preparation'
-import { detailFrameMemoryPlan, DETAIL_GPU_BYTES } from '../src/shared/detail-resources'
+import { DETAIL_GPU_BYTES, detailFrameMemoryPlan } from '../src/shared/detail-resources'
 import {
-  neutralNoiseReduction,
-  neutralDetailSharpening,
-  compileNoiseReduction,
   compileDetailSharpening,
+  compileNoiseReduction,
+  neutralDetailSharpening,
+  neutralNoiseReduction,
   spatialDetailTile,
 } from '../src/shared/spatial-detail'
-import type { SpatialDetailGpu } from '../src/main/gpu/spatial-detail'
-import { detailFrame, detailFrameJob, canonicalDetailFrame } from './detail-frame.helpers'
+import { canonicalDetailFrame, detailFrame, detailFrameJob } from './detail-frame.helpers'
 import { sha } from './export.helpers'
+import { expectFloatReference } from './spatial-reference'
 
 const bytesOf = (data: Float32Array) => Buffer.from(data.buffer, data.byteOffset, data.byteLength)
 
@@ -61,16 +62,16 @@ test('streamed and retained authored frames match canonical native tiles at maxi
       streamed = detailFrameReader(frame, job, new AbortController().signal),
       parts: Buffer[] = []
     for await (const band of streamed.strips) parts.push(Buffer.from(bytesOf(band)))
-    expect(bytesOf(retained.frame.data).equals(bytesOf(expected))).toBe(true)
-    expect(Buffer.concat(parts).equals(bytesOf(expected))).toBe(true)
+    expectFloatReference(retained.frame.data, expected)
+    expectFloatReference(Buffer.concat(parts), expected)
     expect(retained.transform).toEqual(frame.transform)
-    expect(retained.frame.cpuSource).toBeUndefined()
+    expect(retained.frame.sourceRef).toBeUndefined()
     expect(retained.frame.identity).toBeUndefined()
     expect(retained.primaries).toBe(primaries)
     expect(retained.diagnostics).toMatchObject({
-      backend: 'cpu',
-      cpuTiles: 6,
-      gpuTiles: 0,
+      backend: 'gpu',
+      cpuTiles: 0,
+      gpuTiles: 6,
       maxSourceStrips: 3,
     })
     expect(retained.memory!.sourceBytes).toBe(frame.data.buffer.byteLength)
@@ -94,7 +95,7 @@ test('frame metadata and control snapshots survive caller replacement before the
   expect(reader.width).toBe(19)
   expect(reader.height).toBe(131)
   expect(reader.transform.white).toBe(0.83)
-  expect(Buffer.concat(parts).equals(bytesOf(expected))).toBe(true)
+  expectFloatReference(Buffer.concat(parts), expected)
 })
 
 test('HDR in-memory and file preparations agree and replace stale hashes, URLs and native handles', async () => {
@@ -120,7 +121,7 @@ test('HDR in-memory and file preparations agree and replace stale hashes, URLs a
     expect(result.frame.hdr!.sha256).not.toBe(frame.hdr!.sha256)
     expect(result.frame.hdr!.source).toEqual(frame.hdr!.source)
     expect(result.frame.hdr!.url).toBeUndefined()
-    expect(result.frame.cpuSource).toBeUndefined()
+    expect(result.frame.sourceRef).toBeUndefined()
     expect(result.frame.identity).toBeUndefined()
     expect(bytesOf(frame.data).toString('hex')).toBe(before)
     const damaged = { ...frame, hdr: structuredClone(frame.hdr!) }
@@ -138,7 +139,7 @@ test('HDR in-memory and file preparations agree and replace stale hashes, URLs a
   }
 })
 
-test('admission and source validation precede derived publication and allow an equivalent CPU route', async () => {
+test('admission and source validation precede derived publication and refuse unavailable GPU resources', async () => {
   const frame = detailFrame(5, 3),
     job = detailFrameJob(),
     denied = structuredClone(job)
@@ -161,7 +162,7 @@ test('admission and source validation precede derived publication and allow an e
   ).rejects.toThrow('admission')
   const memory = detailFrameMemoryPlan(frame, job.admission!, true, frame.data.buffer.byteLength),
     exact = structuredClone(job)
-  Object.assign(exact.admission!.policy.ram, { effectiveBytes: memory.cpu.ramBytes - 1 })
+  Object.assign(exact.admission!.policy.ram, { effectiveBytes: memory.gpu.ramBytes - 1 })
   await expect(
     detailWorkingFrame(frame, exact, new AbortController().signal, factory),
   ).rejects.toThrow('budgets')
@@ -172,14 +173,9 @@ test('admission and source validation precede derived publication and allow an e
   Object.assign(cpu.admission!.policy.vram, {
     effectiveBytes: cpu.admission!.reservation.vramBytes,
   })
-  const result = await detailWorkingFrame(
-    frame,
-    { ...cpu, backend: 'auto' },
-    new AbortController().signal,
-    factory,
-  )
-  expect(result.diagnostics.backend).toBe('cpu')
-  expect(result.diagnostics.fallback).toContain('admission')
+  await expect(
+    detailWorkingFrame(frame, { ...cpu, backend: 'auto' }, new AbortController().signal, factory),
+  ).rejects.toThrow('budgets')
   await expect(
     detailWorkingFrame(frame, { ...cpu, backend: 'gpu' }, new AbortController().signal, factory),
   ).rejects.toThrow('budgets')

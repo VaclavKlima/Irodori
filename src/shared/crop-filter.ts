@@ -185,3 +185,25 @@ export function resampleCropTile(
     }
   return output
 }
+
+/** Bit-preserving integer/identity geometry; fractional interpolation belongs to the GPU. */
+export function copyCropTile(
+  geometry: CropGeometry,
+  tile: CropRectangle,
+  source: CropSourceWindow,
+): Float32Array<ArrayBuffer> {
+  validateCropWindow(geometry, tile, source)
+  if (!geometry.pixelAligned) throw new Error('Exact crop copying requires pixel-aligned geometry.')
+  const output = new Float32Array(tile.width * tile.height * 4),
+    words = new Uint32Array(output.buffer),
+    input = new Uint32Array(source.data.buffer, source.data.byteOffset, source.data.length),
+    [a, b, c, d, originX, originY] = geometry.outputToSource
+  for (let y = 0; y < tile.height; y++)
+    for (let x = 0; x < tile.width; x++) {
+      const ix = Math.floor(a * (tile.left + x + 0.5) + b * (tile.top + y + 0.5) + originX - 0.5),
+        iy = Math.floor(c * (tile.left + x + 0.5) + d * (tile.top + y + 0.5) + originY - 0.5),
+        at = ((iy - source.top) * source.width + ix - source.left) * 4
+      words.set(input.subarray(at, at + 4), (y * tile.width + x) * 4)
+    }
+  return output
+}

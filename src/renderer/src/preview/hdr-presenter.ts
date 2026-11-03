@@ -1,43 +1,12 @@
-import { imageResourceOwners } from './image-resource-owners'
+import { ACES_DATA_BYTES } from '../../../shared/aces-data'
 import {
-  hdrPresentationMemory,
-  hdrRestoredUploadMemory,
-  HdrPresentationHeadroom,
-  HDR_BITMAP_RESERVATION,
-  type HdrMemoryLimits,
-  type HdrManagedBytes,
-  type HdrMemoryRequest,
-  type HdrRetentionMethod,
-} from './hdr-memory'
-import { reservePresentationBitmaps } from './frame-cache'
-import {
-  NativeMaskReservationOwner,
-  sameMaskFrame,
-  maskPixelTarget,
-  type NativeMaskReservation,
-} from './native-mask-reservation'
-import type { ResourcePolicySnapshot } from '../../../shared/resource-policy'
-import type { HdrFirstSurfaceOffer } from '../../../shared/hdr-first-surface'
-import {
-  checkedFirstSurfaceOffer,
-  freezeFirstSurfacePolicy,
-  readFirstSurface,
-} from './hdr-first-surface-client'
-import {
-  HdrRecovery,
-  HDR_RECOVERY_VERSION,
-  supportsHdrRecovery,
-  type HdrRecoveryCapture,
-  type HdrRecoverySnapshot,
-} from './hdr-recovery'
-import {
-  hdrAdjustmentMatrix,
-  validateTarget,
-  HDR_ADJUSTMENT_VERSION,
-  HDR_OUTPUT_VERSION,
-  type DisplayTarget,
-} from '../../../shared/hdr'
-import { identityMatrix } from '../../../shared/white-balance'
+  ACES_HDR_INTERACTIVE_PREVIEW_VERSION,
+  ACES_INTERACTIVE_PREVIEW_VERSION,
+  ACES_SDR_INTERACTIVE_PREVIEW_VERSION,
+  selectInteractivePreviewPolicy,
+  type AcesInteractivePreviewPolicy,
+  type AcesPreviewPolicy,
+} from '../../../shared/aces-preview-wgsl'
 import {
   neutralAdjustments,
   sameAdjustments,
@@ -45,59 +14,90 @@ import {
   type WorkingFrame,
 } from '../../../shared/adjustments'
 import {
-  retainHdrContent,
-  publishHdrSample,
-  selectHdrSampleSources,
-  hdrSampleMemory,
-} from './hdr-sample'
-import type { Size, View } from './geometry'
-import { hdrDevice } from './hdr-device'
-import type { HdrUploadedSource } from './hdr-upload'
-import { submitHdrSourceMips, uploadHdrTexture } from './hdr-source-preparation'
-import { checkedHdrComparison } from './hdr-comparison-source'
-import { hdrSourceIdentity, type HdrSourceLease } from './hdr-source-cache'
-import type { EditorPreviewPolicy } from '../../../shared/editor-preview-policy'
-import { prepareHdrRenderingTables } from './hdr-rendering-tables'
-import { hdrCacheKernel } from './hdr-shader'
-import { prepareHdrPipelines, presentationBlit, type HdrPipelines } from './hdr-pipelines'
-import {
-  prepareCreativeColor,
   creativeColorActive,
+  prepareCreativeColor,
   type CompiledCreativeColor,
 } from '../../../shared/creative-color'
 import {
-  packCreativeColor,
   CREATIVE_COLOR_PARAMETER_BYTES,
+  packCreativeColor,
 } from '../../../shared/creative-color-gpu'
-import { ACES_DATA_BYTES } from '../../../shared/aces-data'
+import type { EditorPreviewPolicy } from '../../../shared/editor-preview-policy'
 import {
-  ACES_INTERACTIVE_PREVIEW_VERSION,
-  ACES_SDR_INTERACTIVE_PREVIEW_VERSION,
-  ACES_HDR_INTERACTIVE_PREVIEW_VERSION,
-  selectInteractivePreviewPolicy,
-  type AcesInteractivePreviewPolicy,
-  type AcesPreviewPolicy,
-} from '../../../shared/aces-preview-wgsl'
-import {
-  hdrCachePlan,
-  hdrCacheJobRuns,
-  HdrRenderCache,
-  HDR_CACHE_MAX_TILES,
-} from './hdr-render-cache'
-import { HdrEditQueue, type HdrEditRequest } from './hdr-edit-queue'
-import type { EditGestureCommit } from './edit-gesture'
-import { HdrGestureHandoff, type HdrGestureStage } from './hdr-gesture-handoff'
-import { HDR_HISTOGRAM_WORDS, readHdrHistogram } from './hdr-histogram'
+  HDR_ADJUSTMENT_VERSION,
+  HDR_OUTPUT_VERSION,
+  hdrAdjustmentMatrix,
+  validateTarget,
+  type DisplayTarget,
+} from '../../../shared/hdr'
+import type { HdrFirstSurfaceOffer } from '../../../shared/hdr-first-surface'
 import type { HdrStatistics } from '../../../shared/hdr-statistics'
-import { HdrGpuTimings, HDR_GPU_TIMING_BYTES, type HdrGpuTimingFrame } from './hdr-gpu-timings'
+import type { ResourcePolicySnapshot } from '../../../shared/resource-policy'
+import { identityMatrix } from '../../../shared/white-balance'
+import type { EditGestureCommit } from './edit-gesture'
+import { reservePresentationBitmaps } from './frame-cache'
+import type { Size, View } from './geometry'
+import { checkedHdrComparison } from './hdr-comparison-source'
+import { hdrDevice } from './hdr-device'
+import { HdrEditQueue, type HdrEditRequest } from './hdr-edit-queue'
+import {
+  checkedFirstSurfaceOffer,
+  freezeFirstSurfacePolicy,
+  readFirstSurface,
+} from './hdr-first-surface-client'
+import { HdrGestureHandoff, type HdrGestureStage } from './hdr-gesture-handoff'
+import { HDR_GPU_TIMING_BYTES, HdrGpuTimings, type HdrGpuTimingFrame } from './hdr-gpu-timings'
+import { HDR_HISTOGRAM_WORDS, readHdrHistogram } from './hdr-histogram'
+import {
+  HDR_BITMAP_RESERVATION,
+  HdrPresentationHeadroom,
+  hdrPresentationMemory,
+  hdrRestoredUploadMemory,
+  type HdrManagedBytes,
+  type HdrMemoryLimits,
+  type HdrMemoryRequest,
+  type HdrRetentionMethod,
+} from './hdr-memory'
+import { prepareHdrPipelines, presentationBlit, type HdrPipelines } from './hdr-pipelines'
 import { hdrPresentationIdentity, type HdrPresentationIdentity } from './hdr-presentation-cache'
 import {
-  sourceCache,
-  presentationCache,
-  retiredPreviewOwners,
   captureHdrPreviewRetirement,
   hdrFirstSurfaceExistingOwners,
+  presentationCache,
+  retiredPreviewOwners,
+  sourceCache,
 } from './hdr-preview-resources'
+import {
+  HDR_RECOVERY_VERSION,
+  HdrRecovery,
+  supportsHdrRecovery,
+  type HdrRecoveryCapture,
+  type HdrRecoverySnapshot,
+} from './hdr-recovery'
+import {
+  HDR_CACHE_MAX_TILES,
+  hdrCacheJobRuns,
+  hdrCachePlan,
+  HdrRenderCache,
+} from './hdr-render-cache'
+import { prepareHdrRenderingTables } from './hdr-rendering-tables'
+import {
+  hdrSampleMemory,
+  publishHdrSample,
+  retainHdrContent,
+  selectHdrSampleSources,
+} from './hdr-sample'
+import { hdrCacheKernel } from './hdr-shader'
+import { hdrSourceIdentity, type HdrSourceLease } from './hdr-source-cache'
+import { submitHdrSourceMips, uploadHdrTexture } from './hdr-source-preparation'
+import type { HdrUploadedSource } from './hdr-upload'
+import { imageResourceOwners } from './image-resource-owners'
+import {
+  maskPixelTarget,
+  NativeMaskReservationOwner,
+  sameMaskFrame,
+  type NativeMaskReservation,
+} from './native-mask-reservation'
 
 const presentationDevices = new WeakSet<GPUDevice>()
 const sourceDevices = new WeakSet<GPUDevice>()
@@ -1620,10 +1620,10 @@ export class HdrPresenter {
   private async load(frame: WorkingFrame) {
     const started = performance.now()
     const sourcePhotoId =
-      frame.cpuSource &&
-      frame.cpuSource.workingSha256 === frame.hdr?.sha256 &&
-      /^[a-f0-9]{64}$/.test(frame.cpuSource.photoId)
-        ? frame.cpuSource.photoId
+      frame.sourceRef &&
+      frame.sourceRef.workingSha256 === frame.hdr?.sha256 &&
+      /^[a-f0-9]{64}$/.test(frame.sourceRef.photoId)
+        ? frame.sourceRef.photoId
         : undefined
     // CPU receivers register in this same barrier before a new photo can allocate.
     // Capture only earlier owners. A warm pin taken before their retirement could
@@ -2829,7 +2829,7 @@ export class HdrPresenter {
     this.maskKey =
       rendered.quality === 'normal'
         ? JSON.stringify([
-            this.frame?.cpuSource,
+            this.frame?.sourceRef,
             request.value.sourceIdentity,
             request.value.settingsRevision,
             request.value.mode === 'before' ? neutralAdjustments : request.value.parameters,

@@ -1,26 +1,24 @@
-import { setImmediate } from 'node:timers/promises'
+import type { ColorPrimaries } from '../../shared/color-model'
 import {
-  compileNoiseReduction,
-  compileDetailSharpening,
-  detailLuminance,
-  spatialDetailSourceBounds,
-  spatialDetailTile,
-  DETAIL_TILE_EDGE,
-  type DetailSize,
-  type NoiseReductionSettings,
-  type DetailSharpeningSettings,
-} from '../../shared/spatial-detail'
-import {
-  detailStreamMemoryPlan,
-  detailFrameMemoryPlan,
   DETAIL_BAND_ROWS,
+  detailFrameMemoryPlan,
+  detailStreamMemoryPlan,
   type DetailAdmission,
 } from '../../shared/detail-resources'
-import type { ColorPrimaries } from '../../shared/color-model'
 import { frameByteLength } from '../../shared/preview-frame'
+import {
+  compileDetailSharpening,
+  compileNoiseReduction,
+  DETAIL_TILE_EDGE,
+  detailLuminance,
+  spatialDetailSourceBounds,
+  type DetailSharpeningSettings,
+  type DetailSize,
+  type NoiseReductionSettings,
+} from '../../shared/spatial-detail'
 import { createSpatialDetailGpu, type SpatialDetailGpu } from '../gpu/spatial-detail'
 
-export type DetailBackend = 'auto' | 'cpu' | 'gpu'
+export type DetailBackend = 'auto' | 'gpu'
 export interface DetailBandJob extends DetailAdmission {
   readonly noiseReduction: NoiseReductionSettings
   readonly detailSharpening: DetailSharpeningSettings
@@ -81,11 +79,11 @@ export async function* detailBands(
         : detailStreamMemoryPlan(size, frozen, active),
     admission = { policy: frozen.policy, reservation: memory.tileReservation }
   detailLuminance(frozen.primaries)
-  if (!['auto', 'cpu', 'gpu'].includes(frozen.backend))
+  if (!['auto', 'gpu'].includes(frozen.backend))
     throw new Error('Invalid detail processing backend.')
   if (!memory.cpuAccepted)
     throw new Error('Detail streaming exceeds the frozen managed image budgets.')
-  if (active && frozen.backend === 'gpu' && !memory.gpuAccepted)
+  if (active && !memory.gpuAccepted)
     throw new Error('Detail GPU streaming exceeds the frozen managed image budgets.')
 
   const values =
@@ -102,13 +100,7 @@ export async function* detailBands(
     gpu: SpatialDetailGpu | undefined,
     recoveryCount = 0
   const update = () => {
-    diagnostics.backend = !active
-      ? 'identity'
-      : diagnostics.gpuTiles
-        ? diagnostics.cpuTiles
-          ? 'mixed'
-          : 'gpu'
-        : 'cpu'
+    diagnostics.backend = active ? 'gpu' : 'identity'
   }
   const harvestRecoveries = () => {
     const current = gpu?.precisionRecoveryTiles ?? 0,
@@ -153,19 +145,6 @@ export async function* detailBands(
     }
   }
   try {
-    if (active && frozen.backend !== 'cpu') {
-      if (memory.gpuAccepted) {
-        try {
-          gpu = makeGpu()
-        } catch (error) {
-          signal.throwIfAborted()
-          if (frozen.backend === 'gpu') throw error
-          diagnostics.fallback = String(error)
-        }
-      } else
-        diagnostics.fallback =
-          'GPU detail admission was unavailable; using the equivalent CPU operators.'
-    }
     if (!active) {
       for (let y = 0; y < size.height; y += DETAIL_BAND_ROWS) {
         strips.clear()
@@ -184,7 +163,6 @@ export async function* detailBands(
         if ((index + 1) * DETAIL_BAND_ROWS <= vertical.top) strips.delete(index)
       await loadThrough(vertical.top + vertical.height)
       for (let x = 0; x < size.width; x += DETAIL_TILE_EDGE) {
-        if (!gpu) await setImmediate()
         signal.throwIfAborted()
         const tile = { left: x, top: y, width: Math.min(DETAIL_TILE_EDGE, size.width - x), height },
           bounds = spatialDetailSourceBounds(size, tile, noise, sharp),
@@ -198,34 +176,14 @@ export async function* detailBands(
           pixels.set(strip.subarray(start, start + bounds.width * 4), row * bounds.width * 4)
         }
         const window = { ...bounds, data: pixels }
-        let result: Float32Array
-        if (gpu) {
-          try {
-            result = await gpu.render(
-              { ...frozen, image: size, tile, source: window, admission },
-              signal,
-            )
-            diagnostics.adapter = gpu.adapter
-            if (harvestRecoveries()) diagnostics.cpuTiles++
-            else diagnostics.gpuTiles++
-          } catch (error) {
-            signal.throwIfAborted()
-            if (frozen.backend === 'gpu') throw error
-            diagnostics.fallback = String(error)
-            harvestRecoveries()
-            await gpu.close()
-            gpu = undefined
-            recoveryCount = 0
-            signal.throwIfAborted()
-            await setImmediate()
-            signal.throwIfAborted()
-            result = spatialDetailTile(size, tile, window, noise, sharp, frozen.primaries)
-            diagnostics.cpuTiles++
-          }
-        } else {
-          result = spatialDetailTile(size, tile, window, noise, sharp, frozen.primaries)
-          diagnostics.cpuTiles++
-        }
+        gpu ??= makeGpu()
+        const result = await gpu.render(
+          { ...frozen, image: size, tile, source: window, admission },
+          signal,
+        )
+        diagnostics.adapter = gpu!.adapter
+        harvestRecoveries()
+        diagnostics.gpuTiles++
         signal.throwIfAborted()
         if (
           !(result instanceof Float32Array) ||

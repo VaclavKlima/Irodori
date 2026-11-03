@@ -2,6 +2,30 @@
 
 Use explicit suite targets for routine feature verification. Comprehensive testing requires a user-requested or previously agreed checkpoint; completing a feature alone never triggers one. The shared Playwright runner retains platform-specific evidence and limitations below.
 
+## Processing consolidation targets — 2026-11-03
+
+Use the [stage inventory](processing-stages.md) for current backend ownership and
+retained evidence. `shared-rendering` covers raster/authored HDR GPU rendition;
+`native-mask-portability` runs actual Electron synthetic and full-photographic
+mask/mip references against the checksummed host; `native-hdr-mask-lifecycle`
+covers close, source/receiver drainage, revision/target refusal and supersession.
+`raster-presentation-lifecycle` covers GPU loss, draft flush, retry, Undo/Redo and
+restart. Combine relevant detail/crop/export/merge targets after shared changes.
+
+`processing-workflow-profile` is an explicit, bounded observation of import/open,
+cached revisit, merge source preparation and actual ExportJobs publication. It is
+not a benchmark grid, physical display claim or replacement for saved performance
+baselines. The rejected `gpu-analysis-qualification` and macOS Rust codec-host
+`export-native-fullsize` experiment are not routine acceptance. Preserve their
+failed receipts; do not change predicates/tolerances or repeat optimization
+experiments to obtain a pass. The latter requires an explicit candidate bundle on
+macOS; the accepted C++ production host remains separate.
+
+`desktop-package --foreground` verifies isolated offline startup, real RAW import,
+actual SDR export, restart and absence of retired presentation assets. Package
+only the selected native mask/codec hosts and current workers; independent scalar
+references, experiment code and toolchains stay outside production bundles.
+
 ## Choose verification
 
 Automated Electron tests use the [shared background launcher](background-testing.md) by default. Compatible checks render in real hidden, nonfocusable windows without activating Irodori. Add `--foreground` explicitly for native focus, pointer lock, display integration and renderer presentation benchmarks. `--background` makes the default explicit; the two flags are mutually exclusive and work with target/scope selection, `--plan` and package aliases. Normal application, development and manual inspection launches remain visible.

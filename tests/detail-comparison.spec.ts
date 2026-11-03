@@ -2,16 +2,16 @@ import { expect, test } from '@playwright/test'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { setImmediate } from 'node:timers/promises'
-import { cropWorkingFrame } from '../src/main/processing/crop-frame'
 import { PREVIEW_VERSION } from '../src/main/full-previews'
-import { fitCrop, identityCrop } from '../src/shared/crop'
+import { cropWorkingFrame } from '../src/main/processing/crop-frame'
 import { neutralAdjustments, renderAdjustments } from '../src/shared/adjustments'
+import { fitCrop, identityCrop } from '../src/shared/crop'
 import { PREPARED_COMPARISON_VERSION } from '../src/shared/prepared-comparison'
 import { detailCacheFixture } from './detail-preview-cache.helpers'
 
 const previous = process.env.IRODORI_PREVIEW_BACKEND
 test.beforeEach(() => {
-  process.env.IRODORI_PREVIEW_BACKEND = 'cpu'
+  process.env.IRODORI_PREVIEW_BACKEND = 'gpu'
 })
 test.afterEach(() => {
   if (previous === undefined) delete process.env.IRODORI_PREVIEW_BACKEND
@@ -41,7 +41,7 @@ test('raster Before bypasses native filtering and point edits on the identical c
         f.source.frame,
         {
           settings: f.options.crop!,
-          backend: 'cpu',
+          backend: 'gpu',
           admission: { policy: f.source.job.policy, reservation: f.source.job.reservation },
         },
         signal,
@@ -102,7 +102,7 @@ test('HDR Before leases original floats independently and requires explicit comp
     expect(before.linear!.hdr).toBeDefined()
     expect(before.linear!.sha256).toBe(f.source.job.asset.sha256)
     expect(before.linear!.sha256).not.toBe(after.linear.sha256)
-    const request = { source: before.cpuSource!, expectedSettingsRevision: f.options.revision }
+    const request = { source: before.sourceRef!, expectedSettingsRevision: f.options.revision }
     await expect(f.previews.acquireCpuWorkingSource(request, signal)).rejects.toThrow(
       'identity changed',
     )

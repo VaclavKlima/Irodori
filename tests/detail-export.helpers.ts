@@ -1,3 +1,4 @@
+import { exportResizePolicy } from '../src/main/export/resize-policy'
 import { lstat, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ExportRenderJob, ExportSource } from '../src/main/export/types'
@@ -45,6 +46,8 @@ export async function detailExportFixture(hdr = false, authored = false) {
       cropPolicy: { ...exportCropPolicy },
       detailPolicy: { ...exportDetailPolicy },
       cropAdmission: { policy: f.job.policy, reservation: f.job.reservation },
+      resizePolicy: { ...exportResizePolicy },
+      resizeAdmission: { policy: f.job.policy, reservation: f.job.reservation },
       detailAdmission: { policy: f.job.policy, reservation: f.job.reservation },
     }
   return {

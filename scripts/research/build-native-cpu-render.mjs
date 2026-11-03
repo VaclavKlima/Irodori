@@ -16,8 +16,13 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-if (process.argv.length !== 2 || platform() !== 'linux' || arch() !== 'x64')
-  throw new Error('Usage on Linux x64: node scripts/research/build-native-cpu-render.mjs')
+if (
+  process.argv.length !== 2 ||
+  !((platform() === 'linux' && arch() === 'x64') || (platform() === 'darwin' && arch() === 'arm64'))
+)
+  throw new Error(
+    'Usage on macOS arm64 or Linux x64: node scripts/research/build-native-cpu-render.mjs',
+  )
 const directory = join(root, 'artifacts/native-cpu-render-build')
 mkdirSync(directory, { recursive: true })
 const working = mkdtempSync(join(directory, 'build-'))
@@ -32,7 +37,8 @@ const matchesReference = (value) =>
   value &&
   Object.keys(value).length === 4 &&
   Object.entries(maskReference).every(([key, expected]) => value[key] === expected)
-const maskCompilerFlags = ['-mno-fma', '-mno-avx', '-mno-sse4.2']
+const maskCompilerFlags =
+  platform() === 'darwin' ? ['-U__ARM_FEATURE_FMA'] : ['-mno-fma', '-mno-avx', '-mno-sse4.2']
 const maskUpstream = 'native/irodori-cpu-render/upstream/electron-llvm'
 const sourceInventory = JSON.parse(readFileSync(join(root, maskUpstream, 'sources.json'), 'utf8'))
 if (
@@ -88,7 +94,6 @@ const sources = [
   'src/shared/native-color-protocol.ts',
   'src/shared/white-balance.ts',
   'src/renderer/src/preview/hdr-ranges.ts',
-  'src/renderer/src/preview/hdr-presentation-worker.ts',
   'tests/fixtures/aces-reference.json',
   ...['Utilities', 'Tonescale', 'OutputTransform', 'ColorSpaces'].map(
     (name) => `third_party/aces-core/lib/Lib.Academy.${name}.ctl`,
@@ -178,7 +183,6 @@ const capabilities = JSON.parse(readFileSync(join(working, 'capabilities.json'),
 const arithmetic = capabilities.mask?.arithmetic
 if (
   capabilities.version !== 'native-cpu-capabilities-v1' ||
-  capabilities.presentation !== 'IRODCPU3' ||
   capabilities.mask?.request !== 'MASKCPU3' ||
   capabilities.mask.output !== 'MASKOUT1' ||
   capabilities.mask.terminal !== 'MASKDONE' ||

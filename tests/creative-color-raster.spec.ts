@@ -1,20 +1,20 @@
 import { expect, test } from '@playwright/test'
 import { createHash, randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { readFileSync } from 'node:fs'
 import sharp from 'sharp'
-import { PhotoLibrary } from './photo-library.helpers'
-import { PreviewProcess } from '../src/main/preview-process'
 import { ExportProcess } from '../src/main/export/process'
+import { PreviewProcess } from '../src/main/preview-process'
 import { processingMetadata } from '../src/main/processing/metadata'
+import type { ColorGradingSettings } from '../src/shared/color-grading'
+import type { ColorMixerSettings } from '../src/shared/color-mixer'
+import type { EditPatch } from '../src/shared/edits'
 import { defaultExportOptions } from '../src/shared/export'
 import { imageStatistics } from '../src/shared/statistics'
-import type { EditPatch } from '../src/shared/edits'
-import type { ColorMixerSettings } from '../src/shared/color-mixer'
-import type { ColorGradingSettings } from '../src/shared/color-grading'
 import { cropAdmission } from './crop-frame.helpers'
+import { PhotoLibrary } from './photo-library.helpers'
 
 const reference = JSON.parse(
   readFileSync(new URL('./fixtures/creative-color-reference.json', import.meta.url), 'utf8'),
@@ -75,8 +75,8 @@ test('a small authored image agrees with independent grades, reuses its source a
     oldPreview = process.env.IRODORI_PREVIEW_BACKEND,
     oldExport = process.env.IRODORI_EXPORT_BACKEND,
     counters = { sources: 0 }
-  process.env.IRODORI_PREVIEW_BACKEND = 'cpu'
-  process.env.IRODORI_EXPORT_BACKEND = 'cpu'
+  process.env.IRODORI_PREVIEW_BACKEND = 'gpu'
+  process.env.IRODORI_EXPORT_BACKEND = 'gpu'
   const create = () => {
     const worker = new PreviewProcess(resolve('out/main/preview-worker.js')),
       args: ConstructorParameters<typeof PhotoLibrary> = [

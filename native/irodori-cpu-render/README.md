@@ -1,4 +1,41 @@
-# Native CPU preview renderer
+# Native HDR clipping-mask host
+
+<a id="native-cpu-preview-renderer"></a>
+
+## Current contract — 2026-11-03
+
+The same bounded Rust host and C++ Float64 mask implementation support macOS
+arm64 and Linux x64. Production selects only `--mask-v1` or `--capabilities`;
+the former presentation CLI and application presentation IPC are retired. Source
+leases, exact hashes, confirmed revisions/comparisons, frozen admission and actual
+child/receiver drainage stay live. See the [stage inventory](../../docs/processing-stages.md).
+
+Run `npm run build:cpu-native` with Rust, C++17, Python 3 and an archiver installed.
+Cargo uses `--locked --offline` and no crates. For a private toolchain, set
+`IRODORI_CPU_RENDER_CARGO`, `IRODORI_CPU_RENDER_RUSTC` and `RUSTC` to matching absolute
+executables. The historical `build-linux.mjs` command now builds/stages either host
+under `vendor/native-cpu-render/<platform>-<arch>`; the app verifies and bundles it.
+Do not copy an unrelated helper or source path into the renderer.
+
+The pinned ARM nearest-integer header comes from the same Chromium LLVM revision.
+Linux disables FMA/AVX/SSE4.2 branches; ARM undefines the FMA feature for this mask
+translation unit and both use `-ffp-contract=off -fno-fast-math`. The mathematical
+owner and exact classification gate are common. Build receipts pin flags, source
+closure, licenses and executable. Darwin request opens use the SDK's
+`O_NOFOLLOW=0x100` and `O_NONBLOCK=0x4`; Linux keeps its own constants.
+
+Actual Electron parity passes the retained 24 synthetic combinations and both
+committed full-size Sony photographs at every mask mip on the M4 Pro. Ordinary
+Node has a different primitive result and is not the UI arithmetic receipt. Current
+Linux/Radeon recompilation and integration remain incomplete. Compilation or a
+small synthetic pass alone never establishes full application acceptance.
+
+## Historical CPU presentation prototype — superseded
+
+The following original records preserve historical build/measurement links. Their
+presentation and fallback requirements are superseded by the current contract.
+The shared generated ACES/context code remains a mask build input and independent
+reference; it does not make CPU presentation available again.
 
 The Linux x64 application CPU fallback uses this helper through typed main-process
 source leases and bounded stdin/output streams. Numerical and service checks pass;

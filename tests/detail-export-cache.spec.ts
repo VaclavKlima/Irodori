@@ -1,20 +1,21 @@
+import { expectFloatReference } from './spatial-reference'
 import { expect, test } from '@playwright/test'
 import { access, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { matchesExportWorkingAsset } from '../src/main/export/detail-policy'
 import { ExportProcess } from '../src/main/export/process'
 import { exportRenditions } from '../src/main/export/renditions'
-import { matchesExportWorkingAsset } from '../src/main/export/detail-policy'
 import { validateWorkingAsset } from '../src/main/working-assets'
 import { fitCrop, identityCrop } from '../src/shared/crop'
-import { detailCacheFixture } from './detail-preview-cache.helpers'
 import { detailExportFixture } from './detail-export.helpers'
 import { canonicalDetailFrame, detailFrameJob } from './detail-frame.helpers'
+import { detailCacheFixture } from './detail-preview-cache.helpers'
 
 const exportBackend = process.env.IRODORI_EXPORT_BACKEND,
   previewBackend = process.env.IRODORI_PREVIEW_BACKEND
 test.beforeEach(() => {
-  process.env.IRODORI_EXPORT_BACKEND = 'cpu'
-  process.env.IRODORI_PREVIEW_BACKEND = 'cpu'
+  process.env.IRODORI_EXPORT_BACKEND = 'gpu'
+  process.env.IRODORI_PREVIEW_BACKEND = 'gpu'
 })
 test.afterEach(() => {
   if (exportBackend === undefined) delete process.env.IRODORI_EXPORT_BACKEND
@@ -57,7 +58,8 @@ test('a frozen raster lease reuses uncropped filtered pixels in the real worker 
         cache.source.frame.width,
         cache.source.frame.height,
       ])
-      expect(await readFile(lease.asset.path)).toEqual(Buffer.from(expected.buffer))
+      const frozenPixels = await readFile(lease.asset.path)
+      expectFloatReference(frozenPixels, expected, true)
       const source = {
           ...f.source,
           photo: { ...f.source.photo, id: cache.id },
@@ -100,7 +102,7 @@ test('a frozen raster lease reuses uncropped filtered pixels in the real worker 
       // The cropped protocol stream and uncropped export source have independent pins.
       stream.release()
       await cache.previews.release()
-      expect(await readFile(lease.asset.path)).toEqual(Buffer.from(expected.buffer))
+      expect(await readFile(lease.asset.path)).toEqual(frozenPixels)
       lease.release()
       await cache.previews.release()
       await expect(access(lease.asset.path)).rejects.toThrow()

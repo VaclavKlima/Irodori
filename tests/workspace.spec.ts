@@ -1,13 +1,13 @@
-import { navigateInspector, openInspectorTool } from './inspector.helpers'
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { readFile, realpath, writeFile } from 'node:fs/promises'
 import type { IrodoriApi, Photo } from '../src/shared/contracts'
 import type { PreviewPresentation } from '../src/shared/preview-diagnostics'
+import { activateButton } from './button.helpers'
 import { expect, test } from './electron.fixture'
+import { foregroundTest } from './foreground'
 import { holdFullPreview } from './full-preview.helpers'
 import { choose, expectImportComplete, importPhotos } from './import.helpers'
-import { activateButton } from './button.helpers'
-import { foregroundTest } from './foreground'
+import { navigateInspector, openInspectorTool } from './inspector.helpers'
 
 // Match main's explicit Wayland backend selection; other platforms retain background coverage.
 const nativeCapture =
@@ -241,14 +241,10 @@ test('starts the built desktop application with its isolated preload bridge', as
       'releaseFullPreview',
       'onHdrFirstSurface',
       'releaseHdrFirstSurface',
+      'getHdrMaskBackend',
       'renderHdrMask',
       'cancelHdrMask',
       'releaseHdrMask',
-      'getCpuPreviewBackend',
-      'renderCpuPreview',
-      'cancelCpuPreview',
-      'acknowledgeCpuPreview',
-      'releaseCpuPreview',
       'requestCachedFullPreview',
       'deletePhotos',
       'listTasks',

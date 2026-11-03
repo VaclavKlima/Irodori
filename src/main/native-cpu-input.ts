@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto'
 import type { FileHandle } from 'node:fs/promises'
 import type { Writable } from 'node:stream'
 import type { HdrWorkingAsset } from '../shared/hdr'
-import { collectHdrSample } from '../shared/hdr-source-sample'
 
 function writeOwned(target: Writable, bytes: Uint8Array, signal: AbortSignal) {
   signal.throwIfAborted()
@@ -49,7 +48,6 @@ async function attestAndFeed(
   asset: HdrWorkingAsset,
   input: Writable,
   signal: AbortSignal,
-  collectSamples: boolean,
 ) {
   const opened = await file.stat()
   signal.throwIfAborted()
@@ -61,8 +59,7 @@ async function attestAndFeed(
   )
     throw new Error('The leased CPU working source has incorrect dimensions.')
   const started = performance.now(),
-    digest = createHash('sha256'),
-    samples = collectSamples ? collectHdrSample(asset) : undefined
+    digest = createHash('sha256')
   const storage = Buffer.alloc(asset.width * Math.min(asset.height, 64) * 16)
   for (let index = 0; index < asset.strips.length; index++) {
     signal.throwIfAborted()
@@ -88,7 +85,6 @@ async function attestAndFeed(
     if (createHash('sha256').update(bytes).digest('hex') !== strip.sha256)
       throw new Error('Damaged CPU working strip.')
     digest.update(bytes)
-    samples?.add(new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4), row)
     await writeOwned(input, bytes, signal)
   }
   signal.throwIfAborted()
@@ -135,26 +131,15 @@ async function attestAndFeed(
     if (signal.aborted) abort()
   })
   signal.throwIfAborted()
-  return { samples, elapsedMs: performance.now() - started, sourceAttestedByMain: true as const }
+  return { elapsedMs: performance.now() - started, sourceAttestedByMain: true as const }
 }
 
-/** Existing presentation behavior remains the default collector path. */
-export async function attestAndFeedCpuSource(
-  file: FileHandle,
-  asset: HdrWorkingAsset,
-  input: Writable,
-  signal: AbortSignal,
-) {
-  const result = await attestAndFeed(file, asset, input, signal, true)
-  if (!result.samples) throw new Error('CPU presentation sample collection is missing.')
-  return { ...result, samples: result.samples }
-}
-/** Same exact attestation/feed, without allocating unused mask statistics samples. */
+/** Same bounded attestation/feed, without presentation sample allocations. */
 export function attestAndFeedCpuMaskSource(
   file: FileHandle,
   asset: HdrWorkingAsset,
   input: Writable,
   signal: AbortSignal,
 ) {
-  return attestAndFeed(file, asset, input, signal, false)
+  return attestAndFeed(file, asset, input, signal)
 }

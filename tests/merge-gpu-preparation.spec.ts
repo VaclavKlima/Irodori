@@ -1,34 +1,23 @@
 import { expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
-import { createReadStream, promises as filesystem } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
-import { syncBuiltinESMExports } from 'node:module'
+import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve, sep } from 'node:path'
-import { RawGpuRenderer } from '../src/main/gpu/raw-renderer'
-import type { RawSource } from '../src/main/gpu/raw-source'
+import { join } from 'node:path'
 import {
   gpuCameraRegistrationBytes,
   gpuCameraRegistrationWriter,
-} from '../src/main/merge/gpu-camera-registration'
+} from '../scripts/research/merge/gpu-camera-registration'
+import type { RawSource } from '../src/main/gpu/raw-source'
 import {
   cameraRegistrationWriter,
   type CameraRegistration,
 } from '../src/main/merge/camera-registration'
 import type { Plane } from '../src/main/merge/math'
-import { prepareSource } from '../src/main/merge/prepare'
-import { mergePreparation } from '../src/main/merge/preparation-policy'
-import { PreviewEngine } from '../src/main/preview-engine'
 import { correctionPlan } from '../src/main/processing/lens-correction'
 import { unavailableProfile } from '../src/main/processing/metadata'
 import { REC2020_TO_SRGB, SRGB_TO_2020 } from '../src/shared/hdr'
 import { automaticLensSettings, type LensProfile } from '../src/shared/lens'
-import {
-  GPU_CAMERA_PREPARATION,
-  MERGE_LIMITS,
-  type MergeSettings,
-  type MergeSource,
-} from '../src/shared/merge'
+import { GPU_CAMERA_PREPARATION, MERGE_LIMITS } from '../src/shared/merge'
 
 type Writer = Awaited<ReturnType<typeof gpuCameraRegistrationWriter>>
 type Options = Parameters<typeof gpuCameraRegistrationWriter>[6]
@@ -952,247 +941,5 @@ test('partially allocated GPU camera setup releases resources and leaves the CPU
   } finally {
     context.close()
     await rm(directory, { recursive: true, force: true })
-  }
-})
-
-async function fileIdentity(path: string) {
-  const digest = createHash('sha256')
-  let bytes = 0
-  for await (const chunk of createReadStream(path)) {
-    digest.update(chunk)
-    bytes += chunk.length
-  }
-  return { sha256: digest.digest('hex'), bytes }
-}
-
-test('real HDR source preparation replays complete CPU camera evidence after a late GPU readback failure and preserves cancellation', async () => {
-  test.setTimeout(240000)
-  const root = await mkdtemp(join(tmpdir(), 'irodori-gpu-camera-native-recovery-')),
-    inspector = new PreviewEngine(),
-    fixtureRoot = resolve('tests/fixtures/research-sony'),
-    manifest = JSON.parse(await readFile(join(fixtureRoot, 'manifest.json'), 'utf8')) as {
-      sequences: { mode: string; complete: boolean; files: string[] }[]
-      files: {
-        name: string
-        path: string
-        sha256: string
-        bytes: number
-        dimensions: { activeWidth: number; activeHeight: number }
-      }[]
-    },
-    bracket = manifest.sequences.find((sequence) => sequence.mode === 'hdr')!,
-    paths: string[] = [],
-    sources: MergeSource[] = [],
-    originals: { sha256: string; bytes: number }[] = []
-  let gpu: RawGpuRenderer | undefined
-  try {
-    expect(bracket.complete).toBe(true)
-    expect(bracket.files).toHaveLength(3)
-    for (const name of bracket.files) {
-      const entry = manifest.files.find((file) => file.name === name)!,
-        path = resolve(fixtureRoot, entry.path),
-        before = await fileIdentity(path),
-        metadata = await inspector.inspect(path),
-        captureMetadata = await inspector.inspectCapture(path)
-      expect(path.startsWith(`${fixtureRoot}${sep}`)).toBe(true)
-      expect(before).toEqual({ sha256: entry.sha256, bytes: entry.bytes })
-      expect(metadata.capture).toBeTruthy()
-      paths.push(path)
-      originals.push(before)
-      sources.push({
-        photo: {
-          id: entry.sha256,
-          filename: name,
-          width: entry.dimensions.activeWidth,
-          height: entry.dimensions.activeHeight,
-          bytes: entry.bytes,
-          format: 'ARW',
-          importedAt: '2026-10-17',
-          thumbnailUrl: '',
-          previewUrl: '',
-          previewSource: 'decoded',
-        },
-        metadata,
-        capture: metadata.capture!,
-        captureMetadata,
-        relativeEv: 0,
-      })
-    }
-    const settings: MergeSettings = {
-        mode: 'hdr',
-        referenceId: sources[0].photo.id,
-        autoAlign: true,
-        autoCrop: true,
-        deghost: true,
-        strength: 50,
-      },
-      preparation = await mergePreparation(paths, sources, settings, async () => {}),
-      controlDirectory = join(root, 'control'),
-      recoveredDirectory = join(root, 'recovered'),
-      cancelledDirectory = join(root, 'cancelled')
-    expect(preparation).toBeTruthy()
-    await Promise.all(
-      [controlDirectory, recoveredDirectory, cancelledDirectory].map((directory) =>
-        mkdir(directory),
-      ),
-    )
-    gpu = new RawGpuRenderer()
-    const control = await prepareSource(
-      paths[0],
-      controlDirectory,
-      0,
-      sources[0],
-      sources[0],
-      gpu,
-      async () => {},
-      preparation,
-    )
-    expect(control.measurement?.backend).toBe('gpu')
-    expect(control.cameraRegistration).toBeTruthy()
-    gpu.close()
-    gpu = new RawGpuRenderer()
-    let injected = false
-    const recovered = await prepareSource(
-      paths[0],
-      recoveredDirectory,
-      0,
-      sources[0],
-      sources[0],
-      gpu,
-      async () => {},
-      preparation,
-      GPU_CAMERA_PREPARATION,
-      {
-        hooks: {
-          readback(top, pixels) {
-            if (top !== 64) return
-            injected = true
-            pixels[0] = NaN
-          },
-        },
-      },
-    )
-    expect(injected).toBe(true)
-    expect(recovered.measurement?.backend).toBe('gpu')
-    expect(recovered.cameraPreparation).toBe(GPU_CAMERA_PREPARATION)
-    expect(recovered.measurement?.work?.cameraPreparation).toMatchObject({
-      policy: GPU_CAMERA_PREPARATION,
-      backend: 'cpu',
-      batches: 1,
-    })
-    expect(recovered.measurement?.work?.cameraPreparation?.fallback).toContain(
-      'Non-finite GPU camera evidence sample.',
-    )
-    expect(recovered.strips).toEqual(control.strips)
-    expect(recovered.plane).toEqual(control.plane)
-    expect(await fileIdentity(recovered.path)).toEqual(await fileIdentity(control.path))
-    expect(recovered.cameraRegistration!.strips).toEqual(control.cameraRegistration!.strips)
-    expect(await fileIdentity(recovered.cameraRegistration!.path)).toEqual(
-      await fileIdentity(control.cameraRegistration!.path),
-    )
-    expect(recovered.cameraRegistration!.planes).toEqual(control.cameraRegistration!.planes)
-    gpu.close()
-    gpu = new RawGpuRenderer()
-    const abort = new AbortController()
-    let cancelled = false
-    await expect(
-      prepareSource(
-        paths[0],
-        cancelledDirectory,
-        0,
-        sources[0],
-        sources[0],
-        gpu,
-        async () => {},
-        preparation,
-        GPU_CAMERA_PREPARATION,
-        {
-          signal: abort.signal,
-          hooks: {
-            checkpoint(event) {
-              if (event.phase !== 'readback' || event.top !== 64) return
-              cancelled = true
-              abort.abort(new Error('Cancelled native camera evidence.'))
-            },
-          },
-        },
-      ),
-    ).rejects.toThrow('Cancelled native camera evidence.')
-    expect(cancelled).toBe(true)
-    const remaining = await readdir(cancelledDirectory)
-    expect(remaining).not.toContain('source-0.f32')
-    expect(remaining).not.toContain('source-0.camera.f32')
-    for (const backend of ['gpu', 'cpu'] as const) {
-      gpu.close()
-      gpu = new RawGpuRenderer()
-      const directory = join(root, `cancelled-final-close-${backend}`),
-        target = join(directory, 'source-0.f32'),
-        controller = new AbortController(),
-        reason = new Error(`Cancelled ${backend} source during final owned working-file close.`),
-        originalOpen = filesystem.open,
-        previousBackend = process.env.IRODORI_MERGE_BACKEND,
-        ownedNames = [
-          'source-0.f32',
-          'source-0.camera.f32',
-          'source-0.sensor',
-          'source-0.alpha',
-          'source-0.lens',
-        ]
-      let interceptedOpens = 0,
-        completedCloses = 0,
-        filesAtClose: string[] = []
-      await mkdir(directory)
-      try {
-        process.env.IRODORI_MERGE_BACKEND = backend
-        // This file runs sequentially. Intercept only one test-owned exclusive
-        // output handle; every other builtin open retains its original behavior.
-        filesystem.open = async (...args: Parameters<typeof filesystem.open>) => {
-          const handle = await originalOpen(...args)
-          if (args[0] !== target || args[1] !== 'wx') return handle
-          interceptedOpens++
-          const close = handle.close.bind(handle)
-          handle.close = async () => {
-            await close()
-            completedCloses++
-            filesAtClose = await readdir(directory)
-            controller.abort(reason)
-          }
-          return handle
-        }
-        syncBuiltinESMExports()
-        await expect(
-          prepareSource(
-            paths[0],
-            directory,
-            0,
-            sources[0],
-            sources[0],
-            gpu,
-            async () => {},
-            preparation,
-            GPU_CAMERA_PREPARATION,
-            { signal: controller.signal },
-          ),
-        ).rejects.toBe(reason)
-      } finally {
-        filesystem.open = originalOpen
-        syncBuiltinESMExports()
-        if (previousBackend === undefined) delete process.env.IRODORI_MERGE_BACKEND
-        else process.env.IRODORI_MERGE_BACKEND = previousBackend
-      }
-      expect(interceptedOpens).toBe(1)
-      expect(completedCloses).toBe(1)
-      expect(filesAtClose).toEqual(
-        expect.arrayContaining(backend === 'gpu' ? ownedNames : ownedNames.slice(0, 2)),
-      )
-      const remaining = await readdir(directory)
-      for (const name of ownedNames) expect(remaining).not.toContain(name)
-    }
-    for (let index = 0; index < paths.length; index++)
-      expect(await fileIdentity(paths[index])).toEqual(originals[index])
-  } finally {
-    gpu?.close()
-    await inspector.close()
-    await rm(root, { recursive: true, force: true })
   }
 })

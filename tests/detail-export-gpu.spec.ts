@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { exportRenditions } from '../src/main/export/renditions'
 import { detailExportFixture } from './detail-export.helpers'
 import { fromHalf } from './export-reference'
+import { exportRenditionsReference } from './export-rendering-reference'
 
 test('tiny raster, scene-HDR and paired authored exports retain GPU filtering and existing quantized output agreement', async () => {
   const previous = process.env.IRODORI_EXPORT_BACKEND
@@ -15,8 +16,8 @@ test('tiny raster, scene-HDR and paired authored exports retain GPU filtering an
     ]) {
       const f = await detailExportFixture(hdr, authored)
       try {
-        process.env.IRODORI_EXPORT_BACKEND = 'cpu'
-        const cpu = await exportRenditions(f.exportJob),
+        process.env.IRODORI_EXPORT_BACKEND = 'gpu'
+        const cpu = await exportRenditionsReference(f.exportJob),
           gpuPreparation = await f.directory('gpu-preparation')
         process.env.IRODORI_EXPORT_BACKEND = 'gpu'
         const gpu = await exportRenditions({
@@ -36,7 +37,7 @@ test('tiny raster, scene-HDR and paired authored exports retain GPU filtering an
             )
         expect(maximumCode).toBeLessThanOrEqual(1)
         expect(maximumHalf).toBeLessThanOrEqual(0.004)
-        expect(gpu.diagnostics.renderer).toBe(hdr && !authored ? 'gpu' : 'cpu')
+        expect(gpu.diagnostics.renderer).toBe('gpu')
         expect(gpu.diagnostics.rendererFallback).toBeUndefined()
         for (const stage of hdr
           ? authored

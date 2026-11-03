@@ -1,15 +1,9 @@
 import type { AdjustmentParameters } from '../../../shared/adjustments'
 import type { DisplayTarget, HdrWorkingAsset } from '../../../shared/hdr'
-import {
-  analyzeHdr,
-  hdrStatistics,
-  reduceHdrMask,
-  type HdrAnalysisDomain,
-} from '../../../shared/hdr-statistics'
+import { analyzeHdr, hdrStatistics, type HdrAnalysisDomain } from '../../../shared/hdr-statistics'
 import type { NativeHdrMaskOutcome, NativeHdrMaskRequest } from '../../../shared/native-hdr-mask'
-import { receiveNativeHdrMask } from './native-mask-receiver'
 import { verifyNativeMaskMath } from './native-mask-math'
-import { streamHdr } from './hdr-stream'
+import { receiveNativeHdrMask } from './native-mask-receiver'
 interface Request {
   parameters: AdjustmentParameters
   target: DisplayTarget
@@ -18,7 +12,7 @@ interface Request {
   masks: boolean
   sampleCount: number
   sampleStatistics: boolean
-  /** Present only on the supported Linux route with confirmed history. */
+  /** Present on the common macOS/Linux route with confirmed history. */
   nativeMask?: Omit<NativeHdrMaskRequest, 'existingOwners'>
 }
 type Cancellation = { generation: number; maskError?: string }
@@ -161,31 +155,8 @@ async function run() {
         }
         if (request.masks) phase = 'mask'
         if (request.masks && request.nativeMask) await nativeMask(request, asset, controller)
-        else if (request.masks) {
-          // Unsupported platforms retain the unchanged reference path. Linux
-          // requests never select this branch after native backend admission.
-          const mask = new Uint8Array(asset.width * asset.height)
-          const ignored = hdrStatistics(request.domain, request.target, asset)
-          for await (const { data, row } of streamHdr(asset, controller.signal)) {
-            if (latest || controller.signal.aborted) break
-            analyzeHdr(
-              data,
-              request.parameters,
-              asset,
-              request.target,
-              ignored,
-              mask,
-              row * asset.width,
-            )
-          }
-          if (!latest && !controller.signal.aborted) {
-            const pyramid = reduceHdrMask(mask, asset.width, asset.height)
-            self.postMessage(
-              { mask: pyramid, generation: request.generation },
-              { transfer: pyramid.levels.map((level) => level.data.buffer) },
-            )
-          }
-        }
+        else if (request.masks)
+          throw new Error('Native HDR clipping masks are unavailable on this platform.')
       } catch (error) {
         if (!controller.signal.aborted)
           self.postMessage({

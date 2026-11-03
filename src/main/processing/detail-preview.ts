@@ -1,31 +1,31 @@
 import { createHash } from 'node:crypto'
 import { lstat, open, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { frameByteLength, MAX_FRAME_BYTES } from '../../shared/preview-frame'
 import { neutralAdjustments, sameAdjustments } from '../../shared/adjustments'
 import { cropGeometry } from '../../shared/crop'
-import { hdrSourceVersion } from '../../shared/hdr'
-import { appliedCorrections, type ProcessingOptions } from '../../shared/lens'
 import {
   detailPreviewMemoryPlan,
   type DetailAdmission,
   type DetailPreviewMemoryPlan,
 } from '../../shared/detail-resources'
+import { hdrSourceVersion } from '../../shared/hdr'
+import { appliedCorrections, type ProcessingOptions } from '../../shared/lens'
+import { frameByteLength, MAX_FRAME_BYTES } from '../../shared/preview-frame'
 import {
-  compileNoiseReduction,
   compileDetailSharpening,
+  compileNoiseReduction,
   SPATIAL_DETAIL_STAGE,
   SPATIAL_DETAIL_VERSION,
-  type NoiseReductionSettings,
   type DetailSharpeningSettings,
+  type NoiseReductionSettings,
 } from '../../shared/spatial-detail'
 import type { FullPreviewResult } from '../preview-types'
 import type { WorkingAsset } from '../working-assets'
-import { detailFrameReader, validateDetailTransform } from './detail-frame'
-import { prepareDetailWorkingAsset } from './detail-preparation'
-import { detailPreparationKey, DETAIL_PREPARATION_VERSION } from './detail-identity'
-import { writeHdrStrip } from './write-hdr-strip'
 import type { DetailBackend, DetailBandDiagnostics } from './detail-bands'
+import { detailFrameReader, validateDetailTransform } from './detail-frame'
+import { DETAIL_PREPARATION_VERSION, detailPreparationKey } from './detail-identity'
+import { prepareDetailWorkingAsset } from './detail-preparation'
+import { writeHdrStrip } from './write-hdr-strip'
 
 export const DETAIL_PREVIEW_VERSION = 'prepared-detail-proof-v1'
 export interface DetailPreviewJob extends DetailAdmission {
@@ -145,7 +145,7 @@ export async function prepareDetailPreview(
     asset.byteLength > MAX_FRAME_BYTES ||
     !/^[a-f0-9]{64}$/.test(asset.sha256) ||
     !/^[a-f0-9]{64}$/.test(frozen.sourceIdentity) ||
-    !['auto', 'cpu', 'gpu'].includes(frozen.backend) ||
+    !['auto', 'gpu'].includes(frozen.backend) ||
     typeof frozen.workingOnly !== 'boolean' ||
     (asset.hdr &&
       (asset.hdr.width !== asset.width ||
@@ -166,11 +166,11 @@ export async function prepareDetailPreview(
     hdr: Boolean(asset.hdr),
     authoredHdr: Boolean(asset.hdr?.source.display),
     workingOnly: frozen.workingOnly,
-    preferGpu: frozen.backend !== 'cpu',
+    preferGpu: true,
   })
   if (!memory.filter.cpuAccepted)
     throw new Error('Detail preview exceeds the frozen managed image budgets.')
-  if (frozen.backend === 'gpu' && !memory.filter.gpuAccepted)
+  if (!memory.filter.gpuAccepted || memory.peakGpuBytes > frozen.policy.vram.effectiveBytes)
     throw new Error('Detail GPU preview exceeds the frozen managed image budgets.')
   const names = ['linear.f32', 'full.rgba', 'placeholder.png'],
     paths = names.map((name) => join(output, name))

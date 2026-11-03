@@ -1,23 +1,30 @@
-import type { PhotoStatistics } from '../shared/statistics'
-import type { HdrPhotoStatistics, HdrAnalysisDomain } from '../shared/hdr-statistics'
-import type { HdrPhotoPixel } from '../shared/hdr-pixel'
+import { createHash, randomUUID } from 'node:crypto'
+import { constants, createReadStream } from 'node:fs'
 import {
-  validateHdrSource,
-  HDR_SOURCE_VERSION,
-  HDR_RAW_SOURCE_VERSION,
-  HDR_JPEG_SOURCE_VERSION,
-  hdrSourceVersion,
-  HDR_ADJUSTMENT_VERSION,
-  HDR_OUTPUT_VERSION,
-  SDR_TARGET,
-  type DisplayTarget,
-} from '../shared/hdr'
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+  type FileHandle,
+} from 'node:fs/promises'
+import { join } from 'node:path'
+import { hdrCacheTileSize } from '../renderer/src/preview/hdr-render-cache'
 import {
-  validateWhiteBalanceSample,
-  type WhiteBalanceSample,
-  type PhotoWhiteBalanceProposal,
-} from '../shared/white-balance-picker'
+  hdrCacheKernel,
+  hdrMipShader,
+  hdrOrientedMipShader,
+  hdrShader,
+  type HdrCacheKernelKind,
+} from '../renderer/src/preview/hdr-shader'
+import { HDR_SOURCE_MIP_POLICY } from '../renderer/src/preview/hdr-source-cache'
 import { ADJUSTMENT_VERSION, neutralAdjustments, sameAdjustments } from '../shared/adjustments'
+import type { DisplayPreview, FullPreview, HdrPreview } from '../shared/contracts'
+import { creativeColorActive, prepareCreativeColor } from '../shared/creative-color'
 import {
   cropGeometry,
   identityCrop,
@@ -28,97 +35,89 @@ import {
 } from '../shared/crop'
 import type { CropAdmission } from '../shared/crop-resources'
 import { detailProofMemoryPlan, type DetailAdmission } from '../shared/detail-resources'
-import type { LensSettings, ProcessingOptions } from '../shared/lens'
 import { validatePatch } from '../shared/edits'
-import { CROP_POLICY, LENS_RENDER_VERSION } from './processing/lens-correction'
-import { rawDecoderDefinitions } from './processing/formats'
-import { cameraProfile, cameraProfiles } from './processing/cameras'
 import {
-  frameByteLength,
-  PREVIEW_ASSET_VERSION,
-  PREPARED_PROOF_VERSION,
-} from '../shared/preview-frame'
-import { createHash, randomUUID } from 'node:crypto'
+  HDR_ADJUSTMENT_VERSION,
+  HDR_JPEG_SOURCE_VERSION,
+  HDR_OUTPUT_VERSION,
+  HDR_RAW_SOURCE_VERSION,
+  HDR_SOURCE_VERSION,
+  hdrSourceVersion,
+  SDR_TARGET,
+  validateHdrSource,
+  type DisplayTarget,
+} from '../shared/hdr'
 import {
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  utimes,
-  writeFile,
-  open,
-  type FileHandle,
-} from 'node:fs/promises'
-import { constants } from 'node:fs'
-import type {
-  NativeCpuController,
-  CpuWorkingLease,
-  CpuMaskSourceLease,
-} from './native-cpu-controller'
-import type { CpuPreviewRequest } from '../shared/native-cpu-preview'
-import { validateCpuPreviewSourceRef } from '../shared/native-cpu-preview'
-import type { NativeHdrMaskRequest } from '../shared/native-hdr-mask'
-import { join } from 'node:path'
-import { createReadStream } from 'node:fs'
-import type { FullPreview, HdrPreview, DisplayPreview } from '../shared/contracts'
-import type {
-  FullPreviewProcessor,
-  FullPreviewResult,
-  HdrStatisticsJob,
-  HdrFirstSurfaceArtifact,
-  HdrFirstSurfaceProgress,
-  PreviewWarmResult,
-} from './preview-types'
-import {
-  validateHdrFirstSurfaceRequest,
-  validateHdrFirstSurfaceOrientation,
-  hdrFirstSurfaceRequestKey,
   HDR_FIRST_SURFACE_VERSION,
-  type HdrFirstSurfaceRequest,
-  type HdrFirstSurfacePreparation,
+  hdrFirstSurfaceRequestKey,
+  validateHdrFirstSurfaceOrientation,
+  validateHdrFirstSurfaceRequest,
   type HdrFirstSurfaceOffer,
+  type HdrFirstSurfacePreparation,
+  type HdrFirstSurfaceRequest,
 } from '../shared/hdr-first-surface'
-import {
-  validateManagedImageBytes,
-  type ManagedImageBytes,
-  type ResourcePolicySnapshot,
-} from '../shared/resource-policy'
-import { HDR_SOURCE_MIP_POLICY } from '../renderer/src/preview/hdr-source-cache'
-import { hdrCacheTileSize } from '../renderer/src/preview/hdr-render-cache'
-import {
-  hdrCacheKernel,
-  hdrMipShader,
-  hdrOrientedMipShader,
-  hdrShader,
-  type HdrCacheKernelKind,
-} from '../renderer/src/preview/hdr-shader'
+import type { HdrPhotoPixel } from '../shared/hdr-pixel'
 import { HDR_RENDERING_TABLE_HASHES } from '../shared/hdr-rendering-tables'
-import { creativeColorActive, prepareCreativeColor } from '../shared/creative-color'
-import type { WorkScheduler } from './work-scheduler'
-import {
-  validateWorkingAsset,
-  workingSourceIdentity,
-  croppedWorkingIdentity,
-  type WorkingAssetLease,
-} from './working-assets'
-import {
-  detailLineageKey,
-  resolveDetailSettings,
-  type DetailSourceLineage,
-} from './processing/detail-identity'
-import { spatialExecutionBackend } from './processing/spatial-backend'
-import {
-  preparedWorkingIdentity,
-  validatePreparedPreviewLineage,
-  type PreparedPreviewLineage,
-} from './prepared-preview-lineage'
+import type { HdrAnalysisDomain, HdrPhotoStatistics } from '../shared/hdr-statistics'
+import type { LensSettings, ProcessingOptions } from '../shared/lens'
+import type { NativeHdrMaskRequest } from '../shared/native-hdr-mask'
 import {
   PREPARED_COMPARISON_VERSION,
   validatePreparedPreviewSourceRef,
   type PreparedPreviewSourceRef,
 } from '../shared/prepared-comparison'
+import type { PreparedHdrSourceRef } from '../shared/prepared-source'
+import { validatePreparedHdrSourceRef } from '../shared/prepared-source'
+import {
+  frameByteLength,
+  PREPARED_PROOF_VERSION,
+  PREVIEW_ASSET_VERSION,
+} from '../shared/preview-frame'
+import {
+  validateManagedImageBytes,
+  type ManagedImageBytes,
+  type ResourcePolicySnapshot,
+} from '../shared/resource-policy'
+import type { PhotoStatistics } from '../shared/statistics'
+import {
+  validateWhiteBalanceSample,
+  type PhotoWhiteBalanceProposal,
+  type WhiteBalanceSample,
+} from '../shared/white-balance-picker'
+import type {
+  HdrMaskSourceLease,
+  NativeMaskController,
+  PreparedHdrSourceLease,
+} from './native-mask-controller'
+import {
+  preparedWorkingIdentity,
+  validatePreparedPreviewLineage,
+  type PreparedPreviewLineage,
+} from './prepared-preview-lineage'
+import type {
+  FullPreviewProcessor,
+  FullPreviewResult,
+  HdrFirstSurfaceArtifact,
+  HdrFirstSurfaceProgress,
+  HdrStatisticsJob,
+  PreviewWarmResult,
+} from './preview-types'
+import { cameraProfile, cameraProfiles } from './processing/cameras'
+import {
+  detailLineageKey,
+  resolveDetailSettings,
+  type DetailSourceLineage,
+} from './processing/detail-identity'
+import { rawDecoderDefinitions } from './processing/formats'
+import { CROP_POLICY, LENS_RENDER_VERSION } from './processing/lens-correction'
+import { spatialExecutionBackend } from './processing/spatial-backend'
+import type { WorkScheduler } from './work-scheduler'
+import {
+  croppedWorkingIdentity,
+  validateWorkingAsset,
+  workingSourceIdentity,
+  type WorkingAssetLease,
+} from './working-assets'
 
 // Cache layout version. Source and output identities separately invalidate pixel variants.
 export const PREVIEW_VERSION = PREVIEW_ASSET_VERSION
@@ -249,7 +248,7 @@ export class FullPreviews {
   private analyses = new Map<AbortController, string>()
   private whiteBalancePicking = false
   private active?: Request
-  private cpu?: NativeCpuController
+  private cpu?: NativeMaskController
   private firstConfiguration?: FirstSurfaceConfiguration
   private cropAdmission?: (signal: AbortSignal) => Promise<CropAdmission>
   private detailAdmission?: (signal: AbortSignal) => Promise<DetailAdmission>
@@ -259,7 +258,7 @@ export class FullPreviews {
   installFirstSurface(configuration: FirstSurfaceConfiguration) {
     this.firstConfiguration = configuration
   }
-  installCpuController(controller: NativeCpuController) {
+  installCpuController(controller: NativeMaskController) {
     this.cpu = controller
   }
   installCropAdmission(admission: (signal: AbortSignal) => Promise<CropAdmission>) {
@@ -272,10 +271,10 @@ export class FullPreviews {
     return this.scheduler ? this.scheduler.detached(() => this.foreground(work, signal)) : work()
   }
   async acquireCpuWorkingSource(
-    request: Pick<CpuPreviewRequest, 'source' | 'expectedSettingsRevision'>,
+    request: { readonly source: PreparedHdrSourceRef; readonly expectedSettingsRevision: number },
     signal: AbortSignal,
     comparisonOf?: PreparedPreviewSourceRef,
-  ): Promise<CpuWorkingLease> {
+  ): Promise<PreparedHdrSourceLease> {
     const ref = request.source
     if (comparisonOf) {
       validatePreparedPreviewSourceRef(comparisonOf)
@@ -396,9 +395,9 @@ export class FullPreviews {
     request: NativeHdrMaskRequest,
     signal: AbortSignal,
     frozenPolicy?: Readonly<ResourcePolicySnapshot>,
-  ): Promise<CpuMaskSourceLease> {
+  ): Promise<HdrMaskSourceLease> {
     if (request.comparisonOf !== undefined) {
-      validateCpuPreviewSourceRef(request.comparisonOf)
+      validatePreparedHdrSourceRef(request.comparisonOf)
       if (
         request.comparison !== 'before' ||
         request.comparisonOf.photoId !== request.source.photoId
@@ -414,7 +413,7 @@ export class FullPreviews {
           signal,
         )
       : undefined
-    let lease: CpuWorkingLease | undefined
+    let lease: PreparedHdrSourceLease | undefined
     const release = async () => {
       const results = await Promise.allSettled([lease?.release(), after?.release()]),
         failures = results.flatMap((result) =>
@@ -1384,7 +1383,7 @@ export class FullPreviews {
               adjustments: options?.adjustments ?? entry.adjustments,
               workingSource: linearEntry ? this.workingRef(linearEntry) : undefined,
               ...(linearEntry?.detailSource ? { requiresUnfilteredComparison: true as const } : {}),
-              cpuSource: linearEntry?.linear?.hdr
+              sourceRef: linearEntry?.linear?.hdr
                 ? {
                     photoId: id,
                     cacheId: linearEntry.revision,
@@ -1832,7 +1831,7 @@ export class FullPreviews {
       ...(sourceEntry.detailSource ? { requiresUnfilteredComparison: true as const } : {}),
       settingsRevision: options.revision,
       appliedCorrections: sourceEntry.appliedCorrections,
-      cpuSource: renderingIdentity
+      sourceRef: renderingIdentity
         ? {
             photoId: id,
             cacheId: sourceEntry.revision,

@@ -1,27 +1,29 @@
-import { test, expect } from '@playwright/test'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RawGpuRenderer } from '../src/main/gpu/raw-renderer'
 import type { RawSource } from '../src/main/gpu/raw-source'
-import { PreviewEngine } from '../src/main/preview-engine'
-import { prepareSource, type PreparedSource } from '../src/main/merge/prepare'
-import { syntheticMerge } from './merge.helpers'
+import { identityTransform } from '../src/main/merge/alignment'
 import { runMerge } from '../src/main/merge/engine'
-import { savePreparation, loadPreparation } from '../src/main/merge/preparation-cache'
-import { ALIGNMENT_CONSTANTS, type MergeSource, type MergeSettings } from '../src/shared/merge'
+import { accumulateGpu } from '../src/main/merge/gpu-accumulation'
+import { coverageGpu } from '../src/main/merge/gpu-coverage'
 import { gpuOutput } from '../src/main/merge/gpu-output'
-import { outputHdr, encodeHdr, SDR_TARGET, luminance } from '../src/shared/hdr'
+import { coverage, motionDifferent, noiseVariance } from '../src/main/merge/math'
+import { loadPreparation, savePreparation } from '../src/main/merge/preparation-cache'
+import { prepareSource, type PreparedSource } from '../src/main/merge/prepare'
+import { band, resetMergeReads } from '../src/main/merge/sampling'
+import { packedBits, readSensorCache, saveSensorCache } from '../src/main/merge/sensor-cache'
+import { PreviewEngine } from '../src/main/preview-engine'
 import { librawDecoder } from '../src/main/processing/decoders/libraw'
 import { correctionPlan } from '../src/main/processing/lens-correction'
 import { unavailableProfile } from '../src/main/processing/metadata'
-import { coverageGpu } from '../src/main/merge/gpu-coverage'
-import { coverage, noiseVariance, motionDifferent } from '../src/main/merge/math'
-import { identityTransform } from '../src/main/merge/alignment'
-import { saveSensorCache, readSensorCache, packedBits } from '../src/main/merge/sensor-cache'
-import { accumulateGpu } from '../src/main/merge/gpu-accumulation'
-import { band, resetMergeReads } from '../src/main/merge/sampling'
+import { encodeHdr, luminance, outputHdr, SDR_TARGET } from '../src/shared/hdr'
+import { ALIGNMENT_CONSTANTS, type MergeSettings, type MergeSource } from '../src/shared/merge'
+import { prepareSourceReference } from './merge-preparation-reference'
+import { runMerge as runMergeReference } from './merge-reference-engine'
+import { syntheticMerge } from './merge.helpers'
 
 test('empty Dawn map errors keep RAW GPU disabled without repeated initialization', async () => {
   const renderer = new RawGpuRenderer(),
@@ -436,7 +438,7 @@ test('merge GPU preparation applies every sensor orientation exactly once with c
           // Enumerate the live native phase independently: both uniforms, raw
           // input, linear/validity/prepared planes, LUT, reduction and its copy.
           nativePhaseBytes =
-            272 +
+            288 +
             144 +
             Math.ceil(raw.pixels.byteLength / 4) * 4 +
             width * height * 16 +
@@ -534,7 +536,7 @@ test('native GPU coverage matches independent double-precision projective and ti
 })
 
 // eslint-disable-next-line no-empty-pattern -- Playwright requires destructured fixtures.
-test('merge GPU preparation agrees with independent LibRaw CPU preparation and device-failure fallback', async ({}, info) => {
+test('merge GPU preparation agrees with independent LibRaw CPU preparation and refuses GPU failure without a CPU restart', async ({}, info) => {
   test.setTimeout(120000)
   const directory = await mkdtemp(join(tmpdir(), 'irodori-merge-gpu-')),
     engine = new PreviewEngine(),
@@ -564,12 +566,13 @@ test('merge GPU preparation agrees with independent LibRaw CPU preparation and d
       throw new Error('GPU device lost during preparation.')
     }
     const actual = await prepareSource(path, directory, 0, source, source, gpu),
-      cpu = await prepareSource(path, directory, 1, source, source, broken)
+      cpu = await prepareSourceReference(path, directory, 1, source, source, async () => {})
     expect(actual.measurement?.backend, JSON.stringify(actual.measurement)).toBe('gpu')
-    expect(cpu.measurement).toMatchObject({
-      backend: 'cpu',
-      fallback: 'GPU device lost during preparation.',
-    })
+    await expect(prepareSource(path, directory, 2, source, source, broken)).rejects.toThrow(
+      'GPU device lost during preparation.',
+    )
+    await expect(readFile(join(directory, 'source-2.f32'))).rejects.toThrow('ENOENT')
+    expect(cpu.measurement?.backend).toBe('cpu')
     expect([actual.width, actual.height]).toEqual([cpu.width, cpu.height])
     const a = await readFile(actual.path),
       b = await readFile(cpu.path),
@@ -728,8 +731,7 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
         await readFile(join(f.directory, 'gpu', name)),
       )
     process.env.IRODORI_MERGE_OUTPUT_SLOTS = '1'
-    process.env.IRODORI_MERGE_BACKEND = 'cpu'
-    const cpu = await runMerge({
+    const cpu = await runMergeReference({
       ...f.job,
       recipe,
       comparisons: true,
@@ -873,37 +875,21 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
       return outputMap.call(this, mode, offset, size)
     }
     try {
-      const fallback = await runMerge({
-        ...f.job,
-        recipe,
-        comparisons: true,
-        output: join(f.directory, 'output-fallback'),
-      })
+      await expect(
+        runMerge({
+          ...f.job,
+          recipe,
+          comparisons: true,
+          output: join(f.directory, 'output-failure'),
+        }),
+      ).rejects.toThrow('GPU output lost with two retained strips.')
       expect(outputReadbacks).toBe(2)
-      expect(fallback.measurements.output).toMatchObject({
-        backend: 'cpu',
-        fallback: 'GPU output lost with two retained strips.',
-        conversion: { slots: 2, pendingPeak: 2 },
-      })
-      expect(fallback.asset).toEqual(gpu.asset)
-      expect(await readFile(join(f.directory, 'output-fallback', 'linear.f32'))).toEqual(a)
-      expect(await readFile(join(f.directory, 'output-fallback', 'overlay.rgba'))).toEqual(
-        await readFile(join(f.directory, 'gpu', 'overlay.rgba')),
+      await expect(readFile(join(f.directory, 'output-failure', 'linear.f32'))).rejects.toThrow(
+        'ENOENT',
       )
-      for (const name of ['result', 'reference'] as const) {
-        const actual = await readFile(join(f.directory, 'output-fallback', `${name}.rgba`)),
-          reference = await readFile(join(f.directory, 'cpu', `${name}.rgba`))
-        expect(actual.length).toBe(gpu.asset.width * gpu.asset.height * 4)
-        let maximum = 0,
-          alphaMismatch = -1
-        for (let i = 0; i < actual.length; i++) {
-          if (i % 4 === 3) {
-            if (actual[i] !== reference[i] && alphaMismatch < 0) alphaMismatch = i
-          } else maximum = Math.max(maximum, Math.abs(actual[i] - reference[i]))
-        }
-        expect(maximum, `${name} CPU fallback RGB`).toBeLessThanOrEqual(1)
-        expect(alphaMismatch, `${name} CPU fallback alpha`).toBe(-1)
-      }
+      await expect(readFile(join(f.directory, 'output-failure', 'result.rgba'))).rejects.toThrow(
+        'ENOENT',
+      )
     } finally {
       GPUBuffer.prototype.mapAsync = outputMap
       process.env.IRODORI_MERGE_OUTPUT_SLOTS = '1'
@@ -913,12 +899,10 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
       throw new Error('GPU device lost during accumulation.')
     }
     try {
-      const fallback = await runMerge({ ...f.job, recipe, output: join(f.directory, 'fallback') })
-      expect(fallback.measurements.accumulation).toMatchObject({
-        backend: 'cpu',
-        fallback: 'GPU device lost during accumulation.',
-      })
-      expect(await readFile(join(f.directory, 'fallback', 'linear.f32'))).toEqual(b)
+      await expect(
+        runMerge({ ...f.job, recipe, output: join(f.directory, 'failure') }),
+      ).rejects.toThrow('GPU device lost during accumulation.')
+      await expect(readFile(join(f.directory, 'failure', 'linear.f32'))).rejects.toThrow('ENOENT')
     } finally {
       RawGpuRenderer.prototype.mergeDevice = method
     }
@@ -934,27 +918,19 @@ test('tiled GPU warp, accumulation, deghost and output agree with independent CP
     GPUBuffer.prototype.getMappedRange = function (offset, size) {
       const bytes = range.call(this, offset, size)
       if (this.size === tileReadbackBytes && tileReadbacks === 1) {
-        // A failed attempt's previously returned mask must never reach the CPU result.
+        // Previously returned motion must not publish after a later failed tile.
         const mask = new Uint32Array(bytes, 256 * 1024 * 32, 256 * 1024)
         mask[20 * 256 + 200] = 1
       }
       return bytes
     }
     try {
-      const fallback = await runMerge({
-        ...f.job,
-        recipe,
-        output: join(f.directory, 'partial-fallback'),
-      })
+      await expect(
+        runMerge({ ...f.job, recipe, output: join(f.directory, 'partial-failure') }),
+      ).rejects.toThrow('GPU device lost after partial accumulation.')
       expect(tileReadbacks).toBe(2)
-      expect(fallback.measurements.accumulation).toMatchObject({
-        backend: 'cpu',
-        fallback: 'GPU device lost after partial accumulation.',
-      })
-      expect(await readFile(join(f.directory, 'partial-fallback', 'linear.f32'))).toEqual(b)
-      expect(await readFile(join(f.directory, 'partial-fallback', 'motion.mask'))).toEqual(
-        await readFile(join(f.directory, 'cpu', 'motion.mask')),
-      )
+      for (const name of ['linear.f32', 'accumulation.f32', 'reference.f32', 'motion.mask'])
+        await expect(readFile(join(f.directory, 'partial-failure', name))).rejects.toThrow('ENOENT')
     } finally {
       GPUBuffer.prototype.mapAsync = map
       GPUBuffer.prototype.getMappedRange = range

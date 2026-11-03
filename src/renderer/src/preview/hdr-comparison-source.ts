@@ -22,7 +22,7 @@ export function checkedHdrComparison(after: WorkingFrame, before: WorkingFrame) 
     frame: {
       ...before,
       hdr: structuredClone(before.hdr),
-      cpuSource: before.cpuSource ? { ...before.cpuSource } : undefined,
+      sourceRef: before.sourceRef ? { ...before.sourceRef } : undefined,
     },
     identity,
   }

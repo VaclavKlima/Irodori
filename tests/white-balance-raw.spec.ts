@@ -1,27 +1,27 @@
-import { correctionPlan } from '../src/main/processing/lens-correction'
 import { expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import sharp from 'sharp'
-import { PreviewEngine } from '../src/main/preview-engine'
-import { readHdrStrips } from '../src/main/processing/hdr-processing'
-import { neutralAdjustments, renderAdjustments } from '../src/shared/adjustments'
-import { automaticLensSettings, noLensSettings } from '../src/shared/lens'
-import { librawDecoder } from '../src/main/processing/decoders/libraw'
 import { RawGpuRenderer } from '../src/main/gpu/raw-renderer'
+import { librawDecoder } from '../src/main/processing/decoders/libraw'
+import { readHdrStrips } from '../src/main/processing/hdr-processing'
+import { correctionPlan } from '../src/main/processing/lens-correction'
 import { resolveWhiteBalance } from '../src/main/processing/white-balance'
+import { neutralAdjustments, renderAdjustments } from '../src/shared/adjustments'
 import {
   adjustHdr,
   encodeHdr,
-  hdrAdjustmentMatrix,
-  hdrWhiteBalance,
   HDR_ADJUSTMENT_VERSION,
   HDR_OUTPUT_VERSION,
   HDR_RAW_SOURCE_VERSION,
+  hdrAdjustmentMatrix,
+  hdrWhiteBalance,
   outputHdr,
   SDR_TARGET,
 } from '../src/shared/hdr'
+import { automaticLensSettings, noLensSettings } from '../src/shared/lens'
+import { ReferencePreviewEngine } from './reference-preview-engine'
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 
@@ -35,7 +35,7 @@ test('Sony gains and camera matrices support custom WB with native GPU/CPU agree
   expect(sha256(await readFile(path))).toBe(sourceSha256)
   const session = await librawDecoder.open(path),
     gpu = new RawGpuRenderer(),
-    engine = new PreviewEngine(undefined, 'cpu')
+    engine = new ReferencePreviewEngine()
   try {
     const profile = resolveWhiteBalance(session.metadata)
     expect(profile).toBeDefined()

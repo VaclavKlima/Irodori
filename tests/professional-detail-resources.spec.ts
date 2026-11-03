@@ -181,7 +181,7 @@ test('full real Sony RAW detail obeys exact stream admission, retires GPU and CP
         name: 'cpu-ram-one-byte-under',
         ram: plan.cpu.ramBytes - 1,
         vram: plan.gpu.vramBytes,
-        backend: 'cpu' as const,
+        backend: 'gpu' as const,
         message: 'Detail preparation exceeds',
       },
     ]
@@ -210,7 +210,7 @@ test('full real Sony RAW detail obeys exact stream admission, retires GPU and CP
     }
     await json(join(root, 'refusals.json'), refusalEvidence)
 
-    async function cancelAfterBand(backend: 'cpu' | 'gpu', path: string) {
+    async function cancelAfterBand(backend: 'gpu', path: string) {
       const cancellation = new AbortController(),
         reason = new Error(`Cancel actual ${backend} detail after its first completed band.`),
         progress: { completedRows: number; partialBytes: number; allocatedGpuBytes: number }[] = []
@@ -272,7 +272,7 @@ test('full real Sony RAW detail obeys exact stream admission, retires GPU and CP
       expect(await sourceAgreementHash(source)).toBe(asset!.sha256)
     }
     await cancelAfterBand('gpu', output)
-    await cancelAfterBand('cpu', join(root, 'cpu-cancelled.f32'))
+    await cancelAfterBand('gpu', join(root, 'cpu-cancelled.f32'))
     const completedRows: number[] = []
     let retryCreations = 0
     const retried = await prepareDetailWorkingAsset(

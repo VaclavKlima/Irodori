@@ -1,29 +1,30 @@
+import { expectFloatReference } from './spatial-reference'
 import { expect, test } from '@playwright/test'
 import { readFile, readdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import sharp from 'sharp'
-import { exportRenditions } from '../src/main/export/renditions'
-import { ExportProcess } from '../src/main/export/process'
-import { rasterLinear } from '../src/main/export/raster'
-import { prepareExportWorkingSource } from '../src/main/export/preparation'
+import { halfFloat } from '../src/main/export/codec'
 import { prepareExportDetailStage } from '../src/main/export/detail'
 import { exportDetailPolicy } from '../src/main/export/detail-policy'
-import { encodeHdr, contentHdr, adjustHdr } from '../src/shared/hdr'
-import { halfFloat } from '../src/main/export/codec'
-import { prepareCreativeColor } from '../src/shared/creative-color'
+import { prepareExportWorkingSource } from '../src/main/export/preparation'
+import { ExportProcess } from '../src/main/export/process'
+import { exportRenditions } from '../src/main/export/renditions'
 import { cropWorkingFrame } from '../src/main/processing/crop-frame'
-import { fitCrop, identityCrop } from '../src/shared/crop'
 import { srgbTransform } from '../src/shared/adjustments'
+import { prepareCreativeColor } from '../src/shared/creative-color'
+import { fitCrop, identityCrop } from '../src/shared/crop'
+import { adjustHdr, contentHdr, encodeHdr } from '../src/shared/hdr'
 import { detailExportFixture } from './detail-export.helpers'
-import { detailCacheFixture } from './detail-preview-cache.helpers'
 import { canonicalDetailFrame, detailFrameJob } from './detail-frame.helpers'
+import { detailCacheFixture } from './detail-preview-cache.helpers'
 import { sha } from './export.helpers'
+import { rasterLinear } from './raster-reference'
 
 const previous = process.env.IRODORI_EXPORT_BACKEND
 const previousPreview = process.env.IRODORI_PREVIEW_BACKEND
 test.beforeEach(() => {
-  process.env.IRODORI_EXPORT_BACKEND = 'cpu'
-  process.env.IRODORI_PREVIEW_BACKEND = 'cpu'
+  process.env.IRODORI_EXPORT_BACKEND = 'gpu'
+  process.env.IRODORI_PREVIEW_BACKEND = 'gpu'
 })
 test.afterEach(() => {
   if (previous === undefined) delete process.env.IRODORI_EXPORT_BACKEND
@@ -49,7 +50,7 @@ test('raster exports filter native pixels before crop, alpha flattening and poin
         {
           settings: job.source.processing.crop,
           admission: job.cropAdmission,
-          backend: 'cpu',
+          backend: 'gpu',
         },
         new AbortController().signal,
       ),
@@ -69,8 +70,10 @@ test('raster exports filter native pixels before crop, alpha flattening and poin
     }
     expect(result.rgb).toEqual(rgb)
     expect(result.diagnostics.detail!.primary!.preparation).toBe('filtered')
-    expect(await readFile(join(job.preparationDirectory!, 'detail-primary.f32'))).toEqual(
-      Buffer.from(expected.buffer),
+    expectFloatReference(
+      await readFile(join(job.preparationDirectory!, 'detail-primary.f32')),
+      expected,
+      true,
     )
     const process = new ExportProcess(
         resolve('out/main/export-worker.js'),
@@ -121,8 +124,10 @@ test('HDR native filtering precedes crop, resize and both renditions while retai
     expect(result.rgb).toEqual(reference.rgb)
     expect(result.half).toEqual(reference.half)
     expect(result.geometry).toEqual(reference.geometry)
-    expect(await readFile(join(job.preparationDirectory!, 'detail-working.f32'))).toEqual(
-      Buffer.from(expected.buffer),
+    expectFloatReference(
+      await readFile(join(job.preparationDirectory!, 'detail-working.f32')),
+      expected,
+      true,
     )
     expect(result.diagnostics.detail!.working!.preparation).toBe('filtered')
     const key = result.diagnostics.detail!.working!.key
@@ -184,11 +189,15 @@ test('authored HDR and its SDR primary receive independent native filtering in t
     expect(result.diagnostics.detail!.working!.key).not.toBe(
       result.diagnostics.detail!.primary!.key,
     )
-    expect(await readFile(join(job.preparationDirectory!, 'detail-primary.f32'))).toEqual(
-      Buffer.from(primary.buffer),
+    expectFloatReference(
+      await readFile(join(job.preparationDirectory!, 'detail-primary.f32')),
+      primary,
+      true,
     )
-    expect(await readFile(join(job.preparationDirectory!, 'detail-working.f32'))).toEqual(
-      Buffer.from(hdr.buffer),
+    expectFloatReference(
+      await readFile(join(job.preparationDirectory!, 'detail-working.f32')),
+      hdr,
+      true,
     )
     expect(await readFile(f.original)).toEqual(f.originalBytes)
   } finally {

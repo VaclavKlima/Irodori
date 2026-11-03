@@ -15,7 +15,7 @@ REFERENCE = {
     'chromium': '152.0.7977.78',
     'llvmLibcRevision': '3ea89f4304312567e31a8eb45e0737577e65b676',
 }
-MASK_COMPILER_FLAGS = ['-mno-fma', '-mno-avx', '-mno-sse4.2']
+MASK_COMPILER_FLAGS = ['-U__ARM_FEATURE_FMA'] if sys.platform == 'darwin' else ['-mno-fma', '-mno-avx', '-mno-sse4.2']
 
 
 def digest_bytes(data):
@@ -103,7 +103,7 @@ def main():
     arithmetic_sha256 = digest_bytes(encoded)
     (output / 'mask-arithmetic-sha256.txt').write_text(arithmetic_sha256 + '\n')
     capabilities = {
-        'version': 'native-cpu-capabilities-v1', 'presentation': 'IRODCPU3',
+        'version': 'native-cpu-capabilities-v1',
         'mask': {'request': 'MASKCPU3', 'output': 'MASKOUT1', 'terminal': 'MASKDONE',
                  'mode': '--mask-v1', 'arithmeticSha256': arithmetic_sha256, 'arithmetic': arithmetic},
         'scope': 'Build identity only; independent application numeric and lifecycle verification is required.',

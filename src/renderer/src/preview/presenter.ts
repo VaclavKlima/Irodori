@@ -1,40 +1,22 @@
-import { reservePresentationBitmaps, retainPresentationBitmap } from './frame-cache'
-import { imageResourceOwners } from './image-resource-owners'
-import { whiteBalanceMatrix, identityMatrix } from '../../../shared/white-balance'
-type ComparisonMode = 'after' | 'before' | 'split'
-import {
-  exposureModule,
-  contrastModule,
-  highlightsModule,
-  shadowsModule,
-  whitesModule,
-  blacksModule,
-  neutralAdjustments,
-  sameAdjustments,
-  type AdjustmentParameters,
-  type WorkingFrame,
-} from '../../../shared/adjustments'
-import type { Size, View } from './geometry'
-import { drawPixelGrid, pixelGridGlsl } from './pixel-grid'
-import { colorIntensityGlsl } from '../../../shared/color-intensity'
-import { creativeColorGlsl } from '../../../shared/creative-color-glsl'
+import { type AdjustmentParameters, type WorkingFrame } from '../../../shared/adjustments'
 import { creativeColorActive, prepareCreativeColor } from '../../../shared/creative-color'
 import {
   CREATIVE_COLOR_PARAMETER_BYTES,
   packCreativeColor,
 } from '../../../shared/creative-color-gpu'
+import { rasterAdjustmentShader } from '../../../shared/raster-adjustments-shader'
+import { identityMatrix, whiteBalanceMatrix } from '../../../shared/white-balance'
+import { retainPresentationBitmap } from './frame-cache'
+import type { Size, View } from './geometry'
+import { imageResourceOwners } from './image-resource-owners'
+import { drawPixelGrid, pixelGridGlsl } from './pixel-grid'
+type ComparisonMode = 'after' | 'before' | 'split'
 
 const vertex = `#version 300 es
 void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2)); gl_Position = vec4(p * 2.0 - 1.0, 0, 1); }`
 const fragment = `#version 300 es
 precision highp float;
-${exposureModule.glsl}
-${contrastModule.glsl}
-${highlightsModule.glsl}
-${shadowsModule.glsl}
-${whitesModule.glsl}
-${blacksModule.glsl}
-${colorIntensityGlsl}
+${rasterAdjustmentShader('glsl')}
 uniform sampler2D pixels;
 uniform vec2 viewport, imageSize, pan;
 uniform float scale, dpr, exposureEv, contrast, highlights, shadows, whites, blacks;
@@ -57,13 +39,7 @@ void main() {
   if (working) {
     bool before = comparison == 1 || (comparison == 2 && css.x < viewport.x * split);
     vec3 inputRgb = (!before && customWb) ? whiteBalance * color.rgb : color.rgb;
-    vec3 rgb = before ? max(vec3(0), color.rgb) : max(vec3(0), applyHighlights(applyContrast(applyExposure(inputRgb, exposureEv), contrast, transform.x), highlights, transform.x));
-    if (!before) {
-      rgb = applyShadows(rgb, shadows, transform.x);
-      rgb = applyWhites(rgb, whites, transform.x);
-      rgb = applyBlacks(rgb, blacks, transform.x);
-      if(any(notEqual(colorIntensity,vec2(0)))) rgb=applyColorIntensity(rgb/transform.x,colorIntensity)*transform.x;
-    }
+    vec3 rgb = before ? max(vec3(0),color.rgb) : rasterAdjusted(inputRgb,vec4(exposureEv,contrast,highlights,shadows),vec2(whites,blacks),colorIntensity,transform.x);
     if (quantize) rgb = floor(rgb * 65535.0) / 65535.0;
     rgb = clamp(rgb / transform.x, vec3(0), vec3(1));
     rgb = mix(pow(rgb, vec3(1.0/2.4)) * (1.0+transform.z) - transform.z, rgb * 12.92, lessThan(rgb, vec3(transform.y)));
@@ -120,19 +96,10 @@ export class PreviewPresenter {
     const working =
         (this.working?.data.byteLength ?? 0) + (this.beforeSource?.data.byteLength ?? 0),
       buffers = new Set(
-        [
-          this.working,
-          this.beforeSource,
-          this.workerFrame,
-          this.workerBefore,
-          ...this.retiringWorkerFrames,
-        ].flatMap((frame) => (frame ? [frame.data.buffer] : [])),
+        [this.working, this.beforeSource].flatMap((frame) => (frame ? [frame.data.buffer] : [])),
       ),
       storage = [...buffers].reduce((bytes, buffer) => bytes + buffer.byteLength, 0),
-      bitmap =
-        ((this.bitmap?.width ?? 0) * (this.bitmap?.height ?? 0) +
-          (this.beforeBitmap?.width ?? 0) * (this.beforeBitmap?.height ?? 0)) *
-        4,
+      bitmap = (this.bitmap?.width ?? 0) * (this.bitmap?.height ?? 0) * 4,
       canvas = this.canvas.width * this.canvas.height * 32
     return {
       ramBytes: storage * 3 + bitmap * 2 + canvas + this.creativeBytes * 3,
@@ -160,81 +127,77 @@ export class PreviewPresenter {
   private beforeSource?: WorkingFrame
   private comparisonRequired = false
   private retiringBeforeBytes = 0
-  private sourceGeneration = 0
-  private sentGeneration = -1
-  private workerFrame?: WorkingFrame
-  private workerBefore?: WorkingFrame
-  private retiringWorkerFrames: WorkingFrame[] = []
   private spatialProgram?: WebGLProgram
   private bitmap?: ImageBitmap
-  private ownedBitmap = false
-  private beforeBitmap?: ImageBitmap
-  private releaseBitmapBudget?: () => void
   private releaseBorrowedBitmap?: () => void
   private comparison: { mode: ComparisonMode; split: number } = { mode: 'after', split: 0.5 }
   private working?: WorkingFrame
-  private fallback?: Worker
-  private fallbackBusy = false
-  private fallbackParameters?: AdjustmentParameters
-  private requestedParameters: AdjustmentParameters = neutralAdjustments
   private view?: { image: Size; viewport: Size; view: View; parameters: AdjustmentParameters }
+  whenDisposed: Promise<void> = Promise.resolve()
   private disposed = false
   constructor(
     private canvas: HTMLCanvasElement,
     forceFallback: boolean,
-    private lost: () => void,
+    private lost: (reason: string) => void,
+    private presented: () => void = () => {},
   ) {
-    if (!forceFallback)
-      this.gl = canvas.getContext('webgl2', {
-        alpha: true,
-        premultipliedAlpha: false,
-        antialias: false,
-        preserveDrawingBuffer: true,
-      })
-    const gl = this.gl
-    if (gl) {
-      if (
-        !gl.getExtension('OES_texture_float_linear') ||
-        !gl.getExtension('EXT_color_buffer_float')
-      ) {
-        this.dispose()
-        throw new Error('Floating-point filtering unavailable.')
+    try {
+      if (!forceFallback)
+        this.gl = canvas.getContext('webgl2', {
+          alpha: true,
+          premultipliedAlpha: false,
+          antialias: false,
+          preserveDrawingBuffer: true,
+        })
+      const gl = this.gl
+      if (gl) {
+        if (
+          !gl.getExtension('OES_texture_float_linear') ||
+          !gl.getExtension('EXT_color_buffer_float')
+        ) {
+          this.dispose()
+          throw new Error('Floating-point filtering unavailable.')
+        }
+        const program = gl.createProgram()!
+        for (const [type, source] of [
+          [gl.VERTEX_SHADER, vertex],
+          [gl.FRAGMENT_SHADER, fragment],
+        ] as const) {
+          const shader = gl.createShader(type)!
+          gl.shaderSource(shader, source)
+          gl.compileShader(shader)
+          if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS))
+            throw new Error(gl.getShaderInfoLog(shader) ?? 'Preview shader failed.')
+          gl.attachShader(program, shader)
+          gl.deleteShader(shader)
+        }
+        gl.linkProgram(program)
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS))
+          throw new Error('Preview program failed.')
+        this.program = program
+        this.texture = gl.createTexture()!
+        gl.bindTexture(gl.TEXTURE_2D, this.texture)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+        canvas.addEventListener('webglcontextlost', this.contextLost)
+        canvas.dataset.backend = 'webgl2'
+      } else {
+        if (!forceFallback) throw new Error('WebGL2 raster presentation is unavailable.')
+        this.context = canvas.getContext('2d', { colorSpace: 'srgb' })
+        if (!this.context) throw new Error('Preview canvas unavailable.')
+        canvas.dataset.backend = 'canvas2d'
       }
-      const program = gl.createProgram()!
-      for (const [type, source] of [
-        [gl.VERTEX_SHADER, vertex],
-        [gl.FRAGMENT_SHADER, fragment],
-      ] as const) {
-        const shader = gl.createShader(type)!
-        gl.shaderSource(shader, source)
-        gl.compileShader(shader)
-        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS))
-          throw new Error(gl.getShaderInfoLog(shader) ?? 'Preview shader failed.')
-        gl.attachShader(program, shader)
-        gl.deleteShader(shader)
-      }
-      gl.linkProgram(program)
-      if (!gl.getProgramParameter(program, gl.LINK_STATUS))
-        throw new Error('Preview program failed.')
-      this.program = program
-      this.texture = gl.createTexture()!
-      gl.bindTexture(gl.TEXTURE_2D, this.texture)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-      canvas.addEventListener('webglcontextlost', this.contextLost)
-      canvas.dataset.backend = 'webgl2'
-    } else {
-      this.context = canvas.getContext('2d', { colorSpace: 'srgb' })
-      if (!this.context) throw new Error('Preview canvas unavailable.')
-      canvas.dataset.backend = 'canvas2d'
+      this.imageOwner = imageResourceOwners.register(() => this.imageBytes())
+    } catch (error) {
+      this.dispose()
+      throw error
     }
-    this.imageOwner = imageResourceOwners.register(() => this.imageBytes())
   }
   private contextLost = (event: Event) => {
     event.preventDefault()
-    this.lost()
+    this.lost((event as WebGLContextEvent).statusMessage || 'WebGL raster context was lost.')
   }
   /** Compile only on the first creative edit; poll without stalling when supported. */
   private prepareCreativeProgram(): WebGLProgram | undefined {
@@ -245,7 +208,7 @@ export class PreviewPresenter {
       shaders: WebGLShader[] = []
     if (!program) {
       this.creativeFailed = true
-      this.lost()
+      this.lost('GPU program allocation failed.')
       return undefined
     }
     const pending = {
@@ -256,11 +219,13 @@ export class PreviewPresenter {
     this.creativePending = pending
     this.creativeBytes = CREATIVE_COLOR_PARAMETER_BYTES
     this.canvas.dataset.colorProgram = 'pending'
-    const fail = () => {
+    const fail = (
+      reason = gl.getProgramInfoLog(program) || 'Creative-color GPU program failed.',
+    ) => {
       this.clearCreativePreparation()
       this.creativeFailed = true
       this.canvas.dataset.colorProgram = 'failed'
-      this.lost()
+      this.lost(reason)
     }
     try {
       if (this.working)
@@ -271,11 +236,7 @@ export class PreviewPresenter {
         )
       const source = (this.beforeTexture ? comparisonFragment(fragment) : fragment)
         .replace('precision highp float;', 'precision highp float;precision highp int;')
-        .replace(colorIntensityGlsl, creativeColorGlsl('srgb'))
-        .replace(
-          'if(any(notEqual(colorIntensity,vec2(0)))) rgb=applyColorIntensity(rgb/transform.x,colorIntensity)*transform.x;',
-          'rgb=applyCreativeColor(rgb/transform.x)*transform.x;',
-        )
+        .replace(rasterAdjustmentShader('glsl'), rasterAdjustmentShader('glsl', true))
       for (const [kind, code] of [
         [gl.VERTEX_SHADER, vertex],
         [gl.FRAGMENT_SHADER, source],
@@ -311,8 +272,8 @@ export class PreviewPresenter {
           this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
       }
       poll(false)
-    } catch {
-      fail()
+    } catch (error) {
+      fail(String(error))
     }
     return this.creativeProgram
   }
@@ -325,11 +286,10 @@ export class PreviewPresenter {
     this.creativePending = undefined
   }
   setBitmap(bitmap: ImageBitmap) {
-    if (this.working && (this.gl || this.fallbackParameters !== undefined)) return
+    if (this.working) return
     if (this.bitmap !== bitmap) {
       const release = retainPresentationBitmap(bitmap)
-      if (this.ownedBitmap) this.bitmap?.close()
-      this.ownedBitmap = false
+
       this.releaseBorrowedBitmap?.()
       this.releaseBorrowedBitmap = release
     }
@@ -358,23 +318,18 @@ export class PreviewPresenter {
       throw new Error('Preview exceeds GPU allocation budget.')
   }
   setWorking(frame: WorkingFrame) {
+    if (!this.gl) throw new Error('Floating-point GPU raster presentation is unavailable.')
     if (this.working === frame) return
     if (this.working) {
       if (this.beforeSource) {
         this.comparisonRequired = true
         this.replaceComparisonSource()
-      } else {
-        this.beforeBitmap?.close()
-        this.beforeBitmap = undefined
       }
-      if (this.ownedBitmap) this.bitmap?.close()
       this.releaseBorrowedBitmap?.()
       this.releaseBorrowedBitmap = undefined
       this.bitmap = undefined
-      this.ownedBitmap = false
     }
     this.working = frame
-    this.sourceGeneration++
     const gl = this.gl
     if (gl) {
       this.checkSize(frame.width, frame.height, (16 * 4) / 3)
@@ -393,52 +348,6 @@ export class PreviewPresenter {
       )
       gl.generateMipmap(gl.TEXTURE_2D)
       if (gl.getError() !== gl.NO_ERROR) throw new Error('Preview texture upload failed.')
-    } else if (!this.fallback) {
-      this.fallback = new Worker(new URL('./presentation-worker.ts', import.meta.url), {
-        type: 'module',
-      })
-      this.fallback.onmessage = (event) => {
-        const { parameters, bitmap, before, generation } = event.data as {
-          generation: number
-          before?: ImageBitmap
-          parameters: AdjustmentParameters
-          bitmap: ImageBitmap
-        }
-        if (this.disposed) {
-          bitmap.close()
-          before?.close()
-          return
-        }
-        this.fallbackBusy = false
-        if (generation === this.sentGeneration) this.retiringWorkerFrames = []
-        if (generation !== this.sourceGeneration) {
-          bitmap.close()
-          before?.close()
-          this.requestFallback()
-          return
-        }
-        if (before) {
-          this.beforeBitmap?.close()
-          this.beforeBitmap = before
-        }
-        if (sameAdjustments(parameters, this.requestedParameters)) {
-          if (this.ownedBitmap) this.bitmap?.close()
-          this.releaseBorrowedBitmap?.()
-          this.releaseBorrowedBitmap = undefined
-          this.bitmap = bitmap
-          this.ownedBitmap = true
-          this.fallbackParameters = parameters
-          if (this.view) this.draw(this.view.image, this.view.viewport, this.view.view, parameters)
-        } else bitmap.close()
-        this.requestFallback()
-      }
-    }
-    if (this.fallback) {
-      this.releaseBitmapBudget?.()
-      this.releaseBitmapBudget = reservePresentationBitmaps(frame.width * frame.height * 8)
-      this.fallbackParameters = undefined
-      if (this.view)
-        this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
     }
     this.canvas.dataset.editing = 'ready'
   }
@@ -494,9 +403,7 @@ export class PreviewPresenter {
     }
     this.beforeTexture = undefined
     this.beforeSource = frame
-    this.sourceGeneration++
-    this.beforeBitmap?.close()
-    this.beforeBitmap = undefined
+
     this.clearCreativePreparation()
     if (this.creativeProgram) gl?.deleteProgram(this.creativeProgram)
     this.creativeProgram = undefined
@@ -552,30 +459,6 @@ export class PreviewPresenter {
       }
       this.spatialProgram = program
     }
-    this.fallbackParameters = undefined
-  }
-  private requestFallback() {
-    if (
-      !this.fallback ||
-      this.fallbackBusy ||
-      sameAdjustments(this.fallbackParameters, this.requestedParameters)
-    )
-      return
-    if (this.sentGeneration !== this.sourceGeneration) {
-      const frame = this.workerFrame !== this.working ? this.working : undefined,
-        beforeFrame =
-          this.workerBefore !== this.beforeSource ? (this.beforeSource ?? null) : undefined
-      this.retiringWorkerFrames = [
-        ...(frame && this.workerFrame ? [this.workerFrame] : []),
-        ...(beforeFrame !== undefined && this.workerBefore ? [this.workerBefore] : []),
-      ]
-      this.fallback.postMessage({ frame, beforeFrame, generation: this.sourceGeneration })
-      this.workerFrame = this.working
-      this.workerBefore = this.beforeSource
-      this.sentGeneration = this.sourceGeneration
-    }
-    this.fallbackBusy = true
-    this.fallback.postMessage({ parameters: this.requestedParameters })
   }
   setComparison(mode: ComparisonMode, split: number) {
     this.comparison = { mode, split }
@@ -583,18 +466,10 @@ export class PreviewPresenter {
   draw(image: Size, viewport: Size, view: View, parameters: AdjustmentParameters) {
     if (this.disposed || !viewport.width || !viewport.height) return
     this.view = { image, viewport, view, parameters }
-    if (this.fallback) {
-      this.requestedParameters = structuredClone(parameters)
-      this.view.parameters = this.requestedParameters
-      this.requestFallback()
-    }
     const waiting =
       this.comparison.mode !== 'after' &&
       (this.comparisonRequired || !!this.beforeSource) &&
-      (!this.beforeSource ||
-        (this.gl
-          ? !this.beforeTexture || !this.spatialProgram
-          : !this.beforeBitmap || !this.bitmap))
+      (!this.beforeSource || !this.beforeTexture || !this.spatialProgram)
     this.canvas.dataset.comparisonLoading = String(waiting)
     const sourceWaiting = !this.bitmap && (!this.gl || !this.working)
     this.canvas.style.visibility = waiting || sourceWaiting ? 'hidden' : ''
@@ -681,29 +556,7 @@ export class PreviewPresenter {
       context.imageSmoothingEnabled = view.scale < 1
       const left = (viewport.width - image.width * view.scale) / 2 + view.x
       const top = (viewport.height - image.height * view.scale) / 2 + view.y
-      if (this.comparison.mode !== 'after' && !this.beforeBitmap) return
-      context.drawImage(
-        this.comparison.mode === 'before' && this.beforeBitmap ? this.beforeBitmap : this.bitmap,
-        left,
-        top,
-        image.width * view.scale,
-        image.height * view.scale,
-      )
-      if (this.comparison.mode === 'split' && this.beforeBitmap) {
-        context.save()
-        context.beginPath()
-        context.rect(0, 0, viewport.width * this.comparison.split, viewport.height)
-        context.clip()
-        context.clearRect(0, 0, viewport.width, viewport.height)
-        context.drawImage(
-          this.beforeBitmap,
-          left,
-          top,
-          image.width * view.scale,
-          image.height * view.scale,
-        )
-        context.restore()
-      }
+      context.drawImage(this.bitmap, left, top, image.width * view.scale, image.height * view.scale)
       drawPixelGrid(context, image, viewport, view)
     }
     this.canvas.dataset.whiteBalance = JSON.stringify(
@@ -721,20 +574,18 @@ export class PreviewPresenter {
 
     this.canvas.dataset.contrast = String(parameters.contrast)
     this.canvas.dataset.exposure = String(parameters.exposureEv)
+    this.presented()
   }
   dispose() {
     if (this.disposed) return
     const gl = this.gl,
       drained = gl ? glCompletion(gl) : Promise.resolve()
+    this.whenDisposed = drained
     this.imageOwner?.retire(drained)
     this.disposed = true
     this.clearCreativePreparation()
     this.canvas.removeEventListener('webglcontextlost', this.contextLost)
-    this.fallback?.terminate()
-    this.beforeBitmap?.close()
-    this.releaseBitmapBudget?.()
     this.releaseBorrowedBitmap?.()
-    if (this.ownedBitmap) this.bitmap?.close()
     if (this.texture) this.gl?.deleteTexture(this.texture)
     if (this.beforeTexture) this.gl?.deleteTexture(this.beforeTexture)
     if (this.spatialProgram) this.gl?.deleteProgram(this.spatialProgram)
@@ -742,8 +593,5 @@ export class PreviewPresenter {
     if (this.creativeProgram) this.gl?.deleteProgram(this.creativeProgram)
     this.working = undefined
     this.beforeSource = undefined
-    this.workerFrame = undefined
-    this.workerBefore = undefined
-    this.retiringWorkerFrames = []
   }
 }

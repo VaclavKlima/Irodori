@@ -9,15 +9,15 @@ import {
 } from '../../shared/crop-resources'
 import type { HdrWorkingAsset } from '../../shared/hdr'
 import { createCropGpu, type CropGpu } from '../gpu/crop'
+import { cropBands, type CropBandDiagnostics } from './crop-bands'
+import { prepareIntegerCrop, type CroppedWorkingAsset } from './crop-working'
 import { readHdrStrips } from './hdr-processing'
 import { writeHdrStrip } from './write-hdr-strip'
-import { prepareIntegerCrop, type CroppedWorkingAsset } from './crop-working'
-import { cropBands, type CropBandDiagnostics } from './crop-bands'
 
 export interface CropPreparationJob extends CropAdmission {
   readonly asset: HdrWorkingAsset
   readonly settings: CropSettings
-  readonly backend: 'auto' | 'cpu' | 'gpu'
+  readonly backend: 'auto' | 'gpu'
 }
 export interface CropPreparationResult extends CroppedWorkingAsset {
   readonly geometryVersion: typeof CROP_GEOMETRY_VERSION
@@ -50,8 +50,7 @@ export async function prepareCropWorkingAsset(
     { asset, settings } = frozen,
     geometry = cropGeometry(asset, settings),
     memory = cropMemoryPlan(geometry, frozen)
-  if (!['auto', 'cpu', 'gpu'].includes(frozen.backend))
-    throw new Error('Invalid crop processing backend.')
+  if (!['auto', 'gpu'].includes(frozen.backend)) throw new Error('Invalid crop processing backend.')
   if (!memory.cpuAccepted)
     throw new Error('Crop preparation exceeds the frozen managed image budgets.')
   const base = {
@@ -77,7 +76,7 @@ export async function prepareCropWorkingAsset(
       )
     return { ...base, ...result, backend: 'copy' }
   }
-  if (frozen.backend === 'gpu' && !memory.gpuAccepted)
+  if (!memory.gpuAccepted)
     throw new Error('Crop GPU preparation exceeds the frozen managed image budgets.')
   const file = await open(outputPath, 'wx')
   let complete = false

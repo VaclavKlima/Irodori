@@ -1,22 +1,25 @@
-import { test, expect } from '@playwright/test'
-import { access, mkdtemp, mkdir, readFile, rm, readdir } from 'node:fs/promises'
+import { expect, test } from '@playwright/test'
+import { fork } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { once } from 'node:events'
+import { access, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { createHash } from 'node:crypto'
-import { fork } from 'node:child_process'
-import { once } from 'node:events'
+import sharp from 'sharp'
 import {
-  launchPackagedTestElectron,
   assertTestWindowPolicy,
+  launchPackagedTestElectron,
 } from '../scripts/electron-test-launch.mjs'
-import { foregroundTest, requiresForeground } from './foreground'
-import { importPhotos } from './import.helpers'
-import { captureWindow } from './window-capture.helpers'
 import type {
+  PreviewResult,
   PreviewWorkerRequest,
   PreviewWorkerResponse,
-  PreviewResult,
 } from '../src/main/preview-types'
+import { defaultExportOptions } from '../src/shared/export'
+import { foregroundTest, requiresForeground } from './foreground'
+import { importPhotos } from './import.helpers'
+import { completedTask } from './professional-editing-acceptance.helpers'
+import { captureWindow } from './window-capture.helpers'
 
 const executable =
   process.env.IRODORI_PACKAGED_EXECUTABLE ??
@@ -27,7 +30,7 @@ const executable =
   )
 
 test(
-  'unsigned packaged application starts offline with isolated profile, imports RAW, decodes fallback and restarts',
+  'unsigned packaged application starts offline with isolated profile, imports RAW, exports, excludes retired assets, decodes fallback and restarts',
   foregroundTest(
     'Actual host-native packaged startup and desktop identity require the original packaged main entry in the foreground.',
   ),
@@ -101,6 +104,15 @@ test(
             () => false,
           ),
         ).toBe(false)
+      const rendererAssets = await readdir(join(runtime.root, 'out/renderer/assets'))
+      expect(rendererAssets.some((name) => /^(?:hdr-)?presentation-worker-/.test(name))).toBe(false)
+      expect(
+        rendererAssets.some((name) =>
+          /native-cpu-client|hdr-cpu-presenter|^(?:native-mask-parity|mask-portability|mask-photo-portability)-/.test(
+            name,
+          ),
+        ),
+      ).toBe(false)
       await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'])
       const photo = (await page.evaluate(() => window.irodori.listPhotos())).photos[0]
       expect(photo).toMatchObject({ camera: 'ZV-1', previewSource: 'embedded' })
@@ -108,6 +120,33 @@ test(
       expect(await readFile(join(profile, 'library/originals', photo.id, 'original.arw'))).toEqual(
         original,
       )
+      const destination = join(profile, 'package-exports')
+      await mkdir(destination)
+      await app.evaluate(({ dialog }, path) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
+      }, destination)
+      const grant = await page.evaluate(() => window.irodori.chooseExportDestination())
+      expect(grant?.available).toBe(true)
+      const preparation = await page.evaluate((id) => window.irodori.prepareExport([id]), photo.id)
+      const exportId = await page.evaluate((request) => window.irodori.startExport(request), {
+        preparationId: preparation.id,
+        destinationId: grant!.id,
+        action: 'custom' as const,
+        options: {
+          ...defaultExportOptions,
+          output: 'sdr' as const,
+          size: { mode: 'longest' as const, edge: 320 },
+          metadata: 'none' as const,
+        },
+      })
+      expect(await completedTask(page, exportId)).toMatchObject({
+        status: 'completed',
+        export: { exported: 1, failed: 0 },
+      })
+      const jpeg = (await readdir(destination)).find((name) => name.endsWith('.jpg'))!
+      const exported = await sharp(join(destination, jpeg)).metadata()
+      expect(exported.format).toBe('jpeg')
+      expect(Math.max(exported.width!, exported.height!)).toBe(320)
       await page.getByTestId('console-toggle').click()
       const native = await app.browserWindow(page)
       await native.evaluate((w) => {

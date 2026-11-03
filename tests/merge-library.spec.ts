@@ -1,4 +1,7 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import { build } from 'esbuild'
+import type { ChildProcess } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   cp,
   mkdir,
@@ -10,31 +13,31 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createHash, randomUUID } from 'node:crypto'
+import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { Worker } from 'node:worker_threads'
-import { build } from 'esbuild'
-import { PhotoLibrary } from './photo-library.helpers'
-import { CatalogWriter, type CatalogWorkerFactory } from '../src/main/catalog/writer'
+import sharp from 'sharp'
 import { CatalogMutations } from '../src/main/catalog/domain'
-import { PreviewProcess } from '../src/main/preview-process'
-import { PreviewEngine } from '../src/main/preview-engine'
-import { MergeReviews } from '../src/main/merge/reviews'
+import { CatalogWriter, type CatalogWorkerFactory } from '../src/main/catalog/writer'
+import { ExportProcess } from '../src/main/export/process'
 import { MergeProcess } from '../src/main/merge/process'
+import { MergeReviews } from '../src/main/merge/reviews'
+import { verifyMaster } from '../src/main/merge/store'
+import { PreviewEngine } from '../src/main/preview-engine'
+import { PreviewProcess } from '../src/main/preview-process'
+import { processingMetadata } from '../src/main/processing/metadata'
+import { WorkScheduler } from '../src/main/work-scheduler'
+import type { Photo } from '../src/shared/contracts'
+import { defaultExportOptions } from '../src/shared/export'
+import {
+  PROCESSING_METADATA_VERSION,
+  noLensSettings,
+  type ProcessingOptions,
+} from '../src/shared/lens'
 import { MERGE_VERSION, type MergeManifest } from '../src/shared/merge'
 import { syntheticMerge } from './merge.helpers'
-import { verifyMaster } from '../src/main/merge/store'
-import { WorkScheduler } from '../src/main/work-scheduler'
-import { PROCESSING_METADATA_VERSION, type ProcessingOptions } from '../src/shared/lens'
-import type { ChildProcess } from 'node:child_process'
-import type { Photo } from '../src/shared/contracts'
-import sharp from 'sharp'
-import { ExportProcess } from '../src/main/export/process'
-import { defaultExportOptions } from '../src/shared/export'
-import { noLensSettings } from '../src/shared/lens'
-import { processingMetadata } from '../src/main/processing/metadata'
+import { PhotoLibrary } from './photo-library.helpers'
 
 const progressEpoch = () => performance.timeOrigin + performance.now()
 
@@ -355,7 +358,7 @@ for (const version of [MERGE_VERSION] as const)
           join(root, 'originals', id, 'linear.f32'),
           output,
           new AbortController().signal,
-          options,
+          { ...options, crop: undefined },
         )
         expect(result.width).toBe(f.result.asset.width)
         expect(result.height).toBe(f.result.asset.height)
@@ -420,10 +423,10 @@ for (const retiredVersion of ['hdr-source-v1', 'sony-merge-v1', 'sony-merge-v2',
     const root = await mkdtemp(join(tmpdir(), 'irodori-retained-unsupported-'))
     const previousPreview = process.env.IRODORI_PREVIEW_BACKEND
     const previousExport = process.env.IRODORI_EXPORT_BACKEND
-    // This service gate uses actual CPU workers and JPEG encoding, with no GPU
-    // or presentation claim. It exercises the production library admission path.
-    process.env.IRODORI_PREVIEW_BACKEND = 'cpu'
-    process.env.IRODORI_EXPORT_BACKEND = 'cpu'
+    // This service gate uses the shared GPU proof/export owner and real JPEG encoding.
+    // It exercises library admission without a foreground presentation claim.
+    process.env.IRODORI_PREVIEW_BACKEND = 'gpu'
+    process.env.IRODORI_EXPORT_BACKEND = 'gpu'
     const make = () => {
       const args: ConstructorParameters<typeof PhotoLibrary> = [root, new PreviewEngine(), () => {}]
       args[15] = new ExportProcess(
@@ -1008,9 +1011,9 @@ process.on('message', message => {
   }
 })
 
-test('worker progress counts validated reference-first sources and completed CPU rows', async () => {
+test('worker progress counts validated reference-first sources and completed GPU batches', async () => {
   const previousBackend = process.env.IRODORI_MERGE_BACKEND
-  process.env.IRODORI_MERGE_BACKEND = 'cpu'
+  process.env.IRODORI_MERGE_BACKEND = 'gpu'
   try {
     const f = await syntheticMerge([1, 1, 1], { reference: 2, width: 24, height: 65 })
     try {
@@ -1046,7 +1049,7 @@ test('worker progress counts validated reference-first sources and completed CPU
             observedAtEpochMs: progressEpoch(),
           }),
       )
-      expect(result.measurements.accumulation.backend).toBe('cpu')
+      expect(result.measurements.accumulation.backend).toBe('gpu')
       expect(result.measurements.timeline?.preparation.map((source) => source.sourceId)).toEqual([
         f.sources[2].photo.id,
         f.sources[0].photo.id,
@@ -1057,7 +1060,7 @@ test('worker progress counts validated reference-first sources and completed CPU
         [0, 1, 2, 3].map((completed) => ({ phase: 'Preparing originals', completed, total: 3 })),
       )
       expect(counters().filter((event) => event.phase === 'Combining linear samples')).toEqual(
-        [0, 64, 65].map((completed) => ({
+        [0, 65].map((completed) => ({
           phase: 'Combining linear samples',
           completed,
           total: 65,
@@ -1646,6 +1649,47 @@ test('available originals do not make unsupported or malformed HDR provenance re
     await library.open()
     const current = await library.getMergeProvenance(id)
     expect(current.reproducible).toBe(true)
+    for (const field of ['cameraPreparation', 'referenceFallbackPreparation'] as const) {
+      const historical = structuredClone(manifest)
+      Object.assign(historical.recipe, {
+        [field]:
+          field === 'cameraPreparation'
+            ? 'gpu-camera-v2-exact'
+            : 'gpu-reference-fallback-v2-compensated',
+      })
+      db.prepare('UPDATE derived_assets SET manifest = ? WHERE id = ?').run(
+        JSON.stringify(historical),
+        id,
+      )
+      const retiredExecutor = await library.getMergeProvenance(id)
+      expect(retiredExecutor.manifest).toEqual(historical)
+      expect(retiredExecutor.reproducible).toBe(false)
+    }
+    for (const stage of ['accumulation', 'source'] as const) {
+      const historical = structuredClone(manifest)
+      if (stage === 'accumulation') historical.recipe.measurements!.accumulation.backend = 'cpu'
+      else
+        historical.recipe.measurements!.preparation[0] = {
+          backend: 'cpu',
+          reused: false,
+          decodingMs: 0,
+          preparationMs: 0,
+        }
+      db.prepare('UPDATE derived_assets SET manifest = ? WHERE id = ?').run(
+        JSON.stringify(historical),
+        id,
+      )
+      const retiredExecutor = await library.getMergeProvenance(id)
+      expect(retiredExecutor.manifest).toEqual(historical)
+      expect(retiredExecutor.reproducible).toBe(false)
+    }
+    const sparse = structuredClone(manifest)
+    Object.assign(sparse.recipe, { measurements: { runtimeMs: 1 } })
+    db.prepare('UPDATE derived_assets SET manifest = ? WHERE id = ?').run(
+      JSON.stringify(sparse),
+      id,
+    )
+    expect((await library.getMergeProvenance(id)).reproducible).toBe(true)
     const retired = structuredClone(manifest)
     Object.assign(retired.asset.source, { version: 'hdr-source-v1' })
     db.prepare('UPDATE derived_assets SET manifest = ? WHERE id = ?').run(

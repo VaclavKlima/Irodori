@@ -1,70 +1,69 @@
+import { ChevronLeft, ChevronRight, FileImage, Layers } from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react'
 import { flushSync } from 'react-dom'
-import type { EditorPreviewPolicy } from '../../../shared/editor-preview-policy'
-import type { PreviewViewState } from '../../../shared/workspace'
-import { useHdrAnalysis } from '../hooks/useHdrAnalysis'
-import type { ReserveNativeMask } from '../preview/native-mask-relay'
-import { maskPixelTarget } from '../preview/native-mask-reservation'
-import { SDR_TARGET } from '../../../shared/hdr'
-import type { DisplayTarget } from '../../../shared/hdr'
-import { HdrPresenter } from '../preview/hdr-presenter'
-import type { EditState } from '../../../shared/edits'
-import type { EditGestureCommit } from '../preview/edit-gesture'
-import { useForegroundActivity } from '../hooks/useForegroundActivity'
+import type { AdjustmentParameters } from '../../../shared/adjustments'
 import {
   neutralAdjustments,
   sameAdjustments,
   snapshotAdjustments,
 } from '../../../shared/adjustments'
+import type { Photo } from '../../../shared/contracts'
+import { mapCropAffine } from '../../../shared/crop'
+import { spatialControlsActive } from '../../../shared/detail-controls'
+import type { EditorPreviewPolicy } from '../../../shared/editor-preview-policy'
+import type { EditState } from '../../../shared/edits'
+import type { DisplayTarget } from '../../../shared/hdr'
 import {
   HDR_FIRST_SURFACE_VERSION,
   hdrFirstSurfaceRequestKey,
   type HdrFirstSurfaceOffer,
   type HdrFirstSurfaceRequest,
 } from '../../../shared/hdr-first-surface'
-import type { PreviewTools } from '../hooks/usePreviewTools'
-import type { WhiteBalancePickerController } from '../hooks/useWhiteBalancePicker'
-import type { CropController } from '../hooks/useCrop'
-import { CropOverlay } from './CropOverlay'
 import { whiteBalanceSampleArea } from '../../../shared/white-balance-picker'
-import { normalizedSourcePoint } from '../preview/geometry'
-import { mapCropAffine } from '../../../shared/crop'
-import { usePreviewAnalysis, type ClippingMask } from '../hooks/usePreviewAnalysis'
-import type { AdjustmentParameters } from '../../../shared/adjustments'
-import { PreviewPresenter } from '../preview/presenter'
-import { useWorkingPreview } from '../hooks/useWorkingPreview'
+import type { PreviewViewState } from '../../../shared/workspace'
+import layout from '../App.module.css'
 import { useComparisonPreview } from '../hooks/useComparisonPreview'
-import { spatialControlsActive } from '../../../shared/detail-controls'
-import {
-  useCallback,
-  useMemo,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type PointerEvent,
-} from 'react'
-import { ChevronLeft, ChevronRight, FileImage, Layers } from 'lucide-react'
-import type { Photo } from '../../../shared/contracts'
+import type { CropController } from '../hooks/useCrop'
+import { useForegroundActivity } from '../hooks/useForegroundActivity'
+import { useFullPreview } from '../hooks/useFullPreview'
+import { useHdrAnalysis } from '../hooks/useHdrAnalysis'
+import { usePanDrag } from '../hooks/usePanDrag'
+import { usePreviewAnalysis, type ClippingMask } from '../hooks/usePreviewAnalysis'
+import { usePreviewFrame } from '../hooks/usePreviewFrame'
+import type { PreviewTools } from '../hooks/usePreviewTools'
+import { usePreviewWheel } from '../hooks/usePreviewWheel'
+import type { WhiteBalancePickerController } from '../hooks/useWhiteBalancePicker'
+import { useWorkingPreview } from '../hooks/useWorkingPreview'
+import type { EditGestureCommit } from '../preview/edit-gesture'
 import {
   constrain,
-  savedView,
-  restoreView,
   INITIAL_VIEW,
   minimumScale,
+  normalizedSourcePoint,
   replaceDimensions,
+  restoreView,
+  savedView,
   stepScale,
-  zoomAt,
   ZOOM_STOPS,
+  zoomAt,
   type Size,
   type View,
 } from '../preview/geometry'
-import layout from '../App.module.css'
+import { HdrPresenter } from '../preview/hdr-presenter'
+import type { ReserveNativeMask } from '../preview/native-mask-relay'
+import { maskPixelTarget } from '../preview/native-mask-reservation'
+import { PreviewPresenter } from '../preview/presenter'
+import { CropOverlay } from './CropOverlay'
 import styles from './PhotoPreview.module.css'
-import { useFullPreview } from '../hooks/useFullPreview'
-import { usePanDrag } from '../hooks/usePanDrag'
-import { usePreviewFrame } from '../hooks/usePreviewFrame'
-import { usePreviewWheel } from '../hooks/usePreviewWheel'
 import { ProgressSpinner } from './ProgressSpinner'
 
 interface Model {
@@ -143,7 +142,7 @@ export function PhotoPreview({
   const retainedSurface = useRef<HTMLCanvasElement>(null)
   const presenter = useRef<PreviewPresenter | HdrPresenter | null>(null)
   const hdrRetirement = useRef<Promise<void>>(Promise.resolve())
-  const failHdrPresentation = useRef<((reason: string) => void) | undefined>(undefined)
+  const failPresentation = useRef<((reason: string) => void) | undefined>(undefined)
   const firstSurfacePolicyOwner = useRef<HdrPresenter | null>(null)
   const [retainedFrame, setRetained] = useState<{
     sourceSpace: string
@@ -214,7 +213,6 @@ export function PhotoPreview({
   })
   const current = useRef(model)
   const framingView = useRef<{ image: Size; view: View } | null>(null)
-  const [fallback, setFallback] = useState(false)
   const [hdrAttempt, setHdrAttempt] = useState(0)
   const [presenterGeneration, setPresenterGeneration] = useState(0)
   const [hdrFailure, setHdrFailure] = useState<{
@@ -332,6 +330,7 @@ export function PhotoPreview({
     !suspended,
   )
   const [displayedUrl, setDisplayedUrl] = useState('')
+  const [rasterReady, setRasterReady] = useState(false)
   const [hdrReady, setHdrReady] = useState(false)
   const [analysisPresentationSerial, setAnalysisPresentationSerial] = useState(0)
   const maskPublication = useRef<string | undefined>(undefined)
@@ -506,8 +505,7 @@ export function PhotoPreview({
   useLayoutEffect(() => {
     retryOwner.current = hdrPresentationOwner
   }, [hdrPresentationOwner])
-  const gpuError =
-    presenterRoute === 'hdr' && hdrFailure?.owner === hdrPresentationOwner ? hdrFailure.reason : ''
+  const gpuError = hdrFailure?.owner === hdrPresentationOwner ? hdrFailure.reason : ''
   const retained =
     !!retainedFrame &&
     retainedFrame.hdrOwner === (hdrSurface ? hdrPresentationOwner : undefined) &&
@@ -562,18 +560,7 @@ export function PhotoPreview({
     (pending: boolean) => update({ analysisPending: pending }),
     [update],
   )
-  const actualTarget = useMemo(
-    () =>
-      fallback && !hdrSurface
-        ? {
-            ...SDR_TARGET,
-            generation: displayTarget.generation,
-            requested: displayTarget.requested,
-            headroom: displayTarget.headroom,
-          }
-        : displayTarget,
-    [fallback, hdrSurface, displayTarget],
-  )
+  const actualTarget = displayTarget
   const hdrOverlay = hdrRanges
     ? 0
     : tools.domain === 'working-hdr'
@@ -615,7 +602,7 @@ export function PhotoPreview({
       comparison: mode === 'before' ? ('before' as const) : ('after' as const),
       comparisonOf:
         mode === 'before' && comparisonRequired && !comparisonAlias
-          ? working?.cpuSource
+          ? working?.sourceRef
           : undefined,
       reserve: reserveNativeMask,
       presentationSerial: analysisPresentationSerial,
@@ -627,7 +614,7 @@ export function PhotoPreview({
       analysisPresentationSerial,
       comparisonRequired,
       comparisonAlias,
-      working?.cpuSource,
+      working?.sourceRef,
     ],
   )
   const { statisticsError: analysisError, maskError } = useHdrAnalysis(
@@ -660,7 +647,7 @@ export function PhotoPreview({
   useEffect(() => {
     const preview = full.preview
     if ((!preview && !firstSurface) || suspended) return
-    const ready = !gpuError && (working?.hdr ? hdrReady : !!displayedUrl)
+    const ready = !gpuError && (working?.hdr ? hdrReady : rasterReady && !!displayedUrl)
     let cancelled = false
     const report = () => {
       if (cancelled) return
@@ -706,6 +693,7 @@ export function PhotoPreview({
     firstSurfacePainted,
     hdrSurface,
     working?.hdr,
+    rasterReady,
     hdrReady,
     cachedDisplayReady,
     displayedUrl,
@@ -748,8 +736,7 @@ export function PhotoPreview({
       try {
         bindWorkingSource(presenter.current)
       } catch (error) {
-        if (presenter.current instanceof HdrPresenter) failHdrPresentation.current?.(String(error))
-        else full.displayFailed()
+        failPresentation.current?.(String(error))
         return
       }
     }
@@ -870,7 +857,7 @@ export function PhotoPreview({
     model.image.width &&
     model.viewport.width &&
     model.viewport.height &&
-    (!full.preview?.linear?.hdr || hdrReady) &&
+    (full.preview?.linear?.hdr ? hdrReady : rasterReady) &&
     comparisonReady &&
     !gpuError &&
     !full.error,
@@ -1035,6 +1022,7 @@ export function PhotoPreview({
       canvas.style.visibility = 'hidden'
       canvas.dataset.editing = 'unavailable'
       canvas.dataset.presentationError = reason.slice(0, 512)
+      setRasterReady(false)
       setHdrFailure({
         owner: hdrPresentationOwner,
         capabilityGeneration: currentTarget.current.generation,
@@ -1047,15 +1035,15 @@ export function PhotoPreview({
       firstSurfaceId.current = ''
       setRetained(null)
       onEditingReady(null)
-      if (activePresenter instanceof HdrPresenter) {
+      if (activePresenter) {
         activePresenter.dispose()
         hdrRetirement.current = activePresenter.whenDisposed
         void hdrRetirement.current.catch(() => undefined)
       }
       if (presenter.current === activePresenter) presenter.current = null
     }
+    failPresentation.current = fail
     if (presenterRoute === 'hdr') {
-      failHdrPresentation.current = fail
       // A failed owner waits for an explicit retry, a new source or a fresh capability generation.
       if (!gpuError) {
         setHdrReady(false)
@@ -1089,35 +1077,39 @@ export function PhotoPreview({
           })
           .catch((error) => fail(String(error)))
       }
-    } else {
-      try {
-        activePresenter = new PreviewPresenter(
-          canvas,
-          fallback || presenterRoute === 'raster-preview',
-          () => setFallback(true),
-        )
-      } catch {
-        // The separate legacy raster presenter can replace a failed GPU canvas with a 2D surface.
-        setFallback(true)
-      }
-      presenter.current = activePresenter
+    } else if (!gpuError) {
+      setRasterReady(false)
+      void hdrRetirement.current
+        .then(() => {
+          if (!active || image.current !== canvas) return
+          activePresenter = new PreviewPresenter(
+            canvas,
+            presenterRoute === 'raster-preview',
+            fail,
+            () => {
+              if (active && !failed) setRasterReady(true)
+            },
+          )
+          presenter.current = activePresenter
+          setPresenterGeneration((value) => value + 1)
+        })
+        .catch((error) => fail(String(error)))
     }
     return () => {
       active = false
-      if (failHdrPresentation.current === fail) failHdrPresentation.current = undefined
+      if (failPresentation.current === fail) failPresentation.current = undefined
       // Effect cleanup can precede ref detachment during a canvas replacement.
-      // Keep the completed CPU snapshot accessible to attachCanvas in either order.
+      // Keep the completed snapshot accessible to attachCanvas in either order.
       if (!failed && mounted.current && activePresenter instanceof HdrPresenter)
         activePresenter.recoverCompletedFrame(recoverySurface)
       activePresenter?.dispose()
-      if (activePresenter instanceof HdrPresenter) {
+      if (activePresenter) {
         hdrRetirement.current = activePresenter.whenDisposed
         void hdrRetirement.current.catch(() => undefined)
       }
       if (presenter.current === activePresenter) presenter.current = null
     }
   }, [
-    fallback,
     generation,
     presenterRoute,
     hdrOwnerKey,
@@ -1181,7 +1173,7 @@ export function PhotoPreview({
     )
       return
     try {
-      if (pixels && (!editingSurface || fallback)) presenter.current.setBitmap(pixels)
+      if (pixels && !editingSurface) presenter.current.setBitmap(pixels)
       if (image.current) {
         image.current.dataset.frameSourceSpace =
           renderedFrame.sourceSpace === 'uncropped' ? 'framing' : 'confirmed'
@@ -1205,16 +1197,13 @@ export function PhotoPreview({
           onViewChange?.(savedView(photo.id, current.current.view, dimensions))
       }
     } catch (error) {
-      if (presenter.current instanceof HdrPresenter) failHdrPresentation.current?.(String(error))
-      else if (!fallback) setFallback(true)
-      else displayFailed()
+      failPresentation.current?.(String(error))
     }
   }, [
     renderedFrame,
     pixels,
     change,
     displayFailed,
-    fallback,
     generation,
     presenterGeneration,
     editingSurface,
@@ -1236,13 +1225,12 @@ export function PhotoPreview({
       onEditingReady(
         presenter.current &&
           working &&
-          (!previewPolicy.presentationCache || !working.hdr || hdrReady)
+          (working.hdr ? !previewPolicy.presentationCache || hdrReady : rasterReady)
           ? (photo?.id ?? null)
           : null,
       )
     } catch (error) {
-      if (presenter.current instanceof HdrPresenter) failHdrPresentation.current?.(String(error))
-      else setFallback(true)
+      failPresentation.current?.(String(error))
     }
     return () => onEditingReady(null)
   }, [
@@ -1251,7 +1239,6 @@ export function PhotoPreview({
     comparisonRequired,
     comparisonAlias,
     comparisonReady,
-    fallback,
     generation,
     presenterGeneration,
     gpuError,
@@ -1261,6 +1248,7 @@ export function PhotoPreview({
     presentationState,
     confirmedEdits,
     hdrReady,
+    rasterReady,
     full.preview,
     hdrOwnerKey,
     previewPolicy,
@@ -1288,7 +1276,6 @@ export function PhotoPreview({
     working,
     beforeWorking,
     comparisonReady,
-    fallback,
     generation,
     model.loaded,
     model.viewport.width,
@@ -1325,7 +1312,6 @@ export function PhotoPreview({
     split,
     hdrRanges,
     working,
-    fallback,
     generation,
     presenterGeneration,
     gesturing,
@@ -1547,7 +1533,7 @@ export function PhotoPreview({
                 />
               )}
               <canvas
-                key={`${fallback}-${generation}-${presenterRoute}-${hdrSurface ? hdrPresentationOwner : editingSurface}`}
+                key={`${generation}-${presenterRoute}-${hdrPresentationOwner}-${hdrSurface ? 'hdr' : editingSurface}`}
                 ref={attachCanvas}
                 className={styles.canvas}
                 role="img"

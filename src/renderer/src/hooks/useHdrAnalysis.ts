@@ -1,15 +1,15 @@
-import { observeHdrSample, reuseHdrContent } from '../preview/hdr-sample'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   sameAdjustments,
-  type WorkingFrame,
   type AdjustmentParameters,
+  type WorkingFrame,
 } from '../../../shared/adjustments'
 import type { EditState } from '../../../shared/edits'
 import { SDR_TARGET, type DisplayTarget } from '../../../shared/hdr'
 import type { HdrAnalysisDomain, HdrStatistics } from '../../../shared/hdr-statistics'
 import { NATIVE_HDR_MASK_VERSION } from '../../../shared/native-hdr-mask'
-import type { CpuPreviewSourceRef } from '../../../shared/native-cpu-preview'
+import type { PreparedHdrSourceRef } from '../../../shared/prepared-source'
+import { observeHdrSample, reuseHdrContent } from '../preview/hdr-sample'
 import {
   NativeMaskRelay,
   type NativeMaskDraft,
@@ -19,7 +19,7 @@ import type { ClippingMask } from './usePreviewAnalysis'
 export interface NativeMaskContext {
   readonly confirmed: EditState | null
   readonly comparison: 'before' | 'after'
-  readonly comparisonOf?: CpuPreviewSourceRef
+  readonly comparisonOf?: PreparedHdrSourceRef
   readonly presentationSerial: number
   readonly reserve: ReserveNativeMask
 }
@@ -41,7 +41,7 @@ export function useHdrAnalysis(
     message: string
     kind: 'statistics' | 'mask'
   }>()
-  const [backend, setBackend] = useState<'native' | 'javascript'>()
+  const [backend, setBackend] = useState<'native' | 'unavailable'>()
   const releaseActivity = useRef<(() => void) | undefined>(undefined)
   const [unavailable, setUnavailable] = useState<{
     frame: WorkingFrame
@@ -87,11 +87,11 @@ export function useHdrAnalysis(
   const comparison = nativeContext?.comparison
   const comparisonOf = nativeContext?.comparisonOf
   const nativeEligible = !!(
-    frame?.cpuSource &&
+    frame?.sourceRef &&
     frame.hdr &&
     confirmed &&
-    confirmed.photoId === frame.cpuSource.photoId &&
-    frame.cpuSource.workingSha256 === frame.hdr.sha256 &&
+    confirmed.photoId === frame.sourceRef.photoId &&
+    frame.sourceRef.workingSha256 === frame.hdr.sha256 &&
     (nativeContext?.comparison === 'before' || sameAdjustments(confirmed.settings, parameters))
   )
   const identity = JSON.stringify([
@@ -118,7 +118,7 @@ export function useHdrAnalysis(
   ])
   useEffect(() => {
     let current = true
-    void window.irodori.getCpuPreviewBackend().then(
+    void window.irodori.getHdrMaskBackend().then(
       (value) => {
         if (current) setBackend(value)
       },
@@ -234,12 +234,12 @@ export function useHdrAnalysis(
     }
     releaseActivity.current ??= activity?.()
     const nativeMask: NativeMaskDraft | undefined =
-      backend === 'native' && nativeEligible && frame.cpuSource && confirmed
+      backend === 'native' && nativeEligible && frame.sourceRef && confirmed
         ? {
             version: NATIVE_HDR_MASK_VERSION,
             requestId: crypto.randomUUID(),
             sessionId: sessionId.current,
-            source: frame.cpuSource,
+            source: frame.sourceRef,
             ...(comparisonOf ? { comparisonOf } : {}),
             generation: current,
             expectedSettingsRevision: confirmed.revision,

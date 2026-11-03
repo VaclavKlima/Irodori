@@ -1,33 +1,35 @@
 import { expect, test } from '@playwright/test'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
-import { Writable } from 'node:stream'
 import { join, resolve } from 'node:path'
+import { Writable } from 'node:stream'
 import sharp from 'sharp'
 import { FullPreviews, PREVIEW_VERSION } from '../src/main/full-previews'
+import { attestAndFeedCpuMaskSource } from '../src/main/native-cpu-input'
+import {
+  NativeMaskController,
+  type PreparedHdrSourceLease,
+} from '../src/main/native-mask-controller'
 import { PreviewEngine } from '../src/main/preview-engine'
 import type {
   FullPreviewProcessor,
   FullPreviewResult,
   HdrRawPreparation,
 } from '../src/main/preview-types'
-import { unavailableProfile } from '../src/main/processing/metadata'
-import { automaticLensSettings, type ProcessingOptions } from '../src/shared/lens'
-import { neutralAdjustments, srgbTransform } from '../src/shared/adjustments'
-import { SDR_TARGET } from '../src/shared/hdr'
-import type { HdrPreview } from '../src/shared/contracts'
-import type { CpuPreviewRequest } from '../src/shared/native-cpu-preview'
-import { NativeCpuController, type CpuWorkingLease } from '../src/main/native-cpu-controller'
-import { attestAndFeedCpuSource } from '../src/main/native-cpu-input'
-import { nativeCpuExistingOwners } from '../src/shared/native-cpu-memory'
-import { resolveResourcePolicy } from '../src/shared/resource-policy'
 import { renderHdr, scanHdr } from '../src/main/processing/hdr-processing'
-import { MERGE_LIMITS, MERGE_VERSION, type MergeRecipe } from '../src/shared/merge'
-import { workingAsset } from './export.helpers'
+import { unavailableProfile } from '../src/main/processing/metadata'
+import { neutralAdjustments, srgbTransform } from '../src/shared/adjustments'
+import type { HdrPreview } from '../src/shared/contracts'
+import { SDR_TARGET } from '../src/shared/hdr'
 import {
   HDR_FIRST_SURFACE_VERSION,
   type HdrFirstSurfaceRequest,
 } from '../src/shared/hdr-first-surface'
+import { automaticLensSettings, type ProcessingOptions } from '../src/shared/lens'
+import { MERGE_LIMITS, MERGE_VERSION, type MergeRecipe } from '../src/shared/merge'
+import type { PreparedHdrSourceRequest } from '../src/shared/prepared-source'
+import { resolveResourcePolicy } from '../src/shared/resource-policy'
+import { workingAsset } from './export.helpers'
 
 async function writeFrame(
   output: string,
@@ -90,26 +92,17 @@ function cpuLeaseOptions(): ProcessingOptions {
 }
 function cpuLeaseRequest(
   frame: HdrPreview,
-  patch: Partial<CpuPreviewRequest> = {},
-): CpuPreviewRequest {
-  if (!frame.cpuSource || frame.settingsRevision === undefined)
-    throw new Error('Prepared HDR fixture omitted its trusted CPU reference/revision.')
+  patch: Partial<PreparedHdrSourceRequest> = {},
+): PreparedHdrSourceRequest {
+  if (!frame.sourceRef || frame.settingsRevision === undefined)
+    throw new Error('Missing prepared source reference/revision.')
   return {
-    version: 'native-cpu-preview-v3',
-    requestId: randomUUID(),
-    sessionId: randomUUID(),
-    source: structuredClone(frame.cpuSource),
-    generation: 1,
+    source: structuredClone(frame.sourceRef),
     expectedSettingsRevision: frame.settingsRevision,
-    parameters: { ...neutralAdjustments },
-    quality: 'normal',
-    hdrRanges: false,
-    headroom: null,
-    viewport: { width: 64, height: 32, dpr: 1 },
     ...patch,
   }
 }
-async function cpuLeaseBytes(lease: CpuWorkingLease) {
+async function cpuLeaseBytes(lease: PreparedHdrSourceLease) {
   const bytes = Buffer.alloc(lease.asset.byteLength)
   for (let filled = 0; filled < bytes.length;) {
     const part = await lease.file.read(bytes, filled, bytes.length - filled, filled)
@@ -133,17 +126,17 @@ test('CPU prepared-cache references survive independent HDR/statistics tokens an
     undefined,
     async () => structuredClone(options),
   )
-  let lease: CpuWorkingLease | undefined
+  let lease: PreparedHdrSourceLease | undefined
   try {
     await cache.open()
     const firstToken = randomUUID(),
       first = (await cache.requestHdr(ids[0], firstToken))!
-    expect(first.cpuSource).toMatchObject({
+    expect(first.sourceRef).toMatchObject({
       photoId: ids[0],
       workingSha256: first.sha256,
       renderingIdentity: first.renderId,
     })
-    expect(first.cpuSource!.cacheId).toBe(new URL(first.linear.url).pathname.split('/').at(-1))
+    expect(first.sourceRef!.cacheId).toBe(new URL(first.linear.url).pathname.split('/').at(-1))
     lease = await cache.acquireCpuWorkingSource(
       cpuLeaseRequest(first),
       new AbortController().signal,
@@ -184,7 +177,7 @@ test('CPU prepared-cache references survive independent HDR/statistics tokens an
       },
     })
     input.on('error', () => undefined)
-    const fed = await attestAndFeedCpuSource(
+    const fed = await attestAndFeedCpuMaskSource(
       lease.file,
       lease.asset,
       input,
@@ -193,7 +186,7 @@ test('CPU prepared-cache references survive independent HDR/statistics tokens an
     expect(fed.sourceAttestedByMain).toBe(true)
     expect(Buffer.concat(received)).toEqual(originalBytes)
     expect(createHash('sha256').update(Buffer.concat(received)).digest('hex')).toBe(first.sha256)
-    expect(touched!.cpuSource).toEqual(first.cpuSource)
+    expect(touched!.sourceRef).toEqual(first.sourceRef)
     expect(touched!.requestId).not.toBe(first.requestId)
     expect((await stat(path)).mtimeMs).toBeGreaterThan(past.getTime())
     await lease.check(0, new AbortController().signal)
@@ -217,7 +210,7 @@ test('CPU leases reject old settings revisions and changed correction identities
     undefined,
     async () => structuredClone(options),
   )
-  const leases: CpuWorkingLease[] = []
+  const leases: PreparedHdrSourceLease[] = []
   try {
     await cache.open()
     const first = (await cache.requestHdr(ids[0], randomUUID()))!,
@@ -253,7 +246,7 @@ test('CPU leases reject old settings revisions and changed correction identities
       ),
     ).rejects.toThrow('correction identity')
     const changed = (await cache.requestHdr(ids[0], randomUUID()))!
-    expect(changed.cpuSource!.cacheId).not.toBe(first.cpuSource!.cacheId)
+    expect(changed.sourceRef!.cacheId).not.toBe(first.sourceRef!.cacheId)
     const corrected = await cache.acquireCpuWorkingSource(
       cpuLeaseRequest(changed),
       new AbortController().signal,
@@ -361,8 +354,8 @@ test('FullPreviews removal and shutdown drain the CPU controller and close its r
         12 * 8 * 16,
         async () => structuredClone(options),
       )
-      let lease: CpuWorkingLease | undefined
-      const controller = new NativeCpuController({
+      let lease: PreparedHdrSourceLease | undefined
+      const controller = new NativeMaskController({
         root: join(root, 'cpu-output'),
         // Deliberately stop before spawn; real child lifetime is covered by the
         // separate native-cpu-controller service target, not fabricated here.
@@ -371,34 +364,33 @@ test('FullPreviews removal and shutdown drain the CPU controller and close its r
           await launchGate.promise
           return '/never-launched-native-cpu-lease-fixture'
         },
-        policy: async () =>
-          resolveResourcePolicy(
-            { version: 1, ramMiB: 2048, vramMiB: 2048 },
-            {
-              ram: { totalBytes: 8 * 1024 ** 3, availableBytes: 6 * 1024 ** 3 },
-              gpu: { status: 'unknown', reason: 'adapter-unverified' },
-            },
-            1,
-          ),
-        acquireSource: async (request, signal) => {
-          const owned = await cache.acquireCpuWorkingSource(request, signal)
-          lease = owned
-          const close = owned.file.close.bind(owned.file)
-          owned.file.close = async () => {
-            closingFd.resolve()
-            await closeGate.promise
-            await close()
-          }
-          return owned
-        },
         foreground: (work, signal) => cache.runCpuForeground(work, signal),
-        existingOwners: (asset, request) =>
-          nativeCpuExistingOwners(
-            asset.width,
-            asset.height,
-            Math.round(request.viewport.width * request.viewport.dpr),
-            Math.round(request.viewport.height * request.viewport.dpr),
-          ),
+        mask: {
+          arithmeticSha256: 'f'.repeat(64),
+          checkTarget: () => undefined,
+          acquireSource: async (request, signal) => {
+            const owned = await cache.acquireCpuWorkingSource(request, signal)
+            lease = owned
+            const close = owned.file.close.bind(owned.file)
+            owned.file.close = async () => {
+              closingFd.resolve()
+              await closeGate.promise
+              await close()
+            }
+            return {
+              ...owned,
+              parameters: neutralAdjustments,
+              policy: resolveResourcePolicy(
+                { version: 1, ramMiB: 2048, vramMiB: 2048 },
+                {
+                  ram: { totalBytes: 8 * 1024 ** 3, availableBytes: 6 * 1024 ** 3 },
+                  gpu: { status: 'unknown', reason: 'adapter-unverified' },
+                },
+                1,
+              ),
+            }
+          },
+        },
       })
       cache.installCpuController(controller)
       try {
@@ -409,10 +401,23 @@ test('FullPreviews removal and shutdown drain the CPU controller and close its r
         const owner = cache.acquire(new URL(frame.linear.url))!,
           path = owner.path
         owner.release()
-        const rendering = controller.render(request).then(
-          (pair) => ({ pair }),
-          (error: unknown) => ({ error }),
-        )
+        const rendering = controller
+          .renderMask({
+            ...request,
+            version: 'native-hdr-mask-v3',
+            requestId: randomUUID(),
+            sessionId: randomUUID(),
+            generation: 1,
+            comparison: 'after',
+            domain: 'working-hdr',
+            parameters: neutralAdjustments,
+            target: SDR_TARGET,
+            existingOwners: { ramBytes: 0, vramBytes: 0 },
+          })
+          .then(
+            (pair) => ({ pair }),
+            (error: unknown) => ({ error }),
+          )
         await launched.promise
         const nextToken = randomUUID()
         await cache.requestHdr(ids[1], nextToken)
@@ -509,7 +514,7 @@ test('CPU source capability leases the real prepared cache copy of a synthetic c
     },
   }
   let rendered = 0,
-    lease: CpuWorkingLease | undefined
+    lease: PreparedHdrSourceLease | undefined
   const cache = new FullPreviews(
     join(root, 'cache'),
     (id) => (id === ids[0] ? path : undefined),
@@ -556,7 +561,7 @@ test('CPU source capability leases the real prepared cache copy of a synthetic c
     ).toBeUndefined()
     await cache.release(token)
     const reused = (await cache.requestHdr(ids[0], randomUUID()))!
-    expect(reused.cpuSource).toEqual(frame.cpuSource)
+    expect(reused.sourceRef).toEqual(frame.sourceRef)
     expect(rendered).toBe(1)
     await cache.beginRemoval(ids[0])
     cache.endRemoval(ids[0], true)

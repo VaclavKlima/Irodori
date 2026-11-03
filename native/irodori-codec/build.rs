@@ -25,8 +25,8 @@ fn configured_path(name: &str) -> PathBuf {
 }
 
 fn main() {
-    assert_eq!(env::var("CARGO_CFG_TARGET_OS").unwrap(), "linux");
-    assert_eq!(env::var("CARGO_CFG_TARGET_ARCH").unwrap(), "x86_64");
+    let apple = env::var("CARGO_CFG_TARGET_OS").unwrap() == "macos" && env::var("CARGO_CFG_TARGET_ARCH").unwrap() == "aarch64";
+    assert!(apple || (env::var("CARGO_CFG_TARGET_OS").unwrap() == "linux" && env::var("CARGO_CFG_TARGET_ARCH").unwrap() == "x86_64"), "Native codecs support macOS arm64 and Linux x64.");
     let source = configured_path("IRODORI_CODEC_SOURCE");
     let codec_build = configured_path("IRODORI_CODEC_LIBRARY");
     let jpeg_build = configured_path("IRODORI_CODEC_JPEG_LIBRARY");
@@ -84,7 +84,7 @@ fn main() {
     println!("cargo:rustc-link-lib=static=irodori_codec_bridge");
     println!("cargo:rustc-link-lib=static=uhdr");
     println!("cargo:rustc-link-lib=static=jpeg");
-    println!("cargo:rustc-link-lib=dylib=stdc++");
+    println!("cargo:rustc-link-lib=dylib={}", if apple { "c++" } else { "stdc++" });
     println!("cargo:rustc-link-lib=dylib=pthread");
     println!("cargo:rustc-link-lib=dylib=m");
 }

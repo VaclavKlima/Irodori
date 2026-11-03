@@ -1,9 +1,8 @@
-import { writeFile } from 'node:fs/promises'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { expect, test } from './electron.fixture'
-import { activateButton } from './button.helpers'
-import { importPhotos } from './import.helpers'
+import { writeFile } from 'node:fs/promises'
 import { neutralAdjustments } from '../src/shared/adjustments'
+import { activateButton } from './button.helpers'
+import { expect, test } from './electron.fixture'
 import {
   emptyClippingOverlay,
   installAnalysisHashGate,
@@ -12,6 +11,7 @@ import {
   observeGpuAnalysisOwners,
   settledHealthyPreview,
 } from './hdr-analysis-cancel.helpers'
+import { importPhotos } from './import.helpers'
 
 test.use({ hdrDisplay: true })
 
@@ -36,7 +36,6 @@ async function prepare(irodori: { app: ElectronApplication; page: Page }) {
       .filter((worker) => /\/hdr-analysis-worker-[^/]+\.js(?:\?|$)/.test(worker.url()))
     expect(matches).toHaveLength(1)
     const worker = matches[0]
-    expect(await page.evaluate(() => window.irodori.getCpuPreviewBackend())).toBe('native')
     gate = await installAnalysisHashGate(worker, actual.asset!, true)
     const gpu = await owners.evaluate((control) => control.mark())
     expect(gpu.baselineTextures).toBeGreaterThan(0)
@@ -471,8 +470,8 @@ test('an unrelated uncaught worker error retains the actual mask receiver, activ
     ).toEqual([])
     expect(await owners.evaluate((control) => control.state())).toEqual(gpuBefore)
 
-    // Exercise actual component retirement and request the same photograph
-    // again. Its full-source admission must wait behind the existing receiver.
+    // Request the same photograph again while the receiver remains live.
+    // Healthy source reuse is allowed; another full-source allocation must wait.
     await activateButton(
       page
         .getByRole('navigation', { name: 'Workspaces' })
@@ -488,7 +487,8 @@ test('an unrelated uncaught worker error retains the actual mask receiver, activ
     await page.evaluate(
       () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
     )
-    expect(await canvas.getAttribute('data-editing')).not.toBe('ready')
+    if ((await canvas.getAttribute('data-editing')) === 'ready')
+      expect(await canvas.getAttribute('data-presented-source-identity')).toBe(value.before.source)
     const blocked = await lifetime.evaluate((control) => control.state()),
       blockedGpu = await owners.evaluate((control) => control.state())
     expect(blocked.entries).toHaveLength(1)

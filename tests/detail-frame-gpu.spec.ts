@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test'
-import { detailWorkingFrame } from '../src/main/processing/detail-frame'
 import { createSpatialDetailGpu } from '../src/main/gpu/spatial-detail'
+import { detailWorkingFrame } from '../src/main/processing/detail-frame'
 import { detailFrame, detailFrameJob } from './detail-frame.helpers'
 import { sha } from './export.helpers'
+import { detailFrameReference } from './spatial-reference'
 
 test('tiny GPU frame bands preserve both primary domains and exact coverage without CPU repair', async () => {
   for (const primaries of ['srgb', 'rec2020'] as const) {
@@ -11,7 +12,7 @@ test('tiny GPU frame bands preserve both primary domains and exact coverage with
       before = Buffer.from(frame.data.buffer).toString('hex'),
       gpu = createSpatialDetailGpu()
     try {
-      const cpu = await detailWorkingFrame(frame, job, new AbortController().signal),
+      const cpu = await detailFrameReference(frame, job, new AbortController().signal),
         result = await detailWorkingFrame(
           frame,
           { ...job, backend: 'gpu' },
@@ -46,7 +47,7 @@ test('tiny GPU frame bands preserve both primary domains and exact coverage with
       })
       expect(result.diagnostics.adapter).toBeTruthy()
       expect(gpu.allocatedBytes).toBe(0)
-      expect(result.frame.cpuSource).toBeUndefined()
+      expect(result.frame.sourceRef).toBeUndefined()
       expect(result.frame.identity).toBeUndefined()
       if (result.frame.hdr) {
         expect(result.frame.hdr.sha256).toBe(

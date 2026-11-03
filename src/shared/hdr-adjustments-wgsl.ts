@@ -2,9 +2,9 @@ import { colorIntensityWgsl } from './color-intensity'
 import { creativeColorWgsl } from './creative-color-gpu'
 
 /** Shared scene-linear white balance, Light and Color operators for preview and export. */
-export function hdrAdjustmentShader(creative = false, binding = 12): string {
+export function hdrAdjustmentShader(creative = false, binding = 12, power = 'acesPow'): string {
   return `
-${creative ? creativeColorWgsl('rec2020', binding, 'acesPow') : colorIntensityWgsl('rec2020', 'acesPow')}
+${creative ? creativeColorWgsl('rec2020', binding, power) : colorIntensityWgsl('rec2020', power)}
 const irodori = vec3f(.2627002120112671, .6779980715188708, .059301716469862);
 fn adjusted(input: vec3f) -> vec3f {
   var rgb = input;

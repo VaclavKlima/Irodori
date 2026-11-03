@@ -1,25 +1,24 @@
 import { expect, test } from '@playwright/test'
-import { readFile, readdir, rename, writeFile, lstat, mkdir, link, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { link, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { resolve } from 'node:path'
-import { ExportProcess } from '../src/main/export/process'
-import { ExportJobs, type ExportBoundary } from '../src/main/export/jobs'
-import { ExportReadStore } from '../src/main/export/store'
+import { exportCropPolicy } from '../src/main/export/crop-policy'
+import { exportDetailPolicy } from '../src/main/export/detail-policy'
 import { identity } from '../src/main/export/files'
-import { defaultExportOptions, type ExportWorkerProgress } from '../src/shared/export'
+import { ExportJobs, type ExportBoundary } from '../src/main/export/jobs'
+import { prepareExportWorkingSource } from '../src/main/export/preparation'
+import { ExportProcess } from '../src/main/export/process'
+import { ExportReadStore } from '../src/main/export/store'
 import type { ExportRenderJob } from '../src/main/export/types'
-import type { EditFlushScope } from '../src/shared/edits'
+import { workingSourceIdentity, type WorkingAssetLease } from '../src/main/working-assets'
 import { neutralAdjustments } from '../src/shared/adjustments'
+import { identityCrop } from '../src/shared/crop'
+import type { EditFlushScope } from '../src/shared/edits'
+import { defaultExportOptions, type ExportWorkerProgress } from '../src/shared/export'
+import { exportSdrEncodePlan } from '../src/shared/export-resources'
+import { cropAdmission } from './crop-frame.helpers'
 import { exportFixture, sha, syntheticExportSource } from './export.helpers'
 import { finishTask } from './stack.helpers'
-import { prepareExportWorkingSource } from '../src/main/export/preparation'
-import { workingSourceIdentity, type WorkingAssetLease } from '../src/main/working-assets'
-import { exportCropPolicy } from '../src/main/export/crop-policy'
-import { identityCrop } from '../src/shared/crop'
-import { cropAdmission } from './crop-frame.helpers'
-import { exportDetailPolicy } from '../src/main/export/detail-policy'
-import { exportSdrEncodePlan } from '../src/shared/export-resources'
 
 async function controlled(
   t: Awaited<ReturnType<typeof exportFixture>>,
@@ -707,7 +706,7 @@ test('a real detail worker budget refusal publishes nothing and a newly admitted
   const previous = process.env.IRODORI_EXPORT_BACKEND,
     t = await exportFixture(1)
   try {
-    process.env.IRODORI_EXPORT_BACKEND = 'cpu'
+    process.env.IRODORI_EXPORT_BACKEND = 'gpu'
     const photo = t.photos[0],
       originalPath = join(t.root, 'library', 'originals', photo.id, 'original.png'),
       original = await readFile(originalPath),

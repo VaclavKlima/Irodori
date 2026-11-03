@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeNativeCpuMask } from '../src/main/native-cpu-mask-sink'
 import { nativeHdrMaskMemory } from '../src/shared/native-hdr-mask-memory'
-import { resourcePolicy, deferred, observed, valueOf } from './native-cpu-controller.helpers'
+import { deferred, observed, resourcePolicy, valueOf } from './native-mask-controller.helpers'
 
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve))

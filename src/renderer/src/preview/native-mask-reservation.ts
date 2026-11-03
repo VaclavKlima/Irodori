@@ -1,8 +1,8 @@
 import type { WorkingFrame } from '../../../shared/adjustments'
 import type { DisplayTarget } from '../../../shared/hdr'
+import { nativeHdrMaskMemory } from '../../../shared/native-hdr-mask-memory'
 import type { ManagedImageBytes, ResourcePolicySnapshot } from '../../../shared/resource-policy'
 import { validateManagedImageBytes } from '../../../shared/resource-policy'
-import { nativeHdrMaskMemory } from '../../../shared/native-hdr-mask-memory'
 
 export interface NativeMaskReservation {
   readonly existingOwners: ManagedImageBytes
@@ -27,8 +27,8 @@ export function maskPixelTarget(target: DisplayTarget | undefined) {
 }
 
 export function sameMaskFrame(a: WorkingFrame | undefined, b: WorkingFrame): boolean {
-  const x = a?.cpuSource,
-    y = b.cpuSource
+  const x = a?.sourceRef,
+    y = b.sourceRef
   return (
     !!a?.hdr &&
     !!b.hdr &&

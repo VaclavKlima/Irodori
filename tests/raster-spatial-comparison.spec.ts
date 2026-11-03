@@ -1,16 +1,14 @@
-import { build } from 'esbuild'
-import { writeFile } from 'node:fs/promises'
-import { pathToFileURL } from 'node:url'
 import type { Frame, Page } from '@playwright/test'
-import { expect, test } from './electron.fixture'
+import { build } from 'esbuild'
 import {
   neutralAdjustments,
   renderAdjustments,
   srgbTransform,
   type AdjustmentParameters,
 } from '../src/shared/adjustments'
-import { neutralColorMixer } from '../src/shared/color-mixer'
 import { neutralColorGrading } from '../src/shared/color-grading'
+import { neutralColorMixer } from '../src/shared/color-mixer'
+import { expect, test } from './electron.fixture'
 
 const width = 8,
   height = 6
@@ -66,20 +64,11 @@ interface Snapshot {
   visibility: string
   workerError?: string
   retiringBeforeBytes: number
-  retiringWorkerFrames: number
   owner: { ramBytes: number; vramBytes: number }
   configurations: { after: boolean; before: boolean; generation: number }[]
   data: Record<string, string>
 }
 async function harness(page: Page) {
-  const worker = await build({
-    entryPoints: ['src/renderer/src/preview/presentation-worker.ts'],
-    bundle: true,
-    format: 'iife',
-    write: false,
-  })
-  const workerFile = test.info().outputPath('presentation-worker.mjs')
-  await writeFile(workerFile, worker.outputFiles[0].text)
   const bundle = await build({
     stdin: {
       resolveDir: process.cwd(),
@@ -90,25 +79,8 @@ import {imageResourceOwners} from './src/renderer/src/preview/image-resource-own
 let canvas,presenter,gl,after,baseline,requested=neutralAdjustments,viewport={width:8,height:6},
  uploads=0,programs=0,draws=0,lost=0,closed=0,holdReply=false,holdFence=false,failLink=false,
  textureLimit=false,held=[],configurations=[],workerError;
-const NativeWorker=window.Worker,realClose=ImageBitmap.prototype.close;
-ImageBitmap.prototype.close=function(){closed++;return realClose.call(this)};
-window.Worker=class extends NativeWorker {
- constructor(url,options){
-  if(!String(url).endsWith('/presentation-worker.ts'))throw Error('Unexpected isolated worker');
-  super(${JSON.stringify(pathToFileURL(workerFile).href)},options);
-  super.addEventListener('message',event=>{
-   const deliver=()=>this.deliver?.(event);
-   if(holdReply)held.push(deliver);else deliver();
-  });
-  super.addEventListener('error',event=>{workerError=event.message});
- }
- set onmessage(handler){this.deliver=handler}
- postMessage(message,...rest){
-  if(message.generation!==undefined)configurations.push({after:!!message.frame,
-    before:message.beforeFrame!==undefined,generation:message.generation});
-  super.postMessage(message,...rest);
- }
-};
+const realClose=ImageBitmap.prototype.close;
+window.Worker=class {constructor(){throw Error('Retired CPU presentation worker requested')}};
 function source(input,padding=0){
  const backing=new Float32Array(input.length+padding),data=backing.subarray(padding,input.length+padding);
  data.set(input);return {width:8,height:6,data,transform:structuredClone(srgbTransform)};
@@ -171,7 +143,6 @@ window.spatialPresenter={
   return {pixels,uploads,programs,draws,lost,closed,held:held.length,busy:!!presenter?.fallbackBusy,
    ready:gl?!presenter?.creativePending:sameAdjustments(presenter?.fallbackParameters,requested),
    visibility:canvas?.style.visibility,workerError,retiringBeforeBytes:presenter?.retiringBeforeBytes||0,
-   retiringWorkerFrames:presenter?.retiringWorkerFrames.length||0,
    owner:imageResourceOwners.snapshot(),configurations,data:{...canvas?.dataset}};
  },
  close(){presenter?.dispose();presenter=null},
@@ -230,7 +201,7 @@ function zoom(p: number[]) {
   })
 }
 
-for (const fallback of [false, true]) {
+for (const fallback of [false]) {
   test(`${fallback ? 'worker' : 'WebGL'} raster Before/Split use distinct original pixels with grading, zoom and resident-source reuse`, async ({
     irodori: { page },
   }) => {
@@ -280,52 +251,6 @@ for (const fallback of [false, true]) {
     }
   })
 }
-
-test('a missing baseline stays hidden and late worker replies cannot bind an old Before or edited source', async ({
-  irodori: { page },
-}) => {
-  const frame = await harness(page)
-  try {
-    await act(frame, 'create', pixels(0), true)
-    await act(frame, 'hold', true)
-    await act(frame, 'before', null)
-    await act(frame, 'draw', parameters, 'before')
-    await expect.poll(async () => (await snapshot(frame)).held).toBe(1)
-    expect((await snapshot(frame)).visibility).toBe('hidden')
-    await act(frame, 'before', pixels(1))
-    await act(frame, 'before', pixels(3))
-    expect((await snapshot(frame)).configurations).toHaveLength(1)
-    await act(frame, 'release')
-    await ready(frame)
-    let s = await snapshot(frame)
-    expect(s.closed).toBeGreaterThanOrEqual(2)
-    expect(s.configurations).toEqual([
-      { after: true, before: false, generation: 1 },
-      { after: false, before: true, generation: 3 },
-    ])
-    compare(s.pixels, reference(3))
-    await act(frame, 'hold', true)
-    await act(frame, 'before', pixels(5))
-    await expect.poll(async () => (await snapshot(frame)).held).toBe(1)
-    s = await snapshot(frame)
-    expect(s.retiringWorkerFrames).toBe(1)
-    expect(s.owner.ramBytes).toBeGreaterThanOrEqual(width * height * 16 * 3 * 3)
-    await act(frame, 'replace', pixels(2))
-    expect((await snapshot(frame)).visibility).toBe('hidden')
-    await act(frame, 'release')
-    await ready(frame)
-    expect((await snapshot(frame)).visibility).toBe('hidden')
-    await act(frame, 'before', pixels(7))
-    await ready(frame)
-    compare((await snapshot(frame)).pixels, reference(7))
-    await act(frame, 'draw', parameters, 'after')
-    await ready(frame)
-    compare((await snapshot(frame)).pixels, reference(2, parameters))
-    expect((await snapshot(frame)).retiringWorkerFrames).toBe(0)
-  } finally {
-    await finish(frame)
-  }
-})
 
 test('raster comparison aliases allocate once, invalid sources preserve the frame and retired textures stay charged through their fence', async ({
   irodori: { page },
@@ -392,30 +317,6 @@ test('an incomplete GPU comparison program stays hidden and a changed edited fra
     compare((await snapshot(frame)).pixels, reference(5))
     await act(frame, 'draw', neutralAdjustments, 'after')
     compare((await snapshot(frame)).pixels, reference(2))
-  } finally {
-    await finish(frame)
-  }
-})
-
-test('a disposed raster worker closes transferred late bitmaps and source replacement hides old pixels', async ({
-  irodori: { page },
-}) => {
-  const frame = await harness(page)
-  try {
-    await act(frame, 'create', pixels(0), true)
-    await act(frame, 'draw', neutralAdjustments)
-    await ready(frame)
-    await act(frame, 'hold', true)
-    await act(frame, 'replace', pixels(2))
-    expect((await snapshot(frame)).visibility).toBe('hidden')
-    await expect.poll(async () => (await snapshot(frame)).held).toBe(1)
-    const closed = (await snapshot(frame)).closed
-    await act(frame, 'close')
-    await act(frame, 'release')
-    expect((await snapshot(frame)).closed).toBe(closed + 2)
-    await expect
-      .poll(async () => (await snapshot(frame)).owner)
-      .toEqual({ ramBytes: 0, vramBytes: 0 })
   } finally {
     await finish(frame)
   }

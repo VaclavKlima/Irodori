@@ -2,15 +2,16 @@ import { expect, test } from '@playwright/test'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createSpatialDetailGpu } from '../src/main/gpu/spatial-detail'
 import {
   prepareDetailWorkingAsset,
   type DetailPreparationJob,
 } from '../src/main/processing/detail-preparation'
-import { createSpatialDetailGpu } from '../src/main/gpu/spatial-detail'
-import { resolveResourcePolicy } from '../src/shared/resource-policy'
 import { readHdrStrips } from '../src/main/processing/hdr-processing'
-import { workingAsset, sha } from './export.helpers'
+import { resolveResourcePolicy } from '../src/shared/resource-policy'
 import { SPATIAL_DETAIL_STAGE } from '../src/shared/spatial-detail'
+import { sha, workingAsset } from './export.helpers'
+import { prepareDetailReference } from './spatial-reference'
 
 test('tiny real GPU strip preparation agrees with canonical CPU through native band halos and fenced retirement', async () => {
   const root = await mkdtemp(join(tmpdir(), 'irodori-detail-gpu-strips-')),
@@ -38,7 +39,7 @@ test('tiny real GPU strip preparation agrees with canonical CPU through native b
         sourceIdentity: sha(Buffer.from('isolated native GPU strip source')),
         noiseReduction: { version: 1, luminance: 35, chroma: 45 },
         detailSharpening: { version: 1, amount: 40, radius: 1.2, threshold: 50 },
-        backend: 'cpu',
+        backend: 'gpu',
         policy: resolveResourcePolicy(
           { version: 1, ramMiB: 2048, vramMiB: 2048 },
           {
@@ -50,7 +51,7 @@ test('tiny real GPU strip preparation agrees with canonical CPU through native b
         reservation: { ramBytes: 0, vramBytes: 0 },
       }
     await writeFile(sourcePath, source)
-    const cpu = await prepareDetailWorkingAsset(
+    const cpu = await prepareDetailReference(
         sourcePath,
         job,
         join(root, 'cpu.f32'),
