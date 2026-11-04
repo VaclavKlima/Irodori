@@ -33,6 +33,9 @@ export class WaylandDisplayRefresh {
   private buttons = new Set<NonNullable<MouseInputEvent['button']>>()
   private control = false
   private pointerControl = false
+  private generation = 0
+  private probing = false
+  private disposed = false
 
   constructor(private window: BrowserWindow) {
     this.contents = window.webContents
@@ -51,6 +54,7 @@ export class WaylandDisplayRefresh {
   }
 
   private mouse = (_event: Event, mouse: MouseInputEvent) => {
+    this.generation++
     // Recover a modifier already held when entering this view. Wheel events can
     // encode touchpad pinch, so they cannot establish physical Control.
     if (mouse.type !== 'mouseWheel' && mouse.modifiers)
@@ -63,32 +67,72 @@ export class WaylandDisplayRefresh {
   }
 
   private keyboard = (_event: Event, input: Input) => {
+    this.generation++
     this.control = input.control
     this.pointerControl = false
   }
 
   private reset = () => {
+    this.generation++
     this.buttons.clear()
     this.control = false
     this.pointerControl = false
   }
 
   private blur = () => {
+    this.generation++
     // View blur alone does not establish that the owner was deactivated.
     // Keep held presses and Control until release or actual window focus loss.
     if (this.window.isDestroyed() || !this.window.isFocused()) this.reset()
   }
 
   private navigation = (_event: Event, _url: string, inPlace: boolean, isMainFrame: boolean) => {
-    if (isMainFrame && !inPlace) this.reset()
+    if (isMainFrame) {
+      this.generation++
+      if (!inPlace) this.reset()
+    }
   }
 
-  refresh(): void {
-    if (!this.buttons.size && !this.control && !this.pointerControl)
+  private idle() {
+    return !this.disposed && !this.buttons.size && !this.control && !this.pointerControl
+  }
+
+  async refresh(): Promise<void> {
+    if (
+      !this.idle() ||
+      this.probing ||
+      this.window.isDestroyed() ||
+      !this.window.isVisible() ||
+      this.window.isMinimized() ||
+      this.contents.isDestroyed() ||
+      this.contents.isLoadingMainFrame()
+    )
+      return
+    const generation = this.generation
+    this.probing = true
+    try {
+      // Native pickers survive after their opener's mouse/key release. Query actual
+      // picker visibility rather than blocking monitor updates while a closed select retains focus.
+      const pickerOpen: unknown = await this.contents.executeJavaScript(
+        'Boolean(document.querySelector("select:open, input:open"))',
+      )
+      if (generation !== this.generation || !this.idle()) return
+      if (typeof pickerOpen !== 'boolean') throw new Error('Invalid native picker visibility.')
+      if (pickerOpen) return
+      // The synchronous helper rechecks window/content lifecycle after the probe.
       refreshWaylandDisplay(this.window)
+    } catch (error) {
+      // Navigation or disposal can reject an obsolete probe. Its replacement owner
+      // will probe again; an actual current-owner failure retains the stop-and-report policy.
+      if (generation === this.generation && !this.disposed) throw error
+    } finally {
+      this.probing = false
+    }
   }
 
   dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
     this.reset()
     this.contents.off('before-mouse-event', this.mouse)
     this.contents.off('before-input-event', this.keyboard)
@@ -123,12 +167,10 @@ export function installWaylandDisplayRefresh(window: BrowserWindow): void {
     display.dispose()
   }
   const refresh = () => {
-    try {
-      display.refresh()
-    } catch (error) {
+    void display.refresh().catch((error) => {
       dispose()
       console.warn('Could not refresh the Wayland display:', error)
-    }
+    })
   }
   // Wayland does not supply global window coordinates or reliable move events.
   // Refresh native metadata while mapped; Blink emits events only when it changes.

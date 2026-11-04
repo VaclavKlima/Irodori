@@ -19,6 +19,12 @@ Reuse `src/renderer/src/tokens.css`, `components/ui/Controls.tsx`,
 controller. Read the relevant input, menu or scrolling guide when changing its
 behavior. Extend existing components before adding another presentation pattern.
 
+Native selects in the main application document automatically inherit the shared
+Wayland picker guard; add no per-control refresh workaround. Follow the
+[dropdown and focus contract](../../../docs/input-design.md#dropdowns-and-native-picker-stability)
+when adding controls or editing focus/dismissal behavior. It covers renderer-only
+versus native window blur, custom dropdowns and the applicable focused tests.
+
 Keep the photograph dominant, surfaces neutral and actions/focus Sunflower yellow.
 Bundle fonts/icons locally. Preserve the labelled editing rail, pinned histogram,
 independent scrolling and native 1100 × 700 Console-open usability.

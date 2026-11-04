@@ -28,9 +28,10 @@ import {CropOverlay} from './src/renderer/src/components/CropOverlay';
 import {initialSettings} from './src/shared/edits';
 import {cropGeometry} from './src/shared/crop';
 let server={photoId:'a'.repeat(64),revision:0,settings:initialSettings(),canUndo:false,canRedo:false};
-const source={width:400,height:300},listeners=new Set(),requests=[],writes=[],flushes=[];
+const source={width:400,height:300},listeners=new Set(),windowBlurListeners=new Set(),requests=[],writes=[],flushes=[];
 let refresh,readyChange,hold=false,resume,queueColor=false,rendered=null;
-window.irodori={onLibraryEvent:(listener)=>{listeners.add(listener);return()=>listeners.delete(listener)},getEdits:async()=>structuredClone(server),
+window.irodori={onLibraryEvent:(listener)=>{listeners.add(listener);return()=>listeners.delete(listener)},
+ onWindowBlur:(listener)=>{windowBlurListeners.add(listener);return()=>windowBlurListeners.delete(listener)},getEdits:async()=>structuredClone(server),
  getCropContext:async(photoId,revision)=>{requests.push({photoId,revision});const frozen={photoId,revision,source,settings:structuredClone(server.settings.crop),
   geometry:cropGeometry(source,server.settings.crop),renderingIdentity:'synthetic-native'};
   if(hold){hold=false;await new Promise(resolve=>{resume=resolve})}return frozen}};
@@ -39,9 +40,10 @@ function external(){server={...server,revision:server.revision+1,settings:{...se
 const commit=async(photoId,crop,revision)=>{if(photoId!==server.photoId||revision!==server.revision)throw Error('Edit conflict');
  writes.push(structuredClone({photoId,crop,revision}));server={...server,revision:revision+1,settings:{...server.settings,crop}};
  listeners.forEach(listener=>listener({editsChanged:{photoId,revision:server.revision}}));refresh(server);return structuredClone(server)};
-window.cropHarness={snapshot(){return structuredClone({requests,writes,flushes,draft:rendered?.draft,epoch:rendered?.epoch,server})},
+window.cropHarness={snapshot(){return structuredClone({requests,writes,flushes,draft:rendered?.draft,epoch:rendered?.epoch,pending:rendered?.pending,windowBlurListeners:windowBlurListeners.size,server})},
  hold(){hold=true},resume(){resume()},queueColor(){queueColor=true},external,
- photo(){server={...server,photoId:'b'.repeat(64),revision:0,settings:initialSettings()};refresh(server)},blur(){window.dispatchEvent(new Event('blur'))}};
+ photo(){server={...server,photoId:'b'.repeat(64),revision:0,settings:initialSettings()};refresh(server)},
+ rendererBlur(){window.dispatchEvent(new Event('blur'))},windowBlur(){windowBlurListeners.forEach(listener=>listener())}};
 function Fixture(){const [state,setState]=useState(server),[ready,setReady]=useState(true);refresh=setState;readyChange=setReady;
  const edits={state,confirmed:true,flush:async()=>{flushes.push(server.revision);setReady(false);await new Promise(resolve=>setTimeout(resolve,0));
   if(queueColor){queueColor=false;external()}setReady(true)}};
@@ -73,6 +75,8 @@ type Snapshot = {
   flushes: number[]
   draft: import('../src/shared/crop').CropSettings | null
   epoch: number
+  pending: boolean
+  windowBlurListeners: number
   server: {
     photoId: string
     revision: number
@@ -193,7 +197,7 @@ test('pointer resizing commits only the draft and lost capture restores that ges
   }
 })
 
-test('external revisions block Apply and focus loss cancels without changing the photo', async ({
+test('external revisions block Apply and native window focus loss cancels without changing the photo', async ({
   irodori: { page },
 }) => {
   const frame = await component(page)
@@ -202,10 +206,61 @@ test('external revisions block Apply and focus loss cancels without changing the
   await act(frame, 'external')
   await expect(frame.getByRole('button', { name: 'Apply crop', exact: true })).toBeDisabled()
   await expect(frame.getByRole('alert')).toContainText('Edits changed')
-  await act(frame, 'blur')
+  await act(frame, 'windowBlur')
   await expect(frame.getByTestId('crop-overlay')).toHaveCount(0)
   expect((await snapshot(frame)).writes).toEqual([])
   expect((await snapshot(frame)).server.settings.crop.angle).toBe(0)
+})
+
+test('renderer-only blur preserves a pending crop context and the active draft', async ({
+  irodori: { page },
+}) => {
+  const frame = await component(page)
+  await act(frame, 'hold')
+  await open(frame)
+  await expect.poll(async () => (await snapshot(frame)).requests.length).toBe(1)
+  await expect.poll(async () => (await snapshot(frame)).windowBlurListeners).toBe(1)
+  await act(frame, 'rendererBlur')
+  expect((await snapshot(frame)).pending).toBe(true)
+  await act(frame, 'resume')
+  await expect(frame.getByTestId('crop-overlay')).toBeVisible()
+  await number(frame, 'Straighten', '12.34')
+  const draft = (await snapshot(frame)).draft
+  await act(frame, 'rendererBlur')
+  await expect(frame.getByTestId('crop-overlay')).toBeVisible()
+  expect((await snapshot(frame)).draft).toEqual(draft)
+  expect((await snapshot(frame)).writes).toEqual([])
+  await act(frame, 'windowBlur')
+  await expect(frame.getByTestId('crop-overlay')).toHaveCount(0)
+  await expect.poll(async () => (await snapshot(frame)).windowBlurListeners).toBe(0)
+  const result = await snapshot(frame)
+  expect(result.writes).toEqual([])
+  expect(result.server.revision).toBe(0)
+  expect(result.server.settings.crop.angle).toBe(0)
+})
+
+test('native window focus loss rejects a late pending crop context without writing history', async ({
+  irodori: { page },
+}) => {
+  const frame = await component(page)
+  await act(frame, 'hold')
+  await open(frame)
+  await expect.poll(async () => (await snapshot(frame)).requests.length).toBe(1)
+  await expect.poll(async () => (await snapshot(frame)).windowBlurListeners).toBe(1)
+  await act(frame, 'windowBlur')
+  await act(frame, 'resume')
+  await expect(
+    frame.getByRole('button', { name: 'Crop and straighten', exact: true }),
+  ).toBeEnabled()
+  await expect(frame.getByTestId('crop-overlay')).toHaveCount(0)
+  await expect.poll(async () => (await snapshot(frame)).windowBlurListeners).toBe(0)
+  const result = await snapshot(frame)
+  expect(result.writes).toEqual([])
+  expect(result.server.revision).toBe(0)
+  expect(result.server.settings.crop.angle).toBe(0)
+  await open(frame)
+  await expect(frame.getByTestId('crop-overlay')).toBeVisible()
+  await activateButton(frame.getByRole('button', { name: 'Cancel crop', exact: true }))
 })
 
 test('a late native context cannot open a crop draft on a different photo', async ({

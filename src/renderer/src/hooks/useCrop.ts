@@ -91,10 +91,11 @@ export function useCrop(
         cancel()
       }
     }
-    window.addEventListener('blur', cancel)
+    // Renderer-only focus changes (including Wayland display refresh) do not deactivate the editor.
+    const removeWindowBlur = window.irodori.onWindowBlur(cancel)
     window.addEventListener('keydown', escape)
     return () => {
-      window.removeEventListener('blur', cancel)
+      removeWindowBlur()
       window.removeEventListener('keydown', escape)
     }
   }, [active, pending, cancel])

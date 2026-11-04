@@ -131,6 +131,7 @@ export interface IrodoriApi extends NativeHdrMaskBridge {
   reportDisplayCapabilities(capabilities: DisplayCapabilities): Promise<DisplayTarget>
   onDisplayState(listener: (state: DisplayTarget) => void): () => void
   onDisplayRefresh(listener: () => void): () => void
+  onWindowBlur(listener: () => void): () => void
   onFlushEdits(listener: (scope: EditFlushScope) => Promise<void>): () => void
   getPhotoStatistics(photoId: string, expectedRevision: number): Promise<PhotoStatistics>
   getPhotoStatistics(

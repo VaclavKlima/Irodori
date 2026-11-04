@@ -44,6 +44,18 @@ references, experiment code and toolchains stay outside production bundles.
 
 ## Choose verification
 
+For native picker/crop stability (#10), select `wayland-display`, `crop-editor-ui`,
+`crop-application-ui`, `inspector-navigation` and
+`professional-dropdown-native --foreground`. The native target opens actual zoom
+and aspect pickers, samples `select:open` across multiple timer periods, checks
+refresh deferral/resumption and exercises choice, Escape and outside dismissal.
+Crop tests distinguish renderer-only blur from the typed native window-blur event,
+including pending contexts, history and canvas-owner transitions. Use an available
+foreground desktop for native cases; preserve activation/setup failures and stop
+on unexpected focus loss. The [actual development-launch record](hdr-processing.md#native-picker-and-crop-stability--2026-11-04)
+retains separate `npm run dev` evidence and its limits. Main/preload changes require
+a fresh development launch before manual checking.
+
 Automated Electron tests use the [shared background launcher](background-testing.md) by default. Compatible checks render in real hidden, nonfocusable windows without activating Irodori. Add `--foreground` explicitly for native focus, pointer lock, display integration and renderer presentation benchmarks. `--background` makes the default explicit; the two flags are mutually exclusive and work with target/scope selection, `--plan` and package aliases. Normal application, development and manual inspection launches remain visible.
 
 For an already approved long foreground benchmark on GNOME, prefix the selected command with `gnome-session-inhibit --inhibit=idle --reason='Irodori foreground benchmark'`. This is a transient session-idle inhibitor for the wrapped command, not a change to idle/dimming preferences or brightness; end it with the agreed desktop window and record its cleanup. A retained Bazzite case changed HDR target headroom/generation during idle, and idle dimming was a plausible environmental risk; historical causation was not established. Keep native focus, visibility, monitor/target-generation and cadence guards strict. Inhibition does not turn a display-transition or focus-invalid case into a pass; retain the failed attempt and require its valid exact rerun.

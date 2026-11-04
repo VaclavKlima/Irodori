@@ -316,7 +316,10 @@ function createWindow(): void {
   })
   window.webContents.on('render-process-gone', releasePreview)
   window.webContents.on('destroyed', releasePreview)
-  window.on('blur', () => library?.releaseForegroundActivities())
+  window.on('blur', () => {
+    library?.releaseForegroundActivities()
+    if (!window.webContents.isDestroyed()) window.webContents.send('window:blur')
+  })
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => event.preventDefault())

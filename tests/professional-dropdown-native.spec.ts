@@ -340,6 +340,25 @@ for (const scenario of scenarios)
         const id = photos.photos[0].id
         const history = () => page.evaluate((id) => window.irodori.getEditHistory(id), id)
         const initialHistory = await history()
+        if (scenario.id === 'mouse-choice') {
+          const zoom = page.getByRole('combobox', { name: 'Preview zoom', exact: true })
+          await input.focus(zoom)
+          const initialZoom = await zoom.inputValue()
+          await popupClick(zoom, 'native zoom picker open')
+          await expect.poll(() => zoom.evaluate((select) => select.matches(':open'))).toBe(true)
+          const whileOpen = await refreshCount()
+          const started = performance.now()
+          while (performance.now() - started < retentionMs) {
+            expect(await zoom.evaluate((select) => select.matches(':open'))).toBe(true)
+            expect(await refreshCount()).toBe(whileOpen)
+            await page.waitForTimeout(50)
+          }
+          await popupKey('Escape')
+          await expect.poll(() => zoom.evaluate((select) => select.matches(':open'))).toBe(false)
+          await expect(zoom).toHaveValue(initialZoom)
+          await expect.poll(refreshCount).toBeGreaterThan(whileOpen)
+          expect(await history()).toEqual(initialHistory)
+        }
         await navigateInspector(page, 'Crop', (button) => input.activate(button))
         const cropSection = page.getByRole('button', { name: 'Crop', exact: true })
         if ((await cropSection.getAttribute('aria-expanded')) !== 'true')
@@ -457,6 +476,9 @@ for (const scenario of scenarios)
         expect(held.elapsed).toBeGreaterThanOrEqual(retentionMs)
         expect(held.samples.length).toBeGreaterThan(20)
         expect(held.samples.every((sample) => sample.open && sample.connected)).toBe(true)
+        expect(await refreshCount(), 'Display refresh must defer while the picker is open.').toBe(
+          beforeOpen,
+        )
         expect(await history()).toEqual(initialHistory)
         phases.push({
           phase: 'retention-complete',
@@ -536,7 +558,15 @@ for (const scenario of scenarios)
         })
         popupEvidence = await observation.evaluate((observer) => observer.read())
         await setPhase('crop-draft-cleanup')
-        await input.activate(page.getByRole('button', { name: 'Cancel crop', exact: true }))
+        // Renderer-only blur from visibility refresh or a native popup is not owner deactivation.
+        await page.evaluate(() => window.dispatchEvent(new Event('blur')))
+        await expect(page.getByTestId('crop-overlay')).toBeVisible()
+        if (scenario.id === 'keyboard-escape') {
+          // Exercise the actual main/preload notification, without activating another application.
+          await native.evaluate((window) => window.emit('blur'))
+        } else {
+          await input.activate(page.getByRole('button', { name: 'Cancel crop', exact: true }))
+        }
         await expect(page.getByTestId('crop-overlay')).toHaveCount(0)
         expect(await history()).toEqual(initialHistory)
         phases.push({ phase: 'crop-draft-cancelled', time: performance.now() })

@@ -8,6 +8,39 @@ New inputs should be compact, neutral, and subtle. Use consistent spacing and ty
 
 Photo command menus follow the separate authoritative [menu design standard](menu-design.md): shared model/renderer, explicit targets, hidden structural mismatches, and concise accessible explanations for temporary blockers.
 
+## Dropdowns and native picker stability
+
+Use standard HTML `<select>` elements for ordinary single-choice dropdowns. These
+controls in the main application document automatically inherit the shared Linux
+Wayland refresh guard in [wayland-display.ts](../src/main/wayland-display.ts).
+Future native selects need no per-control timer, refresh guard, IPC or registration.
+The pinned Electron workaround checks actual `select:open` / `input:open` state
+before refreshing native display information. It waits while a picker is open
+and resumes after choice, Escape or outside dismissal. A closed select retaining
+focus must allow normal monitor updates.
+
+Preserve the control's DOM identity and open state during ordinary React updates.
+Renderer-only blur can come from a native picker or display refresh; it does not
+establish application deactivation. A transient editing session that cancels on
+window deactivation should use the typed `window.irodori.onWindowBlur` notification,
+as crop does, and retain its explicit Apply/Cancel and Escape behavior.
+
+Custom dropdowns, popovers, command menus and controls inside shadow roots or other
+documents/windows need their own open/dismissal and focus contracts. The native-picker
+guard does not automatically detect their open state. Reuse the applicable shared component
+and extend its owner when needed instead of duplicating the refresh workaround.
+
+When changing picker, focus or window-refresh behavior, reuse `wayland-display`
+and `professional-dropdown-native --foreground`; add affected crop/application
+targets as appropriate. Verify the actual open popup across multiple refresh
+periods and explicit choice/Escape/outside dismissal, including resumed refresh.
+`selectOption()` alone exercises value changes, not popup lifetime. For a newly
+added native select, test its own behavior through the shared path; the existing
+guard does not require reimplementation or a full regression run. The
+[native picker and crop record](hdr-processing.md#native-picker-and-crop-stability--2026-11-04)
+retains the cause, implementation and scoped Linux/development evidence. Revalidate
+the pinned workaround when upgrading Electron.
+
 ## Numeric slider adjustments
 
 Use `AdjustmentInput` for new numeric slider controls. It presents a label and borderless editable value above a full-width slider, with an optional unit. Number steppers are hidden; clicking or tabbing into the value allows direct entry. Preserve its shared CSS Module styling instead of adding per-adjustment field styling or inline sizes.

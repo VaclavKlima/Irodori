@@ -23,11 +23,15 @@ test('the hidden application applies a native crop and Cancel restores the commi
   await importPhotos(app, page, [source])
   const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id,
     toolbar = page.getByRole('button', { name: 'Crop photo', exact: true }),
-    viewport = page.getByTestId('preview-viewport')
+    viewport = page.getByTestId('preview-viewport'),
+    canvas = page.getByTestId('main-preview')
   await openPreviewOptions(page)
   await expect(toolbar).toBeEnabled()
   await activateButton(toolbar)
   await expect(page.getByTestId('crop-overlay')).toBeVisible()
+  await expect(canvas).toHaveAttribute('data-backend', 'webgl2')
+  await expect(canvas).toHaveAttribute('data-editing', 'ready')
+  await expect(page.getByTestId('preview-gpu-error')).toHaveCount(0)
   const width = page.getByRole('spinbutton', { name: 'Crop width value', exact: true }),
     height = page.getByRole('spinbutton', { name: 'Crop height value', exact: true })
   await width.fill('60')
@@ -50,6 +54,9 @@ test('the hidden application applies a native crop and Cancel restores the commi
   await expect(toolbar).toBeEnabled()
   await activateButton(toolbar)
   await expect(page.getByTestId('crop-overlay')).toBeVisible()
+  await expect(canvas).toHaveAttribute('data-backend', 'webgl2')
+  await expect(canvas).toHaveAttribute('data-editing', 'ready')
+  await expect(page.getByTestId('preview-gpu-error')).toHaveCount(0)
   await activateButton(page.getByRole('button', { name: 'Reset crop', exact: true }))
   await expect(width).toHaveValue('100.00')
   await expect(height).toHaveValue('80.00')

@@ -133,6 +133,13 @@ const api: IrodoriApi = {
       ipcRenderer.removeListener('display:refresh', handler)
     }
   },
+  onWindowBlur: (listener) => {
+    const handler = () => listener()
+    ipcRenderer.on('window:blur', handler)
+    return () => {
+      ipcRenderer.removeListener('window:blur', handler)
+    }
+  },
   getEditClipboard: () => ipcRenderer.invoke('edits:clipboard'),
   copyEdits: (id) => editTransferResult(ipcRenderer.invoke('edits:copy', id)),
   preparePasteEdits: (request) =>

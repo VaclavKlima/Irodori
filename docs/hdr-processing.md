@@ -107,6 +107,54 @@ On October 6, 2026, held preview drags reproduced another consequence of `WasHid
 
 The shared main/merge preview regression holds a locked drag over two timer ticks, starts another near the next tick, verifies continued relative motion and normal release/Escape/blur cleanup, and checks that refreshes resume. The HDR editor case also checks deferred refresh during a drag and subsequent native monitor, focus and GPU presentation behavior. These checks use isolated profiles and do not certify other platforms or physical HDR luminance.
 
+### Native picker and crop stability — 2026-11-04
+
+Before the pinned Wayland visibility refresh, main now queries actual
+`select:open` / `input:open` state. An open native picker defers refresh until a
+later idle tick. A closed select retaining focus permits normal monitor updates.
+Only one probe runs at a time; input, navigation, deactivation and disposal
+invalidate pending results. Existing held-button/Control and lifecycle guards
+remain in place, with the same one-second interval and explicit error handling.
+
+Crop sessions now use the typed main-window blur notification for cancellation.
+Renderer-only blur preserves active and pending crops; actual window deactivation
+and Escape retain cancellation and stale-context refusal without writing history.
+
+Two isolated development runs also reproduced a canvas-owner race at crop entry:
+a new working frame could reach the obsolete bitmap presenter before passive
+cleanup, reporting floating-point presentation unavailable. Canvas detachment now
+retains its completed snapshot, retires the old owner immediately and preserves
+its disposal barrier. Failure callbacks from detached canvases are ignored.
+
+Focused evidence, with overlapping cheap checks counted separately per invocation:
+
+- `wayland-display`, `crop-editor-ui`, `crop-application-ui`,
+  `professional-dropdown-native` and `inspector-navigation --foreground` pass
+  **897 checks, zero failures/skips, 93.30 s**:
+  `artifacts/verification/2026-11-04T07-57-49.990Z-check-CMcOrX/summary.md`.
+- After the canvas-owner fix, hidden `wayland-display`, `crop-editor-ui` and
+  `crop-application-ui` pass **889 checks, zero failures/skips, 60.01 s**:
+  `artifacts/verification/2026-11-04T08-09-15.513Z-check-iAAV8o/summary.md`.
+  Crop application checks require the actual GPU working presenter at both entries.
+- Actual isolated `npm run dev` inspection passes in **24.79 s**:
+  `artifacts/native-picker-dev-ready-Gda7zIoE/report.json`.
+  Crop controls/overlay survive three real visibility refreshes. Zoom and aspect
+  popups remain open across three to four timer probes, defer refresh and resume
+  it after choice, Escape or outside click. Cancel preserves history; native
+  activation remains stable with zero renderer navigations or Vite reloads. The
+  crop capture was visually inspected. Owned profiles/processes are removed and
+  ports 5173, 9222 and 9230 are closed.
+
+The original synthetic-input baseline passed before the guard; it did not reproduce
+the reported physical popup closure. The two development crop-entry failures are
+retained under `artifacts/native-picker-dev-EpbvmOxP/` and
+`artifacts/native-picker-dev-rerun-jjwbwMUA/`. Startup activation and later focus-loss
+attempts remain failed/incomplete evidence. The successful dev inspection used an
+available foreground desktop and unchanged interaction guards. Native input used
+Electron events, not a physical device. macOS/Windows, physical HDR output and
+performance remain outside this check. Routine budget warnings remain recorded;
+no assertions or tolerances were removed.
+
 ## Mac HDR highlights and range visualization — October 7, 2026
 
 The selected targets were `hdr`, `hdr-assets`, `hdr-raw`, `hdr-math-gpu`, `hdr-display`, `hdr-diagnostic-ui` and `hdr-editor-ui`. They recorded **125 passed, 0 failed and 1 platform skip in 116.60 s**, with static checks and the build passing. After the final editor coverage additions, `hdr-editor-ui` recorded **114 passed, 0 failed and 1 platform skip in 69.15 s**. Both invocations report incomplete verification solely because the Electron 44.3.0 Wayland-specific case cannot run on macOS. The routine 60-second budget warnings are retained; no assertions were removed or cut short. The final editor case took 38.27 s and native Mac full-screen coverage took 17.03 s. Evidence: [selected-target report](../artifacts/verification/2026-10-07T07-34-25.640Z-check-jwXspf/summary.md) and [final editor report](../artifacts/verification/2026-10-07T08-14-21.843Z-check-BayOtT/summary.md). The former report predates the correction of its hardcoded Linux footer; its recorded runtime is macOS.

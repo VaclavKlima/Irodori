@@ -198,6 +198,15 @@ export function PhotoPreview({
           /* Keep first-render loading explicit if a lost device cannot be copied. */
         }
       }
+      // A queued frame can run before passive effect cleanup. Retire the detached
+      // canvas's owner before a new working source can reach its old presenter.
+      const detachedPresenter = presenter.current
+      if (detachedPresenter) {
+        if (presenter.current === detachedPresenter) presenter.current = null
+        detachedPresenter.dispose()
+        hdrRetirement.current = detachedPresenter.whenDisposed
+        void hdrRetirement.current.catch(() => undefined)
+      }
     }
     image.current = canvas
     if (canvas && restoreCanvasFocus.current) {
@@ -1015,7 +1024,13 @@ export function PhotoPreview({
       failed = false,
       activePresenter: PreviewPresenter | HdrPresenter | null = null
     const fail = (reason: string) => {
-      if (!active || failed || (activePresenter && presenter.current !== activePresenter)) return
+      if (
+        !active ||
+        failed ||
+        image.current !== canvas ||
+        (activePresenter && presenter.current !== activePresenter)
+      )
+        return
       failed = true
       // Finalize the owner's pending gesture before disabling controls suppresses pointer release.
       onPresentationFailure()
