@@ -8,6 +8,14 @@ import sharp from 'sharp'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { resolve } from 'node:path'
+import { foregroundTest } from './foreground'
+
+const nativeGroupReview =
+  process.platform === 'linux' && Boolean(process.env.WAYLAND_DISPLAY)
+    ? foregroundTest(
+        'Wayland native group/menu review needs a presented window for stable pointer input and minimum-size capture.',
+      )
+    : {}
 
 const sources = [
   'alpine-lake',
@@ -17,79 +25,84 @@ const sources = [
   'quiet-valley',
 ].map((n) => `tests/fixtures/photos/${n}.jpg`)
 
-test('separate keyboard expansion preserves active photo and selection; organization persists at minimum console size', async ({
-  irodori,
-}, info) => {
-  const { app, page } = irodori
-  await importPhotos(app, page, sources)
-  const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
-  const card = (i: number) => page.getByTestId(`photo-card-${photos[i].id}`)
-  await card(0).click()
-  await card(2).click({ modifiers: ['Shift'] })
-  await page.getByRole('button', { name: 'Actions', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Group selected photos', exact: true }).click()
-  await expect(page.getByTestId('selection-count')).toHaveText('3 selected')
-  await expect(page.getByText('2 selected in collapsed stacks', { exact: true })).toBeVisible()
-  await expect(page.getByTestId('preview-filename')).toHaveText(photos[2].filename)
-  expect((await page.evaluate(() => window.irodori.listGallery())).total).toBe(3)
-  const expand = page.getByRole('button', {
-    name: `Expand stack for ${photos[2].filename}, 3 photos`,
-    exact: true,
-  })
-  await expand.focus()
-  await page.keyboard.press('Enter')
-  await expect(
-    page.getByRole('button', { name: `Collapse stack for ${photos[2].filename}, 3 photos` }),
-  ).toBeFocused()
-  await card(0).click()
-  await page
-    .getByRole('button', { name: `Collapse stack for ${photos[2].filename}, 3 photos` })
-    .click()
-  await expect(page.getByTestId('preview-filename')).toHaveText(photos[0].filename)
-  await expect(page.getByText('1 selected in collapsed stacks', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Next photo', exact: true }).click()
-  await expect(page.getByTestId('preview-filename')).toHaveText(photos[3].filename)
-  await card(2).click()
-  await expect(page.getByTestId('selection-count')).toHaveText('1 selected')
-  await expand.click()
-  await card(0).click({ button: 'right' })
-  await page.getByRole('menuitem', { name: 'Set this photo as group cover', exact: true }).click()
-  await expect(
-    page.getByRole('button', { name: `Collapse stack for ${photos[0].filename}, 3 photos` }),
-  ).toBeVisible()
-  await page.getByTestId('console-toggle').click()
-  const nativeWindow = await app.browserWindow(page)
-  await nativeWindow.evaluate((w) => {
-    w.unmaximize()
-    w.setContentSize(1100, 700)
-  })
-  await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
-  await card(1).click({ button: 'right' })
-  const menu = page.getByRole('menu')
-  const bounds = await menu.boundingBox()
-  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1100)
-  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(700)
-  await page.screenshot({ path: info.outputPath('stacks-minimum-console.png') })
-  await page.getByRole('menuitem', { name: 'Remove this photo from group', exact: true }).click()
-  await expect
-    .poll(async () => (await page.evaluate(() => window.irodori.listStacks())).stacks[0].count)
-    .toBe(2)
-  expect((await page.evaluate((id) => window.irodori.getEdits(id), photos[0].id)).revision).toBe(0)
-  const restarted = await irodori.restart()
-  await expect(
-    restarted.page.getByRole('button', {
-      name: `Collapse stack for ${photos[0].filename}, 2 photos`,
-    }),
-  ).toBeVisible()
-  await restarted.page.getByTestId(`photo-card-${photos[0].id}`).click({ button: 'right' })
-  await restarted.page.getByRole('menuitem', { name: 'Ungroup photos', exact: true }).click()
-  await expect
-    .poll(
-      async () => (await restarted.page.evaluate(() => window.irodori.listStacks())).stacks.length,
+test(
+  'separate keyboard expansion preserves active photo and selection; organization persists at minimum console size',
+  nativeGroupReview,
+  async ({ irodori }, info) => {
+    const { app, page } = irodori
+    await importPhotos(app, page, sources)
+    const photos = (await page.evaluate(() => window.irodori.listPhotos())).photos
+    const card = (i: number) => page.getByTestId(`photo-card-${photos[i].id}`)
+    await card(0).click()
+    await card(2).click({ modifiers: ['Shift'] })
+    await page.getByRole('button', { name: 'Actions', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Group selected photos', exact: true }).click()
+    await expect(page.getByTestId('selection-count')).toHaveText('3 selected')
+    await expect(page.getByText('2 selected in collapsed stacks', { exact: true })).toBeVisible()
+    await expect(page.getByTestId('preview-filename')).toHaveText(photos[2].filename)
+    expect((await page.evaluate(() => window.irodori.listGallery())).total).toBe(3)
+    const expand = page.getByRole('button', {
+      name: `Expand stack for ${photos[2].filename}, 3 photos`,
+      exact: true,
+    })
+    await expand.focus()
+    await page.keyboard.press('Enter')
+    await expect(
+      page.getByRole('button', { name: `Collapse stack for ${photos[2].filename}, 3 photos` }),
+    ).toBeFocused()
+    await card(0).click()
+    await page
+      .getByRole('button', { name: `Collapse stack for ${photos[2].filename}, 3 photos` })
+      .click()
+    await expect(page.getByTestId('preview-filename')).toHaveText(photos[0].filename)
+    await expect(page.getByText('1 selected in collapsed stacks', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Next photo', exact: true }).click()
+    await expect(page.getByTestId('preview-filename')).toHaveText(photos[3].filename)
+    await card(2).click()
+    await expect(page.getByTestId('selection-count')).toHaveText('1 selected')
+    await expand.click()
+    await card(0).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Set this photo as group cover', exact: true }).click()
+    await expect(
+      page.getByRole('button', { name: `Collapse stack for ${photos[0].filename}, 3 photos` }),
+    ).toBeVisible()
+    await page.getByTestId('console-toggle').click()
+    const nativeWindow = await app.browserWindow(page)
+    await nativeWindow.evaluate((w) => {
+      w.unmaximize()
+      w.setContentSize(1100, 700)
+    })
+    await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
+    await card(1).click({ button: 'right' })
+    const menu = page.getByRole('menu')
+    const bounds = await menu.boundingBox()
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1100)
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(700)
+    await page.screenshot({ path: info.outputPath('stacks-minimum-console.png') })
+    await page.getByRole('menuitem', { name: 'Remove this photo from group', exact: true }).click()
+    await expect
+      .poll(async () => (await page.evaluate(() => window.irodori.listStacks())).stacks[0].count)
+      .toBe(2)
+    expect((await page.evaluate((id) => window.irodori.getEdits(id), photos[0].id)).revision).toBe(
+      0,
     )
-    .toBe(0)
-  expect((await restarted.page.evaluate(() => window.irodori.listPhotos())).total).toBe(5)
-})
+    const restarted = await irodori.restart()
+    await expect(
+      restarted.page.getByRole('button', {
+        name: `Collapse stack for ${photos[0].filename}, 2 photos`,
+      }),
+    ).toBeVisible()
+    await restarted.page.getByTestId(`photo-card-${photos[0].id}`).click({ button: 'right' })
+    await restarted.page.getByRole('menuitem', { name: 'Ungroup photos', exact: true }).click()
+    await expect
+      .poll(
+        async () =>
+          (await restarted.page.evaluate(() => window.irodori.listStacks())).stacks.length,
+      )
+      .toBe(0)
+    expect((await restarted.page.evaluate(() => window.irodori.listPhotos())).total).toBe(5)
+  },
+)
 
 test('Continuous scrolling keeps expanded members contiguous, hidden anchors map to covers, and deletion awaits a pending range', async ({
   irodori,

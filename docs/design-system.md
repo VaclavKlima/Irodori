@@ -2,10 +2,17 @@
 
 Sunflower is Irodori's approved dark-only visual language. The unchanged
 [prototype](design/prototype.html) and [handoff](design/README.md) are its visual
-reference. Use the final cascade, with the explicit header identity override below.
+reference. Use the final cascade, with the explicit approved overrides below.
 Computed styles were read in isolated Chromium at 1100 × 700 on 2026-11-02:
 Photos 224px, inspector 344px, rail 52px, histogram 318 × 96px, individual rows
 56px, floating photograph menu 30px and bottom controls 26px.
+
+On 2026-11-04 the user selected **List + Beside browser** from the
+[photo-browser study](design/photo-browser-study.md). Its uniform photo rows,
+inline group disclosure and full-height Editor browser beside Console supersede
+the historical prototype only for those surfaces. Keep the other Sunflower
+composition and editing controls, including their real application behavior.
+The study's comparison switches and simulated collection are not application UI.
 
 ## Semantic tokens
 
@@ -92,6 +99,14 @@ With Console open, a 1100 × 700 content window has a 500 × 429px stage and a
 782 × 663px. These sizes include real Electron content geometry, not a browser
 viewport containing the prototype's 44px study toolbar.
 
+Editor Photos spans both the photograph row and the Console row. Console begins
+at the photograph's left edge and ends at the inspector's right edge; its width
+is 852px at 1100 × 700 and 1186px at 1440 × 1000. With Console open, Photos is
+617px high at minimum size, including its independently scrolling collection.
+The existing photograph, inspector and Console heights remain unchanged. Console
+closed restores the existing taller photograph. Library keeps its full-width
+Console arrangement and date/month/year browser.
+
 ### Inspector composition
 
 - **Light:** Light title and reset; Tonal adjustments disclosure; implemented
@@ -120,17 +135,20 @@ explicit saved collapsed choices remain respected.
 
 ### Photos and floating controls
 
-Individual photographs use 56px rows separated by 2px, with 60 × 44px thumbnails
-and adjacent filenames. Only the active photograph has Current text; the selected
-set has independent top-right checks. The footer contains the selection count
+All photographs use 56px rows separated by 2px, with 60 × 44px thumbnails
+and adjacent filenames. Only the active photograph has Current text and a left
+accent. Selection has neutral fill and a top-left thumbnail check; keyboard focus
+has a separate dashed outline. The footer contains the selection count
 and full-width Show current action. Do not add a separate stored-on-device block.
 
-Groups use one outer border, 7px inner padding, a real cover filename and origin,
-a compact Select action, and a full-width count/collapse row. Expanded images
-are 64px high in two-column 104px-high tiles with 6px gaps. Reserve the 69px group
-header and 8px border/inset geometry before records load. Source order remains
-owned by the collection projection; never reorder or fabricate sample records
-to imitate the prototype's static library.
+Group covers use the same row, with a 31 × 26px count/disclosure button at the
+right. Expanded members continue below at the same size with a subtle connecting
+line. There is no separate group header, two-column tile layout or loose-photo
+heading. Current, cover/member status and genuine dimensions stay compact;
+origin remains available through the group's accessible label. Whole-group
+selection and commands use the shared photo menu. Reserve the same row geometry
+before records load. Source order remains owned by the collection projection;
+never reorder or fabricate sample records to imitate the study's static library.
 
 The photograph menu is filename, display badge, Undo, Redo, Toggle hover, divider
 and More. Icon buttons are 28px high and Toggle hover is 24px. The badge opens display mode, crop/comparison controls and display

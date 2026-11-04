@@ -969,6 +969,7 @@ export function App() {
       <div
         className={styles.editor}
         data-testid="workspace"
+        data-console-open={consoleOpen}
         hidden={workspace !== 'editor'}
         inert={workspace !== 'editor'}
         onPointerDownCapture={(event) => {
@@ -1004,11 +1005,6 @@ export function App() {
             void library.browseSelect(photo, { search: '', grouping: 'date' }, { toggle: true })
           }
           hiddenActiveCover={library.hiddenActiveCover}
-          onSelectStack={(stack) => {
-            void library
-              .selectStack(stack.id, stack.revision)
-              .catch((error) => setError(String(error)))
-          }}
           onExpand={(stack) => {
             void window.irodori
               .setStackExpanded(stack.id, !stack.expanded, stack.revision)
@@ -1262,16 +1258,15 @@ export function App() {
             interactivePhoto === photo.id
           }
         />
+        {consoleOpen && workspace === 'editor' && (
+          <Console
+            onClose={() => {
+              setConsoleOpen(false)
+              consoleToggleRef.current?.focus()
+            }}
+          />
+        )}
       </div>
-
-      {consoleOpen && workspace === 'editor' && (
-        <Console
-          onClose={() => {
-            setConsoleOpen(false)
-            consoleToggleRef.current?.focus()
-          }}
-        />
-      )}
 
       <div className={styles.browserWorkspace} hidden={workspace !== 'library'}>
         {error && (

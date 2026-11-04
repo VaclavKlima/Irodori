@@ -212,6 +212,7 @@ test('starts the built desktop application with its isolated preload bridge', as
       'reportDisplayCapabilities',
       'onDisplayState',
       'onDisplayRefresh',
+      'onWindowBlur',
       'getEditClipboard',
       'copyEdits',
       'preparePasteEdits',

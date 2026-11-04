@@ -50,8 +50,9 @@ test('import review has a full native scrollbar and preserves ID choices and an 
     const scroll = page.getByTestId('import-scroll')
     await scrollCollection(scroll, 100)
     const chosen = page.getByRole('checkbox', { name: 'Import 100.jpg', exact: true })
-    await chosen.uncheck()
     await chosen.focus()
+    await chosen.press('Space')
+    await expect(chosen).not.toBeChecked()
     const anchor = await scroll.evaluate((el) => {
       const bounds = el.getBoundingClientRect()
       const first = Array.from(el.querySelectorAll<HTMLElement>('[data-candidate-id]')).find(

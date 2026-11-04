@@ -3,7 +3,7 @@ import { seedLargeBrowser } from './all-photos.helpers'
 import { revealEditorPhoto } from './collection-ui.helpers'
 import { activateButton } from './button.helpers'
 
-test('unloaded group tiles span chunks and Show current reveals hidden active members without replacing selection', async ({
+test('unloaded group rows span chunks and Show current reveals hidden active members without replacing selection', async ({
   irodori,
 }) => {
   test.setTimeout(60000)
@@ -30,8 +30,10 @@ test('unloaded group tiles span chunks and Show current reveals hidden active me
     )
   ).entries[0].photo.id
   const neighbor = await page.getByTestId(`photo-card-${neighborId}`).boundingBox()
-  expect(before!.y).toBe(neighbor!.y)
-  expect(neighbor!.x).toBeGreaterThan(before!.x)
+  expect(neighbor!.y - before!.y).toBe(58)
+  expect(neighbor!.x).toBe(before!.x)
+  expect(neighbor!.height).toBe(56)
+  expect(neighbor!.width).toBe(before!.width)
   await activateButton(page.getByTestId(`photo-card-${ids[2]}`))
   await page.getByTestId(`photo-card-${ids[4]}`).click({ modifiers: ['ControlOrMeta'] })
   const active = await page.getByTestId('preview-filename').textContent()

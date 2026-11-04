@@ -18,7 +18,7 @@ export async function revealEditorPhoto(page: Page, id: string) {
     'data-gallery-revision',
     `${location!.catalogRevision}:${location!.revision}`,
   )
-  const width = await viewport.evaluate((element) => element.clientWidth - 18)
+  const width = await viewport.evaluate((element) => element.clientWidth - 14)
   const top = galleryLayout(location!.total, location!.groups, width).top(location!.index)
   await viewport.evaluate((element, top) => {
     element.scrollTop = top

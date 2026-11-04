@@ -1207,13 +1207,18 @@ test('run artifacts survive later runs; dry plans create no artifacts or lock; o
 
 async function developmentLauncherFixture(runtime: string) {
   const directory = await mkdtemp(join(tmpdir(), 'irodori-dev-launcher-'))
+  // Mock Vite never opens a debug server; keep its probe independent of a real dev session.
+  const launcher = (await readFile('scripts/dev-mcp.mjs', 'utf8')).replace(
+    "probe.listen(9222, '127.0.0.1', resolve)",
+    "probe.listen(0, '127.0.0.1', resolve)",
+  )
   await Promise.all(
     ['scripts', 'node_modules/electron', 'node_modules/electron-vite/bin'].map((path) =>
       mkdir(join(directory, path), { recursive: true }),
     ),
   )
   await Promise.all([
-    writeFile(join(directory, 'scripts/dev-mcp.mjs'), await readFile('scripts/dev-mcp.mjs')),
+    writeFile(join(directory, 'scripts/dev-mcp.mjs'), launcher),
     writeFile(join(directory, 'node_modules/electron/package.json'), '{"main":"index.cjs"}'),
     writeFile(join(directory, 'node_modules/electron/index.cjs'), runtime),
     writeFile(

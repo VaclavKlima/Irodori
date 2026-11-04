@@ -59,6 +59,7 @@ backlog, rather than a second aggregate checklist here.
 | [#47](README.md#task-47) | Add final-output-size proof                      | Reuse standard export sizing and frozen settings.                                                 |
 | [#48](README.md#task-48) | Add export-only output sharpening                | Depends on #47 for trustworthy output-pixel review.                                               |
 | [#49](README.md#task-49) | Evaluate optional spatial FSR                    | Optional later task; a justified rejection is a valid outcome.                                    |
+| [#51](README.md#task-51) | Adopt List + Beside browser navigation           | Complete for local Bazzite acceptance; collection, selection, menus and recovery preserved.       |
 
 Reuse existing #10 for general Linux dropdowns and #32 for the remaining GPU-first
 consolidation. The [stage inventory](../processing-stages.md) records current owners, retired executors, rejected candidates and remaining platform/removal gates. UI work follows the implemented #33 inspector navigation and #34

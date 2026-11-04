@@ -9,7 +9,7 @@ const nativeCapture =
     ? foregroundTest('Wayland capturePage requires a window presented by the compositor.')
     : {}
 
-// These dimensions are measured from the final Sunflower cascade in prototype.html.
+// Sunflower geometry is preserved; photo rows and Console placement follow the selected photo-browser study.
 // The reference-only study toolbar is excluded from application content height.
 test(
   'matches the approved editor composition at minimum and larger content sizes',
@@ -36,9 +36,7 @@ test(
       )
       await window.irodori.setStackExpanded(stack.id, true, stack.revision)
     })
-    await expect(
-      page.getByRole('button', { name: 'Select entire group', exact: true }),
-    ).toBeVisible()
+    await expect(page.getByRole('button', { name: /Collapse stack for alpine-lake/ })).toBeVisible()
     await activateButton(page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }))
     await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
     await page.getByTestId('editor-photo-scroll').evaluate((element) => {
@@ -116,6 +114,32 @@ test(
         'height',
         height <= 760 ? '180px' : '216px',
       )
+      const photos = await page.getByTestId('photo-library').boundingBox()
+      const consoleBox = await page.getByTestId('console-panel').boundingBox()
+      const stageBox = await stage.boundingBox()
+      expect(photos!.y).toBe(stageBox!.y)
+      expect(photos!.y + photos!.height).toBe(consoleBox!.y + consoleBox!.height)
+      expect(consoleBox!.x).toBe(stageBox!.x)
+      expect(consoleBox!.width).toBe(width === 1100 ? 852 : 1186)
+      expect(consoleBox!.y).toBeGreaterThan(stageBox!.y + stageBox!.height)
+      const rows = page.locator('[data-testid="photo-library"] [data-photo-id]')
+      for (const row of await rows.all()) {
+        await expect(row).toHaveCSS('height', '56px')
+        await expect(row.locator('img')).toHaveCSS('height', '44px')
+      }
+      const cover = await page
+        .getByRole('button', { name: 'Select alpine-lake.jpg', exact: true })
+        .boundingBox()
+      const member = await page
+        .getByRole('button', { name: 'Select mountain-ridge.jpg', exact: true })
+        .boundingBox()
+      expect(member!.x).toBe(cover!.x)
+      expect(member!.y - cover!.y).toBe(58)
+      expect(member!.width).toBe(cover!.width)
+      await expect(
+        page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }),
+      ).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)')
+
       await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toHaveCount(0)
       await expect(page.getByRole('button', { name: 'Before', exact: true })).toBeHidden()
       await page.evaluate(() => document.fonts.ready)

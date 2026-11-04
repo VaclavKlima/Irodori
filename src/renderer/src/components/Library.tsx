@@ -1,6 +1,6 @@
 import { galleryLayout } from '../collections/gallery-layout'
-import { Check, Layers, ChevronRight, ChevronDown } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ChevronRight, ChevronDown } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { GalleryEntry, GallerySummary, StackSummary } from '../../../shared/stacks'
 import type { Photo, PhotoReference } from '../../../shared/contracts'
 import type { CollectionAnchor } from '../../../shared/collections'
@@ -14,7 +14,7 @@ import { CollectionThumbnail } from './CollectionThumbnail'
 import styles from './Photos.module.css'
 
 // Match the vertical .scroll padding in Photos.module.css when revealing a row.
-const PHOTOS_SCROLL_INSET = 9
+const PHOTOS_SCROLL_INSET = 4
 
 interface LibraryProps {
   active: boolean
@@ -34,7 +34,6 @@ interface LibraryProps {
   onImport: () => void
   onRefresh: () => Promise<void>
   onExpand: (stack: StackSummary) => void
-  onSelectStack: (stack: StackSummary) => void
 }
 
 export function Library({
@@ -55,7 +54,6 @@ export function Library({
   onImport,
   onRefresh,
   onExpand,
-  onSelectStack,
 }: LibraryProps) {
   const viewport = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 216, height: 500 })
@@ -70,7 +68,7 @@ export function Library({
   const controlFocus = useRef<{
     photoId: string | undefined
     groupId: string | undefined
-    control: 'photo' | 'toggle' | 'select'
+    control: 'photo' | 'toggle'
     element: HTMLElement
   } | null>(null)
   const savedAnchor = useRef(initialAnchor)
@@ -85,7 +83,7 @@ export function Library({
   const { controller, records, error, loading } = collection
   const rowHeight = 56
   const layout = useMemo(
-    () => galleryLayout(summary?.total ?? 0, summary?.groups ?? [], Math.max(0, size.width - 18)),
+    () => galleryLayout(summary?.total ?? 0, summary?.groups ?? [], Math.max(0, size.width - 14)),
     [summary?.total, summary?.groups, size.width],
   )
   const window = useMemo(
@@ -148,12 +146,7 @@ export function Library({
         controlFocus.current = {
           photoId,
           groupId,
-          control:
-            focused.dataset.groupControl === 'select'
-              ? 'select'
-              : focused.dataset.groupControl === 'toggle'
-                ? 'toggle'
-                : 'photo',
+          control: focused.dataset.groupControl === 'toggle' ? 'toggle' : 'photo',
           element: focused,
         }
     }
@@ -179,10 +172,9 @@ export function Library({
         summary.total,
       )
       if (!live || ticket !== scrollRevision.current || !viewport.current) return
-      const top = Math.max(
-        0,
-        Math.min(layout.top(index) + anchor.inset, layout.height - size.height),
-      )
+      // Older checkpoints may have an inset from the taller grouped tiles.
+      const inset = Math.max(0, Math.min(rowHeight - 1, anchor.inset))
+      const top = Math.max(0, Math.min(layout.top(index) + inset, layout.height - size.height))
       restoring.current = true
       viewport.current.scrollTop = top
       latest.current.scrollTop = top
@@ -334,8 +326,8 @@ export function Library({
     const geometry = layout.box(index)
     const entry = records.get(index)
     const placement = {
-      top: geometry.top - (groupTop === undefined ? 0 : groupTop + 1),
-      left: geometry.left - (groupTop === undefined ? 0 : 1),
+      top: geometry.top - (groupTop ?? 0),
+      left: geometry.left,
       width: geometry.width,
       height: geometry.height,
     }
@@ -351,15 +343,20 @@ export function Library({
       )
     const { photo, stack, memberIndex, mergeSourceCount } = entry
     const isCurrent = activeId === photo.id
-    const status = stack
-      ? [memberIndex === 0 ? 'Cover' : '', isCurrent ? 'Current' : ''].filter(Boolean).join(' / ')
-      : isCurrent
-        ? 'Current'
-        : ''
+    const isCover = !!stack && memberIndex === 0
+    const status = isCurrent
+      ? 'Current'
+      : stack
+        ? isCover
+          ? 'Group cover'
+          : 'Group member'
+        : photo.width && photo.height
+          ? photo.width + ' × ' + photo.height
+          : ''
     return (
       <div
         key={photo.id}
-        className={`${styles.row} ${stack ? '' : styles.individual}`}
+        className={`${styles.row} ${isCover ? styles.cover : ''}`}
         style={placement}
         data-stack-id={stack?.id}
         data-photo-id={photo.id}
@@ -395,15 +392,38 @@ export function Library({
         >
           <span className={styles.thumbnail}>
             <CollectionThumbnail url={photo.thumbnailUrl} />
+            <span
+              className={styles.selection}
+              aria-hidden="true"
+              hidden={!selectedIds.has(photo.id)}
+            >
+              ✓
+            </span>
           </span>
           <span className={styles.caption}>{photo.filename}</span>
           <span className={styles.status} aria-hidden="true">
             {status}
           </span>
-          <span className={styles.selection} aria-hidden="true" hidden={!selectedIds.has(photo.id)}>
-            ✓
-          </span>
         </button>
+        {isCover && (
+          <button
+            data-stack-toggle
+            data-group-control="toggle"
+            className={styles.groupToggle}
+            aria-label={`${stack.expanded ? 'Collapse' : 'Expand'} stack for ${photo.filename}, ${stack.count} photos`}
+            title={`${stack.expanded ? 'Collapse' : 'Expand'} group / ${stack.count} photos`}
+            aria-expanded={stack.expanded}
+            aria-controls={`group-members-${stack.id}`}
+            onClick={() => onExpand(stack)}
+          >
+            <span>{stack.count}</span>
+            {stack.expanded ? (
+              <ChevronDown size={11} aria-hidden="true" />
+            ) : (
+              <ChevronRight size={11} aria-hidden="true" />
+            )}
+          </button>
+        )}
       </div>
     )
   }
@@ -421,11 +441,8 @@ export function Library({
         </span>
       </div>
       <div className={styles.summary}>
-        Local library / {summary?.storedTotal ?? 0} photographs
-        <br />
-        {summary?.groups.length
-          ? `${summary.groups.length} photo ${summary.groups.length === 1 ? 'group' : 'groups'}`
-          : 'All photographs'}
+        {summary?.storedTotal ?? 0} photos / {summary?.groups.length ?? 0}{' '}
+        {summary?.groups.length === 1 ? 'group' : 'groups'}
       </div>
       <div
         ref={viewport}
@@ -520,19 +537,7 @@ export function Library({
           <div className={styles.list} style={{ height: layout.height }}>
             {window.overscan.map((index) => {
               const group = layout.group(index)
-              if (!group) {
-                const heading = layout.headings.find((candidate) => candidate.index === index)
-                return (
-                  <Fragment key={`loose-${index}`}>
-                    {heading && (
-                      <h3 className={styles.looseHeading} style={{ top: heading.top }}>
-                        Other photographs
-                      </h3>
-                    )}
-                    {renderPhoto(index)}
-                  </Fragment>
-                )
-              }
+              if (!group) return renderPhoto(index)
               const { geometry, indices } = renderedGroups.get(group.stackId)!
               if (indices[0] !== index) return null
               const metadata = groupMetadata.get(geometry.stackId)
@@ -559,49 +564,6 @@ export function Library({
                     cover ? `${cover.filename}, ${origin.toLowerCase()}` : 'Loading photo group'
                   }
                 >
-                  <div className={styles.groupHeading}>
-                    <div>
-                      <h3 title={cover?.filename}>{cover?.filename ?? 'Loading group…'}</h3>
-                      <p>{origin}</p>
-                    </div>
-                    <button
-                      className={styles.selectGroup}
-                      data-group-control="select"
-                      aria-label="Select entire group"
-                      title="Select entire group"
-                      disabled={!stack}
-                      onClick={() => {
-                        if (stack) onSelectStack(stack)
-                      }}
-                    >
-                      <Check size={12} aria-hidden="true" />
-                      <span aria-hidden="true">Select</span>
-                    </button>
-                  </div>
-                  <button
-                    data-stack-toggle
-                    data-group-control="toggle"
-                    className={styles.groupToggle}
-                    disabled={!stack || !cover}
-                    aria-label={
-                      stack && cover
-                        ? `${expanded ? 'Collapse' : 'Expand'} stack for ${cover.filename}, ${stack.count} photos`
-                        : 'Loading group controls'
-                    }
-                    aria-expanded={expanded}
-                    aria-controls={`group-members-${geometry.stackId}`}
-                    onClick={() => {
-                      if (stack) onExpand(stack)
-                    }}
-                  >
-                    <Layers size={13} aria-hidden="true" />
-                    <span>{stack ? `${stack.count} photos` : 'Loading group…'}</span>
-                    {expanded ? (
-                      <ChevronDown size={13} aria-hidden="true" />
-                    ) : (
-                      <ChevronRight size={13} aria-hidden="true" />
-                    )}
-                  </button>
                   <div id={`group-members-${geometry.stackId}`} className={styles.groupMembers}>
                     {indices.map((index) => renderPhoto(index, geometry.top))}
                   </div>
