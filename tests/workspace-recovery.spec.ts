@@ -9,7 +9,7 @@ import { stackFixture, finishTask } from './stack.helpers'
 test('current workspace checkpoints persist idempotently without advancing catalog or stack browsing revisions', async () => {
   const t = await stackFixture(3)
   try {
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 21 })
+    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 22 })
     const before = t.library.getGallerySummary()
     expect(t.library.getWorkspaceState()).toMatchObject({
       checkpoint: 0,
@@ -293,6 +293,31 @@ test('split tool disclosures default open for earlier checkpoints and preserve e
       ).rejects.toThrow('Invalid workspace state')
       expect(t.library.getWorkspaceState()).toEqual(saved)
     }
+  } finally {
+    await t.close()
+  }
+})
+
+test('console height is a validated workspace preference with defaults for older checkpoints', async () => {
+  const t = await stackFixture(1)
+  try {
+    const before = t.db.prepare('SELECT * FROM edits ORDER BY id').all()
+    await t.library.saveWorkspaceState({ state: { consoleOpen: true, consoleHeight: 320 } })
+    await t.restart()
+    expect(t.library.getWorkspaceState().state?.consoleHeight).toBe(320)
+    for (const height of [119, 1601, 180.5, '320'])
+      await expect(
+        t.library.saveWorkspaceState({ state: { consoleHeight: height as number } }),
+      ).rejects.toThrow('Invalid workspace state')
+    const row = t.db.prepare('SELECT data FROM workspace_state WHERE singleton=1').get() as {
+      data: string
+    }
+    const legacy = JSON.parse(row.data)
+    delete legacy.consoleHeight
+    t.db.prepare('UPDATE workspace_state SET data=? WHERE singleton=1').run(JSON.stringify(legacy))
+    await t.restart()
+    expect(t.library.getWorkspaceState().state?.consoleHeight).toBeNull()
+    expect(t.db.prepare('SELECT * FROM edits ORDER BY id').all()).toEqual(before)
   } finally {
     await t.close()
   }

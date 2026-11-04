@@ -362,7 +362,7 @@ test(
       expect(finalSensor.cropSettings).toEqual(final.settings.crop)
       await input.focus(
         page.getByRole('textbox', {
-          name: 'Agent console output, disconnected and read only',
+          name: 'Codex terminal',
           exact: true,
         }),
       )

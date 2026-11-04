@@ -4,6 +4,16 @@ import type { Photo, PhotoReference } from './contracts'
 import type { ColorRangeId } from './color-mixer'
 import type { GradingToneId } from './color-grading'
 
+export const CONSOLE_HEIGHT_MIN = 120
+export const CONSOLE_HEIGHT_MAX = 1600
+export function recoverConsoleHeight(value: unknown): number | null {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= CONSOLE_HEIGHT_MIN &&
+    value <= CONSOLE_HEIGHT_MAX
+    ? value
+    : null
+}
 export const WORKSPACE_VERSION = 1
 export const DEFAULT_INSPECTOR_SECTIONS = {
   histogram: true,
@@ -52,6 +62,7 @@ export interface WorkspaceState {
   folds: Record<BrowseGrouping, string[]>
   editorAnchor: CollectionAnchor | null
   libraryAnchor: CollectionAnchor | null
+  consoleHeight: number | null
   consoleOpen: boolean
   inspector: InspectorSections
   inspectorGroup: InspectorGroup
@@ -82,6 +93,7 @@ export const DEFAULT_WORKSPACE: WorkspaceState = {
   folds: { date: [], month: [], year: [] },
   editorAnchor: null,
   libraryAnchor: null,
+  consoleHeight: null,
   consoleOpen: false,
   inspector: DEFAULT_INSPECTOR_SECTIONS,
   inspectorGroup: 'light',

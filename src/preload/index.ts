@@ -27,6 +27,49 @@ async function mergeResult<T>(response: Promise<{ result: T; error?: MergeFailur
   return value.result
 }
 const api: IrodoriApi = {
+  getAgentSession: () => ipcRenderer.invoke('agent:state'),
+  connectAgent: (choice) => ipcRenderer.invoke('agent:connect', choice),
+  chooseAgentExecutable: () => ipcRenderer.invoke('agent:choose-executable'),
+  writeAgentInput: (id, data) => ipcRenderer.invoke('agent:input', id, data),
+  pasteAgentInput: (id, bracketed) => ipcRenderer.invoke('agent:paste', id, bracketed),
+  copyAgentSelection: async (id, text) => {
+    const result = await ipcRenderer.invoke('agent:copy-selection', id, text)
+    if (result.error) throw new Error(result.error)
+  },
+  openAgentSignInLink: (id, url) => ipcRenderer.invoke('agent:sign-in-link', id, url),
+  openAgentSignIn: (id) => ipcRenderer.invoke('agent:open-sign-in', id),
+  copyAgentSignInLink: (id) => ipcRenderer.invoke('agent:copy-sign-in', id),
+  resizeAgent: (id, columns, rows) => ipcRenderer.invoke('agent:resize', id, columns, rows),
+  interruptAgent: (id) => ipcRenderer.invoke('agent:interrupt', id),
+  acknowledgeAgentOutput: (id, sequence) => ipcRenderer.invoke('agent:ack', id, sequence),
+  onAgentState: (listener) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      state: import('../shared/agent').AgentSessionState,
+    ) => listener(state)
+    ipcRenderer.on('agent:state-changed', handler)
+    return () => ipcRenderer.removeListener('agent:state-changed', handler)
+  },
+  onAgentOutput: (listener) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      output: import('../shared/agent').AgentOutput,
+    ) => listener(output)
+    ipcRenderer.on('agent:output', handler)
+    return () => ipcRenderer.removeListener('agent:output', handler)
+  },
+  onAgentContextQuery: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, token: string) => {
+      void Promise.resolve()
+        .then(listener)
+        .then(
+          (value) => ipcRenderer.send('agent:context-reply', token, value),
+          (error) => ipcRenderer.send('agent:context-reply', token, undefined, String(error)),
+        )
+    }
+    ipcRenderer.on('agent:context-query', handler)
+    return () => ipcRenderer.removeListener('agent:context-query', handler)
+  },
   getResourceSettings: () => ipcRenderer.invoke('resources:get-settings'),
   setResourceSettings: (value) => ipcRenderer.invoke('resources:set-settings', value),
   getResourcePolicy: (adapter) => ipcRenderer.invoke('resources:get-policy', adapter),

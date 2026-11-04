@@ -509,7 +509,7 @@ for (const [width, height, canvasWidth, canvasHeight, consoleCanvasHeight] of [
         await expectInsideWindow(page.getByTestId(id), width, height)
       }
       await expect(page.getByTestId('console-toggle')).toHaveAttribute('aria-expanded', 'false')
-      await expect(page.getByTestId('console-panel')).toHaveCount(0)
+      await expect(page.getByTestId('console-panel')).toBeHidden()
       await expectViewportSize(page, canvasWidth, canvasHeight)
       await expectCompactFooter(page, width, height)
       await captureWindow(app, page, testInfo.outputPath(`workspace-${width}x${height}.png`))
@@ -542,7 +542,7 @@ for (const [width, height, canvasWidth, canvasHeight, consoleCanvasHeight] of [
       await captureWindow(app, page, testInfo.outputPath(`console-${width}x${height}.png`))
 
       await activateButton(page.getByTestId('console-toggle'))
-      await expect(page.getByTestId('console-panel')).toHaveCount(0)
+      await expect(page.getByTestId('console-panel')).toBeHidden()
       await expect(page.getByTestId('console-toggle')).toHaveAttribute('aria-expanded', 'false')
       await expectViewportSize(page, canvasWidth, canvasHeight)
       const overflow = await page.evaluate(() => ({

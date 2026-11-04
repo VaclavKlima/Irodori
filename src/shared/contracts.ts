@@ -1,3 +1,4 @@
+import type { AgentApi } from './agent'
 import type { AdjustmentParameters, DisplayTransform } from './adjustments'
 import type { EditFlushScope, EditHistory, EditPatch, EditState } from './edits'
 import type { DisplayCapabilities, DisplayTarget, HdrWorkingAsset } from './hdr'
@@ -20,7 +21,7 @@ export interface ForegroundActivity {
   reviewId?: string
 }
 
-export interface IrodoriApi extends NativeHdrMaskBridge {
+export interface IrodoriApi extends NativeHdrMaskBridge, AgentApi {
   getResourceSettings(): Promise<import('./resource-policy').ResourceSettingsView>
   setResourceSettings(
     value: import('./resource-policy').ResourceSettings,

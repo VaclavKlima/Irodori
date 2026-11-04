@@ -122,6 +122,44 @@ test('HDR presentation accounts for independent managed RAM and GPU owners and e
   expect(hdrPresentationMemory(request(5496, 3672, 9000, 6000), limits).accepted).toBe(false)
 })
 
+test('shared HDR cache inventory removes duplicate owners without relaxing admission boundaries', async () => {
+  const { hdrPresentationMemory, HDR_BITMAP_RESERVATION } =
+    await import('../src/renderer/src/preview/hdr-memory')
+  const shared = { ramBytes: 2 * 1024 ** 2, vramBytes: 430 * 1024 ** 2 }
+  const request = {
+    width: 5496,
+    height: 3672,
+    canvasWidth: 1100,
+    canvasHeight: 700,
+    bitmapReservation: HDR_BITMAP_RESERVATION,
+    otherReservations: shared,
+    maximumLayers: 1,
+    rawHalfSupported: false,
+  }
+  const limits = { ramBytes: 8 * 1024 ** 3, vramBytes: 2 * 1024 ** 3, revision: 4 }
+  const ordinary = hdrPresentationMemory(request, limits)
+  const inventoried = hdrPresentationMemory({ ...request, sharedOtherReservations: shared }, limits)
+  expect(inventoried.peak).toEqual(ordinary.peak)
+  expect(inventoried.cacheSlots).toBe(ordinary.cacheSlots)
+  expect(inventoried.accepted).toBe(true)
+  expect(inventoried.presenterPeak).toEqual({
+    ramBytes: ordinary.presenterPeak.ramBytes - shared.ramBytes,
+    vramBytes: ordinary.presenterPeak.vramBytes - shared.vramBytes,
+  })
+  const exact = { ...ordinary.peak, revision: 5 }
+  const captured = { ...request, sharedOtherReservations: shared }
+  expect(hdrPresentationMemory(captured, exact).accepted).toBe(true)
+  expect(
+    hdrPresentationMemory(captured, { ...exact, vramBytes: exact.vramBytes - 1 }).accepted,
+  ).toBe(false)
+  expect(() =>
+    hdrPresentationMemory(
+      { ...captured, otherReservations: { ramBytes: 0, vramBytes: 0 } },
+      limits,
+    ),
+  ).toThrow('included in admission')
+})
+
 test('sensor-aware highlight blending preserves intensity, smooth onset and unsaturated HDR color', () => {
   const normal = {
     black: [64, 64, 64, 64],

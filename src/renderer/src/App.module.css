@@ -98,11 +98,26 @@
   grid-template-areas: 'photos preview inspector' 'photos console console';
   padding-bottom: 0;
 }
-.editor > .console {
+.editor > .consoleSlot {
   grid-area: console;
   min-width: 0;
+}
+.editor > .consoleSlot .console {
   border: 1px solid var(--line-subtle);
   border-radius: 4px;
+}
+.consoleSlot {
+  min-height: 0;
+  flex: 0 0 auto;
+}
+.consoleSlot[hidden],
+.console[hidden] {
+  display: none;
+}
+.consoleNotice {
+  margin: 6px 12px 0;
+  font-size: 11px;
+  color: var(--muted);
 }
 .editor[hidden],
 .browserWorkspace[hidden] {
@@ -277,6 +292,7 @@
   color: var(--quiet);
 }
 .console {
+  position: relative;
   flex: 0 0 216px;
   height: 216px;
   min-height: 0;
@@ -284,6 +300,30 @@
   flex-direction: column;
   background: var(--canvas);
   border-top: 1px solid var(--line-subtle);
+}
+.consoleResize {
+  position: absolute;
+  top: -4px;
+  left: 0;
+  right: 0;
+  height: 8px;
+  z-index: 2;
+  cursor: row-resize;
+  touch-action: none;
+  user-select: none;
+}
+.consoleResize::after {
+  content: '';
+  position: absolute;
+  width: 32px;
+  height: 2px;
+  left: calc(50% - 16px);
+  top: 3px;
+  background: var(--line);
+}
+.consoleResize:hover::after,
+.consoleResize:focus-visible::after {
+  background: var(--accent);
 }
 .consoleHeader {
   min-height: 36px;
@@ -318,7 +358,7 @@
   display: flex;
   flex: 1;
   min-height: 0;
-  padding: 18px 22px;
+  padding: 6px 10px;
   overflow: hidden;
 }
 .terminalHost {

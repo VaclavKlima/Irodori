@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   dialog,
+  clipboard,
   ipcMain,
   Menu,
   powerMonitor,
@@ -30,6 +31,9 @@ import { configureAppIdentity } from './app-identity'
 import { configureDesktopIdentity, desktopIcon } from './desktop-identity'
 import { DisplayState } from './display-state'
 import { startEditorEndpoint } from './editor-endpoint'
+import { AgentSessions } from './agent/sessions'
+import { AgentRequestGate } from './agent/request-gate'
+import type { EditorContextSnapshot } from '../shared/agent'
 import { queryImageResources } from './image-resource-query'
 import { ImportDevices } from './import-devices'
 import { PhotoLibrary } from './library'
@@ -70,6 +74,7 @@ let mainWindow: BrowserWindow | null = null
 let library: PhotoLibrary | undefined
 let resourceService: ResourceService | undefined
 let nativeCpu: NativeMaskController | undefined
+let agentSessions: AgentSessions | undefined
 let editorEndpoint: Awaited<ReturnType<typeof startEditorEndpoint>> | undefined
 let quitting = false
 let picking = false
@@ -121,7 +126,13 @@ async function cropAdmission(
       ),
     ])
     active.throwIfAborted()
-    return { policy, reservation }
+    return {
+      policy,
+      reservation: {
+        ...reservation,
+        ramBytes: reservation.ramBytes + (library?.agentPreviews?.bytes ?? 0),
+      },
+    }
   } finally {
     lifetime.abort()
   }
@@ -151,6 +162,58 @@ async function flushEditorEdits(scope: import('../shared/edits').EditFlushScope)
     ipcMain.on('edits:flushed', handler)
     window.webContents.send('edits:flush', token, scope)
   })
+}
+
+async function captureAgentContext(): Promise<EditorContextSnapshot> {
+  const contents = mainWindow?.webContents
+  if (!contents || contents.isDestroyed()) throw new Error('The editor context is unavailable.')
+  const snapshot = await new Promise<EditorContextSnapshot>((resolve, reject) => {
+    const token = randomUUID()
+    const clean = () => {
+      clearTimeout(timer)
+      ipcMain.removeListener('agent:context-reply', reply)
+    }
+    const reply = (
+      event: Electron.IpcMainEvent,
+      returned: string,
+      value: EditorContextSnapshot,
+      error?: string,
+    ) => {
+      if (
+        event.sender !== contents ||
+        event.senderFrame !== contents.mainFrame ||
+        returned !== token
+      )
+        return
+      clean()
+      if (error) reject(new Error(error))
+      else if (
+        !value ||
+        !['editor', 'library'].includes(value.workspace) ||
+        (value.activePhotoId !== null && !/^[a-f0-9]{64}$/.test(value.activePhotoId)) ||
+        !Array.isArray(value.selectedIds) ||
+        value.selectedIds.length > 100000 ||
+        value.selectedIds.some((id) => typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id)) ||
+        typeof value.transient?.crop !== 'boolean'
+      )
+        reject(new Error('Invalid editor context.'))
+      else resolve(value)
+    }
+    const timer = setTimeout(() => {
+      clean()
+      reject(new Error('The editor context did not respond. Submit again.'))
+    }, 10000)
+    ipcMain.on('agent:context-reply', reply)
+    contents.send('agent:context-query', token)
+  })
+  if (snapshot.transient.crop)
+    throw new Error('Apply or cancel the crop, then submit the request again.')
+  await flushEditorEdits({ kind: 'all' })
+  return {
+    ...snapshot,
+    selectedIds: [...new Set(snapshot.selectedIds)],
+    transient: { ...snapshot.transient, saving: false },
+  }
 }
 
 function handleLibraryRequest(
@@ -185,6 +248,7 @@ async function requestQuit(): Promise<void> {
         : await dialog.showMessageBox(options)
       if (result.response !== 1) return
     }
+    await agentSessions?.disconnect()
     if (mainWindow && !mainWindow.isDestroyed()) {
       const window = mainWindow
       await new Promise<void>((resolve, reject) => {
@@ -239,6 +303,7 @@ async function requestQuit(): Promise<void> {
     }
     try {
       await closeServices([
+        () => agentSessions?.close(),
         () => editorEndpoint?.close(),
         () => library?.close(),
         () => resourceService?.drain(),
@@ -639,7 +704,100 @@ app
       trusted(event)
       return nativeCpu!.releaseMask(sessionId, maskId)
     })
-    editorEndpoint = await startEditorEndpoint(app.getPath('userData'), library, displayState)
+    const development = !!process.env.ELECTRON_RENDERER_URL
+    editorEndpoint = await startEditorEndpoint(app.getPath('userData'), library, displayState, {
+      capture: captureAgentContext,
+      development,
+      agentGate: (token) => agentSessions?.authenticate(token),
+    })
+    agentSessions = new AgentSessions({
+      profile: app.getPath('userData'),
+      development,
+      runtimeDirectory: import.meta.dirname,
+      connection: (token) => editorEndpoint!.agentConnection(token),
+      gate: (onConversation) =>
+        new AgentRequestGate(
+          captureAgentContext,
+          async (id) => (await library!.getEdits(id)).revision,
+          development,
+          onConversation,
+        ),
+      onState: (state) => {
+        if (mainWindow && !mainWindow.isDestroyed())
+          mainWindow.webContents.send('agent:state-changed', state)
+      },
+      onOutput: (output) => {
+        if (mainWindow && !mainWindow.isDestroyed())
+          mainWindow.webContents.send('agent:output', output)
+      },
+    })
+    await agentSessions.open()
+    handleLibraryRequest('agent:state', (event) => {
+      trusted(event)
+      return agentSessions!.get()
+    })
+    handleLibraryRequest('agent:connect', (event, choice) => {
+      trusted(event)
+      if (quitPending) throw new Error('Finish closing the application before connecting Codex.')
+      return agentSessions!.connect(choice)
+    })
+    handleLibraryRequest('agent:input', (event, id, data) => {
+      trusted(event)
+      agentSessions!.input(id, data)
+    })
+    handleLibraryRequest('agent:paste', async (event, id, bracketed) => {
+      trusted(event)
+      agentSessions!.paste(id, await clipboard.readText(), bracketed)
+    })
+    handleLibraryRequest('agent:copy-selection', async (event, id, text) => {
+      trusted(event)
+      try {
+        await clipboard.writeText(agentSessions!.selectionText(id, text))
+        return {}
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('agent:sign-in-link', async (event, id, url) => {
+      trusted(event)
+      await shell.openExternal(agentSessions!.signInLink(id, url))
+    })
+    handleLibraryRequest('agent:open-sign-in', async (event, id) => {
+      trusted(event)
+      await shell.openExternal(agentSessions!.signInLink(id))
+    })
+    handleLibraryRequest('agent:copy-sign-in', async (event, id) => {
+      trusted(event)
+      await clipboard.writeText(agentSessions!.signInLink(id))
+    })
+    handleLibraryRequest('agent:resize', (event, id, columns, rows) => {
+      trusted(event)
+      agentSessions!.resize(id, columns, rows)
+    })
+    handleLibraryRequest('agent:interrupt', (event, id) => {
+      trusted(event)
+      agentSessions!.interrupt(id)
+    })
+    handleLibraryRequest('agent:ack', (event, id, sequence) => {
+      trusted(event)
+      agentSessions!.acknowledge(id, sequence)
+    })
+    handleLibraryRequest('agent:choose-executable', async (event) => {
+      trusted(event)
+      if (picking) throw new Error('A file picker is already open.')
+      picking = true
+      try {
+        const result = await dialog.showOpenDialog(mainWindow!, {
+          title: 'Choose Codex executable',
+          properties: ['openFile'],
+        })
+        if (result.canceled || !result.filePaths[0]) return false
+        await agentSessions!.selectExecutable(result.filePaths[0])
+        return true
+      } finally {
+        picking = false
+      }
+    })
     protocol.handle('irodori-photo', async (request) => {
       if (request.method !== 'GET') return new Response(null, { status: 404 })
       const asset: PreviewAssetStreamLease | undefined =

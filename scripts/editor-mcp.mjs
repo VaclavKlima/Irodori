@@ -1,3 +1,4 @@
+import { agentTools } from '../src/main/agent/policy.ts'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
@@ -56,7 +57,19 @@ const gradingTone = schema(
   },
   [],
 )
-const tools = [
+let tools = [
+  {
+    name: 'irodori_get_editor_context',
+    description:
+      'Read the active photograph, confirmed revisions, frozen selection page, workspace, transient editing state and development mode. Selection paging never retargets an active managed request.',
+    inputSchema: schema({ offset: { type: 'integer', minimum: 0 } }, []),
+  },
+  {
+    name: 'irodori_get_photo_preview',
+    description:
+      'Get the complete current edited/cropped photograph as a compact sRGB SDR JPEG image (also for HDR sources), max long edge 1024, quality 80, no enlargement or personal metadata, payload at most 1 MiB. For composition and broad tone/color assessment; native-detail and physical HDR inspection are unavailable.',
+    inputSchema: schema({ photoId, expectedRevision }),
+  },
   {
     name: 'irodori_get_edit_clipboard',
     description:
@@ -639,6 +652,19 @@ const tools = [
     inputSchema: schema({ photoId, expectedRevision }),
   })),
 ]
+const managed = process.env.IRODORI_AGENT_CONNECTION !== undefined
+if (managed) {
+  const allowed = new Set(agentTools)
+  tools = tools
+    .filter((tool) => allowed.has(tool.name))
+    .map((tool) => ({
+      ...tool,
+      inputSchema: schema(
+        { ...tool.inputSchema.properties, requestId: { type: 'string', format: 'uuid' } },
+        [...tool.inputSchema.required, 'requestId'],
+      ),
+    }))
+}
 const server = new Server(
   { name: 'irodori-editor', version: '1.0.0' },
   { capabilities: { tools: {} } },
@@ -649,7 +675,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (!tools.some((tool) => tool.name === request.params.name))
       throw new Error('Unknown editor tool.')
     const connection = JSON.parse(
-      await readFile(join(profile, 'editor', 'connection.json'), 'utf8'),
+      managed
+        ? process.env.IRODORI_AGENT_CONNECTION
+        : await readFile(join(profile, 'editor', 'connection.json'), 'utf8'),
     )
     if (
       connection.version !== 1 ||
@@ -676,6 +704,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         structuredContent: result.failure,
       }
     if (!response.ok || result.error) throw new Error(result.error ?? 'Editor request failed.')
+    if (request.params.name === 'irodori_get_photo_preview') {
+      const { data, ...metadata } = result.result
+      if (
+        typeof data !== 'string' ||
+        data.length > 1398104 ||
+        Buffer.from(data, 'base64').byteLength > 1024 * 1024
+      )
+        throw new Error('Invalid compact photo preview payload.')
+      return {
+        content: [
+          { type: 'text', text: JSON.stringify(metadata) },
+          { type: 'image', mimeType: 'image/jpeg', data },
+        ],
+        structuredContent: metadata,
+      }
+    }
     return {
       content: [{ type: 'text', text: JSON.stringify(result.result) }],
       structuredContent: result.result,

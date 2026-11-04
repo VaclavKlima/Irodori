@@ -47,6 +47,8 @@ export interface HdrMemoryRequest {
   readonly recovery?: HdrRecoveryReservation
   /** Any additional caller-owned or retired resources; never substitute a whole-process sample. */
   readonly otherReservations?: HdrManagedBytes
+  /** Subset already inventoried by shared caches; still participates fully in admission. */
+  readonly sharedOtherReservations?: HdrManagedBytes
 }
 
 function byteCount(value: number, label: string) {
@@ -125,6 +127,12 @@ export function hdrPresentationMemory(request: HdrMemoryRequest, limits: HdrMemo
   const diagnostic = copy(request.diagnostic)
   const restoredUpload = copy(request.restoredUpload)
   const otherReservations = copy(request.otherReservations)
+  const sharedOtherReservations = copy(request.sharedOtherReservations)
+  if (
+    sharedOtherReservations.ramBytes > otherReservations.ramBytes ||
+    sharedOtherReservations.vramBytes > otherReservations.vramBytes
+  )
+    throw new Error('Shared HDR reservations must be included in admission.')
   const rawOverlap = copy(request.recovery?.rawReplacementOverlap)
   const cpuStagingCarry = copy(request.recovery?.cpuStagingCarry)
   const sourcePixels = product('source pixels', width, height)
@@ -250,6 +258,12 @@ export function hdrPresentationMemory(request: HdrMemoryRequest, limits: HdrMemo
     Math.max(uploadPeak.ramBytes, presentationPeak.ramBytes),
     Math.max(uploadPeak.vramBytes, presentationPeak.vramBytes),
   )
+  const shared = sum(
+    owners.source,
+    owners.bitmapReservation,
+    owners.retainedPresentation,
+    sharedOtherReservations,
+  )
   return Object.freeze({
     limits: frozenLimits,
     owners,
@@ -262,6 +276,8 @@ export function hdrPresentationMemory(request: HdrMemoryRequest, limits: HdrMemo
     uploadPeak,
     presentationPeak,
     peak,
+    // Shared cache owners publish their own live bytes, including retirement fences.
+    presenterPeak: bytes(peak.ramBytes - shared.ramBytes, peak.vramBytes - shared.vramBytes),
     accepted: fitsBoth(peak, frozenLimits),
     // Debug allowance sum only: opaque backing may be charged to both resource budgets.
     total: Math.max(
@@ -312,6 +328,7 @@ export class HdrPresentationHeadroom {
       diagnostic: copy(request.diagnostic),
       restoredUpload: copy(request.restoredUpload),
       otherReservations: copy(request.otherReservations),
+      sharedOtherReservations: copy(request.sharedOtherReservations),
       recovery: Object.freeze({
         rawReplacementOverlap: copy(request.recovery?.rawReplacementOverlap),
         cpuStagingCarry: copy(request.recovery?.cpuStagingCarry),

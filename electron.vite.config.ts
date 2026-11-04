@@ -51,6 +51,7 @@ export default defineConfig(({ command }) => {
                 },
               )
             }
+            await cp('scripts/agent-hook.mjs', 'out/main/agent-hook.mjs')
             await mkdir('out/main/opencv', { recursive: true })
             await cp('vendor/opencv', 'out/main/opencv', { recursive: true })
             await cp('vendor/ultrahdr', 'out/main/ultrahdr', { recursive: true })
@@ -60,10 +61,12 @@ export default defineConfig(({ command }) => {
       ],
       build: {
         rollupOptions: {
-          external: ['webgpu'],
+          external: ['webgpu', 'node-pty'],
           input: {
             index: 'src/main/index.ts',
             'preview-worker': 'src/main/preview-worker.ts',
+            'agent-worker': 'src/main/agent/worker.ts',
+            'editor-mcp': 'scripts/editor-mcp.mjs',
             'catalog-worker': 'src/main/catalog-worker.ts',
             'export-worker': 'src/main/export/worker.ts',
             'merge-worker': 'src/main/merge/worker.ts',

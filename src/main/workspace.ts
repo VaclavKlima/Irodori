@@ -4,6 +4,7 @@ import {
   DEFAULT_WORKSPACE,
   DEFAULT_INSPECTOR_SECTIONS,
   recoverWorkspaceNavigation,
+  recoverConsoleHeight,
   type WorkspaceState,
   type WorkspaceSnapshot,
 } from '../shared/workspace'
@@ -83,6 +84,7 @@ export class WorkspaceStore {
           ...DEFAULT_WORKSPACE,
           ...saved,
           ...recoverWorkspaceNavigation(saved),
+          consoleHeight: recoverConsoleHeight(saved?.consoleHeight),
           inspector: { ...DEFAULT_INSPECTOR_SECTIONS, ...saved.inspector },
         })
       : null

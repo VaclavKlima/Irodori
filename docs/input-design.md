@@ -61,6 +61,34 @@ Valid changes preview continuously. A drag or repeated slider-key gesture commit
 
 A pending save uses `busy`, rather than native `disabled`: numeric values become read-only and sliders expose `aria-disabled` while keeping their DOM focus. Busy inputs reject typing, stepping, pointer changes and additional commits/cancellation; rejected gestures are not queued for later. Tab navigation and normal text selection/copy remain available. Preserve the focused element when saving completes, without automatically refocusing a control the user has left. Reserve `disabled` for genuine unavailability, such as no supported photo or an unavailable preview.
 
+## Console height divider
+
+The focusable horizontal separator above Console owns its pointer gesture and
+announces its current height and bounds. Dragging previews locally; release
+commits one workspace preference. Escape, pointer cancellation, lost capture,
+window blur, panel closure or a workspace change cancels the unfinished gesture.
+Arrow Up/Down changes height by 10 pixels, Shift by 30; Home/End selects the
+available bounds. Double-click restores the responsive default.
+
+Reuse `useConsoleResize` and the existing workspace checkpoint owner. Clamp the
+height to the available space, keep at least 240 pixels for the photograph area,
+and preserve independent scrolling. Resizing must not remount xterm, restart
+Codex, alter photograph settings or enter Undo/Redo. Verify `agent-console` and
+`workspace-recovery`, with the native Console case explicitly in foreground at
+1100 × 700. The [console brief](features/agent-console.md) records acceptance.
+
+## Console text selection
+
+Console copies selected plain text to the system clipboard when the primary
+pointer is released, including word/line selection. Do not write intermediate
+drag selections or clear the clipboard for an empty selection. Cancel pending
+copy on pointer cancellation or window blur. Ctrl+C (Command+C on macOS) copies
+a selection; without a selection, Ctrl+C retains its terminal interrupt behavior.
+Clipboard access uses the specific typed bridge, validates the current terminal
+session and caps selected UTF-8 text at 4 MiB. The foreground `agent-console` case
+verifies the actual clipboard and native pointer selection; preserve and restore
+its previous clipboard content.
+
 ## Ownership and history
 
 Inputs own presentation and input gestures only. Their owner owns validation, drafts, persistence, conflicts, and errors. All photo adjustments use the versioned settings document and main-process edit service, including MCP updates. Adding an adjustment extends that document through an explicit schema migration; it does not create a separate history stack.

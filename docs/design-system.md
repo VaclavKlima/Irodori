@@ -249,3 +249,17 @@ settled screenshots of every tool at matching sizes. Compare production to the
 prototype, including an actual native 1100 × 700 Console-open window. Packaged acceptance starts offline
 and exercises import and RAW decoder fallback. Foreground platform identity checks
 are separate. Comprehensive suites and processing benchmarks are outside this migration.
+
+## Codex console extension — November 4, 2026
+
+The [interactive console](features/agent-console.md) retains the approved height,
+36px header and List + Beside geometry at the default height. The user-requested
+height divider adds bounded pointer/keyboard resizing, cancellation, reset and a
+workspace-only saved preference; it preserves photograph space and independent
+scrolling. Shared Sunflower buttons provide
+connection, Stop, New conversation, explicit Resume and setup recovery. Compact
+status/error text explains setup; xterm keeps monospace output and independent
+scrolling. One mounted terminal moves between Editor/Library slots and remains
+mounted while hidden. Shift+Tab leaves terminal input for its controls. The
+historical prototype's disconnected text is superseded by this selected console
+deliverable; the reference photograph/inspector/browser geometry is unchanged.

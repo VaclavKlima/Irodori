@@ -93,6 +93,7 @@ export interface ExportDiagnostics {
   stages: Record<string, number>
 }
 export interface ExportRenderResult {
+  geometry?: { width: number; height: number }
   path: string
   sha256: string
   diagnostics?: ExportDiagnostics

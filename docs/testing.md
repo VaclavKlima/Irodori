@@ -614,3 +614,31 @@ The twelve selected export, HDR math/content, independent display-reference and 
 Functional evidence: `artifacts/verification/2026-10-16T08-13-44.523Z-check-FXkYMy/summary.md`. Passing benchmark rerun: `artifacts/verification/playwright-1792138078498-12d72b69-c86e-46fe-b388-4bc3deec289f/`; the initial first-launch gate failure remains under `artifacts/verification/2026-10-16T08-05-08.468Z-benchmark-RYI6oi/summary.md`. Native encoding is currently macOS arm64 only; other platforms retain WASM. Installer, external HDR reader and physical luminance certification remain open.
 
 The separate foreground preview comparison completed all four sample sets on its traced diagnostic rerun. Uncorrected CPU/GPU medians changed **+4.22% / +0.81%** against the saved baseline, passing both unchanged 15% regression limits. The overall preview suite still failed its existing GPU-versus-legacy-PNG gate: **3.319 seconds versus 2.505 seconds**; the saved baseline also fails that comparison (**3.293 versus 2.347 seconds**). Corrected GPU remained faster than corrected CPU, and cached presentation stayed within its limit. The initial attempt lost its Electron window before producing measurements. Both attempts, the export measurements and the focused checks are consolidated in `artifacts/verification/export-performance-completion-1GcL1P/summary.md`. No comprehensive checkpoint was run.
+
+## Integrated Codex console
+
+See [the console brief](features/agent-console.md) for dedicated sign-in, hook
+trust, session/target ownership and preview limits. The production build includes
+the editing MCP server and hook entrypoints; neither requires CDP or a global
+MCP registration.
+
+```sh
+npm run verify -- --target agent-session --target agent-console --target agent-photo-preview --target editor-mcp --target workspace-recovery --target sunflower-fidelity
+```
+
+Use the shared hidden launcher by default. Rerun selected deferred native cases
+explicitly with foreground mode. PTY transport tests use a deterministic local
+CLI stand-in; the configuration test also validates the installed supported
+Codex without sign-in or model calls. Console cases cover drag cancellation,
+keyboard height adjustment and restoration across workspaces/restart without
+changing photo history. The native case covers exact sign-in link/copy controls,
+clipboard paste, terminal focus and resizing at 1100 × 700.
+It also checks copy on pointer release, unchanged clipboard while dragging,
+Ctrl+C selection copy versus no-selection interruption and rejection of stale
+terminal selection IDs. The preview target includes a two-RAW browsing regression
+at the unchanged 2 GiB GPU budget; `hdr` retains exact admission-boundary checks.
+Authenticated live edit/Undo, missing
+editing capability and unsupported communication behavior are separate bounded
+exercises in an isolated profile after its dedicated sign-in. Never copy the
+coding profile's credentials. Keep sign-in output, conversations and preview
+images in ignored/private evidence, and close owned test processes afterward.

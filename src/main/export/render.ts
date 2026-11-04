@@ -216,5 +216,5 @@ export async function renderExport(
   diagnostics.stages.validationAndWriteMs = performance.now() - stage
   diagnostics.stages.workerMs = performance.now() - start
   onProgress?.('output-validated-written')
-  return { path, sha256, diagnostics }
+  return { path, sha256, diagnostics, geometry: { width: geometry.width, height: geometry.height } }
 }

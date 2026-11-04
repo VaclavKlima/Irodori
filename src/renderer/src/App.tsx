@@ -25,7 +25,7 @@ import { useEdits } from './hooks/useEdits'
 import { useWhiteBalancePicker } from './hooks/useWhiteBalancePicker'
 import { useToneCurves } from './hooks/useToneCurves'
 import { useCrop } from './hooks/useCrop'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   MoreHorizontal,
   ArrowDownToLine,
@@ -137,6 +137,9 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [error, setError] = useState('')
   const [consoleOpen, setConsoleOpen] = useState(false)
+  const [consoleHeight, setConsoleHeight] = useState<number | null>(null)
+  const [editorConsoleHost, setEditorConsoleHost] = useState<HTMLDivElement | null>(null)
+  const [libraryConsoleHost, setLibraryConsoleHost] = useState<HTMLDivElement | null>(null)
   const [inspectorGroup, setInspectorGroup] = useState<InspectorGroup>('light')
   const [colorTab, setColorTab] = useState<ColorTab>('basic')
   const [hoverControls, setHoverControls] = useState(false)
@@ -225,6 +228,48 @@ export function App() {
     changeInspectorSections({ ...inspectorSections, crop: true })
     await crop.start()
   }
+  const agentContextRef = useRef({
+    workspace,
+    photoId: photo?.id ?? null,
+    browserId: browserPhoto?.id ?? null,
+    crop: crop.active || crop.pending,
+    saving: edits.saving,
+    selected,
+  })
+  useLayoutEffect(() => {
+    agentContextRef.current = {
+      workspace,
+      photoId: photo?.id ?? null,
+      browserId: browserPhoto?.id ?? null,
+      crop: crop.active || crop.pending,
+      saving: edits.saving,
+      selected,
+    }
+  })
+  useEffect(
+    () =>
+      window.irodori.onAgentContextQuery(async () => {
+        const captured = agentContextRef.current
+        if (captured.crop)
+          throw new Error('Apply or cancel the crop, then submit the request again.')
+        const selection = await getSelection()
+        const current = agentContextRef.current
+        if (
+          captured.workspace !== current.workspace ||
+          captured.photoId !== current.photoId ||
+          captured.browserId !== current.browserId ||
+          captured.selected !== current.selected
+        )
+          throw new Error('The editor changed during submission. Submit the request again.')
+        return {
+          workspace: captured.workspace,
+          activePhotoId: captured.workspace === 'editor' ? captured.photoId : captured.browserId,
+          selectedIds: selection.map((item) => item.id),
+          transient: { crop: captured.crop, saving: captured.saving },
+        }
+      }),
+    [getSelection],
+  )
   const cropTool = { ...crop, start: startCrop }
   const presentationTools = crop.active
     ? {
@@ -535,6 +580,7 @@ export function App() {
         workspaceRef.current = state?.mode ?? 'editor'
         setWorkspace(workspaceRef.current)
         setConsoleOpen(state?.consoleOpen ?? false)
+        setConsoleHeight(state?.consoleHeight ?? null)
         setInspectorGroup(state?.inspectorGroup ?? 'light')
         setColorTab(state?.colorTab ?? 'basic')
         setHoverControls(state?.hoverControls ?? false)
@@ -571,6 +617,7 @@ export function App() {
       libraryFocusId: browserPhoto?.id ?? null,
       rangeAnchorId: library.anchor,
       consoleOpen,
+      consoleHeight,
     })
     checkpoint.selection(selected.keys())
   }, [
@@ -583,6 +630,7 @@ export function App() {
     browserPhoto?.id,
     library.anchor,
     consoleOpen,
+    consoleHeight,
     selected,
   ])
   useEffect(() => {
@@ -1277,14 +1325,7 @@ export function App() {
             interactivePhoto === photo.id
           }
         />
-        {consoleOpen && workspace === 'editor' && (
-          <Console
-            onClose={() => {
-              setConsoleOpen(false)
-              consoleToggleRef.current?.focus()
-            }}
-          />
-        )}
+        <div className={styles.consoleSlot} hidden={!consoleOpen} ref={setEditorConsoleHost} />
       </div>
 
       <div className={styles.browserWorkspace} hidden={workspace !== 'library'}>
@@ -1314,15 +1355,19 @@ export function App() {
           onImport={() => void openImport()}
           onError={setError}
         />
-        {consoleOpen && workspace === 'library' && (
-          <Console
-            onClose={() => {
-              setConsoleOpen(false)
-              consoleToggleRef.current?.focus()
-            }}
-          />
-        )}
+        <div className={styles.consoleSlot} hidden={!consoleOpen} ref={setLibraryConsoleHost} />
       </div>
+
+      <Console
+        host={workspace === 'editor' ? editorConsoleHost : libraryConsoleHost}
+        open={consoleOpen}
+        height={consoleHeight}
+        onHeightChange={setConsoleHeight}
+        onClose={() => {
+          setConsoleOpen(false)
+          consoleToggleRef.current?.focus()
+        }}
+      />
 
       <footer className={styles.statusBar}>
         <button

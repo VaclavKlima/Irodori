@@ -96,6 +96,8 @@ import { EditTransfers } from './edit-transfer'
 import { verifyExportEncoder } from './export/encoder'
 import { identity } from './export/files'
 import { ExportJobs } from './export/jobs'
+import { AgentPhotoPreviews } from './agent/photo-previews'
+import type { ExportSource } from './export/types'
 import type { ExportProcess } from './export/process'
 import { ExportReadStore, ExportStore } from './export/store'
 import { ForegroundActivities } from './foreground-activity'
@@ -221,6 +223,7 @@ export class PhotoLibrary {
   readonly fullPreviews: FullPreviews
   readonly merges: MergeReviews
   editTransfers!: EditTransfers
+  agentPreviews!: AgentPhotoPreviews
   exports!: ExportJobs
   private db!: DatabaseSync
   private catalog?: CatalogWriter
@@ -587,29 +590,7 @@ export class PhotoLibrary {
       new ExportStore(this.db, this.catalog),
       this.root,
       this.scheduler,
-      async (id) => {
-        const processing = await this.processingOptions(id)
-        const photo = this.find(id)
-        if (!photo) throw new Error('This export photo is unavailable.')
-        const path = join(
-          this.root,
-          'originals',
-          id,
-          photo.assetKind === 'derived'
-            ? 'linear.f32'
-            : `original${extname(photo.filename).toLowerCase()}`,
-        )
-        const info = await lstat(path)
-        if (!info.isFile() || info.isSymbolicLink())
-          throw new Error('The managed export source is unavailable.')
-        return {
-          photo,
-          path,
-          identity: identity(info),
-          processing,
-          hdr: !!(processing.metadata.hdrEligible || processing.metadata.mergeMaster),
-        }
-      },
+      (id) => this.exportSource(id),
       (source) => {
         const photo = this.find(source.photo.id)
         const processing = this.readProcessing(source.photo.id)
@@ -634,6 +615,24 @@ export class PhotoLibrary {
         return this.cropAdmission(signal)
       },
     )
+    this.agentPreviews = new AgentPhotoPreviews(
+      this.root,
+      (id) => this.exportSource(id),
+      async (id) => (await this.getEdits(id)).revision,
+      (source, signal, rendition) =>
+        this.fullPreviews.acquireWorkingAsset(
+          source.photo.id,
+          source.processing,
+          signal,
+          rendition,
+        ),
+      async (signal) => {
+        if (!this.cropAdmission) throw new Error('Photo preview resource admission is unavailable.')
+        return this.cropAdmission(signal)
+      },
+      this.scheduler,
+    )
+    await rm(join(this.root, 'cache', 'agent-previews'), { recursive: true, force: true })
     await this.exports.recover()
     await rm(join(this.root, 'merge-reviews'), { recursive: true, force: true })
     // Only application-owned, unpublished files are recovered here.
@@ -705,6 +704,30 @@ export class PhotoLibrary {
       return data
     }
     return data?.metadata.version === PROCESSING_METADATA_VERSION ? data : undefined
+  }
+
+  private async exportSource(id: string): Promise<ExportSource> {
+    const processing = await this.processingOptions(id)
+    const photo = this.find(id)
+    if (!photo) throw new Error('This photograph is unavailable.')
+    const path = join(
+      this.root,
+      'originals',
+      id,
+      photo.assetKind === 'derived'
+        ? 'linear.f32'
+        : `original${extname(photo.filename).toLowerCase()}`,
+    )
+    const info = await lstat(path)
+    if (!info.isFile() || info.isSymbolicLink())
+      throw new Error('The managed source is unavailable.')
+    return {
+      photo,
+      path,
+      identity: identity(info),
+      processing,
+      hdr: !!(processing.metadata.hdrEligible || processing.metadata.mergeMaster),
+    }
   }
 
   private async processingOptions(
@@ -3114,6 +3137,7 @@ export class PhotoLibrary {
       await this.metadataProcessor.close()
       await this.directoryVisibility.close()
       await this.metadataTail
+      await this.agentPreviews?.close()
       await this.exports?.close()
       await this.fullPreviews.close()
       await this.merges.close()

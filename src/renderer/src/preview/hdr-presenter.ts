@@ -863,7 +863,8 @@ export class HdrPresenter {
     maximumLayers = HDR_CACHE_MAX_TILES,
     restoredUpload?: HdrManagedBytes,
   ): HdrMemoryRequest {
-    const readbackBytes = width && height ? Math.ceil((width * 8) / 256) * 256 * height : 0
+    const readbackBytes = width && height ? Math.ceil((width * 8) / 256) * 256 * height : 0,
+      shared = this.sharedSourceReservation()
     return {
       width: frame.width,
       height: frame.height,
@@ -881,26 +882,30 @@ export class HdrPresenter {
         : { ramBytes: 0, vramBytes: 0 },
       restoredUpload,
       recovery: this.recovery.reservation(width, height),
-      otherReservations: this.sourceAndMaskReservation(),
+      otherReservations: this.sourceAndMaskReservation(shared),
+      sharedOtherReservations: shared,
     }
   }
-  private sourceAndMaskReservation(): HdrManagedBytes {
-    const source = this.sourceReservation(),
+  private sourceAndMaskReservation(shared?: HdrManagedBytes): HdrManagedBytes {
+    const source = this.sourceReservation(shared),
       mask = this.maskReservation.bytes
     return {
       ramBytes: source.ramBytes + mask.ramBytes + this.creativeReservation.ramBytes,
       vramBytes: source.vramBytes + mask.vramBytes + this.creativeReservation.vramBytes,
     }
   }
-  private sourceReservation(): HdrManagedBytes {
-    const cached = sourceCache.memory(this.sourceLease),
-      reserved = {
-        ramBytes:
-          cached.ramBytes +
-          this.comparisonUncached.ramBytes +
-          hdrSampleMemory((buffer) => sourceCache.ownsSampleBuffer(buffer)),
-        vramBytes: cached.vramBytes + this.comparisonUncached.vramBytes,
-      }
+  private sharedSourceReservation(): HdrManagedBytes {
+    const cached = sourceCache.memory(this.sourceLease)
+    return {
+      ramBytes: cached.ramBytes + hdrSampleMemory((buffer) => sourceCache.ownsSampleBuffer(buffer)),
+      vramBytes: cached.vramBytes,
+    }
+  }
+  private sourceReservation(shared = this.sharedSourceReservation()): HdrManagedBytes {
+    const reserved = {
+      ramBytes: shared.ramBytes + this.comparisonUncached.ramBytes,
+      vramBytes: shared.vramBytes + this.comparisonUncached.vramBytes,
+    }
     const total = sourceCache.memory()
     Object.assign(this.canvas.dataset, {
       sourceCacheEntries: String(total.entries),
@@ -935,6 +940,7 @@ export class HdrPresenter {
             this.comparisonUncached.vramBytes +
             (this.comparisonLease?.identity.textureBytes ?? 0),
         },
+        sharedOtherReservations: { ramBytes: 0, vramBytes: 0 },
         retainedPresentationBytes: headroom.reservationBytes,
       },
       headroom.limits,
@@ -1035,22 +1041,10 @@ export class HdrPresenter {
     return pruning instanceof Promise ? pruning.then(finish) : finish()
   }
   private publishMemory(memory: ReturnType<typeof hdrPresentationMemory>) {
-    // These owners have independent global inventories. Other-source/mask
-    // reservations remain conservatively charged in this presenter's bound.
-    const shared = [
-      memory.owners.source,
-      memory.owners.bitmapReservation,
-      memory.owners.retainedPresentation,
-    ]
+    // Admission includes shared caches; the global inventory charges each owner once.
     this.imageOwnerPeak = {
-      ramBytes: Math.max(
-        this.imageOwnerPeak.ramBytes,
-        memory.peak.ramBytes - shared.reduce((sum, owner) => sum + owner.ramBytes, 0),
-      ),
-      vramBytes: Math.max(
-        this.imageOwnerPeak.vramBytes,
-        memory.peak.vramBytes - shared.reduce((sum, owner) => sum + owner.vramBytes, 0),
-      ),
+      ramBytes: Math.max(this.imageOwnerPeak.ramBytes, memory.presenterPeak.ramBytes),
+      vramBytes: Math.max(this.imageOwnerPeak.vramBytes, memory.presenterPeak.vramBytes),
     }
     Object.assign(this.canvas.dataset, {
       allocatedBytes: String(memory.total),

@@ -7,6 +7,7 @@ import {
   inspectorGroups,
   colorTabs,
   recoverWorkspaceNavigation,
+  recoverConsoleHeight,
   type WorkspaceChange,
   type WorkspaceState,
 } from '../../shared/workspace'
@@ -40,6 +41,8 @@ function validate(state: WorkspaceState) {
     !['editor', 'library'].includes(state.mode) ||
     ![state.activeId, state.editorFocusId, state.libraryFocusId, state.rangeAnchorId].every(id) ||
     typeof state.consoleOpen !== 'boolean' ||
+    (state.consoleHeight !== null &&
+      recoverConsoleHeight(state.consoleHeight) !== state.consoleHeight) ||
     !inspectorGroups.includes(state.inspectorGroup) ||
     !colorTabs.includes(state.colorTab) ||
     typeof state.hoverControls !== 'boolean' ||
@@ -115,6 +118,7 @@ export class WorkspaceMutations extends WorkspaceStore {
         ...DEFAULT_WORKSPACE,
         ...saved,
         ...recoverWorkspaceNavigation(saved),
+        consoleHeight: recoverConsoleHeight(saved?.consoleHeight),
         inspector: { ...DEFAULT_INSPECTOR_SECTIONS, ...saved?.inspector },
         ...change.state,
       } as WorkspaceState

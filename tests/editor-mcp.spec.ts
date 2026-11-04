@@ -1,3 +1,4 @@
+import { navigateInspector } from './inspector.helpers'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { readFile, stat } from 'node:fs/promises'
@@ -29,6 +30,8 @@ test('stdio editing tools share persisted history with UI without a development 
     ])
     expect(previewTool.inputSchema.required).toEqual(['reviewId', 'expectedRevision'])
     expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+      'irodori_get_editor_context',
+      'irodori_get_photo_preview',
       'irodori_get_edit_clipboard',
       'irodori_copy_edits',
       'irodori_prepare_paste_edits',
@@ -232,10 +235,16 @@ test('stdio editing tools share persisted history with UI without a development 
       ['Blacks', '20'],
       ['Saturation', '35'],
       ['Vibrance', '-45'],
-    ])
+    ]) {
+      await navigateInspector(
+        irodori.page,
+        ['Saturation', 'Vibrance'].includes(label) ? 'Color' : 'Light',
+      )
       await expect(irodori.page.getByRole('spinbutton', { name: `${label} value` })).toHaveValue(
         value,
       )
+    }
+    await navigateInspector(irodori.page, 'Light')
     await highlightsDraft.press('Enter')
     await expect
       .poll(

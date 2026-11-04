@@ -27,6 +27,16 @@ readable data; keeping them does not keep their retired executors available.
 | Merge review/output conversion              | Existing Dawn streaming converter using shared display math                                                              | One/two bounded slots, original error, drain maps before files/device, exact alpha                                                                 | CPU output conversion and late CPU replay removed. Historical masters stay intact. Retired GPU camera/reference and recorded retired CPU executors report unavailable recomputation; provenance consults the same availability policy. Old incomplete cache/recipe measurements remain a provenance-audit checkpoint.                                                                                                                                                                                            |
 | HDR encoding                                | Native pinned libultrahdr 2.0.2 / libjpeg-turbo 3.1.0; accepted macOS C++ and Linux Rust hosts                           | Immutable mapped inputs, primary identity, full gain geometry, child lifecycle, 2 GiB admission and helper RSS                                     | Backend selected before execution; failed native jobs do not restart WASM encoding. The attempted common Rust host on macOS passed small independent quality cases but failed exact full-size binary16 reconstruction at headrooms 2 and 4. It remains a research bundle, **not a replacement for the accepted Mac C++ host**. Keep that host, native packaging and WASM decode consumers. Common-host acceptance remains open.                                                                                  |
 
+## Shared preview ownership — November 4, 2026
+
+HDR presentation admission includes all retained source-cache owners. The global
+image inventory counts their bytes once: shared caches expose their live and
+retiring ownership, and the presenter exposes its own conservative peak with
+that shared portion excluded. The same frozen plan captures both values before
+any cache-drain await. The [compact-preview regression](features/agent-console.md)
+covers two browsed RAW sources with the existing 2 GiB GPU limit. No source
+pixels, rendering backends, admission thresholds or retirement fences change.
+
 ## Curves — November 4, 2026
 
 Master/RGB PCHIP curves are fused into the existing GLSL raster presentation and

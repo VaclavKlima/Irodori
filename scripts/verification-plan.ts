@@ -17,6 +17,10 @@ interface Suite {
   explicitOnly?: boolean
 }
 const definitions: Suite[] = [
+  { file: 'agent-policy', group: 'node', scopes: ['mcp'] },
+  { file: 'agent-session', group: 'service', scopes: ['mcp'] },
+  { file: 'agent-console', group: 'electron', scopes: ['mcp', 'ui'], exclusive: true },
+  { file: 'agent-photo-preview', group: 'raw-gpu', scopes: ['mcp', 'preview'], exclusive: true },
   { file: 'camera-runtime', group: 'node', scopes: ['mcp'] },
   { file: 'camera-control-model', group: 'node', scopes: ['mcp'] },
   { file: 'camera-control-service', group: 'node', scopes: ['mcp'] },
