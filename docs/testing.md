@@ -9,8 +9,24 @@ retained evidence. `shared-rendering` covers raster/authored HDR GPU rendition;
 `native-mask-portability` runs actual Electron synthetic and full-photographic
 mask/mip references against the checksummed host; `native-hdr-mask-lifecycle`
 covers close, source/receiver drainage, revision/target refusal and supersession.
-`raster-presentation-lifecycle` covers GPU loss, draft flush, retry, Undo/Redo and
-restart. Combine relevant detail/crop/export/merge targets after shared changes.
+`raster-presentation-lifecycle --foreground` covers GPU loss, draft flush, retry,
+Undo/Redo and restart. Its native minimum-size resize requires live foreground
+animation frames on Wayland; hidden runs defer it as incomplete. Ordinary hidden
+editing coverage remains in `adjustment-input-decimal`, and
+`raster-spatial-comparison` checks the presenter independently. Combine relevant
+detail/crop/export/merge targets after shared changes.
+
+On Linux, rebuild the mask host with `npm run build:cpu-native` before testing.
+The Linux-only `creative-color-native-frame` cases require the explicit helper
+path; select the checksummed host staged by this checkout:
+
+```sh
+IRODORI_NATIVE_CPU_RENDER_TEST_EXECUTABLE="$PWD/vendor/native-cpu-render/linux-x64/irodori-cpu-render" npm run verify -- --target creative-color-native-frame
+```
+
+Keep this setting when combining that target with other consolidation checks.
+These cases fail when the helper setting is missing; a successful build alone
+does not establish exact native mask agreement with Electron.
 
 `processing-workflow-profile` is an explicit, bounded observation of import/open,
 cached revisit, merge source preparation and actual ExportJobs publication. It is

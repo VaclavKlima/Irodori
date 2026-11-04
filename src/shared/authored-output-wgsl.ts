@@ -56,18 +56,24 @@ ${primary ? '@group(0) @binding(6) var<storage,read> primary:array<vec4f>;' : ''
 ${raster || primary ? rasterMath : ''}
 ${!raster ? namespacedHdr : ''}
 ${encode}
+// Floating-point self-comparisons can be optimized under finite-math assumptions.
+// Check the stored IEEE-754 exponent before adjustment or clamping can hide an invalid sample.
+fn authoredFinite(value:vec4f)->bool {
+ return all((bitcast<vec4u>(value)&vec4u(0x7f800000u))!=vec4u(0x7f800000u));
+}
 ${hdr && packed ? `var<workgroup> peaks:array<f32,${workgroup}>;` : ''}
 @compute @workgroup_size(${workgroup}) fn render(@builtin(global_invocation_id) id:vec3u,@builtin(local_invocation_index) local:u32) {
  ${hdr && packed ? 'peaks[local]=0.;' : ''}
  if(id.x<u32(u.values[0].x)) {
   let pixel=input[id.x];
+  if(!authoredFinite(pixel)${primary ? '||!authoredFinite(primary[id.x])' : ''}) { atomicMax(&result.peak,bitcast<u32>(1e30)); }
   ${!raster ? 'let content=max(hdr_adjusted(pixel.rgb),vec3f(0.));' : ''}
   var sdr=${raster || primary ? `rasterAdjusted(${primary ? 'primary[id.x].rgb' : 'pixel.rgb'},u.values[2],u.values[3].xy,u.values[11].xy,u.values[8].x)` : `mat3x3f(${matrix})*content`};
   if(u.values[8].w>0.) { sdr=floor(sdr*65535.)/65535.; }
   sdr=clamp(sdr/u.values[8].x,vec3f(0.),vec3f(1.));
   ${options.preserveAlpha ? '' : 'sdr=sdr*pixel.a+vec3f(1.-pixel.a);'}
   ${hdr ? `let hdr=clamp(content${options.preserveAlpha ? '' : '*pixel.a+vec3f(1.-pixel.a)'},vec3f(0.),vec3f(10.));` : ''}
-  if(any(pixel!=pixel)${primary ? '||any(primary[id.x]!=primary[id.x])' : ''}||any(sdr!=sdr)${hdr ? '||any(hdr!=hdr)||any(hdr>vec3f(65504.))' : ''}) { atomicMax(&result.peak,bitcast<u32>(1e30)); }
+  if(!authoredFinite(vec4f(sdr,0.))${hdr ? '||!authoredFinite(vec4f(hdr,0.))||any(hdr>vec3f(65504.))' : ''}) { atomicMax(&result.peak,bitcast<u32>(1e30)); }
   ${
     packed
       ? `let encoded=rasterEncode(sdr);

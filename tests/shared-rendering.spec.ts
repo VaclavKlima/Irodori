@@ -173,3 +173,39 @@ test('authored HDR proofs use primary conversion without scene tone rendering an
     await hdr.close()
   }
 })
+
+for (const domain of ['raster', 'authored-hdr'] as const)
+  for (const packed of [false, true])
+    test(`shared ${domain} ${packed ? 'packed' : 'linear'} output rejects nonfinite RGBA in every source`, async () => {
+      const hdr = domain === 'authored-hdr',
+        pixels = new Float32Array([1, 1, 1, 1]),
+        sdr = new Float32Array([0.5, 0.5, 0.5, 1]),
+        owner = await createExportGpu(1, settings[0], undefined, hdr, packed, 64, 0, undefined, {
+          domain,
+          primary: hdr,
+        })
+      test.info().annotations.push({ type: 'adapter', description: owner.adapter })
+      try {
+        for (const role of hdr ? ['source', 'primary'] : ['source'])
+          for (const value of [NaN, Infinity, -Infinity])
+            for (const [lane, channel] of ['r', 'g', 'b', 'a'].entries()) {
+              const invalid = new Float32Array(role === 'source' ? pixels : sdr)
+              invalid[lane] = value
+              await expect(
+                owner.render(
+                  role === 'source' ? invalid : pixels,
+                  0,
+                  hdr ? (role === 'primary' ? invalid : sdr) : undefined,
+                ),
+                `${role}.${channel}=${String(value)} must be refused before publication`,
+              ).rejects.toThrow('Invalid GPU output')
+            }
+        // An invalid strip must not poison the owner or leave a stale error sentinel.
+        const valid = await owner.render(pixels, 0, hdr ? sdr : undefined)
+        expect(valid.data.byteLength).toBe((packed ? (hdr ? 3 : 1) : hdr ? 6 : 3) * 4)
+        expect(Number.isFinite(valid.headroom)).toBe(true)
+        expect(valid.headroom).toBeLessThanOrEqual(10)
+      } finally {
+        await owner.close()
+      }
+    })

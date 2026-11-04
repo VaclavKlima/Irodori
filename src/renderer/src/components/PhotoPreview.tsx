@@ -1258,6 +1258,7 @@ export function PhotoPreview({
 
   useEffect(() => {
     // Publish newly uploaded raster pixels when their layout and working source are ready.
+    // Owner creation resumes after the previous GPU owner drains.
     // Gesture views remain coalesced through the shared animation-frame callback.
     if (
       !suspended &&
@@ -1277,6 +1278,7 @@ export function PhotoPreview({
     beforeWorking,
     comparisonReady,
     generation,
+    presenterGeneration,
     model.loaded,
     model.viewport.width,
     model.viewport.height,
