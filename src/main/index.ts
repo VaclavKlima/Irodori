@@ -754,6 +754,13 @@ app
         (error) => ({ error: String(error) }),
       )
     })
+    handleLibraryRequest('curves:sample', (event, id, revision, sample) => {
+      trusted(event)
+      return library!.sampleCurveTone(id, revision, sample).then(
+        (sample) => ({ sample }),
+        (error) => ({ error: String(error) }),
+      )
+    })
     handleLibraryRequest('pixel:get', (event, id, revision, x, y, request) => {
       trusted(event)
       return library!.getPhotoPixel(id, revision, x, y, request).then(

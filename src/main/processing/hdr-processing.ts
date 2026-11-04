@@ -5,6 +5,7 @@ import sharp from 'sharp'
 import { hdrCacheTileSize } from '../../renderer/src/preview/hdr-render-cache'
 import { HDR_SOURCE_MIP_POLICY } from '../../renderer/src/preview/hdr-source-cache'
 import { neutralAdjustments, srgbTransform } from '../../shared/adjustments'
+import { preparedToneCurves } from '../../shared/tone-curves'
 import {
   adjustHdr,
   contentHdr,
@@ -61,6 +62,10 @@ const gpuPreparationTimingFields = [
   ['hdrOrientationCopyMs', 'workerGpuOrientationCopyMs'],
 ] as const
 export async function scanHdr(path: string, job: HdrStatisticsJob) {
+  if (!preparedToneCurves(job.adjustments.curves).identity)
+    throw new Error(
+      'Exact HDR statistics with active curves require a qualified GPU analysis path. The photograph, interactive histogram and tone samples remain available.',
+    )
   const result = hdrStatistics(job.domain, job.target, job.asset)
   for await (const data of readHdrStrips(path, job.asset))
     analyzeHdr(data, job.adjustments, job.asset, job.target, result)

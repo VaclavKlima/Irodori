@@ -449,7 +449,7 @@ export class PhotoLibrary {
     const fresh =
       version.user_version === 0 &&
       !this.db.prepare("SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' LIMIT 1").get()
-    if (!fresh && ![17, 18, 19, 20, CATALOG_VERSION].includes(version.user_version))
+    if (!fresh && ![17, 18, 19, 20, 21, CATALOG_VERSION].includes(version.user_version))
       throw new Error(
         version.user_version > CATALOG_VERSION
           ? 'This library requires a newer version of Irodori.'
@@ -517,7 +517,7 @@ export class PhotoLibrary {
         this.workspace.initialize()
         new ExportReadStore(this.db).initialize()
       } else {
-        if ([17, 18, 19, 20].includes(version.user_version)) migrateEditingHistory(this.db)
+        if ([17, 18, 19, 20, 21].includes(version.user_version)) migrateEditingHistory(this.db)
         this.cameraRecognition.prepare()
       }
       new EditApplicationReadStore(this.db).initialize()
@@ -528,7 +528,7 @@ export class PhotoLibrary {
         const data = JSON.parse(row.data) as ProcessingOptions
         bootstrap.seedEdits(row.id, data, new Date().toISOString())
       }
-      if (fresh || [17, 18, 19, 20].includes(version.user_version))
+      if (fresh || [17, 18, 19, 20, 21].includes(version.user_version))
         this.db.exec(`PRAGMA user_version = ${CATALOG_VERSION}`)
       this.db.exec('COMMIT')
     } catch (error) {
@@ -847,6 +847,14 @@ export class PhotoLibrary {
 
   getCropContext(id: string, expectedRevision: number) {
     return this.fullPreviews.getCropContext(id, expectedRevision)
+  }
+
+  sampleCurveTone(
+    id: string,
+    expectedRevision: number,
+    sample: import('../shared/curve-tone').CurveToneRequest,
+  ) {
+    return this.fullPreviews.sampleCurveTone(id, expectedRevision, sample)
   }
 
   getPhotoPixel(

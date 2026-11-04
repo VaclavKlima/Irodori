@@ -1,6 +1,7 @@
 import { PreviewEngine } from './preview-engine'
 import { scanHdr, sampleHdrPixel } from './processing/hdr-processing'
 import { sampleNeutralWhiteBalance } from './processing/white-balance-picker'
+import { sampleCurveTone } from './processing/curve-tone'
 import { prepareCropWorkingAsset } from './processing/crop-preparation'
 import { prepareCropPreview } from './processing/crop-preview'
 import {
@@ -150,38 +151,47 @@ process.on('message', async (data: PreviewWorkerRequest, handle) => {
       return
     }
     const result =
-      data.type === 'warmup'
-        ? await engine.prewarmHdr(data.kernel ?? 'linear64')
-        : data.type === 'white-balance-sample'
-          ? await sampleNeutralWhiteBalance(data.path, data.frame!.whiteBalance!)
-          : data.type === 'pixel'
-            ? await sampleHdrPixel(data.path, data.pixel!)
-            : data.type === 'statistics'
-              ? data.frame?.hdr
-                ? await scanHdr(data.path, data.frame.hdr)
-                : await engine.statistics(data.path, data.frame!)
-              : data.type === 'thumbnail' || data.type === 'thumbnail-fallback'
-                ? await engine.thumbnail(data.path, data.output, data.type === 'thumbnail-fallback')
-                : data.type === 'capture-metadata' || data.type === 'capture-metadata-session'
-                  ? await engine.inspectCapture(data.path, data.type === 'capture-metadata-session')
-                  : data.type === 'metadata'
-                    ? await engine.inspect(data.path)
-                    : data.type === 'full'
-                      ? await engine.renderFull(
-                          data.path,
-                          data.output,
-                          (stage) => send({ type: 'stage', stage }),
-                          data.options,
-                          async (progress) => send({ type: 'first-surface', progress }),
-                          data.nativeRaw ? () => nativeRaw.prepare(data.nativeRaw!) : undefined,
-                          data.nativeRaw,
-                        )
-                      : await engine.process(
-                          data.path,
-                          data.output,
-                          data.importMode,
-                          data.importSeed,
-                        )
+      data.type === 'curve-tone'
+        ? await sampleCurveTone(data.path, data.frame!.curveTone!)
+        : data.type === 'warmup'
+          ? await engine.prewarmHdr(data.kernel ?? 'linear64')
+          : data.type === 'white-balance-sample'
+            ? await sampleNeutralWhiteBalance(data.path, data.frame!.whiteBalance!)
+            : data.type === 'pixel'
+              ? await sampleHdrPixel(data.path, data.pixel!)
+              : data.type === 'statistics'
+                ? data.frame?.hdr
+                  ? await scanHdr(data.path, data.frame.hdr)
+                  : await engine.statistics(data.path, data.frame!)
+                : data.type === 'thumbnail' || data.type === 'thumbnail-fallback'
+                  ? await engine.thumbnail(
+                      data.path,
+                      data.output,
+                      data.type === 'thumbnail-fallback',
+                    )
+                  : data.type === 'capture-metadata' || data.type === 'capture-metadata-session'
+                    ? await engine.inspectCapture(
+                        data.path,
+                        data.type === 'capture-metadata-session',
+                      )
+                    : data.type === 'metadata'
+                      ? await engine.inspect(data.path)
+                      : data.type === 'full'
+                        ? await engine.renderFull(
+                            data.path,
+                            data.output,
+                            (stage) => send({ type: 'stage', stage }),
+                            data.options,
+                            async (progress) => send({ type: 'first-surface', progress }),
+                            data.nativeRaw ? () => nativeRaw.prepare(data.nativeRaw!) : undefined,
+                            data.nativeRaw,
+                          )
+                        : await engine.process(
+                            data.path,
+                            data.output,
+                            data.importMode,
+                            data.importSeed,
+                          )
     send({ type: 'result', result })
   } catch (error) {
     send({ type: 'error', error: error instanceof Error ? error.message : String(error) })

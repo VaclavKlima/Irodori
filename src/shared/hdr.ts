@@ -4,6 +4,7 @@ import type { PreviewPreference } from './hdr-display'
 import { renderDisplay, renderHdrContent, DISPLAY_RENDERING_VERSION } from './display-rendering'
 import { encodeDiagnosticChannel } from './hdr-display'
 import { applyColorIntensity } from './color-intensity'
+import { applyToneCurves, preparedToneCurves, TONE_CURVE_VERSION } from './tone-curves'
 import {
   applyCreativeColor,
   prepareCreativeColor,
@@ -16,7 +17,7 @@ export const HDR_SOURCE_VERSION = 'hdr-source-v2-capture-scale-1'
 export const HDR_JPEG_SOURCE_VERSION = 'hdr-jpeg-v1-relative-white'
 export const SENSOR_BLEND_VERSION = 'sensor-blend-v1'
 export const HDR_RAW_SOURCE_VERSION = `${HDR_SOURCE_VERSION}-${SENSOR_BLEND_VERSION}`
-export const HDR_ADJUSTMENT_VERSION = `hdr-adjustments-v3-${CREATIVE_COLOR_VERSION}`
+export const HDR_ADJUSTMENT_VERSION = `hdr-adjustments-v3-${CREATIVE_COLOR_VERSION}-${TONE_CURVE_VERSION}`
 export const HDR_OUTPUT_VERSION =
   `hdr-output-v6-content-proof-${DISPLAY_RENDERING_VERSION}` as const
 export const HDR_ANALYSIS_VERSION = `hdr-analysis-v4-content-${DISPLAY_RENDERING_VERSION}` as const
@@ -227,6 +228,7 @@ export function adjustHdr(
       else scale((v) => Math.max(0, v + d))
     }
   }
+  out = applyToneCurves(out, preparedToneCurves(p.curves), 'rec2020') as RGB
   const color = creative ?? prepareCreativeColor(p)
   return (
     color ? applyCreativeColor(out, color, 'rec2020') : applyColorIntensity(out, p, 'rec2020')

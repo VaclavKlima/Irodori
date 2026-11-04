@@ -1,5 +1,14 @@
 import { editTransferCapabilities } from './edit-transfer-controls'
 import {
+  identityToneCurves,
+  mergeToneCurves,
+  validateToneCurves,
+  validateToneCurvesPatch,
+  toneCurveCapabilities,
+  type ToneCurves,
+  type ToneCurvesPatch,
+} from './tone-curves'
+import {
   asShot,
   validateWhiteBalance,
   type WhiteBalance,
@@ -42,10 +51,11 @@ import {
   detailCapabilities,
 } from './detail-controls'
 
-export const SETTINGS_VERSION = 11
+export const SETTINGS_VERSION = 12
 export const editCapabilities = {
   settingsVersion: SETTINGS_VERSION,
   editTransfer: editTransferCapabilities,
+  curves: toneCurveCapabilities,
   ...creativeColorCapabilities,
   ...detailCapabilities,
 }
@@ -53,7 +63,8 @@ export type EditCapabilities = typeof editCapabilities
 export type EditFlushScope = { kind: 'all' } | { kind: 'photos'; photoIds: string[] }
 
 export interface EditSettings extends AdjustmentParameters {
-  version: 11
+  version: 12
+  curves: ToneCurves
   noiseReduction: NoiseReductionSettings
   detailSharpening: DetailSharpeningSettings
   colorMixer: ColorMixerSettings
@@ -64,8 +75,9 @@ export interface EditSettings extends AdjustmentParameters {
   lens: LensSettings
 }
 export interface EditPatch extends Partial<
-  Omit<AdjustmentParameters, 'colorMixer' | 'colorGrading'>
+  Omit<AdjustmentParameters, 'colorMixer' | 'colorGrading' | 'curves'>
 > {
+  curves?: ToneCurvesPatch
   colorMixer?: ColorMixerPatch
   colorGrading?: ColorGradingPatch
   noiseReduction?: NoiseReductionPatch
@@ -95,6 +107,7 @@ export interface EditHistory extends EditState {
 export function initialSettings(lens = automaticLensSettings): EditSettings {
   return {
     version: SETTINGS_VERSION,
+    curves: structuredClone(identityToneCurves),
     crop: { ...identityCrop },
     noiseReduction: { ...neutralNoiseReduction },
     detailSharpening: { ...neutralDetailSharpening },
@@ -120,6 +133,7 @@ export function mergeEditPatch(base: EditSettings, patch: EditPatch): EditSettin
   return structuredClone({
     ...base,
     ...patch,
+    curves: patch.curves ? mergeToneCurves(base.curves, patch.curves) : base.curves,
     noiseReduction: patch.noiseReduction
       ? mergeNoiseReduction(base.noiseReduction, patch.noiseReduction)
       : base.noiseReduction,
@@ -157,12 +171,17 @@ function validateFields(value: unknown, creative: 'patch' | 'full'): asserts val
           'crop',
           'colorMixer',
           'colorGrading',
+          'curves',
         ].includes(key),
     )
   )
     throw new Error('Unknown adjustment.')
   if ('noiseReduction' in patch) validateNoiseReductionPatch(patch.noiseReduction)
   if ('detailSharpening' in patch) validateDetailSharpeningPatch(patch.detailSharpening)
+  if ('curves' in patch) {
+    if (creative === 'full') validateToneCurves(patch.curves)
+    else validateToneCurvesPatch(patch.curves)
+  }
   if ('colorMixer' in patch) {
     if (creative === 'full') validateColorMixer(patch.colorMixer)
     else validateColorMixerPatch(patch.colorMixer)

@@ -4,6 +4,7 @@ import { neutralColorMixer } from './color-mixer'
 import { neutralColorGrading } from './color-grading'
 import { neutralNoiseReduction, neutralDetailSharpening } from './spatial-detail'
 import { identityCrop } from './crop'
+import { identityToneCurves } from './tone-curves'
 import { automaticLensSettings, correctionKinds, type LensState } from './lens'
 
 /** Each returned patch is committed atomically by the existing photo edit service. */
@@ -14,7 +15,15 @@ export function inspectorReset(
 ): EditPatch {
   switch (group) {
     case 'light':
-      return { exposureEv: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0 }
+      return {
+        exposureEv: 0,
+        contrast: 0,
+        highlights: 0,
+        shadows: 0,
+        whites: 0,
+        blacks: 0,
+        curves: identityToneCurves,
+      }
     case 'color':
       return {
         saturation: 0,

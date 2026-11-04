@@ -5,6 +5,9 @@ import {
   packCreativeColor,
 } from '../../../shared/creative-color-gpu'
 import { rasterAdjustmentShader } from '../../../shared/raster-adjustments-shader'
+import { preparedToneCurves, type CompiledToneCurves } from '../../../shared/tone-curves'
+import { packToneCurves, TONE_CURVE_PARAMETER_BYTES } from '../../../shared/tone-curves-gpu'
+import { neutralColorMixer } from '../../../shared/color-mixer'
 import { identityMatrix, whiteBalanceMatrix } from '../../../shared/white-balance'
 import { retainPresentationBitmap } from './frame-cache'
 import type { Size, View } from './geometry'
@@ -122,6 +125,7 @@ export class PreviewPresenter {
   }
   private creativeFailed = false
   private creativeBytes = 0
+  private uploadedCurves?: CompiledToneCurves
   private texture?: WebGLTexture
   private beforeTexture?: WebGLTexture
   private beforeSource?: WorkingFrame
@@ -217,7 +221,7 @@ export class PreviewPresenter {
       timer: undefined as ReturnType<typeof setTimeout> | undefined,
     }
     this.creativePending = pending
-    this.creativeBytes = CREATIVE_COLOR_PARAMETER_BYTES
+    this.creativeBytes = CREATIVE_COLOR_PARAMETER_BYTES + TONE_CURVE_PARAMETER_BYTES
     this.canvas.dataset.colorProgram = 'pending'
     const fail = (
       reason = gl.getProgramInfoLog(program) || 'Creative-color GPU program failed.',
@@ -236,7 +240,7 @@ export class PreviewPresenter {
         )
       const source = (this.beforeTexture ? comparisonFragment(fragment) : fragment)
         .replace('precision highp float;', 'precision highp float;precision highp int;')
-        .replace(rasterAdjustmentShader('glsl'), rasterAdjustmentShader('glsl', true))
+        .replace(rasterAdjustmentShader('glsl'), rasterAdjustmentShader('glsl', true, 12, true))
       for (const [kind, code] of [
         [gl.VERTEX_SHADER, vertex],
         [gl.FRAGMENT_SHADER, source],
@@ -267,6 +271,7 @@ export class PreviewPresenter {
         for (const shader of shaders) gl.deleteShader(shader)
         this.creativePending = undefined
         this.creativeProgram = program
+        this.uploadedCurves = undefined
         this.canvas.dataset.colorProgram = 'ready'
         if (redraw && this.view)
           this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
@@ -407,6 +412,7 @@ export class PreviewPresenter {
     this.clearCreativePreparation()
     if (this.creativeProgram) gl?.deleteProgram(this.creativeProgram)
     this.creativeProgram = undefined
+    this.uploadedCurves = undefined
     this.creativeBytes = 0
     this.creativeFailed = false
     if (this.spatialProgram) gl?.deleteProgram(this.spatialProgram)
@@ -474,10 +480,16 @@ export class PreviewPresenter {
     const sourceWaiting = !this.bitmap && (!this.gl || !this.working)
     this.canvas.style.visibility = waiting || sourceWaiting ? 'hidden' : ''
     if (waiting || sourceWaiting) return
+    const curves = preparedToneCurves(parameters.curves)
     const gl = this.gl,
-      colour = prepareCreativeColor(parameters),
+      colour =
+        prepareCreativeColor(parameters) ??
+        prepareCreativeColor({ ...parameters, colorMixer: neutralColorMixer })!,
       creative =
-        gl && this.working && this.comparison.mode !== 'before' && creativeColorActive(colour),
+        gl &&
+        this.working &&
+        this.comparison.mode !== 'before' &&
+        (creativeColorActive(colour) || !curves.identity),
       program = creative ? this.prepareCreativeProgram() : (this.spatialProgram ?? this.program)
     if (creative && !program) {
       this.view = {
@@ -511,6 +523,10 @@ export class PreviewPresenter {
       gl.bindTexture(gl.TEXTURE_2D, this.texture!)
       gl.uniform1i(location('pixels'), 0)
       if (creative) gl.uniform4fv(location('creativeColorData[0]'), packCreativeColor(colour!))
+      if (creative && this.uploadedCurves !== curves) {
+        gl.uniform4fv(location('toneCurveData[0]'), packToneCurves(curves))
+        this.uploadedCurves = curves
+      }
       gl.uniform2f(location('viewport'), viewport.width, viewport.height)
       gl.uniform2f(location('imageSize'), image.width, image.height)
       gl.uniform2f(location('pan'), view.x, view.y)
@@ -571,6 +587,7 @@ export class PreviewPresenter {
     this.canvas.dataset.vibrance = String(parameters.vibrance)
     this.canvas.dataset.colorMixer = JSON.stringify(parameters.colorMixer ?? null)
     this.canvas.dataset.colorGrading = JSON.stringify(parameters.colorGrading ?? null)
+    this.canvas.dataset.curves = JSON.stringify(parameters.curves ?? null)
 
     this.canvas.dataset.contrast = String(parameters.contrast)
     this.canvas.dataset.exposure = String(parameters.exposureEv)

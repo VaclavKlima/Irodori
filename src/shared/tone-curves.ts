@@ -12,6 +12,33 @@ export interface CurvePoint {
 }
 export type ToneCurve = readonly CurvePoint[]
 export type ToneCurves = { readonly version: 1 } & Readonly<Record<CurveChannel, ToneCurve>>
+export type ToneCurvesPatch = Partial<Record<CurveChannel, ToneCurve>> & { version?: 1 }
+export const toneCurveCapabilities = {
+  version: 1,
+  policy: TONE_CURVE_VERSION,
+  channels: curveChannels,
+  minPoints: 2,
+  maxPoints: CURVE_POINT_LIMIT,
+  minCoordinate: -16,
+  maxCoordinate: 64,
+  minInputSpacing: CURVE_POINT_SPACING,
+  referenceWhite: 1,
+  sampleDiameter: 5,
+  domain: 'linear-reference-white',
+  interpolation: 'pchip',
+  tails: 'rational-c1-unit-slope-limit',
+  master: 'xyz-y-preserving-lab-d65-chroma',
+  stageOrder: [
+    'whiteBalance',
+    'light',
+    'master',
+    'redGreenBlue',
+    'saturationVibrance',
+    'colorMixer',
+    'colorGrading',
+    'output',
+  ],
+} as const
 const identity: ToneCurve = Object.freeze([
   Object.freeze({ input: 0, output: 0 }),
   Object.freeze({ input: 1, output: 1 }),
@@ -72,6 +99,60 @@ export function validateToneCurves(value: unknown): asserts value is ToneCurves 
   )
     throw new Error('Unsupported tone-curve settings.')
   for (const channel of curveChannels) validateToneCurve(curves[channel])
+}
+export function validateToneCurvesPatch(value: unknown): asserts value is ToneCurvesPatch {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    Object.keys(value).some(
+      (key) => key !== 'version' && !curveChannels.includes(key as CurveChannel),
+    ) ||
+    ('version' in value && value.version !== 1)
+  )
+    throw new Error(
+      'Invalid curve channels. Replace each selected channel with a complete point array.',
+    )
+  for (const channel of curveChannels)
+    if (channel in value) validateToneCurve((value as ToneCurvesPatch)[channel])
+}
+export function mergeToneCurves(base: ToneCurves, patch: ToneCurvesPatch): ToneCurves {
+  validateToneCurvesPatch(patch)
+  return {
+    version: 1,
+    ...Object.fromEntries(
+      curveChannels.map((channel) => [
+        channel,
+        (patch[channel] ?? base[channel]).map((p) => ({ input: p.input, output: p.output })),
+      ]),
+    ),
+  } as ToneCurves
+}
+export const sameToneCurves = (a?: ToneCurves, b?: ToneCurves) =>
+  curveChannels.every((channel) => {
+    const x = (a ?? identityToneCurves)[channel],
+      y = (b ?? identityToneCurves)[channel]
+    return (
+      x.length === y.length && x.every((p, i) => p.input === y[i].input && p.output === y[i].output)
+    )
+  })
+
+// Immutable settings objects are shared by pan/zoom and frame refinement.
+const compiled = new WeakMap<ToneCurves, CompiledToneCurves>()
+let lastCompilation: { key: string; value: CompiledToneCurves } | undefined
+export function preparedToneCurves(settings?: ToneCurves): CompiledToneCurves {
+  const value = settings ?? identityToneCurves
+  let result = compiled.get(value)
+  if (!result) {
+    const key = JSON.stringify([
+      value.version,
+      ...curveChannels.map((channel) => value[channel].flatMap((p) => [p.input, p.output])),
+    ])
+    result = lastCompilation?.key === key ? lastCompilation.value : compileToneCurves(value)
+    lastCompilation = { key, value: result }
+    compiled.set(value, result)
+  }
+  return result
 }
 function endpoint(h0: number, h1: number, d0: number, d1: number) {
   const slope = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1)

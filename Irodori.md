@@ -25,6 +25,11 @@ The complete HDR destination includes exposure merging: RAW brackets or supporte
 
 These are planned capabilities. The current application provides a managed library, persisted light adjustments, verified Sony RAW white balance and lens corrections, shared history, and preview analysis. Supported Sony RAWs and merge masters use scene-linear Rec.2020 working assets and one automatic ACES 2 HDR/SDR renderer; raster images keep their authored, color-managed appearance. Local Linux and built-in Mac Retina display evidence is recorded; physical luminance, Windows and broader platform certification remain unverified. The bounded Sony HDR merge/noise-stacking workflow remains experimental: supplied handheld portraits pass automatic alignment and native-detail validation, and final M4 Pro 2/3/5/9-frame noise measurements pass the 15-second gate. The stricter three-RAW five-second target remains unmet for both HDR and noise; [Mac workability](docs/mac-workability.md) records the remaining acceptance gaps. Larger controlled HDR brackets and 32-frame real RAW sequences still need verification. Individual and batch SDR/ISO 21496-1 HDR JPEG export use frozen edits and managed sources. Bounded ISO gain-map JPEG import preserves the authored HDR rendition and SDR primary. Other HDR file imports and export formats remain planned; the console remains read-only.
 
+Master/RGB curves with direct photograph targeting now share preview, history,
+selective transfer, the typed API/MCP and frozen GPU export. Focused Bazzite
+acceptance, the deliberate version-12 color-order migration and remaining clipping,
+platform and initial-activation limits are recorded in [tone curves](docs/features/tone-curves.md).
+
 Generative retouching, automatic masking, and cloud synchronization belong to later releases.
 
 The default [ACES 2 rendering pipeline](docs/display-rendering.md) preserves capture exposure and As Shot white balance, including night-scene darkness. Its fixed Rec.2020/D65 HDR content rendition uses nominal 1000-nit peak and 100-nit reference; monitor capability changes only presentation and diagnostics. SDR preview retains its direct rendition. It follows white balance and Light adjustments and stays separate from linear working assets. Measured Sony color/exposure calibration and physical screen luminance remain unverified.

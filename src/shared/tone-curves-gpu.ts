@@ -11,7 +11,7 @@ export const TONE_CURVE_PARAMETER_BYTES = TONE_CURVE_PARAMETER_FLOATS * 4
 export function packToneCurves(
   curves: CompiledToneCurves,
   target = new Float32Array(TONE_CURVE_PARAMETER_FLOATS),
-): Float32Array {
+): Float32Array<ArrayBuffer> {
   if (target.length !== TONE_CURVE_PARAMETER_FLOATS)
     throw new Error('Invalid tone-curve parameter allocation.')
   target.fill(0)
@@ -74,9 +74,9 @@ export function toneCurvesWgsl(primaries: ColorPrimaries, binding = 7): string {
     throw new Error('Invalid tone-curve binding.')
   return `
 @group(0) @binding(${binding}) var<storage,read> toneCurveData:array<vec4f>;
-${compensatedScalarWgsl('curve')}
+${compensatedScalarWgsl('curve', 'toneCurveData[4].z')}
 fn curveLess(a:vec2f,b:vec2f)->bool {return a.x<b.x || (a.x==b.x && a.y<b.y);}
-fn curveValue(a:vec2f)->f32 {return a.x+a.y;}
+fn curveValue(a:vec2f)->f32 {if(a.y==0.) {return a.x;}return a.x+a.y;}
 fn curveEvaluate(value:vec2f,base:u32)->vec2f {
   let header=toneCurveData[base];
   if(header.y==1.) {return value;}

@@ -1,10 +1,18 @@
 import { colorIntensityWgsl } from './color-intensity'
 import { creativeColorWgsl } from './creative-color-gpu'
+import { toneCurvesWgsl } from './tone-curves-gpu'
 
 /** Shared scene-linear white balance, Light and Color operators for preview and export. */
-export function hdrAdjustmentShader(creative = false, binding = 12, power = 'acesPow'): string {
+export function hdrAdjustmentShader(
+  creative = false,
+  binding = 12,
+  power = 'acesPow',
+  curves = false,
+  curveBinding = 14,
+): string {
   return `
 ${creative ? creativeColorWgsl('rec2020', binding, power) : colorIntensityWgsl('rec2020', power)}
+${curves ? toneCurvesWgsl('rec2020', curveBinding) : ''}
 const irodori = vec3f(.2627002120112671, .6779980715188708, .059301716469862);
 fn adjusted(input: vec3f) -> vec3f {
   var rgb = input;
@@ -30,6 +38,7 @@ fn adjusted(input: vec3f) -> vec3f {
     let d = .04*b*pow(max(1.-y/.18,0.),3.);
     if (b > 0.) { rgb += vec3f(d); } else if (y > 0.) { rgb *= max(0.,y+d)/y; }
   }
+  ${curves ? 'rgb=applyToneCurves(rgb);' : ''}
   return ${creative ? 'applyCreativeColor(rgb)' : 'applyColorIntensity(rgb,u.values[11].xy)'};
 }
 `

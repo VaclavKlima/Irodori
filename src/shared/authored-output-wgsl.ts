@@ -26,13 +26,14 @@ export function authoredOutputShader(
   creative: boolean,
   options: PointRenderOptions,
   workgroup: number,
+  curves = false,
 ) {
   const primary = !!options.primary,
     raster = options.domain === 'raster',
     channels = hdr ? 6 : 3
   // Namespace the independent source-domain helpers when both renditions are required.
-  const rasterMath = rasterAdjustmentShader('wgsl', creative, 12)
-  const hdrMath = hdrAdjustmentShader(creative, 13, 'pow')
+  const rasterMath = rasterAdjustmentShader('wgsl', creative, 12, curves, 14)
+  const hdrMath = hdrAdjustmentShader(creative, 13, 'pow', curves, 15)
   const declarations = new Set(
     [...hdrMath.matchAll(/\b(?:fn|struct|const)\s+([A-Za-z][A-Za-z0-9_]*)/g)].map(
       (match) => match[1],

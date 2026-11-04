@@ -32,6 +32,8 @@ import {
 import { prepareHdrPipelines } from '../../renderer/src/preview/hdr-pipelines'
 import { prepareCreativeColor, creativeColorActive } from '../../shared/creative-color'
 import { packCreativeColor, CREATIVE_COLOR_PARAMETER_BYTES } from '../../shared/creative-color-gpu'
+import { preparedToneCurves } from '../../shared/tone-curves'
+import { packToneCurves, TONE_CURVE_PARAMETER_BYTES } from '../../shared/tone-curves-gpu'
 import {
   FirstSurfaceConsumerError,
   FirstSurfaceGpuError,
@@ -211,6 +213,8 @@ export async function renderFirstSurface(
   const colour = prepareCreativeColor(request.parameters),
     creative = creativeColorActive(colour),
     colourBytes = creative ? CREATIVE_COLOR_PARAMETER_BYTES : 0
+  const compiledCurves = preparedToneCurves(request.parameters.curves),
+    curves = !compiledCurves.identity
   const image = request.image
   const view = Object.freeze({ fit: true, scale: fitScale(image, request.viewport), x: 0, y: 0 })
   const canvasWidth = Math.max(1, Math.round(request.viewport.width * request.dpr))
@@ -274,6 +278,7 @@ export async function renderFirstSurface(
     tables: ACES_DATA_BYTES,
     orientation: borrow.flip === 0 ? 0 : 16,
     ...(creative ? { creative: colourBytes } : {}),
+    ...(curves ? { curves: TONE_CURVE_PARAMETER_BYTES } : {}),
   }
   const fixedGpuBytes = sum(Object.values(fixedOwners))
   const fixedHostBytes = sum([
@@ -283,6 +288,7 @@ export async function renderFirstSurface(
     checked(plan.tiles.length * 256, 'tile metadata allowance'),
     fixedOwners.orientation * 2,
     colourBytes * 3,
+    curves ? TONE_CURVE_PARAMETER_BYTES * 3 : 0,
   ])
   const sharedOwners = Object.freeze({
     nativeSource: bytes(borrow.baseEstimatedRamBytes, borrow.baseEstimatedGpuBytes),
@@ -411,6 +417,7 @@ export async function renderFirstSurface(
     const prepared = prepareHdrPipelines(device, {
       interactive: false,
       ...(creative ? { creative: true } : {}),
+      ...(curves ? { curves: true } : {}),
     })
     const [programs, orientedProgram] = await Promise.all([
       prepared.pipelines,
@@ -460,6 +467,14 @@ export async function renderFirstSurface(
         )
       : undefined
     if (colourBuffer) device.queue.writeBuffer(colourBuffer, 0, packCreativeColor(colour!))
+    const curveBuffer = curves
+      ? buffer(
+          TONE_CURVE_PARAMETER_BYTES,
+          GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          'first viewport curves',
+        )
+      : undefined
+    if (curveBuffer) device.queue.writeBuffer(curveBuffer, 0, packToneCurves(compiledCurves))
     if (orientationUniform)
       device.queue.writeBuffer(orientationUniform, 0, new Uint32Array([borrow.flip, 0, 0, 0]))
     const cached = own(
@@ -567,6 +582,7 @@ export async function renderFirstSurface(
         { binding: 4, resource: { buffer: tables } },
         { binding: 5, resource: { buffer: jobs } },
         ...(colourBuffer ? [{ binding: 12, resource: { buffer: colourBuffer } }] : []),
+        ...(curveBuffer ? [{ binding: 14, resource: { buffer: curveBuffer } }] : []),
       ],
     })
     const presentationGroup = device.createBindGroup({
@@ -584,6 +600,7 @@ export async function renderFirstSurface(
     const neutral =
       !wb &&
       !creative &&
+      !curves &&
       [
         request.parameters.exposureEv,
         request.parameters.contrast,
@@ -594,7 +611,7 @@ export async function renderFirstSurface(
         request.parameters.saturation,
         request.parameters.vibrance,
       ].every((value) => value === 0)
-    const kernel = hdrCacheKernel('reference', creative)
+    const kernel = hdrCacheKernel('reference', creative, curves)
     let first = true,
       batches = 0
     for (const batch of cache.batches(plan, neutral)) {

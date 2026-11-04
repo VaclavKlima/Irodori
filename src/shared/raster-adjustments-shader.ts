@@ -9,10 +9,18 @@ import {
 import { colorIntensityGlsl, colorIntensityWgsl } from './color-intensity'
 import { creativeColorGlsl } from './creative-color-glsl'
 import { creativeColorWgsl } from './creative-color-gpu'
+import { toneCurvesWgsl } from './tone-curves-gpu'
+import { toneCurvesGlsl } from './tone-curves-glsl'
 
 /** One authored-image operator order for live presentation and streamed output.
  * GLSL and WGSL are API frontends for the same stage, on both supported platforms. */
-export function rasterAdjustmentShader(language: 'glsl' | 'wgsl', creative = false, binding = 12) {
+export function rasterAdjustmentShader(
+  language: 'glsl' | 'wgsl',
+  creative = false,
+  binding = 12,
+  curves = false,
+  curveBinding = 14,
+) {
   const modules = [
     exposureModule,
     contrastModule,
@@ -25,6 +33,7 @@ export function rasterAdjustmentShader(language: 'glsl' | 'wgsl', creative = fal
   if (language === 'glsl')
     return `${math}
 ${creative ? creativeColorGlsl('srgb') : colorIntensityGlsl}
+${curves ? toneCurvesGlsl('srgb') : ''}
 vec3 rasterAdjusted(vec3 inputRgb, vec4 light, vec2 endpoints, vec2 intensity, float white) {
   vec3 rgb=max(applyExposure(inputRgb,light.x),vec3(0));
   rgb=applyContrast(rgb,light.y,white);
@@ -32,11 +41,13 @@ vec3 rasterAdjusted(vec3 inputRgb, vec4 light, vec2 endpoints, vec2 intensity, f
   rgb=applyShadows(rgb,light.w,white);
   rgb=applyWhites(rgb,endpoints.x,white);
   rgb=applyBlacks(rgb,endpoints.y,white);
+  ${curves ? 'rgb=applyToneCurves(rgb/white)*white;' : ''}
   ${creative ? 'rgb=applyCreativeColor(rgb/white)*white;' : 'if(any(notEqual(intensity,vec2(0)))) rgb=applyColorIntensity(rgb/white,intensity)*white;'}
   return rgb;
 }`
   return `${math}
 ${creative ? creativeColorWgsl('srgb', binding) : colorIntensityWgsl('srgb')}
+${curves ? toneCurvesWgsl('srgb', curveBinding) : ''}
 fn rasterAdjusted(inputRgb:vec3f,light:vec4f,endpoints:vec2f,intensity:vec2f,white:f32)->vec3f {
   var rgb=max(applyExposure(inputRgb,light.x),vec3f(0.));
   rgb=applyContrast(rgb,light.y,white);
@@ -44,6 +55,7 @@ fn rasterAdjusted(inputRgb:vec3f,light:vec4f,endpoints:vec2f,intensity:vec2f,whi
   rgb=applyShadows(rgb,light.w,white);
   rgb=applyWhites(rgb,endpoints.x,white);
   rgb=applyBlacks(rgb,endpoints.y,white);
+  ${curves ? 'rgb=applyToneCurves(rgb/white)*white;' : ''}
   ${creative ? 'rgb=applyCreativeColor(rgb/white)*white;' : 'rgb=applyColorIntensity(rgb/white,intensity)*white;'}
   return rgb;
 }`

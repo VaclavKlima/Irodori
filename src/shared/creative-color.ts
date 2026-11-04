@@ -25,15 +25,10 @@ import {
   type ColorGradingSettings,
   type CompiledColorGrading,
 } from './color-grading'
-import {
-  creativeLab,
-  creativeLabResult,
-  labLightness,
-  type CreativeLabValue,
-} from './creative-color-lab'
+import { creativeLab, creativeLabResult, type CreativeLabValue } from './creative-color-lab'
 import type { ColorPrimaries, ColorTriple } from './color-model'
 
-export const CREATIVE_COLOR_VERSION = `${COLOR_MIXER_VERSION}_${COLOR_INTENSITY_VERSION}_${COLOR_GRADING_VERSION}`
+export const CREATIVE_COLOR_VERSION = `intensity-mixer-grading-v2_${COLOR_MIXER_VERSION}_${COLOR_INTENSITY_VERSION}_${COLOR_GRADING_VERSION}`
 export interface CompiledCreativeColor {
   readonly mixer: CompiledColorMixer
   readonly grading: CompiledColorGrading
@@ -155,20 +150,7 @@ export function compileCreativeColor(
   })
 }
 
-function intensityLab(
-  value: CreativeLabValue,
-  intensity: ColorIntensityParameters,
-): CreativeLabValue {
-  if (intensity.saturation === 0 && intensity.vibrance === 0) return value
-  if (intensity.saturation === -100) return { ...value, a: 0, b: 0 }
-  const l = labLightness(value.y),
-    denominator = l * l + 4 * (value.a * value.a + value.b * value.b),
-    weight = denominator > 0 ? (l * l) / denominator : 0,
-    gain = (1 + intensity.saturation / 100) * 2 ** ((intensity.vibrance / 100) * weight)
-  return gain === 1 ? value : { ...value, a: value.a * gain, b: value.b * gain }
-}
-
-/** One Lab reconstruction for all creative operators; old neutral processing stays exact. */
+/** Version 12 deliberately migrates appearance to intensity → mixer → grading. */
 export function applyCreativeColor(
   rgb: ColorTriple,
   controls: CompiledCreativeColor,
@@ -176,15 +158,14 @@ export function applyCreativeColor(
 ): ColorTriple {
   if (!controls.mixer.active && !controls.grading.active)
     return applyColorIntensity(rgb, controls.intensity, primaries)
-  const original = creativeLab(rgb, primaries),
+  const colored = applyColorIntensity(rgb, controls.intensity, primaries),
+    original = creativeLab(colored, primaries),
     initial: CreativeLabValue = { y: original.xyz[1], a: original.a, b: original.b },
     mixed = controls.mixer.active
-      ? colorMixerLab(initial, controls.mixer, colorMixerSelection(rgb, primaries))
+      ? colorMixerLab(initial, controls.mixer, colorMixerSelection(colored, primaries))
       : initial,
     grade = colorGradingAmounts(mixed.y, controls.grading)
-  if (mixed === initial && grade.every((v) => v === 0))
-    return applyColorIntensity(rgb, controls.intensity, primaries)
-  const colored = intensityLab(mixed, controls.intensity),
-    result = colorGradingLab(colored, grade)
-  return creativeLabResult(rgb, primaries, original, result.y, result.a, result.b)
+  if (mixed === initial && grade.every((v) => v === 0)) return colored
+  const result = colorGradingLab(mixed, grade)
+  return creativeLabResult(colored, primaries, original, result.y, result.a, result.b)
 }

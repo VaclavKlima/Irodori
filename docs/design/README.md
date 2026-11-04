@@ -213,3 +213,13 @@ Verify the affected targets and genuinely new navigation/state behavior,
 including actual Electron minimum sizing with Console open. Close #34 and #33
 only after their respective implementations and relevant checks pass. Do not
 resume unrelated processing or performance work as part of this handoff.
+
+## Curves interaction study — November 4, 2026
+
+[tone-curves-prototype.html](tone-curves-prototype.html) records the #45 extension
+before application integration. It demonstrates channel selection, Standard/HDR/Fit
+points, numeric entry and targeted gestures using a committed forest photograph.
+The photograph remains unchanged in this study. It follows Sunflower and the
+approved List + Beside browser composition; the original prototype stays intact.
+Actual processing, persistence and gesture semantics are documented in
+[tone curves](../features/tone-curves.md).

@@ -14,7 +14,10 @@ export also pass. Strong-noise quality and remaining performance acceptance stay
 open. Custom export now offers explicit Lanczos3
 enlargement. Selective copy/paste and bounded batch edits share normal photo history,
 conflict checks and retained task results; the clipboard clears on application restart.
-Advanced curves, named presets and output-proof/sharpening tools remain separate backlog tasks.
+Master/Red/Green/Blue curves now share preview, history, MCP and frozen export.
+See [curve controls and acceptance limits](docs/features/tone-curves.md), including
+the deliberate version-12 color-order appearance migration. Named presets and
+output-proof/sharpening tools remain separate backlog tasks.
 
 The [GPU-first processing policy](docs/gpu-processing.md) selects one common
 production backend per stage across macOS and Bazzite. Suitable image operations
@@ -134,7 +137,7 @@ This version uses catalog schema 21 and settings version 11. Catalogs 17–20 mi
 
 Cancel stops further work and preserves completed imports. Corrupt files, changed sources, unsupported formats, and write failures are shown individually. Interrupted staging files and unpublished original directories are cleaned at startup. RAW decoder inputs are limited to 512 MB; previews have a 90-second per-file timeout.
 
-Exposure, contrast, highlights, shadows, whites, blacks, Saturation/Vibrance, eight-range mixer, three-way grading, supported white balance, crop/straighten, single-image noise reduction, detail sharpening and lens corrections share persistent edit history and Undo/Redo. Selective copy/paste and bounded batch edits use explicit setting groups and per-photo revision checks. Combined real Sony RAW, photographic raster, ISO gain-map and genuine HDR-merge edit/export/restart checks pass, as does the saved neutral-preview performance comparison. Photographic quality, full-size resources, native editing interaction and sustained responsiveness remain under verification; see [the acceptance record](docs/features/professional-editing-processing.md). Curves, named presets and final-output proof/sharpening remain planned. Broader HDR import, additional export formats and agent execution remain future milestones; metadata comes from the imported file and missing fields display a dash. The console remains read-only.
+Exposure, contrast, highlights, shadows, whites, blacks, Master/RGB curves, Saturation/Vibrance, eight-range mixer, three-way grading, supported white balance, crop/straighten, single-image noise reduction, detail sharpening and lens corrections share persistent edit history and Undo/Redo. Selective copy/paste and bounded batch edits use explicit setting groups and per-photo revision checks. Combined real Sony RAW, photographic raster, ISO gain-map and genuine HDR-merge edit/export/restart checks pass, as does the saved neutral-preview performance comparison. Photographic quality, full-size resources, native editing interaction and sustained responsiveness retain their recorded limits; see [the acceptance record](docs/features/professional-editing-processing.md). Named presets and final-output proof/sharpening remain planned. Broader HDR import, additional export formats and agent execution remain future milestones; metadata comes from the imported file and missing fields display a dash. The console remains read-only.
 
 ## Merge photographs
 

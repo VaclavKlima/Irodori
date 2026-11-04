@@ -84,6 +84,7 @@ test('stdio editing tools share persisted history with UI without a development 
       'irodori_get_edits',
       'irodori_get_crop_context',
       'irodori_propose_white_balance',
+      'irodori_sample_curve_tone',
       'irodori_get_edit_history',
       'irodori_update_edits',
       'irodori_undo_edit',

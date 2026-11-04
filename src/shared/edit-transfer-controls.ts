@@ -1,5 +1,6 @@
 export const editTransferGroups = [
   { id: 'light', label: 'Light', default: true },
+  { id: 'curves', label: 'Curves', default: true },
   { id: 'color', label: 'Saturation and vibrance', default: true },
   { id: 'mixer', label: 'Color mixer', default: true },
   { id: 'grading', label: 'Color grading', default: true },

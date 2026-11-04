@@ -138,8 +138,11 @@ function storedHistory(history: EditHistory, catalogVersion: number): EditHistor
   for (const settings of [result.settings, ...result.snapshots.map((s) => s.settings)]) {
     const legacy = settings as unknown as Record<string, unknown>
     legacy.version = catalogVersion - 10
-    delete legacy.noiseReduction
-    delete legacy.detailSharpening
+    delete legacy.curves
+    if (catalogVersion < 21) {
+      delete legacy.noiseReduction
+      delete legacy.detailSharpening
+    }
     if (catalogVersion < 20) {
       delete legacy.colorMixer
       delete legacy.colorGrading
@@ -352,7 +355,7 @@ test('crop history preflight rejects malformed current and legacy geometry, incl
     retained.cursor = 1
     retained.settings = retained.snapshots[1].settings
     retained.canUndo = retained.canRedo = true
-    for (const catalogVersion of [17, 18, 19, 20]) {
+    for (const catalogVersion of [17, 18, 19, 20, 21]) {
       f.db.exec(`PRAGMA user_version=${catalogVersion}`)
       // Every row must match its catalog version, even when only the other row is malformed.
       for (const photo of f.photos) {

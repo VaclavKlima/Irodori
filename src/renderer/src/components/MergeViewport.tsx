@@ -259,7 +259,12 @@ export function MergeViewport({
     model.image.width * view.scale > model.viewport.width + 0.5 ||
     model.image.height * view.scale > model.viewport.height + 0.5
   function pointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 || !event.isPrimary || !ready) return
+    if (
+      (event.button !== 0 && !(event.button === 1 && event.pointerType === 'mouse')) ||
+      !event.isPrimary ||
+      !ready
+    )
+      return
     event.preventDefault()
     event.currentTarget.focus({ preventScroll: true })
     pan.reset()
@@ -338,6 +343,9 @@ export function MergeViewport({
         data-fit={view.fit}
         data-dragging={dragging && ready}
         onPointerDown={pointerDown}
+        onAuxClick={(event) => {
+          if (event.button === 1) event.preventDefault()
+        }}
         onPointerMove={(event) => pan.move(event.nativeEvent)}
         onPointerUp={(event) => pan.release(event.nativeEvent)}
         onPointerCancel={(event) => pan.cancel(event.nativeEvent)}

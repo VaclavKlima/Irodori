@@ -211,7 +211,8 @@ export function validateHdrFirstSurfaceRequest(
     !integer(value.settingsRevision) ||
     !object(value.parameters) ||
     Object.keys(value.parameters).some(
-      (key) => ![...Object.keys(neutralAdjustments), 'colorMixer', 'colorGrading'].includes(key),
+      (key) =>
+        ![...Object.keys(neutralAdjustments), 'colorMixer', 'colorGrading', 'curves'].includes(key),
     ) ||
     Object.keys(neutralAdjustments).some(
       (key) => !Object.prototype.hasOwnProperty.call(value.parameters, key),

@@ -22,6 +22,9 @@ import {
   CREATIVE_COLOR_PARAMETER_BYTES,
   packCreativeColor,
 } from '../../../shared/creative-color-gpu'
+import { preparedToneCurves, type CompiledToneCurves } from '../../../shared/tone-curves'
+import { packToneCurves, TONE_CURVE_PARAMETER_BYTES } from '../../../shared/tone-curves-gpu'
+import { neutralColorMixer } from '../../../shared/color-mixer'
 import type { EditorPreviewPolicy } from '../../../shared/editor-preview-policy'
 import {
   HDR_ADJUSTMENT_VERSION,
@@ -183,6 +186,7 @@ interface HistogramRequest {
   parameters: Float32Array<ArrayBuffer>
   presentation: PresentationRequest
   creative?: CompiledCreativeColor
+  curves?: CompiledToneCurves
 }
 interface RenderedPresentation {
   startedAt: number
@@ -275,6 +279,10 @@ export class HdrPresenter {
   private comparisonHistogramGroup?: GPUBindGroup
   private creativePipelines?: HdrPipelines
   private creativeBuffer?: GPUBuffer
+  private curveBuffer?: GPUBuffer
+  private curveHistogramBuffer?: GPUBuffer
+  private uploadedCurves?: CompiledToneCurves
+  private histogramCurves?: CompiledToneCurves
   private creativeHistogramBuffer?: GPUBuffer
   private creativeHistogramGroup?: GPUBindGroup
   private creativeReservation: HdrManagedBytes = { ramBytes: 0, vramBytes: 0 }
@@ -2231,14 +2239,17 @@ export class HdrPresenter {
       surfacePixels: 0,
     }
     const { image, viewport, view, parameters, target, mode, split, ranges } = request.value
-    const colour = prepareCreativeColor(parameters),
-      colourActive = creativeColorActive(colour),
+    const curves = preparedToneCurves(parameters.curves)
+    const colour =
+        prepareCreativeColor(parameters) ??
+        prepareCreativeColor({ ...parameters, colorMixer: neutralColorMixer })!,
+      colourActive = creativeColorActive(colour) || !curves.identity,
       creative = colourActive && mode !== 'before',
       frame = this.frame!
     if (creative)
       this.creativeReservation = {
-        ramBytes: CREATIVE_COLOR_PARAMETER_BYTES * 6,
-        vramBytes: CREATIVE_COLOR_PARAMETER_BYTES * 2,
+        ramBytes: (CREATIVE_COLOR_PARAMETER_BYTES + TONE_CURVE_PARAMETER_BYTES) * 6,
+        vramBytes: (CREATIVE_COLOR_PARAMETER_BYTES + TONE_CURVE_PARAMETER_BYTES) * 2,
       }
     const device = this.device!,
       dpr = window.devicePixelRatio || 1
@@ -2262,6 +2273,7 @@ export class HdrPresenter {
       const programs = await prepareHdrPipelines(device, {
         interactive: this.interactivePrecision,
         creative: true,
+        curves: true,
       }).pipelines
       if (
         this.abort.signal.aborted ||
@@ -2283,6 +2295,18 @@ export class HdrPresenter {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       })
       device.queue.writeBuffer(this.creativeBuffer, 0, packCreativeColor(colour!))
+      this.curveBuffer ??= device.createBuffer({
+        size: TONE_CURVE_PARAMETER_BYTES,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      })
+      this.curveHistogramBuffer ??= device.createBuffer({
+        size: TONE_CURVE_PARAMETER_BYTES,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      })
+      if (this.uploadedCurves !== curves) {
+        device.queue.writeBuffer(this.curveBuffer, 0, packToneCurves(curves))
+        this.uploadedCurves = curves
+      }
     }
     if (this.cache?.capacity !== memory.cacheSlots) {
       this.cacheTexture?.destroy()
@@ -2440,6 +2464,7 @@ export class HdrPresenter {
               { binding: 4, resource: { buffer: table } },
               { binding: 5, resource: { buffer: this.jobs! } },
               ...(creative ? [{ binding: 12, resource: { buffer: this.creativeBuffer! } }] : []),
+              ...(creative ? [{ binding: 14, resource: { buffer: this.curveBuffer! } }] : []),
             ],
           })
           this.cacheGroups.set(groupKey, cacheGroup)
@@ -2570,7 +2595,7 @@ export class HdrPresenter {
         key: statisticsKey,
         parameters: histogramParams,
         presentation: request.value,
-        ...(creative ? { creative: colour } : {}),
+        ...(creative ? { creative: colour, curves } : {}),
       },
     } satisfies RenderedPresentation
   }
@@ -2786,6 +2811,7 @@ export class HdrPresenter {
       blacks: String(parameters.blacks),
       saturation: String(parameters.saturation),
       vibrance: String(parameters.vibrance),
+      curves: JSON.stringify(parameters.curves ?? null),
       whiteBalance: JSON.stringify(parameters.whiteBalance),
       comparison: mode,
       hdrRanges: String(ranges),
@@ -2877,7 +2903,7 @@ export class HdrPresenter {
   private async runHistogram() {
     const request = this.histogramQueue.take()
     if (!request || this.abort.signal.aborted) return
-    const { parameters, presentation, key, creative } = request.value
+    const { parameters, presentation, key, creative, curves } = request.value
     const before = presentation.mode === 'before' && !!presentation.beforeIdentity,
       frame = before ? this.comparisonFrame! : this.frame!
     const device = this.device!
@@ -2885,6 +2911,10 @@ export class HdrPresenter {
     try {
       device.queue.writeBuffer(this.histogramUniform!, 0, parameters)
       if (creative) {
+        if (curves && this.histogramCurves !== curves) {
+          device.queue.writeBuffer(this.curveHistogramBuffer!, 0, packToneCurves(curves))
+          this.histogramCurves = curves
+        }
         device.queue.writeBuffer(this.creativeHistogramBuffer!, 0, packCreativeColor(creative))
         this.creativeHistogramGroup ??= device.createBindGroup({
           layout: this.creativePipelines!.histogram.getBindGroupLayout(0),
@@ -2894,6 +2924,7 @@ export class HdrPresenter {
             { binding: 4, resource: { buffer: this.rendering! } },
             { binding: 6, resource: { buffer: this.histogramBuffer! } },
             { binding: 12, resource: { buffer: this.creativeHistogramBuffer! } },
+            { binding: 14, resource: { buffer: this.curveHistogramBuffer! } },
           ],
         })
       }
@@ -3183,6 +3214,8 @@ export class HdrPresenter {
     this.histogramReadback?.destroy()
     this.creativeBuffer?.destroy()
     this.creativeHistogramBuffer?.destroy()
+    this.curveBuffer?.destroy()
+    this.curveHistogramBuffer?.destroy()
     if (
       cacheEligible &&
       this.device &&

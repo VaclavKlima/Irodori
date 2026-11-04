@@ -7,7 +7,10 @@ import type { ColorMixerSettings } from '../src/shared/color-mixer'
 import { expect, test } from './electron.fixture'
 
 const reference = JSON.parse(
-  readFileSync(new URL('./fixtures/creative-color-reference.json', import.meta.url), 'utf8'),
+  readFileSync(
+    new URL('../assets/tests/references/creative-color-v2/reference.json', import.meta.url),
+    'utf8',
+  ),
 ) as {
   configurations: {
     mixer: ColorMixerSettings

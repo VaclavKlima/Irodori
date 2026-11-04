@@ -68,6 +68,7 @@ export async function startEditorEndpoint(
         x,
         y,
         sample,
+        curveSample,
         exportRequest,
         preparationId,
         pasteRequest,
@@ -99,6 +100,7 @@ export async function startEditorEndpoint(
         x: number
         y: number
         sample: import('../shared/white-balance-picker').WhiteBalanceSample
+        curveSample: import('../shared/curve-tone').CurveToneRequest
         pasteRequest: import('../shared/edit-transfer').PasteEditsRequest
         exportRequest: import('../shared/export').ExportStart
         preparationId: string
@@ -273,6 +275,9 @@ export async function startEditorEndpoint(
           break
         case 'irodori_propose_white_balance':
           result = await library.proposeWhiteBalance(photoId, expectedRevision, sample)
+          break
+        case 'irodori_sample_curve_tone':
+          result = await library.sampleCurveTone(photoId, expectedRevision, curveSample)
           break
         case 'irodori_get_photo_pixel':
           result = await library.getPhotoPixel(photoId, expectedRevision, x, y, {

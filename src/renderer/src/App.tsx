@@ -23,6 +23,7 @@ import type { PreviewPreference } from '../../shared/hdr-display'
 import { usePreviewTools } from './hooks/usePreviewTools'
 import { useEdits } from './hooks/useEdits'
 import { useWhiteBalancePicker } from './hooks/useWhiteBalancePicker'
+import { useToneCurves } from './hooks/useToneCurves'
 import { useCrop } from './hooks/useCrop'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -199,9 +200,25 @@ export function App() {
     workspace === 'editor' && !!photo && !crop.active && !crop.pending,
     !!photo && interactivePhoto === photo.id,
   )
+  const toneCurves = useToneCurves(
+    edits,
+    photo?.id,
+    workspace === 'editor' &&
+      inspectorGroup === 'light' &&
+      !!photo &&
+      !crop.active &&
+      !crop.pending &&
+      !whiteBalancePicker.active &&
+      !mergeTargets &&
+      !importOpen &&
+      !settingsOpen,
+    !!photo && interactivePhoto === photo.id,
+    displayTarget.mode === 'hdr' && !!edits.state?.hdrEligible,
+  )
   const startCrop = async () => {
     if (!crop.supported || crop.pending) return
     whiteBalancePicker.cancel()
+    toneCurves.cancelTarget()
     previewTools.update({ mode: 'after' })
     setInspectorGroup('geometry')
     saveWorkspace({ inspectorGroup: 'geometry' })
@@ -1189,6 +1206,7 @@ export function App() {
             )}
             <PhotoPreview
               crop={cropTool}
+              toneCurves={toneCurves}
               whiteBalancePicker={whiteBalancePicker}
               previewPolicy={editorPreviewPolicy}
               hdrJpeg={edits.state?.hdrJpeg?.state === 'supported'}
@@ -1230,6 +1248,7 @@ export function App() {
         </main>
 
         <Inspector
+          toneCurves={toneCurves}
           group={inspectorGroup}
           colorTab={colorTab}
           onGroupChange={(inspectorGroup) => {

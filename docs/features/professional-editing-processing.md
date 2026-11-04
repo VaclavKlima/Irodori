@@ -53,8 +53,8 @@ Its small native export crops retain the recorded functional scope.
 | Supported ISO HDR JPEG         | Authored HDR Rec.2020/D65 rendition with a preserved SDR primary.                                                                                           | Keep the authored-source adapter and existing HDR/SDR policy; do not apply the RAW ACES transform a second time.                              |
 
 The current scene pipeline is source preparation → native-reference denoise/detail
-→ committed geometry → custom white balance → Light → mixer → Saturation/Vibrance
-→ three-way grading → fixed ACES 2 HDR/direct SDR rendition → presentation or
+→ committed geometry → custom white balance → Light → Master → RGB curves →
+Saturation/Vibrance → mixer → three-way grading → fixed ACES 2 HDR/direct SDR rendition → presentation or
 export. Actual export resizes use linear-light Lanczos3 after rendition transforms
 and before quantization/gain-map generation. Monitor headroom changes presentation
 only. Raster and authored HDR adapters keep their documented different source
@@ -67,8 +67,8 @@ before final output mapping; crop/rotation geometry before final export sizing;
 output sharpening after final resize. Source preparation and expensive neighborhood
 stages need reusable, versioned intermediates. Do not repeat RAW decoding during a
 downstream color gesture. Placement of denoising versus lens resampling and the final
-positions of later curves/output-sharpening stages still require their own
-comparisons. The [detail record](detail-processing.md) retains the selected
+position of later output sharpening still requires its own comparisons. Curve
+placement is frozen by [#45](tone-curves.md). The [detail record](detail-processing.md) retains the selected
 prepared-reference placement comparison and remaining photographic acceptance.
 
 ## Color-space substrate
@@ -219,7 +219,7 @@ These functional results do not close the real-photo/native/performance acceptan
 | Operator                    | Candidate/comparison                                                                                                                                                                       | Acceptance decision still required                                                                                                                                                                                                                                 |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Saturation/Vibrance         | CIE Lab/D65 chroma scaling preserving linear Y; decision above.                                                                                                                            | Complete photographic/HDR visual checks and the saved performance comparison. Numerical, history and source-protection checks do not substitute for those gates.                                                                                                   |
-| Curves (Goal 2)             | Linear-light PCHIP with rational C1 tails; signed-log coordinates are graph-only. See the [curve decision](tone-curve-processing.md).                                                      | Independent CPU/small-GPU math passes; production owners, history/UI/MCP/export and photographic/performance acceptance remain unfinished.                                                                                                                         |
+| Curves (#45)                | Linear-light PCHIP with rational C1 tails; signed-log coordinates are graph-only. See the [curve decision](tone-curve-processing.md).                                                      | Implemented with focused Bazzite photographic/native/performance acceptance; see the [current brief and explicit boundaries](tone-curves.md).                                                                                                                      |
 | Crop (Goal 1)               | Native-center affine geometry, exact copying and the [Catmull-Rom/alpha policy](crop-filter-processing.md); HDR/raster adapters, prepared variants, transient controls and frozen exports. | Functional UI/MCP, authoritative mutation checks, resource admission, migration/history and small-PNG round trips pass focused checks. Real RAW/HDR/gain-map/merge, native visual/input and source-matched performance acceptance remain open.                     |
 | HSL mixer / three-way grade | Adopted original CIE Lab/D65 range/tonal model; see the [operator record](color-mixer-grading-processing.md).                                                                              | Complete real-source HDR application, photographic/native visual/input and source-matched performance acceptance. Functional history/UI/MCP and small-raster exports have focused evidence.                                                                        |
 | Single-image denoise        | Original bounded NLM in fixed-reference signed coordinates selected over bilateral by the [detail comparison](detail-processing.md); separate manual Luminance/Chroma.                     | Internal CPU/tiny-GPU, preview/export reuse, constrained export admission and tiny shipped-native source consumption have focused evidence. Public history/comparison/UI/MCP, real-photo/native desktop and full-size resource/performance acceptance remain open. |
@@ -2178,3 +2178,39 @@ Only test ordering changed; no production scheduler or acceptance threshold did.
 This adds real-source cold-variant and contention correctness. Action-specific
 cold limits, warm latency/cadence under these spatial settings, physical memory
 peaks, eligible strong-noise quality and remaining photographic coverage stay open.
+
+## #45 integration — November 4, 2026
+
+The individually scoped [tone-curve delivery](tone-curves.md) now integrates the
+retained mathematical operator with version 12 history, shared drafts/gesture handoff,
+atomic UI/MCP patches, revision-bound 5 × 5 targeting, selective copy and frozen
+GPU preview/export. The user selected Saturation/Vibrance before Mixer; migration
+retains numeric controls and deliberately adopts the new rendered appearance in
+all history snapshots. The old Decimal80 color reference remains unchanged; v2 data
+lives under `assets/tests/references/creative-color-v2/`. Numerical limits stay fixed.
+Historical Phase 3 entries above describe their original research scope.
+
+The [curve evidence](tone-curves.md#acceptance-criteria-and-evidence) records initial
+integration (919 passes, 71.31 s), corrected exact photographic/output reruns, the
+foreground fidelity/native/dragging selection (891 passes, 75.76 s), final native
+picker/layout checks (887 passes, 64.92 s) and bounded integrated WGSL/output checks
+(889 passes, 50.27 s). These four selections have zero failures/skips; original
+failed invocations remain preserved and linked separately.
+
+The final service/asset selection has 899 passes and three existing HDR-asset test
+failures in 48.70 s; all four curve service cases, including CPU-analysis refusal
+and retained identity statistics, pass. The same three failures reproduce against
+untouched HEAD: two retired CPU proof stubs lack the required GPU capability, and
+one still expects raster rendering v1 instead of v2. The brief links both receipts;
+these separate #32 maintenance failures are not reported as a passing selection.
+
+On RX 7900 XTX, achieved inputs are 60.13 Hz, visible updates are 59.61/s at Fit and
+60.12/s at 100%, p95 input-to-visible latency is 14.6/14.4 ms and final refinement is
+41.6/34.7 ms. All retained warm gates pass with unchanged source identity and one
+history entry per drag. First activation is 6,889.9 ms; warm sample acquisition is
+13.5 ms. These are separate measurements, not a general responsiveness claim.
+
+Clipping masks and exact HDR statistics with active curves are explicitly unavailable pending qualified GPU
+analysis. Electron continued to select the discrete GPU for GLSL compatibility;
+integrated GLSL, macOS and physical luminance/input devices remain unverified.
+Broader responsiveness, noise quality and calibration stay in their tasks.

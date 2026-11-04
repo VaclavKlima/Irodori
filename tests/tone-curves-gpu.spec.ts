@@ -8,7 +8,8 @@ test('compensated GPU curves retain independent signed/HDR, steep-segment and Ma
   const gpu = new RawGpuRenderer(),
     buffers: GPUBuffer[] = []
   try {
-    const { device } = await gpu.mergeDevice()
+    const { device, adapter } = await gpu.mergeDevice()
+    test.info().annotations.push({ type: 'gpu-adapter', description: adapter })
     const allocate = (size: number, usage: number) => {
       const buffer = device.createBuffer({ size, usage })
       buffers.push(buffer)
@@ -35,6 +36,13 @@ test('compensated GPU curves retain independent signed/HDR, steep-segment and Ma
     device.queue.writeBuffer(parameters, 0, packed)
     for (const primaries of ['srgb', 'rec2020'] as const) {
       const cases = [
+        {
+          input: [-0, 0, 1],
+          output: [-0, 0, 1],
+          base: settings.findIndex((s) => s.identity) * 200,
+          scalar: false,
+          identity: true,
+        },
         ...reference.curves.flatMap((curve, setting) =>
           curve.gpuVectors.map((vector) => ({
             input: [vector.input, 0, 0],
@@ -113,7 +121,8 @@ struct CurveCase { pixel:vec4f, control:vec4f }
             const value = actual[i * 4 + channel],
               expected = vector.output[channel]
             if (!Number.isFinite(value)) nonfinite++
-            if (vector.identity && value !== Math.fround(vector.input[channel])) identityMismatch++
+            if (vector.identity && !Object.is(value, Math.fround(vector.input[channel])))
+              identityMismatch++
             const ratio = Math.abs(value - expected) / (2e-6 + 2e-5 * Math.abs(expected))
             if (ratio > maximumRatio) {
               maximumRatio = ratio

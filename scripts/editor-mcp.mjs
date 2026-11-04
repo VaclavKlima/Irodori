@@ -34,6 +34,16 @@ const browseQuery = schema({
   grouping: { enum: ['date', 'month', 'year'] },
 })
 const colorAmount = { type: 'integer', minimum: -100, maximum: 100 }
+const curveChannel = { enum: ['master', 'red', 'green', 'blue'] }
+const curvePoints = {
+  type: 'array',
+  minItems: 2,
+  maxItems: 16,
+  items: schema({
+    input: { type: 'number', minimum: -16, maximum: 64 },
+    output: { type: 'number', minimum: -16, maximum: 64 },
+  }),
+}
 const colorMixerRange = schema(
   { hue: colorAmount, saturation: colorAmount, luminance: colorAmount },
   [],
@@ -74,6 +84,7 @@ const tools = [
           items: {
             enum: [
               'light',
+              'curves',
               'color',
               'mixer',
               'grading',
@@ -490,6 +501,20 @@ const tools = [
     }),
   },
   {
+    name: 'irodori_sample_curve_tone',
+    description:
+      'Read a revision-bound 5 by 5 tone sample from the prepared working source, after white balance and Light. Master samples linear luminance before Master; RGB samples its working-space channel after Master. Normalized coordinates refer to the uncropped, oriented and lens-corrected source. Transparent samples are ignored. This operation changes no edits.',
+    inputSchema: schema({
+      photoId,
+      expectedRevision,
+      curveSample: schema({
+        channel: curveChannel,
+        x: { type: 'number', minimum: 0, maximum: 1 },
+        y: { type: 'number', minimum: 0, maximum: 1 },
+      }),
+    }),
+  },
+  {
     name: 'irodori_get_edit_history',
     description: 'Read ordered settings snapshots and history cursor.',
     inputSchema: schema({ photoId }),
@@ -503,6 +528,16 @@ const tools = [
       expectedRevision,
       patch: schema(
         {
+          curves: schema(
+            {
+              version: { const: 1 },
+              master: curvePoints,
+              red: curvePoints,
+              green: curvePoints,
+              blue: curvePoints,
+            },
+            [],
+          ),
           exposureEv: { type: 'number', minimum: -5, maximum: 5, multipleOf: 0.01 },
           contrast: { type: 'integer', minimum: -100, maximum: 100 },
           highlights: { type: 'integer', minimum: -100, maximum: 100 },

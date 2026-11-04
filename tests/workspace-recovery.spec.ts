@@ -271,6 +271,7 @@ test('split tool disclosures default open for earlier checkpoints and preserve e
       colorIntensity: true,
       sharpening: true,
       toneBlending: true,
+      curves: true,
     }
     expect(t.library.getWorkspaceState().state?.inspector).toEqual(expected)
     await t.library.saveWorkspaceState({ state: { consoleOpen: true } })

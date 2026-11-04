@@ -8,6 +8,7 @@ export const WORKSPACE_VERSION = 1
 export const DEFAULT_INSPECTOR_SECTIONS = {
   histogram: true,
   light: true,
+  curves: true,
   color: true,
   colorIntensity: true,
   colorMixer: true,

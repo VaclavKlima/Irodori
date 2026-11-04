@@ -221,12 +221,13 @@ inline V result(const V& rgb, const Lab& original, const V& value, const M& inve
 template <typename ExistingIntensity>
 inline V apply(const V& rgb, const Parameters& p, bool rec2020, ExistingIntensity existing) {
     if (!p.mixer_active && !p.grading_active) return existing(rgb);
+    const V colored=existing(rgb);
     const M& matrix=rec2020 ? rec2020_to_xyz : srgb_to_xyz;
-    const Lab original=lab(rgb,matrix);
-    const V mixed=p.mixer_active ? mixer(original.value,selection(rgb,matrix),p) : original.value;
+    const Lab original=lab(colored,matrix);
+    const V mixed=p.mixer_active ? mixer(original.value,selection(colored,matrix),p) : original.value;
     const V amounts=grading_amounts(mixed[0],p);
-    if (mixed == original.value && amounts == V{}) return existing(rgb);
-    return result(rgb,original,grading(intensity(mixed,p),amounts),rec2020 ? rec2020_from_xyz : srgb_from_xyz);
+    if (mixed == original.value && amounts == V{}) return colored;
+    return result(colored,original,grading(mixed,amounts),rec2020 ? rec2020_from_xyz : srgb_from_xyz);
 }
 }
 #endif

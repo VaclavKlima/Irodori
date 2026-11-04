@@ -365,6 +365,23 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     ).finally(() => this.scheduleIdle())
   }
 
+  async curveTone(path: string, job: import('./preview-types').CurveToneJob, signal: AbortSignal) {
+    this.assertIdle(await this.waitForWarmup(signal))
+    return this.run<import('../shared/curve-tone').CurveTone>(
+      'curve-tone',
+      path,
+      '',
+      signal,
+      undefined,
+      {
+        width: job.width,
+        height: job.height,
+        sha256: job.linear.sha256,
+        curveTone: job,
+      },
+    ).finally(() => this.scheduleIdle())
+  }
+
   /** Main-owned managed paths and admission only; never exposed as a renderer operation. */
   async renderPreparedFull(
     output: string,

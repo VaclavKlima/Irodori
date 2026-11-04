@@ -3,8 +3,8 @@ import { hdrStatistics, type HdrStatistics } from '../../../shared/hdr-statistic
 import type { DisplayTarget, HdrWorkingAsset } from '../../../shared/hdr'
 
 export const HDR_HISTOGRAM_WORDS = 256 + 512 * 3 + 9
-export function hdrHistogramShaderFor(creative = false): string {
-  return `${hdrRenderingShader(creative)}
+export function hdrHistogramShaderFor(creative = false, curves = false): string {
+  return `${hdrRenderingShader(creative, curves)}
 ${hdrPresentationWgsl}
 @group(0) @binding(6) var<storage,read_write> histogram:array<atomic<u32>>;
 @compute @workgroup_size(64) fn sampleHistogram(@builtin(global_invocation_id) p:vec3u) {

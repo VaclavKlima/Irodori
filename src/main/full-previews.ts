@@ -25,6 +25,12 @@ import { HDR_SOURCE_MIP_POLICY } from '../renderer/src/preview/hdr-source-cache'
 import { ADJUSTMENT_VERSION, neutralAdjustments, sameAdjustments } from '../shared/adjustments'
 import type { DisplayPreview, FullPreview, HdrPreview } from '../shared/contracts'
 import { creativeColorActive, prepareCreativeColor } from '../shared/creative-color'
+import { preparedToneCurves } from '../shared/tone-curves'
+import {
+  validateCurveToneRequest,
+  type CurveToneRequest,
+  type PhotoCurveTone,
+} from '../shared/curve-tone'
 import {
   cropGeometry,
   identityCrop,
@@ -2053,6 +2059,84 @@ export class FullPreviews {
     }
   }
 
+  sampleCurveTone(
+    id: string,
+    expectedRevision: number,
+    sample: CurveToneRequest,
+  ): Promise<PhotoCurveTone> {
+    validateCurveToneRequest(sample)
+    const snapshot = { ...sample }
+    return this.foreground(async () => {
+      const controller = new AbortController()
+      const check = async () => {
+        controller.signal.throwIfAborted()
+        const options = await this.options?.(id, controller.signal)
+        if (
+          !Number.isSafeInteger(expectedRevision) ||
+          expectedRevision < 0 ||
+          options?.revision !== expectedRevision ||
+          this.closed ||
+          this.blocked.has(id) ||
+          !this.original(id)
+        )
+          throw new Error(
+            'Curve sample revision conflict or photo unavailable. Reload the confirmed settings.',
+          )
+        return options
+      }
+      const options = await check()
+      const preview = await this.prepare(
+        id,
+        randomUUID(),
+        false,
+        false,
+        true,
+        true,
+        options.processing === 'hdr-v1',
+        false,
+        undefined,
+        undefined,
+        true,
+      )
+      if (!preview?.linear?.url)
+        throw new Error(
+          'The prepared curve sampling source is unavailable. Wait for the preview and try again.',
+        )
+      const lease = this.acquire(new URL(preview.linear.url))
+      if (!lease) throw new Error('The curve sampling source is unavailable.')
+      this.analyses.set(controller, id)
+      try {
+        return await this.enqueue(async () => {
+          const confirmed = await check()
+          if (!this.processor.curveTone)
+            throw new Error('The curve sampling worker is unavailable.')
+          const result = await this.processor.curveTone(
+            lease.path,
+            {
+              width: preview.width,
+              height: preview.height,
+              linear: preview.linear!,
+              adjustments: confirmed.adjustments ?? neutralAdjustments,
+              sample: snapshot,
+            },
+            controller.signal,
+          )
+          await check()
+          return {
+            ...result,
+            photoId: id,
+            revision: expectedRevision,
+            renderingIdentity: preview.renderId,
+            channel: snapshot.channel,
+          }
+        })
+      } finally {
+        lease.release()
+        this.analyses.delete(controller)
+      }
+    })
+  }
+
   private hdrAnalysis<T>(
     id: string,
     expectedRevision: number,
@@ -2189,11 +2273,13 @@ export class FullPreviews {
       identity.viewport,
     )
     const creative = creativeColorActive(prepareCreativeColor(identity.parameters))
+    const curves = !preparedToneCurves(identity.parameters.curves).identity
     const programKey = JSON.stringify([
       identity.target.mode,
       identity.target.colorSpace,
       identity.kernel,
       ...(creative ? ['creative'] : []),
+      ...(curves ? ['curves'] : []),
     ])
     let hashes = this.firstPrograms.get(programKey)
     if (!hashes) {
@@ -2202,7 +2288,7 @@ export class FullPreviews {
       hashes = Object.freeze({
         mip: digest(hdrMipShader),
         orientedMip: digest(hdrOrientedMipShader),
-        tiles: digest(hdrCacheKernel('reference', creative).shader),
+        tiles: digest(hdrCacheKernel('reference', creative, curves).shader),
         presentation: digest(hdrShader),
         tables:
           HDR_RENDERING_TABLE_HASHES[

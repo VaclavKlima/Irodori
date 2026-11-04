@@ -74,7 +74,7 @@ test('spatial patches reject malformed values and cannot enter a downstream poin
 
 test('current settings require complete spatial groups while catalog 20 permits only the original v10 schema', () => {
   const current = initialSettings()
-  expect(supportsEditingSettings(current as unknown as Record<string, unknown>, 21)).toBe(true)
+  expect(supportsEditingSettings(current as unknown as Record<string, unknown>, 22)).toBe(true)
   for (const change of [
     { noiseReduction: {} },
     { detailSharpening: undefined },
@@ -85,6 +85,7 @@ test('current settings require complete spatial groups while catalog 20 permits 
   expect(supportsEditingSettings(legacy, 20)).toBe(false)
   delete legacy.noiseReduction
   delete legacy.detailSharpening
+  delete legacy.curves
   expect(supportsEditingSettings(legacy, 20)).toBe(true)
   expect(supportsEditingSettings(legacy, 21)).toBe(false)
 })

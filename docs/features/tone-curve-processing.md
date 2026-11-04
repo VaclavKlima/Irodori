@@ -1,9 +1,8 @@
 # Tone-curve processing decision
 
-**Phase 3 research in progress, 2026-10-25.** This record fixes the first candidate
-and its numerical gates before production/history/UI integration. It does not
-close the [tone-curve acceptance](tone-curves.md). The user is playing; keep
-research CPU work small and defer foreground or substantial GPU measurements.
+**Frozen policy, integrated under #45 on 2026-11-04.** The original October 25
+mathematical decision and numerical gates remain in force. Production/history/UI
+integration and current acceptance are recorded in [tone curves](tone-curves.md).
 
 ## Coordinates and interpolation
 
@@ -43,7 +42,7 @@ by luminance near black, permits an explicit black lift, and states its hue/chro
 semantics without claiming universal perceptual uniformity. RGB curves then map
 their own linear working channels independently, intentionally allowing hue changes.
 Order: source preparation → white balance → Light → Master/RGB curves → global
-intensity → mixer/grading when implemented → existing output mapping.
+intensity → mixer → grading → existing output mapping.
 
 ## Frozen gates and acceleration
 
@@ -61,5 +60,5 @@ inside existing GPU passes. Pan/zoom must reuse that compiled data and the image
 texture. No generated LUT is persisted. Ordinary Float32 positions/coefficients can
 lose accuracy for closely spaced, steep segments; test compensated high/low scalar
 evaluation before accepting a GPU port. A small reusable parameter texture/buffer
-is allowed, with explicit accounting and equivalent native/JS CPU evaluation. It
+is allowed, with explicit accounting and bounded independent scalar references. It
 must not cause another image upload, image pass, readback or RAW decode.

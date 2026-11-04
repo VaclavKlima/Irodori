@@ -41,6 +41,16 @@ guard does not require reimplementation or a full regression run. The
 retains the cause, implementation and scoped Linux/development evidence. Revalidate
 the pinned workaround when upgrading Electron.
 
+## Preview panning
+
+Hold the mouse's scroll-wheel button and drag to pan a zoomed photograph. The
+Editor routes this gesture before crop handles, comparison dividers and tone or
+white-balance picking; it changes the view without editing the photograph. Merge
+review uses the same pan controller. Fit remains constrained to its fitted view.
+Mouse panning retains pointer lock, capture fallback and interruption cleanup.
+Verify button ownership with `pan-drag` and native interaction with
+`middle-pan --foreground`, using the isolated test launcher.
+
 ## Numeric slider adjustments
 
 Use `AdjustmentInput` for new numeric slider controls. It presents a label and borderless editable value above a full-width slider, with an optional unit. Number steppers are hidden; clicking or tabbing into the value allows direct entry. Preserve its shared CSS Module styling instead of adding per-adjustment field styling or inline sizes.

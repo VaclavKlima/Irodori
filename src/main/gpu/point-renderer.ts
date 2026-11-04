@@ -19,6 +19,8 @@ import { SDR_TARGET } from '../../shared/hdr'
 import { hdrAdjustmentShader } from '../../shared/hdr-adjustments-wgsl'
 import { exportPrecisionData, exportPrecisionWgsl } from '../export/precision-wgsl'
 import { RawGpuRenderer } from '../gpu/raw-renderer'
+import { preparedToneCurves } from '../../shared/tone-curves'
+import { packToneCurves, TONE_CURVE_PARAMETER_BYTES } from '../../shared/tone-curves-gpu'
 
 const inputMatrix =
   'mat3x3f(' + REC2020_TO_ACES.map((row) => 'vec3f(' + row.join(',') + ')').join(',') + ')'
@@ -31,6 +33,7 @@ export function exportShader(
   deferred = false,
   creative = false,
   preserveAlpha = false,
+  curves = false,
 ) {
   const precision = /fn acesMath\(index:u32\)->vec2f\s*\{[^}]+\}/
   if (!precision.test(displayRenderingWgsl))
@@ -56,7 +59,7 @@ struct Params { values:array<vec4f,12> }
 struct Result { peak:atomic<u32>, values:array<u32> }
 @group(0) @binding(2) var<storage,read_write> result:Result;
 ${deferred ? '@group(0) @binding(5) var<storage,read_write> working:array<f32>;' : ''}
-${hdrAdjustmentShader(creative)}
+${hdrAdjustmentShader(creative, 12, 'acesPow', curves)}
 ${hdr && packed ? `var<workgroup> peaks:array<f32,${workgroup}>;` : ''}
 fn exportTarget(jmh:vec3f,linear:f32)->vec3f {
  let toned=Y_to_J(tonescale_fwd(linear,aces_ts()),aces_input_params());
@@ -164,7 +167,9 @@ export async function createPointGpu(
   adjustments = structuredClone(adjustments)
   whiteBalance = whiteBalance ? [...whiteBalance] : undefined
   const color = prepareCreativeColor(adjustments),
-    creative = creativeColorActive(color)
+    creative = creativeColorActive(color),
+    compiledCurves = preparedToneCurves(adjustments.curves),
+    curves = !compiledCurves.identity
   const allocation = exportGpuAllocation(
     capacity,
     hdr,
@@ -173,6 +178,7 @@ export async function createPointGpu(
     deferredPixels,
     vramLimitBytes,
     !!options.primary,
+    curves,
   )
   if (!allocation.accepted)
     throw new ExportResourceError('GPU export exceeds the frozen managed image budgets.')
@@ -228,6 +234,10 @@ export async function createPointGpu(
       ? buffer(CREATIVE_COLOR_PARAMETER_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
       : undefined
     if (colorData) device.queue.writeBuffer(colorData, 0, packCreativeColor(color!))
+    const curveData = curves
+      ? buffer(TONE_CURVE_PARAMETER_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
+      : undefined
+    if (curveData) device.queue.writeBuffer(curveData, 0, packToneCurves(compiledCurves))
     const workingBytes = deferredPixels * 20
     const hdrDeferred = !!(
       hdr &&
@@ -263,8 +273,16 @@ export async function createPointGpu(
     }
     const module = device.createShaderModule({
       code: authored
-        ? authoredOutputShader(hdr, packed, creative, options, workgroup)
-        : exportShader(hdr, packed, workgroup, hdrDeferred, creative, options.preserveAlpha),
+        ? authoredOutputShader(hdr, packed, creative, options, workgroup, curves)
+        : exportShader(
+            hdr,
+            packed,
+            workgroup,
+            hdrDeferred,
+            creative,
+            options.preserveAlpha,
+            curves,
+          ),
     })
     const errors = (await module.getCompilationInfo()).messages.filter((m) => m.type === 'error')
     if (errors.length)
@@ -295,6 +313,12 @@ export async function createPointGpu(
           : []),
         ...(colorData && options.domain === 'authored-hdr'
           ? [{ binding: 13, resource: { buffer: colorData } }]
+          : []),
+        ...(curveData && (!authored || options.domain === 'raster' || primary)
+          ? [{ binding: 14, resource: { buffer: curveData } }]
+          : []),
+        ...(curveData && options.domain === 'authored-hdr'
+          ? [{ binding: 15, resource: { buffer: curveData } }]
           : []),
       ],
     })

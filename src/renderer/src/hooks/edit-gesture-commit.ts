@@ -4,6 +4,7 @@ import { correctionKinds } from '../../../shared/lens'
 import type { EditGestureCommit } from '../preview/edit-gesture'
 import { creativeColorIdentity } from '../../../shared/creative-color'
 import { spatialControlsKey } from '../../../shared/detail-controls'
+import { identityToneCurves } from '../../../shared/tone-curves'
 
 export interface EditGestureScope {
   readonly photoId: string | undefined
@@ -28,6 +29,21 @@ function parametersSnapshot(parameters: AdjustmentParameters): AdjustmentParamet
     Object.freeze(colorGrading)
   }
   return Object.freeze({
+    ...(parameters.curves
+      ? {
+          curves: Object.freeze({
+            ...parameters.curves,
+            ...Object.fromEntries(
+              ['master', 'red', 'green', 'blue'].map((channel) => [
+                channel,
+                Object.freeze(
+                  parameters.curves![channel as 'master'].map((p) => Object.freeze({ ...p })),
+                ),
+              ]),
+            ),
+          }),
+        }
+      : {}),
     whiteBalance: parameters.whiteBalance
       ? Object.freeze({ ...parameters.whiteBalance })
       : undefined,
@@ -49,6 +65,7 @@ function settingsKey(settings: EditSettings) {
   return JSON.stringify([
     settings.version,
     settings.processing,
+    settings.curves ?? identityToneCurves,
     spatialControlsKey(settings),
     ...correctionKinds.map((kind) => settings.lens[kind]),
     white.mode,

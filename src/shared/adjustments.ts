@@ -1,4 +1,11 @@
 import { blacksModule } from './blacks'
+import {
+  sameToneCurves,
+  applyToneCurves,
+  preparedToneCurves,
+  TONE_CURVE_VERSION,
+  type ToneCurves,
+} from './tone-curves'
 import { applyColorIntensity, colorIntensityModule } from './color-intensity'
 import { contrastModule } from './contrast'
 import {
@@ -25,6 +32,7 @@ export { shadowsModule } from './shadows'
 export { whitesModule } from './whites'
 
 export interface AdjustmentParameters extends CreativeColorSettings {
+  curves?: ToneCurves
   whiteBalance?: WhiteBalance
   exposureEv: number
   contrast: number
@@ -56,6 +64,9 @@ export function snapshotAdjustments(
     colorMixer = patch?.colorMixer ?? source.colorMixer,
     colorGrading = patch?.colorGrading ?? source.colorGrading
   return {
+    ...((patch?.curves ?? source.curves)
+      ? { curves: structuredClone(patch?.curves ?? source.curves) }
+      : {}),
     whiteBalance: whiteBalance && { ...whiteBalance },
     exposureEv: patch?.exposureEv ?? source.exposureEv,
     contrast: patch?.contrast ?? source.contrast,
@@ -84,7 +95,8 @@ export function sameAdjustments(
     a?.blacks === b.blacks &&
     a?.saturation === b.saturation &&
     a?.vibrance === b.vibrance &&
-    sameCreativeColor(a, b)
+    sameCreativeColor(a, b) &&
+    sameToneCurves(a?.curves, b.curves)
   )
 }
 /** Display conversion is intentionally SDR; working pixels remain unclipped. */
@@ -116,7 +128,7 @@ export const adjustmentModules = [
 export const ADJUSTMENT_VERSION =
   `white-balance-${WHITE_BALANCE_MODEL}_` +
   adjustmentModules.map((module) => `${module.id}-${module.version}`).join('_') +
-  `_${CREATIVE_COLOR_VERSION}`
+  `_${CREATIVE_COLOR_VERSION}_${TONE_CURVE_VERSION}`
 export const srgbTransform: DisplayTransform = {
   white: 1,
   threshold: 0.0031308,
@@ -144,6 +156,7 @@ export function renderAdjustments(
   const gain = 2 ** exposureEv
   const strength = 2 ** (contrast / 100)
   const creative = prepareCreativeColor(parameters),
+    curves = preparedToneCurves(parameters.curves),
     creativeActive = Boolean(creative?.mixer.active || creative?.grading.active),
     colorActive = creativeActive || parameters.saturation !== 0 || parameters.vibrance !== 0
   for (let i = 0; i < data.length; i += 4) {
@@ -162,6 +175,7 @@ export function renderAdjustments(
       blacks === 0 &&
       parameters.saturation === 0 &&
       parameters.vibrance === 0 &&
+      curves.identity &&
       !creativeActive
     ) {
       // Keep the existing neutral/exposure conversion exactly, including RAW quantization.
@@ -196,6 +210,14 @@ export function renderAdjustments(
         g * scale + pedestal,
         b * scale + pedestal,
       ]
+      if (!curves.identity) {
+        const next = applyToneCurves(
+          colored.map((v) => v / transform.white) as [number, number, number],
+          curves,
+          'srgb',
+        )
+        colored = next.map((v) => v * transform.white) as [number, number, number]
+      }
       if (colorActive) {
         const input: readonly [number, number, number] = [
             colored[0] / transform.white,

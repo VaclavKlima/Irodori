@@ -9,6 +9,7 @@ import { appliedCorrections } from '../../shared/lens'
 import type { LinearFrame } from './contracts'
 import { displayTransform } from '../gpu/raw-source'
 import { catmullRom } from '../../shared/reconstruction'
+import { preparedToneCurves } from '../../shared/tone-curves'
 
 export const LENS_RENDER_VERSION = 'camera-linear-lens-bicubic-1'
 export const CROP_POLICY = 'center-native-aspect-1'
@@ -173,6 +174,8 @@ export function correctCpu(
   plan: CorrectionPlan,
   adjustments: AdjustmentParameters = neutralAdjustments,
 ) {
+  if (!preparedToneCurves(adjustments.curves).identity)
+    throw new Error('Full-image curves require GPU point processing.')
   const working = correctLinearCpu(frame, plan)
   return {
     data: Buffer.from(renderAdjustments(working.data, adjustments, working.transform)),

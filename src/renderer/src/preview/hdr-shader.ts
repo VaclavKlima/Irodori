@@ -22,13 +22,13 @@ fn presentationRgb(rgb:vec3f)->vec3f {
   return clamp(canvasRgb(rgb),vec3f(0.),vec3f(u.values[9].y));
 }`
 
-export function hdrRenderingShader(creative = false): string {
+export function hdrRenderingShader(creative = false, curves = false): string {
   return `
 struct Params { values: array<vec4f, 12> }
 @group(0) @binding(0) var<uniform> u: Params;
 @group(0) @binding(1) var pixels: texture_2d<f32>;
 ${displayRenderingWgsl}
-${hdrAdjustmentShader(creative)}
+${hdrAdjustmentShader(creative, 12, 'acesPow', curves)}
 fn outputRgb(rgb: vec3f) -> vec3f {
   if(u.values[7].w>0.) { return max(rgb,vec3f(0.)); }
   return renderDisplayRgb(rgb,u.values[3].z);
@@ -41,7 +41,11 @@ export const hdrRenderingWgsl = hdrRenderingShader()
 export type HdrCacheKernelKind = 'linear64'
 
 /** The accepted invocation mapping and its matching host dispatch stay together. */
-export function hdrCacheKernel(precision: AcesPreviewPolicy = 'reference', creative = false) {
+export function hdrCacheKernel(
+  precision: AcesPreviewPolicy = 'reference',
+  creative = false,
+  curves = false,
+) {
   const math =
     precision === 'reference'
       ? acesWgsl
@@ -49,7 +53,7 @@ export function hdrCacheKernel(precision: AcesPreviewPolicy = 'reference', creat
         ? acesSdrPreviewWgsl
         : acesPreviewWgsl
   const shader = `
-${hdrRenderingShader(creative).replace(acesWgsl, math)}
+${hdrRenderingShader(creative, curves).replace(acesWgsl, math)}
 @group(0) @binding(3) var cached: texture_storage_2d_array<rgba32float,write>;
 @group(0) @binding(5) var<storage,read> jobs:array<vec4u>;
 @compute @workgroup_size(64) fn renderTile(@builtin(global_invocation_id) p:vec3u) {

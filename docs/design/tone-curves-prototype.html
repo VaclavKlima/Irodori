@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Irodori · Curves interaction study</title>
+  <style>
+    @font-face {
+      font-family: Lato;
+      src: url('../../assets/app/fonts/lato/Lato-Regular.ttf');
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background: #161616;
+      color: #f2f2f2;
+      font:
+        12px Lato,
+        sans-serif;
+    }
+    button,
+    input,
+    select {
+      font: inherit;
+      color: inherit;
+      background: #303030;
+      border: 1px solid #606060;
+      border-radius: 3px;
+      min-height: 28px;
+    }
+    button {
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+    :focus-visible {
+      outline: 2px solid #e7c75c;
+      outline-offset: 2px;
+    }
+    button[aria-pressed='true'] {
+      color: #e7c75c;
+      border-color: #e7c75c;
+    }
+    header {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      border-bottom: 1px solid #3d3d3d;
+    }
+    header img {
+      width: 32px;
+      height: 32px;
+    }
+    header strong {
+      font-size: 18px;
+    }
+    header span {
+      margin-left: auto;
+      color: #c0c0c0;
+    }
+    main {
+      height: calc(100vh - 75px);
+      padding: 10px;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 224px minmax(0, 1fr) 368px;
+      grid-template-rows: minmax(0, 1fr) 216px;
+    }
+    .photos,
+    aside,
+    .console {
+      background: #202020;
+      border: 1px solid #3d3d3d;
+      border-radius: 4px;
+      min-height: 0;
+    }
+    .photos {
+      grid-row: 1 / 3;
+      padding: 10px;
+    }
+    .row {
+      height: 56px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      background: #303030;
+      border-left: 3px solid #e7c75c;
+      padding: 6px;
+    }
+    .row img {
+      width: 60px;
+      height: 44px;
+      object-fit: cover;
+    }
+    .stage {
+      min-height: 0;
+      position: relative;
+      display: grid;
+      place-items: center;
+      padding: 12px;
+      border: 1px solid #3d3d3d;
+    }
+    .stage > img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      min-height: 0;
+    }
+    .badge {
+      position: absolute;
+      top: 9px;
+      left: 9px;
+      background: #202020eb;
+      padding: 7px;
+      border-radius: 4px;
+    }
+    aside {
+      display: flex;
+      flex-direction: column;
+    }
+    .histogram {
+      height: 157px;
+      flex-shrink: 0;
+      padding: 8px 12px;
+      border-bottom: 1px solid #3d3d3d;
+    }
+    .histogram svg {
+      width: 100%;
+      height: 96px;
+      background: #161616;
+    }
+    .tools {
+      display: flex;
+      min-height: 0;
+      flex: 1;
+    }
+    nav {
+      width: 52px;
+      flex-shrink: 0;
+      padding: 6px 3px;
+      border-right: 1px solid #3d3d3d;
+    }
+    nav button {
+      width: 100%;
+      height: 40px;
+      margin-bottom: 2px;
+      font-size: 10px;
+      padding: 0;
+    }
+    .scroll {
+      overflow: auto;
+      scrollbar-gutter: stable;
+      padding: 6px 10px 16px;
+      flex: 1;
+      min-width: 0;
+    }
+    h2 {
+      font-size: 12px;
+      margin: 4px 0 10px;
+    }
+    summary {
+      min-height: 28px;
+      cursor: pointer;
+    }
+    .channels {
+      display: flex;
+      gap: 3px;
+      margin-bottom: 6px;
+    }
+    .channels button {
+      flex: 1;
+      padding: 4px;
+      font-size: 11px;
+    }
+    #graph {
+      width: 100%;
+      aspect-ratio: 1;
+      background: #161616;
+      border: 1px solid #606060;
+      touch-action: none;
+    }
+    #graph path {
+      fill: none;
+      stroke: #f2f2f2;
+      stroke-width: 1.5;
+    }
+    #graph circle {
+      fill: #202020;
+      stroke: #e7c75c;
+      stroke-width: 1.5;
+    }
+    .numeric {
+      display: flex;
+      gap: 6px;
+      margin: 6px 0;
+    }
+    label {
+      flex: 1;
+      color: #c0c0c0;
+    }
+    input {
+      width: 100%;
+      text-align: right;
+      margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .range {
+      width: 100%;
+      margin: 0 0 6px;
+    }
+    p {
+      color: #c0c0c0;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .console {
+      grid-column: 2 / 4;
+      padding: 10px 22px;
+      background: #161616;
+    }
+    footer {
+      height: 27px;
+      border-top: 1px solid #3d3d3d;
+      padding: 6px 10px;
+      color: #c0c0c0;
+    }
+    @media (max-width: 1199px) {
+      main {
+        padding: 8px;
+        gap: 8px;
+        grid-template-columns: 224px minmax(0, 1fr) 344px;
+      }
+      .scroll {
+        padding-left: 8px;
+        padding-right: 8px;
+      }
+    }
+    @media (max-height: 760px) {
+      main {
+        grid-template-rows: minmax(0, 1fr) 180px;
+      }
+    }
+  </style>
+  <header>
+    <img src="../../assets/app/icons/little-jizo.png" alt="" /><strong>Irodori</strong
+    ><span>Curves interaction study · #45</span>
+  </header>
+  <main>
+    <section class="photos" aria-label="Photos">
+      <h2>Photos</h2>
+      <div class="row">
+        <img src="../../tests/fixtures/photos/forest-light.jpg" alt="" /><span
+          >forest-light.jpg<br />Current</span
+        >
+      </div>
+    </section>
+    <section class="stage" id="photo">
+      <img
+        src="../../tests/fixtures/photos/forest-light.jpg"
+        alt="Committed forest photograph"
+      /><span class="badge">forest-light.jpg · SDR</span>
+    </section>
+    <aside aria-label="Adjustments">
+      <div class="histogram">
+        Histogram · After<svg aria-label="Histogram placement study" viewBox="0 0 300 96">
+          <path
+            d="M0 96L15 85L40 77L65 30L90 50L115 16L140 65L170 74L210 85L260 90L300 96"
+            fill="#606060"
+          /></svg
+        ><small>Pinned histogram · placement study</small>
+      </div>
+      <div class="tools">
+        <nav>
+          <button aria-pressed="true">Light</button><button>Color</button><button>Detail</button
+          ><button>Geometry</button><button>Info</button>
+        </nav>
+        <div class="scroll">
+          <h2>Light</h2>
+          <details>
+            <summary>Tonal adjustments</summary>
+            <p>Existing Light controls retain their shared gestures.</p>
+          </details>
+          <details open>
+            <summary>Curves</summary>
+            <div class="channels" aria-label="Curve channel">
+              <button aria-pressed="true">Master</button><button aria-pressed="false">Red</button
+              ><button aria-pressed="false">Green</button><button aria-pressed="false">Blue</button>
+            </div>
+            <select class="range" aria-label="Graph view">
+              <option>Standard</option>
+              <option>HDR</option>
+              <option>Fit points</option>
+            </select>
+            <svg
+              id="graph"
+              viewBox="0 0 256 256"
+              tabindex="0"
+              role="application"
+              aria-label="Curve graph"
+            ></svg>
+            <p id="axis">Signed-log axes · 100% = reference white</p>
+            <div class="numeric">
+              <label>Input %<input id="input" type="number" step="0.01" /></label
+              ><label>Output %<input id="output" type="number" step="0.01" /></label>
+            </div>
+            <button id="target" aria-pressed="false">Target tones on photo</button>
+            <button id="reset">Reset channel</button>
+            <details>
+              <summary>Point list</summary>
+              <div id="points"></div>
+            </details>
+            <p id="hint">
+              Click to add. Drag to move. Arrows move; Tab selects; Delete removes. 2–16 points.
+            </p>
+          </details>
+        </div>
+      </div>
+    </aside>
+    <section class="console"><h2>Console · Disconnected</h2></section>
+  </main>
+  <footer>
+    Console &nbsp; · &nbsp; Design prototype; photograph processing is demonstrated in the
+    application.
+  </footer>
+  <script>
+    const graph = document.querySelector('#graph'),
+      view = document.querySelector('select'),
+      fields = [document.querySelector('#input'), document.querySelector('#output')]
+    const curves = Array.from({ length: 4 }, () => [
+      { input: 0, output: 0 },
+      { input: 1, output: 1 },
+    ])
+    let channel = 0,
+      selected = 1,
+      dragging = false,
+      start,
+      targeting = false
+    const axis = (x) => Math.sign(x) * Math.log2(1 + Math.abs(x) / 0.18),
+      inverse = (x) => Math.sign(x) * 0.18 * (2 ** Math.abs(x) - 1)
+    function range() {
+      const p = curves[channel]
+      return view.value === 'HDR'
+        ? [-0.18, 16]
+        : view.value === 'Fit points'
+          ? [
+              Math.min(0, ...p.flatMap((p) => [p.input, p.output])),
+              Math.max(1, ...p.flatMap((p) => [p.input, p.output])),
+            ]
+          : [0, 1]
+    }
+    function pos(x) {
+      const [a, b] = range().map(axis)
+      return 12 + (232 * (axis(x) - a)) / (b - a)
+    }
+    function value(x) {
+      const [a, b] = range().map(axis)
+      return Math.max(-16, Math.min(64, inverse(a + ((x - 12) / 232) * (b - a))))
+    }
+    function render() {
+      const p = curves[channel]
+      graph.innerHTML =
+        '<path stroke-dasharray="3 3" style="stroke:#606060" d="M12 244L244 12"/>' +
+        [0, 1, 2, 4, 8, 16]
+          .filter((x) => x >= range()[0] && x <= range()[1])
+          .map(
+            (x) =>
+              '<path style="stroke:#3d3d3d" d="M' +
+              pos(x) +
+              ' 12V244M12 ' +
+              (256 - pos(x)) +
+              'H244"/>',
+          )
+          .join('') +
+        '<path d="' +
+        p.map((p, i) => (i ? 'L' : 'M') + pos(p.input) + ' ' + (256 - pos(p.output))).join('') +
+        '"/>' +
+        p
+          .map(
+            (p, i) =>
+              '<circle data-index="' +
+              i +
+              '" cx="' +
+              pos(p.input) +
+              '" cy="' +
+              (256 - pos(p.output)) +
+              '" r="' +
+              (i === selected ? 5 : 3) +
+              '"/>',
+          )
+          .join('')
+      fields[0].value = (p[selected].input * 100).toFixed(2)
+      fields[1].value = (p[selected].output * 100).toFixed(2)
+      document.querySelector('#points').innerHTML = p
+        .map(
+          (p, i) =>
+            '<button data-point="' +
+            i +
+            '">' +
+            (i + 1) +
+            ': ' +
+            (p.input * 100).toFixed(2) +
+            '% → ' +
+            (p.output * 100).toFixed(2) +
+            '%</button>',
+        )
+        .join('')
+      document.querySelector('#axis').textContent =
+        'Signed-log axes · 100% = reference white' +
+        (view.value === 'HDR' ? ' · +1 / +2 / +3 / +4 stops' : '')
+    }
+    graph.onpointerdown = (e) => {
+      start = structuredClone(curves[channel])
+      const r = graph.getBoundingClientRect(),
+        x = ((e.clientX - r.left) / r.width) * 256,
+        y = ((e.clientY - r.top) / r.height) * 256
+      selected = Number(e.target.dataset.index ?? -1)
+      if (selected < 0) {
+        if (curves[channel].length === 16) return
+        curves[channel].push({ input: value(x), output: value(256 - y) })
+        curves[channel].sort((a, b) => a.input - b.input)
+        selected = curves[channel].findIndex((p) => p.input === value(x))
+      }
+      dragging = true
+      graph.setPointerCapture(e.pointerId)
+      render()
+    }
+    graph.onpointermove = (e) => {
+      if (!dragging) return
+      const r = graph.getBoundingClientRect(),
+        p = curves[channel]
+      p[selected] = {
+        input: Math.max(
+          p[selected - 1]?.input + 0.0001 || -16,
+          Math.min(
+            p[selected + 1]?.input - 0.0001 || 64,
+            value(((e.clientX - r.left) / r.width) * 256),
+          ),
+        ),
+        output: value(256 - ((e.clientY - r.top) / r.height) * 256),
+      }
+      render()
+    }
+    graph.onpointerup = () => (dragging = false)
+    graph.onkeydown = (e) => {
+      const p = curves[channel]
+      if (e.key === 'Escape' && start) {
+        curves[channel] = start
+        dragging = false
+      } else if (e.key === 'Delete' && p.length > 2) {
+        p.splice(selected, 1)
+        selected = Math.min(selected, p.length - 1)
+      } else if (e.key === 'Tab') {
+        e.preventDefault()
+        selected = (selected + (e.shiftKey ? p.length - 1 : 1)) % p.length
+      } else if (e.key.startsWith('Arrow')) {
+        e.preventDefault()
+        p[selected].output = Math.max(
+          -16,
+          Math.min(
+            64,
+            p[selected].output + (['ArrowUp', 'ArrowRight'].includes(e.key) ? 1 : -1) * 0.01,
+          ),
+        )
+      }
+      render()
+    }
+    document.querySelectorAll('.channels button').forEach(
+      (b, i) =>
+        (b.onclick = () => {
+          channel = i
+          selected = curves[i].length - 1
+          document
+            .querySelectorAll('.channels button')
+            .forEach((b, j) => b.setAttribute('aria-pressed', String(i === j)))
+          render()
+        }),
+    )
+    fields.forEach(
+      (f, i) =>
+        (f.onchange = () => {
+          const p = curves[channel],
+            v = Number(f.value) / 100
+          if (
+            Number.isFinite(v) &&
+            v >= -16 &&
+            v <= 64 &&
+            (!i ? v > (p[selected - 1]?.input ?? -17) && v < (p[selected + 1]?.input ?? 65) : true)
+          )
+            p[selected][i ? 'output' : 'input'] = v
+          render()
+        }),
+    )
+    document.querySelector('#points').onclick = (e) => {
+      if (e.target.dataset.point) {
+        selected = Number(e.target.dataset.point)
+        render()
+      }
+    }
+    document.querySelector('#reset').onclick = () => {
+      curves[channel] = [
+        { input: 0, output: 0 },
+        { input: 1, output: 1 },
+      ]
+      selected = 1
+      render()
+    }
+    view.onchange = render
+    document.querySelector('#target').onclick = (e) => {
+      targeting = !targeting
+      e.target.setAttribute('aria-pressed', String(targeting))
+      document.querySelector('#photo').style.cursor = targeting ? 'crosshair' : ''
+      document.querySelector('#hint').textContent = targeting
+        ? 'Click a tone on the photograph and drag up to lighten or down to darken. Escape exits.'
+        : 'Click to add. Drag to move. 2–16 points.'
+    }
+    document.querySelector('#photo').onpointerdown = (e) => {
+      if (!targeting) return
+      const p = curves[channel]
+      start = structuredClone(p)
+      selected = Math.min(1, p.length - 1)
+      const y = e.clientY,
+        o = p[selected].output
+      e.currentTarget.setPointerCapture(e.pointerId)
+      e.currentTarget.onpointermove = (m) => {
+        p[selected].output = Math.max(-16, Math.min(64, o + (y - m.clientY) / 100))
+        render()
+      }
+      e.currentTarget.onpointerup = () => (e.currentTarget.onpointermove = null)
+    }
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        targeting = false
+        document.querySelector('#target').setAttribute('aria-pressed', 'false')
+        document.querySelector('#photo').onpointermove = null
+        if (start) curves[channel] = start
+        render()
+      }
+    })
+    render()
+  </script>
+</html>

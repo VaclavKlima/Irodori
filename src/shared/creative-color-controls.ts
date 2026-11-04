@@ -6,7 +6,7 @@ const amount = { min: -100, max: 100, step: 1, precision: 0, default: 0 } as con
 /** Authored units and processing semantics shared by the inspector and typed capability API. */
 export const creativeColorCapabilities = {
   domains: ['linear-srgb', 'linear-rec2020'],
-  stageOrder: ['colorMixer', 'saturationVibrance', 'colorGrading'],
+  stageOrder: ['saturationVibrance', 'colorMixer', 'colorGrading'],
   colorMixer: {
     supported: true,
     settingsVersion: 1,

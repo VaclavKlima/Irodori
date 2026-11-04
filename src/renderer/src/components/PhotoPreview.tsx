@@ -42,6 +42,7 @@ import { usePreviewFrame } from '../hooks/usePreviewFrame'
 import type { PreviewTools } from '../hooks/usePreviewTools'
 import { usePreviewWheel } from '../hooks/usePreviewWheel'
 import type { WhiteBalancePickerController } from '../hooks/useWhiteBalancePicker'
+import type { ToneCurvesController } from '../hooks/useToneCurves'
 import { useWorkingPreview } from '../hooks/useWorkingPreview'
 import type { EditGestureCommit } from '../preview/edit-gesture'
 import {
@@ -95,6 +96,7 @@ interface Props {
   onImport: () => void
   onContextMenu: (photo: Photo, element: HTMLElement, x: number, y: number) => void
   whiteBalancePicker?: WhiteBalancePickerController
+  toneCurves?: ToneCurvesController
   crop?: CropController
 }
 
@@ -122,6 +124,7 @@ export function PhotoPreview({
   onImport,
   onContextMenu,
   whiteBalancePicker,
+  toneCurves,
   crop,
 }: Props) {
   const cropping = !!crop?.active
@@ -138,6 +141,15 @@ export function PhotoPreview({
   const dividerPointer = useRef<number | null>(null)
   const [maskState, setMaskState] = useState<{ key: string; value: ClippingMask }>()
   const viewport = useRef<HTMLDivElement>(null)
+  const curvePointer = useRef<number | null>(null)
+  useEffect(() => {
+    const element = viewport.current
+    return () => {
+      const id = curvePointer.current
+      curvePointer.current = null
+      if (id !== null && element?.hasPointerCapture(id)) element.releasePointerCapture(id)
+    }
+  }, [toneCurves?.active, toneCurves?.resetKey])
   const image = useRef<HTMLCanvasElement>(null)
   const retainedSurface = useRef<HTMLCanvasElement>(null)
   const presenter = useRef<PreviewPresenter | HdrPresenter | null>(null)
@@ -938,6 +950,7 @@ export function PhotoPreview({
     stopDrag,
     adjustmentKey,
     whiteBalancePicker?.active,
+    toneCurves?.active,
     cropping,
     editingEpoch,
     generation,
@@ -1419,10 +1432,35 @@ export function PhotoPreview({
     event.stopPropagation()
   }
   function pointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (cropping) return
-    if (event.button !== 0 || !event.isPrimary || !ready) return
+    const middle = event.button === 1 && event.pointerType === 'mouse'
+    if ((!middle && (cropping || event.button !== 0)) || !event.isPrimary || !ready) return
     event.preventDefault()
     image.current?.focus({ preventScroll: true })
+    if (middle) {
+      pan.reset()
+      if (panX || panY) pan.start(event.nativeEvent)
+      return
+    }
+    if (toneCurves?.active) {
+      stopDrag()
+      const box = event.currentTarget.getBoundingClientRect()
+      const point = normalizedSourcePoint(
+        { x: event.clientX - box.left, y: event.clientY - box.top },
+        current.current.image,
+        current.current.viewport,
+        current.current.view,
+        full.preview?.crop,
+      )
+      if (!point) {
+        toneCurves.setError('Choose a visible tone inside the photograph.')
+        return
+      }
+      if (toneCurves.beginTarget(point, event.clientY)) {
+        curvePointer.current = event.pointerId
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }
+      return
+    }
     if (whiteBalancePicker?.active) {
       stopDrag()
       const box = event.currentTarget.getBoundingClientRect()
@@ -1441,6 +1479,10 @@ export function PhotoPreview({
     pan.start(event.nativeEvent)
   }
   function pointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (curvePointer.current === event.pointerId) {
+      toneCurves?.moveTarget(event.clientY)
+      return
+    }
     pan.move(event.nativeEvent)
   }
   const exactPreset = ZOOM_STOPS.some((stop) => Math.abs(stop - view.scale) < 0.00001)
@@ -1465,7 +1507,7 @@ export function PhotoPreview({
       <div className={layout.previewArea}>
         <div
           ref={viewport}
-          className={`${styles.viewport} ${ready && (panX || panY) ? styles.pannable : ''} ${dragging ? styles.dragging : ''} ${whiteBalancePicker?.active ? styles.picking : ''}`}
+          className={`${styles.viewport} ${ready && (panX || panY) ? styles.pannable : ''} ${dragging ? styles.dragging : ''} ${whiteBalancePicker?.active || toneCurves?.active ? styles.picking : ''}`}
           data-testid="preview-viewport"
           data-mode={view.fit ? 'fit' : 'manual'}
           data-scale={view.scale}
@@ -1488,16 +1530,42 @@ export function PhotoPreview({
           data-image-width={model.image.width}
           data-image-height={model.image.height}
           data-dragging={dragging}
+          onPointerDownCapture={(event) => {
+            if (event.button === 1) {
+              pointerDown(event)
+              event.stopPropagation()
+            }
+          }}
           onPointerDown={pointerDown}
+          onAuxClick={(event) => {
+            if (event.button === 1) event.preventDefault()
+          }}
           onPointerMove={pointerMove}
-          onPointerUp={(event) => pan.release(event.nativeEvent)}
-          onPointerCancel={(event) => pan.cancel(event.nativeEvent)}
+          onPointerUp={(event) => {
+            if (curvePointer.current === event.pointerId) {
+              curvePointer.current = null
+              toneCurves?.endTarget(event.clientY)
+              if (event.currentTarget.hasPointerCapture(event.pointerId))
+                event.currentTarget.releasePointerCapture(event.pointerId)
+            } else pan.release(event.nativeEvent)
+          }}
+          onPointerCancel={(event) => {
+            if (curvePointer.current === event.pointerId) {
+              curvePointer.current = null
+              toneCurves?.cancelTarget(false)
+            } else pan.cancel(event.nativeEvent)
+          }}
           onLostPointerCapture={(event) => {
+            if (curvePointer.current === event.pointerId) {
+              curvePointer.current = null
+              toneCurves?.cancelTarget(false)
+              return
+            }
             if (event.target === divider.current) stopDrag()
             else pan.lostCapture()
           }}
           onDoubleClick={(event) => {
-            if (whiteBalancePicker?.active || cropping) return
+            if (whiteBalancePicker?.active || toneCurves?.active || cropping) return
             if (!ready || dragged.current) return
             const box = event.currentTarget.getBoundingClientRect()
             if (current.current.view.fit)

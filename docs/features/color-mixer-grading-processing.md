@@ -18,15 +18,18 @@ add complete neutral groups to every current and historical snapshot.
 
 Use the established CIE Lab/D65 model with explicit linear sRGB or Rec.2020 primaries.
 Do not use clipped display HSL for processing. The proposed order is corrected native
-source → committed geometry → white balance → Light → curves (Goal 2) → mixer →
-Saturation/Vibrance → three-way grading → existing output transform. Raster and
+source → committed geometry → white balance → Light → Master/RGB curves →
+Saturation/Vibrance → mixer → three-way grading → existing output transform. Raster and
 authored HDR adapters retain their own output semantics. Denoise/detail placement
 remains its separate decision. Input hue determines mixer weights once; downstream
 hue changes never select a second range. Grade weights use luminance entering grading,
 before that operator's brightness adjustment.
 
-The mixer precedes global intensity, so global desaturation still produces a neutral
-image. Grading follows intensity, allowing a deliberate toned monochrome look. An
+The November 4 version-12 appearance migration moves global intensity before the
+mixer, as explicitly selected by the user for #45. Complete desaturation leaves no
+hue for the mixer to select; grading can still create a toned monochrome look.
+The original order, its oracle and historical evidence remain retained. The new
+independent oracle is `assets/tests/references/creative-color-v2/reference.json`. An
 all-zero mixer/grade must retain the existing intensity path exactly, without an
 extra image pass, decode or source upload. Compile control constants once per edit;
 GPU uniforms carry small constants while the existing working source stays resident.

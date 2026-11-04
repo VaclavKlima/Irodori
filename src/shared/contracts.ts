@@ -141,6 +141,11 @@ export interface IrodoriApi extends NativeHdrMaskBridge {
   ): Promise<HdrPhotoStatistics>
   getEdits(photoId: string): Promise<EditState>
   getEditCapabilities(): Promise<import('./edits').EditCapabilities>
+  sampleCurveTone(
+    photoId: string,
+    expectedRevision: number,
+    request: import('./curve-tone').CurveToneRequest,
+  ): Promise<import('./curve-tone').PhotoCurveTone>
   getCropContext(
     photoId: string,
     expectedRevision: number,

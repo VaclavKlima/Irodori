@@ -182,11 +182,13 @@ fn ccResult(rgb:vec3f,original:array<vec2f,3>,value:array<vec2f,3>)->vec3f {
 fn creativeColorApplyAt(rgb:vec3f,base:u32)->vec3f {
   let header:vec4f=creativeColorData[base];
   if(ccPairEqual(header.zw,vec2f(0.))) {return applyColorIntensity(rgb,header.xy);}
-  let original:array<vec2f,3>=ccLab(array<vec2f,3>(vec2f(rgb.x,0.),vec2f(rgb.y,0.),vec2f(rgb.z,0.)));var mixed:array<vec2f,3>=original;
-  if(header.z!=0.) {mixed=ccMixer(mixed,ccSelect(rgb),base);}
+  let source:array<vec2f,3>=ccLab(array<vec2f,3>(vec2f(rgb.x,0.),vec2f(rgb.y,0.),vec2f(rgb.z,0.)));
+  let colored:vec3f=ccResult(rgb,source,ccIntensity(source,header.xy));
+  let original:array<vec2f,3>=ccLab(array<vec2f,3>(vec2f(colored.x,0.),vec2f(colored.y,0.),vec2f(colored.z,0.)));var mixed:array<vec2f,3>=original;
+  if(header.z!=0.) {mixed=ccMixer(mixed,ccSelect(colored),base);}
   let grade:array<vec2f,3>=ccGradeAmounts(mixed[0],base);
   if(ccEqual(mixed,original) && ccZero(grade[0]) && ccZero(grade[1]) && ccZero(grade[2])) {return applyColorIntensity(rgb,header.xy);}
-  return ccResult(rgb,original,ccGrade(ccIntensity(mixed,header.xy),grade));
+  return ccResult(colored,original,ccGrade(mixed,grade));
 }
 fn applyCreativeColor(rgb:vec3f)->vec3f {return creativeColorApplyAt(rgb,0u);}
 `

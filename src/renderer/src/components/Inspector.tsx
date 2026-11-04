@@ -5,6 +5,8 @@ import { Histogram } from './Histogram'
 import { PreviewMetadata } from './PreviewMetadata'
 import { WhiteBalance } from './WhiteBalance'
 import { WhiteBalancePicker } from './WhiteBalancePicker'
+import { ToneCurves } from './ToneCurves'
+import type { ToneCurvesController } from '../hooks/useToneCurves'
 import type { WhiteBalancePickerController } from '../hooks/useWhiteBalancePicker'
 import { ColorIntensity } from './ColorIntensity'
 import { DetailControls } from './DetailControls'
@@ -49,6 +51,7 @@ export function Inspector({
   suspended = false,
   whiteBalancePicker,
   crop,
+  toneCurves,
 }: {
   group: InspectorGroup
   colorTab: ColorTab
@@ -65,6 +68,7 @@ export function Inspector({
   suspended?: boolean
   whiteBalancePicker: WhiteBalancePickerController
   crop: CropController
+  toneCurves: ToneCurvesController
 }) {
   const navigation = useRef(0)
   const [resetting, setResetting] = useState(false)
@@ -152,10 +156,17 @@ export function Inspector({
               <Whites edits={edits} previewReady={previewReady} />
               <Blacks edits={edits} previewReady={previewReady} />
             </InspectorSection>
-            <button type="button" className={inspectorStyles.fullButton} disabled>
-              Advanced curves
-            </button>
-            <p className={inspectorStyles.hint}>Planned tool</p>
+            <InspectorSection
+              id="curves-controls"
+              title="Curves"
+              expanded={sections.curves}
+              onToggle={() => {
+                toneCurves.cancelTarget()
+                toggle('curves')
+              }}
+            >
+              <ToneCurves curves={toneCurves} />
+            </InspectorSection>
           </TabPanel>
           <TabPanel id="color" active={group === 'color'}>
             {title('color')}

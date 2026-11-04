@@ -175,6 +175,11 @@ const api: IrodoriApi = {
   },
   getEdits: (id) => ipcRenderer.invoke('edits:get', id),
   getEditCapabilities: () => ipcRenderer.invoke('edits:capabilities'),
+  sampleCurveTone: async (id, revision, sample) => {
+    const result = await ipcRenderer.invoke('curves:sample', id, revision, sample)
+    if (result.error) throw new Error(result.error)
+    return result.sample
+  },
   getCropContext: async (id, revision) => {
     const result = await ipcRenderer.invoke('crop:context', id, revision)
     if (result.error) throw new Error(result.error)

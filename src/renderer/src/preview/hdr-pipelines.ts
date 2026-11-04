@@ -8,10 +8,12 @@ import {
 import { hdrShader, hdrMipShader, hdrCacheKernel } from './hdr-shader'
 import { hdrHistogramShaderFor } from './hdr-histogram'
 import { CREATIVE_COLOR_VERSION } from '../../../shared/creative-color'
+import { TONE_CURVE_VERSION } from '../../../shared/tone-curves'
 
 export interface HdrPipelineProfile {
   readonly interactive: boolean
   readonly creative?: boolean
+  readonly curves?: boolean
 }
 export interface HdrPipelines {
   readonly mipLayout: GPUBindGroupLayout
@@ -50,6 +52,7 @@ export class HdrPipelineCache {
     const selected = Object.freeze({
       interactive: profile.interactive,
       ...(profile.creative ? { creative: true } : {}),
+      ...(profile.curves ? { curves: true } : {}),
     })
     const key = JSON.stringify([
       selected.interactive
@@ -60,6 +63,7 @@ export class HdrPipelineCache {
           ]
         : 'reference',
       ...(selected.creative ? [CREATIVE_COLOR_VERSION] : []),
+      ...(selected.curves ? [TONE_CURVE_VERSION] : []),
     ])
     let entries = this.devices.get(device)
     if (!entries) {
@@ -78,9 +82,10 @@ export class HdrPipelineCache {
       ready: false,
       pending: Promise.resolve()
         .then(async () => {
-          const base = selected.creative
-            ? await this.acquire(device, { interactive: selected.interactive }).pipelines
-            : undefined
+          const base =
+            selected.creative || selected.curves
+              ? await this.acquire(device, { interactive: selected.interactive }).pipelines
+              : undefined
           return this.compile(device, selected, base)
         })
         .then((pipelines) => {
@@ -211,6 +216,15 @@ async function compileHdrPipelines(
             },
           ]
         : []),
+      ...(profile.curves
+        ? [
+            {
+              binding: 14,
+              visibility: GPUShaderStage.COMPUTE,
+              buffer: { type: 'read-only-storage' as const },
+            },
+          ]
+        : []),
     ],
   })
   // Queue every independent compiler before awaiting any result. Promise.all
@@ -241,7 +255,9 @@ async function compileHdrPipelines(
     device.createComputePipelineAsync({
       layout: 'auto',
       compute: {
-        module: device.createShaderModule({ code: hdrHistogramShaderFor(profile.creative) }),
+        module: device.createShaderModule({
+          code: hdrHistogramShaderFor(profile.creative, profile.curves),
+        }),
         entryPoint: 'sampleHistogram',
       },
     }),
@@ -251,7 +267,7 @@ async function compileHdrPipelines(
       layout: device.createPipelineLayout({ bindGroupLayouts: [cacheLayout] }),
       compute: {
         module: device.createShaderModule({
-          code: hdrCacheKernel('reference', profile.creative).shader,
+          code: hdrCacheKernel('reference', profile.creative, profile.curves).shader,
         }),
         entryPoint: 'renderTile',
       },
@@ -266,7 +282,7 @@ async function compileHdrPipelines(
         layout: device.createPipelineLayout({ bindGroupLayouts: [cacheLayout] }),
         compute: {
           module: device.createShaderModule({
-            code: hdrCacheKernel(policy, profile.creative).shader,
+            code: hdrCacheKernel(policy, profile.creative, profile.curves).shader,
           }),
           entryPoint: 'renderTile',
         },

@@ -110,7 +110,10 @@ Console arrangement and date/month/year browser.
 ### Inspector composition
 
 - **Light:** Light title and reset; Tonal adjustments disclosure; implemented
-  tonal controls; full-width unavailable Advanced curves with Planned tool text.
+  tonal controls; an expandable Curves section with labelled channel selectors,
+  square signed-log graph, Standard/HDR/Fit points views, Input/Output fields,
+  targeting toggle, channel reset and an expandable complete point list. See
+  [the interaction study](design/tone-curves-prototype.html) and [curve behavior](features/tone-curves.md).
 - **Color:** Basic/Mixer/Grading segmented tabs and group reset on the same row;
   no second visible Color title. Basic contains White balance, its real supported
   controls and As Shot action, followed by Color intensity. Mixer uses two rows

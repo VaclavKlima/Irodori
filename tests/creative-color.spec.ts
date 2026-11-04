@@ -56,7 +56,10 @@ interface Reference {
   gpuVectors: Vector[]
 }
 const reference = JSON.parse(
-  readFileSync(new URL('./fixtures/creative-color-reference.json', import.meta.url), 'utf8'),
+  readFileSync(
+    new URL('../assets/tests/references/creative-color-v2/reference.json', import.meta.url),
+    'utf8',
+  ),
 ) as Reference
 const compiled = reference.configurations.map((value) => ({
   mixer: compileColorMixer(value.mixer),
@@ -131,9 +134,9 @@ test('mixer and three-way grading agree with 5040 independent Decimal80 stage re
     for (let index = 0; index < 8; index++)
       near(actualWeights[index], expectedWeights[index], 2e-12, `selection ${i}/${index}`)
     near(selected.protection, value.selection.protection, 2e-12, `protection ${i}`)
-    const mixed = applyColorMixer(value.input, config.mixer, value.primaries),
-      colored = applyColorIntensity(mixed, config.intensity, value.primaries),
-      graded = applyColorGrading(colored, config.grading, value.primaries)
+    const colored = applyColorIntensity(value.input, config.intensity, value.primaries),
+      mixed = applyColorMixer(colored, config.mixer, value.primaries),
+      graded = applyColorGrading(mixed, config.grading, value.primaries)
     rgbClose(mixed, value.mixed, `mixer vector ${i}`)
     rgbClose(colored, value.colored, `intensity vector ${i}`)
     rgbClose(graded, value.output, `grading vector ${i}`)

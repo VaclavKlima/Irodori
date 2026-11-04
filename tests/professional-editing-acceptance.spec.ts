@@ -6,7 +6,7 @@ import { MERGE_VERSION } from '../src/shared/merge'
 import { verifyMaster } from '../src/main/merge/store'
 import { test, expect } from './electron.fixture'
 import { activateButton } from './button.helpers'
-import { importPhotos } from './import.helpers'
+import { importPhotos, choose } from './import.helpers'
 import { hdrJpegFixture } from './hdr-jpeg.helpers'
 import {
   acceptanceHash,
@@ -63,6 +63,27 @@ test('real Sony, photographic raster and decoded ISO input preserve combined Goa
   expect(initial[2].hdrJpeg).toMatchObject({ state: 'supported' })
 
   const patch: EditPatch = {
+    curves: {
+      master: [
+        { input: -0.1, output: -0.08 },
+        { input: 0, output: 0.005 },
+        { input: 0.18, output: 0.21 },
+        { input: 1, output: 0.95 },
+        { input: 16, output: 17 },
+      ],
+      red: [
+        { input: 0, output: 0 },
+        { input: 1, output: 1.025 },
+      ],
+      green: [
+        { input: 0, output: 0 },
+        { input: 1, output: 0.99 },
+      ],
+      blue: [
+        { input: 0, output: 0.002 },
+        { input: 1, output: 1.01 },
+      ],
+    },
     exposureEv: 0.35,
     contrast: 14,
     highlights: -20,
@@ -222,7 +243,11 @@ test('real Sony, photographic raster and decoded ISO input preserve combined Goa
       noiseReduction: settingsBeforeExport[index].settings.noiseReduction,
       detailSharpening: settingsBeforeExport[index].settings.detailSharpening,
       crop: crops[index],
-      adjustments: { saturation: 12, vibrance: 18 },
+      adjustments: {
+        saturation: 12,
+        vibrance: 18,
+        curves: settingsBeforeExport[index].settings.curves,
+      },
     })
   }
   for (const [index, id] of ids.entries())
@@ -260,11 +285,78 @@ test('real Sony, photographic raster and decoded ISO input preserve combined Goa
     await copyFile(path, join(retainedExports, result.outputName!))
   }
   expect(await managedOriginalHashes(irodori.userDataDir, ordered)).toEqual(originals)
+  // Reimport an actual photographic HDR JPEG derived reproducibly from the committed RAW.
+  const photographicHdr = join(destination, frozen.files[0].outputName!),
+    photographicId = await acceptanceHash(photographicHdr)
+  const previousTasks = await page.evaluate(async () =>
+    (await window.irodori.listTasks()).map((task) => task.id),
+  )
+  await activateButton(page.getByLabel('Import photos', { exact: true }))
+  await choose(app, page, [photographicHdr], 'photos', 'keyboard')
+  await expect(page.getByTestId('import-status')).toContainText('Ready to import')
+  await activateButton(page.getByRole('button', { name: 'Import 1 photos', exact: true }))
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.irodori.listTasks())).find(
+          (task) => task.kind === 'import' && !previousTasks.includes(task.id),
+        )?.status,
+      { timeout: 30000 },
+    )
+    .toBe('completed')
+  const photographicState = await page.evaluate((id) => window.irodori.getEdits(id), photographicId)
+  expect(photographicState.hdrJpeg).toMatchObject({ state: 'supported' })
+  const photographicSample = await page.evaluate(
+    (id) => window.irodori.sampleCurveTone(id, 0, { channel: 'master', x: 0.5, y: 0.5 }),
+    photographicId,
+  )
+  expect(photographicSample.visibleSamples).toBe(25)
+  await page.evaluate(({ id, curves }) => window.irodori.updateEdits(id, { curves }, 0), {
+    id: photographicId,
+    curves: patch.curves!,
+  })
+  const photographicPreparation = await page.evaluate(
+    (id) => window.irodori.prepareExport([id]),
+    photographicId,
+  )
+  expect(photographicPreparation.hdr).toBe(1)
+  const photographicTask = await page.evaluate((request) => window.irodori.startExport(request), {
+    preparationId: photographicPreparation.id,
+    destinationId: grant!.id,
+    action: 'custom' as const,
+    options: {
+      ...defaultExportOptions,
+      quality: 100,
+      metadata: 'none' as const,
+      names: { mode: 'sequence' as const, prefix: 'photographic-roundtrip-' },
+    },
+  })
+  expect(await completedTask(page, photographicTask)).toMatchObject({
+    status: 'completed',
+    export: { exported: 1, failed: 0 },
+  })
+  const photographicOutput = acceptedExport(irodori.userDataDir, photographicTask).files[0],
+    photographicSize = await sharp(photographicHdr).metadata()
+  await inspectAcceptedJpeg(
+    join(destination, photographicOutput.outputName!),
+    true,
+    photographicSize.width!,
+    photographicSize.height!,
+  )
+  const photographicHistory = await page.evaluate(
+    (id) => window.irodori.getEditHistory(id),
+    photographicId,
+  )
   const histories = await Promise.all(
     ids.map((id) => page.evaluate((id) => window.irodori.getEditHistory(id), id)),
   )
   ;({ page } = await irodori.restart())
   expect(await page.evaluate(() => window.irodori.getEditClipboard())).toBeNull()
+  expect(await page.evaluate((id) => window.irodori.getEditHistory(id), photographicId)).toEqual(
+    photographicHistory,
+  )
+  expect(await acceptanceHash(photographicHdr)).toBe(photographicId)
   for (const [index, id] of ids.entries())
     expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(
       histories[index],
@@ -477,6 +569,26 @@ test('genuine Sony v4 review and publication retain a durable master through glo
   expect(referenceInitial.whiteBalanceProfile).toBeDefined()
   expect(referenceLens.profile.distortion).toBeDefined()
   const combined: EditPatch = {
+    curves: {
+      master: [
+        { input: 0, output: 0.004 },
+        { input: 0.18, output: 0.23 },
+        { input: 1, output: 0.96 },
+        { input: 16, output: 17 },
+      ],
+      red: [
+        { input: 0, output: 0 },
+        { input: 1, output: 1.025 },
+      ],
+      green: [
+        { input: 0, output: 0 },
+        { input: 1, output: 0.99 },
+      ],
+      blue: [
+        { input: 0, output: 0.002 },
+        { input: 1, output: 1.01 },
+      ],
+    },
     exposureEv: 0.35,
     contrast: 14,
     highlights: -20,

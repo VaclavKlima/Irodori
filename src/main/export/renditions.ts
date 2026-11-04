@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import sharp from 'sharp'
 import { neutralAdjustments, srgbTransform } from '../../shared/adjustments'
 import { creativeColorActive, prepareCreativeColor } from '../../shared/creative-color'
+import { preparedToneCurves } from '../../shared/tone-curves'
 import { CROP_GEOMETRY_VERSION, cropGeometry, identityCrop } from '../../shared/crop'
 import { CROP_FILTER_VERSION } from '../../shared/crop-filter'
 import { exportGeometry } from '../../shared/export'
@@ -172,6 +173,7 @@ export async function exportRenditions(
             gpuAllowed: true,
             authoredHdr: Boolean(uncroppedAsset?.source.display),
             creative: creativeColorActive(prepareCreativeColor(a)),
+            curves: !preparedToneCurves(a.curves).identity,
             inputBytes: predictedInputBytes,
           },
           admission,

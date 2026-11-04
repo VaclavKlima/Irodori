@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { sameAdjustments, type AdjustmentParameters } from '../shared/adjustments'
 import { REC2020_TO_ACES } from '../shared/display-rendering'
 import { validateProcessingPatch } from '../shared/edits'
+import { preparedToneCurves } from '../shared/tone-curves'
 import {
   hdrAdjustmentMatrix,
   REC2020_TO_P3,
@@ -170,6 +171,10 @@ function validateMask(value: NativeHdrMaskRequest) {
   )
     throw new Error('Native mask requires complete confirmed Light parameters.')
   validateProcessingPatch(value.parameters)
+  if (!preparedToneCurves(value.parameters.curves).identity)
+    throw new Error(
+      'Clipping overlays with active curves require a qualified GPU mask path. The photograph and histogram remain available.',
+    )
   validateTarget(value.target)
   if (
     value.target.headroom !== null &&

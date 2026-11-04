@@ -9,6 +9,7 @@ interface Props {
   step: number
   precision: number
   unit?: string
+  slider?: boolean
   disabled?: boolean
   /** A pending owner commit blocks changes without removing the focused input. */
   busy?: boolean
@@ -28,6 +29,7 @@ export function AdjustmentInput({
   step,
   precision,
   unit,
+  slider = true,
   disabled,
   busy = false,
   resetKey,
@@ -92,6 +94,7 @@ export function AdjustmentInput({
         <div className={styles.value}>
           <input
             ref={input}
+            id={slider ? undefined : id}
             className={styles.number}
             type="number"
             inputMode="decimal"
@@ -150,60 +153,62 @@ export function AdjustmentInput({
           )}
         </div>
       </div>
-      <input
-        id={id}
-        className={styles.range}
-        style={{ '--fill': `${((value - min) / (max - min)) * 100}%` } as CSSProperties}
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        disabled={disabled}
-        aria-disabled={blocked}
-        aria-valuetext={`${value.toFixed(precision)}${unit ? ` ${unit}` : ''}`}
-        onChange={(event) => {
-          if (blocked) event.currentTarget.value = String(value)
-          else onChange(event.currentTarget.valueAsNumber)
-        }}
-        onPointerDown={(event) => {
-          rejectedPointer.current = blocked
-          if (blocked) event.preventDefault()
-          else event.currentTarget.setPointerCapture(event.pointerId)
-        }}
-        onPointerUp={() => {
-          if (!blocked && !rejectedPointer.current) onCommit()
-        }}
-        onPointerCancel={() => {
-          if (!blocked && !rejectedPointer.current) onCancel()
-        }}
-        onLostPointerCapture={() => {
-          if (!blocked && !rejectedPointer.current) onCommit()
-        }}
-        onBlur={() => {
-          if (!blocked) onCommit()
-        }}
-        onKeyUp={(event) => {
-          if (rejectedKeys.current.delete(event.key) || blocked) return
-          if (adjustmentKeys.includes(event.key)) onCommit()
-        }}
-        onKeyDown={(event) => {
-          if (blocked || rejectedKeys.current.has(event.key)) {
-            if (adjustmentKeys.includes(event.key)) rejectedKeys.current.add(event.key)
-            if (
-              event.key !== 'Tab' &&
-              !['Shift', 'Control', 'Alt', 'Meta'].includes(event.key) &&
-              !((event.ctrlKey || event.metaKey) && ['a', 'c'].includes(event.key.toLowerCase()))
-            )
+      {slider && (
+        <input
+          id={id}
+          className={styles.range}
+          style={{ '--fill': `${((value - min) / (max - min)) * 100}%` } as CSSProperties}
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          disabled={disabled}
+          aria-disabled={blocked}
+          aria-valuetext={`${value.toFixed(precision)}${unit ? ` ${unit}` : ''}`}
+          onChange={(event) => {
+            if (blocked) event.currentTarget.value = String(value)
+            else onChange(event.currentTarget.valueAsNumber)
+          }}
+          onPointerDown={(event) => {
+            rejectedPointer.current = blocked
+            if (blocked) event.preventDefault()
+            else event.currentTarget.setPointerCapture(event.pointerId)
+          }}
+          onPointerUp={() => {
+            if (!blocked && !rejectedPointer.current) onCommit()
+          }}
+          onPointerCancel={() => {
+            if (!blocked && !rejectedPointer.current) onCancel()
+          }}
+          onLostPointerCapture={() => {
+            if (!blocked && !rejectedPointer.current) onCommit()
+          }}
+          onBlur={() => {
+            if (!blocked) onCommit()
+          }}
+          onKeyUp={(event) => {
+            if (rejectedKeys.current.delete(event.key) || blocked) return
+            if (adjustmentKeys.includes(event.key)) onCommit()
+          }}
+          onKeyDown={(event) => {
+            if (blocked || rejectedKeys.current.has(event.key)) {
+              if (adjustmentKeys.includes(event.key)) rejectedKeys.current.add(event.key)
+              if (
+                event.key !== 'Tab' &&
+                !['Shift', 'Control', 'Alt', 'Meta'].includes(event.key) &&
+                !((event.ctrlKey || event.metaKey) && ['a', 'c'].includes(event.key.toLowerCase()))
+              )
+                event.preventDefault()
+              return
+            }
+            if (event.key === 'Escape') {
               event.preventDefault()
-            return
-          }
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            onCancel()
-          }
-        }}
-      />
+              onCancel()
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

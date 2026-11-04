@@ -125,6 +125,11 @@ export function transferPatch(source: CopiedEdits, groups: EditTransferGroup[]):
         patch.saturation = s.saturation
         patch.vibrance = s.vibrance
         break
+      case 'curves': {
+        const { master, red, green, blue } = s.curves
+        patch.curves = { master, red, green, blue }
+        break
+      }
       case 'mixer':
         patch.colorMixer = s.colorMixer
         break

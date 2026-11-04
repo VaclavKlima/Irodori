@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { identityToneCurves, validateToneCurves } from '../../shared/tone-curves'
 import { SETTINGS_VERSION, validatePatch } from '../../shared/edits'
 import { identityCrop, isUncropped, validateCrop } from '../../shared/crop'
 import { neutralColorMixer, validateColorMixer } from '../../shared/color-mixer'
@@ -10,7 +11,7 @@ import {
   validateDetailSharpening,
 } from '../../shared/spatial-detail'
 
-export const CATALOG_VERSION = 21
+export const CATALOG_VERSION = 22
 
 /** Validate the entire library before startup permits any migration or recovery write. */
 export function supportsEditingSettings(
@@ -20,18 +21,19 @@ export function supportsEditingSettings(
   if (!settings || !['hdr-v1', 'display-referred-v1'].includes(String(settings.processing)))
     return false
   if (
-    settings.version !== SETTINGS_VERSION &&
+    (settings.version as number) < 11 &&
     ('noiseReduction' in settings || 'detailSharpening' in settings)
   )
     return false
+  if ((settings.version as number) < 12 && 'curves' in settings) return false
   if ((settings.version as number) < 10 && ('colorMixer' in settings || 'colorGrading' in settings))
     return false
   const legacy = settings.version === 7
-  if (![7, 8, 9, 10, SETTINGS_VERSION].includes(settings.version as number)) return false
+  if (![7, 8, 9, 10, 11, SETTINGS_VERSION].includes(settings.version as number)) return false
   if (
     catalogVersion !== undefined &&
     settings.version !==
-      ({ 17: 7, 18: 8, 19: 9, 20: 10, 21: SETTINGS_VERSION } as Record<number, number>)[
+      ({ 17: 7, 18: 8, 19: 9, 20: 10, 21: 11, 22: SETTINGS_VERSION } as Record<number, number>)[
         catalogVersion
       ]
   )
@@ -43,7 +45,8 @@ export function supportsEditingSettings(
   )
     return false
   try {
-    if (settings.version === SETTINGS_VERSION) {
+    if (settings.version === SETTINGS_VERSION) validateToneCurves(settings.curves)
+    if ((settings.version as number) >= 11) {
       validateNoiseReduction(settings.noiseReduction)
       validateDetailSharpening(settings.detailSharpening)
     }
@@ -100,8 +103,15 @@ export function migrateEditingHistory(db: DatabaseSync): void {
           (settings.version as number) >= 10
             ? settings.colorGrading
             : structuredClone(neutralColorGrading),
-        noiseReduction: { ...neutralNoiseReduction },
-        detailSharpening: { ...neutralDetailSharpening },
+        noiseReduction:
+          (settings.version as number) >= 11
+            ? settings.noiseReduction
+            : { ...neutralNoiseReduction },
+        detailSharpening:
+          (settings.version as number) >= 11
+            ? settings.detailSharpening
+            : { ...neutralDetailSharpening },
+        curves: structuredClone(identityToneCurves),
       }
     }
     history.settings = upgrade(history.settings)

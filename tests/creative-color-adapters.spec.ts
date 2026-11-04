@@ -19,7 +19,10 @@ import { analyzeHdr, hdrStatistics } from '../src/shared/hdr-statistics'
 import { rasterLinear } from './raster-reference'
 
 const reference = JSON.parse(
-  readFileSync(new URL('./fixtures/creative-color-reference.json', import.meta.url), 'utf8'),
+  readFileSync(
+    new URL('../assets/tests/references/creative-color-v2/reference.json', import.meta.url),
+    'utf8',
+  ),
 ) as {
   configurations: {
     mixer: ColorMixerSettings

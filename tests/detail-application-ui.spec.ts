@@ -139,7 +139,7 @@ test('the hidden application shares detail UI/MCP history, shows original Before
     expect(JSON.stringify(schemas)).toContain('detailSharpening')
     const capabilities = await page.evaluate(() => window.irodori.getEditCapabilities())
     expect(capabilities).toMatchObject({
-      settingsVersion: 11,
+      settingsVersion: 12,
       noiseReduction: { supported: true },
       detailSharpening: { supported: true },
     })

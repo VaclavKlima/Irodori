@@ -1,5 +1,6 @@
 interface Pointer {
   id: number
+  button: number
   x: number
   y: number
   distance: number
@@ -49,9 +50,16 @@ export class PanDrag {
   }
   start(event: PointerEvent) {
     this.stopGlide()
-    if (this.disposed || this.pointer || event.button !== 0 || !event.isPrimary) return
+    if (
+      this.disposed ||
+      this.pointer ||
+      (event.button !== 0 && !(event.button === 1 && event.pointerType === 'mouse')) ||
+      !event.isPrimary
+    )
+      return
     const pointer: Pointer = {
       id: event.pointerId,
+      button: event.button,
       x: event.clientX,
       y: event.clientY,
       distance: 0,
@@ -98,7 +106,7 @@ export class PanDrag {
   move(event: PointerEvent) {
     const pointer = this.pointer
     if (!pointer || event.pointerId !== pointer.id || this.ownsLock()) return
-    if (!(event.buttons & 1)) {
+    if (!(event.buttons & (pointer.button === 1 ? 4 : 1))) {
       this.stop()
       return
     }
@@ -188,15 +196,16 @@ export class PanDrag {
     if (this.ownsLock()) this.document.exitPointerLock()
   }
   private mouseMove = (event: MouseEvent) => {
-    if (!this.ownsLock() || !this.pointer) return
-    if (!(event.buttons & 1)) {
+    const pointer = this.pointer
+    if (!this.ownsLock() || !pointer) return
+    if (!(event.buttons & (pointer.button === 1 ? 4 : 1))) {
       this.stop()
       return
     }
     this.moveBy(event.movementX, event.movementY)
   }
   private mouseUp = (event: MouseEvent) => {
-    if (event.button === 0 && this.pointer?.type === 'mouse') this.finish(true)
+    if (event.button === this.pointer?.button && this.pointer.type === 'mouse') this.finish(true)
   }
   private keyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape' && (this.pointer || this.glideState)) {
@@ -228,7 +237,8 @@ export class PanDrag {
     if (this.pointer && !this.ownsLock()) this.stop()
   }
   release = (event: PointerEvent) => {
-    if (event.button === 0 && event.pointerId === this.pointer?.id) this.finish(true)
+    if (event.button === this.pointer?.button && event.pointerId === this.pointer.id)
+      this.finish(true)
   }
   cancel = (event: PointerEvent) => {
     if (event.pointerId === this.pointer?.id) this.stop()

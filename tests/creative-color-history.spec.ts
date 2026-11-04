@@ -225,9 +225,9 @@ test('typed color capabilities report authored units and cannot be mutated by ca
   try {
     const capabilities = t.library.getEditCapabilities()
     expect(capabilities).toMatchObject({
-      settingsVersion: 11,
+      settingsVersion: 12,
       domains: ['linear-srgb', 'linear-rec2020'],
-      stageOrder: ['colorMixer', 'saturationVibrance', 'colorGrading'],
+      stageOrder: ['saturationVibrance', 'colorMixer', 'colorGrading'],
       colorMixer: { parameters: { hue: { min: -100, max: 100, degreesPerUnit: 0.3 } } },
       colorGrading: {
         parameters: {

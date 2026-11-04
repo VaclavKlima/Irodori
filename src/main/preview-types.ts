@@ -1,4 +1,12 @@
 import type { ImageStatistics } from '../shared/statistics'
+import type { CurveTone, CurveToneRequest } from '../shared/curve-tone'
+export interface CurveToneJob {
+  width: number
+  height: number
+  linear: import('../shared/contracts').LinearAsset
+  adjustments: import('../shared/adjustments').AdjustmentParameters
+  sample: CurveToneRequest
+}
 import type { HdrStatistics, HdrAnalysisDomain } from '../shared/hdr-statistics'
 import type { HdrWorkingAsset, DisplayTarget } from '../shared/hdr'
 import type { HdrPixel } from '../shared/hdr-pixel'
@@ -11,6 +19,7 @@ export interface WhiteBalanceSampleJob {
   sample: WhiteBalanceSample
 }
 export interface PreviewAnalysisFrame {
+  curveTone?: CurveToneJob
   width: number
   height: number
   sha256: string
@@ -111,6 +120,7 @@ export type PreviewWorkerRequest =
         | 'statistics'
         | 'pixel'
         | 'white-balance-sample'
+        | 'curve-tone'
         | 'crop-working'
         | 'crop-preview'
         | 'detail-working'
@@ -142,6 +152,7 @@ export type PreviewWorkerResponse =
         | HdrStatistics
         | HdrPixel
         | SampledWhiteBalanceProposal
+        | CurveTone
         | import('./processing/crop-preparation').CropPreparationResult
         | import('./processing/detail-preparation').DetailPreparationResult
         | PreviewWarmResult
@@ -298,6 +309,7 @@ export interface FullPreviewProcessor {
     kernel: import('../renderer/src/preview/hdr-shader').HdrCacheKernelKind,
   ): Promise<PreviewWarmResult>
   hdrPixel?(path: string, job: HdrPixelJob, signal: AbortSignal): Promise<HdrPixel>
+  curveTone?(path: string, job: CurveToneJob, signal: AbortSignal): Promise<CurveTone>
   whiteBalanceSample?(
     path: string,
     job: WhiteBalanceSampleJob,

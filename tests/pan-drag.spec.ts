@@ -139,6 +139,50 @@ test('locked dragging uses relative motion once, beyond cursor boundaries, and r
   h.drag.dispose()
 })
 
+test('middle-button panning tracks its own button through captured and locked motion', async () => {
+  for (const locked of [false, true]) {
+    const h = setup(),
+      middle = down({ button: 1, buttons: 4 })
+    h.drag.start(middle)
+    if (locked) h.grant()
+    else h.reject()
+    await Promise.resolve()
+    h.document.dispatchEvent(Object.assign(new Event('mouseup'), { button: 0 }))
+    h.drag.release(down({ button: 0, buttons: 4 }))
+    expect(h.states.at(-1)).toEqual([true, false])
+    if (locked) h.move(24, -12, 4)
+    else h.drag.move(down({ buttons: 4, clientX: 124, clientY: 68 }))
+    expect(h.deltas).toEqual([[24, -12]])
+    h.drag.release(middle)
+    expect(h.states.at(-1)).toEqual([false, true])
+    expect(h.captured.size).toBe(0)
+    expect(h.document.pointerLockElement).toBeNull()
+    h.move(20, 20, 4)
+    expect(h.deltas).toHaveLength(1)
+    h.drag.dispose()
+  }
+})
+
+test('middle-button panning stops when its button is no longer held and rejects other auxiliary input', async () => {
+  for (const locked of [false, true]) {
+    const h = setup()
+    h.drag.start(down({ button: 2, buttons: 2 }))
+    h.drag.start(down({ button: 1, buttons: 4, pointerType: 'pen' }))
+    expect(h.states).toEqual([])
+    h.drag.start(down({ button: 1, buttons: 4 }))
+    if (locked) h.grant()
+    else h.reject()
+    await Promise.resolve()
+    if (locked) h.move(20, 10, 1)
+    else h.drag.move(down({ buttons: 1, clientX: 120, clientY: 90 }))
+    expect(h.deltas).toEqual([])
+    expect(h.states.at(-1)).toEqual([false, false])
+    expect(h.captured.size).toBe(0)
+    expect(h.document.pointerLockElement).toBeNull()
+    h.drag.dispose()
+  }
+})
+
 test('mouse release glides for 120 ms with cubic easing and a 24 CSS pixel vector cap', () => {
   const h = setup()
   h.drag.start(down())

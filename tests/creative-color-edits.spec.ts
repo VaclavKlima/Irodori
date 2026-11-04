@@ -131,7 +131,7 @@ test('processing and persisted current settings require full groups, and older v
   expect(() =>
     validateProcessingPatch({ colorGrading: { tones: { shadows: { hue: 120 } } } }),
   ).toThrow()
-  expect(supportsEditingSettings(base as unknown as Record<string, unknown>, 21)).toBe(true)
+  expect(supportsEditingSettings(base as unknown as Record<string, unknown>, 22)).toBe(true)
   for (const settings of [
     { ...base, colorMixer: {} },
     { ...base, colorGrading: {} },

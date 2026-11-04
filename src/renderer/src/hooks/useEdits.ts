@@ -21,8 +21,8 @@ import {
   snapshotAdjustments,
   type AdjustmentParameters,
 } from '../../../shared/adjustments'
-type AdjustmentPatch = Partial<AdjustmentParameters> &
-  Pick<EditPatch, 'noiseReduction' | 'detailSharpening'>
+type AdjustmentPatch = Omit<Partial<AdjustmentParameters>, 'curves'> &
+  Pick<EditPatch, 'curves' | 'noiseReduction' | 'detailSharpening'>
 
 export function useEdits(photoId: string | undefined, enabled = true) {
   const { begin, pulse } = useForegroundActivity(photoId, undefined, enabled)
@@ -179,7 +179,17 @@ export function useEdits(photoId: string | undefined, enabled = true) {
         }
       })
       .catch((error) => {
-        if (current.current?.photoId === photo) setError(String(error))
+        if (current.current?.photoId === photo) {
+          setError(String(error))
+          setDraft(null)
+          gesture.current = null
+          void window.irodori
+            .getEdits(photo)
+            .then((next) => {
+              if (current.current?.photoId === photo) accept(next)
+            })
+            .catch(() => undefined)
+        }
         throw error
       })
       .finally(() => {
@@ -297,6 +307,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
           ...priorPatch.detailSharpening,
           ...patch.detailSharpening,
         }
+      if (patch.curves) gesture.current.patch.curves = { ...priorPatch.curves, ...patch.curves }
       setDraft(gesture.current.patch)
     } catch (error) {
       if (commits.current.isActive(confirmationScope) && current.current?.photoId === photo)

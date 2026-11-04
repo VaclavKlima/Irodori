@@ -27,6 +27,27 @@ readable data; keeping them does not keep their retired executors available.
 | Merge review/output conversion              | Existing Dawn streaming converter using shared display math                                                              | One/two bounded slots, original error, drain maps before files/device, exact alpha                                                                 | CPU output conversion and late CPU replay removed. Historical masters stay intact. Retired GPU camera/reference and recorded retired CPU executors report unavailable recomputation; provenance consults the same availability policy. Old incomplete cache/recipe measurements remain a provenance-audit checkpoint.                                                                                                                                                                                            |
 | HDR encoding                                | Native pinned libultrahdr 2.0.2 / libjpeg-turbo 3.1.0; accepted macOS C++ and Linux Rust hosts                           | Immutable mapped inputs, primary identity, full gain geometry, child lifecycle, 2 GiB admission and helper RSS                                     | Backend selected before execution; failed native jobs do not restart WASM encoding. The attempted common Rust host on macOS passed small independent quality cases but failed exact full-size binary16 reconstruction at headrooms 2 and 4. It remains a research bundle, **not a replacement for the accepted Mac C++ host**. Keep that host, native packaging and WASM decode consumers. Common-host acceptance remains open.                                                                                  |
 
+## Curves — November 4, 2026
+
+Master/RGB PCHIP curves are fused into the existing GLSL raster presentation and
+WGSL HDR point/cache/histogram/export kernels. Main validates complete per-channel
+arrays. TypeScript compiles bounded coefficients and reads at most 25 source samples;
+there is no full-image CPU curve backend. Identity bypasses exactly. The two shader
+interfaces retain the Decimal80 tolerance. Parameter buffers own 3,200 bytes each;
+preview/histogram ownership and export admission account for them. Identical points
+reuse compiled parameters through pan, zoom and history handoff. Curves remain
+outside upstream prepared-source cache identities.
+
+Settings 12 deliberately migrates color appearance to Saturation/Vibrance → Mixer
+→ Grading after Master/RGB curves. The native mask color helper uses this same new
+color order for identity curves; its rebuilt receipt remains separately qualified.
+Active curves explicitly refuse old full-image clipping-mask and exact HDR service
+statistics routes, since the retained failed GPU analysis qualification does not
+authorize adoption or CPU fallback. The interactive histogram, rendered-image
+statistics and bounded pixel/tone samples remain available. CPU raster histogram
+sampling stays capped at 65,536 samples; remaining exact analysis is #32 work.
+See [curve status and evidence](features/tone-curves.md).
+
 ## Qualification and stopping decisions
 
 The rejected GPU mask candidate used the existing Float32 presentation equations.
