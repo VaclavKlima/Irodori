@@ -82,6 +82,10 @@ Tasks from user feedback. Numbers preserve the reported order.
 
 - [ ] <a id="task-53"></a> **53. Effects — Add adjustable film grain for vintage looks.** Film grain is currently unsupported, so vintage treatments recreate only the color and tonal feel. Add nondestructive film grain with adjustable strength and an Off setting, shared by manual controls and the photo API/MCP. **Done:** grain settings participate in photo-wide Undo/Redo, survive restart and appear consistently in preview and frozen SDR/HDR exports.
 
+- [ ] <a id="task-54"></a> **54. Local editing — Add subject masks with local contrast and dehaze controls.** Let users target a photograph's subject with a mask and adjust local contrast and dehaze within it. Follow the [local-adjustment contracts](local-adjustments.md); subject masking extends the initial manual-mask scope. **Done:** masks and local settings share manual controls and the photo API/MCP, participate in photo-wide Undo/Redo, survive restart and appear consistently in preview and frozen SDR/HDR exports.
+
+- [ ] <a id="task-55"></a> **55. Preview — Add a native-resolution preview for checking noise and texture.** Make it easy to inspect noise and fine texture in the current photograph, reusing the existing full-resolution preview and 100% zoom contract. **Done:** users can navigate detail with one decoded image pixel per CSS pixel and compare current edits with the unedited source. RAW detail uses decoded sensor data; loading, cancellation and stale-result handling preserve the current photo and edit revision.
+
 ## Professional-editing follow-up tasks
 
 **Split from the former two-goal milestone at the user's request, 2026-11-01.**
