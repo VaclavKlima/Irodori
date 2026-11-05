@@ -86,6 +86,8 @@ Tasks from user feedback. Numbers preserve the reported order.
 
 - [ ] <a id="task-55"></a> **55. Preview — Add a native-resolution preview for checking noise and texture.** Make it easy to inspect noise and fine texture in the current photograph, reusing the existing full-resolution preview and 100% zoom contract. **Done:** users can navigate detail with one decoded image pixel per CSS pixel and compare current edits with the unedited source. RAW detail uses decoded sensor data; loading, cancellation and stale-result handling preserve the current photo and edit revision.
 
+- [ ] <a id="task-56"></a> **56. Local editing — Add a local brush mask with exposure and tonal controls.** Let users paint and refine a feathered brush mask, then adjust exposure and tone within it, following the [local-adjustment contracts](local-adjustments.md). **Done:** a tree trunk can emerge gently from its surroundings without a visible halo at Fit and 100%. Masks and local settings share manual controls and the photo API/MCP, participate in photo-wide Undo/Redo, survive restart and appear consistently in preview and frozen SDR/HDR exports.
+
 ## Professional-editing follow-up tasks
 
 **Split from the former two-goal milestone at the user's request, 2026-11-01.**

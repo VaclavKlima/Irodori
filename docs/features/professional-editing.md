@@ -64,6 +64,7 @@ backlog, rather than a second aggregate checklist here.
 | [#51](README.md#task-51) | Adopt List + Beside browser navigation           | Complete for local Bazzite acceptance; collection, selection, menus and recovery preserved.                                             |
 | [#54](README.md#task-54) | Add subject masks with local contrast and dehaze | Planned; extend local adjustments with subject masks and both local operators.                                                          |
 | [#55](README.md#task-55) | Add native-resolution noise and texture preview  | Planned; reuse the existing full-resolution preview and 100% zoom contract.                                                             |
+| [#56](README.md#task-56) | Add a local brush with exposure and tonal edits  | Planned; reuse local adjustments and verify gentle trunk lifting without visible halos.                                                 |
 
 Reuse existing #10 for general Linux dropdowns and #32 for the remaining GPU-first
 consolidation. The [stage inventory](../processing-stages.md) records current owners, retired executors, rejected candidates and remaining platform/removal gates. UI work follows the implemented #33 inspector navigation and #34
