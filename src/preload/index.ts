@@ -1,3 +1,4 @@
+import { acknowledgeFlush } from './flush'
 import { contextBridge, ipcRenderer } from 'electron'
 import { BrowseCatalogChangedError } from '../shared/browse'
 import { CollectionChangedError } from '../shared/collections'
@@ -100,9 +101,7 @@ const api: IrodoriApi = {
   saveWorkspaceState: (change) => ipcRenderer.invoke('workspace:save', change),
   onFlushWorkspace: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, token: string) => {
-      void listener()
-        .finally(() => ipcRenderer.send('workspace:flushed', token))
-        .catch(() => {})
+      acknowledgeFlush(listener, (error) => ipcRenderer.send('workspace:flushed', token, error))
     }
     ipcRenderer.on('workspace:flush', handler)
     return () => ipcRenderer.removeListener('workspace:flush', handler)
@@ -197,9 +196,9 @@ const api: IrodoriApi = {
       token: string,
       scope: import('../shared/edits').EditFlushScope,
     ) => {
-      void listener(scope).then(
-        () => ipcRenderer.send('edits:flushed', token),
-        (error) => ipcRenderer.send('edits:flushed', token, String(error)),
+      acknowledgeFlush(
+        () => listener(scope),
+        (error) => ipcRenderer.send('edits:flushed', token, error),
       )
     }
     ipcRenderer.on('edits:flush', handler)

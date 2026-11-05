@@ -77,6 +77,13 @@ The renderer development server starts on port `5173` and automatically tries th
 
 `npm run dev` also enables Electron's Chrome DevTools Protocol endpoint at `http://127.0.0.1:9222` for the separate `irodori_ui` MCP server. `npm run dev:mcp` is an alias. Run one development instance at a time because the debugging port is fixed. Production launches keep debugging disabled.
 
+Stopping the development launcher requests orderly application shutdown and keeps
+Vite alive while saving or a recovery choice is pending. **Keep open** cancels
+the stop request. If saving cannot be confirmed, a native dialog also offers
+**Retry saving** when the editor is available and **Quit anyway** with an unsaved
+changes warning. See [shutdown and save recovery](docs/shutdown.md) for ownership,
+development-server loss and verification limits.
+
 Electron downloads its runtime on first use if it is not already installed. To download it explicitly after `npm ci`, run `npm run setup:electron`. Dependency installation and the first runtime download require network access; subsequent launches and photo imports work offline.
 
 To build and launch the built application:

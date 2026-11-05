@@ -17,6 +17,17 @@ interface Suite {
   explicitOnly?: boolean
 }
 const definitions: Suite[] = [
+  { file: 'shutdown-model', group: 'node', scopes: ['library'] },
+  { file: 'shutdown-library', group: 'service', scopes: ['library'] },
+  { file: 'shutdown-ui', group: 'electron', scopes: ['library', 'ui'], exclusive: true },
+  { file: 'development-launcher', group: 'node', scopes: ['library'] },
+  {
+    file: 'development-stop-native',
+    group: 'electron',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
   { file: 'agent-policy', group: 'node', scopes: ['mcp'] },
   { file: 'agent-session', group: 'service', scopes: ['mcp'] },
   { file: 'agent-console', group: 'electron', scopes: ['mcp', 'ui'], exclusive: true },

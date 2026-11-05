@@ -7,6 +7,18 @@ export interface WindowPolicyEvidence {
   windows: { id: number; showEvents: number; focusEvents: number; closed: boolean }[]
   violations: string[]
 }
+export function prepareTestElectron(options: {
+  userDataDir: string
+  artifacts: string
+  entry?: 'index' | 'hdr-diagnostic'
+  env?: NodeJS.ProcessEnv
+}): Promise<{
+  profile: string
+  packageDirectory: string
+  evidenceFile: string
+  launchEnv: NodeJS.ProcessEnv
+  mode: 'background' | 'foreground'
+}>
 export function launchTestElectron(options: {
   userDataDir: string
   artifacts: string

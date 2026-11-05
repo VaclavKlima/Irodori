@@ -8,17 +8,13 @@ import { testUiMode } from './test-ui-mode.mjs'
 const root = fileURLToPath(new URL('..', import.meta.url))
 const bootstrap = fileURLToPath(new URL('./electron-test-bootstrap.cjs', import.meta.url))
 
-export async function launchTestElectron({
+export async function prepareTestElectron({
   userDataDir,
   artifacts,
   entry = 'index',
-  args = [],
   env = process.env,
-  offline = true,
 }) {
   if (!['index', 'hdr-diagnostic'].includes(entry)) throw new Error('Unknown Electron test entry.')
-  if (args.some((arg) => arg.startsWith('--user-data-dir')))
-    throw new Error('The shared test launcher owns the isolated profile argument.')
   const profile = await realpath(userDataDir)
   const directory = resolve(artifacts)
   await mkdir(directory, { recursive: true })
@@ -48,6 +44,14 @@ export async function launchTestElectron({
   delete launchEnv.FORCE_COLOR
   delete launchEnv.NODE_OPTIONS
   launchEnv.IRODORI_TEST_UI_MODE = mode
+  return { profile, packageDirectory, evidenceFile, launchEnv, mode }
+}
+
+export async function launchTestElectron({ args = [], offline = true, ...options }) {
+  if (args.some((arg) => arg.startsWith('--user-data-dir')))
+    throw new Error('The shared test launcher owns the isolated profile argument.')
+  const { profile, packageDirectory, evidenceFile, launchEnv, mode } =
+    await prepareTestElectron(options)
   const app = await electron.launch({
     args: [packageDirectory, `--user-data-dir=${profile}`, ...args],
     env: launchEnv,

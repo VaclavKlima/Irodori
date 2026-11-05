@@ -4,6 +4,8 @@ import { cp, lstat, mkdir, open, readdir, realpath, rename, rm, stat } from 'nod
 import { cpus, totalmem } from 'node:os'
 import { basename, extname, join, relative, resolve, sep } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { LibraryAdmission } from './library-admission'
+import { closeServices } from './shutdown'
 import { snapshotAdjustments, srgbTransform } from '../shared/adjustments'
 import { DEFAULT_BROWSE_QUERY, validatedCaptureDate, type BrowseQuery } from '../shared/browse'
 import { CAPTURE_METADATA_VERSION } from '../shared/capture-sequence'
@@ -240,7 +242,9 @@ export class PhotoLibrary {
   private retainedUnsupportedMerges = new Map<string, string>()
   private session?: Session
   private closed = false
+  private admission = new LibraryAdmission()
   private closing?: Promise<void>
+  private draining?: Promise<void>
   private replacingSession = false
   private notification?: ReturnType<typeof setTimeout>
   private tasks = new Map<
@@ -983,20 +987,23 @@ export class PhotoLibrary {
     return this.editTransfers.getClipboard()
   }
   copyEdits(id: string) {
+    this.admission.assertTask()
     this.assertRecovered(true)
-    return this.editTransfers.copy(id)
+    return this.admission.run(() => this.editTransfers.copy(id))
   }
   preparePasteEdits(request: import('../shared/edit-transfer').PasteEditsRequest) {
+    this.admission.assertTask()
     this.assertRecovered(true)
-    return this.editTransfers.prepare(request)
+    return this.admission.run(() => this.editTransfers.prepare(request))
   }
   startPasteEdits(id: string) {
+    this.admission.assertTask()
     this.assertRecovered(true)
-    return this.editTransfers.start(id)
+    return this.admission.run(() => this.editTransfers.start(id))
   }
 
   updateEdits(id: string, patch: EditPatch, expectedRevision: number): Promise<EditState> {
-    return this.updateConfirmedEdits(id, patch, expectedRevision)
+    return this.admission.run(() => this.updateConfirmedEdits(id, patch, expectedRevision))
   }
   private async updateConfirmedEdits(
     id: string,
@@ -1055,10 +1062,10 @@ export class PhotoLibrary {
   }
 
   async undoEdit(id: string, expectedRevision: number): Promise<EditState> {
-    return this.moveEdit(id, expectedRevision, -1)
+    return this.admission.run(() => this.moveEdit(id, expectedRevision, -1))
   }
   async redoEdit(id: string, expectedRevision: number): Promise<EditState> {
-    return this.moveEdit(id, expectedRevision, 1)
+    return this.admission.run(() => this.moveEdit(id, expectedRevision, 1))
   }
   private async moveEdit(
     id: string,
@@ -1082,6 +1089,13 @@ export class PhotoLibrary {
   }
 
   async updateLensSettings(id: string, kind: CorrectionKind, enabled: boolean): Promise<LensState> {
+    return this.admission.run(() => this.queueLensSettings(id, kind, enabled))
+  }
+  private async queueLensSettings(
+    id: string,
+    kind: CorrectionKind,
+    enabled: boolean,
+  ): Promise<LensState> {
     if (!correctionKinds.includes(kind) || typeof enabled !== 'boolean')
       throw new Error('Invalid lens correction setting.')
     const work = this.lensTail.then(async () => {
@@ -1115,12 +1129,20 @@ export class PhotoLibrary {
     return this.exports.store.publicPreferences()
   }
   async prepareExport(ids: string[]) {
+    this.admission.assertTask()
+    return this.admission.run(() => this.prepareAcceptedExport(ids))
+  }
+  private async prepareAcceptedExport(ids: string[]) {
     this.assertRecovered(true)
     const photoIds = validateExportPhotoIds(ids)
     await this.flushEditorEdits({ kind: 'photos', photoIds })
     return this.exports.prepare(photoIds)
   }
   async startExport(request: import('../shared/export').ExportStart) {
+    this.admission.assertTask()
+    return this.admission.run(() => this.startAcceptedExport(request))
+  }
+  private async startAcceptedExport(request: import('../shared/export').ExportStart) {
     this.assertRecovered(true)
     const snapshot = structuredClone(request)
     const photoIds = this.exports.preparedPhotoIds(snapshot)
@@ -1129,7 +1151,10 @@ export class PhotoLibrary {
   }
   saveWorkspaceState(change: WorkspaceChange) {
     if (this.closed) throw new Error('This library is closed.')
-    return this.write({ operation: 'workspace.save', payload: change })
+    return this.admission.run(
+      () => this.write({ operation: 'workspace.save', payload: change }),
+      true,
+    )
   }
   getCollectionPolicy() {
     return this.collectionResources
@@ -1239,7 +1264,11 @@ export class PhotoLibrary {
   getGalleryRange(from: string, to: string) {
     return this.stacks.range(from, to)
   }
-  private async mutateStack<T>(work: () => Promise<T>): Promise<T> {
+  private mutateStack<T>(work: () => Promise<T>): Promise<T> {
+    this.admission.assertTask()
+    return this.admission.run(() => this.mutateAcceptedStack(work))
+  }
+  private async mutateAcceptedStack<T>(work: () => Promise<T>): Promise<T> {
     const reason = this.libraryOperationReason('organization')
     if (reason) throw new Error(reason)
     this.assertRecovered()
@@ -1275,6 +1304,9 @@ export class PhotoLibrary {
     )
   }
   async setStackExpanded(id: string, expanded: boolean, revision: number) {
+    return this.admission.run(() => this.expandAcceptedStack(id, expanded, revision))
+  }
+  private async expandAcceptedStack(id: string, expanded: boolean, revision: number) {
     // Expansion is safe while a task imports or inspects originals; membership stays fixed.
     if (this.closed) throw new Error('This library is closed.')
     this.assertRecovered()
@@ -1287,6 +1319,7 @@ export class PhotoLibrary {
   }
 
   groupCaptureSequences(): string {
+    this.admission.assertTask()
     const reason = this.libraryOperationReason('organization')
     if (reason) throw new Error(reason)
     this.assertRecovered()
@@ -1379,6 +1412,7 @@ export class PhotoLibrary {
   }
 
   deletePhotos(ids: string[]): string | null {
+    this.admission.assertTask()
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || !hashPattern.test(id)))
       throw new Error('Invalid photo selection.')
     const reason = this.libraryOperationReason('foreground', true)
@@ -1641,6 +1675,18 @@ export class PhotoLibrary {
     device?: Session['device'],
     onlyMissing = true,
     verificationMode: import('../shared/contracts').ImportVerificationMode = 'camera-fast',
+  ): Promise<string> {
+    this.admission.assertTask()
+    return this.admission.run(() =>
+      this.scanAccepted(paths, recursive, device, onlyMissing, verificationMode),
+    )
+  }
+  private async scanAccepted(
+    paths: string[],
+    recursive: boolean,
+    device: Session['device'],
+    onlyMissing: boolean,
+    verificationMode: import('../shared/contracts').ImportVerificationMode,
   ): Promise<string> {
     if (typeof onlyMissing !== 'boolean') throw new Error('Invalid missing-photo option.')
     if (!['camera-fast', 'full'].includes(verificationMode))
@@ -2358,6 +2404,7 @@ export class PhotoLibrary {
   }
 
   importSelected(id: string): void | Promise<void> {
+    this.admission.assertTask()
     if (this.closed || this.replacingSession || this.hasActiveTask(false))
       throw new Error('Finish or cancel the current library operation first.')
     this.assertRecovered()
@@ -2791,6 +2838,10 @@ export class PhotoLibrary {
     return this.merges.diagnostics(id, revision)
   }
   async createMergeReview(ids: string[], mode: MergeMode) {
+    this.admission.assertTask()
+    return this.admission.run(() => this.createAcceptedMergeReview(ids, mode))
+  }
+  private async createAcceptedMergeReview(ids: string[], mode: MergeMode) {
     const reason = this.libraryOperationReason('foreground')
     if (reason) throw new Error(reason)
     this.assertRecovered(true)
@@ -2848,6 +2899,7 @@ export class PhotoLibrary {
     })
   }
   startMerge(reviewId: string, revision: number): string {
+    this.admission.assertTask()
     if (this.closed || this.hasCaptureTask() || this.session?.phase === 'scanning')
       throw new Error('Finish the current library operation first.')
     this.assertRecovered(true)
@@ -3117,41 +3169,68 @@ export class PhotoLibrary {
     return (this.closing ??= this.performClose())
   }
 
-  private async performClose(): Promise<void> {
-    if (this.closed) return
-    this.closed = true
+  pauseTaskAdmission(paused: boolean): void {
+    this.admission.tasksPaused = paused
+  }
+
+  stopAdmission(): void {
+    this.admission.seal()
     this.editTransfers?.stopAdmission()
-    this.activities.clear()
     this.merges.stopAdmission()
+  }
+
+  drainAcceptedWork(): Promise<void> {
+    return (this.draining ??= this.performDrain())
+  }
+
+  private async performDrain(): Promise<void> {
+    this.stopAdmission()
+    this.activities.clear()
     if (this.notification) clearTimeout(this.notification)
     try {
-      for (const task of this.tasks.values())
-        if (['running', 'cancelling'].includes(task.snapshot.status)) task.abort?.abort()
-      for (const [id, task] of this.tasks) {
-        if (task.snapshot.status === 'running' || task.snapshot.status === 'cancelling')
-          await this.cancelTask(id)
-      }
-      if (this.session) await this.dispose(this.session.id)
-      await this.editTransfers?.close()
-      await this.closeCaptureProcessor()
-      await this.metadataProcessor.close()
-      await this.directoryVisibility.close()
-      await this.metadataTail
-      await this.agentPreviews?.close()
-      await this.exports?.close()
-      await this.fullPreviews.close()
-      await this.merges.close()
-      this.scheduler.close()
+      await closeServices([
+        () => this.admission.drain(),
+        async () => {
+          for (const task of this.tasks.values())
+            if (['running', 'cancelling'].includes(task.snapshot.status)) task.abort?.abort()
+          await closeServices([
+            ...[...this.tasks]
+              .filter(([, task]) => ['running', 'cancelling'].includes(task.snapshot.status))
+              .map(
+                ([id]) =>
+                  () =>
+                    this.cancelTask(id),
+              ),
+            () => (this.session ? this.dispose(this.session.id) : undefined),
+            () => this.editTransfers?.close(),
+            () => this.exports?.close(),
+          ])
+        },
+      ])
     } finally {
-      try {
-        await this.processor.close()
-      } finally {
-        try {
-          await this.catalog?.close()
-        } finally {
-          this.db?.close()
-        }
-      }
+      this.closed = true
+      if (this.notification) clearTimeout(this.notification)
     }
+  }
+
+  private async performClose(): Promise<void> {
+    // Continue every service cleanup even if a publisher or task-drain step failed.
+    await closeServices([
+      () => this.drainAcceptedWork(),
+      () => this.closeCaptureProcessor(),
+      () => this.metadataTail.then(() => undefined),
+      () => this.metadataProcessor.close(),
+      () => this.directoryVisibility.close(),
+      () => this.agentPreviews?.close(),
+      () => this.fullPreviews.close(),
+      () => this.merges.close(),
+      () => this.scheduler.close(),
+      () => this.processor.close(),
+      async () => {
+        await this.catalog?.close()
+        if (this.catalog?.failure) throw this.catalog.failure
+      },
+      () => this.db?.close(),
+    ])
   }
 }

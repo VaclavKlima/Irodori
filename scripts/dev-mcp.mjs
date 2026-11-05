@@ -1,4 +1,5 @@
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
+import { createDevelopmentSupervisor } from './development-supervisor.mjs'
 import { createServer } from 'node:net'
 import { fileURLToPath } from 'node:url'
 
@@ -32,44 +33,18 @@ try {
 const cli = fileURLToPath(
   new URL('../node_modules/electron-vite/bin/electron-vite.js', import.meta.url),
 )
+const supervisor = await createDevelopmentSupervisor()
 const child = spawn(
   process.execPath,
   [cli, 'dev', '--remote-debugging-port=9222', ...process.argv.slice(2)],
   {
     stdio: 'inherit',
+    env: { ...process.env, ...supervisor.env },
     cwd: fileURLToPath(new URL('..', import.meta.url)),
     // Own the whole Vite/Electron process group so programmatic shutdown is reliable.
     detached: process.platform !== 'win32',
   },
 )
-let stopping = false
-
-function stopTree(signal = 'SIGTERM') {
-  if (!child.pid) return
-  if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
-    return
-  }
-  try {
-    process.kill(-child.pid, signal)
-  } catch (error) {
-    if (error.code !== 'ESRCH')
-      console.error('Could not stop the Irodori process group:', error.message)
-  }
-}
-
-child.on('error', (error) => {
-  console.error('Could not start the Irodori development session:', error.message)
-  process.exitCode = 1
-})
-child.on('exit', (code) => {
-  stopTree()
-  process.exitCode = stopping ? 0 : (code ?? 1)
-})
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => {
-    stopping = true
-    stopTree(signal)
-  })
-}
-process.on('exit', () => stopTree())
+supervisor.attach(child)
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => supervisor.requestStop())
+process.exitCode = await supervisor.done

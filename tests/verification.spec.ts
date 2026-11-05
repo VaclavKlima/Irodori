@@ -1219,6 +1219,9 @@ async function developmentLauncherFixture(runtime: string) {
   )
   await Promise.all([
     writeFile(join(directory, 'scripts/dev-mcp.mjs'), launcher),
+    ...['development-supervisor.mjs', 'development-protocol.mjs'].map(async (name) =>
+      writeFile(join(directory, 'scripts', name), await readFile(join('scripts', name))),
+    ),
     writeFile(join(directory, 'node_modules/electron/package.json'), '{"main":"index.cjs"}'),
     writeFile(join(directory, 'node_modules/electron/index.cjs'), runtime),
     writeFile(

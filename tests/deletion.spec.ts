@@ -186,6 +186,7 @@ test('current catalogs reconcile interrupted removals without erasing OS-restore
     await t.service.close()
     const library = join(t.root, 'library')
     const journal = new DatabaseSync(join(library, 'catalog.sqlite'))
+    const version = journal.prepare('PRAGMA user_version').get()
     for (const photo of photos)
       journal
         .prepare('INSERT INTO removals VALUES (?, ?)')
@@ -217,7 +218,7 @@ test('current catalogs reconcile interrupted removals without erasing OS-restore
       )
       const check = new DatabaseSync(join(library, 'catalog.sqlite'))
       expect(check.prepare('SELECT * FROM removals').all()).toEqual([])
-      expect(check.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 17 })
+      expect(check.prepare('PRAGMA user_version').get()).toEqual(version)
       check.close()
     } finally {
       await recovered.close()

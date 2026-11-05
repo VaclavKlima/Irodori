@@ -30,6 +30,7 @@ import {
 import { configureAppIdentity } from './app-identity'
 import { configureDesktopIdentity, desktopIcon } from './desktop-identity'
 import { DisplayState } from './display-state'
+import { connectDevelopmentSupervisor } from './development-lifecycle'
 import { startEditorEndpoint } from './editor-endpoint'
 import { AgentSessions } from './agent/sessions'
 import { AgentRequestGate } from './agent/request-gate'
@@ -51,7 +52,7 @@ import {
 import { PreviewProcess } from './preview-process'
 import { photoExtensions } from './processing/formats'
 import { ResourceService } from './resource-service'
-import { closeServices } from './shutdown'
+import { closeServices, editorAvailable, flushRenderer, ShutdownCoordinator } from './shutdown'
 import { installWaylandDisplayRefresh } from './wayland-display'
 import { createAppWindow, showAppWindow } from './window-presentation'
 
@@ -79,6 +80,11 @@ let editorEndpoint: Awaited<ReturnType<typeof startEditorEndpoint>> | undefined
 let quitting = false
 let picking = false
 let quitPending = false
+let developmentSupervisor: ReturnType<typeof connectDevelopmentSupervisor>
+let startupComplete!: () => void
+const startupReady = new Promise<void>((resolve) => {
+  startupComplete = resolve
+})
 let closingRenderer: Electron.WebContents | undefined
 
 async function cropAdmission(
@@ -139,32 +145,13 @@ async function cropAdmission(
 }
 
 async function flushEditorEdits(scope: import('../shared/edits').EditFlushScope) {
-  const window = mainWindow
-  if (!window || window.isDestroyed()) return
-  await new Promise<void>((resolve, reject) => {
-    const token = randomUUID()
-    const timer = setTimeout(() => {
-      ipcMain.removeListener('edits:flushed', handler)
-      reject(new Error('The editor did not finish saving. Try again.'))
-    }, 10000)
-    const handler = (event: Electron.IpcMainEvent, returned: string, error?: string) => {
-      if (
-        event.sender !== window.webContents ||
-        event.senderFrame !== window.webContents.mainFrame ||
-        returned !== token
-      )
-        return
-      clearTimeout(timer)
-      ipcMain.removeListener('edits:flushed', handler)
-      if (error) reject(new Error(error))
-      else resolve()
-    }
-    ipcMain.on('edits:flushed', handler)
-    window.webContents.send('edits:flush', token, scope)
-  })
+  const result = await flushRenderer(mainWindow?.webContents, ipcMain, 'edits', scope)
+  if (result.status !== 'saved') throw new Error(result.reason)
 }
 
 async function captureAgentContext(): Promise<EditorContextSnapshot> {
+  if (quitPending)
+    throw new Error('Finish closing the application before submitting another request.')
   const contents = mainWindow?.webContents
   if (!contents || contents.isDestroyed()) throw new Error('The editor context is unavailable.')
   const snapshot = await new Promise<EditorContextSnapshot>((resolve, reject) => {
@@ -221,111 +208,105 @@ function handleLibraryRequest(
   listener: Parameters<typeof ipcMain.handle>[1],
 ): void {
   ipcMain.handle(channel, (event, ...args) => {
-    // The destroyed renderer can still have invokes in Electron's queue. Its
-    // final saves were acknowledged before shutdown; do not enter closed services.
+    // A destroyed renderer can still have invokes in Electron's queue. Shutdown
+    // admission is already sealed; do not enter closed application services.
     if (event.sender === closingRenderer) return
     return listener(event, ...args)
   })
 }
 
-async function requestQuit(): Promise<void> {
-  if (quitting || quitPending) return
-  quitPending = true
-  try {
-    if (library?.hasActiveTask()) {
-      const options = {
-        type: 'question' as const,
-        title: 'A library task is still running',
-        message: 'Keep working on your photos?',
-        detail:
-          'Cancellation stops remaining work after the current operation finishes. Completed imports, exported files and moves to Trash are kept.',
-        buttons: ['Keep working', 'Cancel task and quit'],
-        defaultId: 0,
-        cancelId: 0,
-      }
-      const result = mainWindow
-        ? await dialog.showMessageBox(mainWindow, options)
-        : await dialog.showMessageBox(options)
-      if (result.response !== 1) return
-    }
-    await agentSessions?.disconnect()
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      const window = mainWindow
-      await new Promise<void>((resolve, reject) => {
-        const token = randomUUID()
-        const timer = setTimeout(() => {
-          ipcMain.removeListener('edits:flushed', handler)
-          reject(new Error('The editor did not finish saving. Try closing again.'))
-        }, 10000)
-        const handler = (event: Electron.IpcMainEvent, returned: string, error?: string) => {
-          if (
-            event.sender !== window.webContents ||
-            event.senderFrame !== window.webContents.mainFrame ||
-            returned !== token
-          )
-            return
-          clearTimeout(timer)
-          ipcMain.removeListener('edits:flushed', handler)
-          if (error) reject(new Error(error))
-          else resolve()
-        }
-        ipcMain.on('edits:flushed', handler)
-        window.webContents.send('edits:flush', token, { kind: 'all' })
-      })
-    }
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      const window = mainWindow
-      await new Promise<void>((resolve) => {
-        const token = randomUUID()
-        const finish = () => {
-          clearTimeout(timer)
-          ipcMain.removeListener('workspace:flushed', handler)
-          resolve()
-        }
-        const handler = (event: Electron.IpcMainEvent, returned: string) => {
-          if (
-            event.sender === window.webContents &&
-            event.senderFrame === window.webContents.mainFrame &&
-            returned === token
-          )
-            finish()
-        }
-        const timer = setTimeout(finish, 10000)
-        ipcMain.on('workspace:flushed', handler)
-        window.webContents.send('workspace:flush', token)
-      })
-    }
-    // Saving is complete. Stop renderer requests before closing their catalog and
-    // workers; otherwise queued thumbnail loads race the library's closed state.
-    if (mainWindow) {
-      closingRenderer = mainWindow.webContents
-      mainWindow.destroy()
-    }
-    try {
-      await closeServices([
-        () => agentSessions?.close(),
-        () => editorEndpoint?.close(),
-        () => library?.close(),
-        () => resourceService?.drain(),
-      ])
-      quitting = true
-      app.quit()
-    } catch (error) {
-      // The saved renderer has already gone; finish all cleanup and terminate
-      // instead of reopening a workspace against partially closed services.
-      console.error('Could not finish shutting down Irodori:', error)
-      app.exit(1)
-    }
-  } catch (error) {
-    await dialog.showMessageBox({
-      type: 'error',
-      message: 'Could not finish saving',
-      detail: String(error),
+const shutdown = new ShutdownCoordinator({
+  pauseAdmission(paused) {
+    quitPending = paused
+    library?.pauseTaskAdmission(paused)
+  },
+  async confirmTasks() {
+    if (!library?.hasActiveTask()) return true
+    const result = await showShutdownDialog({
+      type: 'question',
+      title: 'A library task is still running',
+      message: 'Keep working on your photos?',
+      detail:
+        'Cancellation stops remaining work after the current operation finishes. Completed imports, exported files and moves to Trash are kept.',
+      buttons: ['Keep open', 'Cancel task and quit'],
+      defaultId: 0,
+      cancelId: 0,
     })
-  } finally {
-    quitPending = false
-  }
+    return result.response === 1
+  },
+  flushEdits: () => flushRenderer(mainWindow?.webContents, ipcMain, 'edits', { kind: 'all' }),
+  async recover(result, reason) {
+    const retry = editorAvailable(mainWindow?.webContents)
+    const buttons = retry
+      ? ['Keep open', 'Retry saving', 'Quit anyway']
+      : ['Keep open', 'Quit anyway']
+    const response = await showShutdownDialog({
+      type: 'warning',
+      title:
+        result.status === 'saved'
+          ? 'Development has ended'
+          : result.status === 'error'
+            ? 'Could not finish saving'
+            : 'Saving could not be confirmed',
+      message:
+        result.status === 'saved'
+          ? 'Keep this window open?'
+          : result.status === 'error'
+            ? 'The editor reported a save error.'
+            : 'The latest changes may not have been saved.',
+      detail: `${result.status === 'saved' ? 'The latest edits were saved.' : result.reason + '\n\nQuit anyway may lose unconfirmed recent changes.'} Committed library history and originals are preserved.${reason === 'development-lost' ? '\n\nDevelopment has ended. Keep open retains this window, but reloading may be unavailable.' : ''}`,
+      buttons,
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    })
+    const choice = buttons[response.response]
+    return choice === 'Quit anyway' ? 'quit' : choice === 'Retry saving' ? 'retry' : 'keep'
+  },
+  sealAdmission() {
+    library?.stopAdmission()
+  },
+  async flushWorkspace() {
+    // This is a best-effort checkpoint; a missing document retains its last durable state.
+    const result = await flushRenderer(mainWindow?.webContents, ipcMain, 'workspace')
+    if (result.status !== 'saved') console.warn('Workspace checkpoint retained:', result.reason)
+  },
+  async cleanup() {
+    await closeServices([
+      () => agentSessions?.close(),
+      () => editorEndpoint?.close(),
+      () => library?.drainAcceptedWork(),
+      () => {
+        if (mainWindow) {
+          closingRenderer = mainWindow.webContents
+          mainWindow.destroy()
+        }
+      },
+      () => library?.close(),
+      () => resourceService?.drain(),
+    ])
+  },
+  report: (error) => console.error('Could not finish shutting down Irodori:', error),
+  exit(code) {
+    developmentSupervisor?.closing(code)
+    quitting = true
+    if (code) app.exit(code)
+    else app.quit()
+  },
+})
+
+function showShutdownDialog(options: Electron.MessageBoxOptions) {
+  return mainWindow && !mainWindow.isDestroyed()
+    ? dialog.showMessageBox(mainWindow, options)
+    : dialog.showMessageBox(options)
 }
+
+function requestQuit(reason: import('./shutdown').ShutdownReason = 'quit') {
+  const request = () => shutdown.request(reason)
+  if (reason === 'development-lost') return (developmentRecovery ??= startupReady.then(request))
+  return startupReady.then(request)
+}
+let developmentRecovery: Promise<import('./shutdown').ShutdownOutcome> | undefined
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -413,7 +394,7 @@ function createWindow(): void {
   window.on('close', (event) => {
     if (!quitting) {
       event.preventDefault()
-      void requestQuit()
+      void requestQuit('close')
     }
   })
   window.on('closed', () => {
@@ -427,13 +408,16 @@ function createWindow(): void {
       : window.loadFile(join(import.meta.dirname, '../renderer/index.html'))
   loading.catch((error: unknown) => {
     console.error('Could not load the Irodori interface:', error)
-    app.exit(1)
+    if (!app.isPackaged && devUrl) void requestQuit('development-lost')
+    else app.exit(1)
   })
 }
 
 app
   .whenReady()
   .then(async () => {
+    if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL)
+      developmentSupervisor = connectDevelopmentSupervisor(requestQuit)
     Menu.setApplicationMenu(
       process.platform === 'darwin'
         ? Menu.buildFromTemplate([
@@ -743,10 +727,14 @@ app
     })
     handleLibraryRequest('agent:input', (event, id, data) => {
       trusted(event)
+      if (quitPending)
+        throw new Error('Finish closing the application before submitting another request.')
       agentSessions!.input(id, data)
     })
     handleLibraryRequest('agent:paste', async (event, id, bracketed) => {
       trusted(event)
+      if (quitPending)
+        throw new Error('Finish closing the application before submitting another request.')
       agentSessions!.paste(id, await clipboard.readText(), bracketed)
     })
     handleLibraryRequest('agent:copy-selection', async (event, id, text) => {
@@ -1316,6 +1304,7 @@ app
     })
 
     createWindow()
+    startupComplete()
     app.on('activate', () => {
       if (!quitPending && BrowserWindow.getAllWindows().length === 0) createWindow()
     })

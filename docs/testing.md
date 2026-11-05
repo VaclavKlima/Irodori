@@ -2,6 +2,30 @@
 
 Use explicit suite targets for routine feature verification. Comprehensive testing requires a user-requested or previously agreed checkpoint; completing a feature alone never triggers one. The shared Playwright runner retains platform-specific evidence and limitations below.
 
+## Shutdown and development recovery
+
+The [shutdown contract](shutdown.md) records ownership and platform limits.
+`shutdown-model` covers flush tokens, renderer lifetime, synchronous preload
+errors and serialized recovery choices. `shutdown-library` holds real accepted
+edits, queued history/lens/group work, catalog publication and an isolated Trash
+adapter. `development-launcher` exercises the actual launcher with bounded
+process fixtures, including cancellation, Vite/connection loss, replacement
+instances and descendant cleanup. `shutdown-ui` checks real Electron saving,
+resource replies during draining, restart and child-process exit before teardown.
+
+Ordinary Electron cases use the shared isolated launcher. The explicit-only
+`development-stop-native` case is `@foreground` and requires one physical **Keep
+open** choice. Run `IRODORI_NATIVE_DIALOG_MANUAL=1 npm run verify -- --foreground
+--target development-stop-native` when ready to interact; otherwise selecting it
+defers the case and remains incomplete. It starts real `npm run dev` with a
+shared-bootstrap temporary profile, verifies Keep open retains Vite, then verifies
+Electron, Vite, supervisor and npm disappearance. It never connects to or imports
+into a user library. This desktop's native widget could not be operated through
+the attempted automated accessibility drivers; retained failure evidence is
+separate from the physical foreground pass. Automatic code restarts, OS forced
+termination and the historical incident's root-cause diagnosis remain outside
+these targets.
+
 ## Processing consolidation targets — 2026-11-03
 
 Use the [stage inventory](processing-stages.md) for current backend ownership and
