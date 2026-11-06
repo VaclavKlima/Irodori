@@ -22,7 +22,7 @@ Sony RAW white balance and neutral picking, Master/RGB curves with photo targeti
 the eight-range HSL mixer, three-way
 grading, nondestructive crop/straighten, single-image luminance/chroma noise
 reduction v1, detail sharpening, standard Lanczos3 export sizing/enlargement and
-selective copy/paste with bounded batch application. Adjustments use persisted
+selective copy/paste and [named presets](named-presets.md) with bounded batch application. Adjustments use persisted
 photo-wide history; resize choices belong to frozen export settings/jobs. Both
 use the typed application/MCP API.
 
@@ -37,8 +37,9 @@ Noise reduction v1 is weak on strong high-ISO noise. C16 and the BM3D trial fail
 their adoption gates and remain unenabled. Physical picker accuracy under two
 measured illuminants, broader photographic appearance and remaining sustained
 performance are unverified. Curves have focused Bazzite acceptance with explicit
-[clipping/platform/activation limits](tone-curves.md). Named presets, final-size proof and output
-sharpening are not available. FSR is an optional evaluation, with standard
+[clipping/platform/activation limits](tone-curves.md). [Final-size JPEG proof](output-proof.md)
+is available in Custom export and Console. Output sharpening remains unavailable.
+FSR is an optional evaluation, with standard
 upscaling already available.
 
 ## Task index
@@ -57,8 +58,8 @@ backlog, rather than a second aggregate checklist here.
 | [#43](README.md#task-43) | Measure white-balance picker accuracy            | Deferred research; required target/meter and a qualifying cohort are unavailable.                                                       |
 | [#44](README.md#task-44) | Resolve remaining performance/resource questions | Separate from feature work; native-120 investigation retains its effort stop.                                                           |
 | [#45](README.md#task-45) | Add Master/RGB tone curves                       | Complete for focused Bazzite acceptance; photographic, native, timing and bounded compatibility evidence and limits in the curve brief. |
-| [#46](README.md#task-46) | Add named versioned presets                      | Reuse implemented selective transfer and batch/history services.                                                                        |
-| [#47](README.md#task-47) | Add final-output-size proof                      | Reuse standard export sizing and frozen settings.                                                                                       |
+| [#46](README.md#task-46) | Add named versioned presets                      | Implemented local definitions and shared application/history; [evidence and live-client limits](named-presets.md).                      |
+| [#47](README.md#task-47) | Add final-output-size proof                      | Implemented shared JPEG proofs in Custom export and Console; [focused Bazzite acceptance and limits](output-proof.md).                  |
 | [#48](README.md#task-48) | Add export-only output sharpening                | Depends on #47 for trustworthy output-pixel review.                                                                                     |
 | [#49](README.md#task-49) | Evaluate optional spatial FSR                    | Optional later task; a justified rejection is a valid outcome.                                                                          |
 | [#51](README.md#task-51) | Adopt List + Beside browser navigation           | Complete for local Bazzite acceptance; collection, selection, menus and recovery preserved.                                             |

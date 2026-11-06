@@ -1,5 +1,5 @@
 import { Button, IconButton } from './ui/Controls'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import {
   defaultExportOptions,
@@ -13,16 +13,27 @@ import {
   type ExportPreparation,
 } from '../../../shared/export'
 import { AdjustmentInput } from './AdjustmentInput'
+import { OutputProof } from './OutputProof'
+import type { DisplayTarget } from '../../../shared/hdr'
+import type { EditorPreviewPolicy } from '../../../shared/editor-preview-policy'
 import styles from './ExportDialog.module.css'
 
 export function ExportDialog({
   ids,
   onClose,
   onStarted,
+  initialPhotoId,
+  displayTarget,
+  previewPolicy,
+  onProofActiveChange,
 }: {
   ids: string[]
   onClose: () => void
   onStarted: () => void
+  initialPhotoId: string | null
+  displayTarget: DisplayTarget
+  previewPolicy: EditorPreviewPolicy
+  onProofActiveChange: (active: boolean) => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const life = useRef<{
@@ -33,10 +44,46 @@ export function ExportDialog({
   const [prefs, setPrefs] = useState<ExportPreferences | null>(null)
   const [destination, setDestination] = useState<ExportDestination | null>(null)
   const [custom, setCustom] = useState(false)
+  const customButton = useRef<HTMLButtonElement>(null)
+  const wasCustom = useRef(false)
+  useLayoutEffect(() => {
+    if (!custom && wasCustom.current) customButton.current?.focus({ preventScroll: true })
+    wasCustom.current = custom
+  }, [custom])
   const [options, setOptions] = useState<ExportOptions>(structuredClone(defaultExportOptions))
   const committedQuality = useRef(defaultExportOptions.quality)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [preparationInvalid, setPreparationInvalid] = useState(false)
+  useEffect(() => {
+    if (!preparation) return
+    const targets = new Map(preparation.targets.map((t) => [t.photoId, t.revision]))
+    const invalidate = () => {
+      setPreparationInvalid(true)
+      setError(
+        'Export targets or edits changed, or preparation expired. Open the export chooser again.',
+      )
+    }
+    const off = window.irodori.onLibraryEvent((event) => {
+      const change = event.editsChanged ?? event.sourceChanged ?? event.lensChanged
+      if (
+        (change &&
+          targets.has(change.photoId) &&
+          targets.get(change.photoId) !== change.revision) ||
+        event.deletedIds?.some((id) => targets.has(id))
+      )
+        invalidate()
+    })
+    const expiry = setTimeout(invalidate, 15 * 60_000)
+    return () => {
+      off()
+      clearTimeout(expiry)
+    }
+  }, [preparation])
+  useEffect(() => {
+    onProofActiveChange(custom)
+    return () => onProofActiveChange(false)
+  }, [custom, onProofActiveChange])
   useEffect(() => {
     const state = life.current
     state.mounted = true
@@ -91,7 +138,7 @@ export function ExportDialog({
     }
   }
   async function start(action: ExportAction) {
-    if (busy || !preparation) return
+    if (busy || !preparation || preparationInvalid) return
     setBusy(true)
     setError('')
     try {
@@ -124,7 +171,7 @@ export function ExportDialog({
   return (
     <dialog
       ref={dialog}
-      className={styles.dialog}
+      className={`${styles.dialog} ${custom ? styles.expanded : ''}`}
       aria-labelledby="export-heading"
       onCancel={(event) => {
         event.preventDefault()
@@ -135,295 +182,312 @@ export function ExportDialog({
         <h2 id="export-heading">{custom ? 'Custom JPEG export' : 'Export JPEG'}</h2>
         <IconButton icon={X} label="Close export" disabled={busy} onClick={onClose} />
       </header>
-      <div className={styles.body} aria-busy={busy || !preparation}>
-        <p className={styles.summary}>
-          {preparation
-            ? `${preparation.targets.length} ${preparation.targets.length === 1 ? 'photo' : 'photos'}`
-            : 'Preparing export…'}
-          {counts && ` · ${counts.hdr} HDR · ${counts.sdr} SDR`}
-        </p>
-        <div className={styles.destination}>
-          <div>
-            <span>Destination</span>
-            <p title={destination?.label}>
-              {destination?.label ?? 'Choose a folder on first export'}
-            </p>
-          </div>
-          <Button disabled={busy} onClick={() => void changeFolder()}>
-            Change folder…
-          </Button>
-        </div>
-        {destination && !destination.available && (
-          <p role="status">This folder is unavailable. Choose another folder to export.</p>
-        )}
-        {!custom ? (
-          <>
-            <div className={styles.presets} aria-label="JPEG export presets">
-              {exportPresets.map((preset) => (
-                <Button
-                  key={preset.id}
-                  disabled={busy || !preparation}
-                  onClick={() => void start(preset.id)}
-                >
-                  <strong>{preset.label}</strong>
-                  <span>JPEG quality {preset.quality} · Original size · Auto</span>
-                </Button>
-              ))}
-              <Button
-                disabled={busy || !preparation || !prefs?.lastCustom || lastUnsupported > 0}
-                onClick={() => void start('last-custom')}
-              >
-                <strong>Last custom</strong>
-                <span>
-                  {prefs?.lastCustom
-                    ? lastUnsupported
-                      ? `${lastUnsupported} unsupported for HDR JPEG`
-                      : `JPEG quality ${prefs.lastCustom.quality} · ${lastCounts?.hdr} HDR · ${lastCounts?.sdr} SDR · Saved settings`
-                    : 'No custom export saved yet'}
-                </span>
-              </Button>
-              <Button disabled={busy || !preparation} onClick={() => setCustom(true)}>
-                <strong>Custom…</strong>
-                <span>Output, size, names and metadata</span>
-              </Button>
-            </div>
-            <p>
-              Auto uses HDR JPEG for supported RAWs, merges and HDR JPEGs. Other photos use SDR
-              JPEG. JPEG quality 100 still uses lossy compression.
-            </p>
-            <p>
-              Quick exports keep camera and copyright metadata, exclude location and private camera
-              identifiers, and rename collisions automatically.
-            </p>
-          </>
-        ) : (
-          <form
-            id="custom-export"
-            className={styles.form}
-            onSubmit={(event) => {
-              event.preventDefault()
-              if (!unsupported && !validation) void start('custom')
-            }}
-          >
-            <label>
-              Output
-              <select
-                value={options.output}
-                disabled={busy}
-                onChange={(event) =>
-                  setOptions((o) => ({
-                    ...o,
-                    output: event.target.value as ExportOptions['output'],
-                  }))
-                }
-              >
-                <option value="auto">Auto</option>
-                <option value="sdr">SDR JPEG</option>
-                <option value="hdr">HDR JPEG (gain map)</option>
-              </select>
-            </label>
-            {unsupported > 0 && (
-              <p role="alert">
-                {unsupported} {unsupported === 1 ? 'photo does' : 'photos do'} not support HDR JPEG.
-                Choose Auto or SDR JPEG.
-              </p>
-            )}
-            <div className={styles.quality}>
-              <AdjustmentInput
-                label="JPEG quality"
-                value={options.quality}
-                min={1}
-                max={100}
-                step={1}
-                precision={0}
-                disabled={busy}
-                onChange={(quality) => setOptions((o) => ({ ...o, quality }))}
-                onCommit={() => {
-                  committedQuality.current = options.quality
-                }}
-                onCancel={() => setOptions((o) => ({ ...o, quality: committedQuality.current }))}
-              />
-            </div>
-            <label>
-              Size
-              <select
-                value={options.size.mode}
-                disabled={busy}
-                onChange={(event) =>
-                  size(
-                    event.target.value === 'original'
-                      ? { mode: 'original' }
-                      : event.target.value === 'longest'
-                        ? { mode: 'longest', edge: 2560, ...resizeChoice }
-                        : { mode: 'fit', width: 2560, height: 2560, ...resizeChoice },
-                  )
-                }
-              >
-                <option value="original">Original</option>
-                <option value="longest">Longest edge</option>
-                <option value="fit">Fit within width / height</option>
-              </select>
-            </label>
-            {options.size.mode === 'longest' && (
-              <label>
-                Longest edge (px)
-                <input
-                  type="number"
-                  min={1}
-                  max={32768}
-                  step={1}
-                  required
-                  disabled={busy}
-                  value={Number.isFinite(options.size.edge) ? options.size.edge : ''}
-                  onChange={(event) => {
-                    const edge = event.target.valueAsNumber
-                    setOptions((o) => ({
-                      ...o,
-                      size: o.size.mode === 'longest' ? { ...o.size, edge } : o.size,
-                    }))
-                  }}
-                />
-              </label>
-            )}
-            {options.size.mode === 'fit' && (
-              <div className={styles.pair}>
-                {(['width', 'height'] as const).map((key) => (
-                  <label key={key}>
-                    {key === 'width' ? 'Width' : 'Height'} (px)
-                    <input
-                      type="number"
-                      min={1}
-                      max={32768}
-                      step={1}
-                      required
-                      disabled={busy}
-                      value={
-                        options.size.mode === 'fit' && Number.isFinite(options.size[key])
-                          ? options.size[key]
-                          : ''
-                      }
-                      onChange={(event) => {
-                        const value = event.target.valueAsNumber
-                        setOptions((o) => ({
-                          ...o,
-                          size: o.size.mode === 'fit' ? { ...o.size, [key]: value } : o.size,
-                        }))
-                      }}
-                    />
-                  </label>
-                ))}
-              </div>
-            )}
-            {options.size.mode !== 'original' && (
-              <label className={styles.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={!!options.size.allowEnlargement}
-                  disabled={busy}
-                  aria-describedby="export-size-help"
-                  onChange={(event) => {
-                    const allowEnlargement = event.target.checked
-                    setOptions((o) => ({
-                      ...o,
-                      size:
-                        o.size.mode === 'original'
-                          ? o.size
-                          : { ...o.size, allowEnlargement, method: 'lanczos3' },
-                    }))
-                  }}
-                />
-                Allow enlargement
-              </label>
-            )}
-            <p id="export-size-help">
-              Aspect ratio is preserved. Resizing uses Lanczos3. Both HDR renditions use identical
-              dimensions.
-            </p>
-            <label>
-              Names
-              <select
-                value={options.names.mode}
-                disabled={busy}
-                onChange={(event) =>
-                  setOptions((o) => ({
-                    ...o,
-                    names:
-                      event.target.value === 'original'
-                        ? { mode: 'original', suffix: '' }
-                        : { mode: 'sequence', prefix: 'Photo-' },
-                  }))
-                }
-              >
-                <option value="original">Original basename</option>
-                <option value="sequence">Custom prefix + sequence</option>
-              </select>
-            </label>
-            <label>
-              {options.names.mode === 'original' ? 'Optional suffix' : 'Prefix'}
-              <input
-                type="text"
-                maxLength={100}
-                disabled={busy}
-                required={options.names.mode === 'sequence'}
-                value={
-                  options.names.mode === 'original' ? options.names.suffix : options.names.prefix
-                }
-                onChange={(event) => {
-                  const value = event.target.value
-                  setOptions((o) => ({
-                    ...o,
-                    names:
-                      o.names.mode === 'original'
-                        ? { mode: 'original', suffix: value }
-                        : { mode: 'sequence', prefix: value },
-                  }))
-                }}
-              />
-            </label>
-            <label>
-              Metadata
-              <select
-                disabled={busy}
-                value={options.metadata}
-                onChange={(event) =>
-                  setOptions((o) => ({
-                    ...o,
-                    metadata: event.target.value as ExportOptions['metadata'],
-                  }))
-                }
-              >
-                <option value="camera-copyright">Camera and copyright</option>
-                <option value="copyright">Copyright only</option>
-                <option value="none">None</option>
-              </select>
-            </label>
-            <label>
-              Existing files
-              <select
-                disabled={busy}
-                value={options.existing}
-                onChange={(event) =>
-                  setOptions((o) => ({
-                    ...o,
-                    existing: event.target.value as ExportOptions['existing'],
-                  }))
-                }
-              >
-                <option value="rename">Rename automatically</option>
-                <option value="skip">Skip</option>
-              </select>
-            </label>
-            <p>
-              Location, serial numbers, source thumbnails and internal paths are excluded. Required
-              color and gain-map information is retained.
-            </p>
-            {validation && <p role="alert">{validation}</p>}
-          </form>
-        )}
-        {error && (
-          <p role="alert" className={styles.error}>
-            {error}
+      <div className={custom ? styles.expandedBody : styles.chooserBody}>
+        <div className={styles.body} aria-busy={busy || !preparation}>
+          <p className={styles.summary}>
+            {preparation
+              ? `${preparation.targets.length} ${preparation.targets.length === 1 ? 'photo' : 'photos'}`
+              : 'Preparing export…'}
+            {counts && ` · ${counts.hdr} HDR · ${counts.sdr} SDR`}
           </p>
+          <div className={styles.destination}>
+            <div>
+              <span>Destination</span>
+              <p title={destination?.label}>
+                {destination?.label ?? 'Choose a folder on first export'}
+              </p>
+            </div>
+            <Button disabled={busy} onClick={() => void changeFolder()}>
+              Change folder…
+            </Button>
+          </div>
+          {destination && !destination.available && (
+            <p role="status">This folder is unavailable. Choose another folder to export.</p>
+          )}
+          {!custom ? (
+            <>
+              <div className={styles.presets} aria-label="JPEG export presets">
+                {exportPresets.map((preset) => (
+                  <Button
+                    key={preset.id}
+                    disabled={busy || !preparation}
+                    onClick={() => void start(preset.id)}
+                  >
+                    <strong>{preset.label}</strong>
+                    <span>JPEG quality {preset.quality} · Original size · Auto</span>
+                  </Button>
+                ))}
+                <Button
+                  disabled={busy || !preparation || !prefs?.lastCustom || lastUnsupported > 0}
+                  onClick={() => void start('last-custom')}
+                >
+                  <strong>Last custom</strong>
+                  <span>
+                    {prefs?.lastCustom
+                      ? lastUnsupported
+                        ? `${lastUnsupported} unsupported for HDR JPEG`
+                        : `JPEG quality ${prefs.lastCustom.quality} · ${lastCounts?.hdr} HDR · ${lastCounts?.sdr} SDR · Saved settings`
+                      : 'No custom export saved yet'}
+                  </span>
+                </Button>
+                <Button
+                  ref={customButton}
+                  disabled={busy || !preparation}
+                  onClick={() => setCustom(true)}
+                >
+                  <strong>Custom…</strong>
+                  <span>Output, size, names and metadata</span>
+                </Button>
+              </div>
+              <p>
+                Auto uses HDR JPEG for supported RAWs, merges and HDR JPEGs. Other photos use SDR
+                JPEG. JPEG quality 100 still uses lossy compression.
+              </p>
+              <p>
+                Quick exports keep camera and copyright metadata, exclude location and private
+                camera identifiers, and rename collisions automatically.
+              </p>
+            </>
+          ) : (
+            <form
+              id="custom-export"
+              className={styles.form}
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (!unsupported && !validation) void start('custom')
+              }}
+            >
+              <label>
+                Output
+                <select
+                  value={options.output}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setOptions((o) => ({
+                      ...o,
+                      output: event.target.value as ExportOptions['output'],
+                    }))
+                  }
+                >
+                  <option value="auto">Auto</option>
+                  <option value="sdr">SDR JPEG</option>
+                  <option value="hdr">HDR JPEG (gain map)</option>
+                </select>
+              </label>
+              {unsupported > 0 && (
+                <p role="alert">
+                  {unsupported} {unsupported === 1 ? 'photo does' : 'photos do'} not support HDR
+                  JPEG. Choose Auto or SDR JPEG.
+                </p>
+              )}
+              <div className={styles.quality}>
+                <AdjustmentInput
+                  label="JPEG quality"
+                  value={options.quality}
+                  min={1}
+                  max={100}
+                  step={1}
+                  precision={0}
+                  disabled={busy}
+                  onChange={(quality) => setOptions((o) => ({ ...o, quality }))}
+                  onCommit={() => {
+                    committedQuality.current = options.quality
+                  }}
+                  onCancel={() => setOptions((o) => ({ ...o, quality: committedQuality.current }))}
+                />
+              </div>
+              <label>
+                Size
+                <select
+                  value={options.size.mode}
+                  disabled={busy}
+                  onChange={(event) =>
+                    size(
+                      event.target.value === 'original'
+                        ? { mode: 'original' }
+                        : event.target.value === 'longest'
+                          ? { mode: 'longest', edge: 2560, ...resizeChoice }
+                          : { mode: 'fit', width: 2560, height: 2560, ...resizeChoice },
+                    )
+                  }
+                >
+                  <option value="original">Original</option>
+                  <option value="longest">Longest edge</option>
+                  <option value="fit">Fit within width / height</option>
+                </select>
+              </label>
+              {options.size.mode === 'longest' && (
+                <label>
+                  Longest edge (px)
+                  <input
+                    type="number"
+                    min={1}
+                    max={32768}
+                    step={1}
+                    required
+                    disabled={busy}
+                    value={Number.isFinite(options.size.edge) ? options.size.edge : ''}
+                    onChange={(event) => {
+                      const edge = event.target.valueAsNumber
+                      setOptions((o) => ({
+                        ...o,
+                        size: o.size.mode === 'longest' ? { ...o.size, edge } : o.size,
+                      }))
+                    }}
+                  />
+                </label>
+              )}
+              {options.size.mode === 'fit' && (
+                <div className={styles.pair}>
+                  {(['width', 'height'] as const).map((key) => (
+                    <label key={key}>
+                      {key === 'width' ? 'Width' : 'Height'} (px)
+                      <input
+                        type="number"
+                        min={1}
+                        max={32768}
+                        step={1}
+                        required
+                        disabled={busy}
+                        value={
+                          options.size.mode === 'fit' && Number.isFinite(options.size[key])
+                            ? options.size[key]
+                            : ''
+                        }
+                        onChange={(event) => {
+                          const value = event.target.valueAsNumber
+                          setOptions((o) => ({
+                            ...o,
+                            size: o.size.mode === 'fit' ? { ...o.size, [key]: value } : o.size,
+                          }))
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+              {options.size.mode !== 'original' && (
+                <label className={styles.checkbox}>
+                  <input
+                    type="checkbox"
+                    checked={!!options.size.allowEnlargement}
+                    disabled={busy}
+                    aria-describedby="export-size-help"
+                    onChange={(event) => {
+                      const allowEnlargement = event.target.checked
+                      setOptions((o) => ({
+                        ...o,
+                        size:
+                          o.size.mode === 'original'
+                            ? o.size
+                            : { ...o.size, allowEnlargement, method: 'lanczos3' },
+                      }))
+                    }}
+                  />
+                  Allow enlargement
+                </label>
+              )}
+              <p id="export-size-help">
+                Aspect ratio is preserved. Resizing uses Lanczos3. Both HDR renditions use identical
+                dimensions.
+              </p>
+              <label>
+                Names
+                <select
+                  value={options.names.mode}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setOptions((o) => ({
+                      ...o,
+                      names:
+                        event.target.value === 'original'
+                          ? { mode: 'original', suffix: '' }
+                          : { mode: 'sequence', prefix: 'Photo-' },
+                    }))
+                  }
+                >
+                  <option value="original">Original basename</option>
+                  <option value="sequence">Custom prefix + sequence</option>
+                </select>
+              </label>
+              <label>
+                {options.names.mode === 'original' ? 'Optional suffix' : 'Prefix'}
+                <input
+                  type="text"
+                  maxLength={100}
+                  disabled={busy}
+                  required={options.names.mode === 'sequence'}
+                  value={
+                    options.names.mode === 'original' ? options.names.suffix : options.names.prefix
+                  }
+                  onChange={(event) => {
+                    const value = event.target.value
+                    setOptions((o) => ({
+                      ...o,
+                      names:
+                        o.names.mode === 'original'
+                          ? { mode: 'original', suffix: value }
+                          : { mode: 'sequence', prefix: value },
+                    }))
+                  }}
+                />
+              </label>
+              <label>
+                Metadata
+                <select
+                  disabled={busy}
+                  value={options.metadata}
+                  onChange={(event) =>
+                    setOptions((o) => ({
+                      ...o,
+                      metadata: event.target.value as ExportOptions['metadata'],
+                    }))
+                  }
+                >
+                  <option value="camera-copyright">Camera and copyright</option>
+                  <option value="copyright">Copyright only</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
+              <label>
+                Existing files
+                <select
+                  disabled={busy}
+                  value={options.existing}
+                  onChange={(event) =>
+                    setOptions((o) => ({
+                      ...o,
+                      existing: event.target.value as ExportOptions['existing'],
+                    }))
+                  }
+                >
+                  <option value="rename">Rename automatically</option>
+                  <option value="skip">Skip</option>
+                </select>
+              </label>
+              <p>
+                Location, serial numbers, source thumbnails and internal paths are excluded.
+                Required color and gain-map information is retained.
+              </p>
+              {validation && <p role="alert">{validation}</p>}
+            </form>
+          )}
+          {error && (
+            <p role="alert" className={styles.error}>
+              {error}
+            </p>
+          )}
+        </div>
+        {custom && preparation && (
+          <OutputProof
+            preparation={preparation}
+            initialPhotoId={initialPhotoId}
+            options={options}
+            invalid={busy || preparationInvalid || !!validation || unsupported > 0}
+            preparationInvalid={preparationInvalid}
+            displayTarget={displayTarget}
+            previewPolicy={previewPolicy}
+          />
         )}
       </div>
       <footer>
@@ -443,7 +507,9 @@ export function ExportDialog({
               variant="primary"
               type="submit"
               form="custom-export"
-              disabled={busy || !preparation || !!validation || unsupported > 0}
+              disabled={
+                busy || !preparation || preparationInvalid || !!validation || unsupported > 0
+              }
             >
               {busy ? 'Starting…' : 'Export'}
             </Button>

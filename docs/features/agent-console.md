@@ -71,10 +71,23 @@ Every managed tool call must include the newly issued `requestId`; the endpoint
 checks its targets independently of model instructions.
 
 A shared allowlist exposes context, supported edits/analysis/history,
-copy/paste, previews, existing export authorization and owned task results or
+copy/paste, [named presets](named-presets.md), previews, existing export authorization and owned task results or
 cancellation. Structural collection/merge management and unrelated task control
 are outside this first console surface. The ordinary external editing MCP
 retains its existing tools and adds context and compact previews.
+
+Preset capture/reference/application photo IDs remain inside the request's frozen
+targets. Create/update expose validated optional scenario icons and named colors;
+list/get include the marker. The agent chooses a marker from requested intent on
+creation, such as Sunset/Amber for Golden Hour, and preserves it during updates
+unless asked to change it. Appearance-only edits need no photo and create no
+photo history. Preset revisions are independent of photo-edit revisions. An explicit
+user instruction authorizes deletion of the identified preset without another
+prompt. Otherwise the agent must identify its exact name/ID, ask in Console and
+wait for agreement; listing, creating or applying presets grants no deletion
+permission. The server validates identity and revision rather than inferring
+conversational consent. Live-model permission acceptance remains unverified when
+an authenticated isolated client is unavailable; see the preset brief.
 
 Each startup checks the CLI version, strict configuration parsing and effective
 configuration. Irodori writes its restrictions to `irodori-policy.toml` and applies
@@ -201,3 +214,24 @@ retained conversation choice. Historical failed runs are preserved. Tests use
 the existing 120-second managed Console/HTTP deadline instead of the SDK's
 60-second default; production timeouts and performance gates are unchanged.
 Final RAW cases pass in 8–12 seconds, without a new performance qualification.
+
+## Output proofs — November 7, 2026
+
+`irodori_get_output_proof` shares Custom export's [Output preview](output-proof.md)
+service. Use an owned export preparation, an authorized frozen photo ID, full
+validated export options and a distinct UUID `proofToken`, in addition to the
+current managed `requestId`. The proof uses the actual encoded/decoded JPEG,
+including output sizing and compression, without a destination or preference and
+history writes.
+
+The image response is a clearly labelled SDR overview of the decoded JPEG primary,
+with its own dimensions (longest edge at most 1024) and payload at most 1 MiB.
+Noisy overviews can use a smaller edge to meet that limit; the full output's size
+and quality remain unchanged. Full-resolution/HDR inspection belongs to the
+dialog. Full proof assets are released before returning the response. Existing
+`irodori_get_photo_preview` behavior remains unchanged.
+
+Focused protocol tests cover both editing MCP and the managed Console request
+gate, including foreign preparations, outside targets and ended requests. A live
+signed-in Console client was not exercised. Restart Irodori and Resume/New Console
+to load the updated tool registration in an existing session.

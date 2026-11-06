@@ -17,6 +17,17 @@ interface Suite {
   explicitOnly?: boolean
 }
 const definitions: Suite[] = [
+  { file: 'export-proof-model', group: 'node', scopes: ['adjustments'] },
+  { file: 'export-proof-service', group: 'service', scopes: ['preview', 'library'] },
+  { file: 'export-proof-rendering', group: 'raw-gpu', scopes: ['preview'], exclusive: true },
+  { file: 'export-proof-ui', group: 'electron', scopes: ['ui', 'preview'], exclusive: true },
+  { file: 'export-proof-mcp', group: 'service', scopes: ['mcp'] },
+  { file: 'export-proof-native', group: 'raw-gpu', scopes: [], exclusive: true },
+  { file: 'presets-model', group: 'node', scopes: ['adjustments'] },
+  { file: 'presets-service', group: 'service', scopes: ['adjustments', 'library'] },
+  { file: 'presets-ui', group: 'electron', scopes: ['adjustments', 'ui'] },
+  { file: 'presets-mcp', group: 'service', scopes: ['mcp', 'adjustments'] },
+  { file: 'presets-visual', group: 'electron', scopes: ['ui'], exclusive: true },
   { file: 'shutdown-model', group: 'node', scopes: ['library'] },
   { file: 'shutdown-library', group: 'service', scopes: ['library'] },
   { file: 'shutdown-ui', group: 'electron', scopes: ['library', 'ui'], exclusive: true },

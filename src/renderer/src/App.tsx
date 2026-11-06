@@ -49,6 +49,11 @@ import { Library } from './components/Library'
 import { AllPhotos } from './components/AllPhotos'
 import type { BrowsePhoto } from '../../shared/browse'
 import { Inspector } from './components/Inspector'
+import {
+  DEFAULT_PRESET_WORKSPACE,
+  type EditingPreset,
+  type PresetWorkspace,
+} from '../../shared/presets'
 import { Console } from './components/Console'
 import { ImportDialog } from './components/ImportDialog'
 import { TaskCenter } from './components/TaskCenter'
@@ -129,7 +134,21 @@ export function App() {
   }, [])
   const [mergeTargets, setMergeTargets] = useState<{ ids: string[]; mode: MergeMode } | null>(null)
   const [pasteTargets, setPasteTargets] = useState<string[] | null>(null)
+  const [presetTargets, setPresetTargets] = useState<{
+    ids: string[]
+    preset: EditingPreset
+  } | null>(null)
+  const [presetWorkspace, setPresetWorkspace] = useState<PresetWorkspace>(DEFAULT_PRESET_WORKSPACE)
+  const changePresetWorkspace = useCallback(
+    (presets: PresetWorkspace) => {
+      setPresetWorkspace(presets)
+      saveWorkspace({ presets })
+    },
+    [saveWorkspace],
+  )
   const [exportTargets, setExportTargets] = useState<string[] | null>(null)
+  const [exportFocusedId, setExportFocusedId] = useState<string | null>(null)
+  const [exportProofActive, setExportProofActive] = useState(false)
   const [preparingExport, setPreparingExport] = useState(false)
   const [tasks, setTasks] = useState<BackgroundTask[]>([])
   const [tasksOpen, setTasksOpen] = useState(false)
@@ -582,6 +601,7 @@ export function App() {
         setConsoleOpen(state?.consoleOpen ?? false)
         setConsoleHeight(state?.consoleHeight ?? null)
         setInspectorGroup(state?.inspectorGroup ?? 'light')
+        setPresetWorkspace(state?.presets ?? DEFAULT_PRESET_WORKSPACE)
         setColorTab(state?.colorTab ?? 'basic')
         setHoverControls(state?.hoverControls ?? false)
         setInspectorSections({ ...DEFAULT_INSPECTOR_SECTIONS, ...state?.inspector })
@@ -855,6 +875,15 @@ export function App() {
       actionFailed(ticket, error)
     }
   }
+  async function requestPresetApplication(preset: EditingPreset, selection: boolean) {
+    if (crop.active || crop.pending)
+      throw new Error('Apply or cancel the crop before applying a preset.')
+    const active = library.getActivePhoto()
+    const targets = await getSelection()
+    await edits.flush()
+    const ids = selection ? targets.map((p) => p.id) : active ? [active.id] : []
+    if (ids.length) setPresetTargets({ ids, preset })
+  }
   async function requestExport(ids?: string[]) {
     if (preparingExport) return
     setPreparingExport(true)
@@ -868,6 +897,7 @@ export function App() {
       if (!targets.length) return
       closeContextMenu(false)
       setExportTargets([...new Set(targets)])
+      setExportFocusedId(focused?.id ?? null)
     } catch (error) {
       setError(String(error))
     } finally {
@@ -1117,6 +1147,7 @@ export function App() {
               importOpen ||
               settingsOpen ||
               !!pasteTargets ||
+              !!presetTargets ||
               tasksOpen
             }
           >
@@ -1260,6 +1291,7 @@ export function App() {
               hdrJpeg={edits.state?.hdrJpeg?.state === 'supported'}
               suspended={
                 !!mergeTargets ||
+                exportProofActive ||
                 workspace !== 'editor' ||
                 (mergeHandoffPhoto !== null && mergeHandoffPhoto === photo?.id)
               }
@@ -1296,6 +1328,10 @@ export function App() {
         </main>
 
         <Inspector
+          presets={presetWorkspace}
+          onPresetsChange={changePresetWorkspace}
+          selectionCount={selected.size}
+          onApplyPreset={requestPresetApplication}
           toneCurves={toneCurves}
           group={inspectorGroup}
           colorTab={colorTab}
@@ -1462,9 +1498,24 @@ export function App() {
           }}
         />
       )}
+      {presetTargets && (
+        <PasteEditsDialog
+          ids={presetTargets.ids}
+          preset={presetTargets.preset}
+          onClose={() => setPresetTargets(null)}
+          onStarted={() => {
+            setTasksOpen(true)
+            void refreshTasks()
+          }}
+        />
+      )}
       {exportTargets && (
         <ExportDialog
           ids={exportTargets}
+          initialPhotoId={exportFocusedId}
+          displayTarget={displayTarget}
+          previewPolicy={editorPreviewPolicy}
+          onProofActiveChange={setExportProofActive}
           onClose={() => {
             setExportTargets(null)
             restoreFocus()

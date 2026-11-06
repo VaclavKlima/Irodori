@@ -12,6 +12,7 @@ import { prepareDetailPreview } from './processing/detail-preview'
 import type { FullPreviewResult } from './preview-types'
 import type { PreviewWorkerRequest, PreviewWorkerResponse } from './preview-types'
 import { NativeRawSourceClient } from './native-raw-source'
+import { decodeOutputProof } from './export/proof-decode'
 
 function send(message: PreviewWorkerResponse) {
   if (process.connected) process.send?.(message)
@@ -68,6 +69,13 @@ process.on('message', async (data: PreviewWorkerRequest, handle) => {
     return
   }
   try {
+    if (data.type === 'output-proof') {
+      if (closing || !data.frame?.outputProof)
+        throw new Error('Missing output preview decode request.')
+      const result = await decodeOutputProof(data.path, data.output, data.frame.outputProof)
+      if (!closing) send({ type: 'result', result })
+      return
+    }
     if (data.type === 'prepared-full') {
       if (closing || detailWork) throw new Error('The prepared worker is unavailable or busy.')
       if (!data.options || !data.frame?.preparedBackend)

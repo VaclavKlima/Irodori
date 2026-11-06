@@ -2732,9 +2732,34 @@ export class FullPreviews {
     void this.enqueue(() => this.prune()).catch(() => undefined)
   }
 
+  private externalDiskBytes = 0
+  /** Temporary output proofs share the existing disk budget and pinned-entry protections. */
+  reserveOutputProofBytes(bytes: number): Promise<() => void> {
+    return this.enqueue(async () => {
+      if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > this.budget || this.closed)
+        throw new Error('Output preview exceeds the preview storage limit.')
+      await this.prune(bytes)
+      const retained = [...this.entries.values()].reduce((sum, entry) => sum + entry.bytes, 0)
+      if (retained + this.externalDiskBytes + bytes > this.budget)
+        throw new Error(
+          'Output preview exceeds the preview storage limit while other assets are in use.',
+        )
+      this.externalDiskBytes += bytes
+      let released = false
+      return () => {
+        if (!released) {
+          released = true
+          this.externalDiskBytes -= bytes
+        }
+      }
+    })
+  }
+
   private async prune(reservedBytes = 0): Promise<void> {
     let bytes =
-      reservedBytes + [...this.entries.values()].reduce((sum, entry) => sum + entry.bytes, 0)
+      reservedBytes +
+      this.externalDiskBytes +
+      [...this.entries.values()].reduce((sum, entry) => sum + entry.bytes, 0)
     const entries = [...this.entries.entries()].sort(
       ([, a], [, b]) => Number(b.invalid) - Number(a.invalid) || a.usedAt - b.usedAt,
     )

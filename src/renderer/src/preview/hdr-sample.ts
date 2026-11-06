@@ -69,6 +69,12 @@ export function publishHdrSample(hash: string, data: Float32Array, draft: Float3
   current.set(hash, { data, draft })
   for (const listener of listeners.get(hash) ?? []) listener(data, draft)
 }
+/** A transient output proof has no sample/content cache after its presenter drains. */
+export function forgetHdrSample(hash: string) {
+  selected.delete(hash)
+  current.delete(hash)
+  for (const [key, entry] of content) if (entry.hash === hash) content.delete(key)
+}
 /** Charge backing buffers once, including views sharing a native sample/draft allocation. */
 export function hdrSampleMemory(owned: (buffer: ArrayBufferLike) => boolean = () => false) {
   const buffers = new Set<ArrayBufferLike>()

@@ -19,6 +19,7 @@ export interface WhiteBalanceSampleJob {
   sample: WhiteBalanceSample
 }
 export interface PreviewAnalysisFrame {
+  outputProof?: import('./export/proof-decode').OutputProofDecodeJob
   curveTone?: CurveToneJob
   width: number
   height: number
@@ -126,6 +127,7 @@ export type PreviewWorkerRequest =
         | 'detail-working'
         | 'detail-preview'
         | 'prepared-full'
+        | 'output-proof'
         | 'warmup'
       path: string
       output: string
@@ -156,6 +158,7 @@ export type PreviewWorkerResponse =
         | import('./processing/crop-preparation').CropPreparationResult
         | import('./processing/detail-preparation').DetailPreparationResult
         | PreviewWarmResult
+        | import('./export/proof-decode').OutputProofDecoded
         | import('../shared/capture-sequence').CaptureMetadata
     }
   | { type: 'error'; error: string }

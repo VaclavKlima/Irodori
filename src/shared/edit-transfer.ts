@@ -1,5 +1,6 @@
 import { mergeEditPatch, validatePatch, type EditPatch, type EditSettings } from './edits'
 import { correctionKinds, type ProcessingMetadata } from './lens'
+import { presetPatch, type EditingPreset, type PresetSnapshot } from './presets'
 
 import { editTransferGroups, type EditTransferGroup } from './edit-transfer-controls'
 export {
@@ -42,6 +43,11 @@ export interface EditPastePreparation {
   groups: EditTransferGroup[]
   targets: EditPasteTarget[]
 }
+export type EditApplicationSource = CopiedEdits | PresetSnapshot
+export interface PresetApplicationPreparation extends Omit<EditPastePreparation, 'source'> {
+  source: EditingPreset
+}
+export type EditApplicationPreparation = EditPastePreparation | PresetApplicationPreparation
 export type EditApplicationOutcome =
   | 'applied'
   | 'unchanged'
@@ -72,37 +78,46 @@ export function validateTransferGroups(value: unknown): asserts value is EditTra
   )
     throw new Error('Choose one or more distinct edit groups.')
 }
-export function copiedEdits(
-  clipboard: Omit<EditClipboard, 'groups'>,
-  settings: EditSettings,
-  metadata: ProcessingMetadata,
-): CopiedEdits {
+/** Verified transferable groups and camera facts, without retaining calibration or source paths. */
+export function transferCompatibility(metadata: ProcessingMetadata) {
   const whiteBalanceIdentity =
     !metadata.mergeMaster && !metadata.hdrJpeg ? metadata.whiteBalance?.identity : undefined
   const lensKinds = metadata.mergeMaster
     ? []
     : correctionKinds.filter((kind) => !!metadata.lensProfile[kind])
-  return structuredClone({
-    version: 1,
-    clipboard: {
-      ...clipboard,
-      groups: editTransferGroups
-        .filter((group) =>
-          group.id === 'white-balance'
-            ? !!whiteBalanceIdentity
-            : group.id === 'lens'
-              ? !!lensKinds.length
-              : true,
-        )
-        .map((group) => group.id),
-    },
-    settings,
+  return {
+    groups: editTransferGroups
+      .filter((group) =>
+        group.id === 'white-balance'
+          ? !!whiteBalanceIdentity
+          : group.id === 'lens'
+            ? !!lensKinds.length
+            : true,
+      )
+      .map((group) => group.id),
     whiteBalanceIdentity,
     lensKinds,
+  }
+}
+export function copiedEdits(
+  clipboard: Omit<EditClipboard, 'groups'>,
+  settings: EditSettings,
+  metadata: ProcessingMetadata,
+): CopiedEdits {
+  const { groups, ...compatibility } = transferCompatibility(metadata)
+  return structuredClone({
+    version: 1,
+    clipboard: { ...clipboard, groups },
+    settings,
+    ...compatibility,
   })
 }
 /** Copy complete selected groups; never copy a processing identity or camera calibration. */
-export function transferPatch(source: CopiedEdits, groups: EditTransferGroup[]): EditPatch {
+export function transferPatch(
+  source: EditApplicationSource,
+  groups: EditTransferGroup[],
+): EditPatch {
+  if ('kind' in source) return presetPatch(source, groups)
   validateTransferGroups(groups)
   if (source.version !== 1 || groups.some((group) => !source.clipboard.groups.includes(group)))
     throw new Error('These edit groups are unavailable in the copied photograph.')
@@ -157,28 +172,29 @@ export function transferPatch(source: CopiedEdits, groups: EditTransferGroup[]):
   return structuredClone(patch)
 }
 export function transferUnavailable(
-  source: CopiedEdits,
+  source: EditApplicationSource,
   groups: EditTransferGroup[],
   metadata: ProcessingMetadata,
 ): string | undefined {
+  const compatibility = 'kind' in source ? source.definition.compatibility : source
   if (
     groups.includes('white-balance') &&
     (metadata.mergeMaster ||
       metadata.hdrJpeg ||
       !metadata.whiteBalance ||
-      metadata.whiteBalance.identity !== source.whiteBalanceIdentity)
+      metadata.whiteBalance.identity !== compatibility.whiteBalanceIdentity)
   )
     return 'White balance requires a compatible verified single-RAW camera profile.'
   if (
     groups.includes('lens') &&
-    (metadata.mergeMaster || source.lensKinds.some((kind) => !metadata.lensProfile[kind]))
+    (metadata.mergeMaster || compatibility.lensKinds.some((kind) => !metadata.lensProfile[kind]))
   )
-    return 'The copied lens corrections are unavailable for this photograph.'
+    return 'The selected lens corrections are unavailable for this photograph.'
   return undefined
 }
 export function transferredSettings(
   before: EditSettings,
-  source: CopiedEdits,
+  source: EditApplicationSource,
   groups: EditTransferGroup[],
 ): EditSettings {
   return mergeEditPatch(before, transferPatch(source, groups))

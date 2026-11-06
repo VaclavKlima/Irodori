@@ -22,7 +22,8 @@ native keyboard/minimum-size checks on Bazzite; see the
 [acceptance record](professional-editing-processing.md). Default detail preparation
 uses [strict GPU processing](../gpu-processing.md). Broader photographic quality,
 full-size performance and sustained responsiveness remain unfinished.
-Final-output-size proof and output sharpening are separate unfinished Goal 2 features.
+[Final-output-size proof](output-proof.md) is available in Custom export and Console.
+Output sharpening remains separate work in [#48](README.md#task-48).
 [Shared requirements](README.md#shared-implementation-requirements) apply.
 
 ## Goal

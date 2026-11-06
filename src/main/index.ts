@@ -136,7 +136,10 @@ async function cropAdmission(
       policy,
       reservation: {
         ...reservation,
-        ramBytes: reservation.ramBytes + (library?.agentPreviews?.bytes ?? 0),
+        ramBytes:
+          reservation.ramBytes +
+          (library?.agentPreviews?.bytes ?? 0) +
+          (library?.outputProofs?.bytes ?? 0),
       },
     }
   } finally {
@@ -353,6 +356,7 @@ function createWindow(): void {
   mainWindow = window
   installWaylandDisplayRefresh(window)
   const releasePreview = () => {
+    void library?.outputProofs?.disposeOwner('dialog').catch(() => undefined)
     void nativeCpu?.reset().catch((error: unknown) => console.warn('CPU preview cleanup:', error))
     library?.releaseForegroundActivities()
     void library?.fullPreviews.release().catch(() => undefined)
@@ -470,6 +474,18 @@ app
       trusted(event)
       library!.exports.dispose(id)
     })
+    handleLibraryRequest('export:proof', (event, request) => {
+      trusted(event)
+      return library!.requestOutputProof(request)
+    })
+    handleLibraryRequest('export:proof-cancel', (event, token: string) => {
+      trusted(event)
+      library!.outputProofs.cancel('dialog', token)
+    })
+    handleLibraryRequest('export:proof-release', (event, id: string) => {
+      trusted(event)
+      return library!.outputProofs.release('dialog', id)
+    })
     handleLibraryRequest(
       'export:start',
       (event, request: import('../shared/export').ExportStart) => {
@@ -552,6 +568,10 @@ app
     handleLibraryRequest('display:get', (event) => {
       trusted(event)
       return displayState.get()
+    })
+    handleLibraryRequest('display:refresh-probe', (event) => {
+      trusted(event)
+      return displayState.retry()
     })
     handleLibraryRequest('display:preference', (event, preference) => {
       trusted(event)
@@ -789,6 +809,7 @@ app
     protocol.handle('irodori-photo', async (request) => {
       if (request.method !== 'GET') return new Response(null, { status: 404 })
       const asset: PreviewAssetStreamLease | undefined =
+        library?.outputProofs?.acquire(new URL(request.url)) ??
         nativeCpu?.acquireMask(new URL(request.url)) ??
         library?.fullPreviews.acquire(new URL(request.url))
       if (asset) {
@@ -855,6 +876,66 @@ app
     handleLibraryRequest('edits:clipboard', (event) => {
       trusted(event)
       return library!.getEditClipboard()
+    })
+    handleLibraryRequest('presets:list', async (event, query) => {
+      trusted(event)
+      try {
+        return { result: library!.listPresets(query) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('presets:get', async (event, id) => {
+      trusted(event)
+      try {
+        return { result: library!.getPreset(id) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('presets:create', async (event, request) => {
+      trusted(event)
+      try {
+        return { result: await library!.createPreset(request) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('presets:update', async (event, request) => {
+      trusted(event)
+      try {
+        return { result: await library!.updatePreset(request) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('presets:delete', async (event, request) => {
+      trusted(event)
+      try {
+        return { result: await library!.deletePreset(request) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('presets:prepare', async (event, request) => {
+      trusted(event)
+      try {
+        return { result: await library!.preparePresetApplication(request) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('presets:start', async (event, id) => {
+      trusted(event)
+      try {
+        return { result: await library!.startPresetApplication(id) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('presets:dispose', (event, id) => {
+      trusted(event)
+      library!.editTransfers.dispose(id)
     })
     handleLibraryRequest('edits:copy', (event, id) => {
       trusted(event)

@@ -77,6 +77,21 @@ export function exportInputMemoryPlan(
   return allocation(admission, pixels(width, height) * 16 + 16 * 1024)
 }
 
+/** Decoder heap, decoded primary/HDR planes, strip conversion and compact overview. */
+export function exportProofDecodePlan(
+  width: number,
+  height: number,
+  hdr: boolean,
+  jpegBytes: number,
+  admission: ExportAdmission,
+): ExportAllocation {
+  if (jpegBytes > EXPORT_JPEG_INPUT_LIMIT_BYTES)
+    throw new Error('Output preview JPEG exceeds the 256 MiB input limit.')
+  const own = pixels(width, height) * (hdr ? 80 : 12) + bytes(jpegBytes) * 3 + 64 * 1024 ** 2
+  const plan = allocation(admission, own)
+  return { ...plan, accepted: plan.accepted && own <= EXPORT_ENCODER_LIMIT_BYTES }
+}
+
 /** Exact explicit buffers; device limits may further decline only the optional retained HDR plane. */
 export function exportGpuAllocation(
   capacity: number,

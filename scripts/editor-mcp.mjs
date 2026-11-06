@@ -1,4 +1,6 @@
 import { agentTools } from '../src/main/agent/policy.ts'
+import { presetGroupKeys } from '../src/shared/preset-controls.ts'
+import { presetIcons, presetColors } from '../src/shared/preset-appearance.ts'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
@@ -57,6 +59,46 @@ const gradingTone = schema(
   },
   [],
 )
+const exportOptionsSchema = schema({
+  version: { const: 1 },
+  output: { enum: ['auto', 'sdr', 'hdr'] },
+  quality: { type: 'integer', minimum: 1, maximum: 100 },
+  size: {
+    oneOf: [
+      schema({ mode: { const: 'original' } }),
+      schema(
+        {
+          mode: { const: 'longest' },
+          edge: { type: 'integer', minimum: 1, maximum: 32768 },
+          allowEnlargement: { type: 'boolean', default: false },
+          method: { const: 'lanczos3', default: 'lanczos3' },
+        },
+        ['mode', 'edge'],
+      ),
+      schema(
+        {
+          mode: { const: 'fit' },
+          width: { type: 'integer', minimum: 1, maximum: 32768 },
+          height: { type: 'integer', minimum: 1, maximum: 32768 },
+          allowEnlargement: { type: 'boolean', default: false },
+          method: { const: 'lanczos3', default: 'lanczos3' },
+        },
+        ['mode', 'width', 'height'],
+      ),
+    ],
+  },
+  names: {
+    oneOf: [
+      schema({ mode: { const: 'original' }, suffix: { type: 'string', maxLength: 100 } }),
+      schema({
+        mode: { const: 'sequence' },
+        prefix: { type: 'string', minLength: 1, maxLength: 100 },
+      }),
+    ],
+  },
+  metadata: { enum: ['camera-copyright', 'copyright', 'none'] },
+  existing: { enum: ['rename', 'skip'] },
+})
 let tools = [
   {
     name: 'irodori_get_editor_context',
@@ -69,6 +111,17 @@ let tools = [
     description:
       'Get the complete current edited/cropped photograph as a compact sRGB SDR JPEG image (also for HDR sources), max long edge 1024, quality 80, no enlargement or personal metadata, payload at most 1 MiB. For composition and broad tone/color assessment; native-detail and physical HDR inspection are unavailable.',
     inputSchema: schema({ photoId, expectedRevision }),
+  },
+  {
+    name: 'irodori_get_output_proof',
+    description:
+      'Encode and decode one frozen export target using the shared Output preview service. No destination, history or preference writes. Returns actual output dimensions and JPEG quality plus an SDR overview of the decoded JPEG primary, at most 1024 pixels and 1 MiB. Full-resolution and HDR inspection belong to Custom export Output preview. Prepare export first; provide a distinct UUID proofToken.',
+    inputSchema: schema({
+      preparationId: { type: 'string' },
+      photoId,
+      options: exportOptionsSchema,
+      proofToken: { type: 'string', pattern: '^[a-f0-9-]{36}$' },
+    }),
   },
   {
     name: 'irodori_get_edit_clipboard',
@@ -165,46 +218,7 @@ let tools = [
           preparationId: { type: 'string' },
           destinationId: { type: 'string' },
           action: { enum: ['maximum', 'high', 'smaller', 'custom', 'last-custom'] },
-          options: schema({
-            version: { const: 1 },
-            output: { enum: ['auto', 'sdr', 'hdr'] },
-            quality: { type: 'integer', minimum: 1, maximum: 100 },
-            size: {
-              oneOf: [
-                schema({ mode: { const: 'original' } }),
-                schema(
-                  {
-                    mode: { const: 'longest' },
-                    edge: { type: 'integer', minimum: 1, maximum: 32768 },
-                    allowEnlargement: { type: 'boolean', default: false },
-                    method: { const: 'lanczos3', default: 'lanczos3' },
-                  },
-                  ['mode', 'edge'],
-                ),
-                schema(
-                  {
-                    mode: { const: 'fit' },
-                    width: { type: 'integer', minimum: 1, maximum: 32768 },
-                    height: { type: 'integer', minimum: 1, maximum: 32768 },
-                    allowEnlargement: { type: 'boolean', default: false },
-                    method: { const: 'lanczos3', default: 'lanczos3' },
-                  },
-                  ['mode', 'width', 'height'],
-                ),
-              ],
-            },
-            names: {
-              oneOf: [
-                schema({ mode: { const: 'original' }, suffix: { type: 'string', maxLength: 100 } }),
-                schema({
-                  mode: { const: 'sequence' },
-                  prefix: { type: 'string', minLength: 1, maxLength: 100 },
-                }),
-              ],
-            },
-            metadata: { enum: ['camera-copyright', 'copyright', 'none'] },
-            existing: { enum: ['rename', 'skip'] },
-          }),
+          options: exportOptionsSchema,
         },
         ['preparationId', 'destinationId', 'action'],
       ),
@@ -652,6 +666,234 @@ let tools = [
     inputSchema: schema({ photoId, expectedRevision }),
   })),
 ]
+const presetId = { type: 'string', format: 'uuid' }
+const expectedPresetRevision = { type: 'integer', minimum: 1 }
+const presetAppearance = {
+  ...schema(
+    {
+      icon: {
+        type: 'string',
+        enum: presetIcons.map((icon) => icon.id),
+        description: presetIcons.map((icon) => `${icon.id}: ${icon.label}`).join('; '),
+      },
+      color: {
+        type: 'string',
+        enum: presetColors.map((color) => color.id),
+        description: presetColors.map((color) => `${color.id}: ${color.label}`).join('; '),
+      },
+    },
+    [],
+  ),
+  minProperties: 1,
+  description:
+    'Optional visual marker only. New presets default to general/neutral; omitted fields on updates retain their current values. Choose a suitable scenario and named color for a new look, such as sunset/amber for Golden Hour. No photo processing is implied.',
+}
+const presetGroups = {
+  type: 'array',
+  minItems: 1,
+  maxItems: 10,
+  uniqueItems: true,
+  items: {
+    enum: [
+      'light',
+      'curves',
+      'color',
+      'mixer',
+      'grading',
+      'noise',
+      'sharpening',
+      'crop',
+      'white-balance',
+      'lens',
+    ],
+  },
+}
+// Keep source an explicit object: object unions without a top-level type become
+// `unknown | unknown` in the Console's generated tool declarations.
+const completeGroup = (value) => {
+  if (value.type === 'object')
+    return {
+      ...value,
+      required: Object.keys(value.properties),
+      properties: Object.fromEntries(
+        Object.entries(value.properties).map(([key, field]) => [key, completeGroup(field)]),
+      ),
+    }
+  return value.const !== undefined
+    ? { ...value, type: typeof value.const === 'number' ? 'integer' : typeof value.const }
+    : value
+}
+const presetFields = Object.fromEntries(
+  Object.entries(
+    tools.find((tool) => tool.name === 'irodori_update_edits').inputSchema.properties.patch
+      .properties,
+  ).map(([key, field]) => [
+    key,
+    key === 'lens' ? { ...field, minProperties: 1 } : completeGroup(field),
+  ]),
+)
+presetFields.whiteBalance = {
+  ...schema(
+    {
+      mode: { type: 'string', enum: ['as-shot', 'custom'] },
+      kelvin: { type: 'integer', minimum: 2000, maximum: 25000, multipleOf: 50 },
+      tint: { type: 'integer', minimum: -100, maximum: 100 },
+    },
+    ['mode'],
+  ),
+  allOf: [
+    {
+      if: { properties: { mode: { const: 'custom' } } },
+      then: { required: ['kelvin', 'tint'] },
+      else: { properties: { kelvin: false, tint: false } },
+    },
+  ],
+}
+presetFields.crop.properties.aspectRatio = {
+  type: ['number', 'null'],
+  minimum: 1 / 32768,
+  maximum: 32768,
+}
+const presetSource = {
+  ...schema(
+    {
+      mode: { type: 'string', enum: ['photo', 'explicit'] },
+      photoId,
+      groups: presetGroups,
+      settingsVersion: { type: 'integer', const: 12 },
+      values: {
+        ...schema(presetFields, []),
+        description:
+          'Complete included groups only. Every nested control and version is required. Values for excluded groups are rejected.',
+      },
+      referencePhotoId: photoId,
+    },
+    ['mode', 'groups'],
+  ),
+  description:
+    'Photo capture: {mode:"photo",photoId,groups}. Explicit look: {mode:"explicit",settingsVersion:12,groups,values}; referencePhotoId is required for white-balance/lens. No photo is changed. All included groups must be complete.',
+  allOf: [
+    {
+      if: { properties: { mode: { const: 'photo' } } },
+      then: {
+        required: ['photoId'],
+        properties: { settingsVersion: false, values: false, referencePhotoId: false },
+      },
+      else: {
+        required: ['settingsVersion', 'values'],
+        properties: { photoId: false },
+        allOf: [
+          ...Object.entries(presetGroupKeys).map(([group, keys]) => ({
+            if: { properties: { groups: { contains: { const: group } } } },
+            then: { properties: { values: { required: keys } } },
+            else: {
+              properties: {
+                values: { properties: Object.fromEntries(keys.map((key) => [key, false])) },
+              },
+            },
+          })),
+          {
+            if: { properties: { groups: { contains: { enum: ['white-balance', 'lens'] } } } },
+            then: { required: ['referencePhotoId'] },
+          },
+        ],
+      },
+    },
+  ],
+}
+tools.push(
+  {
+    name: 'irodori_list_presets',
+    description:
+      'List local presets, including their scenario icon and named color, alphabetically by name in bounded searchable chunks (60 rows). Use the store revision to detect ordering changes. This never changes photos or grants deletion permission.',
+    inputSchema: schema(
+      {
+        presetQuery: schema(
+          {
+            search: { type: 'string', maxLength: 500 },
+            offset: { type: 'integer', minimum: 0 },
+            expectedStoreRevision: { type: 'integer', minimum: 0 },
+          },
+          [],
+        ),
+      },
+      [],
+    ),
+  },
+  {
+    name: 'irodori_get_preset',
+    description:
+      'Inspect a complete stored preset definition, appearance, included groups, compatibility and its independent preset revision. Inspection never changes a photo.',
+    inputSchema: schema({ presetId }),
+  },
+  {
+    name: 'irodori_create_preset',
+    description:
+      'Save a unique trimmed name from confirmed photo edits or a complete explicit look. Use source.mode="photo" with photoId/groups, or source.mode="explicit" with settingsVersion:12, groups and values. For example, groups:["color"] needs values:{saturation:5,vibrance:22}. Choose appearance:{icon,color} to match the requested intent when creating a look, such as sunset/amber for Golden Hour. No photo or clipboard changes. Camera-dependent explicit groups require a verified referencePhotoId. Store no calibration tables or paths.',
+    inputSchema: schema({
+      presetRequest: schema(
+        {
+          name: { type: 'string', minLength: 1, maxLength: 100 },
+          source: presetSource,
+          appearance: presetAppearance,
+        },
+        ['name', 'source'],
+      ),
+    }),
+  },
+  {
+    name: 'irodori_update_preset',
+    description:
+      'Edit a preset name, appearance or definition at expectedPresetRevision. Appearance accepts a partial {icon,color}; omitted fields retain their current values. Preserve the marker unless the user asks to change it. Replacement source uses mode="photo" with photoId/groups or mode="explicit" with settingsVersion:12, groups and complete values. Preset revisions are independent of photo-edit revisions. No photo/history changes; accepted jobs keep the old frozen definition.',
+    inputSchema: schema({
+      presetRequest: schema(
+        {
+          presetId,
+          expectedPresetRevision,
+          name: { type: 'string', minLength: 1, maxLength: 100 },
+          source: presetSource,
+          appearance: presetAppearance,
+        },
+        ['presetId', 'expectedPresetRevision'],
+      ),
+    }),
+  },
+  {
+    name: 'irodori_delete_preset',
+    description:
+      'Delete exactly this preset ID at expectedPresetRevision. An explicit user instruction to delete the identified preset authorizes deletion without another prompt. Otherwise identify its name and ID, ask in Console and wait for agreement. Listing, creating or applying presets grants no deletion permission. The server enforces identity/revision, not inferred conversational consent. Applied history and accepted jobs survive deletion.',
+    inputSchema: schema({ presetId, expectedPresetRevision }),
+  },
+  {
+    name: 'irodori_prepare_preset_application',
+    description:
+      'Freeze the preset definition and complete destination photo IDs/revisions, including hidden/unloaded selections. Report incompatibilities without dropping targets. No photo changes.',
+    inputSchema: schema({
+      presetApplication: schema({
+        presetId,
+        expectedPresetRevision,
+        photoIds: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 100000,
+          uniqueItems: true,
+          items: photoId,
+        },
+      }),
+    }),
+  },
+  {
+    name: 'irodori_start_preset_application',
+    description:
+      'Apply a frozen preset preparation through the shared cancellable edit-application service. Each changed photo receives one Undo step; unchanged photos receive none. Conflicts, incompatible and unfinished targets retain results across restart.',
+    inputSchema: schema({ preparationId: { type: 'string' } }),
+  },
+  {
+    name: 'irodori_dispose_preset_preparation',
+    description: 'Discard an unused preset preparation without changing photos or presets.',
+    inputSchema: schema({ preparationId: { type: 'string' } }),
+  },
+)
 const managed = process.env.IRODORI_AGENT_CONNECTION !== undefined
 if (managed) {
   const allowed = new Set(agentTools)
@@ -704,7 +946,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         structuredContent: result.failure,
       }
     if (!response.ok || result.error) throw new Error(result.error ?? 'Editor request failed.')
-    if (request.params.name === 'irodori_get_photo_preview') {
+    if (['irodori_get_photo_preview', 'irodori_get_output_proof'].includes(request.params.name)) {
       const { data, ...metadata } = result.result
       if (
         typeof data !== 'string' ||

@@ -30,17 +30,13 @@ import type { ExportFile, ExportManifest, ExportSource, ExportRenderResult } fro
 import { ExportProcess } from './process'
 import { verifyExportEncoder } from './encoder'
 import { COLLECTION_CHUNK_SIZE } from '../../shared/collections'
-import { DISPLAY_RENDERING_VERSION, HDR_CONTENT_VERSION } from '../../shared/display-rendering'
-import { ADJUSTMENT_VERSION } from '../../shared/adjustments'
-import { LENS_RENDER_VERSION } from '../processing/lens-correction'
+import { exportPipeline } from './pipeline'
+import type { OutputProofPipeline } from '../../shared/export-proof'
 import type { WorkingAssetLease, WorkingAssetRendition } from '../working-assets'
 import type { ExportWorkerProgress, ExportWorkerProgressSnapshot } from '../../shared/export'
 import { acceptExportWorkerProgress, exportProgressOwner } from './progress'
 import { isUncropped } from '../../shared/crop'
-import { exportCropPolicy } from './crop-policy'
-import { exportDetailPolicy } from './detail-policy'
 import { resolveDetailSettings } from '../processing/detail-identity'
-import { exportResizePolicy } from './resize-policy'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const active = (task: BackgroundTask) => task.status === 'running' || task.status === 'cancelling'
@@ -65,7 +61,10 @@ interface Job {
   workerProgress?: ExportWorkerProgressSnapshot
 }
 export class ExportJobs {
-  private preparations = new Map<string, { sources: ExportSource[]; created: number }>()
+  private preparations = new Map<
+    string,
+    { sources: ExportSource[]; created: number; pipeline: OutputProofPipeline }
+  >()
   private jobs = new Map<string, Job>()
   private leases = new Map<string, number>()
   private tail = Promise.resolve()
@@ -124,7 +123,11 @@ export class ExportJobs {
           100000)
     )
       this.preparations.delete(this.preparations.keys().next().value!)
-    this.preparations.set(id, { sources: structuredClone(sources), created: Date.now() })
+    this.preparations.set(id, {
+      sources: structuredClone(sources),
+      created: Date.now(),
+      pipeline: exportPipeline(),
+    })
     const targets = sources.map((s) => ({
       photoId: s.photo.id,
       filename: s.photo.filename,
@@ -136,6 +139,45 @@ export class ExportJobs {
   }
   dispose(id: string) {
     this.preparations.delete(id)
+  }
+  /** Short lived proof ownership protects the same originals as accepted exports. */
+  acquireProofSource(preparationId: string, photoId: string) {
+    const prepared = this.preparations.get(preparationId)
+    const source = prepared?.sources.find((s) => s.photo.id === photoId)
+    if (!source)
+      throw new Error(
+        'The photograph is outside this export preparation. Open the export chooser again.',
+      )
+    const validate = async () => {
+      if (
+        this.closed ||
+        !prepared ||
+        this.preparations.get(preparationId) !== prepared ||
+        Date.now() - prepared.created > 15 * 60_000 ||
+        prepared.sources.some((s) => !this.current(s))
+      )
+        throw new Error(
+          'Export targets or edits changed, or preparation expired. Open the export chooser again.',
+        )
+      const info = await lstat(source.path)
+      if (!info.isFile() || info.isSymbolicLink() || !sameSource(info, source.identity))
+        throw new Error('An export source changed. Open the export chooser again.')
+      if (prepared.sources.some((s) => !this.current(s)))
+        throw new Error('Export targets or edits changed. Open the export chooser again.')
+    }
+    this.lease(photoId, 1)
+    let released = false
+    return {
+      source: structuredClone(source),
+      pipeline: structuredClone(prepared!.pipeline),
+      validate,
+      release: () => {
+        if (!released) {
+          released = true
+          this.lease(photoId, -1)
+        }
+      },
+    }
   }
   private preparationForStart(request: ExportStart) {
     if (
@@ -199,16 +241,7 @@ export class ExportJobs {
           acceptedAt: new Date().toISOString(),
           rendering: EXPORT_RENDERING_VERSION,
           codec: EXPORT_CODEC_VERSION,
-          pipeline: {
-            display: DISPLAY_RENDERING_VERSION,
-            hdrContent: HDR_CONTENT_VERSION,
-            adjustments: ADJUSTMENT_VERSION,
-            lens: LENS_RENDER_VERSION,
-            sdrEncoder: 'sharp-0.35.4-baseline-444-srgb',
-            crop: { ...exportCropPolicy },
-            detail: { ...exportDetailPolicy },
-            resize: { ...exportResizePolicy },
-          },
+          pipeline: structuredClone(prepared.pipeline),
           destinationId: grant.id,
           options,
           sources: structuredClone(prepared.sources),

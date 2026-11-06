@@ -48,6 +48,7 @@ export function inspectorReset(
           : {}),
       }
     case 'info':
+    case 'presets':
       return {}
   }
 }

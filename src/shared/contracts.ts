@@ -39,6 +39,11 @@ export interface IrodoriApi extends NativeHdrMaskBridge, AgentApi {
   chooseExportDestination(): Promise<import('./export').ExportDestination | null>
   prepareExport(ids: string[]): Promise<import('./export').ExportPreparation>
   disposeExportPreparation(id: string): Promise<void>
+  requestOutputProof(
+    request: import('./export-proof').OutputProofRequest,
+  ): Promise<import('./export-proof').OutputProof>
+  cancelOutputProof(token: string): Promise<void>
+  releaseOutputProof(id: string): Promise<void>
   startExport(request: import('./export').ExportStart): Promise<string>
   getExportResults(
     id: string,
@@ -128,6 +133,7 @@ export interface IrodoriApi extends NativeHdrMaskBridge, AgentApi {
     value: import('./preview-diagnostics').PreviewPresentation,
   ): Promise<void>
   getDisplayState(): Promise<DisplayTarget>
+  refreshPreviewDisplay(): Promise<DisplayTarget>
   setPreviewPreference(preference: PreviewPreference): Promise<DisplayTarget>
   reportDisplayCapabilities(capabilities: DisplayCapabilities): Promise<DisplayTarget>
   onDisplayState(listener: (state: DisplayTarget) => void): () => void
@@ -164,6 +170,20 @@ export interface IrodoriApi extends NativeHdrMaskBridge, AgentApi {
     request: HdrAnalysisRequest,
   ): Promise<HdrPhotoPixel>
   getEditClipboard(): Promise<import('./edit-transfer').EditClipboard | null>
+  listPresets(query?: import('./presets').PresetQuery): Promise<import('./presets').PresetPage>
+  getPreset(id: string): Promise<import('./presets').EditingPreset>
+  createPreset(
+    request: import('./presets').CreatePresetRequest,
+  ): Promise<import('./presets').EditingPreset>
+  updatePreset(
+    request: import('./presets').UpdatePresetRequest,
+  ): Promise<import('./presets').EditingPreset>
+  deletePreset(request: import('./presets').PresetRevisionRequest): Promise<void>
+  preparePresetApplication(
+    request: import('./presets').PresetApplicationRequest,
+  ): Promise<import('./edit-transfer').PresetApplicationPreparation>
+  startPresetApplication(id: string): Promise<string>
+  disposePresetPreparation(id: string): Promise<void>
   copyEdits(photoId: string): Promise<import('./edit-transfer').EditClipboard>
   preparePasteEdits(
     request: import('./edit-transfer').PasteEditsRequest,
@@ -450,6 +470,7 @@ export interface ReviewThumbnailRequest {
 }
 
 export interface LibraryEvent {
+  presetsChanged?: boolean
   editsChanged?: { photoId: string; revision: number }
   lensChanged?: { photoId: string; revision: number }
   geometryChanged?: { photoId: string; revision: number }

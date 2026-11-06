@@ -93,6 +93,9 @@ const api: IrodoriApi = {
   chooseExportDestination: () => ipcRenderer.invoke('export:choose-destination'),
   prepareExport: (ids) => ipcRenderer.invoke('export:prepare', ids),
   disposeExportPreparation: (id) => ipcRenderer.invoke('export:dispose', id),
+  requestOutputProof: (request) => ipcRenderer.invoke('export:proof', request),
+  cancelOutputProof: (token) => ipcRenderer.invoke('export:proof-cancel', token),
+  releaseOutputProof: (id) => ipcRenderer.invoke('export:proof-release', id),
   startExport: (request) => ipcRenderer.invoke('export:start', request),
   getExportResults: (id, offset = 0) => ipcRenderer.invoke('export:results', id, offset),
   showExportFolder: (id) => ipcRenderer.invoke('export:show-folder', id),
@@ -157,6 +160,7 @@ const api: IrodoriApi = {
   getPreviewDiagnostics: () => ipcRenderer.invoke('preview:diagnostics'),
   reportPreviewPresentation: (value) => ipcRenderer.invoke('preview:presentation', value),
   getDisplayState: () => ipcRenderer.invoke('display:get'),
+  refreshPreviewDisplay: () => ipcRenderer.invoke('display:refresh-probe'),
   setPreviewPreference: (preference) => ipcRenderer.invoke('display:preference', preference),
   reportDisplayCapabilities: (capabilities) =>
     ipcRenderer.invoke('display:capabilities', capabilities),
@@ -183,6 +187,15 @@ const api: IrodoriApi = {
     }
   },
   getEditClipboard: () => ipcRenderer.invoke('edits:clipboard'),
+  listPresets: (query) => editTransferResult(ipcRenderer.invoke('presets:list', query)),
+  getPreset: (id) => editTransferResult(ipcRenderer.invoke('presets:get', id)),
+  createPreset: (request) => editTransferResult(ipcRenderer.invoke('presets:create', request)),
+  updatePreset: (request) => editTransferResult(ipcRenderer.invoke('presets:update', request)),
+  deletePreset: (request) => editTransferResult(ipcRenderer.invoke('presets:delete', request)),
+  preparePresetApplication: (request) =>
+    editTransferResult(ipcRenderer.invoke('presets:prepare', request)),
+  startPresetApplication: (id) => editTransferResult(ipcRenderer.invoke('presets:start', id)),
+  disposePresetPreparation: (id) => ipcRenderer.invoke('presets:dispose', id),
   copyEdits: (id) => editTransferResult(ipcRenderer.invoke('edits:copy', id)),
   preparePasteEdits: (request) =>
     editTransferResult(ipcRenderer.invoke('edits:paste-prepare', request)),

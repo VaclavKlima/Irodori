@@ -95,10 +95,22 @@ import {
   type ApplicationCommit,
 } from './edit-application-store'
 import { EditTransfers } from './edit-transfer'
+import { PresetReadStore } from './preset-store'
+import { Presets } from './presets'
+import {
+  exactPresetFields,
+  validatePresetRevision,
+  type PresetQuery,
+  type CreatePresetRequest,
+  type UpdatePresetRequest,
+  type PresetRevisionRequest,
+  type PresetApplicationRequest,
+} from '../shared/presets'
 import { verifyExportEncoder } from './export/encoder'
 import { identity } from './export/files'
 import { ExportJobs } from './export/jobs'
 import { AgentPhotoPreviews } from './agent/photo-previews'
+import { OutputProofs } from './export/proofs'
 import type { ExportSource } from './export/types'
 import type { ExportProcess } from './export/process'
 import { ExportReadStore, ExportStore } from './export/store'
@@ -225,7 +237,9 @@ export class PhotoLibrary {
   readonly fullPreviews: FullPreviews
   readonly merges: MergeReviews
   editTransfers!: EditTransfers
+  private presets!: Presets
   agentPreviews!: AgentPhotoPreviews
+  outputProofs!: OutputProofs
   exports!: ExportJobs
   private db!: DatabaseSync
   private catalog?: CatalogWriter
@@ -501,6 +515,7 @@ export class PhotoLibrary {
       }
       new ExportReadStore(this.db).preferences()
       new EditApplicationReadStore(this.db).validateExisting()
+      new PresetReadStore(this.db).validateExisting()
     }
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;')
     await mkdir(join(this.root, 'originals'), { recursive: true })
@@ -528,6 +543,7 @@ export class PhotoLibrary {
         this.cameraRecognition.prepare()
       }
       new EditApplicationReadStore(this.db).initialize()
+      new PresetReadStore(this.db).initialize()
       for (const row of this.db.prepare('SELECT id, data FROM processing').all() as {
         id: string
         data: string
@@ -546,6 +562,17 @@ export class PhotoLibrary {
     this.db.exec('PRAGMA query_only = ON;')
     this.catalog = this.createCatalogWriter(join(this.root, 'catalog.sqlite'))
     await this.catalog.open()
+    this.presets = new Presets(
+      new PresetReadStore(this.db),
+      { command: (command) => this.write(command) },
+      async (id) => {
+        await this.flushEditorEdits({ kind: 'photos', photoIds: [id] })
+        const options = await this.processingOptions(id)
+        if (!this.find(id) || this.closed) throw new Error('This photo is unavailable.')
+        return { settings: this.readEdits(id).settings, metadata: options.metadata }
+      },
+      () => this.emit({ presetsChanged: true }),
+    )
     this.editTransfers = new EditTransfers(
       new EditApplicationStore(this.db, this.catalog),
       this.scheduler,
@@ -618,6 +645,26 @@ export class PhotoLibrary {
         if (!this.cropAdmission) throw new Error('Crop export resource admission is unavailable.')
         return this.cropAdmission(signal)
       },
+    )
+    await rm(join(this.root, 'cache', 'output-proofs'), { recursive: true, force: true })
+    this.outputProofs = new OutputProofs(
+      this.root,
+      this.exports,
+      this.scheduler,
+      (source, signal, rendition) =>
+        this.fullPreviews.acquireWorkingAsset(
+          source.photo.id,
+          source.processing,
+          signal,
+          rendition,
+        ),
+      async (signal) => {
+        if (!this.cropAdmission)
+          throw new Error('Output preview resource admission is unavailable.')
+        return this.cropAdmission(signal)
+      },
+      (bytes) => this.fullPreviews.reserveOutputProofBytes(bytes),
+      this.exportRenderer,
     )
     this.agentPreviews = new AgentPhotoPreviews(
       this.root,
@@ -986,6 +1033,45 @@ export class PhotoLibrary {
   getEditClipboard() {
     return this.editTransfers.getClipboard()
   }
+  listPresets(query?: PresetQuery) {
+    return this.presets.store.list(query)
+  }
+  getPreset(id: string) {
+    return this.presets.store.get(id)
+  }
+  createPreset(request: CreatePresetRequest) {
+    this.admission.assertTask()
+    this.assertRecovered(true)
+    return this.admission.run(() => this.presets.create(request))
+  }
+  updatePreset(request: UpdatePresetRequest) {
+    this.admission.assertTask()
+    this.assertRecovered(true)
+    return this.admission.run(() => this.presets.update(request))
+  }
+  deletePreset(request: PresetRevisionRequest) {
+    this.admission.assertTask()
+    this.assertRecovered(true)
+    return this.admission.run(() => this.presets.delete(request))
+  }
+  preparePresetApplication(request: PresetApplicationRequest) {
+    this.admission.assertTask()
+    this.assertRecovered(true)
+    return this.admission.run(() => {
+      if (!exactPresetFields(request, ['presetId', 'expectedPresetRevision', 'photoIds']))
+        throw new Error('Invalid preset application request.')
+      validatePresetRevision(request.expectedPresetRevision)
+      const preset = this.getPreset(request.presetId)
+      if (preset.revision !== request.expectedPresetRevision)
+        throw new Error('Preset revision conflict. Refresh the preset before trying again.')
+      return this.editTransfers.preparePreset(preset, request.photoIds)
+    })
+  }
+  startPresetApplication(id: string) {
+    this.admission.assertTask()
+    this.assertRecovered(true)
+    return this.admission.run(() => this.editTransfers.start(id, 'preset'))
+  }
   copyEdits(id: string) {
     this.admission.assertTask()
     this.assertRecovered(true)
@@ -1127,6 +1213,19 @@ export class PhotoLibrary {
   }
   getExportPreferences() {
     return this.exports.store.publicPreferences()
+  }
+  requestOutputProof(request: import('../shared/export-proof').OutputProofRequest) {
+    this.admission.assertTask()
+    this.assertRecovered(true)
+    return this.outputProofs.request('dialog', request)
+  }
+  getOutputProofOverview(
+    request: import('../shared/export-proof').OutputProofRequest,
+    signal?: AbortSignal,
+  ) {
+    this.admission.assertTask()
+    this.assertRecovered(true)
+    return this.outputProofs.overview(request, signal)
   }
   async prepareExport(ids: string[]) {
     this.admission.assertTask()
@@ -3189,6 +3288,7 @@ export class PhotoLibrary {
     if (this.notification) clearTimeout(this.notification)
     try {
       await closeServices([
+        () => this.outputProofs?.close(),
         () => this.admission.drain(),
         async () => {
           for (const task of this.tasks.values())

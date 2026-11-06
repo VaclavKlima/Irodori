@@ -10,10 +10,14 @@ import {
   transferUnavailable,
   validateTransferGroups,
   type CopiedEdits,
+  type EditApplicationSource,
+  type EditApplicationPreparation,
+  type PresetApplicationPreparation,
   type EditPastePreparation,
   type EditApplicationOutcome,
   type PasteEditsRequest,
 } from '../shared/edit-transfer'
+import type { EditingPreset } from '../shared/presets'
 import { validateExportPhotoIds } from '../shared/export'
 import { EditApplicationStore, type ApplicationCommit } from './edit-application-store'
 import type { WorkScheduler } from './work-scheduler'
@@ -27,7 +31,7 @@ export class EditTransfers {
   private copyGeneration = 0
   private preparations = new Map<
     string,
-    { value: EditPastePreparation; source: CopiedEdits; created: number }
+    { value: EditApplicationPreparation; source: EditApplicationSource; created: number }
   >()
   private closed = false
   private preparing = 0
@@ -87,27 +91,51 @@ export class EditTransfers {
     return this.getClipboard()!
   }
   async prepare(request: PasteEditsRequest): Promise<EditPastePreparation> {
-    if (this.preparing >= editTransferCapabilities.maxConcurrentPreparations)
-      throw new Error('Wait for the current photo checks before preparing another paste.')
-    this.preparing++
-    try {
-      return await this.prepareSnapshot(request)
-    } finally {
-      this.preparing--
-    }
-  }
-  private async prepareSnapshot(request: PasteEditsRequest): Promise<EditPastePreparation> {
     if (
       !request ||
       Object.keys(request).some((key) => !['clipboardId', 'photoIds', 'groups'].includes(key))
     )
       throw new Error('Invalid paste request.')
-    const photoIds = validateExportPhotoIds(request.photoIds),
-      groups = structuredClone(request.groups)
-    validateTransferGroups(groups)
     const source = this.clipboard && structuredClone(this.clipboard)
     if (!source || request.clipboardId !== source.clipboard.id)
       throw new Error('Copy edits before pasting.')
+    return this.prepareSource(
+      source,
+      request.photoIds,
+      request.groups,
+    ) as Promise<EditPastePreparation>
+  }
+  preparePreset(source: EditingPreset, photoIds: string[]): Promise<PresetApplicationPreparation> {
+    return this.prepareSource(
+      structuredClone(source),
+      photoIds,
+      source.definition.groups,
+    ) as Promise<PresetApplicationPreparation>
+  }
+  private async prepareSource(
+    source: EditApplicationSource,
+    ids: string[],
+    selectedGroups: import('../shared/edit-transfer').EditTransferGroup[],
+  ): Promise<EditApplicationPreparation> {
+    if (this.preparing >= editTransferCapabilities.maxConcurrentPreparations)
+      throw new Error(
+        'Wait for the current photo checks before preparing another edit application.',
+      )
+    this.preparing++
+    try {
+      return await this.prepareSnapshot(source, ids, selectedGroups)
+    } finally {
+      this.preparing--
+    }
+  }
+  private async prepareSnapshot(
+    source: EditApplicationSource,
+    ids: string[],
+    selectedGroups: import('../shared/edit-transfer').EditTransferGroup[],
+  ): Promise<EditApplicationPreparation> {
+    const photoIds = validateExportPhotoIds(ids),
+      groups = structuredClone(selectedGroups)
+    validateTransferGroups(groups)
     transferPatch(source, groups)
     await this.flush(photoIds)
     const targets: EditPastePreparation['targets'] = []
@@ -127,7 +155,12 @@ export class EditTransfers {
       }
     }
     if (this.closed) throw new Error('This library is closed.')
-    const value = { id: randomUUID(), source: source.clipboard, groups, targets }
+    const value = {
+      id: randomUUID(),
+      source: 'kind' in source ? source : source.clipboard,
+      groups,
+      targets,
+    } as EditApplicationPreparation
     for (const [id, entry] of this.preparations)
       if (Date.now() - entry.created > editTransferCapabilities.preparationTtlMs)
         this.preparations.delete(id)
@@ -146,12 +179,12 @@ export class EditTransfers {
   dispose(id: string) {
     this.preparations.delete(id)
   }
-  start(id: string): Promise<string> {
+  start(id: string, kind: 'clipboard' | 'preset' = 'clipboard'): Promise<string> {
     if (this.failure)
       return Promise.reject(new Error('Restart Irodori before starting another edit application.'))
     if (this.admission || this.active)
       return Promise.reject(new Error('Finish or cancel the current edit application first.'))
-    const admission = this.begin(id)
+    const admission = this.begin(id, kind)
     this.admission = admission
     void admission
       .finally(() => {
@@ -160,15 +193,17 @@ export class EditTransfers {
       .catch(() => {})
     return admission
   }
-  private async begin(preparationId: string) {
+  private async begin(preparationId: string, kind: 'clipboard' | 'preset') {
     const entry = this.preparations.get(preparationId)
     if (
       this.closed ||
       !entry ||
       Date.now() - entry.created > editTransferCapabilities.preparationTtlMs
     )
-      throw new Error('Paste preparation expired. Open the paste chooser again.')
+      throw new Error('Edit application preparation expired. Prepare the application again.')
     const { value, source } = entry
+    if (('kind' in source ? 'preset' : 'clipboard') !== kind)
+      throw new Error('This preparation belongs to a different edit source.')
     await this.flush(value.targets.map((target) => target.photoId))
     if (this.closed) throw new Error('This library is closed.')
     const id = randomUUID(),
@@ -176,7 +211,7 @@ export class EditTransfers {
     const task: BackgroundTask = {
       id,
       kind: 'edit-application',
-      title: 'Applying copied edits',
+      title: 'kind' in source ? `Applying preset: ${source.name}` : 'Applying copied edits',
       status: 'running',
       phase: 'Applying',
       progress: { completed: 0, total: value.targets.length, unit: 'items' },
@@ -187,7 +222,7 @@ export class EditTransfers {
     this.accepting = accepting
     try {
       await this.store.accept(
-        { version: 1, id, source, groups: value.groups, targets: value.targets },
+        { version: 2, id, source, groups: value.groups, targets: value.targets },
         task,
       )
     } catch (error) {
@@ -222,8 +257,8 @@ export class EditTransfers {
   }
   private async run(
     id: string,
-    preparation: EditPastePreparation,
-    source: CopiedEdits,
+    preparation: EditApplicationPreparation,
+    source: EditApplicationSource,
     signal: AbortSignal,
   ) {
     const patch = transferPatch(source, preparation.groups)

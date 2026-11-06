@@ -13,7 +13,7 @@ interface FrozenRequest {
   requestId: string
   targets: Map<string, Revision>
   paused: boolean
-  preparations: Set<string>
+  preparations: Map<string, 'export' | 'paste' | 'preset'>
 }
 
 /** Transport-side ownership is independent of model instructions and hook tool denial. */
@@ -73,7 +73,7 @@ export class AgentRequestGate {
       requestId: randomUUID(),
       targets,
       paused: false,
-      preparations: new Set(),
+      preparations: new Map(),
     }
     return this.context()
   }
@@ -127,10 +127,17 @@ export class AgentRequestGate {
       )
     if (!(agentTools as readonly string[]).includes(operation))
       throw new Error('This tool is unavailable in the photo console.')
+    const presetSource = (
+      args.presetRequest as
+        { source?: { photoId?: unknown; referencePhotoId?: unknown } } | undefined
+    )?.source
     const ids = [
       args.photoId,
+      presetSource?.photoId,
+      presetSource?.referencePhotoId,
       ...(Array.isArray(args.ids) ? args.ids : []),
       ...((args.pasteRequest as { photoIds?: unknown[] } | undefined)?.photoIds ?? []),
+      ...((args.presetApplication as { photoIds?: unknown[] } | undefined)?.photoIds ?? []),
     ].filter((x) => x !== undefined)
     for (const id of ids) {
       if (typeof id !== 'string' || !request.targets.has(id))
@@ -158,6 +165,15 @@ export class AgentRequestGate {
       (args.exportRequest as { preparationId?: string } | undefined)?.preparationId
     if (preparationId !== undefined && !request.preparations.has(String(preparationId)))
       throw new Error('This preparation does not belong to the current request.')
+    if (preparationId !== undefined) {
+      const kind = operation.includes('preset')
+        ? 'preset'
+        : operation.includes('paste')
+          ? 'paste'
+          : 'export'
+      if (request.preparations.get(String(preparationId)) !== kind)
+        throw new Error('This preparation belongs to a different operation.')
+    }
     if (args.taskId !== undefined && !this.tasks.has(String(args.taskId)))
       throw new Error('This task does not belong to this conversation.')
     if (!this.accepting || this.current !== request)
@@ -165,8 +181,22 @@ export class AgentRequestGate {
     const result = await execute()
     if (result && typeof result === 'object') {
       const value = result as { id?: string; taskId?: string; photoId?: string; revision?: number }
-      if (value.id && ['irodori_prepare_export', 'irodori_prepare_paste_edits'].includes(operation))
-        request.preparations.add(value.id)
+      if (
+        value.id &&
+        [
+          'irodori_prepare_export',
+          'irodori_prepare_paste_edits',
+          'irodori_prepare_preset_application',
+        ].includes(operation)
+      )
+        request.preparations.set(
+          value.id,
+          operation === 'irodori_prepare_export'
+            ? 'export'
+            : operation === 'irodori_prepare_paste_edits'
+              ? 'paste'
+              : 'preset',
+        )
       if (value.taskId) this.tasks.add(value.taskId)
       if (value.photoId && typeof value.revision === 'number' && request.targets.has(value.photoId))
         request.targets.get(value.photoId)!.revision = value.revision

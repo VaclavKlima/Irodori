@@ -3,6 +3,7 @@ import type { CollectionAnchor } from './collections'
 import type { Photo, PhotoReference } from './contracts'
 import type { ColorRangeId } from './color-mixer'
 import type { GradingToneId } from './color-grading'
+import { DEFAULT_PRESET_WORKSPACE, type PresetWorkspace } from './presets'
 
 export const CONSOLE_HEIGHT_MIN = 120
 export const CONSOLE_HEIGHT_MAX = 1600
@@ -32,7 +33,7 @@ export const DEFAULT_INSPECTOR_SECTIONS = {
 }
 export type InspectorSectionId = keyof typeof DEFAULT_INSPECTOR_SECTIONS
 export type InspectorSections = Record<InspectorSectionId, boolean>
-export const inspectorGroups = ['light', 'color', 'detail', 'geometry', 'info'] as const
+export const inspectorGroups = ['light', 'color', 'detail', 'geometry', 'presets', 'info'] as const
 export type InspectorGroup = (typeof inspectorGroups)[number]
 export const colorTabs = ['basic', 'mixer', 'grading'] as const
 export type ColorTab = (typeof colorTabs)[number]
@@ -69,6 +70,7 @@ export interface WorkspaceState {
   colorTab: ColorTab
   hoverControls: boolean
   creativeColor: CreativeColorSelection
+  presets: PresetWorkspace
   preview: PreviewViewState | null
 }
 export interface WorkspaceSnapshot {
@@ -100,6 +102,7 @@ export const DEFAULT_WORKSPACE: WorkspaceState = {
   colorTab: 'basic',
   hoverControls: false,
   creativeColor: DEFAULT_CREATIVE_COLOR_SELECTION,
+  presets: DEFAULT_PRESET_WORKSPACE,
   preview: null,
 }
 export function recoverWorkspaceNavigation(value?: {

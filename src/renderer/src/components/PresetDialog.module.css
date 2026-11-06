@@ -1,0 +1,16 @@
+.dialog {
+  overflow: hidden;
+}
+.form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  scrollbar-gutter: stable;
+  padding: 2px 4px 2px 2px;
+  margin-right: -4px;
+}

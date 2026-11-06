@@ -7,8 +7,9 @@ Goal 1 slice 5 in [professional editing](professional-editing.md). The
 [reviewed RAW/raster/merge workflow](../../artifacts/verification/2026-10-29T12-07-25.420Z-check-2b7KF1/summary.md)
 adds combined edits, frozen enlarged export and restart. Photographic quality,
 broader native export-input, cold/contention and resource/performance acceptance
-remain open. Final-size proof/output sharpening and the optional FSR evaluation
-remain in Goal 2. Normal preview Fit/100% semantics stay unchanged.
+remain open. [Final-size JPEG proof](output-proof.md) is available in Custom export
+and Console. Output sharpening and the optional FSR evaluation remain separate
+backlog tasks. Normal preview Fit/100% semantics stay unchanged.
 
 The later [full-native checkpoint](professional-editing-processing.md#full-native-resources-and-enlargement--2026-10-29)
 verifies an actual uncropped 5496 × 3672 Sony RAW, with frozen combined edits,

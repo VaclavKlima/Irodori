@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { BackgroundTask } from '../src/shared/contracts'
 import { initialSettings } from '../src/shared/edits'
+import { presetValues } from '../src/shared/presets'
 import {
   copiedEdits,
   type EditApplicationResult,
@@ -195,7 +196,7 @@ test('malformed versions, sources and task counters are rejected before any jour
     (f) => f.db.prepare('UPDATE edit_applications SET manifest = ?').run('{'),
     (f) =>
       f.manifest((value) => {
-        value.version = 2
+        value.version = 999
       }),
     (f) =>
       f.manifest((value) => {
@@ -272,6 +273,46 @@ test('malformed versions, sources and task counters are rejected before any jour
     try {
       change(f)
       f.rejectsWithoutWrites()
+    } finally {
+      f.close()
+    }
+  }
+})
+
+test('version-2 preset jobs retain legacy and current appearance snapshots without rewriting them', () => {
+  for (const appearance of [
+    undefined,
+    { icon: 'sunset', color: 'amber' },
+    { icon: 'future', color: 'amber' },
+  ]) {
+    const f = fixture()
+    try {
+      f.manifest((value) => {
+        value.version = 2
+        value.source = {
+          kind: 'preset',
+          id: randomUUID(),
+          name: 'Frozen look',
+          revision: 3,
+          createdAt: '2026-11-01T00:00:00Z',
+          updatedAt: '2026-11-02T00:00:00Z',
+          ...(appearance ? { appearance } : {}),
+          definition: {
+            version: 1,
+            settingsVersion: 12,
+            groups: ['light'],
+            values: presetValues(initialSettings(), ['light'], { lensKinds: [] }),
+            compatibility: { lensKinds: [] },
+          },
+        }
+      })
+      const before = f.snapshot()
+      if (appearance?.icon === 'future') f.rejectsWithoutWrites()
+      else {
+        expect(() => f.store.validateExisting()).not.toThrow()
+        expect(f.store.job(f.id).manifest.source).toMatchObject({ kind: 'preset', revision: 3 })
+        expect(f.snapshot()).toEqual(before)
+      }
     } finally {
       f.close()
     }

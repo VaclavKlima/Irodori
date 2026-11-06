@@ -6,6 +6,7 @@ import {
   editTransferCapabilities,
   transferPatch,
   type CopiedEdits,
+  type EditApplicationSource,
   type EditTransferGroup,
   type EditPasteTarget,
   type EditApplicationResult,
@@ -16,14 +17,15 @@ import { COLLECTION_CHUNK_SIZE } from '../shared/collections'
 import { supportsEditingSettings } from './catalog/editing-migration'
 import { SETTINGS_VERSION } from '../shared/edits'
 import { correctionKinds } from '../shared/lens'
+import { validateEditingPreset } from '../shared/presets'
 
-export interface EditApplicationManifest {
-  version: 1
+interface ApplicationManifestBase {
   id: string
-  source: CopiedEdits
   groups: EditTransferGroup[]
   targets: EditPasteTarget[]
 }
+export type EditApplicationManifest = ApplicationManifestBase &
+  ({ version: 1; source: CopiedEdits } | { version: 2; source: EditApplicationSource })
 export interface ApplicationCommit {
   id: string
   ordinal: number
@@ -61,11 +63,17 @@ function fields(value: unknown, required: string[], optional: string[] = []): bo
 function validateStoredManifest(manifest: StoredManifest) {
   if (
     !fields(manifest, ['version', 'id', 'source', 'groups']) ||
-    manifest.version !== 1 ||
+    ![1, 2].includes(manifest.version) ||
     !uuid(manifest.id)
   )
     invalid()
   const source = manifest.source
+  if ('kind' in source) {
+    if (manifest.version !== 2) invalid()
+    validateEditingPreset(source, true)
+    transferPatch(source, manifest.groups)
+    return
+  }
   if (
     !fields(source, ['version', 'clipboard', 'settings', 'lensKinds'], ['whiteBalanceIdentity']) ||
     source.version !== 1 ||
@@ -272,7 +280,7 @@ export class EditApplicationReadStore {
       .get(id) as { manifest: string; task: string } | undefined
     if (!row) throw new Error('This edit application has been dismissed.')
     const manifest = JSON.parse(row.manifest) as StoredManifest
-    if (manifest.version !== 1)
+    if (![1, 2].includes(manifest.version))
       throw new Error('This edit application requires a newer version of Irodori.')
     return { manifest, task: JSON.parse(row.task) }
   }
@@ -339,7 +347,7 @@ export class EditApplicationMutations extends EditApplicationReadStore {
     validateTask(task, manifest.id)
     for (const target of targets) validateTarget(target)
     if (
-      manifest.version !== 1 ||
+      ![1, 2].includes(manifest.version) ||
       manifest.id !== task.id ||
       task.kind !== 'edit-application' ||
       task.status !== 'running' ||

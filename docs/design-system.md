@@ -125,6 +125,13 @@ Console arrangement and date/month/year browser.
 - **Geometry:** title/reset, Crop and straighten and Lens corrections disclosures.
   Show real persisted framing values before starting a crop; enable the draft
   controls in the existing Start/Apply/Cancel session. Resizing stays in Export.
+- **Presets:** compact 44px rows with a 16px scenario icon, name and included
+  groups; neutral fill and Sunflower selection/focus outline. The nine named
+  marker colors stay on icons. New/Update and Edit details show a 24px preview,
+  closed grouped icon disclosure and native radio choices with checkmarks and
+  focus outlines. The icon collection scrolls inside the dialog body; Save and
+  Cancel remain visible at minimum size with Console open. See
+  [preset appearance](features/named-presets.md#scenario-icons-and-colors).
 - **Info:** Information title and one stacked definition list: filename,
   dimensions, format, camera/exposure and supplied additional metadata. Long
   values wrap inside the independently scrolling panel. Do not repeat the old
@@ -169,6 +176,15 @@ collapse chevron. Size xterm from an inner container so padding never creates
 horizontal overflow. The status-bar Console action comes first on the left.
 
 ## Components and ownership
+
+Custom JPEG export's [Output preview](features/output-proof.md) uses the approved
+expanded dialog: 22px insets, 256px independently scrolling settings, a neutral
+photograph canvas beside them, and fixed footer actions. The proof header carries
+the frozen filename, batch navigation and a local native display select; its
+lower-right capsule uses the existing zoom choices. Metadata and explicit
+Preview output / Update preview actions stay below the canvas. At 1100 × 700 with
+Console open, all footer actions remain visible. The mounted Editor retains its
+own view and suspends through the existing presentation owner.
 
 Shared [controls](../src/renderer/src/components/ui/Controls.tsx) provide `Button`,
 `IconButton`, `Tabs` and mounted `TabPanel`. Native buttons with specialized

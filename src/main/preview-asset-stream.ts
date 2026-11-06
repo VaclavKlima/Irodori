@@ -4,6 +4,7 @@ import type { FileHandle } from 'node:fs/promises'
 export interface PreviewAssetStreamLease {
   readonly path: string
   readonly file?: FileHandle
+  readonly signal?: AbortSignal
   readonly contentType: string
   readonly byteLength: number
   readonly release: () => void
@@ -30,11 +31,13 @@ export function createPreviewAssetStream(
       : createReadStream(asset.path, options)
     const abort = () => stream.destroy()
     signal.addEventListener('abort', abort, { once: true })
+    asset.signal?.addEventListener('abort', abort, { once: true })
     stream.once('close', () => {
       signal.removeEventListener('abort', abort)
+      asset.signal?.removeEventListener('abort', abort)
       asset.release()
     })
-    if (signal.aborted) stream.destroy()
+    if (signal.aborted || asset.signal?.aborted) stream.destroy()
     return stream
   } catch (error) {
     asset.release()

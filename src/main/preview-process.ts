@@ -274,6 +274,21 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     }
   }
 
+  async decodeOutputProof(
+    path: string,
+    output: string,
+    job: import('./export/proof-decode').OutputProofDecodeJob,
+    signal: AbortSignal,
+  ): Promise<import('./export/proof-decode').OutputProofDecoded> {
+    this.assertIdle()
+    return this.run('output-proof', path, output, signal, undefined, {
+      width: job.width,
+      height: job.height,
+      sha256: '',
+      outputProof: structuredClone(job),
+    })
+  }
+
   async renderFull(
     path: string,
     output: string,
@@ -634,7 +649,10 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
           fail(new Error('The preview worker stopped. Try again.'))
         }
         const forceCancellation =
-          mode === 'full' || mode === 'thumbnail-fallback' || importMode === 'fallback'
+          mode === 'full' ||
+          mode === 'output-proof' ||
+          mode === 'thumbnail-fallback' ||
+          importMode === 'fallback'
         const aborted = () => fail(new Error('Preview generation cancelled.'), forceCancellation)
         const timer = setTimeout(() => {
           fail(new Error('Preview generation timed out.'), forceCancellation)

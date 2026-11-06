@@ -4,7 +4,7 @@
 
 Individual and batch **JPEG export** is implemented for the current managed-library sources. Quick presets produce ISO 21496-1 HDR JPEG for verified HDR Sony RAWs and durable merge masters and supported ISO HDR JPEGs, and SDR JPEG for ordinary raster photographs. Platform and reader evidence is recorded in [testing](../testing.md#jpeg-export). This bounded delivery does not complete the [full HDR roadmap](README.md#full-hdr-completion-checklist).
 
-Additional formats, broader HDR file import, output sharpening, watermarks and named user presets remain planned. Disabled edit controls do not acquire export behavior.
+Additional formats, broader HDR file import, output sharpening, watermarks and named export presets remain planned. Disabled edit controls do not acquire export behavior.
 
 ## User workflow
 
@@ -30,8 +30,17 @@ The [standard enlargement brief](upscaling.md) records the frozen method, resour
 limits and focused evidence. Output edges remain limited to 32768 and the existing
 floating-point image limit permits at most 33,554,432 output pixels; RAM/VRAM and
 encoder admission may refuse smaller requests. Refusal never reduces requested
-dimensions or substitutes a method. Final-size proof, output sharpening and the
-optional FSR decision remain Goal 2 work.
+dimensions or substitutes a method. Output sharpening and the optional FSR
+decision remain separate backlog work. [Final-size proof](output-proof.md)
+is implemented as Output preview in Custom export and through the shared Console API.
+
+Custom export expands into settings beside an independently scrolling proof
+canvas. **Preview output** encodes and decodes a temporary JPEG without choosing
+a destination. Pixel changes require **Update preview**; the previous proof stays
+visible with an out-of-date label. Native output-pixel inspection, frozen batch
+navigation, local HDR/SDR choice, ownership and limits are documented in the
+[output-proof brief](output-proof.md). Export acceptance remains independent of
+proofing and always uses the current validated settings.
 
 ## Rendering and metadata
 

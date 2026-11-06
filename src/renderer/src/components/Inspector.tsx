@@ -21,7 +21,9 @@ import { Exposure } from './Exposure'
 import type { EditController } from '../hooks/useEdits'
 import { LensCorrections } from './LensCorrections'
 import { InspectorSection } from './InspectorSection'
-import { Info, Sun, Crop, Palette, ScanLine, RotateCcw } from 'lucide-react'
+import { Info, Sun, Crop, Palette, ScanLine, RotateCcw, PanelsTopLeft } from 'lucide-react'
+import { Presets } from './Presets'
+import type { EditingPreset, PresetWorkspace } from '../../../shared/presets'
 import { CropControls } from './CropControls'
 import type { CropController } from '../hooks/useCrop'
 import type { Photo } from '../../../shared/contracts'
@@ -52,6 +54,10 @@ export function Inspector({
   whiteBalancePicker,
   crop,
   toneCurves,
+  presets,
+  onPresetsChange,
+  selectionCount,
+  onApplyPreset,
 }: {
   group: InspectorGroup
   colorTab: ColorTab
@@ -69,6 +75,10 @@ export function Inspector({
   whiteBalancePicker: WhiteBalancePickerController
   crop: CropController
   toneCurves: ToneCurvesController
+  presets: PresetWorkspace
+  onPresetsChange: (state: PresetWorkspace) => void
+  selectionCount: number
+  onApplyPreset: (preset: EditingPreset, selection: boolean) => Promise<void>
 }) {
   const navigation = useRef(0)
   const [resetting, setResetting] = useState(false)
@@ -101,7 +111,7 @@ export function Inspector({
     const next = { ...sections, [id]: !sections[id] }
     onSectionsChange(next)
   }
-  const title = (id: Exclude<InspectorGroup, 'info'>) => (
+  const title = (id: Exclude<InspectorGroup, 'info' | 'presets'>) => (
     <div className={`${inspectorStyles.title} ${id === 'color' ? inspectorStyles.colorTitle : ''}`}>
       <h2>{id[0].toUpperCase() + id.slice(1)}</h2>
       <IconButton
@@ -135,11 +145,15 @@ export function Inspector({
             { id: 'color', label: 'Color', icon: Palette },
             { id: 'detail', label: 'Detail', icon: ScanLine },
             { id: 'geometry', label: 'Geometry', icon: Crop },
+            { id: 'presets', label: 'Presets', icon: PanelsTopLeft },
             { id: 'info', label: 'Info', icon: Info },
           ]}
           onChange={(next) => void switchTo(() => onGroupChange(next))}
         />
-        <div className={inspectorStyles.scroll} data-testid="inspector-scroll">
+        <div
+          className={`${inspectorStyles.scroll} ${group === 'presets' ? inspectorStyles.presetScroll : ''}`}
+          data-testid="inspector-scroll"
+        >
           <TabPanel id="light" active={group === 'light'}>
             {title('light')}
             <InspectorSection
@@ -267,6 +281,17 @@ export function Inspector({
                 suspended={suspended}
               />
             )}
+          </TabPanel>
+          <TabPanel id="presets" active={group === 'presets'}>
+            <Presets
+              active={group === 'presets' && !suspended}
+              photoId={photo?.id ?? null}
+              selectionCount={selectionCount}
+              blocked={suspended || crop.active || crop.pending}
+              state={presets}
+              onState={onPresetsChange}
+              onApply={onApplyPreset}
+            />
           </TabPanel>
           <TabPanel id="info" active={group === 'info'}>
             <section aria-labelledby="photo-metadata-heading">

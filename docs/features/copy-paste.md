@@ -1,7 +1,8 @@
 # Selective copy/paste and batch edits
 
-Goal 1 provides a session-local copy of confirmed edits and a bounded application
-job. Named presets remain Goal 2 work. The shared Actions/context menu serves
+Selective transfer provides a session-local copy of confirmed edits and a bounded
+application job. [Named presets](named-presets.md) reuse the application service
+with independent persistent definitions. The shared Actions/context menu serves
 Editor and Library; Library uses browser focus without changing the active Editor
 photo. Selection paste includes unloaded, folded and filtered-out selected photos.
 
@@ -61,8 +62,9 @@ Limits are explicit: 100,000 destinations per job, one active/admitting job, two
 concurrent preparations, eight retained preparations, at most 100,000 prepared
 targets across retained grants, and a 15-minute preparation lifetime. Job targets
 are stored by ordinal, so each publication does not parse or rewrite the complete
-selection. The additive application journal has its own version; photo settings
-remain v11 and catalog schema 21. Startup checks unsupported job formats before
+selection. The additive application journal has its own version; v2 supports preset
+snapshots and retains v1 clipboard-job readability. Photo settings remain v12 and
+catalog schema 22. Startup checks unsupported job formats before
 migration/recovery writes.
 
 ## API and menus
@@ -106,5 +108,5 @@ UI/MCP parity and native minimum-size Console-open composition. The later
 [combined real-source checkpoint](professional-editing-processing.md#goal-1-combined-real-source-correctness--2026-10-29)
 adds actual Sony RAW, photographic raster, encoded ISO gain-map and genuine v4
 merge copy/paste, history, frozen enlarged export and restart checks. Photographic,
-full-size resource and performance gates remain open. Both editing goals remain
-active; masking is outside this milestone.
+full-size resource and performance gates remain open in their separate backlog
+tasks; masking is outside this milestone.

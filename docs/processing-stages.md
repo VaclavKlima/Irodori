@@ -29,6 +29,16 @@ readable data; keeping them does not keep their retired executors available.
 
 ## Shared preview ownership — November 4, 2026
 
+Output proofs (November 7) reuse `ExportProcess` and every selected crop, Detail,
+point-rendering, resize and encoder backend. After its process exits, a separate
+bundled-Node preview worker decodes the JPEG primary with sharp/libjpeg and its
+authored HDR rendition with the existing libultrahdr decoder. Neutral bitmap/HDR
+presentation never reapplies edits or ACES scene rendering. Only a bounded Console
+overview uses native sharp resizing of the decoded primary; this does not replace
+the full export's GPU Lanczos3 stage. Proofs share preview storage, image admission,
+source protection and streamed-file drainage. Their bitmap/GPU ownership is
+transient, with no persistent proof cache. See [the acceptance record](features/output-proof.md).
+
 HDR presentation admission includes all retained source-cache owners. The global
 image inventory counts their bytes once: shared caches expose their live and
 retiring ownership, and the presenter exposes its own conservative peak with

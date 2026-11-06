@@ -88,6 +88,7 @@ import {
   hdrSampleMemory,
   publishHdrSample,
   retainHdrContent,
+  forgetHdrSample,
   selectHdrSampleSources,
 } from './hdr-sample'
 import { hdrCacheKernel } from './hdr-shader'
@@ -1571,8 +1572,10 @@ export class HdrPresenter {
       return device
     })())
   }
-  setWorking(frame: WorkingFrame, lineage?: HdrFirstSurfaceLineage) {
+  private retainSource = true
+  setWorking(frame: WorkingFrame, lineage?: HdrFirstSurfaceLineage, retainSource = true) {
     if (!frame.hdr) return
+    this.retainSource = retainSource
     const identity = frame.identity ?? frame.hdr.sha256
     if (this.frame) {
       if ((this.frame.identity ?? this.frame.hdr!.sha256) === identity) return
@@ -1651,7 +1654,9 @@ export class HdrPresenter {
       ) {
         // Admission to this cache already verified every source strip and the
         // real mip fence. The final descriptor must match that exact device/key.
-        const resident = sourceCache.acquire(device, hdrSourceIdentity(frame.hdr!), sourcePhotoId)
+        const resident = this.retainSource
+          ? sourceCache.acquire(device, hdrSourceIdentity(frame.hdr!), sourcePhotoId)
+          : null
         if (resident) {
           this.sourceLease = resident
           this.invalidateFirstSurface()
@@ -1734,7 +1739,9 @@ export class HdrPresenter {
     }
     const sourceIdentity = hdrSourceIdentity(frame.hdr!)
     this.levels = sourceIdentity.mipLevels
-    this.sourceLease ??= sourceCache.acquire(device, sourceIdentity, sourcePhotoId) ?? undefined
+    this.sourceLease ??= this.retainSource
+      ? (sourceCache.acquire(device, sourceIdentity, sourcePhotoId) ?? undefined)
+      : undefined
     this.texture = this.sourceLease?.resource
     this.canvas.dataset.sourceCache = this.sourceLease ? 'hit' : 'miss'
     timings.sourceCacheHit = Number(!!this.sourceLease)
@@ -1826,25 +1833,27 @@ export class HdrPresenter {
         const completed = uploaded.value
         if (!completed) throw new Error('HDR source upload completed without verification.')
         const fence = submitHdrSourceMips(device, this.texture!, sourceIdentity, compiled)
-        const lease = await sourceCache.admit(
-          device,
-          {
-            identity: sourceIdentity,
-            resource: this.texture!,
-            samples: completed.samples,
-            verification: completed.verification,
-            mipCompletion: fence,
-            photoId: sourcePhotoId,
-          },
-          {
-            signal: this.abort.signal,
-            isCurrent: () =>
-              !this.sourceFailed &&
-              !this.deviceLost &&
-              this.frame === frame &&
-              this.device === device,
-          },
-        )
+        const lease = this.retainSource
+          ? await sourceCache.admit(
+              device,
+              {
+                identity: sourceIdentity,
+                resource: this.texture!,
+                samples: completed.samples,
+                verification: completed.verification,
+                mipCompletion: fence,
+                photoId: sourcePhotoId,
+              },
+              {
+                signal: this.abort.signal,
+                isCurrent: () =>
+                  !this.sourceFailed &&
+                  !this.deviceLost &&
+                  this.frame === frame &&
+                  this.device === device,
+              },
+            )
+          : (await fence, null)
         this.sourceLease = lease ?? undefined
         if (
           this.abort.signal.aborted ||
@@ -3184,6 +3193,7 @@ export class HdrPresenter {
       await this.releaseSource()
       this.cachedPaintReceipt = undefined
       this.context?.unconfigure()
+      if (!this.retainSource && this.frame?.hdr) forgetHdrSample(this.frame.hdr.sha256)
     })
     const retired = retentionDrained.finally(() => retiredPreviewOwners.delete(retired))
     this.retirement = retired

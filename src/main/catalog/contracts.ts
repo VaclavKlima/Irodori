@@ -14,6 +14,15 @@ import type { Grant } from '../export/store'
 
 /** Main-only domain operations. No renderer, SQL text, callback or file execution API. */
 export interface CatalogOperations {
+  'preset.create': {
+    input: { preset: import('../../shared/presets').EditingPreset }
+    output: import('../../shared/presets').EditingPreset
+  }
+  'preset.update': {
+    input: { preset: import('../../shared/presets').EditingPreset; expectedPresetRevision: number }
+    output: import('../../shared/presets').EditingPreset
+  }
+  'preset.delete': { input: import('../../shared/presets').PresetRevisionRequest; output: void }
   'processing.publish': {
     input: { id: string; data: ProcessingOptions; createdAt: string }
     output: void

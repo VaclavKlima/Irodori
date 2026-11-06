@@ -48,6 +48,11 @@ export class DisplayState {
   get() {
     return { ...this.state, capabilities: this.capabilities, presentation: this.presentation }
   }
+  retry() {
+    this.recompute()
+    this.refresh?.()
+    return this.get()
+  }
   set(preference: PreviewPreference) {
     if (!['auto', 'hdr', 'sdr'].includes(preference))
       return Promise.reject(new Error('Invalid preview preference.'))

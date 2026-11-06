@@ -1,0 +1,144 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 6px;
+  font-size: 11px;
+}
+.panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.panel h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.panel button {
+  font-size: 10px;
+  min-height: 26px;
+}
+.search {
+  width: 100%;
+  min-height: 26px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--canvas);
+  color: var(--text);
+  font: inherit;
+}
+.list {
+  flex: 1;
+  min-height: 44px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  scrollbar-gutter: stable;
+}
+.list p {
+  color: var(--muted);
+  line-height: 1.5;
+  padding: 6px;
+}
+.list .row {
+  position: absolute;
+  width: 100%;
+  height: 44px;
+  min-height: 44px;
+  padding: 5px 7px;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text);
+  background: transparent;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.rowText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.row strong {
+  font-weight: 500;
+  font-size: 11px;
+}
+.row strong,
+.row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.row span {
+  color: var(--muted);
+  font-size: 9px;
+}
+.list .row:hover {
+  background: var(--surface-hover);
+}
+.list .row[aria-selected='true'] {
+  border-color: var(--accent);
+  background: var(--surface-raised);
+}
+.row[aria-selected='true'] strong {
+  color: var(--accent);
+}
+.included {
+  flex: 0 1 auto;
+  min-height: 26px;
+  max-height: 35%;
+  overflow-y: auto;
+  border-top: 1px solid var(--line-subtle);
+}
+.included summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+.included summary span {
+  float: right;
+  color: var(--quiet);
+}
+.included h3 {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.included p {
+  color: var(--muted);
+  margin: 4px 0 8px;
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.actions > div {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+.actions > div button {
+  padding: 3px 2px;
+}
+.error {
+  color: var(--danger);
+  max-height: 80px;
+  overflow: auto;
+  margin: 0;
+}
+.panel :focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}

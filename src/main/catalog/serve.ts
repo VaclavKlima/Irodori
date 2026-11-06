@@ -4,6 +4,9 @@ import { CatalogMutations } from './domain'
 import { CatalogConnectionError } from './transaction'
 
 const operations = new Set([
+  'preset.create',
+  'preset.update',
+  'preset.delete',
   'processing.publish',
   'edits.commit',
   'edit-application.accept',

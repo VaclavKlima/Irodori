@@ -14,6 +14,7 @@ import {
 import type { CollectionAnchor } from '../../shared/collections'
 import { colorRangeIds } from '../../shared/color-mixer'
 import { gradingToneIds } from '../../shared/color-grading'
+import { validPresetWorkspace, DEFAULT_PRESET_WORKSPACE } from '../../shared/presets'
 
 const hash = /^[a-f0-9]{64}$/
 const id = (value: unknown) => value === null || (typeof value === 'string' && hash.test(value))
@@ -36,6 +37,7 @@ function anchor(value: CollectionAnchor | null) {
 function validate(state: WorkspaceState) {
   if (
     !state ||
+    !validPresetWorkspace(state.presets) ||
     Object.keys(state).some((k) => !(k in DEFAULT_WORKSPACE)) ||
     state.version !== WORKSPACE_VERSION ||
     !['editor', 'library'].includes(state.mode) ||
@@ -120,6 +122,7 @@ export class WorkspaceMutations extends WorkspaceStore {
         ...recoverWorkspaceNavigation(saved),
         consoleHeight: recoverConsoleHeight(saved?.consoleHeight),
         inspector: { ...DEFAULT_INSPECTOR_SECTIONS, ...saved?.inspector },
+        presets: validPresetWorkspace(saved?.presets) ? saved.presets : DEFAULT_PRESET_WORKSPACE,
         ...change.state,
       } as WorkspaceState
       validate(state)

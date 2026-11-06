@@ -4,6 +4,12 @@ import { importPhotos } from './import.helpers'
 import { activateButton } from './button.helpers'
 import { navigateInspector, openInspectorTool } from './inspector.helpers'
 import { minimumAdjustmentWindow } from './adjustment-input.helpers'
+import { foregroundTest } from './foreground'
+
+const nativeCapture =
+  process.platform === 'linux' && Boolean(process.env.WAYLAND_DISPLAY)
+    ? foregroundTest('Wayland native minimum-size screenshots require compositor presentation.')
+    : {}
 
 test('navigation flushes drafts, cancels invalid text, retains panels and external revisions, and restores preferences', async ({
   irodori,
@@ -111,40 +117,42 @@ test('resets use one photo-wide history step, preserve crop guards, and support 
   await expect(page.getByRole('button', { name: 'Reset Geometry', exact: true })).toBeDisabled()
   await activateButton(page.getByRole('button', { name: 'Cancel crop', exact: true }))
 })
-test('Sunflower fits the native minimum with Console, local fonts, pinned histogram and keyboard tabs', async ({
-  irodori: { app, page },
-}) => {
-  await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
-  await minimumAdjustmentWindow(app, page)
-  expect(
-    await page.getByTestId('photo-library').evaluate((e) => e.getBoundingClientRect().width),
-  ).toBe(224)
-  expect(
-    await page.getByTestId('adjustments-panel').evaluate((e) => e.getBoundingClientRect().width),
-  ).toBe(344)
-  const plot = await page.getByRole('slider', { name: 'Histogram tonal value' }).boundingBox()
-  expect(plot!.width).toBeGreaterThanOrEqual(240)
-  expect(plot!.height).toBeGreaterThanOrEqual(96)
-  await page.evaluate(() => document.fonts.ready)
-  expect(await page.evaluate(() => document.fonts.check('600 12px Lato'))).toBe(true)
-  expect(
-    await page.evaluate(() =>
-      performance
-        .getEntriesByType('resource')
-        .filter((e) => /\.ttf/.test(e.name))
-        .every((e) => e.name.startsWith('file:')),
-    ),
-  ).toBe(true)
-  const tab = page.getByRole('tab', { name: 'Light', exact: true })
-  await tab.focus()
-  await tab.press('ArrowDown')
-  await expect(page.getByRole('tab', { name: 'Color', exact: true })).toBeFocused()
-  await expect(page.getByRole('tab', { name: 'Color', exact: true })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  )
-  await page.screenshot({ path: test.info().outputPath('sunflower-minimum.png') })
-})
+test(
+  'Sunflower fits the native minimum with Console, local fonts, pinned histogram and keyboard tabs',
+  nativeCapture,
+  async ({ irodori: { app, page } }) => {
+    await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
+    await minimumAdjustmentWindow(app, page)
+    expect(
+      await page.getByTestId('photo-library').evaluate((e) => e.getBoundingClientRect().width),
+    ).toBe(224)
+    expect(
+      await page.getByTestId('adjustments-panel').evaluate((e) => e.getBoundingClientRect().width),
+    ).toBe(344)
+    const plot = await page.getByRole('slider', { name: 'Histogram tonal value' }).boundingBox()
+    expect(plot!.width).toBeGreaterThanOrEqual(240)
+    expect(plot!.height).toBeGreaterThanOrEqual(96)
+    await page.evaluate(() => document.fonts.ready)
+    expect(await page.evaluate(() => document.fonts.check('600 12px Lato'))).toBe(true)
+    expect(
+      await page.evaluate(() =>
+        performance
+          .getEntriesByType('resource')
+          .filter((e) => /\.ttf/.test(e.name))
+          .every((e) => e.name.startsWith('file:')),
+      ),
+    ).toBe(true)
+    const tab = page.getByRole('tab', { name: 'Light', exact: true })
+    await tab.focus()
+    await tab.press('ArrowDown')
+    await expect(page.getByRole('tab', { name: 'Color', exact: true })).toBeFocused()
+    await expect(page.getByRole('tab', { name: 'Color', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await page.screenshot({ path: test.info().outputPath('sunflower-minimum.png') })
+  },
+)
 
 test('hover controls retain keyboard/menu/dialog access, coarse pointers and reduced motion', async ({
   irodori: { app, page },

@@ -97,7 +97,11 @@ export const reservePresentationBitmaps = (bytes: number) => frames.reserve(byte
 export function cachedFrame(preview: FullPreview): FrameLease | null {
   return frames.acquire(preview)
 }
-export async function loadFrame(preview: FullPreview, signal: AbortSignal): Promise<FrameLease> {
+export async function loadFrame(
+  preview: FullPreview,
+  signal: AbortSignal,
+  cache = true,
+): Promise<FrameLease> {
   validate(preview)
   const release = frames.reserve(preview.byteLength * 2)
   try {
@@ -120,7 +124,19 @@ export async function loadFrame(preview: FullPreview, signal: AbortSignal): Prom
       bitmap.close()
       signal.throwIfAborted()
     }
-    return frames.insert(preview, bitmap)
+    if (cache) return frames.insert(preview, bitmap)
+    const releaseBitmap = frames.reserve(preview.byteLength)
+    let closed = false
+    return {
+      bitmap,
+      release: () => {
+        if (!closed) {
+          closed = true
+          bitmap.close()
+          releaseBitmap()
+        }
+      },
+    }
   } finally {
     release()
   }

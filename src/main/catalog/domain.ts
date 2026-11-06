@@ -18,6 +18,7 @@ import { CameraMutations } from './camera-mutations'
 import { ImportSourceMutations } from './import-source-mutations'
 import { EditApplicationMutations } from '../edit-application-store'
 import { ExportMutations } from './export-mutations'
+import { PresetMutations } from '../preset-store'
 
 /** Only the dedicated writer uses this after the explicit startup phase ends. */
 export class CatalogMutations {
@@ -28,6 +29,7 @@ export class CatalogMutations {
   readonly sources: ImportSourceMutations
   readonly editApplications: EditApplicationMutations
   readonly exports: ExportMutations
+  readonly presets: PresetMutations
   constructor(readonly db: DatabaseSync) {
     this.stacks = new StackMutations(db)
     this.browse = new BrowseMutations(db)
@@ -36,6 +38,7 @@ export class CatalogMutations {
     this.sources = new ImportSourceMutations(db)
     this.exports = new ExportMutations(db)
     this.editApplications = new EditApplicationMutations(db)
+    this.presets = new PresetMutations(db)
   }
   transaction<T>(work: () => T): T {
     return catalogTransaction(this.db, work)
@@ -84,6 +87,16 @@ export class CatalogMutations {
   }
   execute(command: CatalogCommand): unknown {
     switch (command.operation) {
+      case 'preset.create':
+        return this.transaction(() => this.presets.create(command.payload.preset))
+      case 'preset.update':
+        return this.transaction(() =>
+          this.presets.update(command.payload.preset, command.payload.expectedPresetRevision),
+        )
+      case 'preset.delete':
+        return this.transaction(() =>
+          this.presets.delete(command.payload.presetId, command.payload.expectedPresetRevision),
+        )
       case 'processing.publish': {
         const { id, data, createdAt } = command.payload
         return this.transaction(() => {

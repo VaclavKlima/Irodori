@@ -32,6 +32,7 @@ test('stdio editing tools share persisted history with UI without a development 
     expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
       'irodori_get_editor_context',
       'irodori_get_photo_preview',
+      'irodori_get_output_proof',
       'irodori_get_edit_clipboard',
       'irodori_copy_edits',
       'irodori_prepare_paste_edits',
@@ -92,6 +93,14 @@ test('stdio editing tools share persisted history with UI without a development 
       'irodori_update_edits',
       'irodori_undo_edit',
       'irodori_redo_edit',
+      'irodori_list_presets',
+      'irodori_get_preset',
+      'irodori_create_preset',
+      'irodori_update_preset',
+      'irodori_delete_preset',
+      'irodori_prepare_preset_application',
+      'irodori_start_preset_application',
+      'irodori_dispose_preset_preparation',
     ])
     const call = async (name: string, args = {}) => {
       const result = await client.callTool({ name, arguments: args })

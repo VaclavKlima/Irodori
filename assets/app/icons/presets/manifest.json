@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "asset": "scenarios.svg",
+  "sha256": "b2840082763f231c053f11b1456e93888da946974f570f64f879f99a9ae7a264",
+  "symbols": ["high-noise", "soft-look"],
+  "viewBox": "0 0 24 24",
+  "provenance": "Original vector drawings created for Irodori; no external imagery.",
+  "license": "Apache-2.0",
+  "licenseFile": "../../../../LICENSE"
+}

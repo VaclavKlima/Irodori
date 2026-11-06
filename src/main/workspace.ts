@@ -10,6 +10,7 @@ import {
 } from '../shared/workspace'
 import type { BrowseStore } from './browse'
 import type { CollectionAnchor } from '../shared/collections'
+import { validPresetWorkspace, DEFAULT_PRESET_WORKSPACE } from '../shared/presets'
 
 /** Workspace reads; the dedicated writer commits checkpoints and selection deltas together. */
 export class WorkspaceStore {
@@ -86,6 +87,7 @@ export class WorkspaceStore {
           ...recoverWorkspaceNavigation(saved),
           consoleHeight: recoverConsoleHeight(saved?.consoleHeight),
           inspector: { ...DEFAULT_INSPECTOR_SECTIONS, ...saved.inspector },
+          presets: validPresetWorkspace(saved.presets) ? saved.presets : DEFAULT_PRESET_WORKSPACE,
         })
       : null
     const selected = this.db

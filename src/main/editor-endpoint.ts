@@ -90,6 +90,11 @@ export async function startEditorEndpoint(
         exportRequest,
         preparationId,
         pasteRequest,
+        presetId,
+        expectedPresetRevision,
+        presetRequest,
+        presetApplication,
+        presetQuery,
       } = args as {
         domain?: import('../shared/hdr-statistics').HdrAnalysisDomain
         target?: 'sdr' | 'current'
@@ -122,6 +127,13 @@ export async function startEditorEndpoint(
         pasteRequest: import('../shared/edit-transfer').PasteEditsRequest
         exportRequest: import('../shared/export').ExportStart
         preparationId: string
+        presetId: string
+        expectedPresetRevision: number
+        presetRequest:
+          | import('../shared/presets').CreatePresetRequest
+          | import('../shared/presets').UpdatePresetRequest
+        presetApplication: import('../shared/presets').PresetApplicationRequest
+        presetQuery?: import('../shared/presets').PresetQuery
       }
       if (
         body.length > 16384 &&
@@ -131,6 +143,7 @@ export async function startEditorEndpoint(
           'irodori_get_photo_actions_context',
           'irodori_prepare_export',
           'irodori_prepare_paste_edits',
+          'irodori_prepare_preset_application',
         ].includes(operation)
       )
         throw new Error('Editor request is too large.')
@@ -157,6 +170,23 @@ export async function startEditorEndpoint(
           case 'irodori_get_photo_preview':
             result = await library.agentPreviews.get(photoId, expectedRevision, gate?.signal)
             break
+          case 'irodori_get_output_proof': {
+            const lifetime = new AbortController()
+            const gone = () => {
+              if (!response.writableFinished)
+                lifetime.abort(new Error('Output preview client disconnected.'))
+            }
+            response.once('close', gone)
+            try {
+              result = await library.getOutputProofOverview(
+                { preparationId, photoId, options: args.options, token: args.proofToken },
+                gate ? AbortSignal.any([gate.signal, lifetime.signal]) : lifetime.signal,
+              )
+            } finally {
+              response.removeListener('close', gone)
+            }
+            break
+          }
           case 'irodori_get_edit_capabilities':
             result = library.getEditCapabilities()
             break
@@ -327,6 +357,36 @@ export async function startEditorEndpoint(
             break
           case 'irodori_get_edit_clipboard':
             result = { clipboard: library.getEditClipboard() }
+            break
+          case 'irodori_list_presets':
+            result = library.listPresets(presetQuery)
+            break
+          case 'irodori_get_preset':
+            result = library.getPreset(presetId)
+            break
+          case 'irodori_create_preset':
+            result = await library.createPreset(
+              presetRequest as import('../shared/presets').CreatePresetRequest,
+            )
+            break
+          case 'irodori_update_preset':
+            result = await library.updatePreset(
+              presetRequest as import('../shared/presets').UpdatePresetRequest,
+            )
+            break
+          case 'irodori_delete_preset':
+            await library.deletePreset({ presetId, expectedPresetRevision })
+            result = { deleted: true }
+            break
+          case 'irodori_prepare_preset_application':
+            result = await library.preparePresetApplication(presetApplication)
+            break
+          case 'irodori_start_preset_application':
+            result = { taskId: await library.startPresetApplication(preparationId) }
+            break
+          case 'irodori_dispose_preset_preparation':
+            library.editTransfers.dispose(preparationId)
+            result = { disposed: true }
             break
           case 'irodori_copy_edits':
             result = await library.copyEdits(photoId)
