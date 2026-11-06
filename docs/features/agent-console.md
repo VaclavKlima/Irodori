@@ -8,7 +8,7 @@ separate work. This feature makes no photo-settings or catalog schema migration.
 
 Open Console and choose **Connect Codex**. Irodori discovers an installed Codex
 executable; **Choose Codex executable** offers a native file picker when setup
-fails. The initially supported CLI is **0.166.0**. Other versions are refused
+fails. Reviewed CLI versions are **0.166.0** and **0.167.0**. Other versions are refused
 until their configuration and tool defaults have been reviewed and tested.
 
 Sign in through Codex inside this console. When it emits its authentication
@@ -235,3 +235,20 @@ Focused protocol tests cover both editing MCP and the managed Console request
 gate, including foreign preparations, outside targets and ended requests. A live
 signed-in Console client was not exercised. Restart Irodori and Resume/New Console
 to load the updated tool registration in an existing session.
+
+## Codex version compatibility — November 7, 2026
+
+The installed Codex 0.167.0 passes the existing strict configuration preflight
+without sign-in or a model request. It joins 0.166.0 in the explicit reviewed
+version list. The generated restrictions and normal hook-trust flow are unchanged;
+other versions still require review. Unsupported-version errors now include the
+detected version and all reviewed versions.
+
+The [focused acceptance record](../../artifacts/verification/codex-0.167-compatibility-2026-11-07/summary.md)
+retains 941 passing cases across the background batch and its exact native
+foreground follow-up. Coverage includes both reviewed version strings, refusal of
+unreviewed/prerelease builds, failed shell/hook restrictions, installed-CLI
+configuration and preserved hook trust, PTY lifecycle, managed tools, and native
+terminal focus/paste/resize at minimum size. Static checks and the production build
+pass. This is Bazzite evidence; a signed-in 0.167.0 model conversation and other
+operating systems were not exercised.

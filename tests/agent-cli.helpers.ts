@@ -2,7 +2,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 /** Deterministic CLI stand-in for PTY/lifecycle tests; it never calls a model or reads credentials. */
-export async function agentCliFixture(directory: string) {
+export async function agentCliFixture(directory: string, version = '0.166.0') {
   const path = join(directory, 'codex-fixture')
   await writeFile(
     path,
@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-if (process.argv.includes('--version')) { console.log('codex-cli 0.166.0'); process.exit(0); }
+if (process.argv.includes('--version')) { console.log(${JSON.stringify(`codex-cli ${version}`)}); process.exit(0); }
 if (process.argv.includes('app-server')) {
   let buffer = '';
   process.stdin.on('data', data => {

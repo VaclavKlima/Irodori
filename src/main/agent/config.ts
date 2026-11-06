@@ -209,6 +209,8 @@ export async function prepareAgentConfig(
   )
 }
 
+const verifiedCodexVersions = ['0.166.0', '0.167.0'] as const
+
 /** Strict parsing and the effective config are checked without signing in or starting a model turn. */
 export async function verifyAgentConfig(
   executable: string,
@@ -222,9 +224,10 @@ export async function verifyAgentConfig(
     maxBuffer: 64 * 1024,
   })
   // A new CLI needs an explicit compatibility review, particularly for default tool additions.
-  if (stdout.trim() !== 'codex-cli 0.166.0')
+  const reportedVersion = stdout.trim()
+  if (!verifiedCodexVersions.some((version) => reportedVersion === `codex-cli ${version}`))
     throw new Error(
-      'This Codex version has not been verified for the restricted photo console. Supported: 0.166.0.',
+      `This Codex version has not been verified for the restricted photo console. Detected: ${JSON.stringify(reportedVersion.slice(0, 120))}. Supported: ${verifiedCodexVersions.join(', ')}.`,
     )
   // Strict preflight and the terminal use the identical generated policy overrides.
   const args = [

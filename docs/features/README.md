@@ -88,6 +88,8 @@ Tasks from user feedback. Numbers preserve the reported order.
 
 - [ ] <a id="task-56"></a> **56. Local editing — Add a local brush mask with exposure and tonal controls.** Let users paint and refine a feathered brush mask, then adjust exposure and tone within it, following the [local-adjustment contracts](local-adjustments.md). **Done:** a tree trunk can emerge gently from its surroundings without a visible halo at Fit and 100%. Masks and local settings share manual controls and the photo API/MCP, participate in photo-wide Undo/Redo, survive restart and appear consistently in preview and frozen SDR/HDR exports.
 
+- [ ] <a id="task-57"></a> **57. Console/MCP — Add an HDR-aware preview directly in the assistant.** Assistant photo previews and output-proof images currently expose SDR renditions, so they cannot establish true HDR luminance when assessing bright window highlights and room shadows. Until supported, direct HDR assessment to **Custom export → Output preview** and offer lighting adjustments using the SDR preview with its limitation stated. Extend the [Console preview](agent-console.md), [HDR analysis](hdr-analysis.md) and [output-proof](output-proof.md) contracts. **Done:** the assistant receives an HDR-aware preview with available luminance/headroom data tied to the photo's edit revision and output target. Clearly identify SDR visualizations, unavailable measurements and unsupported HDR clients/displays; do not infer physical luminance from an SDR image. Preserve bounded resources, frozen request targets and shared edit history.
+
 ## Professional-editing follow-up tasks
 
 **Split from the former two-goal milestone at the user's request, 2026-11-01.**
