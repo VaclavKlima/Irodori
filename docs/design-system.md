@@ -186,6 +186,12 @@ Preview output / Update preview actions stay below the canvas. At 1100 × 700 wi
 Console open, all footer actions remain visible. The mounted Editor retains its
 own view and suspends through the existing presentation owner.
 
+The settings column places Output sharpening after Size, using a native select
+with Off, Low, Standard and High. Its help directs final-detail review to 100%.
+The proof caption names the sharpening already baked into the displayed JPEG;
+changing the draft keeps that caption until Update preview replaces the image.
+The setting belongs to export rather than the saved Detail inspector controls.
+
 Shared [controls](../src/renderer/src/components/ui/Controls.tsx) provide `Button`,
 `IconButton`, `Tabs` and mounted `TabPanel`. Native buttons with specialized
 collection/menu semantics use the same global rules and semantic tokens.

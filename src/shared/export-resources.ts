@@ -210,6 +210,8 @@ export interface ExportRenderLayout {
   readonly authoredHdr?: boolean
   readonly creative: boolean
   readonly curves?: boolean
+  /** Active output filtering needs linear renditions even at unchanged dimensions. */
+  readonly outputSharpening?: boolean
   /** Distinct original/filtered backing allocations, already retained before output allocation. */
   readonly inputBytes: number
 }
@@ -220,12 +222,14 @@ export function exportRenderMemoryPlan(layout: ExportRenderLayout, admission: Ex
   if (
     [layout.hdr, layout.sourceHdr, layout.gpuAllowed, layout.creative].some(
       (v) => typeof v !== 'boolean',
-    )
+    ) ||
+    (layout.outputSharpening !== undefined && typeof layout.outputSharpening !== 'boolean')
   )
     throw new Error('Invalid export rendering domain.')
   const inputs = bytes(layout.inputBytes),
     channels = layout.hdr ? 6 : 3,
     original = layout.width === layout.outWidth && layout.height === layout.outHeight,
+    packed = original && !layout.outputSharpening,
     capacity = layout.width * 64,
     outputs = bytes(count * (layout.hdr ? 11 : 3)),
     retainedBytes = bytes(inputs + outputs),
@@ -253,9 +257,9 @@ export function exportRenderMemoryPlan(layout: ExportRenderLayout, admission: Ex
     gpuBuffers = exportGpuAllocation(
       capacity,
       layout.hdr,
-      original,
+      packed,
       layout.creative,
-      original && layout.hdr && !layout.authoredHdr ? count : 0,
+      packed && layout.hdr && !layout.authoredHdr ? count : 0,
       availableVram,
       layout.authoredHdr === true,
       layout.curves === true,

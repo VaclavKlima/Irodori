@@ -14,6 +14,7 @@ import {
 } from '../../../shared/export'
 import { AdjustmentInput } from './AdjustmentInput'
 import { OutputProof } from './OutputProof'
+import { outputSharpeningLabels } from '../../../shared/output-sharpening'
 import type { DisplayTarget } from '../../../shared/hdr'
 import type { EditorPreviewPolicy } from '../../../shared/editor-preview-policy'
 import styles from './ExportDialog.module.css'
@@ -236,7 +237,7 @@ export function ExportDialog({
                   onClick={() => setCustom(true)}
                 >
                   <strong>Custom…</strong>
-                  <span>Output, size, names and metadata</span>
+                  <span>Output, size, sharpening, names and metadata</span>
                 </Button>
               </div>
               <p>
@@ -391,6 +392,27 @@ export function ExportDialog({
                 Aspect ratio is preserved. Resizing uses Lanczos3. Both HDR renditions use identical
                 dimensions.
               </p>
+              <label>
+                Output sharpening
+                <select
+                  value={options.outputSharpening ?? 'off'}
+                  disabled={busy}
+                  aria-describedby="export-sharpening-help"
+                  onChange={(event) =>
+                    setOptions((o) => ({
+                      ...o,
+                      outputSharpening: event.target.value as ExportOptions['outputSharpening'],
+                    }))
+                  }
+                >
+                  {Object.entries(outputSharpeningLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p id="export-sharpening-help">Adds crispness at the exported size. Check at 100%.</p>
               <label>
                 Names
                 <select

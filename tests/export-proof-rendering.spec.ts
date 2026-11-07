@@ -77,13 +77,21 @@ async function compare(
         cropPolicy: proof.pipeline.crop,
         detailPolicy: proof.pipeline.detail,
         resizePolicy: proof.pipeline.resize,
+        outputSharpeningPolicy: proof.pipeline.outputSharpening,
         cropAdmission: admission,
         detailAdmission: admission,
         resizeAdmission: admission,
+        outputSharpeningAdmission: admission,
       },
       new AbortController().signal,
     )
     expect(result.diagnostics?.renderer).toBe('gpu')
+    if (options.outputSharpening && options.outputSharpening !== 'off')
+      expect(result.diagnostics?.outputSharpening).toMatchObject({
+        mode: options.outputSharpening,
+        width: proof.width,
+        height: proof.height,
+      })
     test.info().annotations.push({
       type: 'adapter',
       description:
@@ -260,6 +268,78 @@ test('existing v4 merge fixture follows the same proof/export stages', async ({}
       },
       info.outputPath('merge'),
     )
+  } finally {
+    await merge.close()
+  }
+})
+
+test('active output sharpening agrees across authored HDR, bounded Sony RAW and v4 merge proofs', async ({}, info) => {
+  test.setTimeout(240000)
+  const directory = info.outputPath('active-source-domains')
+  await mkdir(directory, { recursive: true })
+  const { defaultExportOptions } = await import('../src/shared/export'),
+    authoredInput = await hdrJpegFixture(directory, 6),
+    authored = await sourceFor(authoredInput.path),
+    rawPath = resolve('tests/fixtures/sony-zv1.ARW'),
+    rawHash = sha(await readFile(rawPath)),
+    raw = await sourceFor(rawPath, true),
+    options: ExportOptions = {
+      ...defaultExportOptions,
+      output: 'hdr',
+      outputSharpening: 'standard',
+      quality: 100,
+      metadata: 'none',
+      size: { mode: 'longest', edge: 201 },
+    }
+  authored.photo.width = authoredInput.height
+  authored.photo.height = authoredInput.width
+  authored.processing.adjustments = neutralAdjustments
+  await compare(authored, options, directory, true)
+  expect(await readFile(authoredInput.path)).toEqual(authoredInput.bytes)
+  raw.processing.crop = { ...identityCrop, width: 0.04, height: 0.04 }
+  await compare(raw, options, directory, true)
+  expect(sha(await readFile(rawPath))).toBe(rawHash)
+
+  const merge = await syntheticMerge([0.5, 1, 2], { width: 160, height: 96 })
+  try {
+    const path = join(merge.output, 'linear.f32'),
+      bytes = await readFile(path),
+      asset = merge.result.asset,
+      source: ExportSource = {
+        ...raw,
+        path,
+        identity: identity(await lstat(path)),
+        photo: {
+          ...raw.photo,
+          id: asset.sha256,
+          filename: 'Merge.irodori',
+          assetKind: 'derived',
+          width: asset.width,
+          height: asset.height,
+        },
+        processing: {
+          metadata: {
+            ...raw.processing.metadata,
+            mergeMaster: { asset, recipe: merge.result.recipe },
+          },
+          processing: 'hdr-v1',
+          settings: automaticLensSettings,
+          adjustments: neutralAdjustments,
+          revision: 3,
+          workingAsset: { ...asset, path, hdr: asset, transform: srgbTransform },
+        },
+      }
+    await compare(
+      source,
+      {
+        ...options,
+        outputSharpening: 'high',
+        size: { mode: 'longest', edge: 200, allowEnlargement: true, method: 'lanczos3' },
+      },
+      directory,
+      true,
+    )
+    expect(await readFile(path)).toEqual(bytes)
   } finally {
     await merge.close()
   }

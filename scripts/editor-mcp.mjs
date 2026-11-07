@@ -59,46 +59,55 @@ const gradingTone = schema(
   },
   [],
 )
-const exportOptionsSchema = schema({
-  version: { const: 1 },
-  output: { enum: ['auto', 'sdr', 'hdr'] },
-  quality: { type: 'integer', minimum: 1, maximum: 100 },
-  size: {
-    oneOf: [
-      schema({ mode: { const: 'original' } }),
-      schema(
-        {
-          mode: { const: 'longest' },
-          edge: { type: 'integer', minimum: 1, maximum: 32768 },
-          allowEnlargement: { type: 'boolean', default: false },
-          method: { const: 'lanczos3', default: 'lanczos3' },
-        },
-        ['mode', 'edge'],
-      ),
-      schema(
-        {
-          mode: { const: 'fit' },
-          width: { type: 'integer', minimum: 1, maximum: 32768 },
-          height: { type: 'integer', minimum: 1, maximum: 32768 },
-          allowEnlargement: { type: 'boolean', default: false },
-          method: { const: 'lanczos3', default: 'lanczos3' },
-        },
-        ['mode', 'width', 'height'],
-      ),
-    ],
+const exportOptionsSchema = schema(
+  {
+    version: { const: 1 },
+    output: { enum: ['auto', 'sdr', 'hdr'] },
+    quality: { type: 'integer', minimum: 1, maximum: 100 },
+    size: {
+      oneOf: [
+        schema({ mode: { const: 'original' } }),
+        schema(
+          {
+            mode: { const: 'longest' },
+            edge: { type: 'integer', minimum: 1, maximum: 32768 },
+            allowEnlargement: { type: 'boolean', default: false },
+            method: { const: 'lanczos3', default: 'lanczos3' },
+          },
+          ['mode', 'edge'],
+        ),
+        schema(
+          {
+            mode: { const: 'fit' },
+            width: { type: 'integer', minimum: 1, maximum: 32768 },
+            height: { type: 'integer', minimum: 1, maximum: 32768 },
+            allowEnlargement: { type: 'boolean', default: false },
+            method: { const: 'lanczos3', default: 'lanczos3' },
+          },
+          ['mode', 'width', 'height'],
+        ),
+      ],
+    },
+    names: {
+      oneOf: [
+        schema({ mode: { const: 'original' }, suffix: { type: 'string', maxLength: 100 } }),
+        schema({
+          mode: { const: 'sequence' },
+          prefix: { type: 'string', minLength: 1, maxLength: 100 },
+        }),
+      ],
+    },
+    metadata: { enum: ['camera-copyright', 'copyright', 'none'] },
+    existing: { enum: ['rename', 'skip'] },
+    outputSharpening: {
+      enum: ['off', 'low', 'standard', 'high'],
+      default: 'off',
+      description:
+        'Export-only sharpening at final output size. Standard is the suggested starting point when sharpening is requested without a strength. Does not change saved detail sharpening.',
+    },
   },
-  names: {
-    oneOf: [
-      schema({ mode: { const: 'original' }, suffix: { type: 'string', maxLength: 100 } }),
-      schema({
-        mode: { const: 'sequence' },
-        prefix: { type: 'string', minLength: 1, maxLength: 100 },
-      }),
-    ],
-  },
-  metadata: { enum: ['camera-copyright', 'copyright', 'none'] },
-  existing: { enum: ['rename', 'skip'] },
-})
+  ['version', 'output', 'quality', 'size', 'names', 'metadata', 'existing'],
+)
 let tools = [
   {
     name: 'irodori_get_editor_context',
@@ -115,7 +124,7 @@ let tools = [
   {
     name: 'irodori_get_output_proof',
     description:
-      'Encode and decode one frozen export target using the shared Output preview service. No destination, history or preference writes. Returns actual output dimensions and JPEG quality plus an SDR overview of the decoded JPEG primary, at most 1024 pixels and 1 MiB. Full-resolution and HDR inspection belong to Custom export Output preview. Prepare export first; provide a distinct UUID proofToken.',
+      'Encode and decode one frozen export target using the shared Output preview service, including export-only outputSharpening. No destination, history or preference writes. Returns actual output dimensions, JPEG quality, effective output sharpening and pipeline versions plus an SDR overview of the decoded JPEG primary, at most 1024 pixels and 1 MiB. This overview cannot establish native sharpness, halos, noise or HDR appearance; inspect those in Custom export Output preview at 100%. Prepare export first; provide a distinct UUID proofToken.',
     inputSchema: schema({
       preparationId: { type: 'string' },
       photoId,
@@ -188,7 +197,7 @@ let tools = [
   {
     name: 'irodori_get_export_capabilities',
     description:
-      'Read JPEG export capabilities, pinned codec and rendering versions. HDR export is independent of the current monitor.',
+      'Read JPEG export capabilities, supported output-sharpening strengths and default, and pinned operator, codec and rendering versions. HDR export is independent of the current monitor.',
     inputSchema: schema({}),
   },
   {
@@ -211,7 +220,7 @@ let tools = [
   {
     name: 'irodori_start_export',
     description:
-      'Revalidate a preparation and authorized destination, atomically accept immutable JPEG output settings and source leases, and enqueue a background task. Quick presets use Auto output. Explicit HDR rejects unsupported sources. Custom options require version, output, quality, size, names, metadata and existing fields; the same application validator serves UI and MCP. No arbitrary write paths or replacement are allowed.',
+      'Revalidate a preparation and authorized destination, atomically accept immutable JPEG output settings and source leases, and enqueue a background task. Custom outputSharpening selects off, low, standard or high at the final output size without changing photo edits; omitted means off. Quick presets use Auto output and sharpening off. Explicit HDR rejects unsupported sources. Custom options require version, output, quality, size, names, metadata and existing fields; the same application validator serves UI and MCP. No arbitrary write paths or replacement are allowed.',
     inputSchema: schema({
       exportRequest: schema(
         {
@@ -227,7 +236,7 @@ let tools = [
   {
     name: 'irodori_get_export_results',
     description:
-      'Read retained per-file export results in frozen selection order, including exported, skipped, failed and cancelled outcomes.',
+      'Read retained per-file export results in frozen selection order, including exported, skipped, failed and cancelled outcomes, plus the frozen output-sharpening strength and operator version.',
     inputSchema: schema({ taskId: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, [
       'taskId',
     ]),

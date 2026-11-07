@@ -2,6 +2,7 @@ import type { FullPreview, LinearAsset } from './contracts'
 import { validateExportOptions, type ExportOptions } from './export'
 import { SDR_TARGET, type DisplayTarget } from './hdr'
 import { linearHeadroom, type PreviewPreference } from './hdr-display'
+import { outputSharpeningMode, type OutputSharpeningMode } from './output-sharpening'
 
 export const OUTPUT_PROOF_VERSION = 'decoded-jpeg-proof-v1'
 export interface OutputProofRequest {
@@ -21,6 +22,7 @@ export interface OutputProofPipeline {
   crop: { geometry: string; filter: string }
   detail: { stage: string; noiseReduction: string; detailSharpening: string }
   resize: { filter: string }
+  outputSharpening: { filter: string; stage: string }
 }
 export interface OutputProof {
   readonly version: typeof OUTPUT_PROOF_VERSION
@@ -31,6 +33,7 @@ export interface OutputProof {
   readonly filename: string
   readonly output: 'sdr' | 'hdr'
   readonly quality: number
+  readonly outputSharpening: OutputSharpeningMode
   readonly width: number
   readonly height: number
   readonly resizeMethod: 'original' | 'lanczos3'
@@ -76,6 +79,7 @@ export function outputProofPixelKey(options: ExportOptions, hdr: boolean): strin
   return JSON.stringify({
     output: options.output === 'sdr' || !hdr ? 'sdr' : 'hdr',
     quality: options.quality,
+    outputSharpening: outputSharpeningMode(options),
     size:
       size.mode === 'original'
         ? { mode: 'original' }

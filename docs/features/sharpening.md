@@ -2,7 +2,7 @@
 
 ## Status
 
-**Public detail controls implemented; output sharpening remains in Goal 2.**
+**Public detail controls implemented; export-only output sharpening has focused Bazzite acceptance.**
 Detail provides Amount 0…100, Radius 0.5…3.0 native source pixels in 0.1 steps and
 Threshold 0…100 through shared numeric/slider inputs. Amount zero bypasses while
 retaining the authored radius and threshold. Settings 11/catalog 21 and the typed
@@ -23,7 +23,8 @@ native keyboard/minimum-size checks on Bazzite; see the
 uses [strict GPU processing](../gpu-processing.md). Broader photographic quality,
 full-size performance and sustained responsiveness remain unfinished.
 [Final-output-size proof](output-proof.md) is available in Custom export and Console.
-Output sharpening remains separate work in [#48](README.md#task-48).
+The [output-sharpening contract](output-sharpening.md) records #48's separate
+export controls, fixed presets, shared Console API and acceptance status.
 [Shared requirements](README.md#shared-implementation-requirements) apply.
 
 ## Goal

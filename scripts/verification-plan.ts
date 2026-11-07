@@ -18,6 +18,7 @@ interface Suite {
 }
 const definitions: Suite[] = [
   { file: 'export-proof-model', group: 'node', scopes: ['adjustments'] },
+  { file: 'export-output-sharpening-gpu', group: 'raw-gpu', scopes: ['library', 'preview'] },
   { file: 'export-proof-service', group: 'service', scopes: ['preview', 'library'] },
   { file: 'export-proof-rendering', group: 'raw-gpu', scopes: ['preview'], exclusive: true },
   { file: 'export-proof-ui', group: 'electron', scopes: ['ui', 'preview'], exclusive: true },

@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { exportCropPolicy } from '../src/main/export/crop-policy'
 import { exportDetailPolicy } from '../src/main/export/detail-policy'
+import { exportOutputSharpeningPolicy } from '../src/main/export/output-sharpening-policy'
 import { identity } from '../src/main/export/files'
 import { ExportJobs, type ExportBoundary } from '../src/main/export/jobs'
 import { prepareExportWorkingSource } from '../src/main/export/preparation'
@@ -83,6 +84,65 @@ const wait = async (t: Awaited<ReturnType<typeof exportFixture>>, id: string) =>
     .toBeTruthy()
   return t.library.listTasks().find((j) => j.id === id)!
 }
+
+test('output sharpening freezes original-size admission and settings, persists Custom and reports accepted policy', async () => {
+  const t = await exportFixture()
+  const jobs: ExportRenderJob[] = []
+  let admissions = 0
+  try {
+    await controlled(
+      t,
+      async (job) => {
+        jobs.push(structuredClone(job))
+        return fakeRender(job)
+      },
+      undefined,
+      {
+        hdr: false,
+        cropAdmission: async () => {
+          admissions++
+          return cropAdmission()
+        },
+      },
+    )
+    const grant = await t.library.exports.store.authorize(t.destination)
+    const history = await t.library.getEditHistory(t.photos[0].id)
+    const preparation = await t.library.prepareExport([t.photos[0].id])
+    const options = { ...defaultExportOptions, outputSharpening: 'standard' as const }
+    const id = await t.library.startExport({
+      preparationId: preparation.id,
+      destinationId: grant.id,
+      action: 'custom',
+      options,
+    })
+    Object.assign(options, { outputSharpening: 'high' })
+    expect((await wait(t, id)).export).toMatchObject({ exported: 1, failed: 0 })
+    expect(admissions).toBe(1)
+    expect(jobs[0].options.outputSharpening).toBe('standard')
+    expect(jobs[0].outputSharpeningPolicy).toEqual(exportOutputSharpeningPolicy)
+    expect(jobs[0].outputSharpeningAdmission).toEqual(cropAdmission())
+    expect((await t.library.getExportPreferences()).lastCustom?.outputSharpening).toBe('standard')
+    expect(t.library.exports.results(id)).toMatchObject({
+      outputSharpening: 'standard',
+      outputSharpeningVersion: exportOutputSharpeningPolicy.filter,
+    })
+    for (const action of ['last-custom', 'high'] as const) {
+      const prepared = await t.library.prepareExport([t.photos[0].id])
+      const next = await t.library.startExport({
+        preparationId: prepared.id,
+        destinationId: grant.id,
+        action,
+      })
+      expect((await wait(t, next)).export).toMatchObject({ exported: 1, failed: 0 })
+    }
+    expect(jobs.map((job) => job.options.outputSharpening)).toEqual(['standard', 'standard', 'off'])
+    expect(jobs[2].outputSharpeningAdmission).toBeUndefined()
+    expect((await t.library.getExportPreferences()).lastCustom?.outputSharpening).toBe('standard')
+    expect(await t.library.getEditHistory(t.photos[0].id)).toEqual(history)
+  } finally {
+    await t.close()
+  }
+})
 
 test('export preparation and acceptance flush only copied target IDs through the shared application API', async () => {
   const t = await exportFixture()
@@ -463,7 +523,15 @@ test('restart reconciles a linked publication by inode and hash, cleans only own
     await mkdir(scratch, { recursive: true })
     await writeFile(join(scratch, 'source.json'), '{"version":1}')
     await writeFile(join(scratch, 'linear.f32'), 'interrupted preparation')
+    const legacy = t.library.exports.store.jobs().find((job) => job.manifest.id === id)!.manifest
+    delete legacy.options.outputSharpening
+    delete legacy.pipeline.outputSharpening
+    t.db.prepare('UPDATE export_jobs SET manifest = ? WHERE id = ?').run(JSON.stringify(legacy), id)
     await t.library.exports.recover()
+    expect(t.library.exports.results(id)).toMatchObject({
+      outputSharpening: 'off',
+      outputSharpeningVersion: null,
+    })
     expect(t.library.exports.results(id).results.map((f) => f.status)).toEqual([
       'exported',
       'failed',
@@ -496,6 +564,14 @@ test('current export schema initialization is transactional, rejects unknown pre
     const before = store.preferences()
     store.initialize()
     expect(store.preferences()).toEqual(before)
+    const legacy = { ...defaultExportOptions }
+    delete legacy.outputSharpening
+    const encoded = JSON.stringify({ ...before, lastCustom: legacy })
+    db.prepare('UPDATE export_preferences SET data = ?').run(encoded)
+    expect(store.preferences().lastCustom?.outputSharpening).toBe('off')
+    store.initialize()
+    expect(store.preferences().lastCustom?.outputSharpening).toBe('off')
+    expect(db.prepare('SELECT data FROM export_preferences').get()).toEqual({ data: encoded })
     db.prepare('UPDATE export_preferences SET data = ?').run('{"version":2}')
     expect(() => store.initialize()).toThrow('newer Irodori')
   } finally {

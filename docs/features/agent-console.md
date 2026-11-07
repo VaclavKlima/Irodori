@@ -236,6 +236,39 @@ gate, including foreign preparations, outside targets and ended requests. A live
 signed-in Console client was not exercised. Restart Irodori and Resume/New Console
 to load the updated tool registration in an existing session.
 
+## Export-only output sharpening
+
+The Console uses the same output-sharpening controls as Custom export:
+`off`, `low`, `standard` and `high`. `irodori_get_export_capabilities` reports
+the available modes, default Off, operator version and processing stage. If the
+user requests output sharpening without specifying a strength, the assistant
+starts with Standard. An omitted setting preserves Off, including older requests.
+Output sharpening changes no saved detail controls or photo history.
+
+The assistant reads export preferences, prepares the frozen request targets and
+passes `outputSharpening` in the full Custom export/proof options. A proof needs
+no destination or preference write. The subsequent export uses the same explicit
+strength and pixel options, together with an existing application-authorized
+destination. Quick export presets keep sharpening Off; accepted Custom exports
+retain the choice in Last custom.
+
+Proof metadata identifies the effective strength and frozen output-sharpening
+policy. Retained export results expose `outputSharpening` and
+`outputSharpeningVersion`, so the assistant can confirm what was accepted and
+report per-file success or failure. Frozen request IDs, target revisions,
+preparation ownership and task ownership retain their existing checks; this adds
+no tools, filesystem access or permissions.
+
+The assistant still receives only a bounded SDR overview. It can apply a
+supported strength and report tool evidence, but that overview does not establish
+native sharpness, halos, noise or HDR appearance. Those judgments belong to
+Custom export's Output preview at 100%. The `export-proof-mcp` target exercises
+managed and standalone discovery, proof settings, export/result readback,
+legacy omission, invalid modes and existing authorization fences with isolated
+service renderers; GPU pixels are covered by the separate output-sharpening
+rendering checks. A live signed-in model conversation requires its own acceptance.
+Restart Irodori and Resume/New Console to refresh existing tool registration.
+
 ## Codex version compatibility — November 7, 2026
 
 The installed Codex 0.167.0 passes the existing strict configuration preflight

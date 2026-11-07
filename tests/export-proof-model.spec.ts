@@ -27,6 +27,9 @@ test('proof pixel identity ignores destination-independent naming/metadata and c
   expect(outputProofPixelKey({ ...options, output: 'hdr' }, true)).toBe(key)
   expect(outputProofPixelKey({ ...options, output: 'sdr' }, true)).not.toBe(key)
   expect(outputProofPixelKey({ ...options, quality: 80 }, true)).not.toBe(key)
+  for (const outputSharpening of ['low', 'standard', 'high'] as const)
+    expect(outputProofPixelKey({ ...options, outputSharpening }, true)).not.toBe(key)
+  expect(outputProofPixelKey({ ...options, outputSharpening: undefined }, true)).toBe(key)
   const sized: ExportOptions = { ...options, size: { mode: 'longest', edge: 100 } }
   expect(outputProofPixelKey(sized, true)).toBe(
     outputProofPixelKey(

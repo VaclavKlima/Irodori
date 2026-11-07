@@ -15,7 +15,7 @@ export async function resizeLinearGpu(
   outWidth: number,
   outHeight: number,
   channels: 3 | 6,
-  row: (data: Float32Array, y: number) => void,
+  row: (data: Float32Array, y: number) => void | Promise<void>,
   admission: ExportAdmission,
   signal = new AbortController().signal,
 ) {

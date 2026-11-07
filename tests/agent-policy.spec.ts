@@ -3,6 +3,7 @@ import { AgentRequestGate } from '../src/main/agent/request-gate'
 import type { EditorContextSnapshot } from '../src/shared/agent'
 import { COLLECTION_CHUNK_SIZE } from '../src/shared/contracts'
 import { agentSignInUrl, latestAgentSignInUrl } from '../src/main/agent/sign-in-links'
+import { agentInstructions, agentTools } from '../src/main/agent/policy'
 
 const a = 'a'.repeat(64),
   b = 'b'.repeat(64),
@@ -12,6 +13,32 @@ const snapshot = (): EditorContextSnapshot => ({
   activePhotoId: a,
   selectedIds: [a],
   transient: { crop: false, saving: false },
+})
+
+test('managed assistant routes requested export sharpening through existing tools and keeps native evidence limits', () => {
+  const instructions = agentInstructions(false)
+  expect(agentTools).toEqual(
+    expect.arrayContaining([
+      'irodori_get_export_capabilities',
+      'irodori_get_export_preferences',
+      'irodori_prepare_export',
+      'irodori_get_output_proof',
+      'irodori_start_export',
+      'irodori_get_export_results',
+    ]),
+  )
+  expect(instructions).toContain('use Standard as the starting point')
+  expect(instructions).toContain('absent sharpening remains Off')
+  expect(instructions).toContain('must not change detailSharpening or other photo edits')
+  expect(instructions).toContain(
+    'same explicit strength and other pixel options between proof and export',
+  )
+  expect(instructions).toContain('effective strength and operator version')
+  expect(instructions).toContain(
+    'cannot establish native sharpness, halos, noise or true HDR appearance',
+  )
+  expect(instructions).toContain("Custom export's Output preview at 100%")
+  expect(instructions).toContain('existing application destination and authorization')
 })
 
 test('sign-in opens the exact OSC hyperlink and rejects reconstructed, duplicated and unrelated URLs', () => {

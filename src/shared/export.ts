@@ -1,7 +1,12 @@
 import { MAX_FRAME_BYTES } from './preview-frame'
+import {
+  outputSharpeningMode,
+  type OutputSharpeningMode,
+  outputSharpeningCapabilities,
+} from './output-sharpening'
 
 export const EXPORT_VERSION = 1 as const
-export const EXPORT_RENDERING_VERSION = 'jpeg-linear-lanczos3-v6-gpu-resize'
+export const EXPORT_RENDERING_VERSION = 'jpeg-linear-lanczos3-v7-output-sharpening'
 export const EXPORT_CODEC_VERSION = 'libultrahdr-2.0.2-iso-native-v1'
 export const EXPORT_RESIZE_VERSION = 'linear-lanczos3-pixel-centers-replicate-gpu-v2'
 export const EXPORT_MAX_DIMENSION = 32768
@@ -31,6 +36,7 @@ export interface ExportOptions {
   names: { mode: 'original'; suffix: string } | { mode: 'sequence'; prefix: string }
   metadata: 'camera-copyright' | 'copyright' | 'none'
   existing: 'rename' | 'skip'
+  outputSharpening?: OutputSharpeningMode
 }
 export const defaultExportOptions: ExportOptions = {
   version: EXPORT_VERSION,
@@ -40,6 +46,7 @@ export const defaultExportOptions: ExportOptions = {
   names: { mode: 'original', suffix: '' },
   metadata: 'camera-copyright',
   existing: 'rename',
+  outputSharpening: 'off',
 }
 export const exportPresets = [
   { id: 'maximum', label: 'Maximum quality', quality: 100 },
@@ -63,6 +70,7 @@ export interface ExportCapabilities {
   codec: typeof EXPORT_CODEC_VERSION
   rendering: typeof EXPORT_RENDERING_VERSION
   resize: typeof exportResizeCapabilities
+  outputSharpening: typeof outputSharpeningCapabilities
   hdrAvailable: boolean
   hdrUnavailableReason?: string
 }
@@ -105,6 +113,13 @@ export interface ExportResult {
   message?: string
 }
 
+export interface ExportResults {
+  results: ExportResult[]
+  total: number
+  outputSharpening: OutputSharpeningMode
+  outputSharpeningVersion: string | null
+}
+
 function keys(value: unknown, allowed: string[]): asserts value is Record<string, unknown> {
   if (
     !value ||
@@ -127,7 +142,16 @@ function namePart(value: unknown, empty: boolean): value is string {
   )
 }
 export function validateExportOptions(value: unknown): ExportOptions {
-  keys(value, ['version', 'output', 'quality', 'size', 'names', 'metadata', 'existing'])
+  keys(value, [
+    'version',
+    'output',
+    'quality',
+    'size',
+    'names',
+    'metadata',
+    'existing',
+    'outputSharpening',
+  ])
   if (
     value.version !== 1 ||
     !['auto', 'sdr', 'hdr'].includes(String(value.output)) ||
@@ -149,7 +173,8 @@ export function validateExportOptions(value: unknown): ExportOptions {
     if (!namePart(value.names.prefix, false))
       throw new Error('Use a filename prefix without path separators or reserved characters.')
   } else throw new Error('Invalid export naming.')
-  return structuredClone(value) as unknown as ExportOptions
+  const options = structuredClone(value) as unknown as ExportOptions
+  return { ...options, outputSharpening: outputSharpeningMode(options) }
 }
 function validateSize(size: unknown): asserts size is ExportOptions['size'] {
   keys(size, ['mode', 'edge', 'width', 'height', 'allowEnlargement', 'method'])

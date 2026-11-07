@@ -13,6 +13,7 @@ import {
 } from '../src/shared/export-resources'
 import { detailFrameJob } from './detail-frame.helpers'
 import { compileResizeGpu } from '../src/shared/export-resize-gpu'
+import { outputSharpeningMemoryPlan } from '../src/main/export/output-sharpening'
 
 const admission = () => structuredClone(detailFrameJob().admission!)
 const layout = {
@@ -113,6 +114,41 @@ test('SDR encoding may fit after rendering retires even when concurrent encoding
     exportSdrEncodePlan(layout.width, layout.height, { ...concurrent, policy: a.policy }).accepted,
   ).toBe(false)
   expect(sdr.outputLimitBytes).toBeLessThanOrEqual(256 * 1024 ** 2)
+})
+
+test('native output sharpening uses linear renditions and a separately admitted bounded GPU phase', () => {
+  const a = admission(),
+    ordinary = exportRenderMemoryPlan(layout, a),
+    active = exportRenderMemoryPlan({ ...layout, outputSharpening: true }, a),
+    filter = outputSharpeningMemoryPlan(layout.width, layout.height, 6, a, active.retainedBytes)
+  expect(ordinary.gpuBuffers.deferredBytes).toBeGreaterThan(0)
+  expect(active.gpuBuffers.deferredBytes).toBe(0)
+  expect(active.gpuBuffers.stride).toBe(6)
+  expect(active.resizeBytes).toBe(0)
+  expect(filter.memory.ramBytes).toBeGreaterThan(active.retainedBytes)
+  expect(filter.memory.vramBytes).toBeGreaterThan(0)
+  const tight = admission()
+  Object.assign(tight.policy.vram, {
+    effectiveBytes: tight.reservation.vramBytes + filter.memory.vramBytes - 1,
+  })
+  expect(() =>
+    outputSharpeningMemoryPlan(layout.width, layout.height, 6, tight, active.retainedBytes),
+  ).toThrow('Output sharpening exceeds')
+  Object.assign(tight.policy.vram, {
+    effectiveBytes: tight.reservation.vramBytes + filter.memory.vramBytes,
+  })
+  Object.assign(tight.policy.ram, {
+    effectiveBytes: tight.reservation.ramBytes + filter.memory.ramBytes - 1,
+  })
+  expect(() =>
+    outputSharpeningMemoryPlan(layout.width, layout.height, 6, tight, active.retainedBytes),
+  ).toThrow('Output sharpening exceeds')
+  Object.assign(tight.policy.ram, {
+    effectiveBytes: tight.reservation.ramBytes + filter.memory.ramBytes,
+  })
+  expect(
+    outputSharpeningMemoryPlan(layout.width, layout.height, 6, tight, active.retainedBytes).memory,
+  ).toEqual(filter.memory)
 })
 
 test('GPU resize reserves a separate phase and refuses either frozen memory budget before allocation', () => {

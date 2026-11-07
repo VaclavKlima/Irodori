@@ -78,10 +78,6 @@ export function DetailControls({
           )
         })}
       </InspectorSection>
-      <button type="button" className={inspectorStyles.fullButton} disabled>
-        Output sharpening
-      </button>
-      <p className={inspectorStyles.hint}>Planned tool</p>
     </>
   )
 }

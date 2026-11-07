@@ -9,7 +9,7 @@ It requires no destination and changes neither photo history nor Last custom.
 ## Interaction
 
 Choose **Preview output** to generate the first proof. Pixel-affecting changes
-(effective SDR/HDR output, quality or size) cancel obsolete work, retain the
+(effective SDR/HDR output, quality, size or output sharpening) cancel obsolete work, retain the
 previous image with **Preview out of date**, and require **Update preview**.
 Names, metadata, collision handling and destination do not invalidate pixels.
 Export remains available with valid settings, including without a proof.
@@ -20,6 +20,9 @@ one CSS pixel, independent of device density. The shared geometry, wheel and pan
 controllers support pointer anchoring, middle/primary drag, Ctrl-wheel, ordinary
 wheel panning, a native zoom select and keyboard F/0 (Fit), 1 (100%), +/− and arrow
 panning (Shift for larger steps). These keys stay inside the focused proof region.
+
+The caption also reports the [output-sharpening strength](output-sharpening.md)
+baked into the displayed JPEG. A stale proof retains its own strength caption.
 
 Previous/Next traverse the frozen export set without changing library selection.
 The initial proof photograph is the Editor active or Library focused target when

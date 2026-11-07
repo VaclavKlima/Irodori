@@ -1,4 +1,4 @@
-import { open } from 'node:fs/promises'
+import { open, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import sharp from 'sharp'
 import { neutralAdjustments, srgbTransform } from '../../shared/adjustments'
@@ -7,6 +7,7 @@ import { preparedToneCurves } from '../../shared/tone-curves'
 import { CROP_GEOMETRY_VERSION, cropGeometry, identityCrop } from '../../shared/crop'
 import { CROP_FILTER_VERSION } from '../../shared/crop-filter'
 import { exportGeometry } from '../../shared/export'
+import { outputSharpeningMode } from '../../shared/output-sharpening'
 import {
   exportInputMemoryPlan,
   exportRenderMemoryPlan,
@@ -36,6 +37,8 @@ import {
 import { createExportGpu } from './gpu'
 import { resizeLinearGpu } from './resize'
 import { exportResizePolicy, validateExportResizePolicy } from './resize-policy'
+import { outputSharpeningMemoryPlan, sharpenOutputRenditions } from './output-sharpening'
+import { validateExportOutputSharpeningPolicy } from './output-sharpening-policy'
 import type {
   ExportCropDiagnostics,
   ExportDetailDiagnostics,
@@ -66,7 +69,7 @@ async function* exportStrips(path: string, asset: HdrWorkingAsset) {
   }
 }
 
-/** Native-size exports stream directly to encoder buffers; only actual resizes use a float file. */
+/** Neutral native-size output stays packed; resize/output filtering uses bounded linear scratch. */
 export async function exportRenditions(
   job: ExportRenderJob,
   makeGpu = createExportGpu,
@@ -80,15 +83,19 @@ export async function exportRenditions(
   validateExportCropPolicy(job)
   validateExportDetailPolicy(job)
   validateExportResizePolicy(job)
+  validateExportOutputSharpeningPolicy(job)
   const started = performance.now()
   const mode = process.env.IRODORI_EXPORT_BACKEND ?? 'auto'
   if (!['auto', 'gpu'].includes(mode)) throw new Error('Invalid export renderer backend.')
   if (job.hdr && !job.source.hdr) throw new Error('HDR export requires a supported HDR source.')
-  const a = job.source.processing.adjustments ?? neutralAdjustments,
+  const outputMode = outputSharpeningMode(job.options),
+    outputSharpening = outputMode !== 'off',
+    a = job.source.processing.adjustments ?? neutralAdjustments,
     detailControls = resolveDetailSettings(job.source.processing),
     cropSettings = structuredClone(job.source.processing.crop ?? identityCrop),
     cropAdmission = job.cropAdmission ? structuredClone(job.cropAdmission) : undefined,
-    admission = job.detailAdmission ?? cropAdmission ?? job.resizeAdmission,
+    admission =
+      job.outputSharpeningAdmission ?? job.detailAdmission ?? cropAdmission ?? job.resizeAdmission,
     uncroppedAsset = job.source.processing.workingAsset?.hdr,
     channels = job.hdr ? 6 : 3
   if (detailControls.active && !job.detailAdmission)
@@ -150,6 +157,7 @@ export async function exportRenditions(
     : undefined
   const geometry = exportGeometry(width, height, job.options.size),
     original = geometry.width === width && geometry.height === height,
+    packed = original && !outputSharpening,
     pixels = geometry.width * geometry.height
   if (!crop.identity && !cropAdmission)
     throw new Error('Crop export requires a frozen resource admission.')
@@ -174,6 +182,7 @@ export async function exportRenditions(
             authoredHdr: Boolean(uncroppedAsset?.source.display),
             creative: creativeColorActive(prepareCreativeColor(a)),
             curves: !preparedToneCurves(a.curves).identity,
+            outputSharpening,
             inputBytes: predictedInputBytes,
           },
           admission,
@@ -188,6 +197,14 @@ export async function exportRenditions(
   if (memory) {
     requireExportAllocation(memory.cpu)
     if (!original) requireExportAllocation(memory.resizeGpu)
+    if (outputSharpening)
+      outputSharpeningMemoryPlan(
+        geometry.width,
+        geometry.height,
+        channels,
+        job.outputSharpeningAdmission!,
+        memory.retainedBytes,
+      )
   }
   // Source filtering/cropping retires before rendition buffers and the converter are allocated.
   const admitted = admission
@@ -286,7 +303,7 @@ export async function exportRenditions(
   const rgb = Buffer.alloc(pixels * 3),
     half = job.hdr ? new Uint16Array(pixels * 4) : undefined
   const linearPath = join(job.directory, 'rendition.f32'),
-    linear = original ? undefined : await open(linearPath, 'wx')
+    linear = packed ? undefined : await open(linearPath, 'wx')
   let contentHeadroom = 1.01
   const quantize = (data: Float32Array, top: number) => {
     for (let i = 0; i < data.length / channels; i++) {
@@ -305,7 +322,7 @@ export async function exportRenditions(
     }
   }
   const accept = async (data: Float32Array<ArrayBuffer>, top: number) => {
-    if (original) quantize(data, top)
+    if (packed) quantize(data, top)
     else {
       const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength)
       let offset = 0
@@ -363,9 +380,9 @@ export async function exportRenditions(
           a,
           asset ? (hdrAdjustmentMatrix(a, asset.whiteBalance) ?? undefined) : undefined,
           job.hdr,
-          original,
+          packed,
           64,
-          original && job.hdr && !asset?.source.display ? pixels : 0,
+          packed && job.hdr && !asset?.source.display ? pixels : 0,
           memory?.gpuLimitBytes,
           {
             domain: asset ? (asset.source.display ? 'authored-hdr' : 'scene-linear') : 'raster',
@@ -399,7 +416,7 @@ export async function exportRenditions(
           )
           gpuTilesMs += performance.now() - tileStarted
           const packingStarted = performance.now()
-          if (original) {
+          if (packed) {
             const words = new Uint32Array(
               rendered.data.buffer,
               rendered.data.byteOffset,
@@ -503,24 +520,84 @@ export async function exportRenditions(
     NonNullable<ExportDiagnostics['resize']>,
     'renderer' | 'adapter' | 'gpuMemoryBytes' | 'peakCachedRows'
   > = {}
-  if (!original) {
-    const resizeAdmission = job.resizeAdmission!
-    resizeDiagnostics = await resizeLinearGpu(
-      linearPath,
-      width,
-      height,
-      geometry.width,
-      geometry.height,
-      channels,
-      quantize,
-      {
-        policy: resizeAdmission.policy,
-        reservation: {
-          ramBytes: resizeAdmission.reservation.ramBytes + memory!.retainedBytes,
-          vramBytes: resizeAdmission.reservation.vramBytes,
+  const outputPath = join(job.directory, 'output-sharpening.f32')
+  let outputFile: Awaited<ReturnType<typeof open>> | undefined,
+    outputDiagnostics: ExportDiagnostics['outputSharpening'],
+    resizeMs: number,
+    outputSharpeningMs = 0
+  try {
+    if (!original) {
+      if (outputSharpening) outputFile = await open(outputPath, 'wx')
+      const resizeAdmission = job.resizeAdmission!
+      resizeDiagnostics = await resizeLinearGpu(
+        linearPath,
+        width,
+        height,
+        geometry.width,
+        geometry.height,
+        channels,
+        outputFile
+          ? async (data, y) => {
+              const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+              let offset = 0
+              while (offset < bytes.byteLength) {
+                const { bytesWritten } = await outputFile!.write(
+                  bytes,
+                  offset,
+                  bytes.byteLength - offset,
+                  y * geometry.width * channels * 4 + offset,
+                )
+                if (!bytesWritten) throw new Error('Cannot write output sharpening rendition.')
+                offset += bytesWritten
+              }
+            }
+          : quantize,
+        {
+          policy: resizeAdmission.policy,
+          reservation: {
+            ramBytes: resizeAdmission.reservation.ramBytes + memory!.retainedBytes,
+            vramBytes: resizeAdmission.reservation.vramBytes,
+          },
         },
-      },
-    )
+      )
+      await outputFile?.close()
+      outputFile = undefined
+    }
+    resizeMs = performance.now() - resizeStarted
+    if (outputMode !== 'off') {
+      const filterStarted = performance.now()
+      const filtered = await sharpenOutputRenditions(
+        original ? linearPath : outputPath,
+        geometry.width,
+        geometry.height,
+        channels,
+        outputMode,
+        job.outputSharpeningAdmission!,
+        memory!.retainedBytes,
+        (data, top, rendition) => {
+          for (let i = 0; i < data.length / 4; i++) {
+            const dest = top * geometry.width + i
+            for (let c = 0; c < 3; c++) {
+              if (rendition === 'sdr')
+                rgb[dest * 3 + c] = Math.round(
+                  encodeHdr(Math.max(0, Math.min(1, data[i * 4 + c]))) * 255,
+                )
+              else {
+                const value = Math.max(0, Math.min(10, data[i * 4 + c]))
+                contentHeadroom = Math.max(contentHeadroom, value)
+                half![dest * 4 + c] = halfFloat(value)
+              }
+            }
+            if (rendition === 'hdr') half![dest * 4 + 3] = 0x3c00
+          }
+        },
+      )
+      outputDiagnostics = { ...filtered, policy: { ...job.outputSharpeningPolicy! } }
+      outputSharpeningMs = performance.now() - filterStarted
+    }
+  } finally {
+    await outputFile?.close()
+    if (outputSharpening && !original) await rm(outputPath, { force: true })
   }
   return {
     rgb,
@@ -531,6 +608,7 @@ export async function exportRenditions(
     diagnostics: {
       crop: cropDiagnostics,
       detail: detailDiagnostics,
+      outputSharpening: outputDiagnostics,
       resize: original
         ? undefined
         : {
@@ -544,7 +622,8 @@ export async function exportRenditions(
       adapter,
       rendererFallback: undefined,
       renderMs,
-      resizeMs: performance.now() - resizeStarted,
+      resizeMs,
+      outputSharpeningMs,
       gpuInitializeMs,
       gpuTilesMs,
       gpuPackingMs,

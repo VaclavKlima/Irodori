@@ -37,6 +37,7 @@ import type { ExportWorkerProgress, ExportWorkerProgressSnapshot } from '../../s
 import { acceptExportWorkerProgress, exportProgressOwner } from './progress'
 import { isUncropped } from '../../shared/crop'
 import { resolveDetailSettings } from '../processing/detail-identity'
+import { outputSharpeningMode } from '../../shared/output-sharpening'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const active = (task: BackgroundTask) => task.status === 'running' || task.status === 'cancelling'
@@ -357,11 +358,18 @@ export class ExportJobs {
                 const detailActive = resolveDetailSettings(source.processing).active,
                   cropActive = source.processing.crop && !isUncropped(source.processing.crop),
                   resizeActive = manifest.options.size.mode !== 'original',
+                  outputSharpeningActive = outputSharpeningMode(manifest.options) !== 'off',
                   admission =
-                    cropActive || detailActive || resizeActive
+                    cropActive || detailActive || resizeActive || outputSharpeningActive
                       ? await this.requireImageAdmission(
                           signal,
-                          detailActive ? 'Detail' : cropActive ? 'Crop' : 'Resize',
+                          detailActive
+                            ? 'Detail'
+                            : cropActive
+                              ? 'Crop'
+                              : outputSharpeningActive
+                                ? 'Output sharpening'
+                                : 'Resize',
                         )
                       : undefined
                 signal.throwIfAborted()
@@ -382,6 +390,10 @@ export class ExportJobs {
                   cropAdmission: cropActive ? admission : undefined,
                   detailAdmission: detailActive ? admission : undefined,
                   resizeAdmission: resizeActive ? admission : undefined,
+                  outputSharpeningAdmission: outputSharpeningActive ? admission : undefined,
+                  outputSharpeningPolicy: manifest.pipeline.outputSharpening
+                    ? { ...manifest.pipeline.outputSharpening }
+                    : undefined,
                   resizePolicy: manifest.pipeline.resize
                     ? { ...manifest.pipeline.resize }
                     : undefined,
@@ -526,7 +538,10 @@ export class ExportJobs {
       await this.persist(job)
     }
   }
-  private async requireImageAdmission(signal: AbortSignal, stage: 'Crop' | 'Detail' | 'Resize') {
+  private async requireImageAdmission(
+    signal: AbortSignal,
+    stage: 'Crop' | 'Detail' | 'Resize' | 'Output sharpening',
+  ) {
     if (!this.cropAdmission) throw new Error(`${stage} export resource admission is unavailable.`)
     return structuredClone(await this.cropAdmission(signal))
   }
@@ -675,7 +690,10 @@ export class ExportJobs {
     if (!Number.isSafeInteger(offset) || offset < 0 || !this.jobs.has(id))
       throw new Error('Invalid export results request.')
     const { files, total } = this.store.filePage(id, offset, COLLECTION_CHUNK_SIZE)
+    const { manifest } = this.jobs.get(id)!
     return {
+      outputSharpening: outputSharpeningMode(manifest.options),
+      outputSharpeningVersion: manifest.pipeline.outputSharpening?.filter ?? null,
       results: files.map(({ index, photoId, filename, outputName, status, message }) => ({
         index,
         photoId,

@@ -84,6 +84,8 @@ test('explicit decoded JPEG preview preserves source view and preferences, and u
   try {
     const dialog = await openOutputProof(page),
       viewport = page.getByTestId('output-proof-viewport')
+    const sharpening = dialog.getByRole('combobox', { name: 'Output sharpening', exact: true })
+    await expect(sharpening).toHaveValue('off')
     await expect(dialog.getByRole('button', { name: 'Export', exact: true })).toBeEnabled()
     expect((await observer.evaluate((o) => o.read())).calls).toBe(0)
     await expect(viewport.locator('canvas')).toHaveCount(0)
@@ -110,6 +112,7 @@ test('explicit decoded JPEG preview preserves source view and preferences, and u
       throw error
     }
     await expect(viewport).toHaveAttribute('data-fit', 'true')
+    await expect(page.getByTestId('output-proof-metadata')).toContainText('Output sharpening: Off')
     expect(Number(await viewport.getAttribute('data-scale'))).toBeLessThanOrEqual(1)
     const first = await viewport.getAttribute('data-proof-id')
     await page.getByLabel('Output preview zoom', { exact: true }).selectOption('1')
@@ -117,6 +120,11 @@ test('explicit decoded JPEG preview preserves source view and preferences, and u
     await viewport.focus()
     await viewport.press('ArrowRight')
     const center = await viewport.evaluate((e) => Number(e.dataset.x))
+    await sharpening.selectOption('standard')
+    await expect(dialog.getByRole('status')).toHaveText('Preview out of date')
+    await expect(page.getByTestId('output-proof-metadata')).toContainText('Output sharpening: Off')
+    expect(await viewport.getAttribute('data-proof-id')).toBe(first)
+    expect((await observer.evaluate((o) => o.read())).calls).toBe(1)
     const quality = dialog.getByRole('spinbutton', { name: 'JPEG quality value' })
     await quality.fill('61')
     await quality.press('Enter')
@@ -126,6 +134,9 @@ test('explicit decoded JPEG preview preserves source view and preferences, and u
     await activateButton(dialog.getByRole('button', { name: 'Update preview', exact: true }))
     await expect(viewport).not.toHaveAttribute('data-proof-id', first!)
     await expect(viewport).toHaveAttribute('data-ready', 'true')
+    await expect(page.getByTestId('output-proof-metadata')).toContainText(
+      'Output sharpening: Standard',
+    )
     await expect(viewport).toHaveAttribute('data-scale', '1')
     expect(Number(await viewport.getAttribute('data-x'))).toBe(center)
     const updated = await viewport.getAttribute('data-proof-id')

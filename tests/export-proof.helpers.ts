@@ -16,6 +16,7 @@ import { cropAdmission } from './crop-frame.helpers'
 export async function proofFixture(
   overrides: {
     render?: (job: ExportRenderJob, signal: AbortSignal) => Promise<ExportRenderResult>
+    exportRender?: (job: ExportRenderJob, signal: AbortSignal) => Promise<ExportRenderResult>
     decode?: ConstructorParameters<typeof OutputProofs>[7]
     admission?: ConstructorParameters<typeof OutputProofs>[4]
     real?: boolean
@@ -26,23 +27,39 @@ export async function proofFixture(
   await fixture.library.outputProofs.close()
   fixture.library.cropAdmission = async () => cropAdmission()
   const { ExportProcess } = await import('../src/main/export/process')
-  if (overrides.source) {
+  if (overrides.source || overrides.exportRender) {
+    const sources: ExportSource[] = []
+    if (overrides.source) sources.push(overrides.source)
+    else {
+      const preparation = await fixture.library.exports.prepare(fixture.photos.map((p) => p.id))
+      for (const photo of fixture.photos) {
+        const lease = fixture.library.exports.acquireProofSource(preparation.id, photo.id)
+        try {
+          sources.push(lease.source)
+        } finally {
+          lease.release()
+        }
+      }
+      fixture.library.exports.dispose(preparation.id)
+    }
     await fixture.library.exports.close()
-    const source = overrides.source
     fixture.library.exports = new ExportJobs(
       fixture.library.exports.store,
       join(fixture.root, 'library'),
       fixture.library.scheduler,
       async (id) => {
-        if (id !== source.photo.id) throw new Error('Unknown source')
+        const source = sources.find((source) => source.photo.id === id)
+        if (!source) throw new Error('Unknown source')
         return source
       },
       () => true,
       () => {},
-      new ExportProcess(
-        resolve('out/main/export-worker.js'),
-        resolve('out/main/preview-worker.js'),
-      ),
+      overrides.exportRender
+        ? { render: overrides.exportRender }
+        : new ExportProcess(
+            resolve('out/main/export-worker.js'),
+            resolve('out/main/preview-worker.js'),
+          ),
       undefined,
       undefined,
       async () => cropAdmission(),

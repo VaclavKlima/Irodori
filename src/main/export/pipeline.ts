@@ -5,6 +5,7 @@ import { LENS_RENDER_VERSION } from '../processing/lens-correction'
 import { exportCropPolicy } from './crop-policy'
 import { exportDetailPolicy } from './detail-policy'
 import { exportResizePolicy } from './resize-policy'
+import { exportOutputSharpeningPolicy } from './output-sharpening-policy'
 import type { OutputProofPipeline } from '../../shared/export-proof'
 
 export function exportPipeline(): OutputProofPipeline {
@@ -19,5 +20,6 @@ export function exportPipeline(): OutputProofPipeline {
     crop: { ...exportCropPolicy },
     detail: { ...exportDetailPolicy },
     resize: { ...exportResizePolicy },
+    outputSharpening: { ...exportOutputSharpeningPolicy },
   }
 }

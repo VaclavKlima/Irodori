@@ -27,6 +27,15 @@ readable data; keeping them does not keep their retired executors available.
 | Merge review/output conversion              | Existing Dawn streaming converter using shared display math                                                              | One/two bounded slots, original error, drain maps before files/device, exact alpha                                                                 | CPU output conversion and late CPU replay removed. Historical masters stay intact. Retired GPU camera/reference and recorded retired CPU executors report unavailable recomputation; provenance consults the same availability policy. Old incomplete cache/recipe measurements remain a provenance-audit checkpoint.                                                                                                                                                                                            |
 | HDR encoding                                | Native pinned libultrahdr 2.0.2 / libjpeg-turbo 3.1.0; accepted macOS C++ and Linux Rust hosts                           | Immutable mapped inputs, primary identity, full gain geometry, child lifecycle, 2 GiB admission and helper RSS                                     | Backend selected before execution; failed native jobs do not restart WASM encoding. The attempted common Rust host on macOS passed small independent quality cases but failed exact full-size binary16 reconstruction at headrooms 2 and 4. It remains a research bundle, **not a replacement for the accepted Mac C++ host**. Keep that host, native packaging and WASM decode consumers. Common-host acceptance remains open.                                                                                  |
 
+## Output sharpening — November 7, 2026
+
+Export and output proofs share the existing bounded Dawn spatial-detail owner
+as a separately versioned final-resolution stage after resizing and before
+packing/encoding. Enabled SDR and HDR renditions run sequentially with frozen
+resource admission and owned Float32 scratch; Off retains existing paths. Saved
+detail preparation/history remains separate. The [operator and acceptance record](features/output-sharpening.md)
+retains fixed strengths, independent gates and platform/client limits.
+
 ## Shared preview ownership — November 4, 2026
 
 Output proofs (November 7) reuse `ExportProcess` and every selected crop, Detail,

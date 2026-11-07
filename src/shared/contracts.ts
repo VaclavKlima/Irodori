@@ -45,10 +45,7 @@ export interface IrodoriApi extends NativeHdrMaskBridge, AgentApi {
   cancelOutputProof(token: string): Promise<void>
   releaseOutputProof(id: string): Promise<void>
   startExport(request: import('./export').ExportStart): Promise<string>
-  getExportResults(
-    id: string,
-    offset?: number,
-  ): Promise<{ results: import('./export').ExportResult[]; total: number }>
+  getExportResults(id: string, offset?: number): Promise<import('./export').ExportResults>
   showExportFolder(id: string): Promise<void>
   getPhotoActionsContext(
     photoId: string | null,

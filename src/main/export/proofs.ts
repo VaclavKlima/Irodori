@@ -28,6 +28,7 @@ import type { ExportJobs } from './jobs'
 import { ExportProcess } from './process'
 import type { ExportSource } from './types'
 import type { OutputProofDecodeJob, OutputProofDecoded } from './proof-decode'
+import { outputSharpeningMode } from '../../shared/output-sharpening'
 
 interface Asset {
   path: string
@@ -178,6 +179,9 @@ export class OutputProofs {
       releaseDisk = await this.reserveDisk(
         dimensions.width * dimensions.height * 32 +
           estimate.width * estimate.height * 24 +
+          (outputSharpeningMode(request.options) === 'off'
+            ? 0
+            : estimate.width * estimate.height * (hdr ? 24 : 12)) +
           256 * 1024 ** 2,
       )
       await mkdir(join(directory, 'render'), { recursive: true })
@@ -200,9 +204,11 @@ export class OutputProofs {
           cropPolicy: pipeline.crop,
           detailPolicy: pipeline.detail,
           resizePolicy: pipeline.resize,
+          outputSharpeningPolicy: pipeline.outputSharpening,
           cropAdmission: admission,
           detailAdmission: admission,
           resizeAdmission: admission,
+          outputSharpeningAdmission: admission,
         },
         signal,
       )
@@ -309,6 +315,7 @@ export class OutputProofs {
         filename: source.photo.filename,
         output: hdr ? 'hdr' : 'sdr',
         quality: request.options.quality,
+        outputSharpening: outputSharpeningMode(request.options),
         width: decoded.width,
         height: decoded.height,
         resizeMethod: result.diagnostics

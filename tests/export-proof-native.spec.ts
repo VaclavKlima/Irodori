@@ -6,6 +6,62 @@ import { verifyLockedPan, focusPreviewWindow } from './preview-pan.helpers'
 import { hdrJpegFixture } from './hdr-jpeg.helpers'
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { ElectronApplication, Page } from '@playwright/test'
+
+async function minimumNativeProofWindow(app: ElectronApplication, page: Page) {
+  const native = await app.browserWindow(page)
+  await expect
+    .poll(() => native.evaluate((window) => window.isVisible()), {
+      timeout: 15000,
+      intervals: [100],
+    })
+    .toBe(true)
+  let stableSince = 0
+  await expect
+    .poll(
+      async () => {
+        // Wayland can deliver the initial configure after the first resize.
+        // Finish geometry recovery before establishing the native input owner.
+        const state = await native.evaluate((window) => {
+          const size = window.getContentSize(),
+            visible = window.isVisible(),
+            minimized = window.isMinimized(),
+            maximized = window.isMaximized()
+          let recovery = false
+          if (minimized) {
+            window.restore()
+            recovery = true
+          } else if (maximized) {
+            window.unmaximize()
+            recovery = true
+          } else if (visible && (size[0] !== 1100 || size[1] !== 700)) {
+            window.setContentSize(1100, 700)
+            recovery = true
+          }
+          return { size, visible, minimized, maximized, recovery }
+        })
+        const viewport = await page.evaluate(() => [innerWidth, innerHeight])
+        if (
+          state.recovery ||
+          !state.visible ||
+          state.minimized ||
+          state.maximized ||
+          state.size[0] !== 1100 ||
+          state.size[1] !== 700 ||
+          viewport[0] !== 1100 ||
+          viewport[1] !== 700
+        ) {
+          stableSince = 0
+          return false
+        }
+        stableSince ||= performance.now()
+        return performance.now() - stableSince >= 1000
+      },
+      { timeout: 15000, intervals: [100] },
+    )
+    .toBe(true)
+  return native
+}
 
 test(
   'native output proof keyboard, pointer lock and picker choice/Escape/outside dismissal at 1100 × 700 with Console open',
@@ -17,12 +73,7 @@ test(
     const { app, page } = irodori
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'], true, 'keyboard')
-    const native = await app.browserWindow(page)
-    await native.evaluate((window) => {
-      window.unmaximize()
-      window.setContentSize(1100, 700)
-    })
-    await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
+    const native = await minimumNativeProofWindow(app, page)
     const input = await nativeEditorInput(app, page, irodori.userDataDir)
     const refresh = await native.evaluateHandle((window) => {
       const contents = window.webContents as Electron.WebContents & {
@@ -57,6 +108,7 @@ test(
         viewport = page.getByTestId('output-proof-viewport')
       await input.activate(dialog.getByRole('button', { name: 'Preview output', exact: true }))
       await expect(viewport).toHaveAttribute('data-ready', 'true', { timeout: 60000 })
+      await focusPreviewWindow(app, page)
       await input.focus(viewport)
       await input.key('1')
       await expect(viewport).toHaveAttribute('data-scale', '1')
@@ -66,12 +118,28 @@ test(
       await expect(viewport).toHaveAttribute('data-fit', 'true')
       const zoom = page.getByLabel('Output preview zoom', { exact: true })
       const evidence: unknown[] = []
-      for (const dismissal of ['choice', 'escape', 'outside']) {
-        await focusPreviewWindow(app, page)
-        await input.focus(zoom)
-        const box = (await zoom.boundingBox())!,
-          before = await zoom.inputValue()
-        if (dismissal === 'escape')
+      for (const picker of [
+        {
+          id: 'zoom',
+          select: zoom,
+          choice: '1',
+          keys: ['Home', 'Down', 'Down', 'Down', 'Down'],
+        },
+        {
+          id: 'output-sharpening',
+          select: dialog.getByRole('combobox', { name: 'Output sharpening', exact: true }),
+          choice: 'standard',
+          keys: ['Home', 'Down', 'Down'],
+        },
+      ]) {
+        const select = picker.select
+        for (const dismissal of ['choice', 'escape', 'outside']) {
+          await focusPreviewWindow(app, page)
+          await select.scrollIntoViewIfNeeded()
+          await input.focus(select)
+          const before = await select.inputValue()
+          // Open through native keyboard delivery; outside dismissal below also
+          // verifies native mouse delivery without replacing the real popup.
           await native.evaluate((window) => {
             for (const event of [
               { type: 'keyDown' as const, keyCode: 'Alt' },
@@ -81,90 +149,82 @@ test(
             ])
               window.webContents.sendInputEvent(event)
           })
-        else
-          await native.evaluate((window, box) => {
-            const x = Math.round(box.x + box.width / 2),
-              y = Math.round(box.y + box.height / 2)
-            window.webContents.sendInputEvent({ type: 'mouseMove', x, y })
-            window.webContents.sendInputEvent({
-              type: 'mouseDown',
-              x,
-              y,
-              button: 'left',
-              clickCount: 1,
-            })
-            window.webContents.sendInputEvent({
-              type: 'mouseUp',
-              x,
-              y,
-              button: 'left',
-              clickCount: 1,
-            })
-          }, box)
-        await expect.poll(() => zoom.evaluate((e) => e.matches(':open'))).toBe(true)
-        const refreshBefore = await refresh.evaluate((r) => r.read())
-        const samples: boolean[] = [],
-          started = Date.now()
-        while (Date.now() - started < 3200) {
-          samples.push(await zoom.evaluate((e) => e.matches(':open')))
-          const state = await native.evaluate((window) => ({
-            focused: window.isFocused(),
-            contents: window.webContents.isFocused(),
-            visible: window.isVisible(),
-            size: window.getContentSize(),
-          }))
-          expect(
-            samples.at(-1),
-            JSON.stringify({
-              dismissal,
-              elapsed: Date.now() - started,
-              refreshBefore,
-              refreshNow: await refresh.evaluate((r) => r.read()),
-              state,
-            }),
-          ).toBe(true)
-          await page.waitForTimeout(50)
+          await expect.poll(() => select.evaluate((e) => e.matches(':open'))).toBe(true)
+          const refreshBefore = await refresh.evaluate((r) => r.read())
+          const samples: boolean[] = [],
+            started = Date.now()
+          while (Date.now() - started < 3200) {
+            samples.push(await select.evaluate((e) => e.matches(':open')))
+            const state = await native.evaluate((window) => ({
+              focused: window.isFocused(),
+              contents: window.webContents.isFocused(),
+              visible: window.isVisible(),
+              size: window.getContentSize(),
+            }))
+            expect(
+              samples.at(-1),
+              JSON.stringify({
+                dismissal,
+                picker: picker.id,
+                elapsed: Date.now() - started,
+                refreshBefore,
+                refreshNow: await refresh.evaluate((r) => r.read()),
+                state,
+              }),
+            ).toBe(true)
+            await page.waitForTimeout(50)
+          }
+          expect(await refresh.evaluate((r) => r.read())).toBe(refreshBefore)
+          if (dismissal === 'choice') {
+            for (const key of picker.keys) await popupKey(key)
+            await popupKey('Enter')
+            await expect(select).toHaveValue(picker.choice)
+          } else if (dismissal === 'escape') {
+            await popupKey('Escape')
+            await expect(select).toHaveValue(before)
+          } else {
+            const header = (await dialog.locator('h2').boundingBox())!
+            await native.evaluate((window, header) => {
+              const x = Math.round(header.x + 5),
+                y = Math.round(header.y + 5)
+              window.webContents.sendInputEvent({
+                type: 'mouseDown',
+                x,
+                y,
+                button: 'left',
+                clickCount: 1,
+              })
+              window.webContents.sendInputEvent({
+                type: 'mouseUp',
+                x,
+                y,
+                button: 'left',
+                clickCount: 1,
+              })
+            }, header)
+          }
+          await expect.poll(() => select.evaluate((e) => e.matches(':open'))).toBe(false)
+          await expect.poll(() => refresh.evaluate((r) => r.read())).toBeGreaterThan(refreshBefore)
+          await expect(dialog).toBeVisible()
+          evidence.push({
+            picker: picker.id,
+            dismissal,
+            samples,
+            refreshBefore,
+            refreshAfter: await refresh.evaluate((r) => r.read()),
+          })
         }
-        expect(await refresh.evaluate((r) => r.read())).toBe(refreshBefore)
-        if (dismissal === 'choice') {
-          for (const key of ['Home', 'Down', 'Down', 'Down', 'Down']) await popupKey(key)
-          await popupKey('Enter')
-          await expect(zoom).toHaveValue('1')
-        } else if (dismissal === 'escape') {
-          await popupKey('Escape')
-          await expect(zoom).toHaveValue(before)
-        } else {
-          const header = (await dialog.locator('h2').boundingBox())!
-          await native.evaluate((window, header) => {
-            const x = Math.round(header.x + 5),
-              y = Math.round(header.y + 5)
-            window.webContents.sendInputEvent({
-              type: 'mouseDown',
-              x,
-              y,
-              button: 'left',
-              clickCount: 1,
-            })
-            window.webContents.sendInputEvent({
-              type: 'mouseUp',
-              x,
-              y,
-              button: 'left',
-              clickCount: 1,
-            })
-          }, header)
-        }
-        await expect.poll(() => zoom.evaluate((e) => e.matches(':open'))).toBe(false)
-        await expect.poll(() => refresh.evaluate((r) => r.read())).toBeGreaterThan(refreshBefore)
-        await expect(dialog).toBeVisible()
-        evidence.push({
-          dismissal,
-          samples,
-          refreshBefore,
-          refreshAfter: await refresh.evaluate((r) => r.read()),
-        })
       }
       await refresh.evaluate((r) => r.restore())
+      await expect(dialog.getByRole('status')).toHaveText('Preview out of date')
+      await expect(page.getByTestId('output-proof-metadata')).toContainText(
+        'Output sharpening: Off',
+      )
+      await input.activate(dialog.getByRole('button', { name: 'Update preview', exact: true }))
+      await expect(viewport).toHaveAttribute('data-ready', 'true', { timeout: 60000 })
+      await expect(page.getByTestId('output-proof-metadata')).toContainText(
+        'Output sharpening: Standard',
+      )
       await verifyLockedPan(app, page, viewport, zoom)
       await input.guard('output proof pointer and picker complete')
       await captureNativeEditor(app, page, info, 'output-proof-native-1100-console')
@@ -213,8 +273,8 @@ test.describe('native authored HDR output proof', () => {
       await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready', {
         timeout: 60000,
       })
+      await minimumNativeProofWindow(app, page)
       const input = await nativeEditorInput(app, page, irodori.userDataDir)
-      const native = await app.browserWindow(page)
       try {
         await expect
           .poll(
@@ -229,13 +289,12 @@ test.describe('native authored HDR output proof', () => {
         expect(display.capabilities?.extended).toBe(true)
         const preferencePath = join(irodori.userDataDir, 'preview-preference.json')
         const saved = await readFile(preferencePath).catch(() => null)
-        await native.evaluate((window) => {
-          window.unmaximize()
-          window.setContentSize(1100, 700)
-        })
         await input.activate(page.getByTestId('console-toggle'))
         await input.activate(page.getByRole('button', { name: 'Export photo', exact: true }))
         await input.activate(page.getByRole('button', { name: /Custom…/ }))
+        await page
+          .getByRole('combobox', { name: 'Output sharpening', exact: true })
+          .selectOption('standard')
         await input.activate(page.getByRole('button', { name: 'Preview output', exact: true }))
         const viewport = page.getByTestId('output-proof-viewport'),
           pixels = viewport.locator('canvas')
@@ -243,6 +302,9 @@ test.describe('native authored HDR output proof', () => {
         await expect(pixels).toHaveAttribute('data-backend', 'webgpu-hdr')
         await expect(pixels).toHaveAttribute('data-source-cache', 'miss-unretained')
         await expect(page.getByRole('dialog')).toContainText('Showing authored HDR output.')
+        await expect(page.getByTestId('output-proof-metadata')).toContainText(
+          'Output sharpening: Standard',
+        )
         const proofId = await viewport.getAttribute('data-proof-id')
         await captureNativeEditor(app, page, info, 'authored-hdr-proof')
         await page.getByLabel('Output preview display', { exact: true }).selectOption('sdr')
@@ -261,6 +323,9 @@ test.describe('native authored HDR output proof', () => {
         // Exercise an actual proof-device loss after proving healthy source reuse.
         await input.activate(page.getByRole('button', { name: 'Export photo', exact: true }))
         await input.activate(page.getByRole('button', { name: /Custom…/ }))
+        await page
+          .getByRole('combobox', { name: 'Output sharpening', exact: true })
+          .selectOption('standard')
         await input.activate(page.getByRole('button', { name: 'Preview output', exact: true }))
         await expect(viewport).toHaveAttribute('data-ready', 'true', { timeout: 60000 })
         await expect(pixels).toHaveAttribute('data-backend', 'webgpu-hdr')
@@ -298,6 +363,7 @@ test.describe('native authored HDR output proof', () => {
           await expect(pixels).toHaveAttribute('data-backend', 'webgpu-hdr')
           expect(await viewport.getAttribute('data-proof-id')).toBe(recoveryProofId)
           await fault.evaluate((f) => f.restore())
+          await focusPreviewWindow(app, page)
           await input.activate(retry)
           await expect(viewport).toHaveAttribute('data-ready', 'true', { timeout: 60000 })
           await expect(pixels).toHaveAttribute('data-backend', 'webgpu-hdr')

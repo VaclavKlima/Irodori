@@ -49,6 +49,7 @@ export interface ExportManifest {
     crop?: ExportCropPolicy
     detail?: ExportDetailPolicy
     resize?: ExportResizePolicy
+    outputSharpening?: ExportOutputSharpeningPolicy
   }
   destinationId: string
   options: ExportOptions
@@ -69,6 +70,19 @@ export interface ExportDiagnostics {
   }
   detail?: ExportDetailDiagnostics
   crop?: ExportCropDiagnostics
+  outputSharpening?: {
+    policy: ExportOutputSharpeningPolicy
+    mode: import('../../shared/output-sharpening').OutputSharpeningMode
+    amount: number
+    radius: number
+    threshold: number
+    width: number
+    height: number
+    passes: ({
+      rendition: 'sdr' | 'hdr'
+    } & import('../processing/detail-bands').DetailBandDiagnostics)[]
+    memory: import('../../shared/resource-policy').ManagedImageBytes
+  }
   resize?: {
     policy: ExportResizePolicy
     input: { width: number; height: number }
@@ -99,6 +113,8 @@ export interface ExportRenderResult {
   diagnostics?: ExportDiagnostics
 }
 export interface ExportRenderJob {
+  outputSharpeningPolicy?: ExportOutputSharpeningPolicy
+  outputSharpeningAdmission?: import('../../shared/detail-resources').DetailAdmission
   resizePolicy?: ExportResizePolicy
   resizeAdmission?: import('../../shared/export-resources').ExportAdmission
   detailPolicy?: ExportDetailPolicy
@@ -121,6 +137,11 @@ export interface ExportRenderJob {
 
 export interface ExportResizePolicy {
   filter: string
+}
+
+export interface ExportOutputSharpeningPolicy {
+  filter: string
+  stage: string
 }
 
 export interface ExportDetailPolicy {

@@ -3,11 +3,21 @@ import { join, resolve } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { test, expect } from './electron.fixture'
+import { activateButton } from './button.helpers'
+import { captureWindow } from './window-capture.helpers'
+import { foregroundTest } from './foreground'
 import { choose, importPhotos } from './import.helpers'
 import { holdBrowseSelections, seedLargeBrowser } from './all-photos.helpers'
 import { DEFAULT_BROWSE_QUERY } from '../src/shared/browse'
 import type { Page } from '@playwright/test'
 import type { ExportPreparation, ExportStart } from '../src/shared/export'
+
+const nativeExportCapture =
+  process.platform === 'linux' && Boolean(process.env.WAYLAND_DISPLAY)
+    ? foregroundTest(
+        'Wayland minimum-size export capture requires a window presented by the compositor.',
+      )
+    : {}
 
 async function draftExposure(page: Page, value: number) {
   const slider = page.getByRole('slider', { name: 'Exposure', exact: true })
@@ -394,66 +404,92 @@ test('chooser reuses the destination, picker cancellation changes no preferences
   await expect.poll(() => readdir(destination)).toEqual(['alpine-lake (2).jpg', 'alpine-lake.jpg'])
 })
 
-test('Custom is keyboard-accessible at minimum size, persists only on acceptance, and Last custom survives restart', async ({
-  irodori,
-}) => {
-  let { app, page } = irodori
-  await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
-  const destination = join(irodori.userDataDir, 'exports')
-  await mkdir(destination)
-  await app.evaluate(({ dialog }, path) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
-  }, destination)
-  const nativeWindow = await app.browserWindow(page)
-  await nativeWindow.evaluate((w) => w.setContentSize(1100, 700))
-  await page.getByTestId('console-toggle').click()
-  await page.getByRole('button', { name: 'Export photo', exact: true }).click()
-  await page.getByRole('button', { name: /Custom…/ }).click()
-  const custom = page.getByRole('dialog', { name: 'Custom JPEG export' })
-  await expect(custom).toBeVisible()
-  await custom.getByRole('combobox', { name: 'Output', exact: true }).selectOption('hdr')
-  await expect(custom).toContainText('1 photo does not support HDR JPEG')
-  await expect(custom.getByRole('button', { name: 'Export', exact: true })).toBeDisabled()
-  await custom.getByRole('combobox', { name: 'Output', exact: true }).selectOption('sdr')
-  await custom.getByRole('spinbutton', { name: 'JPEG quality value' }).fill('84')
-  await custom.getByRole('spinbutton', { name: 'JPEG quality value' }).press('Escape')
-  await expect(custom.getByRole('spinbutton', { name: 'JPEG quality value' })).toHaveValue('90')
-  await custom.getByRole('spinbutton', { name: 'JPEG quality value' }).fill('84')
-  await custom.getByRole('spinbutton', { name: 'JPEG quality value' }).press('Enter')
-  await custom.getByRole('combobox', { name: 'Names', exact: true }).selectOption('sequence')
-  await custom.getByLabel('Prefix', { exact: true }).fill('Trip-')
-  await custom.getByRole('combobox', { name: 'Size', exact: true }).selectOption('longest')
-  await custom.getByLabel('Longest edge (px)').fill('101')
-  await custom.getByRole('button', { name: 'Cancel', exact: true }).click()
-  expect((await page.evaluate(() => window.irodori.getExportPreferences())).lastCustom).toBeNull()
-  await page.getByRole('button', { name: 'Export photo', exact: true }).click()
-  await page.getByRole('button', { name: /Custom…/ }).click()
-  await custom.getByRole('spinbutton', { name: 'JPEG quality value' }).fill('83')
-  await custom.getByRole('spinbutton', { name: 'JPEG quality value' }).press('Enter')
-  await custom.getByRole('combobox', { name: 'Metadata', exact: true }).selectOption('none')
-  await page.screenshot({ path: test.info().outputPath('export-custom-1100.png') })
-  const box = await custom.boundingBox()
-  expect(box!.height).toBeLessThanOrEqual(660)
-  await custom.getByRole('button', { name: 'Export', exact: true }).click()
-  await expect(custom).toHaveCount(0)
-  await expect.poll(() => readdir(destination)).toEqual(['alpine-lake.jpg'])
-  ;({ app, page } = await irodori.restart())
-  await app.evaluate(({ dialog }) => {
-    dialog.showOpenDialog = async () => {
-      throw new Error('Unexpected picker after restart.')
-    }
-  })
-  await page.getByRole('button', { name: 'Export photo', exact: true }).click()
-  await expect(page.getByRole('dialog')).toContainText('JPEG quality 83')
-  await page.getByRole('button', { name: /Last custom/ }).click()
-  await expect.poll(() => readdir(destination)).toHaveLength(2)
-  expect(
-    (await page.evaluate(() => window.irodori.getExportPreferences())).lastCustom,
-  ).toMatchObject({
-    quality: 83,
-    metadata: 'none',
-  })
-})
+test(
+  'Custom is keyboard-accessible at minimum size, persists only on acceptance, and Last custom survives restart',
+  nativeExportCapture,
+  async ({ irodori }) => {
+    let { app, page } = irodori
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'])
+    const destination = join(irodori.userDataDir, 'exports')
+    await mkdir(destination)
+    await app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
+    }, destination)
+    const nativeWindow = await app.browserWindow(page)
+    await nativeWindow.evaluate((w) => {
+      w.unmaximize()
+      w.setContentSize(1100, 700)
+    })
+    await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
+    await activateButton(page.getByTestId('console-toggle'))
+    await expect(page.getByTestId('console-panel')).toBeVisible()
+    await activateButton(page.getByRole('button', { name: 'Export photo', exact: true }))
+    await activateButton(page.getByRole('button', { name: /Custom…/ }))
+    const custom = page.getByRole('dialog', { name: 'Custom JPEG export' })
+    await expect(custom).toBeVisible()
+    const sharpening = custom.getByRole('combobox', { name: 'Output sharpening', exact: true })
+    await expect(sharpening).toHaveValue('off')
+    await sharpening.selectOption('high')
+    await custom.getByRole('combobox', { name: 'Output', exact: true }).selectOption('hdr')
+    await expect(custom).toContainText('1 photo does not support HDR JPEG')
+    await expect(custom.getByRole('button', { name: 'Export', exact: true })).toBeDisabled()
+    await custom.getByRole('combobox', { name: 'Output', exact: true }).selectOption('sdr')
+    await custom.getByRole('spinbutton', { name: 'JPEG quality value' }).fill('84')
+    await custom.getByRole('spinbutton', { name: 'JPEG quality value' }).press('Escape')
+    await expect(custom.getByRole('spinbutton', { name: 'JPEG quality value' })).toHaveValue('90')
+    await custom.getByRole('spinbutton', { name: 'JPEG quality value' }).fill('84')
+    await custom.getByRole('spinbutton', { name: 'JPEG quality value' }).press('Enter')
+    await custom.getByRole('combobox', { name: 'Names', exact: true }).selectOption('sequence')
+    await custom.getByLabel('Prefix', { exact: true }).fill('Trip-')
+    await custom.getByRole('combobox', { name: 'Size', exact: true }).selectOption('longest')
+    await custom.getByLabel('Longest edge (px)').fill('101')
+    await activateButton(custom.getByRole('button', { name: 'Cancel', exact: true }))
+    expect((await page.evaluate(() => window.irodori.getExportPreferences())).lastCustom).toBeNull()
+    await activateButton(page.getByRole('button', { name: 'Export photo', exact: true }))
+    await activateButton(page.getByRole('button', { name: /Custom…/ }))
+    await expect(sharpening).toHaveValue('off')
+    await sharpening.selectOption('low')
+    await custom.getByRole('combobox', { name: 'Size', exact: true }).selectOption('longest')
+    await custom.getByLabel('Longest edge (px)').fill('101')
+    await custom.getByRole('spinbutton', { name: 'JPEG quality value' }).fill('83')
+    await custom.getByRole('spinbutton', { name: 'JPEG quality value' }).press('Enter')
+    await custom.getByRole('combobox', { name: 'Metadata', exact: true }).selectOption('none')
+    await captureWindow(app, page, test.info().outputPath('export-custom-1100.png'))
+    const box = await custom.boundingBox()
+    expect(box!.height).toBeLessThanOrEqual(660)
+    await activateButton(custom.getByRole('button', { name: 'Export', exact: true }))
+    await expect(custom).toHaveCount(0)
+    await expect.poll(() => readdir(destination)).toEqual(['alpine-lake.jpg'])
+    ;({ app, page } = await irodori.restart())
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await app.evaluate(({ dialog }) => {
+      dialog.showOpenDialog = async () => {
+        throw new Error('Unexpected picker after restart.')
+      }
+    })
+    await activateButton(page.getByRole('button', { name: 'Export photo', exact: true }))
+    await expect(page.getByRole('dialog')).toContainText('JPEG quality 83')
+    await activateButton(page.getByRole('button', { name: /Custom…/ }))
+    const reopened = page.getByRole('dialog', { name: 'Custom JPEG export' })
+    await expect(
+      reopened.getByRole('combobox', { name: 'Output sharpening', exact: true }),
+    ).toHaveValue('low')
+    await expect(reopened.getByRole('combobox', { name: 'Size', exact: true })).toHaveValue(
+      'longest',
+    )
+    await activateButton(reopened.getByRole('button', { name: 'Back', exact: true }))
+    await activateButton(page.getByRole('button', { name: /Last custom/ }))
+    await expect.poll(() => readdir(destination)).toHaveLength(2)
+    expect(
+      (await page.evaluate(() => window.irodori.getExportPreferences())).lastCustom,
+    ).toMatchObject({
+      quality: 83,
+      metadata: 'none',
+      outputSharpening: 'low',
+    })
+  },
+)
 
 test('header export awaits pending ranges and includes unloaded photos hidden by a later Library filter', async ({
   irodori,

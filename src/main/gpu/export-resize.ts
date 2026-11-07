@@ -15,7 +15,7 @@ export interface ResizeGpu {
   readonly peakCachedRows: number
   run(
     readRow: (index: number, signal: AbortSignal) => Promise<Float32Array>,
-    onRow: (data: Float32Array, y: number) => void,
+    onRow: (data: Float32Array, y: number) => void | Promise<void>,
     signal: AbortSignal,
   ): Promise<void>
   close(): Promise<void>
@@ -192,7 +192,7 @@ export function createResizeGpu(
           for (let y = 0; y < frozen.height; y++) {
             signal.throwIfAborted()
             const row = await read(y)
-            onRow(row, y)
+            await onRow(row, y)
             signal.throwIfAborted()
           }
           return
@@ -247,7 +247,7 @@ export function createResizeGpu(
           for (const scalar of result)
             if (!Number.isFinite(scalar))
               throw new Error('The GPU export resize returned non-finite output.')
-          onRow(result, y)
+          await onRow(result, y)
           signal.throwIfAborted()
         }
       })

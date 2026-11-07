@@ -41,6 +41,7 @@ import {
   exportResizeCapabilities,
   validateExportPhotoIds,
 } from '../shared/export'
+import { outputSharpeningCapabilities } from '../shared/output-sharpening'
 import { SDR_TARGET, validateHdrSource, type DisplayTarget } from '../shared/hdr'
 import type { HdrPhotoPixel } from '../shared/hdr-pixel'
 import type { HdrAnalysisRequest, HdrPhotoStatistics } from '../shared/hdr-statistics'
@@ -1207,6 +1208,7 @@ export class PhotoLibrary {
       codec: EXPORT_CODEC_VERSION,
       rendering: EXPORT_RENDERING_VERSION,
       resize: structuredClone(exportResizeCapabilities),
+      outputSharpening: structuredClone(outputSharpeningCapabilities),
       hdrAvailable: !unavailable,
       hdrUnavailableReason: unavailable,
     }

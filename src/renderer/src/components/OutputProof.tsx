@@ -12,6 +12,7 @@ import {
 import { neutralAdjustments } from '../../../shared/adjustments'
 import type { ExportOptions, ExportPreparation, ExportTarget } from '../../../shared/export'
 import { exportFilename } from '../../../shared/export'
+import { outputSharpeningLabels } from '../../../shared/output-sharpening'
 import {
   outputProofDisplayTarget,
   outputProofPixelKey,
@@ -251,7 +252,8 @@ function ProofPhoto({
             <p data-testid="output-proof-metadata">
               {proof.output === 'hdr' ? 'HDR JPEG' : 'SDR JPEG'} · Quality {proof.quality} ·{' '}
               {proof.width} × {proof.height} ·{' '}
-              {proof.resizeMethod === 'original' ? 'Original size' : 'Lanczos3'}
+              {proof.resizeMethod === 'original' ? 'Original size' : 'Lanczos3'} · Output
+              sharpening: {outputSharpeningLabels[proof.outputSharpening]}
             </p>
           )}
           <p role="status">

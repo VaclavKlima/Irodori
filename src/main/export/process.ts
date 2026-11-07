@@ -9,6 +9,7 @@ import { acceptExportWorkerProgress, exportProgressOwner } from './progress'
 import { validateExportCropPolicy } from './crop-policy'
 import { validateExportDetailPolicy } from './detail-policy'
 import { validateExportResizePolicy } from './resize-policy'
+import { validateExportOutputSharpeningPolicy } from './output-sharpening-policy'
 
 /** Decoder and encoder never retain their WASM heaps in the same process. */
 export class ExportProcess {
@@ -25,6 +26,7 @@ export class ExportProcess {
     validateExportCropPolicy(job)
     validateExportDetailPolicy(job)
     validateExportResizePolicy(job)
+    validateExportOutputSharpeningPolicy(job)
     const started = performance.now()
     let sourceMs = 0,
       sourceBackend: string | undefined,

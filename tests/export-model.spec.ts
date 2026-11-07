@@ -9,6 +9,17 @@ import {
 } from '../src/shared/export'
 import { halfFloat } from '../src/main/export/codec'
 import {
+  OUTPUT_SHARPENING_MODES,
+  resolveOutputSharpening,
+  outputSharpeningMode,
+} from '../src/shared/output-sharpening'
+import {
+  exportOutputSharpeningPolicy,
+  validateExportOutputSharpeningPolicy,
+} from '../src/main/export/output-sharpening-policy'
+import type { ExportRenderJob } from '../src/main/export/types'
+import { cropAdmission } from './crop-frame.helpers'
+import {
   buildPhotoMenu,
   photoActionIds,
   type PhotoActionsContext,
@@ -26,6 +37,7 @@ test('quick JPEG presets keep automatic original-size output and safe metadata d
     size: { mode: 'original' },
     existing: 'rename',
     metadata: 'camera-copyright',
+    outputSharpening: 'off',
   })
   expect(validateExportOptions(defaultExportOptions)).toEqual(defaultExportOptions)
   for (const patch of [
@@ -42,6 +54,43 @@ test('quick JPEG presets keep automatic original-size output and safe metadata d
     { names: { mode: 'sequence', prefix: '../' } },
   ])
     expect(() => validateExportOptions({ ...defaultExportOptions, ...patch })).toThrow()
+})
+test('output sharpening defaults legacy requests to Off and freezes the supported output-pixel presets', () => {
+  const legacy = { ...defaultExportOptions }
+  delete legacy.outputSharpening
+  expect(validateExportOptions(legacy).outputSharpening).toBe('off')
+  expect(outputSharpeningMode(legacy)).toBe('off')
+  expect(
+    OUTPUT_SHARPENING_MODES.map((outputSharpening) =>
+      resolveOutputSharpening({ outputSharpening }),
+    ),
+  ).toEqual([0, 25, 50, 75].map((amount) => ({ version: 1, amount, radius: 1, threshold: 50 })))
+  for (const outputSharpening of ['auto', 'medium', null, 50, {}, false])
+    expect(() => validateExportOptions({ ...legacy, outputSharpening })).toThrow(
+      'output sharpening',
+    )
+  for (const outputSharpening of OUTPUT_SHARPENING_MODES)
+    expect(validateExportOptions({ ...legacy, outputSharpening }).outputSharpening).toBe(
+      outputSharpening,
+    )
+})
+
+test('active output sharpening requires its exact frozen policy and managed admission', () => {
+  const job = {
+    options: { ...defaultExportOptions, outputSharpening: 'standard' },
+  } as ExportRenderJob
+  expect(() => validateExportOutputSharpeningPolicy(job)).toThrow('frozen operator')
+  job.outputSharpeningPolicy = { ...exportOutputSharpeningPolicy }
+  expect(() => validateExportOutputSharpeningPolicy(job)).toThrow('resource admission')
+  job.outputSharpeningAdmission = cropAdmission()
+  expect(() => validateExportOutputSharpeningPolicy(job)).not.toThrow()
+  job.outputSharpeningPolicy.filter = 'unknown'
+  expect(() => validateExportOutputSharpeningPolicy(job)).toThrow('unsupported')
+  job.options.outputSharpening = 'off'
+  expect(() => validateExportOutputSharpeningPolicy(job)).toThrow('unsupported')
+  delete job.outputSharpeningPolicy
+  delete job.outputSharpeningAdmission
+  expect(() => validateExportOutputSharpeningPolicy(job)).not.toThrow()
 })
 test('linear rendition geometry preserves aspect ratio without enlargement, including odd dimensions', () => {
   expect(exportGeometry(4001, 3001, { mode: 'longest', edge: 2000 })).toEqual({
