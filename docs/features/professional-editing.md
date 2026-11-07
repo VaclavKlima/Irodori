@@ -45,9 +45,13 @@ upscaling already available.
 
 ## Task index
 
-These rows move existing scope into independently selectable items; they add no
-new feature requirement. The full descriptions and finish lines live in the
-backlog, rather than a second aggregate checklist here.
+These rows index independently selectable tasks. Full descriptions, priorities
+and finish lines live in the backlog, rather than a second aggregate checklist here.
+
+Follow the [editing-quality priority](README.md#workspace-feedback-backlog):
+masking (#54/#56/#58), then native-detail inspection (#55), then HDR visual
+assessment (#57), ahead of additional stylistic effects. Reuse existing UI and
+processing owners when exposing these capabilities to the app agent.
 
 | TODO                     | Work                                             | Current state / dependency                                                                                                              |
 | ------------------------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,9 +68,18 @@ backlog, rather than a second aggregate checklist here.
 | [#48](README.md#task-48) | Add export-only output sharpening                | Implemented in Custom export/proof and Console; [focused Bazzite acceptance and limits](output-sharpening.md).                          |
 | [#49](README.md#task-49) | Evaluate optional spatial FSR                    | Optional later task; a justified rejection is a valid outcome.                                                                          |
 | [#51](README.md#task-51) | Adopt List + Beside browser navigation           | Complete for local Bazzite acceptance; collection, selection, menus and recovery preserved.                                             |
-| [#54](README.md#task-54) | Add subject masks with local contrast and dehaze | Planned; extend local adjustments with subject masks and both local operators.                                                          |
-| [#55](README.md#task-55) | Add native-resolution noise and texture preview  | Planned; reuse the existing full-resolution preview and 100% zoom contract.                                                             |
-| [#56](README.md#task-56) | Add a local brush with exposure and tonal edits  | Planned; reuse local adjustments and verify gentle trunk lifting without visible halos.                                                 |
+| [#54](README.md#task-54) | Add AI subject/bird masks and local controls     | Planned; isolate birds from matching reflection colors, with exposure, contrast, dehaze and refinement through #58.                     |
+| [#55](README.md#task-55) | Add native-detail inspection for users and agent | Planned; expose bounded native tiles for feather detail, focus, noise and sharpening through API/MCP.                                   |
+| [#56](README.md#task-56) | Add a local brush with exposure and tonal edits  | Planned; verify gentle trunk lifting, selective dodge-and-burn and independent reflection darkening.                                    |
+| [#57](README.md#task-57) | Add HDR-aware agent preview and editing          | Planned; verify visual highlight brightness/roll-off, client support and physical presentation with explicit measurement limits.        |
+| [#58](README.md#task-58) | Add masking workspace and radial/gradient tools  | Planned; integrate #54/#56 through shared mask/history operations and independently editable regions.                                   |
+| [#59](README.md#task-59) | Add matched before/after previews                | Planned; expose existing comparisons through API/MCP with identical framing, scale, regions and HDR/SDR targets.                        |
+| [#60](README.md#task-60) | Add temporary edit previews and variants         | Planned; compare two or three looks without changing history, then apply the chosen look as one undoable edit.                          |
+| [#61](README.md#task-61) | Add regional histograms and clipping overlays    | Planned; extend existing analysis to spatial regions/masks with explicit domains, revisions and availability.                           |
+| [#62](README.md#task-62) | Add healing and clone tools                      | Planned; require explicit user approval before applying proposed distraction removal, including agent repairs.                          |
+| [#63](README.md#task-63) | Add local Texture and Clarity controls           | Planned; share #54's local-contrast operator and preserve unmasked surroundings, history and HDR/SDR output.                            |
+| [#64](README.md#task-64) | Add named per-photo edit checkpoints             | Planned; save, compare and restore Natural/Cinematic versions across restart; reusable cross-photo presets remain #46.                  |
+| [#65](README.md#task-65) | Evaluate editable depth maps and depth blur      | Optional later research; use the agent's control list as exploratory input and decide scope/adoption from feasibility and quality.      |
 
 Reuse existing #10 for general Linux dropdowns and #32 for the remaining GPU-first
 consolidation. The [stage inventory](../processing-stages.md) records current owners, retired executors, rejected candidates and remaining platform/removal gates. UI work follows the implemented #33 inspector navigation and #34
@@ -98,8 +111,8 @@ Do not duplicate or automatically pull these items into an editing task.
   correctness regression or record a concrete dependency; do not silently expand
   the selected goal into the entire roadmap.
 
-Masking remains later work. Its real prerequisites should be scoped when that
-feature is selected; optional FSR, unavailable calibration equipment and every
+Masking prerequisites should be scoped when a task is selected, following the
+editing-quality priority above; optional FSR, unavailable calibration equipment and every
 advanced global tool are not automatic blockers for all future development.
 
 ## Remaining Goal 1 evidence — 2026-11-01
