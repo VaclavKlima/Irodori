@@ -1,4 +1,6 @@
 import { ObjectSelectionService, selectedMaskStack } from './object-selection/service'
+import { MaskEdgeService } from './mask-edges/service'
+import type { MaskCoverageRequest } from '../shared/mask-edges'
 import type { ObjectSelectionRequest, AcceptObjectSelection } from '../shared/object-selection'
 import { MaskContentStore, prepareMaskMutation } from './mask-store'
 import {
@@ -482,7 +484,7 @@ export class PhotoLibrary {
     const fresh =
       version.user_version === 0 &&
       !this.db.prepare("SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' LIMIT 1").get()
-    if (!fresh && ![17, 18, 19, 20, 21, 22, 23, CATALOG_VERSION].includes(version.user_version))
+    if (!fresh && ![17, 18, 19, 20, 21, 22, 23, 24, CATALOG_VERSION].includes(version.user_version))
       throw new Error(
         version.user_version > CATALOG_VERSION
           ? 'This library requires a newer version of Irodori.'
@@ -555,7 +557,7 @@ export class PhotoLibrary {
         this.workspace.initialize()
         new ExportReadStore(this.db).initialize()
       } else {
-        if ([17, 18, 19, 20, 21, 22, 23].includes(version.user_version))
+        if ([17, 18, 19, 20, 21, 22, 23, 24].includes(version.user_version))
           migrateEditingHistory(this.db)
         this.cameraRecognition.prepare()
       }
@@ -569,7 +571,7 @@ export class PhotoLibrary {
         const data = JSON.parse(row.data) as ProcessingOptions
         bootstrap.seedEdits(row.id, data, new Date().toISOString())
       }
-      if (fresh || [17, 18, 19, 20, 21, 22, 23].includes(version.user_version))
+      if (fresh || [17, 18, 19, 20, 21, 22, 23, 24].includes(version.user_version))
         this.db.exec(`PRAGMA user_version = ${CATALOG_VERSION}`)
       this.db.exec('COMMIT')
     } catch (error) {
@@ -703,10 +705,31 @@ export class PhotoLibrary {
     )
     await rm(join(this.root, 'cache', 'agent-previews'), { recursive: true, force: true })
     await rm(join(this.root, 'cache', 'object-selection'), { recursive: true, force: true })
+    await rm(join(this.root, 'cache', 'mask-edges'), { recursive: true, force: true })
+    this.maskEdges = new MaskEdgeService(this.root, {
+      context: (id, revision) => this.getMaskContext(id, revision),
+      edits: (id) => this.getEdits(id),
+      source: async (id) => {
+        const source = await this.exportSource(id)
+        return {
+          identity: source.identity,
+          processing: source.processing.processing,
+          metadata: source.processing.metadata,
+        }
+      },
+      masks: (state) => this.resolvedMasks(state.photoId, state.settings.maskStack),
+      admission: (signal) => {
+        if (!this.cropAdmission) throw new Error('Mask edge resource admission is unavailable.')
+        return this.cropAdmission(signal)
+      },
+      reserve: (bytes) => this.fullPreviews.reserveOutputProofBytes(bytes),
+    })
     this.objectSelections = new ObjectSelectionService(this.root, {
       source: (id) => this.exportSource(id),
       context: (id, revision) => this.getMaskContext(id, revision),
       edits: (id) => this.getEdits(id),
+      prepareCoverage: (mask, context, signal) =>
+        this.maskEdges.prepareProposal(mask, context, signal),
       admission: (signal) => {
         if (!this.cropAdmission)
           throw new Error('Object selection resource admission is unavailable.')
@@ -1014,6 +1037,7 @@ export class PhotoLibrary {
   }
 
   objectSelections!: ObjectSelectionService
+  maskEdges!: MaskEdgeService
 
   async getEdits(id: string): Promise<EditState> {
     return this.editState(await this.getEditHistory(id))
@@ -1153,6 +1177,12 @@ export class PhotoLibrary {
   cancelObjectSelection(id: string) {
     return this.objectSelections.cancel(id)
   }
+  prepareMaskCoverage(request: MaskCoverageRequest) {
+    return this.admission.run(() => this.maskEdges.prepare(request))
+  }
+  cancelMaskCoverage(id: string, requestId?: string) {
+    return this.maskEdges.cancel(id, requestId)
+  }
   private async commitObjectSelection(
     request: ObjectSelectionRequest,
     base: MaskBaseContent,
@@ -1204,6 +1234,7 @@ export class PhotoLibrary {
       )
       if (
         chunks.length ||
+        mutation.operations.some((op) => op.kind === 'update' && op.edge !== undefined) ||
         (resolved.some(
           (mask) => mask.enabled && Object.values(mask.light).some((value) => value !== 0),
         ) &&
@@ -1688,7 +1719,12 @@ export class PhotoLibrary {
     }
     this.tasks.set(id, task)
     this.changed()
-    task.work = Promise.all(photos.map((photo) => this.objectSelections.beginRemoval(photo.id)))
+    task.work = Promise.all(
+      photos.flatMap((photo) => [
+        this.objectSelections.beginRemoval(photo.id),
+        this.maskEdges.beginRemoval(photo.id),
+      ]),
+    )
       .then(() =>
         this.scheduler.run(
           'operation',
@@ -1779,7 +1815,10 @@ export class PhotoLibrary {
         }
       })
       .finally(() => {
-        for (const photo of photos) this.objectSelections.endRemoval(photo.id)
+        for (const photo of photos) {
+          this.objectSelections.endRemoval(photo.id)
+          this.maskEdges.endRemoval(photo.id)
+        }
       })
     return id
   }
@@ -3437,6 +3476,7 @@ export class PhotoLibrary {
     if (this.notification) clearTimeout(this.notification)
     try {
       await closeServices([
+        () => this.maskEdges?.close(),
         () => this.objectSelections?.close(),
         () => this.outputProofs?.close(),
         () => this.admission.drain(),

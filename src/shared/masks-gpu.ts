@@ -13,9 +13,11 @@ import {
   validateMaskStroke,
   type ResolvedMask,
   type MaskBaseContent,
+  maskHasEdges,
+  validatePreparedMaskCoverage,
 } from './masks'
 
-export const MASK_RENDERING_VERSION = 'ordered-six-light-brush-generated-green-native-v2'
+export const MASK_RENDERING_VERSION = 'ordered-six-light-brush-generated-edge-green-native-v3'
 export const MASK_GPU_TEXTURE_WIDTH = 256
 export const MAX_MASK_BASE_ATLAS_BYTES = maskCapabilities.maxBaseAtlasBytes
 const TILE_EDGE = 256
@@ -29,9 +31,30 @@ export function maskHasCoverage(
 }
 
 /** One native R8 atlas shares a binding across every distinct generated base. */
-export function maskBaseAtlasPlan(parameters: Pick<AdjustmentParameters, 'localMasks'>) {
+function renderMask(mask: ResolvedMask, coverageOnly = false): ResolvedMask {
+  if (!maskHasEdges(mask)) return mask
+  if (!mask.preparedCoverage) {
+    if (coverageOnly || (mask.enabled && Object.values(mask.light).some((value) => value !== 0)))
+      throw new Error('Mask edge coverage is not ready. Retry GPU after preparation completes.')
+    return { ...mask, base: undefined, strokes: [], inverted: false }
+  }
+  validatePreparedMaskCoverage(mask.preparedCoverage)
+  const base = {
+    version: 1 as const,
+    hash: mask.preparedCoverage.hash,
+    width: mask.preparedCoverage.width,
+    height: mask.preparedCoverage.height,
+    pngBase64: mask.preparedCoverage.pngBase64,
+  }
+  return { ...mask, base, strokes: [], inverted: false }
+}
+export function maskBaseAtlasPlan(
+  parameters: Pick<AdjustmentParameters, 'localMasks'>,
+  coverageOnly = false,
+) {
   const unique = new Map<string, MaskBaseContent>()
-  for (const mask of parameters.localMasks ?? []) {
+  for (const original of parameters.localMasks ?? []) {
+    const mask = renderMask(original, coverageOnly)
     if (!mask.base) continue
     validateMaskBaseContent(mask.base)
     unique.set(mask.base.hash, mask.base)
@@ -72,6 +95,36 @@ export function hasLocalMasks(parameters: Pick<AdjustmentParameters, 'localMasks
   )
 }
 
+/** Admission precedes GPU preparation. Geometry is an upper bound for complete
+ * prepared coverage; layer identities need no pixel filtering or PNG encoding. */
+export function localMaskAllocationBytes(
+  parameters: Pick<AdjustmentParameters, 'localMasks' | 'maskGeometry'>,
+  image: { width: number; height: number },
+) {
+  const masks = parameters.localMasks ?? []
+  const unfiltered = masks.map((mask) => ({
+    ...mask,
+    edge: { featherPx: 0, shiftPx: 0 },
+    preparedCoverage: undefined,
+  }))
+  const geometryBytes = packLocalMasks({ ...parameters, localMasks: unfiltered }, image).byteLength
+  const layers = new Set(
+    masks.flatMap((mask) => {
+      if (maskHasEdges(mask))
+        return mask.enabled && Object.values(mask.light).some((value) => value !== 0)
+          ? [JSON.stringify([mask.base?.hash, mask.head, mask.strokes, mask.inverted, mask.edge])]
+          : []
+      return mask.base ? [mask.base.hash] : []
+    }),
+  ).size
+  const width = parameters.maskGeometry?.canonicalWidth ?? image.width,
+    height = parameters.maskGeometry?.canonicalHeight ?? image.height
+  const coverageBytes = width * height * layers
+  if (coverageBytes > MAX_MASK_BASE_ATLAS_BYTES)
+    throw new Error('Mask coverage exceeds the native GPU atlas limit.')
+  return geometryBytes + coverageBytes
+}
+
 /** Labels, selection IDs and durable-chain hashes do not change photo pixels. */
 export function localMaskPixelData(parameters: Pick<AdjustmentParameters, 'localMasks'>) {
   return (
@@ -86,6 +139,7 @@ export function localMaskPixelData(parameters: Pick<AdjustmentParameters, 'local
         inverted: mask.inverted,
         light: mask.light,
         strokes: mask.strokes,
+        edge: mask.edge,
         ...(mask.base ? { base: maskBaseReference(mask.base) } : {}),
       })) ?? []
   )
@@ -114,9 +168,10 @@ export function validateLocalMaskGain(parameters: Pick<AdjustmentParameters, 'lo
 export function packLocalMasks(
   parameters: Pick<AdjustmentParameters, 'localMasks' | 'maskGeometry'>,
   image: { width: number; height: number },
+  coverageOnly = false,
 ) {
-  const masks = parameters.localMasks ?? []
-  const atlas = maskBaseAtlasPlan(parameters)
+  const masks = (parameters.localMasks ?? []).map((mask) => renderMask(mask, coverageOnly))
+  const atlas = maskBaseAtlasPlan(parameters, coverageOnly)
   validateLocalMaskGain(parameters)
   if (masks.length > maskCapabilities.maxMasks) throw new Error('Too many local masks.')
   const geometry = parameters.maskGeometry ?? identityMaskGeometry(image.width, image.height)

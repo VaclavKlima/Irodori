@@ -7,9 +7,9 @@ import {WebGlMaskBaseAtlas,WebGpuMaskBaseAtlas} from './src/renderer/src/preview
 import {PreviewPresenter} from './src/renderer/src/preview/presenter';
 import {maskBaseAtlasPlan} from './src/shared/masks-gpu';
 import {neutralAdjustments,srgbTransform} from './src/shared/adjustments';
-import {neutralMaskLight} from './src/shared/masks';
+import {neutralMaskLight,neutralMaskEdge} from './src/shared/masks';
 import {identityMaskGeometry} from './src/shared/mask-geometry';
-const masks=bases=>bases.map((base,index)=>({id:'00000000-0000-0000-0000-'+String(index+1).padStart(12,'0'),name:'Generated '+index,base,head:null,enabled:true,inverted:false,strokes:[],light:{...neutralMaskLight,exposureEv:1}}));
+const masks=bases=>bases.map((base,index)=>({id:'00000000-0000-0000-0000-'+String(index+1).padStart(12,'0'),name:'Generated '+index,base,head:null,enabled:true,inverted:false,strokes:[],edge:{...neutralMaskEdge},light:{...neutralMaskLight,exposureEv:1}}));
 window.readGeneratedAtlas=async(bases,backend,points)=>{
  const plan=maskBaseAtlasPlan({localMasks:masks(bases)});
  if(backend==='webgl'){

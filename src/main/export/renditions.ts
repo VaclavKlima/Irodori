@@ -5,7 +5,7 @@ import { neutralAdjustments, srgbTransform } from '../../shared/adjustments'
 import { creativeColorActive, prepareCreativeColor } from '../../shared/creative-color'
 import { preparedToneCurves } from '../../shared/tone-curves'
 import { croppedMaskGeometry, identityMaskGeometry } from '../../shared/mask-geometry'
-import { hasLocalMasks, packLocalMasks, maskBaseAtlasPlan } from '../../shared/masks-gpu'
+import { hasLocalMasks, localMaskAllocationBytes } from '../../shared/masks-gpu'
 import { CROP_GEOMETRY_VERSION, cropGeometry, identityCrop } from '../../shared/crop'
 import { CROP_FILTER_VERSION } from '../../shared/crop-filter'
 import { exportGeometry } from '../../shared/export'
@@ -147,10 +147,7 @@ export async function exportRenditions(
       identityMaskGeometry(sourceWidth, sourceHeight),
     crop,
   )
-  const maskBytes = hasLocalMasks(a)
-    ? packLocalMasks(a, { width, height }).byteLength +
-      (maskBaseAtlasPlan(a).bases.length ? maskBaseAtlasPlan(a).bytes : 0)
-    : 0
+  const maskBytes = hasLocalMasks(a) ? localMaskAllocationBytes(a, { width, height }) : 0
   if (frameByteLength(sourceWidth, sourceHeight) * 4 > 512 * 1024 ** 2)
     throw new Error('This photo exceeds the floating-point export memory limit.')
   if (
@@ -428,6 +425,18 @@ export async function exportRenditions(
           {
             domain: asset ? (asset.source.display ? 'authored-hdr' : 'scene-linear') : 'raster',
             primary: Boolean(asset?.source.display),
+            edgeAdmission: admission
+              ? {
+                  policy: admission.policy,
+                  reservation: {
+                    ramBytes:
+                      admission.reservation.ramBytes +
+                      (memory?.retainedBytes ?? 0) +
+                      (memory?.gpuWorkBytes ?? 0),
+                    vramBytes: admission.reservation.vramBytes,
+                  },
+                }
+              : undefined,
           },
         )
         gpuInitializeMs = performance.now() - initializeStarted

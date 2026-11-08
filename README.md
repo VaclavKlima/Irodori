@@ -39,6 +39,8 @@ Undo/Redo, restart and frozen SDR/HDR exports. **Select object** creates
 [editable SAM 2 point/box proposals](docs/features/object-selection.md), with separate
 Paint/Erase corrections retained when AI coverage is refined. The feature is enabled
 on Mac; [Bazzite verification](docs/features/README.md#task-69) is an explicit follow-up.
+**Coverage → Mask edges** adds whole-mask [Feather and Expand/Contract](docs/features/mask-edges.md),
+including manual corrections, with shared Undo/Redo, Console and frozen exports.
 Gradients, sky/background automation, color/luminance ranges and additional local
 operators remain planned.
 GPU histograms include active local edits. Exact clipping overlays and full HDR

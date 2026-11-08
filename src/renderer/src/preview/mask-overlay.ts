@@ -113,7 +113,7 @@ void main(){
       width = Math.max(1, Math.round(viewport.width * dpr)),
       height = Math.max(1, Math.round(viewport.height * dpr)),
       key = JSON.stringify([mask, parameters.maskGeometry, image])
-    const plan = maskBaseAtlasPlan({ localMasks: [mask] })
+    const plan = maskBaseAtlasPlan({ localMasks: [mask] }, true)
     this.baseRam = plan.decodeBytes + plan.uploadBytes
     this.baseVram = Math.max(plan.bytes, this.baseAtlas.bytes) + plan.uploadBytes
     if (this.baseVram + this.bytes + width * height * 8 > 512 * 1024 ** 2)
@@ -151,6 +151,7 @@ void main(){
       const packed = packLocalMasks(
           { localMasks: [mask], maskGeometry: parameters.maskGeometry },
           image,
+          true,
         ),
         textureHeight = Math.ceil(packed.length / 4 / MASK_GPU_TEXTURE_WIDTH),
         data = new Float32Array(textureHeight * MASK_GPU_TEXTURE_WIDTH * 4)

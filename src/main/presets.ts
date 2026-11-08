@@ -43,9 +43,12 @@ export class Presets {
           ))
     )
       throw new Error(
-        'Invalid preset source. Use source.mode "photo" with photoId and groups, or source.mode "explicit" with settingsVersion: 14, groups and values. Explicit camera-dependent groups also require referencePhotoId.',
+        'Invalid preset source. Use source.mode "photo" with photoId and groups, or source.mode "explicit" with settingsVersion: 15, groups and values. Explicit camera-dependent groups also require referencePhotoId.',
       )
-    if (input.mode === 'explicit' && ![12, 13, SETTINGS_VERSION].includes(input.settingsVersion))
+    if (
+      input.mode === 'explicit' &&
+      ![12, 13, 14, SETTINGS_VERSION].includes(input.settingsVersion)
+    )
       throw new Error('This preset settings format is unsupported.')
     validatePresetGroups(input.groups)
     let compatibility: PresetCompatibility = { lensKinds: [] }

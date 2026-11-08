@@ -78,7 +78,7 @@ function validateStoredManifest(manifest: StoredManifest) {
     !fields(source, ['version', 'clipboard', 'settings', 'lensKinds'], ['whiteBalanceIdentity']) ||
     source.version !== 1 ||
     !supportsEditingSettings(source.settings as unknown as Record<string, unknown>) ||
-    ![11, 12, SETTINGS_VERSION].includes(source.settings.version) ||
+    ![11, 12, 14, SETTINGS_VERSION].includes(source.settings.version) ||
     (source.whiteBalanceIdentity !== undefined &&
       (typeof source.whiteBalanceIdentity !== 'string' || !source.whiteBalanceIdentity)) ||
     !Array.isArray(source.lensKinds) ||

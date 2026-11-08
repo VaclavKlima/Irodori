@@ -97,7 +97,13 @@ test('base hash changes rendering identity; duplicate masks share one native atl
   expect(plan.bytes).toBe(32 * 24)
   expect(plan.uploadBytes).toBeLessThanOrEqual(4 * 1024 * 1024)
   expect(localMaskPixelData({ localMasks: masks })).toEqual([
-    { inverted: false, light: masks[0].light, strokes: [], base: maskBaseReference(a) },
+    {
+      inverted: false,
+      light: masks[0].light,
+      edge: masks[0].edge,
+      strokes: [],
+      base: maskBaseReference(a),
+    },
   ])
   expect(() => packLocalMasks({ localMasks: masks }, { width: 31, height: 24 })).toThrow(
     'source grid',

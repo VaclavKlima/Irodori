@@ -10,6 +10,14 @@ Open **Masks → Create mask → Select object…**. This opens the **Coverage**
 
 Choose **Coverage → Refine object selection…** to generate a replacement base for the selected object mask. Existing Paint/Erase strokes, Light controls, name, inversion and order remain intact. A point refinement can make a selection worse; inspect each proposal and cancel or undo when necessary. After accepting, return to Coverage for Paint/Erase, Size and Feather, or use Adjustments for Exposure, Contrast, Highlights, Shadows, Whites and Blacks. **Show overlay** remains available above both tabs. Rename, duplicate, invert, reorder and delete belong to the mask row's **⋯** menu. Each acceptance or completed correction is one photo-wide Undo step. Accepted masks survive restart and frozen output without running the model again.
 
+The subsequent [Mask edges implementation](mask-edges.md) adds whole-mask Feather
+and Expand/Contract under Coverage. These modifiers follow manual corrections
+and inversion, so they can reshape the combined selection while preserving its
+original base and strokes. AI refinement retains the modifiers; an edge-enabled
+proposal prepares its displayed coverage after retiring the inference worker.
+Focused Mac edge integration checks pass; the edge brief records their scope. These controls
+adjust coverage softness/extent and do not recover missing fine detail.
+
 This selects indicated animals, plants, vehicles and other visible objects. It does not supply text grounding, automatic subject discovery, sky classification, reflection correspondence or finished hair/fur/feather matting. A reflection should be indicated separately. The research found coarse edges, false holes, unwanted fragments and severe fence-gap failures. Transparent objects have semantic coverage, not measured physical alpha. These limits remain visible in the research evidence and TODO 54's remaining quality acceptance.
 
 The current export accepts six prompt slots: a box consumes two, while each positive/negative point consumes one. The Editor exposes four guide points so switching between a box and points never truncates input. Excess prompts are refused; manual brush corrections have the existing larger geometry limits. Sources are bounded to **32 MP and 8192 pixels per side**. Oversized sources keep normal manual masking available. Requested resolution and quality are never silently reduced to make inference fit.
@@ -26,9 +34,20 @@ The UI keeps crop, pickers, inspection, object selection and brush input exclusi
 
 Settings **14** / catalog **24** add optional immutable generated-base references beneath the existing ordered brush chains. Migration preserves all version-13 masks, strokes, revisions, history cursors, branches and timestamps. Old catalogs still require their existing stroke store; only the new version requires the generated-base store. Global presets and Copy/Paste continue to preserve destination masks; independent legacy preset formats remain accepted.
 
+The [edge extension](mask-edges.md#ownership-api-and-persistence) advances current
+settings/catalog to **15/25** and assigns neutral edge values across existing
+current/history masks. Earlier acceptance below retains its original 14/24 scope.
+Prepared final coverage stays outside immutable base/history content.
+
 The SQLite generated-base store retains lossless native grayscale R8 PNGs with content SHA-256, dimensions, PNG structure and chunk CRC validation. Assets and history publish in one transaction. Replacing a base preserves the brush head. Current/undo/redo data and accepted frozen jobs remain protected by append-only retention; missing or changed content is an explicit error. There is no public arbitrary-base upload operation.
 
 GPU coverage starts from a single compact R8 texture array, then applies existing ordered Paint/Erase and whole-mask inversion. Shared WGSL/GLSL coverage is used by presentation, overlays, histograms and the native point/export renderer. Browser PNG decoding is native; bounded RGBA strips convert to R8 on GPU. Production code does not reconstruct full-image masks in JavaScript or run Python. Native Node codecs decode/encode PNG outside Electron.
+
+With nonneutral edge modifiers, the shared Dawn stage prepares the complete
+coverage first and the same R8 atlas carries that result to all consumers. The
+original base/brush path remains exact when both edge values are zero. Edge
+processing ownership, resource admission and failure semantics are in the
+[edge brief](mask-edges.md#shared-gpu-stage).
 
 Limits include 8 MiB encoded per base, 32 MiB combined retained brush/base content per photo, the existing 32-mask and stroke limits, and a 256 MiB native coverage atlas bound. Exact atlas/strip/native-decode bytes enter resource admission. Raster presentation retains its existing 512 MiB cap; acceptance also preflights generated-base stacks. Excess work is refused before history publication. Names and selection do not affect pixels; base hashes, correction chains, enabled/invert/order and Light values do.
 
@@ -75,3 +94,10 @@ GPU preprocessing agrees with the frozen reference within `3.58e-7`; the separat
 3. Verify RAW/raster/authored-HDR/merge input registration, crop/straighten/lens changes, source replacement, point/box selection and separate subject/reflection masks. Review Fit/native coverage and correction effort with permitted fixtures; retain known coarse-edge failures.
 4. Verify Paint/Erase after AI refinement, history/restart, neutral Before and frozen SDR/HDR proofs/exports without a model rerun. Exercise the 1100 × 700 Console-open layout, Create mask and per-row command menus, Coverage/Adjustments tabs, bounded mask-list/detail scrolling, old workspace-tab recovery, delayed zoom/pan, Wayland focus/native-picker behavior, cancellation, explicit GPU refusal/retry and resource cleanup under contention. Include shared photo-menu focus/keyboard behavior after the common menu extraction.
 5. Fix observed device issues while retaining the same production backend and shared contracts. Record unavailable checks as incomplete. Windows and physical HDR acceptance remain separately unverified.
+
+Also qualify [Mask edges](mask-edges.md) on both Radeon adapters using the
+`mask-edge-model`, `mask-edge-service`, `mask-edge-gpu`, `mask-edge-ui` and
+`mask-edge-mcp` targets and actual RAW/HDR presentation case. Cover neutral
+migration, post-inversion growth, grayscale brush preservation, strip borders,
+source/crop/lens registration, AI refinement, native preparation/cold-warm cache,
+admission/cancellation/retry/cleanup and frozen SDR/HDR proof/export consistency.

@@ -4,6 +4,8 @@ import { importPhotos } from './import.helpers'
 import { navigateInspector } from './inspector.helpers'
 import { holdNormalOffscreenFence } from './hdr-presentation-gate.helpers'
 import { createMask } from './mask-panel.helpers'
+import { resolveMasks } from '../src/shared/masks'
+import { maskEdgeMemoryPlan } from '../src/shared/mask-edges'
 
 test('object boxes stay on submitted HDR geometry while zoom and pan are pending', async ({
   irodori: { app, page },
@@ -106,25 +108,54 @@ test('a production SAM2 RAW mask renders local Light and its native HDR histogra
     await expect(photo).toHaveAttribute('data-quality', 'normal', { timeout: 60000 })
     await expect(photo).toHaveAttribute('data-frame-geometry-revision', String(revision))
     await expect(photo).toHaveAttribute('data-comparison', comparison)
-    await expect
-      .poll(
-        () =>
-          photo.evaluate((element) => {
-            const histogram = document.getElementById('histogram')!,
-              plot = histogram.querySelector<SVGSVGElement>('svg[role="slider"]')!
-            return (
-              element.dataset.completedEditSerial === element.dataset.requestedSerial &&
-              element.dataset.analysisPending === 'false' &&
-              !!element.dataset.analysisKey &&
-              element.dataset.analysisKey === element.dataset.displayedAnalysisKey &&
-              histogram.dataset.editSerial === element.dataset.analysisSerial &&
-              plot.dataset.curveEditSerial === element.dataset.analysisSerial &&
-              plot.dataset.animating === 'false'
-            )
-          }),
-        { timeout: 60000 },
+    try {
+      await expect
+        .poll(
+          () =>
+            photo.evaluate((element) => {
+              const histogram = document.getElementById('histogram')!,
+                plot = histogram.querySelector<SVGSVGElement>('svg[role="slider"]')!
+              return (
+                element.dataset.completedEditSerial === element.dataset.requestedSerial &&
+                element.dataset.analysisPending === 'false' &&
+                !!element.dataset.analysisKey &&
+                element.dataset.analysisKey === element.dataset.displayedAnalysisKey &&
+                histogram.dataset.editSerial === element.dataset.analysisSerial &&
+                plot.dataset.curveEditSerial === element.dataset.analysisSerial &&
+                plot.dataset.animating === 'false'
+              )
+            }),
+          { timeout: 60000 },
+        )
+        .toBe(true)
+    } catch (error) {
+      await attachJson(
+        `production-raw-unsettled-${revision}-${comparison}`,
+        await page.evaluate(async (photoId) => {
+          const photo = document.querySelector<HTMLElement>('[data-testid="main-preview"]')!
+          const histogram = document.getElementById('histogram')!
+          const plot = histogram.querySelector<SVGSVGElement>('svg[role="slider"]')!
+          const state = await window.irodori.getEdits(photoId)
+          return {
+            photo: { ...photo.dataset },
+            histogram: { ...histogram.dataset },
+            plot: { ...plot.dataset },
+            revision: state.revision,
+            masks: state.settings.maskStack.map((mask) => ({
+              id: mask.id,
+              edge: mask.edge,
+              light: mask.light,
+              base: mask.base,
+            })),
+            alerts: Array.from(
+              document.querySelectorAll('[role="alert"], [data-testid="mask-edge-pending"]'),
+              (element) => element.textContent,
+            ),
+          }
+        }, photoId),
       )
-      .toBe(true)
+      throw error
+    }
     await expect(histogram).toHaveAttribute('data-samples', '65536')
     await expect(histogram).toHaveAttribute('data-pending', 'false')
     await expect(plot.locator('path[d]')).toHaveCount(3)
@@ -237,6 +268,75 @@ test('a production SAM2 RAW mask renders local Light and its native HDR histogra
     await settled(2)
     const adjusted = await paths()
     expect(adjusted).not.toEqual(neutral)
+    const edgeEdited = await page.evaluate(
+      ({ photoId, maskId }) =>
+        window.irodori.mutateMasks(photoId, 2, {
+          operations: [{ kind: 'update', id: maskId, edge: { shiftPx: -2, featherPx: 4 } }],
+        }),
+      { photoId, maskId: selection.maskId },
+    )
+    expect(edgeEdited.revision).toBe(3)
+    expect(edgeEdited.settings.maskStack[0]).toMatchObject({
+      id: selection.maskId,
+      base: selection.base,
+      edge: { shiftPx: -2, featherPx: 4 },
+    })
+    expect(selection.width * selection.height).toBeGreaterThan(20_000_000)
+    const preparation = await page.evaluate(
+      async ({ photoId, maskId }) => {
+        const request = { photoId, revision: 3, maskIds: [maskId] }
+        // The first request includes any automatic renderer request for this new recipe.
+        const started = performance.now()
+        const cold = await window.irodori.prepareMaskCoverage(request)
+        const coldWorkflowMs = performance.now() - started
+        const warmStarted = performance.now()
+        const warm = await window.irodori.prepareMaskCoverage(request)
+        const warmMs = performance.now() - warmStarted
+        const summarize = (value: typeof cold) => {
+          const asset = value.coverages[maskId]
+          return {
+            hash: asset.hash,
+            key: asset.key,
+            width: asset.width,
+            height: asset.height,
+            encodedBytes:
+              (asset.pngBase64.length / 4) * 3 -
+              (asset.pngBase64.endsWith('==') ? 2 : asset.pngBase64.endsWith('=') ? 1 : 0),
+          }
+        }
+        return {
+          coldWorkflowMs,
+          warmMs,
+          cold: summarize(cold),
+          warm: summarize(warm),
+          resources: await window.irodori.getResourceSettings(),
+        }
+      },
+      { photoId, maskId: selection.maskId },
+    )
+    expect(preparation.cold).toEqual(preparation.warm)
+    expect(preparation.cold).toMatchObject({ width: selection.width, height: selection.height })
+    expect(preparation.cold.hash).not.toBe(selection.base?.hash)
+    expect(preparation.cold.encodedBytes).toBeGreaterThan(0)
+    const resolved = resolveMasks(
+      edgeEdited.settings.maskStack,
+      edgeEdited.maskContent ?? [],
+      edgeEdited.maskBases ?? [],
+    )
+    const incrementalMemory = maskEdgeMemoryPlan(selection.width, selection.height, resolved, {
+      policy: preparation.resources.policy,
+      reservation: { ramBytes: 0, vramBytes: 0 },
+    })
+    await attachJson('production-raw-mask-edge-preparation', {
+      ...preparation,
+      incrementalMemory,
+      memoryScope:
+        'Incremental mask-edge allocations only; actual service admission includes existing reservations.',
+    })
+    await settled(3)
+    const edgeAdjusted = await paths()
+    expect(edgeAdjusted).not.toEqual(neutral)
+    expect(edgeAdjusted).not.toEqual(adjusted)
     await navigateInspector(page, 'Masks')
     const coverage = page.getByRole('checkbox', { name: 'Show overlay', exact: true })
     if (!(await coverage.isChecked())) await coverage.check()
@@ -271,18 +371,19 @@ test('a production SAM2 RAW mask renders local Light and its native HDR histogra
     expect(evidence.errors).toEqual([])
     await photo.focus()
     await photo.press('\\')
-    await settled(2, 'before')
+    await settled(3, 'before')
     expect(await paths()).toEqual(neutral)
     await photo.press('\\')
-    await settled(2)
-    expect(await paths()).toEqual(adjusted)
+    await settled(3)
+    expect(await paths()).toEqual(edgeAdjusted)
     expect(
       (await page.evaluate((id) => window.irodori.getEditHistory(id), photoId)).settings.maskStack,
-    ).toEqual(edited.settings.maskStack)
+    ).toEqual(edgeEdited.settings.maskStack)
     expect((await gpu.evaluate((control) => control.state())).errors).toEqual([])
     await attachJson('production-raw-object-mask-hdr', {
       ...selection,
-      revision: edited.revision,
+      revision: edgeEdited.revision,
+      edge: edgeEdited.settings.maskStack[0].edge,
       histogramSamples: 65536,
       ...evidence,
     })

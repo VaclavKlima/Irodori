@@ -26,6 +26,7 @@ import type { PreviewPreference } from '../../shared/hdr-display'
 import { usePreviewTools } from './hooks/usePreviewTools'
 import { useEdits } from './hooks/useEdits'
 import { useMasks } from './hooks/useMasks'
+import { useMaskEdgeCoverage } from './hooks/useMaskEdgeCoverage'
 import { useInspectionRegion } from './hooks/useInspectionRegion'
 import { useWhiteBalancePicker } from './hooks/useWhiteBalancePicker'
 import { useToneCurves } from './hooks/useToneCurves'
@@ -271,6 +272,15 @@ export function App() {
     maskWorkspace,
     changeMaskWorkspace,
   )
+  const maskEdgeCoverage = useMaskEdgeCoverage({
+    photoId: photo?.id,
+    revision: edits.state?.revision,
+    confirmation: edits.state ?? undefined,
+    enabled: workspace === 'editor' && !!photo && edits.confirmed,
+    parameters: masks.adjustments,
+    selectedId: masks.selectedId,
+    overlayVisible: masks.overlayVisible,
+  })
   const startCrop = async () => {
     if (!crop.supported || crop.pending) return
     objectSelection.close()
@@ -1439,9 +1449,10 @@ export function App() {
               </p>
             )}
             <PhotoPreview
+              maskEdgeCoverage={maskEdgeCoverage}
               objectSelection={objectSelection}
               inspection={{ ...inspection, start: startInspection }}
-              masks={masks}
+              masks={{ ...masks, adjustments: maskEdgeCoverage.parameters }}
               crop={cropTool}
               toneCurves={toneCurves}
               whiteBalancePicker={whiteBalancePicker}
@@ -1458,7 +1469,7 @@ export function App() {
               photo={photo}
               initialView={restoringPreview?.photoId === photo?.id ? restoringPreview : null}
               onViewChange={savePreviewView}
-              adjustments={masks.adjustments}
+              adjustments={maskEdgeCoverage.parameters}
               confirmedEdits={
                 edits.confirmed && edits.state?.photoId === photo?.id ? edits.state : null
               }

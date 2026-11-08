@@ -1030,6 +1030,17 @@ app
       trusted(event)
       return library!.getMaskContext(id, revision)
     })
+    handleLibraryRequest('masks:coverage', (event, request) => {
+      trusted(event)
+      return library!.prepareMaskCoverage(request).then(
+        (result) => ({ result }),
+        (error) => ({ error: String(error) }),
+      )
+    })
+    handleLibraryRequest('masks:coverage-cancel', (event, id, requestId) => {
+      trusted(event)
+      return library!.cancelMaskCoverage(id, requestId)
+    })
     handleLibraryRequest('masks:mutate', (event, id, revision, mutation) => {
       trusted(event)
       return library!.mutateMasks(id, revision, mutation)

@@ -362,6 +362,77 @@ test('removal waits for crop-worker retirement before releasing the protected so
   }
 })
 
+test('a same-photo foreground preview preserves an in-flight authoritative mask geometry read', async () => {
+  const f = await cropPreviewFixture(),
+    entered = gate(),
+    ready = gate()
+  let sourceSignal: AbortSignal | undefined
+  try {
+    f.beforeSource(async (signal) => {
+      sourceSignal = signal
+      entered.resolve()
+      await ready.promise
+      signal.throwIfAborted()
+    })
+    const context = f.previews.getMaskContext(f.id, 0)
+    void context.catch(() => {})
+    await entered.promise
+    const foreground = f.previews.requestEditing(f.id, randomUUID())
+    void foreground.catch(() => {})
+    expect(sourceSignal?.aborted).toBe(false)
+    ready.resolve()
+    const [resolved, preview] = await Promise.all([context, foreground]),
+      crop = cropGeometry(f.native, f.options.crop ?? identityCrop)
+    expect(resolved.photoId).toBe(f.id)
+    expect(resolved.revision).toBe(0)
+    expect({ width: resolved.width, height: resolved.height }).toEqual({
+      width: crop.width,
+      height: crop.height,
+    })
+    expect(preview?.photoId).toBe(f.id)
+    expect(preview?.settingsRevision).toBe(0)
+  } finally {
+    ready.resolve()
+    await f.close()
+  }
+})
+
+for (const interruption of ['settings', 'removal'] as const)
+  test(`mask geometry still cancels when ${interruption} invalidates its source`, async () => {
+    const f = await cropPreviewFixture(),
+      entered = gate(),
+      ready = gate()
+    let sourceSignal: AbortSignal | undefined
+    try {
+      f.beforeSource(async (signal) => {
+        sourceSignal = signal
+        entered.resolve()
+        await Promise.race([
+          ready.promise,
+          new Promise<void>((done) =>
+            signal.addEventListener('abort', () => done(), { once: true }),
+          ),
+        ])
+        signal.throwIfAborted()
+      })
+      const pending = f.previews.getMaskContext(f.id, 0)
+      void pending.catch(() => {})
+      await entered.promise
+      if (interruption === 'settings') {
+        f.change({ adjustments: { ...neutralAdjustments, saturation: 35 } })
+        await expect(pending).rejects.toThrow('revision conflict')
+      } else {
+        await f.previews.beginRemoval(f.id)
+        await expect(pending).rejects.toThrow(/Photo removed|cancelled/)
+        f.previews.endRemoval(f.id, false)
+      }
+      expect(sourceSignal?.aborted).toBe(true)
+    } finally {
+      ready.resolve()
+      await f.close()
+    }
+  })
+
 for (const framingSource of [false, true])
   test(`native crop ${framingSource ? 'source' : 'context'} rejects stale revisions before and after asynchronous preparation`, async () => {
     const f = await cropPreviewFixture(),

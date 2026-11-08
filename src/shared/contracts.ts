@@ -206,6 +206,10 @@ export interface IrodoriApi extends NativeHdrMaskBridge, AgentApi {
     request: import('./object-selection').AcceptObjectSelection,
   ): Promise<EditState>
   cancelObjectSelection(photoId: string): Promise<void>
+  prepareMaskCoverage(
+    request: import('./mask-edges').MaskCoverageRequest,
+  ): Promise<import('./mask-edges').MaskCoverageResult>
+  cancelMaskCoverage(photoId: string, requestId?: string): Promise<void>
   getMaskContext(
     photoId: string,
     expectedRevision: number,

@@ -7,7 +7,7 @@ import { PhotoLibrary } from './photo-library.helpers'
 import { PreviewEngine } from '../src/main/preview-engine'
 import { processingMetadata } from '../src/main/processing/metadata'
 import { noLensSettings } from '../src/shared/lens'
-import type { EditHistory, EditPatch } from '../src/shared/edits'
+import { SETTINGS_VERSION, type EditHistory, type EditPatch } from '../src/shared/edits'
 import type { Photo } from '../src/shared/contracts'
 const id = 'a'.repeat(64)
 test('current history preserves lens choices and revisions, commits atomically, rejects conflicts, branches redo and cleans deletion', async () => {
@@ -57,7 +57,7 @@ test('current history preserves lens choices and revisions, commits atomically, 
         shadows: 0,
         whites: 0,
         blacks: 0,
-        version: 13,
+        version: SETTINGS_VERSION,
         processing: 'hdr-v1',
         whiteBalance: { mode: 'as-shot' },
         exposureEv: 0,

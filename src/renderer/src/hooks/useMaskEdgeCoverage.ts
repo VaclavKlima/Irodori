@@ -1,0 +1,134 @@
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { AdjustmentParameters } from '../../../shared/adjustments'
+import { maskEdgePixelIdentity } from '../../../shared/mask-edges'
+import {
+  maskHasEdges,
+  validatePreparedMaskCoverage,
+  type PreparedMaskCoverage,
+} from '../../../shared/masks'
+
+interface Options {
+  photoId: string | undefined
+  revision: number | undefined
+  /** An authoritative refresh must revalidate even if a source changed at the same revision. */
+  confirmation: object | undefined
+  enabled: boolean
+  parameters: AdjustmentParameters
+  selectedId: string | null
+  overlayVisible: boolean
+}
+interface Completed {
+  identity: string
+  confirmation: object | undefined
+  coverages: Record<string, PreparedMaskCoverage>
+}
+
+/** The main owner prepares committed native coverage; renderer drafts never start spatial work. */
+export function useMaskEdgeCoverage({
+  photoId,
+  revision,
+  confirmation,
+  enabled,
+  parameters,
+  selectedId,
+  overlayVisible,
+}: Options) {
+  const required = (parameters.localMasks ?? []).filter(
+    (mask) =>
+      maskHasEdges(mask) &&
+      ((mask.enabled && Object.values(mask.light).some((value) => value !== 0)) ||
+        (overlayVisible && mask.id === selectedId)),
+  )
+  const identity = JSON.stringify([
+    photoId,
+    revision,
+    required.map((mask) => [mask.id, maskEdgePixelIdentity(mask)]).sort(),
+  ])
+  const requiredIds = required.map((mask) => mask.id)
+  const request = useRef({ identity, requiredIds, photoId, revision, confirmation })
+  useLayoutEffect(() => {
+    request.current = { identity, requiredIds, photoId, revision, confirmation }
+  })
+  const [completed, setCompleted] = useState<Completed | null>(null)
+  const [failure, setFailure] = useState<{
+    identity: string
+    confirmation: object | undefined
+    message: string
+  } | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const retirement = useRef<Promise<unknown>>(Promise.resolve())
+  useEffect(() => {
+    if (!enabled || !photoId || revision === undefined || !request.current.requiredIds.length)
+      return
+    const current = request.current
+    const requestId = crypto.randomUUID()
+    let active = true
+    const work = async () => {
+      // Electron invokes can otherwise let an old cancellation overtake a new request.
+      await retirement.current
+      if (!active) return
+      const response = await window.irodori.prepareMaskCoverage({
+        photoId,
+        revision,
+        maskIds: current.requiredIds,
+        requestId,
+      })
+      if (!active) return
+      if (response.photoId !== photoId || response.revision !== revision)
+        throw new Error('Prepared mask edges belong to an older photograph or revision.')
+      if (
+        Object.keys(response.coverages).length !== current.requiredIds.length ||
+        current.requiredIds.some((id) => !Object.hasOwn(response.coverages, id))
+      )
+        throw new Error('Prepared mask edges are incomplete. Retry GPU.')
+      for (const coverage of Object.values(response.coverages))
+        validatePreparedMaskCoverage(coverage)
+      setCompleted({ identity, confirmation, coverages: response.coverages })
+    }
+    void work().catch((error) => {
+      if (active) setFailure({ identity, confirmation, message: String(error) })
+    })
+    return () => {
+      active = false
+      retirement.current = window.irodori
+        .cancelMaskCoverage(photoId, requestId)
+        .catch(() => undefined)
+    }
+  }, [enabled, photoId, revision, identity, confirmation, attempt])
+  const ready =
+    !requiredIds.length ||
+    (enabled && completed?.identity === identity && completed.confirmation === confirmation)
+  const error =
+    !ready && failure?.identity === identity && failure.confirmation === confirmation
+      ? failure.message
+      : ''
+  const localMasks = useMemo(() => {
+    const masks = parameters.localMasks
+    if (!masks?.length) return masks
+    if (
+      (!ready || !completed || completed.identity !== identity) &&
+      !masks.some((mask) => mask.preparedCoverage)
+    )
+      return masks
+    if (!requiredIds.length && !masks.some((mask) => mask.preparedCoverage)) return masks
+    return masks.map((mask) => {
+      const current = { ...mask }
+      delete current.preparedCoverage
+      const coverage =
+        ready && completed?.identity === identity ? completed.coverages[mask.id] : undefined
+      return coverage && maskHasEdges(mask) ? { ...current, preparedCoverage: coverage } : current
+    })
+  }, [parameters.localMasks, completed, identity, ready, requiredIds.length])
+  const prepared: AdjustmentParameters = { ...parameters, localMasks }
+  const retry = useCallback(() => {
+    setFailure(null)
+    setAttempt((value) => value + 1)
+  }, [])
+  return {
+    parameters: prepared,
+    ready,
+    pending: !!requiredIds.length && enabled && !ready && !error,
+    error,
+    retry,
+  }
+}

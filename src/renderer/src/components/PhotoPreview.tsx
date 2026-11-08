@@ -76,6 +76,8 @@ import type { InspectionRegionController } from '../hooks/useInspectionRegion'
 import type { ObjectSelectionController } from '../hooks/useObjectSelection'
 import { ObjectSelectionOverlay } from './ObjectSelection'
 import { inspectionGeometryMatches } from '../preview/inspection-geometry'
+import { selectionScreenPoint } from '../preview/object-selection-geometry'
+import { maskHasEdges } from '../../../shared/masks'
 
 interface Model {
   loaded: boolean
@@ -111,6 +113,7 @@ interface Props {
   masks?: MasksController
   inspection?: InspectionRegionController
   objectSelection?: ObjectSelectionController
+  maskEdgeCoverage?: { ready: boolean; pending: boolean; error: string; retry: () => void }
 }
 
 function maskCursorStyle(
@@ -168,6 +171,7 @@ export function PhotoPreview({
   masks,
   inspection,
   objectSelection,
+  maskEdgeCoverage,
 }: Props) {
   const cropping = !!crop?.active
   const presentationState = previewPolicy.presentationCache ? confirmedEdits : null
@@ -190,6 +194,8 @@ export function PhotoPreview({
   const keyboardStroke = useRef(false)
   const brushCursorElement = useRef<HTMLDivElement>(null)
   const [brushCursor, setBrushCursor] = useState<{ x: number; y: number } | null>(null)
+  const brushOutput = useRef({ x: 0, y: 0 })
+  const [brushPath, setBrushPath] = useState<{ x: number; y: number }[]>([])
   const divider = useRef<HTMLDivElement>(null)
   const dividerPointer = useRef<number | null>(null)
   const [maskState, setMaskState] = useState<{ key: string; value: ClippingMask }>()
@@ -708,7 +714,12 @@ export function PhotoPreview({
   const mask = maskState?.key === maskSourceKey ? maskState.value : undefined
   const highlights = tools.highlights || tools.hover === 'highlights'
   const sdrAnalysisError = usePreviewAnalysis(
-    analysisWorking?.hdr || suspended || cropping ? null : analysisWorking,
+    analysisWorking?.hdr ||
+      suspended ||
+      cropping ||
+      (mode !== 'before' && maskEdgeCoverage?.ready === false)
+      ? null
+      : analysisWorking,
     `${photo?.id}-${analysisWorking?.identity ?? 'pending'}-${generation}`,
     mode === 'before' ? neutralAdjustments : adjustments,
     shadows || highlights,
@@ -743,7 +754,9 @@ export function PhotoPreview({
     ],
   )
   const { statisticsError: analysisError, maskError } = useHdrAnalysis(
-    hdrReady && !suspended && !cropping ? analysisWorking : null,
+    hdrReady && !suspended && !cropping && (mode === 'before' || maskEdgeCoverage?.ready !== false)
+      ? analysisWorking
+      : null,
     mode === 'before' ? neutralAdjustments : adjustments,
     actualTarget,
     'content-hdr',
@@ -854,6 +867,7 @@ export function PhotoPreview({
     [working, full.preview, beforeWorking, comparisonRequired, comparisonAlias],
   )
   function draw(model: Model) {
+    if (mode !== 'before' && maskEdgeCoverage?.ready === false) return
     pulseActivity()
     const started = performance.now()
     presenter.current?.setComparison(mode, split)
@@ -1506,6 +1520,11 @@ export function PhotoPreview({
   }
   useLayoutEffect(() => {
     const render = () => {
+      if (
+        maskEdgeCoverage?.ready === false &&
+        maskPresentationRef.current === presenter.current?.presentedGeometry
+      )
+        return
       const canvas = maskOverlay.current,
         geometry = readMaskPresentation(),
         context = objectSelection?.context,
@@ -1540,6 +1559,7 @@ export function PhotoPreview({
       if (
         (!proposal && (!masks?.overlayVisible || !masks.selectedId || objectSelection?.active)) ||
         !ready ||
+        maskEdgeCoverage?.ready === false ||
         suspended ||
         !geometry?.maskGeometry
       ) {
@@ -1572,7 +1592,16 @@ export function PhotoPreview({
     // completed photograph; mask drafts reuse that same committed geometry.
     redrawMaskCoverage.current = render
     render()
-  }, [masks, objectSelection, ready, suspended, adjustments, readMaskPresentation, brushCursor])
+  }, [
+    masks,
+    objectSelection,
+    ready,
+    suspended,
+    adjustments,
+    readMaskPresentation,
+    brushCursor,
+    maskEdgeCoverage?.ready,
+  ])
   useEffect(
     () => () => {
       maskOverlayOwner.current?.dispose()
@@ -1581,6 +1610,9 @@ export function PhotoPreview({
     [],
   )
   function brushPoint(output: { x: number; y: number }) {
+    brushOutput.current = output
+    if (brushPointer.current !== null || keyboardStroke.current)
+      setBrushPath((points) => (points.length < 4096 ? [...points, output] : points))
     const geometry = readMaskPresentation()?.maskGeometry
     if (!geometry) {
       masks?.setError(
@@ -1656,7 +1688,10 @@ export function PhotoPreview({
           masks.endStroke()
         } else {
           const point = brushPoint(position)
-          if (point) keyboardStroke.current = masks.beginStroke(point)
+          if (point) {
+            keyboardStroke.current = masks.beginStroke(point)
+            setBrushPath([position])
+          }
           setBrushCursor(position)
         }
       } else {
@@ -1736,6 +1771,7 @@ export function PhotoPreview({
       keyboardStroke.current = false
       const point = pointerBrushPoint(event)
       if (point && masks.beginStroke(point)) {
+        setBrushPath([brushOutput.current])
         brushPointer.current = event.pointerId
         event.currentTarget.setPointerCapture(event.pointerId)
       }
@@ -2016,6 +2052,31 @@ export function PhotoPreview({
                       : 'hidden',
                 }}
               />
+              {masks?.strokeDraft &&
+                masks.selected &&
+                maskHasEdges(masks.selected) &&
+                maskPresentation && (
+                  <svg
+                    className={styles.overlay}
+                    aria-hidden="true"
+                    data-testid="mask-stroke-feedback"
+                    viewBox={`0 0 ${model.viewport.width} ${model.viewport.height}`}
+                  >
+                    <polyline
+                      points={brushPath
+                        .map((point) => {
+                          const p = selectionScreenPoint(point, maskPresentation, model.viewport)
+                          return `${p.x},${p.y}`
+                        })
+                        .join(' ')}
+                      fill="none"
+                      stroke="var(--accent)"
+                      strokeWidth="2"
+                      strokeDasharray="3 3"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                )}
               {masks?.active && brushCursor && ready && maskPresentation?.maskGeometry && (
                 <div
                   ref={brushCursorElement}
@@ -2161,6 +2222,7 @@ export function PhotoPreview({
                 />
               )}
               {(!!gpuError ||
+                !!maskEdgeCoverage?.error ||
                 (comparisonRequired && !comparisonReady) ||
                 (!fullVisible && !firstSurfaceReady) ||
                 (!!full.preview?.linear?.hdr &&
@@ -2170,10 +2232,20 @@ export function PhotoPreview({
                   !firstSurfaceReady)) && (
                 <div
                   className={styles.message}
-                  role={gpuError || full.error || comparisonError ? 'alert' : 'status'}
+                  role={
+                    gpuError || maskEdgeCoverage?.error || full.error || comparisonError
+                      ? 'alert'
+                      : 'status'
+                  }
                   data-testid={gpuError ? 'preview-gpu-error' : undefined}
                 >
-                  {gpuError ? (
+                  {maskEdgeCoverage?.error ? (
+                    <>
+                      <span>Mask edge processing unavailable</span>
+                      <span>{maskEdgeCoverage.error}</span>
+                      <button onClick={maskEdgeCoverage.retry}>Retry GPU</button>
+                    </>
+                  ) : gpuError ? (
                     <>
                       <span>GPU preview unavailable</span>
                       <span style={{ maxWidth: 480, overflowWrap: 'anywhere' }}>{gpuError}</span>
@@ -2302,7 +2374,13 @@ export function PhotoPreview({
                   : 'Loading the full-resolution image.')
               }
             >
-              {gpuError ? (
+              {maskEdgeCoverage?.pending ? (
+                <span role="status" data-testid="mask-edge-pending">
+                  Updating mask…
+                </span>
+              ) : maskEdgeCoverage?.error ? (
+                <span>Mask edges unavailable</span>
+              ) : gpuError ? (
                 <span>Preview unavailable</span>
               ) : full.error ? (
                 <>

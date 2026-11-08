@@ -21,6 +21,7 @@ import type { EditState } from '../src/shared/edits'
 import type { EditorContextSnapshot } from '../src/shared/agent'
 import type { ObjectSelectionContext } from '../src/shared/object-selection'
 import { DatabaseSync } from 'node:sqlite'
+import { CATALOG_VERSION } from '../src/main/catalog/editing-migration'
 import { transferFixture } from './edit-transfer.helpers'
 
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
@@ -63,14 +64,18 @@ test('actual catalog 23 startup upgrades all brush history to 24 and rejects dis
       for (const settings of [
         stored.settings,
         ...stored.snapshots.map((snapshot: { settings: unknown }) => snapshot.settings),
-      ])
+      ]) {
         settings.version = 13
+        for (const mask of settings.maskStack) delete mask.edge
+      }
       db.prepare('UPDATE edits SET data=? WHERE id=?').run(JSON.stringify(stored), photoId)
       db.exec('DROP TABLE mask_base_content; PRAGMA user_version=23')
       const chunks = db.prepare('SELECT * FROM mask_content ORDER BY hash').all()
       await fixture.restart()
       expect(await fixture.library.getEditHistory(photoId)).toEqual(expected)
-      expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 24 })
+      expect(db.prepare('PRAGMA user_version').get()).toMatchObject({
+        user_version: CATALOG_VERSION,
+      })
       expect(db.prepare('SELECT * FROM mask_content ORDER BY hash').all()).toEqual(chunks)
       fixture.library.fullPreviews.validateMaskEdit = async () => {}
       const redone = await fixture.library.redoEdit(photoId, 3)
@@ -86,8 +91,10 @@ test('actual catalog 23 startup upgrades all brush history to 24 and rejects dis
       for (const settings of [
         future.settings,
         ...future.snapshots.map((snapshot: { settings: unknown }) => snapshot.settings),
-      ])
+      ]) {
         settings.version = 13
+        for (const mask of settings.maskStack) delete mask.edge
+      }
       future.settings.maskStack[0].base = { version: 1, hash: 'e'.repeat(64), width: 8, height: 6 }
       db.prepare('UPDATE edits SET data=? WHERE id=?').run(JSON.stringify(future), photoId)
       db.exec('PRAGMA user_version=23')

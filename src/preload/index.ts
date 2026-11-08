@@ -260,6 +260,12 @@ const api: IrodoriApi = {
   createObjectSelection: (request) => ipcRenderer.invoke('selection:create', request),
   acceptObjectSelection: (request) => ipcRenderer.invoke('selection:accept', request),
   cancelObjectSelection: (id) => ipcRenderer.invoke('selection:cancel', id),
+  prepareMaskCoverage: async (request) => {
+    const reply = await ipcRenderer.invoke('masks:coverage', request)
+    if (reply.error) throw new Error(reply.error)
+    return reply.result
+  },
+  cancelMaskCoverage: (id, requestId) => ipcRenderer.invoke('masks:coverage-cancel', id, requestId),
   getMaskContext: (id, revision) => ipcRenderer.invoke('masks:context', id, revision),
   mutateMasks: (id, revision, mutation) =>
     ipcRenderer.invoke('masks:mutate', id, revision, mutation),

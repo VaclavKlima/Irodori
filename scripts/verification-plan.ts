@@ -17,6 +17,16 @@ interface Suite {
   explicitOnly?: boolean
 }
 const definitions: Suite[] = [
+  { file: 'mask-edge-service', group: 'service', scopes: ['adjustments', 'preview', 'mcp'] },
+  { file: 'mask-edge-model', group: 'node', scopes: ['adjustments', 'mcp'] },
+  { file: 'mask-edge-mcp', group: 'raw-gpu', scopes: ['adjustments', 'mcp'], exclusive: true },
+  { file: 'mask-edge-gpu', group: 'raw-gpu', scopes: ['adjustments', 'preview'], exclusive: true },
+  {
+    file: 'mask-edge-ui',
+    group: 'electron',
+    scopes: ['adjustments', 'ui', 'mcp'],
+    exclusive: true,
+  },
   { file: 'object-selection-geometry', group: 'node', scopes: ['adjustments', 'ui', 'preview'] },
   {
     file: 'object-selection-ui',

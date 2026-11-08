@@ -70,6 +70,7 @@ export default defineConfig(({ command }) => {
             'preview-worker': 'src/main/preview-worker.ts',
             'agent-worker': 'src/main/agent/worker.ts',
             'object-selection-worker': 'src/main/object-selection/worker.ts',
+            'mask-edge-worker': 'src/main/mask-edges/worker.ts',
             'editor-mcp': 'scripts/editor-mcp.mjs',
             'catalog-worker': 'src/main/catalog-worker.ts',
             'export-worker': 'src/main/export/worker.ts',

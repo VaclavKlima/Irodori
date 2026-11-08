@@ -700,7 +700,7 @@ let tools = [
   {
     name: 'irodori_mutate_masks',
     description:
-      'Commit bounded basic brush mask operations as one photo-wide Undo step. Top-first list order applies bottom-to-top. Geometry is normalized to the oriented uncorrected source, radius is a fraction of its shorter dimension. Read current masks and revision with irodori_get_edits. Use the separate object-selection tools for AI proposals; gradients and range masks remain unavailable.',
+      'Commit bounded basic brush mask operations as one photo-wide Undo step. Top-first list order applies bottom-to-top. Geometry is normalized to the oriented uncorrected source, radius is a fraction of its shorter dimension. Whole-mask edge updates accept featherPx (0–64 in half-pixel steps) and shiftPx (-16–16 integer canonical source pixels); positive shift grows the affected region after inversion. The order is base plus Paint/Erase, inversion, shift, then feather. These controls do not recover missing fine detail. Read current masks and revision with irodori_get_edits. Use the separate object-selection tools for AI proposals; gradients and range masks remain unavailable.',
     inputSchema: schema({
       photoId,
       expectedRevision,
@@ -724,6 +724,13 @@ let tools = [
                   name: { type: 'string', minLength: 1, maxLength: 100 },
                   enabled: { type: 'boolean' },
                   inverted: { type: 'boolean' },
+                  edge: schema(
+                    {
+                      featherPx: { type: 'number', minimum: 0, maximum: 64, multipleOf: 0.5 },
+                      shiftPx: { type: 'integer', minimum: -16, maximum: 16 },
+                    },
+                    [],
+                  ),
                   light: schema(
                     {
                       exposureEv: { type: 'number', minimum: -5, maximum: 5, multipleOf: 0.01 },
@@ -992,7 +999,7 @@ const presetSource = {
       mode: { type: 'string', enum: ['photo', 'explicit'] },
       photoId,
       groups: presetGroups,
-      settingsVersion: { type: 'integer', enum: [12, 13, 14] },
+      settingsVersion: { type: 'integer', enum: [12, 13, 14, 15] },
       values: {
         ...schema(presetFields, []),
         description:
@@ -1003,7 +1010,7 @@ const presetSource = {
     ['mode', 'groups'],
   ),
   description:
-    'Photo capture: {mode:"photo",photoId,groups}. Explicit look: {mode:"explicit",settingsVersion:14,groups,values}; referencePhotoId is required for white-balance/lens. No photo is changed. All included groups must be complete.',
+    'Photo capture: {mode:"photo",photoId,groups}. Explicit look: {mode:"explicit",settingsVersion:15,groups,values}; referencePhotoId is required for white-balance/lens. No photo is changed. All included groups must be complete.',
   allOf: [
     {
       if: { properties: { mode: { const: 'photo' } } },
@@ -1061,7 +1068,7 @@ tools.push(
   {
     name: 'irodori_create_preset',
     description:
-      'Save a unique trimmed name from confirmed photo edits or a complete explicit look. Use source.mode="photo" with photoId/groups, or source.mode="explicit" with settingsVersion:14, groups and values. For example, groups:["color"] needs values:{saturation:5,vibrance:22}. Choose appearance:{icon,color} to match the requested intent when creating a look, such as sunset/amber for Golden Hour. No photo or clipboard changes. Camera-dependent explicit groups require a verified referencePhotoId. Store no calibration tables or paths.',
+      'Save a unique trimmed name from confirmed photo edits or a complete explicit look. Use source.mode="photo" with photoId/groups, or source.mode="explicit" with settingsVersion:15, groups and values. For example, groups:["color"] needs values:{saturation:5,vibrance:22}. Choose appearance:{icon,color} to match the requested intent when creating a look, such as sunset/amber for Golden Hour. No photo or clipboard changes. Camera-dependent explicit groups require a verified referencePhotoId. Store no calibration tables or paths.',
     inputSchema: schema({
       presetRequest: schema(
         {
@@ -1076,7 +1083,7 @@ tools.push(
   {
     name: 'irodori_update_preset',
     description:
-      'Edit a preset name, appearance or definition at expectedPresetRevision. Appearance accepts a partial {icon,color}; omitted fields retain their current values. Preserve the marker unless the user asks to change it. Replacement source uses mode="photo" with photoId/groups or mode="explicit" with settingsVersion:14, groups and complete values. Preset revisions are independent of photo-edit revisions. No photo/history changes; accepted jobs keep the old frozen definition.',
+      'Edit a preset name, appearance or definition at expectedPresetRevision. Appearance accepts a partial {icon,color}; omitted fields retain their current values. Preserve the marker unless the user asks to change it. Replacement source uses mode="photo" with photoId/groups or mode="explicit" with settingsVersion:15, groups and complete values. Preset revisions are independent of photo-edit revisions. No photo/history changes; accepted jobs keep the old frozen definition.',
     inputSchema: schema({
       presetRequest: schema(
         {

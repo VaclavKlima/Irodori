@@ -1,7 +1,7 @@
 import { test, expect } from './electron.fixture'
 import { localMasksGlsl, packLocalMasks, MASK_GPU_TEXTURE_WIDTH } from '../src/shared/masks-gpu'
 import { identityMaskGeometry } from '../src/shared/mask-geometry'
-import { neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
+import { neutralMaskEdge, neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
 import { brush, referenceCoverage, referenceStack } from './helpers/mask-reference'
 import { build } from 'esbuild'
 
@@ -15,6 +15,7 @@ test('GLSL brush coverage and ordered local Light match independent native-grid 
         enabled: true,
         inverted: true,
         head: null,
+        edge: { ...neutralMaskEdge },
         light: {
           exposureEv: -0.27,
           contrast: 32,
@@ -37,6 +38,7 @@ test('GLSL brush coverage and ordered local Light match independent native-grid 
         enabled: true,
         inverted: false,
         head: null,
+        edge: { ...neutralMaskEdge },
         light: { ...neutralMaskLight, exposureEv: 0.5, contrast: -40 },
         strokes: [brush('add', 0.5, 0, [[0.5, 0.5]])],
       },
@@ -149,7 +151,7 @@ test('actual raster presenter reports local overflow before a clamped image can 
 import {PreviewPresenter} from './src/renderer/src/preview/presenter';
 import {neutralAdjustments,srgbTransform} from './src/shared/adjustments';
 import {identityMaskGeometry} from './src/shared/mask-geometry';
-import {neutralMaskLight} from './src/shared/masks';
+import {neutralMaskLight,neutralMaskEdge} from './src/shared/masks';
 window.runMaskOverflow=async()=>{
  const canvas=document.createElement('canvas');document.body.append(canvas);let reason='';
  const presenter=new PreviewPresenter(canvas,false,value=>{reason=value});
@@ -158,6 +160,7 @@ window.runMaskOverflow=async()=>{
   presenter.draw({width:1,height:1},{width:64,height:64},{fit:false,scale:64,x:0,y:0},
    {...neutralAdjustments,maskGeometry:identityMaskGeometry(1,1),localMasks:[{
     id:'00000000-0000-0000-0000-000000000001',name:'Brighten',head:null,enabled:true,inverted:false,
+    edge: { ...neutralMaskEdge },
     light:{...neutralMaskLight,exposureEv:5},strokes:[{mode:'add',radius:.5,feather:0,points:[{x:.5,y:.5}]}]}]});
   const until=performance.now()+6000;while(!reason&&performance.now()<until)await new Promise(resolve=>setTimeout(resolve,10));
   return reason;
@@ -207,6 +210,7 @@ test('actual raster histogram evaluates ordered masks across the full native ima
         enabled: true,
         inverted: false,
         head: null,
+        edge: { ...neutralMaskEdge },
         light: { ...neutralMaskLight, exposureEv: 0.65, contrast: 27, shadows: 18 },
         strokes: [
           brush('add', 0.3, 0.55, [
@@ -221,6 +225,7 @@ test('actual raster histogram evaluates ordered masks across the full native ima
         enabled: true,
         inverted: true,
         head: null,
+        edge: { ...neutralMaskEdge },
         light: { ...neutralMaskLight, exposureEv: -0.4, highlights: -20, whites: 13, blacks: 7 },
         strokes: [brush('add', 0.22, 0.4, [[0.6, 0.4]])],
       },
@@ -345,7 +350,7 @@ test('raster histogram refuses non-finite masked samples outside the visible vie
 import {PreviewPresenter} from './src/renderer/src/preview/presenter';
 import {neutralAdjustments,srgbTransform} from './src/shared/adjustments';
 import {identityMaskGeometry} from './src/shared/mask-geometry';
-import {neutralMaskLight} from './src/shared/masks';
+import {neutralMaskLight,neutralMaskEdge} from './src/shared/masks';
 window.runOffviewHistogramOverflow=async()=>{
  const canvas=document.createElement('canvas');document.body.append(canvas);
  let photographError='',histogramError='',publications=0;
@@ -356,6 +361,7 @@ window.runOffviewHistogramOverflow=async()=>{
   presenter.draw({width:4,height:1},{width:64,height:64},{fit:false,scale:64,x:96,y:0},
    {...neutralAdjustments,maskGeometry:identityMaskGeometry(4,1),localMasks:[{
     id:'00000000-0000-0000-0000-000000000013',name:'Off-view overflow',head:null,enabled:true,inverted:false,
+    edge: { ...neutralMaskEdge },
     light:{...neutralMaskLight,exposureEv:5},strokes:[{mode:'add',radius:.5,feather:0,points:[{x:.875,y:.5}]}]}]});
   const until=performance.now()+6000;
   while(!histogramError&&!photographError&&performance.now()<until)await new Promise(resolve=>setTimeout(resolve,10));
@@ -409,7 +415,7 @@ import {PreviewPresenter} from './src/renderer/src/preview/presenter';
 import {neutralAdjustments,srgbTransform,renderAdjustments} from './src/shared/adjustments';
 import {imageStatistics} from './src/shared/statistics';
 import {identityMaskGeometry} from './src/shared/mask-geometry';
-import {neutralMaskLight} from './src/shared/masks';
+import {neutralMaskLight,neutralMaskEdge} from './src/shared/masks';
 window.runStaleHistogramFailure=async()=>{
  const canvas=document.createElement('canvas');document.body.append(canvas);
  let photographError='',histogramError='',statistics,hold=true,invalidReadback=false;
@@ -430,6 +436,7 @@ window.runStaleHistogramFailure=async()=>{
   presenter.setWorking(frame);
   presenter.draw(image,viewport,view,{...neutralAdjustments,maskGeometry:identityMaskGeometry(4,1),localMasks:[{
    id:'00000000-0000-0000-0000-000000000014',name:'Off-view overflow',head:null,enabled:true,inverted:false,
+   edge: { ...neutralMaskEdge },
    light:{...neutralMaskLight,exposureEv:5},strokes:[{mode:'add',radius:.5,feather:0,points:[{x:.875,y:.5}]}]}]});
   const until=performance.now()+6000;
   while(!presenter.histogramBusy&&!photographError&&performance.now()<until)await new Promise(resolve=>setTimeout(resolve,10));

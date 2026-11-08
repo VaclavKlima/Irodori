@@ -11,6 +11,9 @@ import { noLensSettings } from '../src/shared/lens'
 import type { Photo } from '../src/shared/contracts'
 import { identityCrop } from '../src/shared/crop'
 import { mergeEditPatch } from '../src/shared/edits'
+import { neutralMaskEdge } from '../src/shared/masks'
+import { MaskContentStore, prepareMaskMutation } from '../src/main/mask-store'
+import { generatedMask } from './helpers/generated-mask'
 
 const timestamp = '2026-10-22T12:00:00.000Z'
 const processor = {
@@ -138,7 +141,10 @@ function storedHistory(history: EditHistory, catalogVersion: number): EditHistor
   for (const settings of [result.settings, ...result.snapshots.map((s) => s.settings)]) {
     const legacy = settings as unknown as Record<string, unknown>
     legacy.version = catalogVersion - 10
-    delete legacy.maskStack
+    if (catalogVersion < 23) delete legacy.maskStack
+    else {
+      for (const mask of legacy.maskStack as Record<string, unknown>[]) delete mask.edge
+    }
     if (catalogVersion < 22) delete legacy.curves
     if (catalogVersion < 21) {
       delete legacy.noiseReduction
@@ -240,7 +246,10 @@ test('current catalogs reject older and unknown settings without rewriting any s
     const original = JSON.parse(
       (f.db.prepare('SELECT data FROM edits WHERE id = ?').get(id) as { data: string }).data,
     ) as EditHistory
-    for (const version of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, SETTINGS_VERSION + 1]) {
+    for (const version of [
+      ...Array.from({ length: SETTINGS_VERSION - 1 }, (_, i) => i + 1),
+      SETTINGS_VERSION + 1,
+    ]) {
       for (const snapshotOnly of [false, true]) {
         const history = structuredClone(original)
         Object.assign(snapshotOnly ? history.snapshots[0].settings : history.settings, { version })
@@ -515,6 +524,106 @@ test('creative color preflight rejects malformed current and redo groups before 
         f.db.prepare('UPDATE edits SET data = ? WHERE id = ?').run(JSON.stringify(history), id)
         await rejectedBeforeWrites(f, 'edit history format is unsupported')
       }
+  } finally {
+    await f.close()
+  }
+})
+
+test('catalog 24 upgrades mask edges neutrally across current, undo and redo snapshots without rewriting immutable content', async () => {
+  const f = await fixture()
+  try {
+    const store = new MaskContentStore(f.db)
+    const histories = f.photos.map((photo): EditHistory => {
+      const id =
+        photo.format === 'ARW'
+          ? '11111111-1111-1111-1111-111111111111'
+          : '22222222-2222-2222-2222-222222222222'
+      const base = generatedMask(3, 2, (x) => (x ? 255 : 0))
+      const created = prepareMaskMutation([], {
+        operations: [
+          { kind: 'create', id, name: 'Retained object' },
+          {
+            kind: 'stroke',
+            id,
+            stroke: { mode: 'add', radius: 0.1, feather: 0.5, points: [{ x: 0.3, y: 0.4 }] },
+          },
+        ],
+      })
+      created.stack[0].base = {
+        version: 1,
+        hash: base.hash,
+        width: base.width,
+        height: base.height,
+      }
+      const corrected = prepareMaskMutation(created.stack, {
+        operations: [
+          {
+            kind: 'stroke',
+            id,
+            stroke: { mode: 'subtract', radius: 0.05, feather: 0.25, points: [{ x: 0.6, y: 0.4 }] },
+          },
+          { kind: 'update', id, inverted: true, light: { exposureEv: 0.75 } },
+        ],
+      })
+      store.publish(photo.id, corrected.stack, [...created.chunks, ...corrected.chunks], [base])
+      const snapshots = [[], created.stack, corrected.stack].map((maskStack, index) => ({
+        createdAt: `2026-11-0${index + 1}T12:00:00.000Z`,
+        settings: {
+          ...initialSettings(noLensSettings),
+          processing:
+            photo.format === 'ARW' ? ('hdr-v1' as const) : ('display-referred-v1' as const),
+          maskStack,
+        },
+      }))
+      return {
+        photoId: photo.id,
+        revision: 12,
+        cursor: 1,
+        canUndo: true,
+        canRedo: true,
+        settings: snapshots[1].settings,
+        snapshots,
+      }
+    })
+    for (const history of histories)
+      f.db
+        .prepare('UPDATE edits SET data = ? WHERE id = ?')
+        .run(JSON.stringify(storedHistory(history, 24)), history.photoId)
+    f.db.exec('PRAGMA user_version=24')
+    const contentBefore = f.db.prepare('SELECT * FROM mask_content ORDER BY photo_id, hash').all()
+    const basesBefore = f.db
+      .prepare('SELECT * FROM mask_base_content ORDER BY photo_id, hash')
+      .all()
+    const library = f.make()
+    await library.open()
+    for (const history of histories) {
+      expect(
+        JSON.parse(
+          (
+            f.db.prepare('SELECT data FROM edits WHERE id = ?').get(history.photoId) as {
+              data: string
+            }
+          ).data,
+        ),
+      ).toEqual(history)
+      const actual = await library.getEditHistory(history.photoId)
+      expect(actual).toMatchObject({ revision: 12, cursor: 1, canUndo: true, canRedo: true })
+      expect(
+        actual.settings.maskStack.every(
+          (mask) => JSON.stringify(mask.edge) === JSON.stringify(neutralMaskEdge),
+        ),
+      ).toBe(true)
+    }
+    expect(f.db.prepare('PRAGMA user_version').get()).toMatchObject({
+      user_version: CATALOG_VERSION,
+    })
+    expect(f.db.prepare('SELECT * FROM mask_content ORDER BY photo_id, hash').all()).toEqual(
+      contentBefore,
+    )
+    expect(f.db.prepare('SELECT * FROM mask_base_content ORDER BY photo_id, hash').all()).toEqual(
+      basesBefore,
+    )
+    await f.assertFiles(f.originals)
   } finally {
     await f.close()
   }

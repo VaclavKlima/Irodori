@@ -4,7 +4,17 @@ import { mkdir, readFile, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { neutralAdjustments } from '../../shared/adjustments'
 import { noLensSettings } from '../../shared/lens'
-import { neutralMaskLight, type MaskBaseContent, type MaskDescriptor } from '../../shared/masks'
+import {
+  neutralMaskEdge,
+  neutralMaskLight,
+  maskHasEdges,
+  maskBaseReference,
+  validatePreparedMaskCoverage,
+  type MaskBaseContent,
+  type MaskDescriptor,
+  type PreparedMaskCoverage,
+  type ResolvedMask,
+} from '../../shared/masks'
 import {
   objectSelectionCapabilities,
   validateAcceptObjectSelection,
@@ -30,6 +40,11 @@ interface SelectionOwner {
   edits(id: string): Promise<EditState>
   admission(signal: AbortSignal): Promise<CropAdmission>
   commit(request: ObjectSelectionRequest, base: MaskBaseContent, maskId: string): Promise<EditState>
+  prepareCoverage?(
+    mask: ResolvedMask,
+    context: PhotoMaskContext,
+    signal: AbortSignal,
+  ): Promise<PreparedMaskCoverage>
 }
 interface HeldProposal {
   public: ObjectSelectionProposal
@@ -255,11 +270,37 @@ export class ObjectSelectionService {
             inverted: false,
             head: null,
             light: { ...neutralMaskLight },
+            edge: { ...neutralMaskEdge },
             strokes: [],
           }),
           base,
+          preparedCoverage: undefined,
         },
       }
+      if (maskHasEdges(proposal.mask)) {
+        if (!this.owner.prepareCoverage)
+          throw new Error(
+            'Mask edge coverage preparation is unavailable. Cancel selection and retry GPU.',
+          )
+        // Retire the opaque model heap before the separate native edge GPU phase.
+        // Canonical source files remain reusable for later prompt refinements.
+        await this.runtime.close()
+        signal.throwIfAborted()
+        const coverage = await this.owner.prepareCoverage(
+          proposal.mask,
+          await this.owner.context(request.photoId, request.expectedRevision),
+          signal,
+        )
+        validatePreparedMaskCoverage(coverage)
+        verifiedMaskBaseBytes({ ...maskBaseReference(coverage), pngBase64: coverage.pngBase64 })
+        if (coverage.width !== width || coverage.height !== height)
+          throw new Error('Prepared mask coverage has a different canonical source grid.')
+        proposal.mask.preparedCoverage = coverage
+      }
+      signal.throwIfAborted()
+      await this.validate(request)
+      if (sequence !== this.sequence || this.closed)
+        throw new Error('Object selection was superseded.')
       this.proposal = { public: proposal, request, base }
       return structuredClone(proposal)
     } finally {
@@ -354,6 +395,7 @@ export function selectedMaskStack(
       head: null,
       base: reference,
       light: { ...neutralMaskLight },
+      edge: { ...neutralMaskEdge },
     },
     ...current,
   ]

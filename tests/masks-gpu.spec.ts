@@ -4,7 +4,7 @@ import { createPointGpu } from '../src/main/gpu/point-renderer'
 import { localMasksWgsl, packLocalMasks } from '../src/shared/masks-gpu'
 import { identityMaskGeometry } from '../src/shared/mask-geometry'
 import { neutralAdjustments } from '../src/shared/adjustments'
-import { neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
+import { neutralMaskEdge, neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
 import { brush, referenceCoverage, referenceStack } from './helpers/mask-reference'
 import {
   hdrHistogramShaderFor,
@@ -22,6 +22,7 @@ const mask = (ordinal: number): ResolvedMask => ({
   enabled: true,
   inverted: false,
   head: null,
+  edge: { ...neutralMaskEdge },
   light: { ...neutralMaskLight },
   strokes: [],
 })

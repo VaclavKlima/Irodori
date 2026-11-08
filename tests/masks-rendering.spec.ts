@@ -11,7 +11,7 @@ import { neutralAdjustments } from '../src/shared/adjustments'
 import { automaticLensSettings } from '../src/shared/lens'
 import { identityCrop } from '../src/shared/crop'
 import { defaultExportOptions } from '../src/shared/export'
-import { neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
+import { neutralMaskEdge, neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
 import { proofFixture } from './export-proof.helpers'
 import { cropAdmission } from './crop-frame.helpers'
 import { sha } from './export.helpers'
@@ -62,6 +62,7 @@ function masks(): ResolvedMask[] {
       enabled: true,
       inverted: false,
       head: null,
+      edge: { ...neutralMaskEdge },
       light: { ...neutralMaskLight, exposureEv: 0.8, shadows: 10 },
       strokes: [
         {
@@ -81,6 +82,7 @@ function masks(): ResolvedMask[] {
       enabled: true,
       inverted: false,
       head: null,
+      edge: { ...neutralMaskEdge },
       light: { ...neutralMaskLight, exposureEv: -0.7 },
       strokes: [{ mode: 'add', radius: 0.1, feather: 0.6, points: [{ x: 0.8, y: 0.8 }] }],
     },
@@ -200,7 +202,7 @@ test('real Sony RAW masks retain canonical placement through crop and HDR proof/
   await compare(source, info.outputPath('sony'))
 })
 
-test('authored HDR and immutable merge masks agree between proof and exported JPEG', async ({}, info) => {
+test('authored HDR and cropped synthetic merge-master edge masks agree between proof and exported JPEG', async ({}, info) => {
   test.setTimeout(120000)
   await mkdir(info.outputPath('authored'), { recursive: true })
   const input = await hdrJpegFixture(info.outputPath('authored'))
@@ -225,6 +227,15 @@ test('authored HDR and immutable merge masks agree between proof and exported JP
     merged.processing = {
       ...merged.processing,
       processing: 'hdr-v1',
+      crop: {
+        ...identityCrop,
+        centerX: 0.53,
+        centerY: 0.52,
+        width: 0.8,
+        height: 0.7,
+        angle: 1.25,
+        quarterTurns: 1,
+      },
       adjustments: { ...neutralAdjustments, localMasks: masks() },
       metadata: {
         ...merged.processing.metadata,
@@ -237,7 +248,48 @@ test('authored HDR and immutable merge masks agree between proof and exported JP
         hdr: asset,
       },
     }
-    await compare(merged, info.outputPath('merge-output'))
+    const local = merged.processing.adjustments!.localMasks!
+    local[0].strokes = [
+      {
+        mode: 'add',
+        radius: 0.08,
+        feather: 0.2,
+        points: [
+          { x: 0.52, y: 0.3 },
+          { x: 0.52, y: 0.65 },
+        ],
+      },
+      { mode: 'subtract', radius: 0.025, feather: 0.1, points: [{ x: 0.52, y: 0.5 }] },
+    ]
+    local[1].inverted = true
+    local[1].strokes = [
+      { mode: 'add', radius: 0.15, feather: 0.2, points: [{ x: 0.52, y: 0.5 }] },
+      { mode: 'subtract', radius: 0.04, feather: 0.1, points: [{ x: 0.6, y: 0.5 }] },
+    ]
+    const neutralEdges = await compare(merged, info.outputPath('merge-neutral-edges'))
+    local[0].edge = { featherPx: 2.5, shiftPx: 2 }
+    local[1].edge = { featherPx: 1.5, shiftPx: -1 }
+    const edited = await compare(merged, info.outputPath('merge-edge-output'))
+    expect(edited.info.width).toBe(neutralEdges.info.width)
+    expect(edited.info.height).toBe(neutralEdges.info.height)
+    let maximumEdgeEffect = 0
+    for (let i = 0; i < edited.data.length; i++)
+      maximumEdgeEffect = Math.max(
+        maximumEdgeEffect,
+        Math.abs(edited.data[i] - neutralEdges.data[i]),
+      )
+    expect(maximumEdgeEffect).toBeGreaterThan(2)
+    await info.attach('synthetic-merge-edge-scope', {
+      contentType: 'application/json',
+      body: JSON.stringify({
+        source: 'Synthetic v4 merge master; not real merged-photograph quality acceptance.',
+        crop: merged.processing.crop,
+        edges: local.map((mask) => mask.edge),
+        inverted: local.map((mask) => mask.inverted),
+        maximumEdgeEffect,
+        proofExportMaximumCodeDifference: 2,
+      }),
+    })
   } finally {
     await merge.close()
   }

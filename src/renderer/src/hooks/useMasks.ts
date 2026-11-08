@@ -2,6 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { AdjustmentParameters } from '../../../shared/adjustments'
 import {
   maskCapabilities,
+  maskHasEdges,
+  neutralMaskEdge,
+  type MaskEdgeSettings,
   type MaskLight,
   type MaskOperation,
   type MaskPoint,
@@ -16,6 +19,7 @@ type Draft = {
   revision: number
   maskId: string
   light?: MaskLight
+  edge?: MaskEdgeSettings
   stroke?: MaskStroke
   order?: string[]
 }
@@ -42,6 +46,11 @@ export function useMasks(
   const [draft, setDraft] = useState<Draft | null>(null)
   const draftRef = useRef<Draft | null>(null)
   const [pending, setPending] = useState(false)
+  const [committingEdge, setCommittingEdge] = useState<Pick<
+    Draft,
+    'photoId' | 'maskId' | 'edge'
+  > | null>(null)
+  const pendingCommit = useRef<Promise<void> | null>(null)
   const [brushDraft, setBrushDraft] = useState<{
     scope: object
     selectedId: string | null
@@ -101,20 +110,33 @@ export function useMasks(
   }
   const flush = useCallback(async () => {
     const value = draftRef.current
-    if (!value?.light) return
+    if (!value?.light && !value?.edge) return pendingCommit.current ?? undefined
+    if (value.edge)
+      setCommittingEdge({ photoId: value.photoId, maskId: value.maskId, edge: value.edge })
     publish(null)
     if (
       value.photoId !== current.current.photoId ||
       value.revision !== current.current.edits.state?.revision
-    )
+    ) {
+      setCommittingEdge(null)
       throw new Error('Edits changed. The local adjustment draft was cancelled.')
+    }
     busy.current = true
     setPending(true)
+    const work = current.current.edits.commitMasks(
+      [
+        {
+          kind: 'update',
+          id: value.maskId,
+          ...(value.light ? { light: value.light } : {}),
+          ...(value.edge ? { edge: value.edge } : {}),
+        },
+      ],
+      value.revision,
+    )
+    pendingCommit.current = work
     try {
-      await current.current.edits.commitMasks(
-        [{ kind: 'update', id: value.maskId, light: value.light }],
-        value.revision,
-      )
+      await work
       setError('')
     } catch (error) {
       setError(String(error))
@@ -122,6 +144,8 @@ export function useMasks(
     } finally {
       busy.current = false
       setPending(false)
+      setCommittingEdge(null)
+      if (pendingCommit.current === work) pendingCommit.current = null
     }
   }, [publish, setError])
   const registerFlush = edits.registerFlush
@@ -177,13 +201,27 @@ export function useMasks(
         : {
             ...mask,
             light: draft.light ?? mask.light,
-            strokes: draft.stroke ? [...mask.strokes, draft.stroke] : mask.strokes,
+            strokes:
+              draft.stroke && !maskHasEdges(mask) ? [...mask.strokes, draft.stroke] : mask.strokes,
           },
     )
     if (draft.order) result = draft.order.map((id) => result.find((mask) => mask.id === id)!)
     return result
   }, [confirmed, draft, photoId, state?.revision])
   const adjustments: AdjustmentParameters = { ...edits.adjustments, localMasks: resolved }
+  const edgeValues =
+    draft &&
+    draft.photoId === photoId &&
+    draft.revision === state?.revision &&
+    draft.maskId === selectedId &&
+    draft.edge
+      ? draft.edge
+      : committingEdge &&
+          committingEdge.photoId === photoId &&
+          committingEdge.maskId === selectedId &&
+          committingEdge.edge
+        ? committingEdge.edge
+        : (selected?.edge ?? neutralMaskEdge)
   const safely = (work: Promise<unknown>) => {
     void work.catch(() => undefined)
   }
@@ -206,6 +244,7 @@ export function useMasks(
     masks: resolved,
     selectedId,
     selected: resolved.find((m) => m.id === selectedId) ?? null,
+    edgeValues,
     available,
     supported,
     active,
@@ -217,6 +256,10 @@ export function useMasks(
     adjustments,
     gesturing: !!draft,
     drawing: !!draft?.stroke,
+    strokeDraft:
+      draft && draft.photoId === photoId && draft.revision === state?.revision
+        ? draft.stroke
+        : undefined,
     epoch,
     cancel,
     flush,
@@ -224,6 +267,7 @@ export function useMasks(
     select: async (id: string) => {
       await edits.flush()
       if (current.current.photoId !== photoId || !current.current.enabled) return
+      if (!current.current.edits.state?.settings.maskStack.some((mask) => mask.id === id)) return
       cancel()
       changeWorkspace({ selectedId: id })
     },
@@ -287,6 +331,7 @@ export function useMasks(
       if (!available || !selected || !state || !photoId) return
       const prior = draftRef.current
       publish({
+        ...(prior?.maskId === selected.id && prior.edge ? { edge: prior.edge } : {}),
         photoId,
         revision: state.revision,
         maskId: selected.id,
@@ -297,6 +342,21 @@ export function useMasks(
       })
     },
     commitLight: () => safely(flush()),
+    changeEdge: (key: keyof MaskEdgeSettings, value: number) => {
+      if (!available || !selected || !state || !photoId) return
+      const prior = draftRef.current
+      publish({
+        ...(prior?.maskId === selected.id && prior.light ? { light: prior.light } : {}),
+        photoId,
+        revision: state.revision,
+        maskId: selected.id,
+        edge: {
+          ...((prior?.maskId === selected.id ? prior.edge : null) ?? selected.edge),
+          [key]: value,
+        },
+      })
+    },
+    commitEdge: () => safely(flush()),
     changeBrush: (key: 'size' | 'feather', value: number) => {
       setBrushDraft({ scope, selectedId, values: { ...brushValues, [key]: value } })
     },

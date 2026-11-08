@@ -24,7 +24,12 @@ import {
   ScanSearch,
   Trash2,
 } from 'lucide-react'
-import { maskCapabilities, neutralMaskLight, type MaskLight } from '../../../shared/masks'
+import {
+  maskCapabilities,
+  neutralMaskEdge,
+  neutralMaskLight,
+  type MaskLight,
+} from '../../../shared/masks'
 import type { MaskDetailTab } from '../../../shared/workspace'
 import { Button, IconButton, TabPanel, Tabs } from './ui/Controls'
 import { CommandMenu, type CommandMenuAction, type MenuInitialFocus } from './ui/CommandMenu'
@@ -110,6 +115,7 @@ export function Masks({
   const [menu, setMenu] = useState<OpenMenu | null>(null)
   const [renaming, setRenaming] = useState<{ scope: object; id: string } | null>(null)
   const [lightExpanded, setLightExpanded] = useState(true)
+  const [edgesExpanded, setEdgesExpanded] = useState(true)
   const list = useRef<HTMLOListElement>(null)
   const details = useRef<HTMLDivElement>(null)
   const pendingFocus = useRef<{ scope: object; id: string; deleted?: boolean } | null>(null)
@@ -437,7 +443,7 @@ export function Masks({
                   title={mask.name}
                   data-mask-select
                   aria-pressed={mask.id === masks.selectedId}
-                  disabled={!masks.available}
+                  disabled={!masks.supported}
                   onClick={() => void masks.select(mask.id).catch(() => undefined)}
                 >
                   <span>
@@ -507,6 +513,60 @@ export function Masks({
               {objectSelection && <ObjectSelectionControls selection={objectSelection} />}
               {selected && !selecting && (
                 <>
+                  <InspectorSection
+                    id="mask-edge-controls"
+                    title="Mask edges"
+                    expanded={edgesExpanded}
+                    onToggle={() => setEdgesExpanded((value) => !value)}
+                    headerActions={
+                      <IconButton
+                        icon={RotateCcw}
+                        label="Reset mask edges"
+                        disabled={!masks.available}
+                        onClick={() =>
+                          masks.update({
+                            kind: 'update',
+                            id: selected.id,
+                            edge: { ...neutralMaskEdge },
+                          })
+                        }
+                      />
+                    }
+                  >
+                    <AdjustmentInput
+                      label="Feather"
+                      unit="px"
+                      min={maskCapabilities.edge.featherPx.min}
+                      max={maskCapabilities.edge.featherPx.max}
+                      step={maskCapabilities.edge.featherPx.step}
+                      precision={1}
+                      value={masks.edgeValues.featherPx}
+                      disabled={!masks.supported}
+                      busy={masks.busy}
+                      resetKey={masks.resetKey}
+                      onChange={(value) => masks.changeEdge('featherPx', value)}
+                      onCommit={masks.commitEdge}
+                      onCancel={masks.cancel}
+                    />
+                    <AdjustmentInput
+                      label="Expand/Contract"
+                      unit="px"
+                      min={maskCapabilities.edge.shiftPx.min}
+                      max={maskCapabilities.edge.shiftPx.max}
+                      step={maskCapabilities.edge.shiftPx.step}
+                      precision={0}
+                      value={masks.edgeValues.shiftPx}
+                      disabled={!masks.supported}
+                      busy={masks.busy}
+                      resetKey={masks.resetKey}
+                      onChange={(value) => masks.changeEdge('shiftPx', value)}
+                      onCommit={masks.commitEdge}
+                      onCancel={masks.cancel}
+                    />
+                    <p className={styles.hint}>
+                      Photo pixels. + expands; − contracts. Preview updates when committed.
+                    </p>
+                  </InspectorSection>
                   <div className={styles.section}>
                     <h3>Manual correction</h3>
                     <div className={styles.brush} role="group" aria-label="Mask brush">

@@ -29,6 +29,11 @@ import {
 } from '../../shared/masks-gpu'
 import { maskOutputSize } from '../../shared/mask-geometry'
 import { createMaskBaseAtlas } from './mask-bases'
+import {
+  activeNativeMaskEdges,
+  prepareNativeMaskEdges,
+  type NativeMaskEdgeOptions,
+} from '../mask-edges/native'
 
 const inputMatrix =
   'mat3x3f(' + REC2020_TO_ACES.map((row) => 'vec3f(' + row.join(',') + ')').join(',') + ')'
@@ -151,7 +156,7 @@ export async function createPointGpu(
   workgroup = 64,
   deferredPixels = 0,
   vramLimitBytes = EXPORT_GPU_LIMIT_BYTES,
-  options: PointRenderOptions = { domain: 'scene-linear' },
+  options: PointRenderOptions & NativeMaskEdgeOptions = { domain: 'scene-linear' },
   makeRenderer: () => Pick<RawGpuRenderer, 'mergeDevice' | 'close'> &
     Partial<Pick<RawGpuRenderer, 'failure'>> = () => new RawGpuRenderer(),
 ) {
@@ -159,7 +164,11 @@ export async function createPointGpu(
   if (![32, 64, 128, 256].includes(workgroup)) throw new Error('Invalid export workgroup size.')
   if (!Number.isSafeInteger(deferredPixels) || deferredPixels < 0)
     throw new Error('Invalid retained export dimensions.')
-  options = structuredClone(options)
+  // AbortSignal belongs to this process; only serializable rendering settings are cloned.
+  const { signal: suppliedSignal, edgeAdmission, ...renderOptions } = options
+  const signal = suppliedSignal ?? new AbortController().signal
+  signal.throwIfAborted()
+  options = structuredClone(renderOptions)
   if (
     !['scene-linear', 'raster', 'authored-hdr'].includes(options.domain) ||
     (options.primary && options.domain !== 'authored-hdr') ||
@@ -188,22 +197,28 @@ export async function createPointGpu(
     ? maskOutputSize(adjustments.maskGeometry)
     : options.maskSize
   if (masks && !maskSize) throw new Error('Local edits require authoritative source geometry.')
-  const maskData = masks ? packLocalMasks(adjustments, maskSize!) : undefined
-  const basePlan = maskBaseAtlasPlan(adjustments),
-    bases = masks && basePlan.bases.length > 0
-  const allocation = exportGpuAllocation(
-    capacity,
-    hdr,
-    packed,
-    creative,
-    deferredPixels,
-    vramLimitBytes,
-    !!options.primary,
-    curves,
-    (maskData?.byteLength ?? 0) + (bases ? basePlan.bytes : 0),
-  )
-  if (!allocation.accepted)
-    throw new ExportResourceError('GPU export exceeds the frozen managed image budgets.')
+  const pointPlan = (parameters: AdjustmentParameters) => {
+    const maskData = masks ? packLocalMasks(parameters, maskSize!) : undefined
+    const basePlan = maskBaseAtlasPlan(masks ? parameters : { localMasks: [] }),
+      bases = masks && basePlan.bases.length > 0
+    const allocation = exportGpuAllocation(
+      capacity,
+      hdr,
+      packed,
+      creative,
+      deferredPixels,
+      vramLimitBytes,
+      !!options.primary,
+      curves,
+      (maskData?.byteLength ?? 0) + (bases ? basePlan.bytes : 0),
+    )
+    if (!allocation.accepted)
+      throw new ExportResourceError('GPU export exceeds the frozen managed image budgets.')
+    return { maskData, basePlan, bases, allocation }
+  }
+  // The neutral path retains refusal before acquiring a GPU owner.
+  let planned =
+    masks && activeNativeMaskEdges(adjustments).length ? undefined : pointPlan(adjustments)
   const gpu = makeRenderer(),
     resources: GPUBuffer[] = []
   let queue: GPUQueue | undefined,
@@ -211,6 +226,7 @@ export async function createPointGpu(
     pending: Promise<{ data: Buffer; headroom: number }> | undefined,
     closing = false,
     drained: Promise<void> | undefined
+  let edgePeakBytes = 0
   const close = () =>
     (drained ??= (async () => {
       closing = true
@@ -226,6 +242,28 @@ export async function createPointGpu(
     // Never enter native Dawn again through a terminal owner's returned handle.
     if (gpu.failure) throw new Error(gpu.failure)
     queue = device.queue
+    if (!planned) {
+      const size = adjustments.maskGeometry
+        ? {
+            width: adjustments.maskGeometry.canonicalWidth,
+            height: adjustments.maskGeometry.canonicalHeight,
+          }
+        : maskSize!
+      const prepared = await prepareNativeMaskEdges(
+        device,
+        adjustments,
+        size.width,
+        size.height,
+        vramLimitBytes,
+        { signal, edgeAdmission },
+      )
+      adjustments = prepared.adjustments
+      edgePeakBytes = prepared.peakBytes
+      // Edge scratch is drained and destroyed before the point-render allocations below.
+      planned = pointPlan(adjustments)
+    }
+    signal.throwIfAborted()
+    const { maskData, basePlan, bases, allocation } = planned
     if (bases) baseTexture = await createMaskBaseAtlas(device, adjustments)
     const stride = packed ? (hdr ? 3 : 1) : hdr ? 6 : 3
     const buffer = (size: number, usage: number) => {
@@ -376,6 +414,7 @@ export async function createPointGpu(
       hdrPass = false,
       primaryPixels?: Float32Array<ArrayBuffer>,
     ) => {
+      signal.throwIfAborted()
       if (
         !Number.isInteger(count) ||
         count < 1 ||
@@ -406,6 +445,7 @@ export async function createPointGpu(
       device.queue.submit([encoder.finish()])
       await staging.mapAsync(GPUMapMode.READ)
       try {
+        signal.throwIfAborted()
         const mapped = staging.getMappedRange()
         const data = Buffer.from(new Uint8Array(mapped, 4, count * outputStride * 4))
         const headroom = new Float32Array(mapped, 0, 1)[0]
@@ -441,7 +481,10 @@ export async function createPointGpu(
     return {
       adapter,
       hdrDeferred,
-      peakBytes: resources.reduce((sum, b) => sum + b.size, 0),
+      peakBytes: Math.max(
+        edgePeakBytes,
+        resources.reduce((sum, b) => sum + b.size, 0) + (bases ? basePlan.bytes : 0),
+      ),
       render(
         pixels: Float32Array<ArrayBuffer>,
         offset = 0,

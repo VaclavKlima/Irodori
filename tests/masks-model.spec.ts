@@ -7,6 +7,7 @@ import { prepareMaskMutation } from '../src/main/mask-store'
 import { hasLocalMasks, localMaskPixelData } from '../src/shared/masks-gpu'
 import {
   neutralMaskLight,
+  neutralMaskEdge,
   resolveMasks,
   validateMaskMutation,
   type MaskStroke,
@@ -31,6 +32,7 @@ test('empty and erase-only masks preserve analysis until their coverage can affe
     inverted: false,
     head: null,
     light: { ...neutralMaskLight, exposureEv: 1.83 },
+    edge: { ...neutralMaskEdge },
     strokes: [],
   }
   expect(hasLocalMasks({ localMasks: [mask] })).toBe(false)
@@ -106,6 +108,7 @@ test('mask commands reject unbounded, nonfinite, out-of-source and unsupported d
           inverted: false,
           head: 'a'.repeat(64),
           light: { ...neutralMaskLight },
+          edge: { ...neutralMaskEdge },
         },
       ],
       [],

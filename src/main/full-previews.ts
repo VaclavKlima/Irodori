@@ -124,6 +124,8 @@ import { CROP_POLICY, LENS_RENDER_VERSION } from './processing/lens-correction'
 import { croppedMaskGeometry, identityMaskGeometry } from '../shared/mask-geometry'
 import { hasLocalMasks, packLocalMasks, maskBaseAtlasPlan } from '../shared/masks-gpu'
 import type { ResolvedMask } from '../shared/masks'
+import { maskHasEdges, maskCapabilities } from '../shared/masks'
+import { maskEdgeMemoryPlan, maskEdgePixelIdentity } from '../shared/mask-edges'
 import { spatialExecutionBackend } from './processing/spatial-backend'
 import type { WorkScheduler } from './work-scheduler'
 import {
@@ -154,6 +156,7 @@ interface Request {
   abort: AbortController
   sourceSpace?: boolean
   unfiltered?: boolean
+  geometryRead?: boolean
   entry?: Entry
   linearEntry?: Entry
   work?: Promise<DisplayPreview | null>
@@ -835,7 +838,12 @@ export class FullPreviews {
     return options
   }
 
-  private async nativeCropSource(id: string, expectedRevision: number, sourceLens?: LensSettings) {
+  private async nativeCropSource(
+    id: string,
+    expectedRevision: number,
+    sourceLens?: LensSettings,
+    geometryRead = false,
+  ) {
     const before = await this.confirmedCropOptions(id, expectedRevision),
       token = randomUUID(),
       frame = await this.prepare(
@@ -852,6 +860,8 @@ export class FullPreviews {
         true,
         sourceLens,
         true,
+        undefined,
+        geometryRead,
       ),
       after = await this.confirmedCropOptions(id, expectedRevision)
     if (!frame?.linear) throw new Error('Native crop geometry is unavailable.')
@@ -887,18 +897,51 @@ export class FullPreviews {
     if (!masks.length) return
     const prepared = await this.nativeCropSource(id, expectedRevision)
     const crop = cropGeometry(prepared.source, prepared.options.crop ?? identityCrop)
+    const unfiltered = masks.map((mask) => ({
+      ...mask,
+      edge: { featherPx: 0, shiftPx: 0 },
+      preparedCoverage: undefined,
+    }))
     const packed = packLocalMasks(
-      { localMasks: masks, maskGeometry: croppedMaskGeometry(prepared.maskGeometry, crop) },
+      { localMasks: unfiltered, maskGeometry: croppedMaskGeometry(prepared.maskGeometry, crop) },
       crop,
     )
-    const atlas = maskBaseAtlasPlan({ localMasks: masks })
-    if (atlas.bases.length && prepared.options.processing !== 'hdr-v1') {
+    const atlas = maskBaseAtlasPlan({ localMasks: unfiltered })
+    const { canonicalWidth: width, canonicalHeight: height } = prepared.maskGeometry
+    const layers = new Set(
+      masks.flatMap((mask) =>
+        maskHasEdges(mask)
+          ? [`edge:${maskEdgePixelIdentity(mask)}`]
+          : mask.base
+            ? [mask.base.hash]
+            : [],
+      ),
+    ).size
+    const atlasBytes = width * height * layers
+    if (atlasBytes > maskCapabilities.maxBaseAtlasBytes)
+      throw new Error(
+        'Mask coverage exceeds the 256 MiB native atlas limit. Reset Mask edges or remove a generated mask.',
+      )
+    if (masks.some(maskHasEdges)) {
+      if (!this.cropAdmission) throw new Error('Mask edge resource admission is unavailable.')
+      const memory = maskEdgeMemoryPlan(
+        width,
+        height,
+        masks,
+        await this.cropAdmission(new AbortController().signal),
+      )
+      if (!memory.accepted)
+        throw new Error(
+          'Mask edges exceed the current image-memory budget. Reset Mask edges or close other processing before retrying.',
+        )
+    }
+    if (layers && prepared.options.processing !== 'hdr-v1') {
       // Preserve the raster presenter's 512 MiB cap, including native float mips,
       // a 16 MiB viewport allowance, curves/histogram and bounded strip upload.
       const required =
         crop.width * crop.height * ((16 * 4) / 3) +
         packed.byteLength +
-        atlas.bytes +
+        atlasBytes +
         atlas.uploadBytes +
         17 * 1024 ** 2
       if (required > 512 * 1024 ** 2)
@@ -913,7 +956,7 @@ export class FullPreviews {
     id: string,
     expectedRevision: number,
   ): Promise<import('../shared/mask-geometry').PhotoMaskContext> {
-    const prepared = await this.nativeCropSource(id, expectedRevision)
+    const prepared = await this.nativeCropSource(id, expectedRevision, undefined, true)
     const crop = cropGeometry(prepared.source, prepared.options.crop ?? identityCrop)
     return {
       photoId: id,
@@ -1000,6 +1043,7 @@ export class FullPreviews {
     sourceLens?: LensSettings,
     unfiltered = false,
     comparison?: ComparisonContext,
+    geometryRead = false,
   ): Promise<DisplayPreview | null> {
     if (
       this.closed ||
@@ -1020,7 +1064,10 @@ export class FullPreviews {
       for (const job of this.analyses.keys())
         job.abort(new Error('Statistics interrupted by foreground preview.'))
       for (const job of this.background)
-        job.abort.abort(new Error('Statistics interrupted by active preview.'))
+        // Same-photo masks and presentation share the serialized source owner.
+        // Geometry remains revision-fenced and is cancelled by settings changes.
+        if (!job.geometryRead || job.id !== id)
+          job.abort.abort(new Error('Statistics interrupted by active preview.'))
       this.detach(false)
     }
     const started = performance.now()
@@ -1031,6 +1078,7 @@ export class FullPreviews {
       abort: comparison?.owner.abort ?? new AbortController(),
       sourceSpace,
       unfiltered,
+      geometryRead,
     }
     if (background) this.background.add(request)
     else this.active = request

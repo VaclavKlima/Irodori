@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ObjectSelectionService, selectedMaskStack } from '../src/main/object-selection/service'
-import { initialSettings, type EditState } from '../src/shared/edits'
+import { initialSettings, SETTINGS_VERSION, type EditState } from '../src/shared/edits'
 import { identityMaskGeometry, type MaskGeometry } from '../src/shared/mask-geometry'
 import { neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
 import type { ObjectSelectionRequest } from '../src/shared/object-selection'
@@ -16,6 +16,7 @@ import { DatabaseSync } from 'node:sqlite'
 import {
   migrateEditingHistory,
   supportsEditingSettings,
+  CATALOG_VERSION,
 } from '../src/main/catalog/editing-migration'
 import { catalogTransaction } from '../src/main/catalog/transaction'
 import { MaskContentStore, prepareMaskMutation } from '../src/main/mask-store'
@@ -32,7 +33,7 @@ async function fixture() {
     canRedo: false,
   }
   let geometry: MaskGeometry = identityMaskGeometry(16, 16)
-  const calls = { decode: 0, run: 0, commits: 0, runtimeClose: 0, decoderClose: 0 }
+  const calls = { decode: 0, run: 0, commits: 0, coverage: 0, runtimeClose: 0, decoderClose: 0 }
   const outputs: string[] = []
   const options: {
     badFrameHash?: boolean
@@ -40,6 +41,7 @@ async function fixture() {
     beforeRun?: (signal: AbortSignal) => Promise<void>
     beforeRuntimeClose?: () => Promise<void>
     beforeDecoderClose?: () => Promise<void>
+    beforeCoverage?: (signal: AbortSignal) => Promise<void>
   } = {}
   const service = new ObjectSelectionService(
     root,
@@ -55,6 +57,14 @@ async function fixture() {
       }),
       edits: async () => structuredClone(state),
       admission: async () => cropAdmission(),
+      prepareCoverage: async (mask, context, signal) => {
+        calls.coverage++
+        expect(context.geometry.canonicalWidth).toBe(16)
+        expect(mask.preparedCoverage).toBeUndefined()
+        await options.beforeCoverage?.(signal)
+        signal.throwIfAborted()
+        return { ...generatedMask(16, 16, () => 128), key: 'a'.repeat(64) }
+      },
       commit: async (request, base, id) => {
         if (request.expectedRevision !== state.revision)
           throw new Error('Expected revision changed.')
@@ -168,6 +178,7 @@ async function fixture() {
           inverted: mask.inverted,
           head: mask.head,
           light: { ...mask.light },
+          edge: { ...mask.edge },
           ...(base
             ? { base: { version: 1, hash: base.hash, width: base.width, height: base.height } }
             : {}),
@@ -206,6 +217,7 @@ test('a proposal changes no history; explicit acceptance commits once and consum
     expect(f.state().revision).toBe(4)
     expect(f.state().settings.maskStack).toEqual([])
     expect(proposal.mask.base?.hash).toHaveLength(64)
+    expect(proposal.mask.edge).toEqual({ featherPx: 0, shiftPx: 0 })
     await expect(readFile(f.outputs[0])).rejects.toThrow(/ENOENT/)
     const accepted = await f.service.accept({
       photoId: request.photoId,
@@ -213,6 +225,7 @@ test('a proposal changes no history; explicit acceptance commits once and consum
       proposalId: proposal.id,
     })
     expect(accepted.revision).toBe(5)
+    expect(accepted.settings.version).toBe(SETTINGS_VERSION)
     expect(accepted.settings.maskStack[0].base?.hash).toBe(proposal.mask.base?.hash)
     await expect(
       f.service.accept({ photoId: request.photoId, expectedRevision: 4, proposalId: proposal.id }),
@@ -233,6 +246,7 @@ test('same-grid base replacement preserves the existing name, controls, history 
       inverted: true,
       head: 'c'.repeat(64),
       light: { ...neutralMaskLight, exposureEv: 1.2, shadows: 12 },
+      edge: { featherPx: 12.5, shiftPx: -3 },
       base: generatedMask(16, 16, () => 0),
       strokes: [
         { mode: 'add', radius: 0.1, feather: 0.5, points: [{ x: 0.2, y: 0.3 }] },
@@ -249,9 +263,12 @@ test('same-grid base replacement preserves the existing name, controls, history 
       inverted: true,
       head: mask.head,
       light: mask.light,
+      edge: mask.edge,
       strokes: mask.strokes,
     })
     expect(proposal.mask.base?.hash).not.toBe(mask.base?.hash)
+    expect(proposal.mask.preparedCoverage?.key).toBe('a'.repeat(64))
+    expect(f.calls.coverage).toBe(1)
     expect(f.calls.commits).toBe(0)
     const result = await f.service.accept({
       photoId: request.photoId,
@@ -261,6 +278,7 @@ test('same-grid base replacement preserves the existing name, controls, history 
     expect(result.settings.maskStack[0]).toMatchObject({
       head: mask.head,
       light: mask.light,
+      edge: mask.edge,
       enabled: false,
       inverted: true,
       base: { hash: proposal.mask.base!.hash },
@@ -586,15 +604,17 @@ test('catalog 23 / settings 13 migration preserves every brush-history branch, h
     for (const value of [
       legacy.settings,
       ...legacy.snapshots.map((snapshot: { settings: unknown }) => snapshot.settings),
-    ])
+    ]) {
       value.version = 13
+      for (const mask of value.maskStack) delete mask.edge
+    }
     expect(supportsEditingSettings(legacy.settings, 23)).toBe(true)
     db.prepare('INSERT INTO edits VALUES (?, ?)').run(photoId, JSON.stringify(legacy))
     const immutableBefore = db.prepare('SELECT * FROM mask_content ORDER BY hash').all()
     catalogTransaction(db, () => migrateEditingHistory(db))
     const actual = JSON.parse((db.prepare('SELECT data FROM edits').get() as { data: string }).data)
     expect(actual).toEqual(expected)
-    expect(supportsEditingSettings(actual.settings, 24)).toBe(true)
+    expect(supportsEditingSettings(actual.settings, CATALOG_VERSION)).toBe(true)
     expect(db.prepare('SELECT * FROM mask_content ORDER BY hash').all()).toEqual(immutableBefore)
     expect(store.content(photoId, first.stack)).toEqual(first.chunks)
     expect(store.content(photoId, second.stack)).toHaveLength(2)
@@ -685,4 +705,34 @@ test('selection admission refuses exact image budget overflow and unsupported di
     }).accepted,
   ).toBe(false)
   expect(() => objectSelectionMemoryPlan(16384, 1000, initial)).toThrow()
+})
+
+test('edge-aware AI refinement retires its model heap and revalidates revision after coverage preparation', async () => {
+  const f = await fixture()
+  try {
+    const mask: ResolvedMask = {
+      id: randomUUID(),
+      name: 'Refined edge',
+      enabled: true,
+      inverted: false,
+      head: null,
+      light: { ...neutralMaskLight },
+      edge: { featherPx: 4, shiftPx: -1 },
+      base: generatedMask(16, 16, () => 0),
+      strokes: [],
+    }
+    f.setMask(mask)
+    f.options.beforeCoverage = async () => {
+      expect(f.calls.runtimeClose).toBeGreaterThan(0)
+      f.revision()
+    }
+    await expect(f.service.create(await f.request({ maskId: mask.id }))).rejects.toThrow(/changed/)
+    expect(f.calls).toMatchObject({ coverage: 1, commits: 0 })
+    expect(f.state().settings.maskStack[0]).toMatchObject({
+      edge: mask.edge,
+      base: { hash: mask.base!.hash },
+    })
+  } finally {
+    await f.close()
+  }
 })

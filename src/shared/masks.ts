@@ -17,6 +17,11 @@ export interface MaskLight {
   whites: number
   blacks: number
 }
+/** Whole-mask edge distances in canonical oriented source pixels. */
+export interface MaskEdgeSettings {
+  featherPx: number
+  shiftPx: number
+}
 /** Native oriented-source coverage. History stores this immutable reference only. */
 export interface MaskBaseReference {
   version: 1
@@ -28,6 +33,8 @@ export interface MaskBaseContent extends MaskBaseReference {
   /** Lossless grayscale, eight-bit PNG; decoding belongs to native/browser codecs. */
   pngBase64: string
 }
+/** Main-prepared final coverage; never durable mask content or an upload contract. */
+export type PreparedMaskCoverage = Readonly<MaskBaseContent & { key: string; version: 1 }>
 export interface MaskDescriptor {
   id: string
   name: string
@@ -36,6 +43,7 @@ export interface MaskDescriptor {
   head: string | null
   base?: MaskBaseReference
   light: MaskLight
+  edge: MaskEdgeSettings
 }
 export interface MaskStrokeChunk {
   hash: string
@@ -44,6 +52,7 @@ export interface MaskStrokeChunk {
 }
 export interface ResolvedMask extends MaskDescriptor {
   base?: MaskBaseContent
+  preparedCoverage?: PreparedMaskCoverage
   strokes: MaskStroke[]
 }
 export type MaskOperation =
@@ -55,6 +64,7 @@ export type MaskOperation =
       enabled?: boolean
       inverted?: boolean
       light?: Partial<MaskLight>
+      edge?: Partial<MaskEdgeSettings>
     }
   | { kind: 'duplicate'; id: string; newId: string; name: string }
   | { kind: 'delete'; id: string }
@@ -64,10 +74,18 @@ export interface MaskMutation {
   operations: MaskOperation[]
 }
 export const maskCapabilities = {
-  version: 1,
+  version: 2,
   order: 'top-last',
   types: ['brush'],
   controls: ['exposureEv', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'],
+  edge: {
+    controls: ['featherPx', 'shiftPx'],
+    coordinates: 'canonical-oriented-source-pixels',
+    order: 'base-brush-invert-shift-feather',
+    featherPx: { min: 0, max: 64, step: 0.5, default: 0 },
+    shiftPx: { min: -16, max: 16, step: 1, default: 0 },
+    automaticMatting: false,
+  },
   maxMasks: 32,
   maxStrokePoints: 4096,
   maxLivePoints: 65536,
@@ -85,6 +103,10 @@ export const neutralMaskLight: Readonly<MaskLight> = {
   shadows: 0,
   whites: 0,
   blacks: 0,
+}
+export const neutralMaskEdge: Readonly<MaskEdgeSettings> = { featherPx: 0, shiftPx: 0 }
+export function maskHasEdges(mask: Pick<MaskDescriptor, 'edge'>): boolean {
+  return mask.edge.featherPx !== 0 || mask.edge.shiftPx !== 0
 }
 export const maskHash = /^[a-f0-9]{64}$/
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/
@@ -126,7 +148,12 @@ export function maskBaseReference(base: MaskBaseReference): MaskBaseReference {
 export function validateMaskBaseContent(value: unknown): asserts value is MaskBaseContent {
   if (!fields(value, ['version', 'hash', 'width', 'height', 'pngBase64']))
     throw new Error('Invalid generated mask content.')
-  validateMaskBaseReference(maskBaseReference(value as unknown as MaskBaseReference))
+  validateMaskBaseReference({
+    version: value.version,
+    hash: value.hash,
+    width: value.width,
+    height: value.height,
+  })
   const encoded = value.pngBase64
   if (
     typeof encoded !== 'string' ||
@@ -154,6 +181,23 @@ export function validateMaskBaseContent(value: unknown): asserts value is MaskBa
   )
     throw new Error('Generated masks require a native-size, noninterlaced R8 PNG.')
 }
+export function validatePreparedMaskCoverage(
+  value: unknown,
+): asserts value is PreparedMaskCoverage {
+  if (
+    !fields(value, ['version', 'hash', 'width', 'height', 'pngBase64', 'key']) ||
+    typeof value.key !== 'string' ||
+    !maskHash.test(value.key)
+  )
+    throw new Error('Invalid prepared mask coverage.')
+  validateMaskBaseContent({
+    version: value.version,
+    hash: value.hash,
+    width: value.width,
+    height: value.height,
+    pngBase64: value.pngBase64,
+  })
+}
 export function validateMaskName(value: unknown): asserts value is string {
   if (
     typeof value !== 'string' ||
@@ -178,6 +222,26 @@ export function validateMaskLight(value: unknown, partial = false): asserts valu
       Math.abs(number * (exposure ? 100 : 1) - Math.round(number * (exposure ? 100 : 1))) > 1e-8
     )
       throw new Error('Invalid local Light value.')
+  }
+}
+export function validateMaskEdge(
+  value: unknown,
+  partial = false,
+): asserts value is MaskEdgeSettings {
+  const keys = Object.keys(neutralMaskEdge)
+  if (!fields(value, partial ? [] : keys, partial ? keys : []))
+    throw new Error('Invalid mask edge controls.')
+  for (const [key, number] of Object.entries(value)) {
+    if (
+      typeof number !== 'number' ||
+      !Number.isFinite(number) ||
+      (key === 'featherPx'
+        ? number < 0 || number > 64 || !Number.isInteger(number * 2)
+        : number < -16 || number > 16 || !Number.isInteger(number))
+    )
+      throw new Error(
+        'Mask Feather must be 0–64 pixels in half-pixel steps; Expand/Contract must be an integer from -16 to 16 pixels.',
+      )
   }
 }
 export function validateMaskStroke(value: unknown): asserts value is MaskStroke {
@@ -217,11 +281,12 @@ export function validateMaskStack(value: unknown): asserts value is MaskDescript
     throw new Error('Too many local masks.')
   const ids = new Set<string>()
   for (const mask of value) {
-    if (!fields(mask, ['id', 'name', 'enabled', 'inverted', 'head', 'light'], ['base']))
+    if (!fields(mask, ['id', 'name', 'enabled', 'inverted', 'head', 'light', 'edge'], ['base']))
       throw new Error('Invalid mask descriptor.')
     validateMaskId(mask.id)
     validateMaskName(mask.name)
     validateMaskLight(mask.light)
+    validateMaskEdge(mask.edge)
     if (mask.base !== undefined) validateMaskBaseReference(mask.base)
     if (
       ids.has(mask.id) ||
@@ -258,11 +323,12 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
         validateMaskName(op.name)
         break
       case 'update':
-        if (!fields(op, ['kind', 'id'], ['name', 'enabled', 'inverted', 'light']))
+        if (!fields(op, ['kind', 'id'], ['name', 'enabled', 'inverted', 'light', 'edge']))
           throw new Error('Invalid mask update.')
         validateMaskId(op.id)
         if (op.name !== undefined) validateMaskName(op.name)
         if (op.light !== undefined) validateMaskLight(op.light, true)
+        if (op.edge !== undefined) validateMaskEdge(op.edge, true)
         for (const key of ['enabled', 'inverted'])
           if (op[key] !== undefined && typeof op[key] !== 'boolean')
             throw new Error('Invalid mask state.')
@@ -367,6 +433,7 @@ export function resolveMasks(
       inverted: mask.inverted,
       head: mask.head,
       light: mask.light,
+      edge: mask.edge,
     }
     return { ...descriptor, ...(base ? { base } : {}), strokes: strokes.reverse() }
   })
@@ -378,7 +445,11 @@ export function validateResolvedMasks(value: unknown): asserts value is Resolved
   let points = 0
   const descriptors = value.map((mask: unknown) => {
     if (
-      !fields(mask, ['id', 'name', 'enabled', 'inverted', 'head', 'light', 'strokes'], ['base']) ||
+      !fields(
+        mask,
+        ['id', 'name', 'enabled', 'inverted', 'head', 'light', 'edge', 'strokes'],
+        ['base', 'preparedCoverage'],
+      ) ||
       !Array.isArray(mask.strokes)
     )
       throw new Error('Invalid resolved mask geometry.')
@@ -389,9 +460,12 @@ export function validateResolvedMasks(value: unknown): asserts value is Resolved
         throw new Error('The live brush geometry limit was exceeded.')
     }
     if (mask.base !== undefined) validateMaskBaseContent(mask.base)
+    if (mask.preparedCoverage !== undefined) validatePreparedMaskCoverage(mask.preparedCoverage)
     return {
       ...Object.fromEntries(
-        Object.entries(mask).filter(([key]) => key !== 'strokes' && key !== 'base'),
+        Object.entries(mask).filter(
+          ([key]) => key !== 'strokes' && key !== 'base' && key !== 'preparedCoverage',
+        ),
       ),
       ...(mask.base ? { base: maskBaseReference(mask.base as MaskBaseContent) } : {}),
     }

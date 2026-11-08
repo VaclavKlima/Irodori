@@ -6,6 +6,12 @@
 
 The [November 8 object-selection extension](object-selection.md) enables SAM 2 point/box proposals on Mac, with immutable generated R8 bases underneath separate Paint/Erase corrections. Settings 14/catalog 24 preserve the delivered brush history while adding these references and shared GPU coverage. Bazzite verification is [TODO 69](README.md#task-69); fine-edge matting, automatic sky/background and additional local operators remain separate. The [research record](object-selection-research.md) retains original measurements and known quality failures.
 
+The subsequent [whole-mask edge implementation](mask-edges.md) adds settings
+15/catalog 25 with neutral Feather and Expand/Contract modifiers. Focused Mac
+integration checks pass; their exact scope is recorded in the edge brief,
+separately from the earlier brush/selection passes below. Image-guided matting and
+recovered fine hair/fur/feather coverage remain separate research.
+
 ## Goal
 
 Apply local light and color corrections nondestructively, using the same HDR-compatible operators and history as global edits.
@@ -24,6 +30,15 @@ The mask list shows each name, type/status, visibility toggle, drag handle and *
 
 **Coverage** contains the selected mask's object-refinement action and Paint/Erase tools. Brush size and feather appear while Paint or Erase is active and remain fixed for a stroke; pressure/flow accumulation is deferred. Object guides, processing, errors and proposals remain inside Coverage until explicit Use mask or Cancel selection. **Adjustments** groups the six local tonal controls in a Light disclosure; future implemented operators use the same group structure. Hidden tab/disclosure bodies remain mounted. Numeric adjustments use `AdjustmentInput`.
 
+**Coverage → Mask edges** shapes the completed selected coverage, including
+Paint/Erase and inversion. Feather is 0–64 canonical native pixels in 0.5-pixel
+steps; Expand/Contract is −16…+16 integer pixels, with positive values growing
+the visible selected area even when inverted. Reset restores both values to zero
+in one history step. These modifiers preserve source base/stroke content while
+reshaping its combined result. Exact coverage prepares on commit; edge-enabled
+brush gestures retain cursor/path feedback until stroke completion. The
+[edge contract](mask-edges.md) defines loading, errors, units and ownership.
+
 Creation and per-mask actions share the photo menu's reusable command-menu behavior: keyboard navigation/typeahead, window-bounded placement, Escape/focus restoration and outside dismissal. Actions retain their invoked photo/mask targets and revalidate before execution. Keyboard brush control belongs to the focused photograph, leaving forms, photo navigation and Console shortcuts independent. The minimum 1100 × 700 Console-open layout must keep every editing group reachable.
 
 ## Processing approach
@@ -36,6 +51,13 @@ Evaluate enabled masks bottom-to-top, after the existing global point adjustment
 
 Use shared GPU numeric modules in the existing GLSL/WGSL frontends and native point renderer on both platforms. Include geometry/index buffers in admission, retain cancellation and explicit GPU retry, and never restart equivalent CPU image work on failure. Analysis that cannot include active local edits reports an explicit unavailable reason rather than pre-mask values.
 
+Active Mask edges use one common native Dawn preparation stage after base,
+ordered brush and inversion composition. Existing consumers sample its prepared
+native R8 coverage without repeating those operations. Zero/zero bypasses that
+stage. Canonical full-source borders replicate independently of crop and screen
+view, and preparation retains strip halos. Derived coverage is disposable,
+revision/source validated and excluded from durable mask content.
+
 ## API/MCP implications
 
 Expose capabilities, current masks and typed atomic create/update/duplicate/delete/reorder/stroke operations through the existing photo service. Every mutation identifies a photo, expected photo revision and mask IDs. UI and MCP use the same service; geometry never exposes file paths or shader code. Limits are policy defaults: 32 masks, 4096 points per stroke, 65536 active points per photo, 256 KiB per mutation and 32 MiB retained geometry per photo, additionally bounded by managed image budgets. Refuse excessive work before publishing a changed history.
@@ -43,6 +65,12 @@ Expose capabilities, current masks and typed atomic create/update/duplicate/dele
 ## Persistence
 
 Settings 13/catalog 23 add a top-first `maskStack` of lightweight descriptors. Immutable content-addressed stroke chunks live in SQLite, outside preview caches; commit new content and history atomically. Duplicates share geometry until further editing. Initially retain content append-only within the declared budget, protecting current/undo/redo and accepted jobs without unsafe eager cleanup.
+
+Settings 14/catalog 24 subsequently add generated bases, and settings 15/catalog
+25 add `edge: { featherPx, shiftPx }` with neutral defaults to every existing mask
+and historical snapshot. Preserve mask IDs, immutable content, history branches,
+revisions, cursors and timestamps. The edge implementation and focused Mac
+acceptance are tracked in the [edge brief](mask-edges.md).
 
 Migrate all legacy current/history settings to empty mask stacks while retaining existing curves, revisions, cursors, branches and timestamps. Handle independent preset definitions and legacy frozen job formats explicitly. Cross-photo mask copy/preset inclusion is deferred; applying global presets or Copy/Paste preserves destination masks. Pixel identities include effective geometry, enabled/invert state, parameters, order and algorithm versions; names and workspace selection do not affect pixels.
 

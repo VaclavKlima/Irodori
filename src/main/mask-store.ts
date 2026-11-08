@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import { crc32 } from 'node:zlib'
 import {
+  neutralMaskEdge,
   maskCapabilities,
   maskChunkBytes,
   maskHash,
@@ -84,6 +85,7 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
           inverted: false,
           head: null,
           light: { ...neutralMaskLight },
+          edge: { ...neutralMaskEdge },
         })
         break
       case 'update': {
@@ -92,6 +94,7 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
         if (op.enabled !== undefined) mask.enabled = op.enabled
         if (op.inverted !== undefined) mask.inverted = op.inverted
         if (op.light) mask.light = { ...mask.light, ...op.light }
+        if (op.edge) mask.edge = { ...mask.edge, ...op.edge }
         break
       }
       case 'duplicate': {
