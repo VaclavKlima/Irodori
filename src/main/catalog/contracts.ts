@@ -30,6 +30,8 @@ export interface CatalogOperations {
   'edits.commit': {
     input: {
       history: EditHistory
+      maskChunks?: import('../../shared/masks').MaskStrokeChunk[]
+      maskBases?: import('../../shared/masks').MaskBaseContent[]
       expectedRevision: number
       application?: import('../edit-application-store').ApplicationCommit
     }

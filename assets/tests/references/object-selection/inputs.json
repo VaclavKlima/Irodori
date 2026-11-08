@@ -1,0 +1,291 @@
+{
+  "version": 1,
+  "id": "general-object-selection-twelve-scenes-v1",
+  "frozenAt": "2026-11-08",
+  "scope": "Bounded photographic research only; no manual ground-truth annotations or production activation.",
+  "inputPolicy": "Full-native once-oriented neutral SDR, no lens/crop/local edits; normalized prompts reference this grid.",
+  "notes": [
+    "Twelve distinct scenes, nine development and three held out; no burst or alternate exposure counts as another scene.",
+    "Hair-outline is limited to an isolated historical wig. Actual human-portrait hair remains unverified.",
+    "Private open bird and rejected downloads are excluded.",
+    "Frozen prompts are measured as written; model outputs cannot be used to retarget later prompts."
+  ],
+  "images": [
+    {
+      "id": "d01-fog-dog",
+      "sceneId": "fog-dogs",
+      "source": "assets/tests/images/raw/sony-zv-1a/fog-dogs/originals/DSC03280.ARW",
+      "sha256": "dead1a70a02909faf8458119fcc8f7067733b756978fd26921710e3008364605",
+      "split": "development",
+      "coverage": [
+        "animal",
+        "fur",
+        "instance-disambiguation",
+        "dark-subject",
+        "multiple-adjacent-objects",
+        "low-contrast"
+      ],
+      "prompt": {
+        "units": "normalized",
+        "box": [0.55, 0.4, 0.75, 0.8],
+        "positivePoints": [[0.65, 0.64]],
+        "negativePoints": [
+          [0.45, 0.62],
+          [0.69, 0.88]
+        ]
+      },
+      "reviewed": true,
+      "tracked": true,
+      "permissionVerified": true,
+      "target": "Rightmost dog, excluding adjacent dogs and rock"
+    },
+    {
+      "id": "d02-front-boat",
+      "sceneId": "alpine-lake",
+      "source": "tests/fixtures/photos/alpine-lake.jpg",
+      "sha256": "f349334517fad6132a107581a7d524160782b18d97fe423c9d277540e74dd081",
+      "split": "development",
+      "coverage": [
+        "rigid-object",
+        "multi-object",
+        "reflection-separation",
+        "multiple-adjacent-objects",
+        "reflection-or-glass-stress"
+      ],
+      "prompt": {
+        "units": "normalized",
+        "box": [0.485, 0.79, 0.61, 0.922],
+        "positivePoints": [[0.555, 0.88]],
+        "negativePoints": [
+          [0.46, 0.86],
+          [0.56, 0.955]
+        ]
+      },
+      "reviewed": true,
+      "tracked": true,
+      "permissionVerified": true,
+      "target": "Front right boat marked A, excluding water reflection and neighboring boats; loose oars are ambiguous"
+    },
+    {
+      "id": "d03-central-trunk",
+      "sceneId": "forest-light",
+      "source": "tests/fixtures/photos/forest-light.jpg",
+      "sha256": "50634536a3e64206123d631fb8c43d569cb6c78f89958fb53dc375e720a33fd9",
+      "split": "development",
+      "coverage": ["plant", "low-contrast", "occlusion"],
+      "prompt": {
+        "units": "normalized",
+        "box": [0.49, 0, 0.545, 0.67],
+        "positivePoints": [[0.515, 0.6]],
+        "negativePoints": [[0.57, 0.65]]
+      },
+      "reviewed": true,
+      "tracked": true,
+      "permissionVerified": true,
+      "target": "Prominent central tree trunk, branches explicitly excluded from target"
+    },
+    {
+      "id": "d04-forest-fence",
+      "sceneId": "forest-bracket",
+      "source": "assets/tests/images/raw/sony-zv-1a/forest-bracket/originals/DSC03277.ARW",
+      "sha256": "159e5461fceddede2dc9903cb080caf63dcd2e4dc9ef70881b35f1fc65bd91db",
+      "split": "development",
+      "coverage": ["rigid-object", "thin-structures", "occlusion", "orientation-8"],
+      "prompt": {
+        "units": "normalized",
+        "box": [0.1, 0.63, 0.81, 0.86],
+        "positivePoints": [[0.45, 0.8]],
+        "negativePoints": [
+          [0.45, 0.7],
+          [0.5, 0.92]
+        ]
+      },
+      "reviewed": true,
+      "tracked": true,
+      "permissionVerified": true,
+      "target": "Foreground brown picket fence, excluding tree trunks, foliage and ground. Fixed prompt frozen on once-oriented preview; native preparation confirmed before inference."
+    },
+    {
+      "id": "d05-paper-edge",
+      "sceneId": "carpet-paper",
+      "source": "assets/tests/images/raw/sony-zv-1a/carpet-high-iso/originals/DSC03483.ARW",
+      "sha256": "7e6e048962eacf890ef8bfb04fcadb5ac42e578bc5b67aa7912f08281975569f",
+      "split": "development",
+      "coverage": ["rigid-object", "partial-frame", "simple-edge"],
+      "prompt": {
+        "units": "normalized",
+        "box": [0.62, 0.26, 1, 1],
+        "positivePoints": [[0.83, 0.6]],
+        "negativePoints": [[0.5, 0.6]]
+      },
+      "reviewed": true,
+      "tracked": true,
+      "permissionVerified": true,
+      "target": "Visible blank paper, excluding carpet"
+    },
+    {
+      "id": "d06-wig",
+      "sceneId": "wig-museum",
+      "source": "assets/tests/images/raster/wikimedia/object-selection/originals/Wig,_Fiji_Islands,_bleached_human_hair_-_Pacific_collection_-_Peabody_Museum,_Harvard_University_-_DSC05759.JPG",
+      "sha256": "cefc6aacd187ed7f7ac8f0a60fbd9a9abfe042fa409d7a6f72b507040e1aa53b",
+      "split": "development",
+      "coverage": [
+        "wig",
+        "hair-like-boundary",
+        "fine-curly-structures",
+        "partial-frame",
+        "hair-outline"
+      ],
+      "prompt": {
+        "units": "normalized",
+        "box": [0.13, 0, 0.94, 0.96],
+        "positivePoints": [[0.5, 0.48]],
+        "negativePoints": [[0.08, 0.65]]
+      },
+      "target": "Wig including visible hair strands; ties and museum mount excluded. This is an isolated historical wig, not human-portrait hair.",
+      "reviewed": true,
+      "tracked": true,
+      "permissionVerified": true
+    },
+    {
+      "id": "d07-bicycle",
+      "sceneId": "bicycle-mavic",
+      "source": "assets/tests/images/raster/wikimedia/object-selection/originals/Bicycle_with_Mavic_CXP_14_wheels.jpg",
+      "sha256": "24e93ef51df4067b4a2d847495de6f1ad3eb5795c4224f46f548d06509f8eee1",
+      "split": "development",
+      "coverage": [
+        "rigid-object",
+        "thin-structures",
+        "holes",
+        "clutter",
+        "partial-frame",
+        "multiple-adjacent-objects"
+      ],
+      "prompt": {
+        "units": "normalized",
+        "box": [0, 0.02, 0.88, 0.96],
+        "positivePoints": [[0.36, 0.4]],
+        "negativePoints": [
+          [0.54, 0.25],
+          [0.89, 0.48]
+        ]
+      },
+      "target": "Foreground blue bicycle, excluding neighboring bikes and tree; wheel spokes and open frame holes must remain distinct from background.",
+      "reviewed": true,
+      "tracked": true,
+      "permissionVerified": true
+    },
+    {
+      "id": "d08-flamingo",
+      "sceneId": "flamingo-slimbridge",
+      "source": "assets/tests/images/raster/wikimedia/object-selection/originals/Two_andeanflamingo_june2003_arp.jpg",
+      "sha256": "6afbf8a85989a704738327f0a8016ea4d5b080668322b8fddfcbf8bfdc34effa",
+      "split": "development",
+      "coverage": ["bird", "thin-structures", "multiple-adjacent-objects", "occlusion"],
+      "prompt": {
+        "units": "normalized",
+        "box": [0.34, 0.18, 0.81, 0.97],
+        "positivePoints": [[0.58, 0.38]],
+        "negativePoints": [
+          [0.24, 0.23],
+          [0.74, 0.74]
+        ]
+      },
+      "target": "Front right upright flamingo including legs and feet, excluding bent left bird, leg rings remain part of target.",
+      "reviewed": true,
+      "tracked": true,
+      "permissionVerified": true
+    },
+    {
+      "id": "d09-plain-mug",
+      "sceneId": "plain-mug",
+      "source": "assets/tests/images/raster/wikimedia/object-selection/originals/Mug_image.jpg",
+      "sha256": "f46f6bc74eb235b489bcd75430f31f66a7ff4a84a87ed239f9bc8aa47b163a5f",
+      "split": "development",
+      "coverage": ["rigid-object", "handle-hole", "translucent-object", "clutter"],
+      "prompt": {
+        "units": "normalized",
+        "box": [0.12, 0.23, 0.8, 0.62],
+        "positivePoints": [[0.45, 0.47]],
+        "negativePoints": [
+          [0.7, 0.41],
+          [0.6, 0.78]
+        ]
+      },
+      "target": "Entire plastic mug including spout and green handle, excluding handle gap, textile and cast shadow. Translucency does not imply measured alpha.",
+      "reviewed": true,
+      "tracked": true,
+      "permissionVerified": true
+    },
+    {
+      "id": "h10-shore-pine",
+      "sceneId": "quiet-valley",
+      "source": "tests/fixtures/photos/quiet-valley.jpg",
+      "sha256": "2613b18b8178493f32e3538be15f1cd8232ca3c30223bcd6b31ea964f77664d7",
+      "split": "holdout",
+      "coverage": [
+        "plant",
+        "thin-branches",
+        "reflection-separation",
+        "plant-thin-structures",
+        "reflection-or-glass-stress"
+      ],
+      "prompt": {
+        "units": "normalized",
+        "box": [0.89, 0.19, 0.96, 0.56],
+        "positivePoints": [[0.932, 0.39]],
+        "negativePoints": [[0.93, 0.76]]
+      },
+      "reviewed": true,
+      "tracked": true,
+      "permissionVerified": true,
+      "target": "Tall rightmost shoreline pine above water, excluding reflection"
+    },
+    {
+      "id": "h11-robin",
+      "sceneId": "robin-mealworm",
+      "source": "assets/tests/images/raster/wikimedia/object-selection/originals/European_Robin_(Erithacus_rubecula)_with_mealworm.jpeg",
+      "sha256": "4f70779f8bd8d8f3cd38e4dc2af6c05f841123b931bcfedf8c8aec7cc36f1b8a",
+      "split": "holdout",
+      "coverage": ["bird", "feather-boundary", "partial-frame", "occlusion"],
+      "prompt": {
+        "units": "normalized",
+        "box": [0.21, 0.01, 0.995, 1],
+        "positivePoints": [[0.68, 0.52]],
+        "negativePoints": [[0.15, 0.42]]
+      },
+      "target": "Robin including beak and feathers, excluding held mealworm and background; lower legs/body clipped by source frame.",
+      "reviewed": true,
+      "tracked": true,
+      "permissionVerified": true
+    },
+    {
+      "id": "h12-glass",
+      "sceneId": "glass-mug",
+      "source": "assets/tests/images/raster/wikimedia/object-selection/originals/Kitchenware_Glass_Mug_Rezowan.JPG",
+      "sha256": "9bfb67a05858b5605949d0aec2a7d6bf61a5456cd0a639c93ecef6934b15642a",
+      "split": "holdout",
+      "coverage": [
+        "glass",
+        "transmission",
+        "handle-hole",
+        "reflection-separation",
+        "reflection-or-glass-stress"
+      ],
+      "prompt": {
+        "units": "normalized",
+        "box": [0.03, 0.16, 0.97, 0.66],
+        "positivePoints": [[0.4, 0.47]],
+        "negativePoints": [
+          [0.8, 0.37],
+          [0.5, 0.8]
+        ]
+      },
+      "target": "Physical glass mug including handle, excluding handle hole and cast reflection/shadow. Semantic extent only; scene does not supply transparency alpha ground truth.",
+      "reviewed": true,
+      "tracked": true,
+      "permissionVerified": true
+    }
+  ],
+  "fixtureCommit": "b5db9fc5c5c16ef834b82dab11c1a36453d33a36"
+}

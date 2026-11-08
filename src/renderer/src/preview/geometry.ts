@@ -1,5 +1,6 @@
 import type { PreviewViewState } from '../../../shared/workspace'
 import { cropPointToSource, type CropGeometry } from '../../../shared/crop'
+import type { MaskGeometry } from '../../../shared/mask-geometry'
 export interface Size {
   width: number
   height: number
@@ -9,6 +10,15 @@ export interface View {
   scale: number
   x: number
   y: number
+}
+/** Geometry belonging to the photograph pixels already submitted for presentation. */
+export interface PresentedPreviewGeometry {
+  readonly image: Size
+  readonly viewport: Size
+  readonly view: View
+  readonly maskGeometry?: MaskGeometry
+  readonly sourceIdentity?: string
+  readonly serial: number
 }
 export const ZOOM_STOPS = [0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32]
 export const INITIAL_VIEW: View = { fit: true, scale: 1, x: 0, y: 0 }

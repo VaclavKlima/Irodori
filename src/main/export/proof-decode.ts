@@ -14,12 +14,14 @@ import { neutralAdjustments } from '../../shared/adjustments'
 import { noLensSettings } from '../../shared/lens'
 import { processingMetadata } from '../processing/metadata'
 import { renderHdrJpeg } from '../processing/hdr-jpeg'
+import { encodeInspectionTransfer, type InspectionTransfer } from './inspection-transfer'
 
 export interface OutputProofDecodeJob {
   width: number
   height: number
   hdr: boolean
   admission: ExportAdmission
+  inspection?: InspectionTransfer
 }
 export interface OutputProofDecoded {
   width: number
@@ -28,6 +30,7 @@ export interface OutputProofDecoded {
   sha256: string
   linear?: LinearAsset
   overview: { width: number; height: number; byteLength: number; sha256: string }
+  inspection?: Awaited<ReturnType<typeof encodeInspectionTransfer>>
 }
 
 /** Runs only in the bundled Node decoder, after the exporter has exited. */
@@ -73,6 +76,25 @@ export async function decodeOutputProof(
       throw new Error('Invalid decoded output preview HDR content.')
     linear = frame.linear
   }
+  const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
+  if (job.inspection) {
+    const inspection = await encodeInspectionTransfer(
+      primary.data,
+      job,
+      job.inspection,
+      output,
+      job.admission,
+    )
+    return {
+      width: job.width,
+      height: job.height,
+      byteLength,
+      sha256: hash(primary.data),
+      linear,
+      inspection,
+      overview: { width: 1, height: 1, byteLength: 0, sha256: '' },
+    }
+  }
   let geometry = { width: 0, height: 0 }
   let overview: Buffer = Buffer.alloc(0)
   // Only the overview shrinks to meet its payload limit. The actual JPEG and
@@ -96,7 +118,6 @@ export async function decodeOutputProof(
   if (overview.byteLength > AGENT_PREVIEW_LIMIT)
     throw new Error('Output preview overview exceeds its 1 MiB limit.')
   await writeFile(join(output, 'overview.jpg'), overview, { flag: 'wx' })
-  const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
   return {
     width: job.width,
     height: job.height,

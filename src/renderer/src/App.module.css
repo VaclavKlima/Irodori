@@ -354,6 +354,14 @@
 .consoleSpacer {
   flex: 1;
 }
+.consoleInspection {
+  flex: none;
+  padding: 3px 12px;
+  border-bottom: 1px solid var(--line-subtle);
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 .terminal {
   display: flex;
   flex: 1;

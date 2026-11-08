@@ -116,6 +116,7 @@ export interface DisplayCapabilities {
   reason: string
 }
 export interface HdrWorkingAsset {
+  maskGeometry?: import('./mask-geometry').MaskGeometry
   kind: 'hdr-working-v1'
   url?: string
   width: number

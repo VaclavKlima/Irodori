@@ -68,6 +68,7 @@ export function workingSourceIdentity(
     .update(
       JSON.stringify([
         id,
+        'canonical-mask-geometry-v1',
         options.metadata.hdrJpeg
           ? workingOnly
             ? HDR_JPEG_SOURCE_VERSION

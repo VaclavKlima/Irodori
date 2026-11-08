@@ -1,3 +1,5 @@
+import { selectionCanonicalBox } from '../shared/object-selection'
+import { maskCanonicalPoint } from '../shared/mask-geometry'
 import { MergeError } from '../shared/merge'
 import type { DisplayState } from './display-state'
 import type { PreviewPreference } from '../shared/hdr-display'
@@ -95,6 +97,8 @@ export async function startEditorEndpoint(
         presetRequest,
         presetApplication,
         presetQuery,
+        maskMutation,
+        points,
       } = args as {
         domain?: import('../shared/hdr-statistics').HdrAnalysisDomain
         target?: 'sdr' | 'current'
@@ -133,6 +137,8 @@ export async function startEditorEndpoint(
           | import('../shared/presets').CreatePresetRequest
           | import('../shared/presets').UpdatePresetRequest
         presetApplication: import('../shared/presets').PresetApplicationRequest
+        points?: import('../shared/masks').MaskPoint[]
+        maskMutation: import('../shared/masks').MaskMutation
         presetQuery?: import('../shared/presets').PresetQuery
       }
       if (
@@ -144,6 +150,7 @@ export async function startEditorEndpoint(
           'irodori_prepare_export',
           'irodori_prepare_paste_edits',
           'irodori_prepare_preset_application',
+          'irodori_mutate_masks',
         ].includes(operation)
       )
         throw new Error('Editor request is too large.')
@@ -168,8 +175,39 @@ export async function startEditorEndpoint(
             result = (gate ?? contextGate).context(offset)
             break
           case 'irodori_get_photo_preview':
-            result = await library.agentPreviews.get(photoId, expectedRevision, gate?.signal)
+          case 'irodori_get_preview_context': {
+            const lifetime = new AbortController()
+            const gone = () => {
+              if (!response.writableFinished)
+                lifetime.abort(new Error('Inspection client disconnected.'))
+            }
+            response.once('close', gone)
+            const signal = gate ? AbortSignal.any([gate.signal, lifetime.signal]) : lifetime.signal
+            try {
+              if (operation === 'irodori_get_preview_context') {
+                const { geometry, ...context } = await library.agentPreviews.context(
+                  photoId,
+                  expectedRevision,
+                  signal,
+                )
+                // Canonical lens tables are renderer geometry, not model prompt context.
+                void geometry
+                result = context
+              } else
+                result =
+                  args.inspection === undefined
+                    ? await library.agentPreviews.get(photoId, expectedRevision, signal)
+                    : await library.agentPreviews.inspect(
+                        photoId,
+                        expectedRevision,
+                        args.inspection,
+                        signal,
+                      )
+            } finally {
+              response.removeListener('close', gone)
+            }
             break
+          }
           case 'irodori_get_output_proof': {
             const lifetime = new AbortController()
             const gone = () => {
@@ -179,7 +217,13 @@ export async function startEditorEndpoint(
             response.once('close', gone)
             try {
               result = await library.getOutputProofOverview(
-                { preparationId, photoId, options: args.options, token: args.proofToken },
+                {
+                  preparationId,
+                  photoId,
+                  options: args.options,
+                  token: args.proofToken,
+                  ...(args.inspection === undefined ? {} : { inspection: args.inspection }),
+                },
                 gate ? AbortSignal.any([gate.signal, lifetime.signal]) : lifetime.signal,
               )
             } finally {
@@ -337,7 +381,11 @@ export async function startEditorEndpoint(
             )
             break
           case 'irodori_get_edits':
-            result = await library.getEdits(photoId)
+            result = {
+              ...(await library.getEdits(photoId)),
+              maskContent: undefined,
+              maskBases: undefined,
+            }
             break
           case 'irodori_get_crop_context':
             result = await library.getCropContext(photoId, expectedRevision)
@@ -407,14 +455,182 @@ export async function startEditorEndpoint(
           case 'irodori_get_edit_history':
             result = await library.getEditHistory(photoId)
             break
+          case 'irodori_get_object_selection_context': {
+            const context = await library.getObjectSelectionContext(photoId, expectedRevision)
+            if (
+              points !== undefined &&
+              (!Array.isArray(points) ||
+                points.length > 128 ||
+                points.some(
+                  (point) =>
+                    !point ||
+                    Object.keys(point).some((key) => !['x', 'y'].includes(key)) ||
+                    ![point.x, point.y].every((n) => Number.isFinite(n) && n >= 0 && n <= 1),
+                ))
+            )
+              throw new Error('Supply at most 128 normalized photograph points.')
+            let box: [number, number, number, number] | undefined
+            if (args.box !== undefined) {
+              const input = args.box
+              if (
+                !Array.isArray(input) ||
+                input.length !== 4 ||
+                !input.every(
+                  (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1,
+                ) ||
+                input[0] >= input[2] ||
+                input[1] >= input[3]
+              )
+                throw new Error('Invalid normalized photograph box.')
+              const mapped = selectionCanonicalBox(
+                { x: input[0] * context.width, y: input[1] * context.height },
+                { x: input[2] * context.width, y: input[3] * context.height },
+                context.geometry,
+              )
+              if (!mapped) throw new Error('The indicated box is outside the canonical source.')
+              box = mapped.box
+            }
+            const { geometry, ...metadata } = context
+            result = {
+              ...metadata,
+              canonicalWidth: geometry.canonicalWidth,
+              canonicalHeight: geometry.canonicalHeight,
+              box,
+              points: (points ?? []).map((point) =>
+                maskCanonicalPoint(
+                  { x: point.x * context.width, y: point.y * context.height },
+                  geometry,
+                ),
+              ),
+              coordinates:
+                'Input box/points use normalized current cropped photograph coordinates. Returned box/points use normalized once-oriented uncorrected canonical source coordinates. The box is a segmentation guide, not an exact ROI; its perimeter is mapped through crop/lens geometry.',
+            }
+            break
+          }
+          case 'irodori_create_object_selection': {
+            const lifetime = new AbortController()
+            const gone = () => {
+              if (!response.writableFinished)
+                lifetime.abort(new Error('Selection client disconnected.'))
+            }
+            response.once('close', gone)
+            try {
+              const proposal = await library.createObjectSelection(
+                {
+                  photoId,
+                  expectedRevision,
+                  gridIdentity: args.gridIdentity as string,
+                  prompts:
+                    args.prompts as import('../shared/object-selection').ObjectSelectionPrompts,
+                  ...(args.maskId === undefined ? {} : { maskId: args.maskId as string }),
+                },
+                gate ? AbortSignal.any([gate.signal, lifetime.signal]) : lifetime.signal,
+              )
+              const { strokes, base, ...mask } = proposal.mask
+              if (!base) throw new Error('The selection proposal has no generated coverage.')
+              const { pngBase64, ...reference } = base
+              result = {
+                id: proposal.id,
+                proposalId: proposal.id,
+                photoId: proposal.photoId,
+                revision: proposal.revision,
+                gridIdentity: proposal.gridIdentity,
+                modelIdentity: proposal.modelIdentity,
+                mask: { ...mask, base: reference },
+                manualStrokeCount: strokes.length,
+                data: pngBase64,
+                mimeType: 'image/png',
+                width: base.width,
+                height: base.height,
+                coordinates:
+                  'Native canonical source R8 coverage: white selected, black excluded. This is a proposal; acceptance is explicit and preserves manual corrections. Fine-edge matting and physical alpha are unqualified.',
+              }
+            } finally {
+              response.removeListener('close', gone)
+            }
+            break
+          }
+          case 'irodori_accept_object_selection':
+            result = {
+              ...(await library.acceptObjectSelection({
+                proposalId: args.proposalId as string,
+                photoId,
+                expectedRevision,
+              })),
+              maskContent: undefined,
+              maskBases: undefined,
+            }
+            break
+          case 'irodori_cancel_object_selection':
+            await library.cancelObjectSelection(photoId)
+            result = { cancelled: true }
+            break
+          case 'irodori_get_mask_context': {
+            if (
+              points !== undefined &&
+              (!Array.isArray(points) ||
+                points.length > 128 ||
+                points.some(
+                  (point) =>
+                    !point ||
+                    Object.keys(point).some((key) => !['x', 'y'].includes(key)) ||
+                    !['x', 'y'].every(
+                      (key) =>
+                        typeof point[key as keyof typeof point] === 'number' &&
+                        Number.isFinite(point[key as keyof typeof point]) &&
+                        point[key as keyof typeof point] >= 0 &&
+                        point[key as keyof typeof point] <= 1,
+                    ),
+                ))
+            )
+              throw new Error('Supply at most 128 normalized output points.')
+            const context = await library.getMaskContext(photoId, expectedRevision)
+            result = {
+              photoId: context.photoId,
+              revision: context.revision,
+              width: context.width,
+              height: context.height,
+              canonicalWidth: context.geometry.canonicalWidth,
+              canonicalHeight: context.geometry.canonicalHeight,
+              points: (points ?? []).map((point) =>
+                maskCanonicalPoint(
+                  { x: point.x * context.width, y: point.y * context.height },
+                  context.geometry,
+                ),
+              ),
+              renderingIdentity: context.renderingIdentity,
+              coordinates:
+                'Input points are normalized cropped-output pixel-edge positions; returned points are normalized oriented uncorrected source coordinates for brush strokes.',
+            }
+            break
+          }
+          case 'irodori_mutate_masks':
+            result = {
+              ...(await library.mutateMasks(photoId, expectedRevision, maskMutation)),
+              maskContent: undefined,
+              maskBases: undefined,
+            }
+            break
           case 'irodori_update_edits':
-            result = await library.updateEdits(photoId, patch, expectedRevision)
+            result = {
+              ...(await library.updateEdits(photoId, patch, expectedRevision)),
+              maskContent: undefined,
+              maskBases: undefined,
+            }
             break
           case 'irodori_undo_edit':
-            result = await library.undoEdit(photoId, expectedRevision)
+            result = {
+              ...(await library.undoEdit(photoId, expectedRevision)),
+              maskContent: undefined,
+              maskBases: undefined,
+            }
             break
           case 'irodori_redo_edit':
-            result = await library.redoEdit(photoId, expectedRevision)
+            result = {
+              ...(await library.redoEdit(photoId, expectedRevision)),
+              maskContent: undefined,
+              maskBases: undefined,
+            }
             break
           default:
             throw new Error('Unknown editor operation.')

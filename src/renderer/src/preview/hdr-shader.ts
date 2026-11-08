@@ -3,6 +3,7 @@ import { hdrAdjustmentShader } from '../../../shared/hdr-adjustments-wgsl'
 import { displayRenderingWgsl, displayEncodingWgsl } from '../../../shared/display-rendering-wgsl'
 import { REC2020_TO_P3, REC2020_TO_SRGB } from '../../../shared/hdr'
 import { acesWgsl } from '../../../shared/aces-wgsl'
+import { localMasksWgsl } from '../../../shared/masks-gpu'
 import {
   acesPreviewWgsl,
   acesSdrPreviewWgsl,
@@ -45,6 +46,8 @@ export function hdrCacheKernel(
   precision: AcesPreviewPolicy = 'reference',
   creative = false,
   curves = false,
+  masks = false,
+  bases = false,
 ) {
   const math =
     precision === 'reference'
@@ -54,6 +57,8 @@ export function hdrCacheKernel(
         : acesPreviewWgsl
   const shader = `
 ${hdrRenderingShader(creative, curves).replace(acesWgsl, math)}
+${masks ? localMasksWgsl(16, bases ? 18 : undefined) : ''}
+${masks ? '@group(0) @binding(17) var<storage,read_write> localMaskStatus:atomic<u32>;' : ''}
 @group(0) @binding(3) var cached: texture_storage_2d_array<rgba32float,write>;
 @group(0) @binding(5) var<storage,read> jobs:array<vec4u>;
 @compute @workgroup_size(64) fn renderTile(@builtin(global_invocation_id) p:vec3u) {
@@ -64,7 +69,7 @@ ${hdrRenderingShader(creative, curves).replace(acesWgsl, math)}
   let point=vec2i(job.xy)*(size-2)+at-1;
   let pixel=textureLoad(pixels,clamp(point,vec2i(0),vec2i(textureDimensions(pixels))-1),0);
   var rgb=pixel.rgb;
-  if(job.w==0u) { rgb=adjusted(rgb); }
+  if(job.w==0u) { rgb=adjusted(rgb); ${masks ? 'rgb=applyLocalMasks(rgb,(vec2f(point)+.5)/vec2f(textureDimensions(pixels))*u.values[0].zw,1.,true);if(!localMaskFinite(rgb)){atomicOr(&localMaskStatus,1u);rgb=vec3f(0.);}' : ''} }
   textureStore(cached,at,i32(job.z),vec4f(outputRgb(rgb),pixel.a));
 }`
   return {

@@ -1,5 +1,5 @@
 /** Shared protocol and disk-cache layout version. */
-export const PREVIEW_ASSET_VERSION = 'v10'
+export const PREVIEW_ASSET_VERSION = 'v11'
 /** Derived float proofs use source-aware output routing, independently of their cache container. */
 export const PREPARED_PROOF_VERSION = 'prepared-source-proof-v2'
 

@@ -138,7 +138,8 @@ function storedHistory(history: EditHistory, catalogVersion: number): EditHistor
   for (const settings of [result.settings, ...result.snapshots.map((s) => s.settings)]) {
     const legacy = settings as unknown as Record<string, unknown>
     legacy.version = catalogVersion - 10
-    delete legacy.curves
+    delete legacy.maskStack
+    if (catalogVersion < 22) delete legacy.curves
     if (catalogVersion < 21) {
       delete legacy.noiseReduction
       delete legacy.detailSharpening

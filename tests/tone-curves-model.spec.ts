@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import {
   initialSettings,
+  SETTINGS_VERSION,
   mergeEditPatch,
   validatePatch,
   validateProcessingPatch,
@@ -36,7 +37,7 @@ const red = [
 test('atomic curve patches, frozen snapshots, copy groups and resets preserve unrelated edits', () => {
   const base = initialSettings(),
     result = mergeEditPatch(base, { curves: { red }, contrast: 12 })
-  expect(result.version).toBe(12)
+  expect(result.version).toBe(SETTINGS_VERSION)
   expect(result.curves.green).toEqual(base.curves.green)
   expect(base.curves).toEqual(identityToneCurves)
   expect(sameAdjustments(base, result)).toBe(false)

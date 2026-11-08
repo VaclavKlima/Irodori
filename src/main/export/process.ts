@@ -172,7 +172,7 @@ export class ExportProcess {
           reject(e)
         }
       })
-      child.once('exit', async () => {
+      child.once('exit', async (code, exitSignal) => {
         clean()
         if (stopping) await stopping
         if (error) reject(error)
@@ -187,7 +187,12 @@ export class ExportProcess {
             result.diagnostics.stages.processMs = performance.now() - started
           }
           resolve(result)
-        } else reject(new Error(`The export worker stopped. ${diagnostics}`))
+        } else
+          reject(
+            new Error(
+              `The export worker stopped (exit ${code ?? 'none'}, signal ${exitSignal ?? 'none'}). ${diagnostics}`,
+            ),
+          )
       })
       if (signal.aborted) abort()
       else child.send({ ...job, source })

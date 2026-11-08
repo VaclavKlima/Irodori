@@ -73,6 +73,11 @@ persistent proof cache, catalog migration or alternative rendering backend is ad
 
 ## Console
 
+Optional [detail inspection](detail-inspection.md) adds photo-grid regions mapped
+to export-native pixels, independent transfer encoding and matched neutral
+Before/After proofs. Each complete JPEG is encoded/decoded before extraction;
+the legacy overview below remains available when inspection options are omitted.
+
 `irodori_get_output_proof` takes `preparationId`, `photoId`, validated full export
 `options`, and a distinct UUID `proofToken`. The integrated Console additionally
 requires its normal frozen `requestId`, owned export preparation and authorized

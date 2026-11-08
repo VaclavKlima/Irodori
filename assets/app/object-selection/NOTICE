@@ -1,0 +1,6 @@
+SAM 2.1 Hiera Tiny
+Copyright (c) Meta Platforms, Inc. and affiliates.
+Source and model: https://github.com/facebookresearch/sam2
+Distributed under Apache License 2.0; see LICENSE-SAM2.
+
+Irodori exports fixed-shape FP32 ONNX encoder/decoder components and uses float32 categorical prompt labels for native WebGPU compatibility. The lossless gzip chunks reconstruct the exact verified exported graph bytes. See manifest.json for original checkpoint, source revision, modifications and graph hashes.

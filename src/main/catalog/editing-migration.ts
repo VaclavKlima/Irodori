@@ -1,3 +1,4 @@
+import { validateMaskStack } from '../../shared/masks'
 import type { DatabaseSync } from 'node:sqlite'
 import { identityToneCurves, validateToneCurves } from '../../shared/tone-curves'
 import { SETTINGS_VERSION, validatePatch } from '../../shared/edits'
@@ -11,7 +12,7 @@ import {
   validateDetailSharpening,
 } from '../../shared/spatial-detail'
 
-export const CATALOG_VERSION = 22
+export const CATALOG_VERSION = 24
 
 /** Validate the entire library before startup permits any migration or recovery write. */
 export function supportsEditingSettings(
@@ -26,16 +27,21 @@ export function supportsEditingSettings(
   )
     return false
   if ((settings.version as number) < 12 && 'curves' in settings) return false
+  if ((settings.version as number) < 13 && 'maskStack' in settings) return false
   if ((settings.version as number) < 10 && ('colorMixer' in settings || 'colorGrading' in settings))
     return false
   const legacy = settings.version === 7
-  if (![7, 8, 9, 10, 11, SETTINGS_VERSION].includes(settings.version as number)) return false
+  if (![7, 8, 9, 10, 11, 12, 13, SETTINGS_VERSION].includes(settings.version as number))
+    return false
   if (
     catalogVersion !== undefined &&
     settings.version !==
-      ({ 17: 7, 18: 8, 19: 9, 20: 10, 21: 11, 22: SETTINGS_VERSION } as Record<number, number>)[
-        catalogVersion
-      ]
+      (
+        { 17: 7, 18: 8, 19: 9, 20: 10, 21: 11, 22: 12, 23: 13, 24: SETTINGS_VERSION } as Record<
+          number,
+          number
+        >
+      )[catalogVersion]
   )
     return false
   if (
@@ -45,7 +51,17 @@ export function supportsEditingSettings(
   )
     return false
   try {
-    if (settings.version === SETTINGS_VERSION) validateToneCurves(settings.curves)
+    if ((settings.version as number) >= 12) validateToneCurves(settings.curves)
+    if ((settings.version as number) >= 13) {
+      validateMaskStack(settings.maskStack)
+      if (
+        (settings.version as number) < 14 &&
+        (settings.maskStack as import('../../shared/masks').MaskDescriptor[]).some(
+          (mask) => mask.base,
+        )
+      )
+        return false
+    }
     if ((settings.version as number) >= 11) {
       validateNoiseReduction(settings.noiseReduction)
       validateDetailSharpening(settings.detailSharpening)
@@ -111,7 +127,11 @@ export function migrateEditingHistory(db: DatabaseSync): void {
           (settings.version as number) >= 11
             ? settings.detailSharpening
             : { ...neutralDetailSharpening },
-        curves: structuredClone(identityToneCurves),
+        curves:
+          (settings.version as number) >= 12
+            ? settings.curves
+            : structuredClone(identityToneCurves),
+        maskStack: (settings.version as number) >= 13 ? settings.maskStack : [],
       }
     }
     history.settings = upgrade(history.settings)

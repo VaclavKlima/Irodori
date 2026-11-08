@@ -107,12 +107,24 @@ export interface ExportDiagnostics {
   stages: Record<string, number>
 }
 export interface ExportRenderResult {
+  sourceGeometry?: {
+    width: number
+    height: number
+    maskGeometry?: import('../../shared/mask-geometry').MaskGeometry
+  }
   geometry?: { width: number; height: number }
   path: string
   sha256: string
   diagnostics?: ExportDiagnostics
 }
 export interface ExportRenderJob {
+  /** Main-owned inspection extraction occurs after all full-source spatial/geometry processing. */
+  inspection?: {
+    bounds: import('../../shared/inspection').InspectionBounds
+    width: number
+    height: number
+    encoding: 'jpeg' | 'png'
+  }
   outputSharpeningPolicy?: ExportOutputSharpeningPolicy
   outputSharpeningAdmission?: import('../../shared/detail-resources').DetailAdmission
   resizePolicy?: ExportResizePolicy

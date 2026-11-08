@@ -8,7 +8,7 @@ import {
   presetIcons,
   validatePresetAppearance,
 } from '../src/shared/preset-appearance'
-import { initialSettings, mergeEditPatch } from '../src/shared/edits'
+import { initialSettings, mergeEditPatch, SETTINGS_VERSION } from '../src/shared/edits'
 import {
   defaultEditTransferGroups,
   transferredSettings,
@@ -165,7 +165,7 @@ test('preset validation refuses unknown/excluded settings, versions, groups, pat
       d.values.crop = initialSettings().crop
     },
     (d: PresetDefinition) => {
-      Object.assign(d, { settingsVersion: 13 })
+      Object.assign(d, { settingsVersion: SETTINGS_VERSION + 1 })
     },
     (d: PresetDefinition) => {
       Object.assign(d, { version: 2 })

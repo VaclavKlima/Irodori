@@ -20,7 +20,7 @@ export function Histogram({
   const data =
     !tools.hdr && tools.analysis && !('domain' in tools.analysis) ? tools.analysis : undefined
   const descriptor = hdr?.rgbHistogram
-  const channels = descriptor?.rgb ?? data?.rgb
+  const channels = tools.analysisError ? undefined : (descriptor?.rgb ?? data?.rgb)
   const bins = channels?.[0].length ?? (tools.hdr ? 512 : 256)
   const activeBin = Math.min(bin, bins - 1)
   const paths = useRef<(SVGPathElement | null)[]>([])
@@ -50,6 +50,8 @@ export function Histogram({
       frame.current = 0
       animation.current = null
       if (plot) plot.setAttribute('data-animating', 'false')
+      curves.current = []
+      for (const path of paths.current) path?.removeAttribute('d')
       return
     }
     const max = Math.max(1, ...channels.flat())
@@ -98,7 +100,9 @@ export function Histogram({
     `${((100 * count) / (data?.visiblePixels || descriptor?.visiblePixels || 1)).toFixed(2)}%`
   const readout = channels
     ? `${descriptor?.mode === 'hdr' && activeBin >= 256 ? `+${(((activeBin - 256) * descriptor.maxStops) / 256).toFixed(2)} stops` : `Value ${activeBin}`} · R ${percent(channels[0][activeBin])} · G ${percent(channels[1][activeBin])} · B ${percent(channels[2][activeBin])}`
-    : 'Preparing histogram…'
+    : tools.analysisError
+      ? 'Histogram unavailable'
+      : 'Preparing histogram…'
   const status = tools.analysisError
     ? 'Histogram unavailable'
     : !channels

@@ -1,3 +1,4 @@
+import type { ObjectSelectionController } from '../hooks/useObjectSelection'
 import { useRef, useState } from 'react'
 import { Tabs, TabPanel, IconButton } from './ui/Controls'
 import { inspectorReset } from '../../../shared/inspector-reset'
@@ -21,8 +22,10 @@ import { Exposure } from './Exposure'
 import type { EditController } from '../hooks/useEdits'
 import { LensCorrections } from './LensCorrections'
 import { InspectorSection } from './InspectorSection'
-import { Info, Sun, Crop, Palette, ScanLine, RotateCcw, PanelsTopLeft } from 'lucide-react'
+import { Info, Sun, Crop, Palette, ScanLine, RotateCcw, PanelsTopLeft, Layers } from 'lucide-react'
 import { Presets } from './Presets'
+import { Masks } from './Masks'
+import type { MasksController } from '../hooks/useMasks'
 import type { EditingPreset, PresetWorkspace } from '../../../shared/presets'
 import { CropControls } from './CropControls'
 import type { CropController } from '../hooks/useCrop'
@@ -58,7 +61,11 @@ export function Inspector({
   onPresetsChange,
   selectionCount,
   onApplyPreset,
+  masks,
+  objectSelection,
 }: {
+  masks: MasksController
+  objectSelection?: ObjectSelectionController
   group: InspectorGroup
   colorTab: ColorTab
   onGroupChange: (group: InspectorGroup) => void
@@ -111,7 +118,7 @@ export function Inspector({
     const next = { ...sections, [id]: !sections[id] }
     onSectionsChange(next)
   }
-  const title = (id: Exclude<InspectorGroup, 'info' | 'presets'>) => (
+  const title = (id: Exclude<InspectorGroup, 'info' | 'presets' | 'masks'>) => (
     <div className={`${inspectorStyles.title} ${id === 'color' ? inspectorStyles.colorTitle : ''}`}>
       <h2>{id[0].toUpperCase() + id.slice(1)}</h2>
       <IconButton
@@ -143,6 +150,7 @@ export function Inspector({
           items={[
             { id: 'light', label: 'Light', icon: Sun },
             { id: 'color', label: 'Color', icon: Palette },
+            { id: 'masks', label: 'Masks', icon: Layers },
             { id: 'detail', label: 'Detail', icon: ScanLine },
             { id: 'geometry', label: 'Geometry', icon: Crop },
             { id: 'presets', label: 'Presets', icon: PanelsTopLeft },
@@ -151,7 +159,7 @@ export function Inspector({
           onChange={(next) => void switchTo(() => onGroupChange(next))}
         />
         <div
-          className={`${inspectorStyles.scroll} ${group === 'presets' ? inspectorStyles.presetScroll : ''}`}
+          className={`${inspectorStyles.scroll} ${group === 'presets' ? inspectorStyles.presetScroll : ''} ${group === 'masks' ? inspectorStyles.maskScroll : ''}`}
           data-testid="inspector-scroll"
         >
           <TabPanel id="light" active={group === 'light'}>
@@ -244,6 +252,9 @@ export function Inspector({
                 onBlendingToggle={() => toggle('toneBlending')}
               />
             </TabPanel>
+          </TabPanel>
+          <TabPanel id="masks" active={group === 'masks'}>
+            <Masks masks={masks} objectSelection={objectSelection} />
           </TabPanel>
           <TabPanel id="detail" active={group === 'detail'}>
             {title('detail')}

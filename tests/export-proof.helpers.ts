@@ -83,7 +83,12 @@ export async function proofFixture(
               .withIccProfile('srgb')
               .jpeg({ quality: job.options.quality, chromaSubsampling: '4:4:4' })
               .toFile(path)
-            return { path, sha256: sha(await readFile(path)), geometry }
+            return {
+              path,
+              sha256: sha(await readFile(path)),
+              geometry,
+              sourceGeometry: { width: job.source.photo.width!, height: job.source.photo.height! },
+            }
           }),
       }
   const proofs = new OutputProofs(

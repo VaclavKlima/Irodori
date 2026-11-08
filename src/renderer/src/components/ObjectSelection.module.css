@@ -1,0 +1,105 @@
+.controls {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 10px;
+  padding: 8px;
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius);
+  background: var(--canvas);
+}
+.modes,
+.actions,
+.guideActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.modes button {
+  flex: 1;
+}
+.modes button[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.controls button {
+  min-height: 24px;
+  font-size: 11px;
+}
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.guideActions {
+  font-size: 11px;
+  color: var(--quiet);
+}
+.guideActions > span {
+  margin-right: auto;
+  font-variant-numeric: tabular-nums;
+}
+.error {
+  display: grid;
+  gap: 5px;
+  color: var(--error);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  touch-action: none;
+  cursor: crosshair;
+  overflow: hidden;
+}
+.overlay:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.rectangle {
+  position: absolute;
+  border: 1px solid var(--accent);
+  outline: 1px solid var(--canvas);
+  pointer-events: none;
+}
+.point {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  background: var(--surface-overlay);
+  color: var(--accent);
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 600;
+  pointer-events: none;
+}
+.subtract {
+  border-color: var(--error);
+  color: var(--error);
+}
+.cursor {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  transform: translate(-50%, -50%);
+  border: 1px dotted var(--text);
+  pointer-events: none;
+}
+.waiting {
+  position: absolute;
+  left: 10px;
+  top: 45px;
+  padding: 4px 6px;
+  border-radius: var(--radius);
+  background: var(--surface-overlay);
+  color: var(--muted);
+  font-size: 10px;
+}

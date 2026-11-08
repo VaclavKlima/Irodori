@@ -4,6 +4,8 @@ import sharp from 'sharp'
 import { neutralAdjustments, srgbTransform } from '../../shared/adjustments'
 import { creativeColorActive, prepareCreativeColor } from '../../shared/creative-color'
 import { preparedToneCurves } from '../../shared/tone-curves'
+import { croppedMaskGeometry, identityMaskGeometry } from '../../shared/mask-geometry'
+import { hasLocalMasks, packLocalMasks, maskBaseAtlasPlan } from '../../shared/masks-gpu'
 import { CROP_GEOMETRY_VERSION, cropGeometry, identityCrop } from '../../shared/crop'
 import { CROP_FILTER_VERSION } from '../../shared/crop-filter'
 import { exportGeometry } from '../../shared/export'
@@ -90,7 +92,7 @@ export async function exportRenditions(
   if (job.hdr && !job.source.hdr) throw new Error('HDR export requires a supported HDR source.')
   const outputMode = outputSharpeningMode(job.options),
     outputSharpening = outputMode !== 'off',
-    a = job.source.processing.adjustments ?? neutralAdjustments,
+    a = { ...(job.source.processing.adjustments ?? neutralAdjustments) },
     detailControls = resolveDetailSettings(job.source.processing),
     cropSettings = structuredClone(job.source.processing.crop ?? identityCrop),
     cropAdmission = job.cropAdmission ? structuredClone(job.cropAdmission) : undefined,
@@ -139,6 +141,16 @@ export async function exportRenditions(
     sourceHeight = uncroppedAsset?.height ?? cachedPrimary?.asset.height ?? input!.info.height,
     crop = cropGeometry({ width: sourceWidth, height: sourceHeight }, cropSettings),
     { width, height } = crop
+  a.maskGeometry = croppedMaskGeometry(
+    uncroppedAsset?.maskGeometry ??
+      cachedPrimary?.asset.maskGeometry ??
+      identityMaskGeometry(sourceWidth, sourceHeight),
+    crop,
+  )
+  const maskBytes = hasLocalMasks(a)
+    ? packLocalMasks(a, { width, height }).byteLength +
+      (maskBaseAtlasPlan(a).bases.length ? maskBaseAtlasPlan(a).bytes : 0)
+    : 0
   if (frameByteLength(sourceWidth, sourceHeight) * 4 > 512 * 1024 ** 2)
     throw new Error('This photo exceeds the floating-point export memory limit.')
   if (
@@ -155,10 +167,28 @@ export async function exportRenditions(
   let base = input
     ? new Float32Array(input.data.buffer, input.data.byteOffset, input.data.byteLength / 4)
     : undefined
-  const geometry = exportGeometry(width, height, job.options.size),
-    original = geometry.width === width && geometry.height === height,
+  const region = job.inspection?.bounds ?? { x: 0, y: 0, width, height }
+  if (
+    ![region.x, region.y, region.width, region.height].every(Number.isSafeInteger) ||
+    region.x < 0 ||
+    region.y < 0 ||
+    region.width < 1 ||
+    region.height < 1 ||
+    region.x + region.width > width ||
+    region.y + region.height > height
+  )
+    throw new Error('Invalid inspection extraction bounds.')
+  const geometry = job.inspection
+      ? { width: job.inspection.width, height: job.inspection.height }
+      : exportGeometry(region.width, region.height, job.options.size),
+    original = geometry.width === region.width && geometry.height === region.height,
     packed = original && !outputSharpening,
     pixels = geometry.width * geometry.height
+  if (
+    ![geometry.width, geometry.height].every((v) => Number.isSafeInteger(v) && v > 0) ||
+    (job.inspection && (geometry.width > region.width || geometry.height > region.height))
+  )
+    throw new Error('Invalid inspection resolution; enlargement is unavailable.')
   if (!crop.identity && !cropAdmission)
     throw new Error('Crop export requires a frozen resource admission.')
   const originalInputBytes = input?.data.buffer.byteLength ?? 0,
@@ -182,6 +212,7 @@ export async function exportRenditions(
             authoredHdr: Boolean(uncroppedAsset?.source.display),
             creative: creativeColorActive(prepareCreativeColor(a)),
             curves: !preparedToneCurves(a.curves).identity,
+            maskBytes,
             outputSharpening,
             inputBytes: predictedInputBytes,
           },
@@ -324,17 +355,27 @@ export async function exportRenditions(
   const accept = async (data: Float32Array<ArrayBuffer>, top: number) => {
     if (packed) quantize(data, top)
     else {
-      const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength)
-      let offset = 0
-      while (offset < bytes.length) {
-        const { bytesWritten } = await linear!.write(
-          bytes,
-          offset,
-          bytes.length - offset,
-          top * width * channels * 4 + offset,
+      // Preserve full-photo coordinates during GPU rendering; only completed rows are extracted.
+      const rows = data.length / (width * channels)
+      for (let row = 0; row < rows; row++) {
+        const y = top + row
+        if (y < region.y || y >= region.y + region.height) continue
+        const values = data.subarray(
+          (row * width + region.x) * channels,
+          (row * width + region.x + region.width) * channels,
         )
-        if (!bytesWritten) throw new Error('Cannot write export rendition.')
-        offset += bytesWritten
+        const bytes = Buffer.from(values.buffer, values.byteOffset, values.byteLength)
+        let offset = 0
+        while (offset < bytes.length) {
+          const { bytesWritten } = await linear!.write(
+            bytes,
+            offset,
+            bytes.length - offset,
+            (y - region.y) * region.width * channels * 4 + offset,
+          )
+          if (!bytesWritten) throw new Error('Cannot write export rendition.')
+          offset += bytesWritten
+        }
       }
     }
   }
@@ -425,7 +466,16 @@ export async function exportRenditions(
             const count = strip.length / 4,
               stride = job.hdr && !converter.hdrDeferred ? 3 : 1
             for (let i = 0; i < count; i++) {
-              const dest = top * width + i,
+              const photoY = top + Math.floor(i / width),
+                photoX = i % width
+              if (
+                photoY < region.y ||
+                photoY >= region.y + region.height ||
+                photoX < region.x ||
+                photoX >= region.x + region.width
+              )
+                continue
+              const dest = (photoY - region.y) * region.width + photoX - region.x,
                 packed = words[i * stride]
               rgb[dest * 3] = packed & 255
               rgb[dest * 3 + 1] = (packed >>> 8) & 255
@@ -531,8 +581,8 @@ export async function exportRenditions(
       const resizeAdmission = job.resizeAdmission!
       resizeDiagnostics = await resizeLinearGpu(
         linearPath,
-        width,
-        height,
+        region.width,
+        region.height,
         geometry.width,
         geometry.height,
         channels,
@@ -602,6 +652,11 @@ export async function exportRenditions(
   return {
     rgb,
     half,
+    sourceGeometry: {
+      width: sourceWidth,
+      height: sourceHeight,
+      maskGeometry: uncroppedAsset?.maskGeometry ?? cachedPrimary?.asset.maskGeometry,
+    },
     geometry,
     contentHeadroom,
     earlyPrimary,

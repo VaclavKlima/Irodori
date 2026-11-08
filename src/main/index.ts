@@ -199,6 +199,21 @@ async function captureAgentContext(): Promise<EditorContextSnapshot> {
   if (snapshot.transient.crop)
     throw new Error('Apply or cancel the crop, then submit the request again.')
   await flushEditorEdits({ kind: 'all' })
+  if (snapshot.inspection) {
+    const pending = snapshot.inspection
+    if (pending.region?.units !== 'pixels' || pending.region.gridIdentity !== pending.gridIdentity)
+      throw new Error('Invalid inspection region context. Select the region again.')
+    if (snapshot.workspace !== 'editor' || pending.photoId !== snapshot.activePhotoId)
+      throw new Error(
+        'The inspection region no longer belongs to the active photograph. Select it again.',
+      )
+    const revision = (await library!.getEdits(pending.photoId)).revision
+    const context = await library!.agentPreviews.context(pending.photoId, revision)
+    const { resolveInspectionRegion } = await import('../shared/inspection')
+    resolveInspectionRegion(pending.region, context)
+    if (pending.gridIdentity !== context.gridIdentity)
+      throw new Error('The inspection region is stale. Select it again before submitting.')
+  }
   return {
     ...snapshot,
     selectedIds: [...new Set(snapshot.selectedIds)],
@@ -995,6 +1010,30 @@ app
         (error) => ({ error: String(error) }),
       )
     })
+    handleLibraryRequest('selection:context', (event, id, revision) => {
+      trusted(event)
+      return library!.getObjectSelectionContext(id, revision)
+    })
+    handleLibraryRequest('selection:create', (event, request) => {
+      trusted(event)
+      return library!.createObjectSelection(request)
+    })
+    handleLibraryRequest('selection:accept', (event, request) => {
+      trusted(event)
+      return library!.acceptObjectSelection(request)
+    })
+    handleLibraryRequest('selection:cancel', (event, id) => {
+      trusted(event)
+      return library!.cancelObjectSelection(id)
+    })
+    handleLibraryRequest('masks:context', (event, id, revision) => {
+      trusted(event)
+      return library!.getMaskContext(id, revision)
+    })
+    handleLibraryRequest('masks:mutate', (event, id, revision, mutation) => {
+      trusted(event)
+      return library!.mutateMasks(id, revision, mutation)
+    })
     handleLibraryRequest('edits:update', (event, id, patch, revision) => {
       trusted(event)
       return library!.updateEdits(id, patch, revision)
@@ -1049,6 +1088,13 @@ app
     handleLibraryRequest('preview:first-surface-release', (event, requestId, surfaceId) => {
       trusted(event)
       return library!.fullPreviews.releaseFirstSurface(requestId, surfaceId)
+    })
+    handleLibraryRequest('preview:context', (event, id, revision) => {
+      trusted(event)
+      return library!.agentPreviews.context(id, revision).then(
+        (context) => ({ context }),
+        (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
+      )
     })
     handleLibraryRequest('crop:context', (event, id, revision) => {
       trusted(event)

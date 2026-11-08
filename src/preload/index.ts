@@ -240,6 +240,11 @@ const api: IrodoriApi = {
     if (result.error) throw new Error(result.error)
     return result.context
   },
+  getPreviewContext: async (id, revision) => {
+    const result = await ipcRenderer.invoke('preview:context', id, revision)
+    if (result.error) throw new Error(result.error)
+    return result.context
+  },
   proposeWhiteBalance: async (id, revision, sample) => {
     const result = await ipcRenderer.invoke('white-balance:propose', id, revision, sample)
     if (result.error) throw new Error(result.error)
@@ -250,6 +255,14 @@ const api: IrodoriApi = {
     if (result.error) throw new Error(result.error)
     return result.pixel
   },
+  getObjectSelectionContext: (id, revision) =>
+    ipcRenderer.invoke('selection:context', id, revision),
+  createObjectSelection: (request) => ipcRenderer.invoke('selection:create', request),
+  acceptObjectSelection: (request) => ipcRenderer.invoke('selection:accept', request),
+  cancelObjectSelection: (id) => ipcRenderer.invoke('selection:cancel', id),
+  getMaskContext: (id, revision) => ipcRenderer.invoke('masks:context', id, revision),
+  mutateMasks: (id, revision, mutation) =>
+    ipcRenderer.invoke('masks:mutate', id, revision, mutation),
   updateEdits: (id, patch, revision) => ipcRenderer.invoke('edits:update', id, patch, revision),
   getEditHistory: (id) => ipcRenderer.invoke('edits:history', id),
   undoEdit: (id, revision) => ipcRenderer.invoke('edits:undo', id, revision),

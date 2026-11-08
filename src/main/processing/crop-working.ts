@@ -5,6 +5,7 @@ import type { HdrWorkingAsset } from '../../shared/hdr'
 import { copyIntegerCropStrip } from './crop'
 import { readHdrStrips } from './hdr-processing'
 import { writeHdrStrip } from './write-hdr-strip'
+import { croppedMaskGeometry, identityMaskGeometry } from '../../shared/mask-geometry'
 
 export interface CroppedWorkingAsset {
   path: string
@@ -69,6 +70,10 @@ export async function prepareIntegerCrop(
     // The directory owner publishes only after this descriptor and closed file return.
     const result: HdrWorkingAsset = {
       ...asset,
+      maskGeometry: croppedMaskGeometry(
+        asset.maskGeometry ?? identityMaskGeometry(asset.width, asset.height),
+        geometry,
+      ),
       width: geometry.width,
       height: geometry.height,
       byteLength,

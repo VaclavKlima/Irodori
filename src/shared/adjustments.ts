@@ -24,6 +24,9 @@ import {
   type WhiteBalanceProfile,
 } from './white-balance'
 import { whitesModule } from './whites'
+import type { ResolvedMask } from './masks'
+import type { MaskGeometry } from './mask-geometry'
+import { hasLocalMasks, localMaskPixelData, MASK_RENDERING_VERSION } from './masks-gpu'
 export { blacksModule } from './blacks'
 export { colorIntensityModule } from './color-intensity'
 export { contrastModule } from './contrast'
@@ -32,6 +35,8 @@ export { shadowsModule } from './shadows'
 export { whitesModule } from './whites'
 
 export interface AdjustmentParameters extends CreativeColorSettings {
+  localMasks?: readonly ResolvedMask[]
+  maskGeometry?: MaskGeometry
   curves?: ToneCurves
   whiteBalance?: WhiteBalance
   exposureEv: number
@@ -64,6 +69,12 @@ export function snapshotAdjustments(
     colorMixer = patch?.colorMixer ?? source.colorMixer,
     colorGrading = patch?.colorGrading ?? source.colorGrading
   return {
+    ...(source.localMasks || patch?.localMasks
+      ? { localMasks: structuredClone(patch?.localMasks ?? source.localMasks) }
+      : {}),
+    ...(source.maskGeometry || patch?.maskGeometry
+      ? { maskGeometry: structuredClone(patch?.maskGeometry ?? source.maskGeometry) }
+      : {}),
     ...((patch?.curves ?? source.curves)
       ? { curves: structuredClone(patch?.curves ?? source.curves) }
       : {}),
@@ -85,6 +96,9 @@ export function sameAdjustments(
   b: AdjustmentParameters,
 ): boolean {
   return (
+    JSON.stringify(localMaskPixelData(a ?? {})) === JSON.stringify(localMaskPixelData(b)) &&
+    JSON.stringify(a && hasLocalMasks(a) ? (a.maskGeometry ?? null) : null) ===
+      JSON.stringify(hasLocalMasks(b) ? (b.maskGeometry ?? null) : null) &&
     JSON.stringify(a?.whiteBalance ?? { mode: 'as-shot' }) ===
       JSON.stringify(b.whiteBalance ?? { mode: 'as-shot' }) &&
     a?.exposureEv === b.exposureEv &&
@@ -98,6 +112,24 @@ export function sameAdjustments(
     sameCreativeColor(a, b) &&
     sameToneCurves(a?.curves, b.curves)
   )
+}
+/** Pixel-affecting local content includes its algorithm version, never UI names or IDs. */
+export function adjustmentPixelKey(parameters: AdjustmentParameters): string {
+  const global = { ...parameters }
+  const maskGeometry = global.maskGeometry
+  delete global.localMasks
+  delete global.maskGeometry
+  const masks = localMaskPixelData(parameters)
+  return JSON.stringify({
+    ...global,
+    ...(masks.length
+      ? {
+          localMasks: masks,
+          maskGeometry,
+          maskVersion: MASK_RENDERING_VERSION,
+        }
+      : {}),
+  })
 }
 /** Display conversion is intentionally SDR; working pixels remain unclipped. */
 export interface DisplayTransform {
@@ -242,6 +274,7 @@ export function renderAdjustments(
   return output
 }
 export interface WorkingFrame {
+  maskGeometry?: MaskGeometry
   sourceRef?: import('./prepared-source').PreparedHdrSourceRef
   hdr?: import('./hdr').HdrWorkingAsset
   identity?: string

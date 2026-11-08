@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "scope": "Scripted two-stroke illustration only; no human correction-time, ground-truth or whole-mask quality acceptance.",
+  "source": {
+    "sha256": "dead1a70a02909faf8458119fcc8f7067733b756978fd26921710e3008364605",
+    "gridIdentity": "c8c90d4326bfecf61e39030192343b4398a476c2dcc17c59982bc3f332efce40",
+    "width": 5496,
+    "height": 3672
+  },
+  "gridIdentityDerivation": "SHA-256 of canonical full prepared geometry plus input policy and native dimensions; research identity only.",
+  "strokes": [
+    {
+      "mode": "add",
+      "radius": 0.012,
+      "feather": 0.35,
+      "points": [
+        {
+          "x": 0.5868813682678311,
+          "y": 0.7218137254901961
+        },
+        {
+          "x": 0.5868813682678311,
+          "y": 0.7572167755991286
+        }
+      ]
+    },
+    {
+      "mode": "subtract",
+      "radius": 0.008,
+      "feather": 0.3,
+      "points": [
+        {
+          "x": 0.6432860262008734,
+          "y": 0.7844498910675382
+        }
+      ]
+    }
+  ],
+  "inverted": false,
+  "sourceFile": "assets/tests/images/raw/sony-zv-1a/fog-dogs/originals/DSC03280.ARW",
+  "aiBase": {
+    "model": "sam2.1-hiera-tiny",
+    "caseId": "d01-fog-dog",
+    "stage": "refined",
+    "sha256": "c5d579dbaa95dbf5ae1279dcbd2768be2c0184e731370a2f420c8f406eb2ad6e",
+    "coveragePolicy": "shared-bilinear-native-binary-v1",
+    "nativeEncoding": "PNG-R8"
+  },
+  "gridIdentityLimit": "Research identity derived from the complete frozen prepared geometry, input policy and native dimensions. It is not a production selection/grid identity or proof of future crop/lens mapping persistence.",
+  "notGroundTruth": true,
+  "humanCorrectionTime": null
+}

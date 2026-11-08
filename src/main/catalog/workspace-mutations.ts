@@ -8,6 +8,8 @@ import {
   colorTabs,
   recoverWorkspaceNavigation,
   recoverConsoleHeight,
+  recoverMaskWorkspace,
+  validMaskWorkspace,
   type WorkspaceChange,
   type WorkspaceState,
 } from '../../shared/workspace'
@@ -38,6 +40,7 @@ function validate(state: WorkspaceState) {
   if (
     !state ||
     !validPresetWorkspace(state.presets) ||
+    !validMaskWorkspace(state.masks) ||
     Object.keys(state).some((k) => !(k in DEFAULT_WORKSPACE)) ||
     state.version !== WORKSPACE_VERSION ||
     !['editor', 'library'].includes(state.mode) ||
@@ -121,6 +124,7 @@ export class WorkspaceMutations extends WorkspaceStore {
         ...saved,
         ...recoverWorkspaceNavigation(saved),
         consoleHeight: recoverConsoleHeight(saved?.consoleHeight),
+        masks: recoverMaskWorkspace(saved?.masks),
         inspector: { ...DEFAULT_INSPECTOR_SECTIONS, ...saved?.inspector },
         presets: validPresetWorkspace(saved?.presets) ? saved.presets : DEFAULT_PRESET_WORKSPACE,
         ...change.state,

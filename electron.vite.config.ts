@@ -51,6 +51,9 @@ export default defineConfig(({ command }) => {
                 },
               )
             }
+            await cp('assets/app/object-selection', 'out/main/object-selection-model', {
+              recursive: true,
+            })
             await cp('scripts/agent-hook.mjs', 'out/main/agent-hook.mjs')
             await mkdir('out/main/opencv', { recursive: true })
             await cp('vendor/opencv', 'out/main/opencv', { recursive: true })
@@ -61,11 +64,12 @@ export default defineConfig(({ command }) => {
       ],
       build: {
         rollupOptions: {
-          external: ['webgpu', 'node-pty'],
+          external: ['webgpu', 'node-pty', 'onnxruntime-node'],
           input: {
             index: 'src/main/index.ts',
             'preview-worker': 'src/main/preview-worker.ts',
             'agent-worker': 'src/main/agent/worker.ts',
+            'object-selection-worker': 'src/main/object-selection/worker.ts',
             'editor-mcp': 'scripts/editor-mcp.mjs',
             'catalog-worker': 'src/main/catalog-worker.ts',
             'export-worker': 'src/main/export/worker.ts',

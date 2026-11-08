@@ -23,6 +23,31 @@ const schema = (properties, required = Object.keys(properties)) => ({
   required,
   additionalProperties: false,
 })
+const inspection = schema(
+  {
+    region: schema({
+      units: { enum: ['pixels', 'normalized'] },
+      x: { type: 'number', minimum: 0 },
+      y: { type: 'number', minimum: 0 },
+      width: { type: 'number', exclusiveMinimum: 0 },
+      height: { type: 'number', exclusiveMinimum: 0 },
+      gridIdentity: { type: 'string' },
+    }),
+    resolutionPercent: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
+    encoding: {
+      oneOf: [
+        schema(
+          { format: { const: 'jpeg' }, quality: { type: 'integer', minimum: 1, maximum: 100 } },
+          ['format'],
+        ),
+        schema({ format: { const: 'png' } }),
+      ],
+    },
+    comparison: { enum: ['after', 'before', 'pair'] },
+    hdr: { type: 'boolean' },
+  },
+  [],
+)
 const mergeSettings = schema({
   mode: { enum: ['hdr', 'noise'] },
   referenceId: photoId,
@@ -116,21 +141,31 @@ let tools = [
     inputSchema: schema({ offset: { type: 'integer', minimum: 0 } }, []),
   },
   {
+    name: 'irodori_get_preview_context',
+    description:
+      'Read authoritative oriented, lens-corrected, cropped photo dimensions and grid identity, inspection formats, payload limits and HDR availability. Coordinates are independent of screen zoom/pan. Read before requesting a region.',
+    inputSchema: schema({ photoId, expectedRevision }),
+  },
+  {
     name: 'irodori_get_photo_preview',
     description:
-      'Get the complete current edited/cropped photograph as a compact sRGB SDR JPEG image (also for HDR sources), max long edge 1024, quality 80, no enlargement or personal metadata, payload at most 1 MiB. For composition and broad tone/color assessment; native-detail and physical HDR inspection are unavailable.',
-    inputSchema: schema({ photoId, expectedRevision }),
+      'Inspect the complete photograph or a grid-bound pixel/normalized region. Optional inspection controls resolutionPercent independently from JPEG quality or lossless SDR PNG, comparison after/before/pair, and strict HDR. 100 percent is photo-native; omitted resolution fits the selected extent within 1024 pixels without enlargement. Before is a neutral rendition of the confirmed revision with current crop/lens geometry, not a historical revision. Extended payload limits are 8 MiB per image and 16 MiB per pair; oversized requests fail without reducing quality/resolution. HDR delivery requires a qualified client; SDR images cannot establish physical HDR luminance. Omit inspection for legacy whole-image SDR JPEG 1024/q80/1 MiB.',
+    inputSchema: schema({ photoId, expectedRevision, inspection }, ['photoId', 'expectedRevision']),
   },
   {
     name: 'irodori_get_output_proof',
     description:
-      'Encode and decode one frozen export target using the shared Output preview service, including export-only outputSharpening. No destination, history or preference writes. Returns actual output dimensions, JPEG quality, effective output sharpening and pipeline versions plus an SDR overview of the decoded JPEG primary, at most 1024 pixels and 1 MiB. This overview cannot establish native sharpness, halos, noise or HDR appearance; inspect those in Custom export Output preview at 100%. Prepare export first; provide a distinct UUID proofToken.',
-    inputSchema: schema({
-      preparationId: { type: 'string' },
-      photoId,
-      options: exportOptionsSchema,
-      proofToken: { type: 'string', pattern: '^[a-f0-9-]{36}$' },
-    }),
+      'Encode/decode a frozen export using shared Output preview including output sharpening. Prepare export first; use a unique UUID proofToken. Optional inspection shares photo region/grid, resolution, JPEG/PNG, matched neutral Before/After and HDR contracts. Regions map into the decoded export grid; 100 percent is export-native and may differ from photo-native. Both complete pair members are separately encoded/decoded with identical export settings before region extraction. Export JPEG quality in options and transfer JPEG quality in inspection are independent. No destination/history/preference writes. Omit inspection for legacy compact SDR overview. HDR vision remains capability gated.',
+    inputSchema: schema(
+      {
+        preparationId: { type: 'string' },
+        photoId,
+        options: exportOptionsSchema,
+        proofToken: { type: 'string', pattern: '^[a-f0-9-]{36}$' },
+        inspection,
+      },
+      ['preparationId', 'photoId', 'options', 'proofToken'],
+    ),
   },
   {
     name: 'irodori_get_edit_clipboard',
@@ -556,6 +591,194 @@ let tools = [
     inputSchema: schema({ photoId }),
   },
   {
+    name: 'irodori_get_mask_context',
+    description:
+      'Read revision-bound canonical/current cropped-output dimensions and map up to 128 normalized compact-preview positions to canonical source coordinates for brush strokes. Main applies the exact crop/lens/flip pull mapping; the response omits full geometry. Reuse prepared source data; no photo edit.',
+    inputSchema: schema(
+      {
+        photoId,
+        expectedRevision,
+        points: {
+          type: 'array',
+          maxItems: 128,
+          items: schema({
+            x: { type: 'number', minimum: 0, maximum: 1 },
+            y: { type: 'number', minimum: 0, maximum: 1 },
+          }),
+        },
+      },
+      ['photoId', 'expectedRevision'],
+    ),
+  },
+  {
+    name: 'irodori_get_object_selection_context',
+    description:
+      'Read object-selection capabilities and the frozen photograph/revision/grid. Optionally map a normalized current-photo box and points into canonical source coordinates. Use returned canonical box/points for selection prompts; no edit or inference.',
+    inputSchema: schema(
+      {
+        photoId,
+        expectedRevision,
+        box: {
+          type: 'array',
+          minItems: 4,
+          maxItems: 4,
+          items: { type: 'number', minimum: 0, maximum: 1 },
+        },
+        points: {
+          type: 'array',
+          maxItems: 128,
+          items: schema({
+            x: { type: 'number', minimum: 0, maximum: 1 },
+            y: { type: 'number', minimum: 0, maximum: 1 },
+          }),
+        },
+      },
+      ['photoId', 'expectedRevision'],
+    ),
+  },
+  {
+    name: 'irodori_create_object_selection',
+    description:
+      'Generate a SAM 2 object proposal using the confirmed canonical grid and box/positive/negative points. Returns a native canonical black/white coverage image separately from metadata. Does not edit history. Optional maskId preserves its manual strokes and controls. Six slots maximum; box uses two. Inspect before explicit acceptance; Paint/Erase repairs approximate edges.',
+    inputSchema: schema(
+      {
+        photoId,
+        expectedRevision,
+        gridIdentity: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+        maskId: { type: 'string', format: 'uuid' },
+        prompts: schema(
+          {
+            box: {
+              type: 'array',
+              minItems: 4,
+              maxItems: 4,
+              items: { type: 'number', minimum: 0, maximum: 1 },
+            },
+            positivePoints: {
+              type: 'array',
+              maxItems: 6,
+              items: {
+                type: 'array',
+                minItems: 2,
+                maxItems: 2,
+                items: { type: 'number', minimum: 0, maximum: 1 },
+              },
+            },
+            negativePoints: {
+              type: 'array',
+              maxItems: 6,
+              items: {
+                type: 'array',
+                minItems: 2,
+                maxItems: 2,
+                items: { type: 'number', minimum: 0, maximum: 1 },
+              },
+            },
+          },
+          ['positivePoints', 'negativePoints'],
+        ),
+      },
+      ['photoId', 'expectedRevision', 'gridIdentity', 'prompts'],
+    ),
+  },
+  {
+    name: 'irodori_accept_object_selection',
+    description:
+      'Accept an inspected proposal as one shared Undo step. Creates a named Object mask or replaces the requested mask base while retaining manual strokes, controls and ordering. Refuses stale revision/source/grid. No model execution on history or export.',
+    inputSchema: schema({
+      photoId,
+      expectedRevision,
+      proposalId: { type: 'string', format: 'uuid' },
+    }),
+  },
+  {
+    name: 'irodori_cancel_object_selection',
+    description:
+      'Cancel pending object inference and discard its temporary proposal without changing accepted masks or history.',
+    inputSchema: schema({ photoId }),
+  },
+  {
+    name: 'irodori_mutate_masks',
+    description:
+      'Commit bounded basic brush mask operations as one photo-wide Undo step. Top-first list order applies bottom-to-top. Geometry is normalized to the oriented uncorrected source, radius is a fraction of its shorter dimension. Read current masks and revision with irodori_get_edits. Use the separate object-selection tools for AI proposals; gradients and range masks remain unavailable.',
+    inputSchema: schema({
+      photoId,
+      expectedRevision,
+      maskMutation: schema({
+        operations: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 64,
+          items: {
+            type: 'object',
+            oneOf: [
+              schema({
+                kind: { const: 'create' },
+                id: { type: 'string', format: 'uuid' },
+                name: { type: 'string', minLength: 1, maxLength: 100 },
+              }),
+              schema(
+                {
+                  kind: { const: 'update' },
+                  id: { type: 'string', format: 'uuid' },
+                  name: { type: 'string', minLength: 1, maxLength: 100 },
+                  enabled: { type: 'boolean' },
+                  inverted: { type: 'boolean' },
+                  light: schema(
+                    {
+                      exposureEv: { type: 'number', minimum: -5, maximum: 5, multipleOf: 0.01 },
+                      contrast: colorAmount,
+                      highlights: colorAmount,
+                      shadows: colorAmount,
+                      whites: colorAmount,
+                      blacks: colorAmount,
+                    },
+                    [],
+                  ),
+                },
+                ['kind', 'id'],
+              ),
+              schema({
+                kind: { const: 'duplicate' },
+                id: { type: 'string', format: 'uuid' },
+                newId: { type: 'string', format: 'uuid' },
+                name: { type: 'string', minLength: 1, maxLength: 100 },
+              }),
+              schema({ kind: { const: 'delete' }, id: { type: 'string', format: 'uuid' } }),
+              schema({
+                kind: { const: 'reorder' },
+                ids: {
+                  type: 'array',
+                  maxItems: 32,
+                  uniqueItems: true,
+                  items: { type: 'string', format: 'uuid' },
+                },
+              }),
+              schema({
+                kind: { const: 'stroke' },
+                id: { type: 'string', format: 'uuid' },
+                stroke: schema({
+                  mode: { enum: ['add', 'subtract'] },
+                  radius: { type: 'number', exclusiveMinimum: 0, maximum: 0.5 },
+                  feather: { type: 'number', minimum: 0, maximum: 1 },
+                  points: {
+                    type: 'array',
+                    minItems: 1,
+                    maxItems: 4096,
+                    items: schema({
+                      x: { type: 'number', minimum: 0, maximum: 1 },
+                      y: { type: 'number', minimum: 0, maximum: 1 },
+                    }),
+                  },
+                }),
+              }),
+            ],
+          },
+        },
+      }),
+    }),
+  },
+  {
     name: 'irodori_update_edits',
     description:
       'Commit one nondestructive edit using the expected revision. Mixer ranges and grading tones accept partial fields and retain other settings. One call is one photo-wide history entry. Conflicts require reloading settings; irodori_get_edit_capabilities describes units and ranges.',
@@ -769,7 +992,7 @@ const presetSource = {
       mode: { type: 'string', enum: ['photo', 'explicit'] },
       photoId,
       groups: presetGroups,
-      settingsVersion: { type: 'integer', const: 12 },
+      settingsVersion: { type: 'integer', enum: [12, 13, 14] },
       values: {
         ...schema(presetFields, []),
         description:
@@ -780,7 +1003,7 @@ const presetSource = {
     ['mode', 'groups'],
   ),
   description:
-    'Photo capture: {mode:"photo",photoId,groups}. Explicit look: {mode:"explicit",settingsVersion:12,groups,values}; referencePhotoId is required for white-balance/lens. No photo is changed. All included groups must be complete.',
+    'Photo capture: {mode:"photo",photoId,groups}. Explicit look: {mode:"explicit",settingsVersion:14,groups,values}; referencePhotoId is required for white-balance/lens. No photo is changed. All included groups must be complete.',
   allOf: [
     {
       if: { properties: { mode: { const: 'photo' } } },
@@ -838,7 +1061,7 @@ tools.push(
   {
     name: 'irodori_create_preset',
     description:
-      'Save a unique trimmed name from confirmed photo edits or a complete explicit look. Use source.mode="photo" with photoId/groups, or source.mode="explicit" with settingsVersion:12, groups and values. For example, groups:["color"] needs values:{saturation:5,vibrance:22}. Choose appearance:{icon,color} to match the requested intent when creating a look, such as sunset/amber for Golden Hour. No photo or clipboard changes. Camera-dependent explicit groups require a verified referencePhotoId. Store no calibration tables or paths.',
+      'Save a unique trimmed name from confirmed photo edits or a complete explicit look. Use source.mode="photo" with photoId/groups, or source.mode="explicit" with settingsVersion:14, groups and values. For example, groups:["color"] needs values:{saturation:5,vibrance:22}. Choose appearance:{icon,color} to match the requested intent when creating a look, such as sunset/amber for Golden Hour. No photo or clipboard changes. Camera-dependent explicit groups require a verified referencePhotoId. Store no calibration tables or paths.',
     inputSchema: schema({
       presetRequest: schema(
         {
@@ -853,7 +1076,7 @@ tools.push(
   {
     name: 'irodori_update_preset',
     description:
-      'Edit a preset name, appearance or definition at expectedPresetRevision. Appearance accepts a partial {icon,color}; omitted fields retain their current values. Preserve the marker unless the user asks to change it. Replacement source uses mode="photo" with photoId/groups or mode="explicit" with settingsVersion:12, groups and complete values. Preset revisions are independent of photo-edit revisions. No photo/history changes; accepted jobs keep the old frozen definition.',
+      'Edit a preset name, appearance or definition at expectedPresetRevision. Appearance accepts a partial {icon,color}; omitted fields retain their current values. Preserve the marker unless the user asks to change it. Replacement source uses mode="photo" with photoId/groups or mode="explicit" with settingsVersion:14, groups and complete values. Preset revisions are independent of photo-edit revisions. No photo/history changes; accepted jobs keep the old frozen definition.',
     inputSchema: schema({
       presetRequest: schema(
         {
@@ -955,7 +1178,51 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         structuredContent: result.failure,
       }
     if (!response.ok || result.error) throw new Error(result.error ?? 'Editor request failed.')
+    if (request.params.name === 'irodori_create_object_selection') {
+      const { data, ...metadata } = result.result
+      if (
+        typeof data !== 'string' ||
+        data.length > Math.ceil((8 * 1024 * 1024) / 3) * 4 ||
+        Buffer.from(data, 'base64').byteLength > 8 * 1024 * 1024 ||
+        metadata.mimeType !== 'image/png'
+      )
+        throw new Error('Invalid object-selection coverage image.')
+      return {
+        content: [
+          { type: 'text', text: JSON.stringify(metadata) },
+          { type: 'image', mimeType: 'image/png', data },
+        ],
+        structuredContent: metadata,
+      }
+    }
     if (['irodori_get_photo_preview', 'irodori_get_output_proof'].includes(request.params.name)) {
+      if (Array.isArray(result.result.members)) {
+        const { members, ...metadata } = result.result
+        if (members.length < 1 || members.length > 2) throw new Error('Invalid inspection members.')
+        let total = 0
+        const content = []
+        const labelled = []
+        for (const member of members) {
+          const { data, ...details } = member
+          if (
+            typeof data !== 'string' ||
+            data.length > Math.ceil((8 * 1024 * 1024) / 3) * 4 ||
+            !['image/jpeg', 'image/png'].includes(member.mimeType)
+          )
+            throw new Error('Invalid inspection image payload.')
+          const bytes = Buffer.from(data, 'base64').byteLength
+          if (bytes > 8 * 1024 * 1024 || bytes !== member.byteLength)
+            throw new Error('Invalid inspection image length.')
+          total += bytes
+          labelled.push(details)
+          content.push(
+            { type: 'text', text: JSON.stringify({ ...metadata, ...details }) },
+            { type: 'image', mimeType: member.mimeType, data },
+          )
+        }
+        if (total > 16 * 1024 * 1024) throw new Error('Inspection pair exceeds 16 MiB.')
+        return { content, structuredContent: { ...metadata, members: labelled } }
+      }
       const { data, ...metadata } = result.result
       if (
         typeof data !== 'string' ||

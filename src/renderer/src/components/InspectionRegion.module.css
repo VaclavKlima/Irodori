@@ -1,0 +1,86 @@
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  cursor: crosshair;
+  touch-action: none;
+}
+.overlay:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.rectangle {
+  position: absolute;
+  border: 1px solid var(--accent);
+  outline: 1px solid var(--canvas);
+  cursor: move;
+}
+.handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: var(--surface);
+  cursor: crosshair;
+}
+.controls {
+  position: absolute;
+  top: 38px;
+  left: 0;
+  z-index: 6;
+  width: min(380px, 100%);
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-overlay);
+  color: var(--text);
+  font-size: 10px;
+}
+.title,
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.title {
+  justify-content: space-between;
+  font-size: 11px;
+}
+.controls button {
+  min-height: 20px;
+  height: 20px;
+  padding: 0 5px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.fields label {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+}
+.fields input {
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--canvas);
+  color: var(--text);
+  font-size: 11px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.actions span {
+  color: var(--quiet);
+  overflow-wrap: anywhere;
+}

@@ -5,6 +5,16 @@
   border-radius: var(--radius);
   font-weight: 600;
 }
+.withIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.withIcon > svg {
+  display: block;
+  flex: none;
+}
 .button.secondary {
   background: var(--surface-raised);
   color: var(--text);
@@ -50,6 +60,11 @@
   font-size: 11px;
   border-color: transparent;
   background: transparent;
+}
+.tabs button[aria-disabled='true'],
+.rail button[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
 }
 .rail {
   flex: 0 0 var(--inspector-rail);

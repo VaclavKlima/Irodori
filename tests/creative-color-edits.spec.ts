@@ -8,7 +8,7 @@ import {
 } from '../src/shared/edits'
 import { neutralColorMixer } from '../src/shared/color-mixer'
 import { neutralColorGrading } from '../src/shared/color-grading'
-import { supportsEditingSettings } from '../src/main/catalog/editing-migration'
+import { supportsEditingSettings, CATALOG_VERSION } from '../src/main/catalog/editing-migration'
 
 test('partial creative edits retain other controls, create complete owned groups and reset atomically', () => {
   const base = initialSettings(),
@@ -131,13 +131,17 @@ test('processing and persisted current settings require full groups, and older v
   expect(() =>
     validateProcessingPatch({ colorGrading: { tones: { shadows: { hue: 120 } } } }),
   ).toThrow()
-  expect(supportsEditingSettings(base as unknown as Record<string, unknown>, 22)).toBe(true)
+  expect(supportsEditingSettings(base as unknown as Record<string, unknown>, CATALOG_VERSION)).toBe(
+    true,
+  )
   for (const settings of [
     { ...base, colorMixer: {} },
     { ...base, colorGrading: {} },
     { ...base, colorMixer: undefined },
     { ...base, colorGrading: undefined },
   ])
-    expect(supportsEditingSettings(settings as Record<string, unknown>, 21)).toBe(false)
+    expect(supportsEditingSettings(settings as Record<string, unknown>, CATALOG_VERSION)).toBe(
+      false,
+    )
   for (const version of [7, 8, 9]) expect(supportsEditingSettings({ ...base, version })).toBe(false)
 })

@@ -6,7 +6,7 @@ import { TerminalSquare, ChevronDown, Square } from 'lucide-react'
 import { useConsoleResize } from '../hooks/useConsoleResize'
 import { CONSOLE_HEIGHT_MIN } from '../../../shared/workspace'
 import { Button, IconButton } from './ui/Controls'
-import type { AgentOutput, AgentSessionState } from '../../../shared/agent'
+import type { AgentOutput, AgentSessionState, AgentInspectionRegion } from '../../../shared/agent'
 import { terminalChunks } from '../../../shared/agent'
 import '@xterm/xterm/css/xterm.css'
 import styles from '../App.module.css'
@@ -25,12 +25,14 @@ export function Console({
   onClose,
   height: preferredHeight,
   onHeightChange,
+  inspection,
 }: {
   host: HTMLElement | null
   open: boolean
   onClose: () => void
   height: number | null
   onHeightChange: (height: number | null) => void
+  inspection?: AgentInspectionRegion
 }) {
   const [root] = useState(() => {
     const element = document.createElement('div')
@@ -394,6 +396,16 @@ export function Console({
         )}
         <IconButton icon={ChevronDown} label="Close agent console" onClick={onClose} />
       </header>
+      {inspection && (
+        <div
+          className={styles.consoleInspection}
+          data-testid="console-inspection-context"
+          role="status"
+        >
+          Next prompt · Region {inspection.region.x}, {inspection.region.y} ·{' '}
+          {inspection.region.width} × {inspection.region.height} photo pixels
+        </div>
+      )}
       {(error || state.status !== 'connected') && (
         <p
           className={styles.consoleNotice}

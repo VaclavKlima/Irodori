@@ -21,6 +21,14 @@ import { exportPrecisionData, exportPrecisionWgsl } from '../export/precision-wg
 import { RawGpuRenderer } from '../gpu/raw-renderer'
 import { preparedToneCurves } from '../../shared/tone-curves'
 import { packToneCurves, TONE_CURVE_PARAMETER_BYTES } from '../../shared/tone-curves-gpu'
+import {
+  hasLocalMasks,
+  localMasksWgsl,
+  packLocalMasks,
+  maskBaseAtlasPlan,
+} from '../../shared/masks-gpu'
+import { maskOutputSize } from '../../shared/mask-geometry'
+import { createMaskBaseAtlas } from './mask-bases'
 
 const inputMatrix =
   'mat3x3f(' + REC2020_TO_ACES.map((row) => 'vec3f(' + row.join(',') + ')').join(',') + ')'
@@ -34,6 +42,8 @@ export function exportShader(
   creative = false,
   preserveAlpha = false,
   curves = false,
+  masks = false,
+  bases = false,
 ) {
   const precision = /fn acesMath\(index:u32\)->vec2f\s*\{[^}]+\}/
   if (!precision.test(displayRenderingWgsl))
@@ -60,6 +70,7 @@ struct Result { peak:atomic<u32>, values:array<u32> }
 @group(0) @binding(2) var<storage,read_write> result:Result;
 ${deferred ? '@group(0) @binding(5) var<storage,read_write> working:array<f32>;' : ''}
 ${hdrAdjustmentShader(creative, 12, 'acesPow', curves)}
+${masks ? localMasksWgsl(16, bases ? 18 : undefined) : ''}
 ${hdr && packed ? `var<workgroup> peaks:array<f32,${workgroup}>;` : ''}
 fn exportTarget(jmh:vec3f,linear:f32)->vec3f {
  let toned=Y_to_J(tonescale_fwd(linear,aces_ts()),aces_input_params());
@@ -69,7 +80,9 @@ fn exportTarget(jmh:vec3f,linear:f32)->vec3f {
  ${hdr && packed && !deferred ? 'peaks[local]=0.;' : ''}
  if(id.x<u32(u.values[0].x)) {
  let pixel=input[id.x];
- let aces=${inputMatrix}*adjusted(pixel.rgb);
+ ${masks ? 'let absolute=u32(u.values[0].y)+id.x;let maskPoint=vec2f(f32(absolute%u32(maskData[5].y))+.5,f32(absolute/u32(maskData[5].y))+.5);' : ''}
+ ${masks ? 'var localEdited=applyLocalMasks(adjusted(pixel.rgb),maskPoint,1.,true);if(!localMaskFinite(localEdited)){atomicMax(&result.peak,bitcast<u32>(1e30));localEdited=vec3f(0.);}' : ''}
+ let aces=${inputMatrix}*${masks ? 'localEdited' : 'adjusted(pixel.rgb)'};
  acesOffset=0;
  let sdrInput=clamp_AP0_to_AP1(aces,0.,aces_ts().forward_limit);
  let jmh=RGB_to_JMh(sdrInput,aces_input_params());
@@ -170,6 +183,14 @@ export async function createPointGpu(
     creative = creativeColorActive(color),
     compiledCurves = preparedToneCurves(adjustments.curves),
     curves = !compiledCurves.identity
+  const masks = hasLocalMasks(adjustments)
+  const maskSize = adjustments.maskGeometry
+    ? maskOutputSize(adjustments.maskGeometry)
+    : options.maskSize
+  if (masks && !maskSize) throw new Error('Local edits require authoritative source geometry.')
+  const maskData = masks ? packLocalMasks(adjustments, maskSize!) : undefined
+  const basePlan = maskBaseAtlasPlan(adjustments),
+    bases = masks && basePlan.bases.length > 0
   const allocation = exportGpuAllocation(
     capacity,
     hdr,
@@ -179,12 +200,14 @@ export async function createPointGpu(
     vramLimitBytes,
     !!options.primary,
     curves,
+    (maskData?.byteLength ?? 0) + (bases ? basePlan.bytes : 0),
   )
   if (!allocation.accepted)
     throw new ExportResourceError('GPU export exceeds the frozen managed image budgets.')
   const gpu = makeRenderer(),
     resources: GPUBuffer[] = []
   let queue: GPUQueue | undefined,
+    baseTexture: GPUTexture | undefined,
     pending: Promise<{ data: Buffer; headroom: number }> | undefined,
     closing = false,
     drained: Promise<void> | undefined
@@ -194,6 +217,7 @@ export async function createPointGpu(
       await pending?.catch(() => undefined)
       await queue?.onSubmittedWorkDone().catch(() => undefined)
       for (const buffer of resources) buffer.destroy()
+      baseTexture?.destroy()
       gpu.close()
     })())
   try {
@@ -202,6 +226,7 @@ export async function createPointGpu(
     // Never enter native Dawn again through a terminal owner's returned handle.
     if (gpu.failure) throw new Error(gpu.failure)
     queue = device.queue
+    if (bases) baseTexture = await createMaskBaseAtlas(device, adjustments)
     const stride = packed ? (hdr ? 3 : 1) : hdr ? 6 : 3
     const buffer = (size: number, usage: number) => {
       if (size > device.limits.maxBufferSize || size > device.limits.maxStorageBufferBindingSize)
@@ -238,6 +263,10 @@ export async function createPointGpu(
       ? buffer(TONE_CURVE_PARAMETER_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
       : undefined
     if (curveData) device.queue.writeBuffer(curveData, 0, packToneCurves(compiledCurves))
+    const maskBuffer = maskData
+      ? buffer(maskData.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
+      : undefined
+    if (maskBuffer) device.queue.writeBuffer(maskBuffer, 0, maskData!)
     const workingBytes = deferredPixels * 20
     const hdrDeferred = !!(
       hdr &&
@@ -273,7 +302,7 @@ export async function createPointGpu(
     }
     const module = device.createShaderModule({
       code: authored
-        ? authoredOutputShader(hdr, packed, creative, options, workgroup, curves)
+        ? authoredOutputShader(hdr, packed, creative, options, workgroup, curves, masks, bases)
         : exportShader(
             hdr,
             packed,
@@ -282,6 +311,8 @@ export async function createPointGpu(
             creative,
             options.preserveAlpha,
             curves,
+            masks,
+            bases,
           ),
     })
     const errors = (await module.getCompilationInfo()).messages.filter((m) => m.type === 'error')
@@ -319,6 +350,10 @@ export async function createPointGpu(
           : []),
         ...(curveData && options.domain === 'authored-hdr'
           ? [{ binding: 15, resource: { buffer: curveData } }]
+          : []),
+        ...(maskBuffer ? [{ binding: 16, resource: { buffer: maskBuffer } }] : []),
+        ...(baseTexture
+          ? [{ binding: 18, resource: baseTexture.createView({ dimension: '2d-array' }) }]
           : []),
       ],
     })
@@ -375,7 +410,11 @@ export async function createPointGpu(
         const data = Buffer.from(new Uint8Array(mapped, 4, count * outputStride * 4))
         const headroom = new Float32Array(mapped, 0, 1)[0]
         if (!Number.isFinite(headroom) || headroom > 65504)
-          throw new Error('Invalid GPU output pixels.')
+          throw new Error(
+            masks
+              ? 'Local Light processing produced non-finite pixels. Reduce the local adjustments.'
+              : 'Invalid GPU output pixels.',
+          )
         return { data, headroom }
       } finally {
         staging.unmap()

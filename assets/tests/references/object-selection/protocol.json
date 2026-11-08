@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "id": "general-object-selection-research-v1",
+  "scope": "Feasibility research for the selection/refinement part of TODO 54, shared with TODO 66; no production activation.",
+  "workflow": {
+    "prompts": ["box", "positive-point", "negative-point"],
+    "manualCorrection": ["paint", "erase", "size", "feather"],
+    "generatedBaseAndBrushCorrections": "separate",
+    "acceptedCoverageSurvivesWithoutModel": true,
+    "initialLocalControls": "existing-six-light-controls",
+    "automaticFineEdgeMatting": false
+  },
+  "candidates": [
+    {
+      "id": "sam2.1-hiera-tiny",
+      "role": "preferred",
+      "source": "https://github.com/facebookresearch/sam2",
+      "commit": "2b90b9f5ceec907a1c18123530e92e794ad901a4"
+    },
+    {
+      "id": "efficient-sam-vitt",
+      "role": "compact-comparator",
+      "source": "https://github.com/yformer/EfficientSAM",
+      "commit": "d525f622e6f640acf5a0fc37c7ca1f243da5bde0",
+      "maxInputPoints": 6,
+      "overflow": "refuse-never-truncate"
+    }
+  ],
+  "runtime": {
+    "candidate": "onnxruntime-node-native-webgpu",
+    "commonBackend": true,
+    "requiredPlatforms": ["darwin-arm64-metal", "linux-x64-radeon-vulkan"],
+    "heavyCpuFallback": "forbidden",
+    "referenceCpuInference": "explicit-diagnostic-only",
+    "smoke": {
+      "operators": ["MatMul", "Add"],
+      "expected": [5, 5, 11, 11],
+      "absoluteTolerance": 0.000001
+    }
+  },
+  "corpus": {
+    "requiredScenes": 12,
+    "developmentScenes": 9,
+    "holdoutScenes": 3,
+    "repeatedExposuresCountAsOneScene": true,
+    "privateExplorationCountsAsAcceptance": false,
+    "requiredCoverage": [
+      "bird",
+      "fur",
+      "hair-outline",
+      "plant-thin-structures",
+      "rigid-object",
+      "multiple-adjacent-objects",
+      "low-contrast",
+      "reflection-or-glass-stress"
+    ],
+    "developmentSlots": [
+      "bird-and-reflection",
+      "fur",
+      "hair-outline",
+      "plant-thin-structures",
+      "rigid-object",
+      "thin-rigid-object",
+      "low-contrast",
+      "multiple-adjacent-objects",
+      "reflection-or-glass-stress"
+    ],
+    "holdoutSlots": ["unseen-bird-or-animal", "unseen-hair-or-plant-edges", "unseen-rigid-object"]
+  },
+  "measurements": {
+    "cold": ["runtime-load", "model-load", "image-encode", "first-mask"],
+    "warm": ["prompt-decode", "coverage-ready"],
+    "resources": [
+      "host-peak-bytes",
+      "gpu-peak-bytes-if-observable",
+      "model-storage-bytes",
+      "embedding-storage-bytes"
+    ],
+    "quality": [
+      "missed-structures",
+      "background-leakage",
+      "holes",
+      "correction-count",
+      "manual-correction-effort"
+    ],
+    "review": [
+      "overlay-fit",
+      "overlay-100-percent",
+      "masked-plus-one-ev-fit",
+      "masked-plus-one-ev-100-percent"
+    ],
+    "syntheticReferenceIsPhotographicTruth": false,
+    "publishedVendorTimingIsLocalTiming": false
+  },
+  "stopBeforeModelStudyIf": [
+    "strict-native-webgpu-unavailable",
+    "required-heavy-operator-on-cpu",
+    "export-reference-parity-fails"
+  ],
+  "qualificationRequires": [
+    "both-platform-runtime-evidence",
+    "complete-reviewed-cohort",
+    "held-out-review",
+    "manual-correction-and-persistence-evidence"
+  ],
+  "missingEvidence": "incomplete-never-pass"
+}

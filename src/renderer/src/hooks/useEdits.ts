@@ -14,6 +14,7 @@ import {
   type EditGestureScope,
 } from './edit-gesture-commit'
 import { EditFlushes } from './edit-flush'
+import { resolveMasks, type MaskOperation } from '../../../shared/masks'
 
 import {
   neutralAdjustments,
@@ -48,6 +49,13 @@ export function useEdits(photoId: string | undefined, enabled = true) {
   const pending = useRef<Promise<void>>(Promise.resolve())
   const flushes = useRef(new EditFlushes())
   const historyGuards = useRef(new Set<symbol>())
+  const otherFlushes = useRef(new Set<() => Promise<void>>())
+  const registerFlush = useCallback((flush: () => Promise<void>) => {
+    otherFlushes.current.add(flush)
+    return () => {
+      otherFlushes.current.delete(flush)
+    }
+  }, [])
   const suspendHistory = useCallback(() => {
     const owner = Symbol('transient editing tool')
     historyGuards.current.add(owner)
@@ -152,7 +160,10 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     },
     [accept, syncGestureCommit],
   )
-  const flush = useCallback(() => flushGesture(true), [flushGesture])
+  const flush = useCallback(async () => {
+    await flushGesture(true)
+    for (const flushOther of otherFlushes.current) await flushOther()
+  }, [flushGesture])
   const commitPatch = async (patch: EditPatch) => {
     if (!commits.current.isActive(confirmationScope)) return
     const photo = current.current?.photoId
@@ -200,6 +211,67 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     flushes.current.track(photo, work)
     return work
   }
+  const commitMaskChange = async (
+    write: (photoId: string, revision: number) => Promise<EditState>,
+    expectedRevision?: number,
+  ) => {
+    if (!commits.current.isActive(confirmationScope)) return
+    const photo = current.current?.photoId
+    if (!photo || historyGuards.current.size)
+      throw new Error('Finish or cancel the active gesture before continuing.')
+    await flushGesture(true)
+    if (
+      !commits.current.isActive(confirmationScope) ||
+      busy.current ||
+      current.current?.photoId !== photo
+    )
+      return
+    if (expectedRevision !== undefined && current.current.revision !== expectedRevision)
+      throw new Error('Edits changed. Retry the mask edit from the current photograph.')
+    commits.current.invalidate()
+    syncGestureCommit()
+    busy.current = true
+    setSaving(true)
+    const work = write(photo, current.current.revision)
+      .then((next) => {
+        if (current.current?.photoId === photo) {
+          accept(next)
+          setError('')
+        }
+      })
+      .catch(async (error) => {
+        if (current.current?.photoId === photo) {
+          setError(String(error))
+          const next = await window.irodori.getEdits(photo)
+          if (current.current?.photoId === photo) accept(next)
+        }
+        throw error
+      })
+      .finally(() => {
+        busy.current = false
+        setSaving(false)
+      })
+    pending.current = work.catch(() => undefined)
+    flushes.current.track(photo, work)
+    return work
+  }
+  const commitMasks = (operations: MaskOperation[], expectedRevision?: number) =>
+    commitMaskChange(
+      (id, revision) => window.irodori.mutateMasks(id, revision, { operations }),
+      expectedRevision,
+    )
+  const acceptObjectSelection = (
+    proposal: import('../../../shared/object-selection').ObjectSelectionProposal,
+  ) =>
+    commitMaskChange(
+      (id, revision) =>
+        window.irodori.acceptObjectSelection({
+          proposalId: proposal.id,
+          photoId: id,
+          expectedRevision: revision,
+        }),
+      proposal.revision,
+    )
   useEffect(() => {
     const tracker = commits.current
     let active = true,
@@ -321,7 +393,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
       const photoId = current.current?.photoId
       if (!photoId) return
       try {
-        await flushGesture(false)
+        await flush()
         const confirmed = current.current
         if (
           confirmed?.photoId !== photoId ||
@@ -339,7 +411,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
         if (current.current?.photoId === photoId) setError(String(error))
       }
     },
-    [flushGesture, accept, syncGestureCommit],
+    [flush, accept, syncGestureCommit],
   )
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -370,7 +442,19 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     () => (visible && draft ? mergeEditPatch(visible.settings, draft) : visible?.settings),
     [visible, draft],
   )
-  const adjustments = useMemo(() => snapshotAdjustments(authored ?? neutralAdjustments), [authored])
+  const adjustments = useMemo(
+    () => ({
+      ...snapshotAdjustments(authored ?? neutralAdjustments),
+      localMasks: visible
+        ? resolveMasks(
+            visible.settings.maskStack,
+            visible.maskContent ?? [],
+            visible.maskBases ?? [],
+          )
+        : [],
+    }),
+    [authored, visible],
+  )
   return {
     state: visible,
     confirmed: enabled && !!visible && confirmedScope === confirmationScope,
@@ -391,6 +475,9 @@ export function useEdits(photoId: string | undefined, enabled = true) {
     epoch,
     change,
     commitPatch,
+    commitMasks,
+    acceptObjectSelection,
+    registerFlush,
     cancel,
     flush,
     history,

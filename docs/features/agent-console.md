@@ -1,8 +1,8 @@
 # Codex photo console
 
 Backlog [#52](README.md#task-52) is an independent console/MCP deliverable. Codex
-is the first supported agent. Other providers and native-detail image tools are
-separate work. This feature makes no photo-settings or catalog schema migration.
+is the first supported agent. Other providers remain separate work. [Flexible detail inspection](detail-inspection.md)
+extends the shared preview tools. This feature makes no photo-settings or catalog schema migration.
 
 ## Using the console
 
@@ -47,7 +47,7 @@ Undo/Redo. The console is a photo assistant, with no general command runner.
 Selecting terminal text copies it to the clipboard when the mouse is released.
 Ctrl+C copies selected text; with no selection it interrupts the running turn.
 Copy/paste uses bounded, session-specific main-process operations.
-Unsupported editing, native-detail inspection and communication requests must
+Unsupported editing and communication requests must
 explain the missing capability and end the turn. Development launches also
 request one concrete Irodori feature suggestion in the conversation. They do
 not create files, tickets, messages or workaround jobs. Production omits those
@@ -114,6 +114,10 @@ All owned process groups are retired on close or worker failure.
 
 ## Compact photo previews
 
+The calls below remain the legacy default. Optional [inspection](detail-inspection.md)
+adds grid-bound regions, native percentage resolution, PNG/JPEG encoding and
+matched neutral Before/After, with explicit HDR capability reporting.
+
 `irodori_get_photo_preview(photoId, expectedRevision)` returns a standard MCP
 image block and metadata: photo ID, confirmed revision, rendering identity,
 dimensions, encoded bytes and color space. It is the **complete edited and
@@ -139,7 +143,8 @@ unchanged.
 
 These images support composition and broad tone/color assessment. They do not
 establish native-detail sharpness/noise quality or physical HDR luminance.
-Requests needing those unavailable capabilities must pause with an explanation.
+Use the extended inspection API for native SDR detail. Strict HDR visual requests
+remain unavailable until client qualification.
 
 ## Verification and limitations
 

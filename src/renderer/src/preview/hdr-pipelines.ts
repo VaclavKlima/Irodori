@@ -9,11 +9,14 @@ import { hdrShader, hdrMipShader, hdrCacheKernel } from './hdr-shader'
 import { hdrHistogramShaderFor } from './hdr-histogram'
 import { CREATIVE_COLOR_VERSION } from '../../../shared/creative-color'
 import { TONE_CURVE_VERSION } from '../../../shared/tone-curves'
+import { MASK_RENDERING_VERSION } from '../../../shared/masks-gpu'
 
 export interface HdrPipelineProfile {
   readonly interactive: boolean
   readonly creative?: boolean
   readonly curves?: boolean
+  readonly masks?: boolean
+  readonly bases?: boolean
 }
 export interface HdrPipelines {
   readonly mipLayout: GPUBindGroupLayout
@@ -53,6 +56,8 @@ export class HdrPipelineCache {
       interactive: profile.interactive,
       ...(profile.creative ? { creative: true } : {}),
       ...(profile.curves ? { curves: true } : {}),
+      ...(profile.masks ? { masks: true } : {}),
+      ...(profile.bases ? { bases: true } : {}),
     })
     const key = JSON.stringify([
       selected.interactive
@@ -64,6 +69,8 @@ export class HdrPipelineCache {
         : 'reference',
       ...(selected.creative ? [CREATIVE_COLOR_VERSION] : []),
       ...(selected.curves ? [TONE_CURVE_VERSION] : []),
+      ...(selected.masks ? [MASK_RENDERING_VERSION] : []),
+      ...(selected.bases ? ['generated-r8-atlas-v1'] : []),
     ])
     let entries = this.devices.get(device)
     if (!entries) {
@@ -83,7 +90,7 @@ export class HdrPipelineCache {
       pending: Promise.resolve()
         .then(async () => {
           const base =
-            selected.creative || selected.curves
+            selected.creative || selected.curves || selected.masks
               ? await this.acquire(device, { interactive: selected.interactive }).pipelines
               : undefined
           return this.compile(device, selected, base)
@@ -225,6 +232,29 @@ async function compileHdrPipelines(
             },
           ]
         : []),
+      ...(profile.masks
+        ? [
+            {
+              binding: 16,
+              visibility: GPUShaderStage.COMPUTE,
+              buffer: { type: 'read-only-storage' as const },
+            },
+            {
+              binding: 17,
+              visibility: GPUShaderStage.COMPUTE,
+              buffer: { type: 'storage' as const },
+            },
+          ]
+        : []),
+      ...(profile.bases
+        ? [
+            {
+              binding: 18,
+              visibility: GPUShaderStage.COMPUTE,
+              texture: { sampleType: 'float' as const, viewDimension: '2d-array' as const },
+            },
+          ]
+        : []),
     ],
   })
   // Queue every independent compiler before awaiting any result. Promise.all
@@ -256,7 +286,12 @@ async function compileHdrPipelines(
       layout: 'auto',
       compute: {
         module: device.createShaderModule({
-          code: hdrHistogramShaderFor(profile.creative, profile.curves),
+          code: hdrHistogramShaderFor(
+            profile.creative,
+            profile.curves,
+            profile.masks,
+            profile.bases,
+          ),
         }),
         entryPoint: 'sampleHistogram',
       },
@@ -267,7 +302,13 @@ async function compileHdrPipelines(
       layout: device.createPipelineLayout({ bindGroupLayouts: [cacheLayout] }),
       compute: {
         module: device.createShaderModule({
-          code: hdrCacheKernel('reference', profile.creative, profile.curves).shader,
+          code: hdrCacheKernel(
+            'reference',
+            profile.creative,
+            profile.curves,
+            profile.masks,
+            profile.bases,
+          ).shader,
         }),
         entryPoint: 'renderTile',
       },
@@ -282,7 +323,13 @@ async function compileHdrPipelines(
         layout: device.createPipelineLayout({ bindGroupLayouts: [cacheLayout] }),
         compute: {
           module: device.createShaderModule({
-            code: hdrCacheKernel(policy, profile.creative, profile.curves).shader,
+            code: hdrCacheKernel(
+              policy,
+              profile.creative,
+              profile.curves,
+              profile.masks,
+              profile.bases,
+            ).shader,
           }),
           entryPoint: 'renderTile',
         },

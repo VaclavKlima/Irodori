@@ -49,6 +49,7 @@ export function inspectorReset(
       }
     case 'info':
     case 'presets':
+    case 'masks':
       return {}
   }
 }

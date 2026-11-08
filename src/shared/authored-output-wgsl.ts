@@ -1,11 +1,13 @@
 import { REC2020_TO_SRGB } from './hdr'
 import { hdrAdjustmentShader } from './hdr-adjustments-wgsl'
 import { rasterAdjustmentShader } from './raster-adjustments-shader'
+import { localMasksWgsl } from './masks-gpu'
 
 export type PointRenderDomain = 'scene-linear' | 'raster' | 'authored-hdr'
 export interface PointRenderOptions {
   readonly domain: PointRenderDomain
   readonly preserveAlpha?: boolean
+  readonly maskSize?: { readonly width: number; readonly height: number }
   /** An independently authored SDR primary accompanies HDR content during export. */
   readonly primary?: boolean
   readonly transform?: {
@@ -27,6 +29,8 @@ export function authoredOutputShader(
   options: PointRenderOptions,
   workgroup: number,
   curves = false,
+  masks = false,
+  bases = false,
 ) {
   const primary = !!options.primary,
     raster = options.domain === 'raster',
@@ -56,6 +60,7 @@ struct Result { peak:atomic<u32>, values:array<u32> }
 ${primary ? '@group(0) @binding(6) var<storage,read> primary:array<vec4f>;' : ''}
 ${raster || primary ? rasterMath : ''}
 ${!raster ? namespacedHdr : ''}
+${masks ? localMasksWgsl(16, bases ? 18 : undefined) : ''}
 ${encode}
 // Floating-point self-comparisons can be optimized under finite-math assumptions.
 // Check the stored IEEE-754 exponent before adjustment or clamping can hide an invalid sample.
@@ -68,8 +73,10 @@ ${hdr && packed ? `var<workgroup> peaks:array<f32,${workgroup}>;` : ''}
  if(id.x<u32(u.values[0].x)) {
   let pixel=input[id.x];
   if(!authoredFinite(pixel)${primary ? '||!authoredFinite(primary[id.x])' : ''}) { atomicMax(&result.peak,bitcast<u32>(1e30)); }
-  ${!raster ? 'let content=max(hdr_adjusted(pixel.rgb),vec3f(0.));' : ''}
-  var sdr=${raster || primary ? `rasterAdjusted(${primary ? 'primary[id.x].rgb' : 'pixel.rgb'},u.values[2],u.values[3].xy,u.values[11].xy,u.values[8].x)` : `mat3x3f(${matrix})*content`};
+  ${masks ? 'let absolute=u32(u.values[0].y)+id.x;let maskPoint=vec2f(f32(absolute%u32(maskData[5].y))+.5,f32(absolute/u32(maskData[5].y))+.5);' : ''}
+  ${!raster ? `${masks ? 'var localEdited=applyLocalMasks(hdr_adjusted(pixel.rgb),maskPoint,1.,true);if(!localMaskFinite(localEdited)){atomicMax(&result.peak,bitcast<u32>(1e30));localEdited=vec3f(0.);}' : ''}let content=max(${masks ? 'localEdited' : 'hdr_adjusted(pixel.rgb)'},vec3f(0.));` : ''}
+  var sdr=${raster || primary ? `${masks ? 'applyLocalMasks(' : ''}rasterAdjusted(${primary ? 'primary[id.x].rgb' : 'pixel.rgb'},u.values[2],u.values[3].xy,u.values[11].xy,u.values[8].x)${masks ? ',maskPoint,u.values[8].x,false)' : ''}` : `mat3x3f(${matrix})*content`};
+  ${masks ? 'if(!localMaskFinite(sdr)){atomicMax(&result.peak,bitcast<u32>(1e30));sdr=vec3f(0.);}' : ''}
   if(u.values[8].w>0.) { sdr=floor(sdr*65535.)/65535.; }
   sdr=clamp(sdr/u.values[8].x,vec3f(0.),vec3f(1.));
   ${options.preserveAlpha ? '' : 'sdr=sdr*pixel.a+vec3f(1.-pixel.a);'}

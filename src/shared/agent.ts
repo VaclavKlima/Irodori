@@ -1,11 +1,25 @@
 import type { WorkspaceState } from './workspace'
 type WorkspaceMode = WorkspaceState['mode']
 
+/** Session-local photograph coordinates, frozen separately for each Console turn. */
+export interface AgentInspectionRegion {
+  photoId: string
+  gridIdentity: string
+  region: {
+    units: 'pixels'
+    x: number
+    y: number
+    width: number
+    height: number
+    gridIdentity: string
+  }
+}
 export interface EditorContextSnapshot {
   workspace: WorkspaceMode
   activePhotoId: string | null
   selectedIds: string[]
   transient: { crop: boolean; saving: boolean }
+  inspection?: AgentInspectionRegion
 }
 export interface AgentPhotoTarget {
   photoId: string
@@ -21,6 +35,7 @@ export interface EditorContext {
   nextOffset: number | null
   transient: EditorContextSnapshot['transient']
   development: boolean
+  inspection?: AgentInspectionRegion
 }
 export interface AgentPhotoPreview {
   photoId: string

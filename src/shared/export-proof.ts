@@ -3,6 +3,11 @@ import { validateExportOptions, type ExportOptions } from './export'
 import { SDR_TARGET, type DisplayTarget } from './hdr'
 import { linearHeadroom, type PreviewPreference } from './hdr-display'
 import { outputSharpeningMode, type OutputSharpeningMode } from './output-sharpening'
+import {
+  validateInspectionOptions,
+  type InspectionOptions,
+  type InspectionResult,
+} from './inspection'
 
 export const OUTPUT_PROOF_VERSION = 'decoded-jpeg-proof-v1'
 export interface OutputProofRequest {
@@ -10,6 +15,7 @@ export interface OutputProofRequest {
   photoId: string
   options: ExportOptions
   token: string
+  inspection?: InspectionOptions
 }
 export interface OutputProofPipeline {
   rendering: string
@@ -52,6 +58,20 @@ export interface OutputProofOverview extends Omit<OutputProof, 'primary' | 'line
   }
   readonly data: string
 }
+export interface OutputProofInspection extends InspectionResult {
+  /** Complete export JPEG settings are independent of each inspection transfer encoding. */
+  export: Pick<
+    OutputProof,
+    | 'version'
+    | 'output'
+    | 'quality'
+    | 'outputSharpening'
+    | 'width'
+    | 'height'
+    | 'pixelKey'
+    | 'pipeline'
+  >
+}
 
 export function validateOutputProofRequest(value: unknown): OutputProofRequest {
   const request = value as OutputProofRequest
@@ -60,7 +80,7 @@ export function validateOutputProofRequest(value: unknown): OutputProofRequest {
     typeof request !== 'object' ||
     Array.isArray(request) ||
     Object.keys(request).some(
-      (key) => !['preparationId', 'photoId', 'options', 'token'].includes(key),
+      (key) => !['preparationId', 'photoId', 'options', 'token', 'inspection'].includes(key),
     ) ||
     ![request.preparationId, request.token].every(
       (id) => typeof id === 'string' && /^[a-f0-9-]{36}$/.test(id),
@@ -68,7 +88,13 @@ export function validateOutputProofRequest(value: unknown): OutputProofRequest {
     !/^[a-f0-9]{64}$/.test(request.photoId)
   )
     throw new Error('Invalid output preview request.')
-  return { ...request, options: validateExportOptions(request.options) }
+  return {
+    ...request,
+    options: validateExportOptions(request.options),
+    ...(request.inspection !== undefined
+      ? { inspection: validateInspectionOptions(request.inspection) }
+      : {}),
+  }
 }
 
 /** Only changes that require another JPEG invalidate a proof. Keep property order canonical. */

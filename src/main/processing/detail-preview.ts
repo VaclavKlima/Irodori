@@ -88,7 +88,13 @@ export async function readRasterWorking(asset: WorkingAsset, signal: AbortSignal
       digest.update(bytes)
     }
     if (digest.digest('hex') !== asset.sha256) throw new Error('Damaged detail working source.')
-    return { data, width: asset.width, height: asset.height, transform: asset.transform }
+    return {
+      data,
+      width: asset.width,
+      height: asset.height,
+      transform: asset.transform,
+      maskGeometry: asset.maskGeometry,
+    }
   } finally {
     await file.close()
   }
@@ -204,6 +210,7 @@ export async function prepareDetailPreview(
       owned = true
       working = {
         path: result.path,
+        maskGeometry: result.asset.maskGeometry,
         width: asset.width,
         height: asset.height,
         byteLength: result.asset.byteLength,
@@ -241,6 +248,7 @@ export async function prepareDetailPreview(
       }
       working = {
         path: paths[0],
+        maskGeometry: asset.maskGeometry,
         width: asset.width,
         height: asset.height,
         byteLength: asset.byteLength,
@@ -276,6 +284,7 @@ export async function prepareDetailPreview(
         memory,
       },
       linear = {
+        maskGeometry: working.maskGeometry,
         byteLength: working.byteLength,
         sha256: working.sha256,
         transform: working.transform,

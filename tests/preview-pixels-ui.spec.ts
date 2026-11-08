@@ -1,8 +1,9 @@
 import sharp from 'sharp'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
+import { activateButton } from './button.helpers'
 
-test('WebGL pixel inspection agrees with CPU exposure and falls back after context loss', async ({
+test('WebGL exposure pixels survive explicit context-loss recovery with preserved source and zoom', async ({
   irodori,
 }, info) => {
   const source = info.outputPath('pixels.png')
@@ -45,29 +46,61 @@ test('WebGL pixel inspection agrees with CPU exposure and falls back after conte
       })
       .toBeLessThanOrEqual(1)
   }
+  const sourceUrl = await preview.getAttribute('data-src'),
+    history = await page.evaluate((id) => window.irodori.getEditHistory(id), id),
+    preservedView = await page.getByTestId('preview-viewport').evaluate((element) => ({
+      mode: element.dataset.mode,
+      scale: element.dataset.scale,
+      x: element.dataset.panX,
+      y: element.dataset.panY,
+    }))
   await preview.evaluate((element) =>
     (element as HTMLCanvasElement)
       .getContext('webgl2')!
       .getExtension('WEBGL_lose_context')!
       .loseContext(),
   )
-  await expect(preview).toHaveAttribute('data-backend', 'canvas2d')
+  const error = page.getByTestId('preview-gpu-error')
+  await expect(error).toHaveAttribute('role', 'alert')
+  await expect(error).toContainText('GPU preview unavailable')
+  await expect(error).toContainText(/context.*lost/i)
+  await expect(preview).toBeHidden()
+  await expect(preview).toHaveAttribute('data-editing', 'unavailable')
+  await expect(preview).toHaveAttribute('data-backend', 'webgl2')
+  expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(history)
+  await activateButton(error.getByRole('button', { name: 'Retry GPU', exact: true }))
+  await expect(error).toHaveCount(0)
+  await expect(preview).toBeVisible()
+  await expect(preview).toHaveAttribute('data-backend', 'webgl2')
   await expect(preview).toHaveAttribute('data-editing', 'ready')
+  await expect(preview).toHaveAttribute('data-exposure', '-1')
+  expect(await preview.getAttribute('data-src')).toBe(sourceUrl)
+  expect(
+    await page.getByTestId('preview-viewport').evaluate((element) => ({
+      mode: element.dataset.mode,
+      scale: element.dataset.scale,
+      x: element.dataset.panX,
+      y: element.dataset.panY,
+    })),
+  ).toEqual(preservedView)
+  expect(await page.evaluate((id) => window.irodori.getEditHistory(id), id)).toEqual(history)
   await page.getByRole('combobox', { name: 'Preview zoom' }).selectOption('16')
   await expect
     .poll(() =>
       preview.evaluate((element) => {
-        const canvas = element as HTMLCanvasElement
-        return [
-          ...canvas
-            .getContext('2d')!
-            .getImageData(
-              Math.floor(canvas.width / 2 - 8 * devicePixelRatio),
-              Math.floor(canvas.height / 2 - 8 * devicePixelRatio),
-              1,
-              1,
-            ).data,
-        ]
+        const canvas = element as HTMLCanvasElement,
+          gl = canvas.getContext('webgl2')!,
+          data = new Uint8Array(4)
+        gl.readPixels(
+          Math.floor(canvas.width / 2 - 8 * devicePixelRatio),
+          canvas.height - 1 - Math.floor(canvas.height / 2 - 8 * devicePixelRatio),
+          1,
+          1,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          data,
+        )
+        return [...data]
       }),
     )
     .toEqual([92, 44, 20, 255])
@@ -77,14 +110,18 @@ test('WebGL pixel inspection agrees with CPU exposure and falls back after conte
     .poll(() =>
       preview.evaluate((element) => {
         const canvas = element as HTMLCanvasElement
-        return canvas
-          .getContext('2d')!
-          .getImageData(
-            Math.floor(canvas.width / 2 - 8 * devicePixelRatio),
-            Math.floor(canvas.height / 2 - 8 * devicePixelRatio),
-            1,
-            1,
-          ).data[0]
+        const gl = canvas.getContext('webgl2')!,
+          data = new Uint8Array(4)
+        gl.readPixels(
+          Math.floor(canvas.width / 2 - 8 * devicePixelRatio),
+          canvas.height - 1 - Math.floor(canvas.height / 2 - 8 * devicePixelRatio),
+          1,
+          1,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          data,
+        )
+        return data[0]
       }),
     )
     .toBe(176)

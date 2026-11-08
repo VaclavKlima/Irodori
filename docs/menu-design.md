@@ -6,6 +6,10 @@ the behavior and contracts of its controls.
 
 This is the authoritative standard for toolbar **Actions** and photo context menus in Editor and Library. Extend `src/shared/photo-actions.ts` and the shared `PhotoContextMenu` renderer. Every new command must declare its stable ID, target, eligibility, temporary blockers, execution behavior, and verification coverage. Do not add an independent menu implementation or per-selected-photo IPC reads.
 
+`PhotoContextMenu` adapts that photo model to the shared `CommandMenu` presentation
+and keyboard component. Mask creation and per-mask actions reuse `CommandMenu`
+with their own targets and availability; they do not enter the photo-command model.
+
 ## Hierarchy and targets
 
 Use a compact flat menu, ordered **Photo**, **Selection**, **Photo group**, **Library operations** (toolbar only), then **Trash**. Omit empty sections. Headings are quiet, non-interactive text, never keyboard stops. Photo shows the focused filename; Selection shows its photo count; Photo group shows total membership and original count. A photo group is a persisted stack, independent of Library's date/month/year sections. Truncate long headings visually with their full accessible text and title intact.

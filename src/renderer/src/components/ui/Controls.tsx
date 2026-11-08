@@ -5,16 +5,22 @@ import styles from './Controls.module.css'
 export function Button({
   variant = 'secondary',
   className = '',
+  leadingIcon: LeadingIcon,
+  children,
   ...props
 }: ComponentPropsWithRef<'button'> & {
   variant?: 'primary' | 'secondary' | 'quiet' | 'danger'
+  leadingIcon?: LucideIcon
 }) {
   return (
     <button
       type="button"
       {...props}
-      className={`${styles.button} ${styles[variant]} ${className}`}
-    />
+      className={`${styles.button} ${styles[variant]} ${LeadingIcon ? styles.withIcon : ''} ${className}`}
+    >
+      {LeadingIcon && <LeadingIcon size={16} aria-hidden="true" />}
+      {children}
+    </button>
   )
 }
 export function IconButton({
@@ -47,7 +53,7 @@ export function Tabs<T extends string>({
 }: {
   label: string
   value: T
-  items: readonly { id: T; label: string; icon?: LucideIcon }[]
+  items: readonly { id: T; label: string; icon?: LucideIcon; disabledReason?: string }[]
   onChange: (id: T) => void
   vertical?: boolean
 }) {
@@ -58,7 +64,7 @@ export function Tabs<T extends string>({
       aria-orientation={vertical ? 'vertical' : 'horizontal'}
       className={vertical ? styles.rail : styles.tabs}
     >
-      {items.map(({ id, label: text, icon: Icon }, index) => (
+      {items.map(({ id, label: text, icon: Icon, disabledReason }, index) => (
         <button
           key={id}
           type="button"
@@ -66,19 +72,34 @@ export function Tabs<T extends string>({
           role="tab"
           aria-selected={value === id}
           aria-controls={`panel-${id}`}
+          aria-disabled={disabledReason ? true : undefined}
+          aria-description={disabledReason}
+          title={disabledReason}
           tabIndex={value === id ? 0 : -1}
-          onClick={() => onChange(id)}
+          onClick={() => {
+            if (!disabledReason) onChange(id)
+          }}
           onKeyDown={(event) => {
+            if (disabledReason && (event.key === 'Enter' || event.key === ' ')) {
+              event.preventDefault()
+              return
+            }
             const nextKey = vertical ? 'ArrowDown' : 'ArrowRight',
               previousKey = vertical ? 'ArrowUp' : 'ArrowLeft'
             if (![nextKey, previousKey, 'Home', 'End'].includes(event.key)) return
             event.preventDefault()
-            const next =
-              event.key === 'Home'
-                ? 0
-                : event.key === 'End'
-                  ? items.length - 1
-                  : (index + (event.key === nextKey ? 1 : -1) + items.length) % items.length
+            const available = items.flatMap((item, position) =>
+              item.disabledReason ? [] : [position],
+            )
+            if (!available.length) return
+            const direction = event.key === previousKey ? -1 : 1
+            let next = index
+            if (event.key === 'Home') next = available[0]
+            else if (event.key === 'End') next = available.at(-1)!
+            else {
+              do next = (next + direction + items.length) % items.length
+              while (items[next].disabledReason)
+            }
             onChange(items[next].id)
             event.currentTarget.parentElement
               ?.querySelectorAll<HTMLButtonElement>('[role="tab"]')

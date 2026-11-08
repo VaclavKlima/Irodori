@@ -9,6 +9,7 @@ export type InspectorTool =
   | 'Color Mixer'
   | 'Color Grading'
   | 'Tone blending'
+  | 'Masks'
   | 'Detail'
   | 'Sharpening'
   | 'Crop'

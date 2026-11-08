@@ -68,6 +68,7 @@ export interface ProcessingOptions {
   processing?: ProcessingIdentity
   /** Main-process owned cache asset, never accepted from the renderer. */
   workingAsset?: {
+    maskGeometry?: import('./mask-geometry').MaskGeometry
     path: string
     width: number
     height: number

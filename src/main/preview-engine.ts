@@ -8,6 +8,7 @@ import { prepareHdrPipelines } from '../renderer/src/preview/hdr-pipelines'
 import type { HdrCacheKernelKind } from '../renderer/src/preview/hdr-shader'
 import {
   ADJUSTMENT_VERSION,
+  adjustmentPixelKey,
   neutralAdjustments,
   srgbTransform,
   type WorkingFrame,
@@ -19,6 +20,7 @@ import type { ProcessingMetadata, ProcessingOptions } from '../shared/lens'
 import { appliedCorrections, automaticLensSettings } from '../shared/lens'
 import { frameByteLength, PREPARED_PROOF_VERSION } from '../shared/preview-frame'
 import { imageStatistics } from '../shared/statistics'
+import { identityMaskGeometry } from '../shared/mask-geometry'
 import { prepareFirstSurfaceOrientationPipeline } from './gpu/hdr-first-surface'
 import { createPointGpu } from './gpu/point-renderer'
 import { RawGpuRenderer } from './gpu/raw-renderer'
@@ -473,6 +475,7 @@ export class PreviewEngine {
         width: asset.width,
         height: asset.height,
         transform: asset.transform,
+        maskGeometry: asset.maskGeometry,
       }
       workingSha256 = asset.sha256
     }
@@ -480,9 +483,10 @@ export class PreviewEngine {
     let frame: { data: Buffer; width: number; height: number } | undefined
     const backend = 'gpu' as const
     const renderRaster = async (source: WorkingFrame) => {
+      source.maskGeometry ??= identityMaskGeometry(source.width, source.height)
       const converter = await createPointGpu(
         source.width * 64,
-        adjustments,
+        { ...adjustments, maskGeometry: source.maskGeometry },
         undefined,
         false,
         true,
@@ -495,7 +499,7 @@ export class PreviewEngine {
       try {
         for (let top = 0; top < source.height; top += 64) {
           const strip = source.data.subarray(top * source.width * 4, (top + 64) * source.width * 4)
-          const rendered = await converter.render(strip)
+          const rendered = await converter.render(strip, top * source.width)
           rendered.data.copy(data, top * source.width * 4)
         }
       } finally {
@@ -565,6 +569,7 @@ export class PreviewEngine {
         byteLength: bytes.byteLength,
         sha256: createHash('sha256').update(bytes).digest('hex'),
         transform: working.transform,
+        maskGeometry: working.maskGeometry,
       }
       if (this.working?.frame === working) this.working.sha256 = linear.sha256
     }
@@ -582,6 +587,7 @@ export class PreviewEngine {
     timings.totalMs = performance.now() - started
     return {
       linear,
+      maskGeometry: working?.maskGeometry,
       adjustments,
       width: frame.width,
       height: frame.height,
@@ -593,7 +599,7 @@ export class PreviewEngine {
         '-' +
         ADJUSTMENT_VERSION +
         '-' +
-        JSON.stringify(adjustments) +
+        adjustmentPixelKey(adjustments) +
         JSON.stringify(options?.metadata.whiteBalance?.identity ?? null) +
         (options &&
         Object.values(appliedCorrections(options.metadata.lensProfile, options.settings)).some(

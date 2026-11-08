@@ -33,7 +33,15 @@ export const DEFAULT_INSPECTOR_SECTIONS = {
 }
 export type InspectorSectionId = keyof typeof DEFAULT_INSPECTOR_SECTIONS
 export type InspectorSections = Record<InspectorSectionId, boolean>
-export const inspectorGroups = ['light', 'color', 'detail', 'geometry', 'presets', 'info'] as const
+export const inspectorGroups = [
+  'light',
+  'color',
+  'masks',
+  'detail',
+  'geometry',
+  'presets',
+  'info',
+] as const
 export type InspectorGroup = (typeof inspectorGroups)[number]
 export const colorTabs = ['basic', 'mixer', 'grading'] as const
 export type ColorTab = (typeof colorTabs)[number]
@@ -44,6 +52,65 @@ export interface CreativeColorSelection {
 export const DEFAULT_CREATIVE_COLOR_SELECTION: CreativeColorSelection = {
   range: 'red',
   tone: 'midtones',
+}
+export type MaskDetailTab = 'coverage' | 'adjustments'
+export interface MaskWorkspace {
+  photoId: string | null
+  selectedId: string | null
+  overlay: boolean
+  brush: boolean
+  mode: 'add' | 'subtract'
+  /** Brush diameter as a percentage of the canonical image's shorter edge. */
+  size: number
+  feather: number
+  detailTab: MaskDetailTab
+}
+export const DEFAULT_MASK_WORKSPACE: MaskWorkspace = {
+  photoId: null,
+  selectedId: null,
+  overlay: false,
+  brush: false,
+  mode: 'add',
+  size: 10,
+  feather: 50,
+  detailTab: 'adjustments',
+}
+export function validMaskWorkspace(value: unknown): value is MaskWorkspace {
+  const v = value as MaskWorkspace | null
+  return (
+    !!v &&
+    typeof v === 'object' &&
+    !Array.isArray(v) &&
+    Object.keys(v).length === 8 &&
+    Object.keys(v).every((k) => k in DEFAULT_MASK_WORKSPACE) &&
+    (v.photoId === null || (typeof v.photoId === 'string' && /^[a-f0-9]{64}$/.test(v.photoId))) &&
+    (v.selectedId === null ||
+      (typeof v.selectedId === 'string' &&
+        /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(v.selectedId))) &&
+    typeof v.overlay === 'boolean' &&
+    typeof v.brush === 'boolean' &&
+    (v.mode === 'add' || v.mode === 'subtract') &&
+    Number.isFinite(v.size) &&
+    v.size >= 0.1 &&
+    v.size <= 100 &&
+    Number.isFinite(v.feather) &&
+    v.feather >= 0 &&
+    v.feather <= 100 &&
+    (v.detailTab === 'coverage' || v.detailTab === 'adjustments')
+  )
+}
+export function recoverMaskWorkspace(value: unknown): MaskWorkspace {
+  if (validMaskWorkspace(value)) return value
+  if (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !Object.hasOwn(value, 'detailTab')
+  ) {
+    const recovered = { ...value, detailTab: DEFAULT_MASK_WORKSPACE.detailTab }
+    if (validMaskWorkspace(recovered)) return recovered
+  }
+  return { ...DEFAULT_MASK_WORKSPACE }
 }
 export interface PreviewViewState {
   photoId: string
@@ -71,6 +138,7 @@ export interface WorkspaceState {
   hoverControls: boolean
   creativeColor: CreativeColorSelection
   presets: PresetWorkspace
+  masks: MaskWorkspace
   preview: PreviewViewState | null
 }
 export interface WorkspaceSnapshot {
@@ -103,6 +171,7 @@ export const DEFAULT_WORKSPACE: WorkspaceState = {
   hoverControls: false,
   creativeColor: DEFAULT_CREATIVE_COLOR_SELECTION,
   presets: DEFAULT_PRESET_WORKSPACE,
+  masks: DEFAULT_MASK_WORKSPACE,
   preview: null,
 }
 export function recoverWorkspaceNavigation(value?: {

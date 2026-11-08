@@ -201,6 +201,17 @@
   font-size: 10px;
   background: transparent;
 }
+.zoomControls .inspectButton {
+  width: 22px;
+  height: 20px;
+  min-height: 20px;
+  padding: 2px;
+  margin-left: 2px;
+}
+.inspectButton[aria-pressed='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 .navigationLabel {
   overflow: hidden;
   white-space: nowrap;
@@ -212,4 +223,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.brushCursor {
+  position: absolute;
+  z-index: 3;
+  min-width: 2px;
+  min-height: 2px;
+  border: 1px solid white;
+  outline: 1px solid #0008;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }

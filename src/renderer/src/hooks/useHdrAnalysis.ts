@@ -5,6 +5,7 @@ import {
   type WorkingFrame,
 } from '../../../shared/adjustments'
 import type { EditState } from '../../../shared/edits'
+import { hasLocalMasks } from '../../../shared/masks-gpu'
 import { SDR_TARGET, type DisplayTarget } from '../../../shared/hdr'
 import type { HdrAnalysisDomain, HdrStatistics } from '../../../shared/hdr-statistics'
 import { NATIVE_HDR_MASK_VERSION } from '../../../shared/native-hdr-mask'
@@ -36,6 +37,7 @@ export function useHdrAnalysis(
   activity?: () => () => void,
   nativeContext?: NativeMaskContext,
 ) {
+  const masked = hasLocalMasks(parameters)
   const [failure, setFailure] = useState<{
     identity: string
     message: string
@@ -136,6 +138,11 @@ export function useHdrAnalysis(
     }
   }, [])
   useEffect(() => {
+    if (masked) {
+      if (sampleStatistics) statistics(undefined)
+      mask(undefined)
+      return
+    }
     if (!frame?.hdr || !backend) return
     const instance = new Worker(new URL('../preview/hdr-analysis-worker.ts', import.meta.url), {
       type: 'module',
@@ -222,9 +229,9 @@ export function useHdrAnalysis(
         release?.()
       })
     }
-  }, [frame, statistics, mask, sampleStatistics, domain, backend, reserveNativeMask])
+  }, [frame, statistics, mask, sampleStatistics, domain, backend, reserveNativeMask, masked])
   useEffect(() => {
-    if (!frame?.hdr || !backend || !worker.current) return
+    if (masked || !frame?.hdr || !backend || !worker.current) return
     const current = ++generation.current
     requestIdentity.current = identity
     mask(undefined)
@@ -280,12 +287,22 @@ export function useHdrAnalysis(
     confirmed,
     comparison,
     comparisonOf,
+    masked,
   ])
   const workerFailure = unavailable?.frame === frame ? unavailable : undefined
   const currentFailure =
     workerFailure ?? (frame?.hdr && failure?.identity === identity ? failure : undefined)
   return {
-    statisticsError: currentFailure?.kind === 'statistics' ? currentFailure.message : undefined,
-    maskError: masks && currentFailure?.kind === 'mask' ? currentFailure.message : undefined,
+    statisticsError:
+      masked && sampleStatistics
+        ? 'Sampled HDR statistics with local masks require GPU analysis.'
+        : !masked && currentFailure?.kind === 'statistics'
+          ? currentFailure.message
+          : undefined,
+    maskError: masked
+      ? 'Clipping overlays with local masks are unavailable.'
+      : masks && currentFailure?.kind === 'mask'
+        ? currentFailure.message
+        : undefined,
   }
 }

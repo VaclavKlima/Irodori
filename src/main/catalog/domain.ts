@@ -1,3 +1,4 @@
+import { MaskContentStore } from '../mask-store'
 import { catalogTransaction } from './transaction'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Photo } from '../../shared/contracts'
@@ -117,7 +118,7 @@ export class CatalogMutations {
         })
       }
       case 'edits.commit': {
-        const { history, expectedRevision, application } = command.payload
+        const { history, expectedRevision, application, maskChunks, maskBases } = command.payload
         if (
           !Number.isSafeInteger(expectedRevision) ||
           expectedRevision < 0 ||
@@ -139,6 +140,12 @@ export class CatalogMutations {
               JSON.stringify(history.snapshots[history.cursor].settings)
           )
             throw new Error('Invalid confirmed edit history.')
+          new MaskContentStore(this.db).publish(
+            history.photoId,
+            history.settings.maskStack,
+            maskChunks,
+            maskBases,
+          )
           const lensChanged =
             previous.settings.processing !== history.settings.processing ||
             JSON.stringify(previous.settings.lens) !== JSON.stringify(history.settings.lens)

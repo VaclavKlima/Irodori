@@ -109,6 +109,14 @@ Console arrangement and date/month/year browser.
 
 ### Inspector composition
 
+- **Masks:** the November 8 approved extension uses one **Create mask** command
+  menu, named 44px rows with type/status and per-row actions, and **Coverage /
+  Adjustments** tabs. Coverage holds the active selection method and manual
+  correction; Adjustments uses the shared Light disclosure and numeric inputs.
+  The list and details scroll independently, with up to two list rows at minimum
+  content height and four in taller windows. Keep the creation header, overlay
+  preference and tabs visible. Future mask methods join the chooser and future
+  adjustment groups join the disclosure area; see [local masks](features/local-adjustments.md).
 - **Light:** Light title and reset; Tonal adjustments disclosure; implemented
   tonal controls; an expandable Curves section with labelled channel selectors,
   square signed-log graph, Standard/HDR/Fit points views, Input/Output fields,

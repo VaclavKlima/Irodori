@@ -126,6 +126,10 @@ export interface IrodoriApi extends NativeHdrMaskBridge, AgentApi {
   ): Promise<{ manifest: import('./merge').MergeBundleManifest; reproducible: boolean }>
 
   getPreviewDiagnostics(): Promise<import('./preview-diagnostics').PreviewDiagnostics>
+  getPreviewContext(
+    photoId: string,
+    expectedRevision: number,
+  ): Promise<import('./inspection').PreviewContext>
   reportPreviewPresentation(
     value: import('./preview-diagnostics').PreviewPresentation,
   ): Promise<void>
@@ -191,6 +195,26 @@ export interface IrodoriApi extends NativeHdrMaskBridge, AgentApi {
     id: string,
     offset?: number,
   ): Promise<import('./edit-transfer').EditApplicationPage>
+  getObjectSelectionContext(
+    photoId: string,
+    expectedRevision: number,
+  ): Promise<import('./object-selection').ObjectSelectionContext>
+  createObjectSelection(
+    request: import('./object-selection').ObjectSelectionRequest,
+  ): Promise<import('./object-selection').ObjectSelectionProposal>
+  acceptObjectSelection(
+    request: import('./object-selection').AcceptObjectSelection,
+  ): Promise<EditState>
+  cancelObjectSelection(photoId: string): Promise<void>
+  getMaskContext(
+    photoId: string,
+    expectedRevision: number,
+  ): Promise<import('./mask-geometry').PhotoMaskContext>
+  mutateMasks(
+    photoId: string,
+    expectedRevision: number,
+    mutation: import('./masks').MaskMutation,
+  ): Promise<EditState>
   updateEdits(photoId: string, patch: EditPatch, expectedRevision: number): Promise<EditState>
   getEditHistory(photoId: string): Promise<EditHistory>
   undoEdit(photoId: string, expectedRevision: number): Promise<EditState>
@@ -298,6 +322,7 @@ export interface Photo extends PhotoMetadata {
 }
 
 export interface LinearAsset {
+  maskGeometry?: import('./mask-geometry').MaskGeometry
   hdr?: HdrWorkingAsset
   url?: string
   byteLength: number
@@ -314,6 +339,7 @@ export interface HdrPreview extends Omit<FullPreview, 'format'> {
 export type DisplayPreview = FullPreview | HdrPreview
 
 export interface FullPreview {
+  maskGeometry?: import('./mask-geometry').MaskGeometry
   /** This prepared source contains spatial edits; Before needs its original lineage. */
   requiresUnfilteredComparison?: true
   workingSource?: import('./prepared-comparison').PreparedPreviewSourceRef

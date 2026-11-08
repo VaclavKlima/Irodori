@@ -14,6 +14,7 @@ interface FrozenRequest {
   targets: Map<string, Revision>
   paused: boolean
   preparations: Map<string, 'export' | 'paste' | 'preset'>
+  selectionProposals: Set<string>
 }
 
 /** Transport-side ownership is independent of model instructions and hook tool denial. */
@@ -74,6 +75,7 @@ export class AgentRequestGate {
       targets,
       paused: false,
       preparations: new Map(),
+      selectionProposals: new Set(),
     }
     return this.context()
   }
@@ -98,6 +100,9 @@ export class AgentRequestGate {
       offset,
       nextOffset: next < value.context.selectedIds.length ? next : null,
       transient: { ...value.context.transient },
+      ...(value.context.inspection
+        ? { inspection: structuredClone(value.context.inspection) }
+        : {}),
       development: this.development,
     }
   }
@@ -178,6 +183,11 @@ export class AgentRequestGate {
       throw new Error('This task does not belong to this conversation.')
     if (!this.accepting || this.current !== request)
       throw new Error('The request stopped before execution.')
+    if (
+      operation === 'irodori_accept_object_selection' &&
+      !request.selectionProposals.has(String(args.proposalId))
+    )
+      throw new Error('This selection proposal does not belong to the current request.')
     const result = await execute()
     if (result && typeof result === 'object') {
       const value = result as { id?: string; taskId?: string; photoId?: string; revision?: number }
@@ -197,6 +207,10 @@ export class AgentRequestGate {
               ? 'paste'
               : 'preset',
         )
+      if (operation === 'irodori_create_object_selection' && value.id)
+        request.selectionProposals.add(value.id)
+      if (operation === 'irodori_accept_object_selection')
+        request.selectionProposals.delete(String(args.proposalId))
       if (value.taskId) this.tasks.add(value.taskId)
       if (value.photoId && typeof value.revision === 'number' && request.targets.has(value.photoId))
         request.targets.get(value.photoId)!.revision = value.revision

@@ -5,6 +5,7 @@ import {
   DEFAULT_INSPECTOR_SECTIONS,
   recoverWorkspaceNavigation,
   recoverConsoleHeight,
+  recoverMaskWorkspace,
   type WorkspaceState,
   type WorkspaceSnapshot,
 } from '../shared/workspace'
@@ -67,6 +68,10 @@ export class WorkspaceStore {
       rangeAnchorId: live(state.rangeAnchorId),
       editorAnchor: recover(state.editorAnchor),
       libraryAnchor: recover(state.libraryAnchor),
+      masks:
+        state.masks.photoId && !this.photo(state.masks.photoId)
+          ? { ...state.masks, photoId: null, selectedId: null, brush: false }
+          : state.masks,
       preview:
         state.preview &&
         this.photo(state.preview.photoId) &&
@@ -86,6 +91,7 @@ export class WorkspaceStore {
           ...saved,
           ...recoverWorkspaceNavigation(saved),
           consoleHeight: recoverConsoleHeight(saved?.consoleHeight),
+          masks: recoverMaskWorkspace(saved?.masks),
           inspector: { ...DEFAULT_INSPECTOR_SECTIONS, ...saved.inspector },
           presets: validPresetWorkspace(saved.presets) ? saved.presets : DEFAULT_PRESET_WORKSPACE,
         })

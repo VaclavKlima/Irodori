@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, FileImage, Layers } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileImage, Layers, Scan } from 'lucide-react'
 import {
   useCallback,
   useEffect,
@@ -43,6 +43,9 @@ import type { PreviewTools } from '../hooks/usePreviewTools'
 import { usePreviewWheel } from '../hooks/usePreviewWheel'
 import type { WhiteBalancePickerController } from '../hooks/useWhiteBalancePicker'
 import type { ToneCurvesController } from '../hooks/useToneCurves'
+import type { MasksController } from '../hooks/useMasks'
+import { maskCanonicalPoint } from '../../../shared/mask-geometry'
+import { MaskOverlayPresenter } from '../preview/mask-overlay'
 import { useWorkingPreview } from '../hooks/useWorkingPreview'
 import type { EditGestureCommit } from '../preview/edit-gesture'
 import {
@@ -56,6 +59,7 @@ import {
   stepScale,
   ZOOM_STOPS,
   zoomAt,
+  type PresentedPreviewGeometry,
   type Size,
   type View,
 } from '../preview/geometry'
@@ -66,6 +70,12 @@ import { PreviewPresenter } from '../preview/presenter'
 import { CropOverlay } from './CropOverlay'
 import styles from './PhotoPreview.module.css'
 import { ProgressSpinner } from './ProgressSpinner'
+import { IconButton } from './ui/Controls'
+import { InspectionRegion } from './InspectionRegion'
+import type { InspectionRegionController } from '../hooks/useInspectionRegion'
+import type { ObjectSelectionController } from '../hooks/useObjectSelection'
+import { ObjectSelectionOverlay } from './ObjectSelection'
+import { inspectionGeometryMatches } from '../preview/inspection-geometry'
 
 interface Model {
   loaded: boolean
@@ -98,6 +108,35 @@ interface Props {
   whiteBalancePicker?: WhiteBalancePickerController
   toneCurves?: ToneCurvesController
   crop?: CropController
+  masks?: MasksController
+  inspection?: InspectionRegionController
+  objectSelection?: ObjectSelectionController
+}
+
+function maskCursorStyle(
+  geometry: PresentedPreviewGeometry,
+  viewport: Size,
+  point: { x: number; y: number },
+  size: number,
+) {
+  const { image, view } = geometry,
+    scaleX = viewport.width / geometry.viewport.width,
+    scaleY = viewport.height / geometry.viewport.height,
+    diameter =
+      (size / 100) *
+      Math.min(
+        geometry.maskGeometry?.canonicalWidth ?? image.width,
+        geometry.maskGeometry?.canonicalHeight ?? image.height,
+      ) *
+      view.scale
+  return {
+    left:
+      (geometry.viewport.width / 2 + view.x + (point.x - image.width / 2) * view.scale) * scaleX,
+    top:
+      (geometry.viewport.height / 2 + view.y + (point.y - image.height / 2) * view.scale) * scaleY,
+    width: diameter * scaleX,
+    height: diameter * scaleY,
+  }
 }
 
 // The parent keys this component by photo ID so every new photograph starts in Fit.
@@ -109,7 +148,7 @@ export function PhotoPreview({
   onViewChange,
   displayTarget,
   photo,
-  adjustments,
+  adjustments: providedAdjustments,
   confirmedEdits = null,
   gestureCommit: localGestureCommit = null,
   tools,
@@ -126,6 +165,9 @@ export function PhotoPreview({
   whiteBalancePicker,
   toneCurves,
   crop,
+  masks,
+  inspection,
+  objectSelection,
 }: Props) {
   const cropping = !!crop?.active
   const presentationState = previewPolicy.presentationCache ? confirmedEdits : null
@@ -137,6 +179,17 @@ export function PhotoPreview({
     currentTarget.current = displayTarget
   }, [displayTarget])
   const overlay = useRef<HTMLCanvasElement>(null)
+  const maskOverlay = useRef<HTMLCanvasElement>(null)
+  const maskOverlayOwner = useRef<MaskOverlayPresenter | null>(null)
+  const maskOverlayFailure = useRef<(message: string) => void>(() => {})
+  const maskOverlayReady = useRef<() => void>(() => {})
+  const maskPresentationRef = useRef<PresentedPreviewGeometry | undefined>(undefined)
+  const redrawMaskCoverage = useRef<() => void>(() => {})
+  const [maskPresentation, setMaskPresentation] = useState<PresentedPreviewGeometry>()
+  const brushPointer = useRef<number | null>(null)
+  const keyboardStroke = useRef(false)
+  const brushCursorElement = useRef<HTMLDivElement>(null)
+  const [brushCursor, setBrushCursor] = useState<{ x: number; y: number } | null>(null)
   const divider = useRef<HTMLDivElement>(null)
   const dividerPointer = useRef<number | null>(null)
   const [maskState, setMaskState] = useState<{ key: string; value: ClippingMask }>()
@@ -153,6 +206,18 @@ export function PhotoPreview({
   const image = useRef<HTMLCanvasElement>(null)
   const retainedSurface = useRef<HTMLCanvasElement>(null)
   const presenter = useRef<PreviewPresenter | HdrPresenter | null>(null)
+  const publishMaskPresentation = useCallback((owner: PreviewPresenter | HdrPresenter) => {
+    if (presenter.current !== owner) return
+    const geometry = owner.presentedGeometry
+    if (!geometry) return
+    maskPresentationRef.current = geometry
+    redrawMaskCoverage.current()
+    setMaskPresentation(geometry)
+  }, [])
+  const readMaskPresentation = useCallback(() => {
+    const geometry = maskPresentationRef.current
+    return geometry && presenter.current?.presentedGeometry === geometry ? geometry : undefined
+  }, [])
   const hdrRetirement = useRef<Promise<void>>(Promise.resolve())
   const failPresentation = useRef<((reason: string) => void) | undefined>(undefined)
   const firstSurfacePolicyOwner = useRef<HdrPresenter | null>(null)
@@ -177,6 +242,10 @@ export function PhotoPreview({
   }, [])
   const attachCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
     if (!canvas) {
+      maskPresentationRef.current = undefined
+      maskOverlayOwner.current?.clear()
+      setMaskPresentation(undefined)
+      setBrushCursor(null)
       restoreCanvasFocus.current ||= document.activeElement === image.current
       const previous = image.current,
         surface = retainedSurface.current
@@ -233,6 +302,24 @@ export function PhotoPreview({
     view: INITIAL_VIEW,
   })
   const current = useRef(model)
+  useEffect(() => {
+    const element = viewport.current
+    return () => {
+      const id = brushPointer.current
+      brushPointer.current = null
+      keyboardStroke.current = false
+      if (id !== null && element?.hasPointerCapture(id)) element.releasePointerCapture(id)
+    }
+  }, [masks?.active, masks?.resetKey])
+
+  useEffect(() => {
+    if (masks?.drawing) return
+    const id = brushPointer.current
+    brushPointer.current = null
+    keyboardStroke.current = false
+    if (id !== null && viewport.current?.hasPointerCapture(id))
+      viewport.current.releasePointerCapture(id)
+  }, [masks?.drawing])
   const framingView = useRef<{ image: Size; view: View } | null>(null)
   const [hdrAttempt, setHdrAttempt] = useState(0)
   const [presenterGeneration, setPresenterGeneration] = useState(0)
@@ -300,7 +387,7 @@ export function PhotoPreview({
       model.viewport.height <= 0
     )
       return undefined
-    if (!sameAdjustments(adjustments, confirmedEdits.settings)) return undefined
+    if (!sameAdjustments(providedAdjustments, confirmedEdits.settings)) return undefined
     return {
       version: HDR_FIRST_SURFACE_VERSION,
       generation: editingEpoch + 1,
@@ -323,7 +410,7 @@ export function PhotoPreview({
     suspended,
     gesturing,
     confirmedEdits,
-    adjustments,
+    providedAdjustments,
     editingEpoch,
     displayTarget,
     model.viewport,
@@ -344,6 +431,13 @@ export function PhotoPreview({
       confirmedEdits.settings.processing === 'display-referred-v1',
     cropping ? crop?.context?.revision : undefined,
   )
+  const adjustments = useMemo(
+    () => ({
+      ...providedAdjustments,
+      maskGeometry: full.preview?.maskGeometry,
+    }),
+    [providedAdjustments, full.preview?.maskGeometry],
+  )
   const { isFirstSurfaceCurrent } = full
   const { begin: beginActivity, pulse: pulseActivity } = useForegroundActivity(
     photo?.id,
@@ -354,8 +448,11 @@ export function PhotoPreview({
   const [rasterReady, setRasterReady] = useState(false)
   const [hdrReady, setHdrReady] = useState(false)
   const [analysisPresentationSerial, setAnalysisPresentationSerial] = useState(0)
+  const [rasterHistogramError, setRasterHistogramError] = useState<string | undefined>()
   const maskPublication = useRef<string | undefined>(undefined)
   const hdrLoaded = useCallback(() => {
+    const presentedOwner = presenter.current
+    if (presentedOwner) publishMaskPresentation(presentedOwner)
     setHdrReady(true)
     const target = currentTarget.current,
       caps = target.capabilities
@@ -383,7 +480,7 @@ export function PhotoPreview({
       maskPublication.current = key
       setAnalysisPresentationSerial((value) => value + 1)
     }
-  }, [hdrJpeg])
+  }, [hdrJpeg, publishMaskPresentation])
   const [cachedDisplayReady, setCachedDisplayReady] = useState(false)
   const [firstSurfaceReady, setFirstSurfaceReady] = useState(false)
   const [firstSurfacePainted, setFirstSurfacePainted] = useState(false)
@@ -462,10 +559,17 @@ export function PhotoPreview({
     firstPresentedMs.current = undefined
     firstUsefulMs.current = undefined
   }, [photo?.id, suspended])
-  const cachedPresented = useCallback((presented: boolean) => {
-    if (presented) firstUsefulMs.current ??= performance.now() - selectedAt.current
-    setCachedDisplayReady(presented)
-  }, [])
+  const cachedPresented = useCallback(
+    (presented: boolean) => {
+      if (presented) {
+        firstUsefulMs.current ??= performance.now() - selectedAt.current
+        const owner = presenter.current
+        if (owner) publishMaskPresentation(owner)
+      }
+      setCachedDisplayReady(presented)
+    },
+    [publishMaskPresentation],
+  )
   const fullVisible = Boolean(full.preview && (displayedUrl || full.preview.linear?.hdr))
   const live = useWorkingPreview(full.preview, fullVisible && !suspended)
   const { generation } = live
@@ -659,7 +763,7 @@ export function PhotoPreview({
     full.error ||
     live.error ||
     comparisonError ||
-    (working?.hdr ? analysisError : sdrAnalysisError)
+    (working?.hdr ? analysisError : rasterHistogramError || sdrAnalysisError)
   useEffect(
     () => update({ analysisError: histogramError, clippingError: maskError }),
     [histogramError, maskError, update],
@@ -756,6 +860,20 @@ export function PhotoPreview({
     if (presenter.current) {
       try {
         bindWorkingSource(presenter.current)
+        if (!presenter.current.presentedGeometry && maskPresentationRef.current) {
+          maskPresentationRef.current = undefined
+          maskOverlayOwner.current?.clear()
+          setMaskPresentation(undefined)
+          setBrushCursor(null)
+          if (brushPointer.current !== null || keyboardStroke.current) {
+            const pointer = brushPointer.current
+            brushPointer.current = null
+            keyboardStroke.current = false
+            masks?.cancel()
+            if (pointer !== null && viewport.current?.hasPointerCapture(pointer))
+              viewport.current.releasePointerCapture(pointer)
+          }
+        }
       } catch (error) {
         failPresentation.current?.(String(error))
         return
@@ -1115,8 +1233,15 @@ export function PhotoPreview({
             presenterRoute === 'raster-preview',
             fail,
             () => {
-              if (active && !failed) setRasterReady(true)
+              if (active && !failed && presenter.current === activePresenter) {
+                publishMaskPresentation(activePresenter!)
+                setRasterReady(true)
+              }
             },
+            analyze,
+            analysisPending,
+            setRasterHistogramError,
+            beginActivity,
           )
           presenter.current = activePresenter
           setPresenterGeneration((value) => value + 1)
@@ -1152,6 +1277,7 @@ export function PhotoPreview({
     firstSurfacePresented,
     previewPolicy,
     hdrLoaded,
+    publishMaskPresentation,
     onEditingReady,
     onPresentationFailure,
   ])
@@ -1338,6 +1464,8 @@ export function PhotoPreview({
     adjustments.colorMixer,
     adjustments.colorGrading,
     adjustments.whiteBalance,
+    adjustments.localMasks,
+    adjustments.maskGeometry,
     mode,
     split,
     hdrRanges,
@@ -1376,7 +1504,115 @@ export function PhotoPreview({
       ),
     )
   }
+  useLayoutEffect(() => {
+    const render = () => {
+      const canvas = maskOverlay.current,
+        geometry = readMaskPresentation(),
+        context = objectSelection?.context,
+        proposal =
+          objectSelection?.active &&
+          context &&
+          geometry &&
+          context.width === geometry.image.width &&
+          context.height === geometry.image.height &&
+          inspectionGeometryMatches(context.geometry, geometry.maskGeometry)
+            ? objectSelection.proposal
+            : undefined
+      if (!canvas) return
+      maskOverlayFailure.current = (message) =>
+        objectSelection?.active ? objectSelection.setError(message) : masks?.setError(message)
+      maskOverlayReady.current = () => {
+        if (proposal) objectSelection?.setProposalReady(proposal.id)
+      }
+      const cursor = brushCursorElement.current
+      if (cursor && geometry && brushCursor && masks) {
+        const style = maskCursorStyle(
+          geometry,
+          current.current.viewport,
+          brushCursor,
+          masks.workspace.size,
+        )
+        cursor.style.left = `${style.left}px`
+        cursor.style.top = `${style.top}px`
+        cursor.style.width = `${style.width}px`
+        cursor.style.height = `${style.height}px`
+      }
+      if (
+        (!proposal && (!masks?.overlayVisible || !masks.selectedId || objectSelection?.active)) ||
+        !ready ||
+        suspended ||
+        !geometry?.maskGeometry
+      ) {
+        maskOverlayOwner.current?.clear()
+        return
+      }
+      try {
+        maskOverlayOwner.current ??= new MaskOverlayPresenter(
+          canvas,
+          (message) => maskOverlayFailure.current(message),
+          () => maskOverlayReady.current(),
+        )
+        maskOverlayOwner.current.draw(
+          geometry.image,
+          geometry.viewport,
+          geometry.view,
+          {
+            ...adjustments,
+            ...(proposal ? { localMasks: [{ ...proposal.mask, enabled: true }] } : {}),
+            maskGeometry: geometry.maskGeometry,
+          },
+          proposal?.mask.id ?? masks!.selectedId!,
+          proposal?.id,
+        )
+      } catch (error) {
+        maskOverlayFailure.current(String(error))
+      }
+    }
+    // Presentation callbacks redraw before the browser can paint the newly
+    // completed photograph; mask drafts reuse that same committed geometry.
+    redrawMaskCoverage.current = render
+    render()
+  }, [masks, objectSelection, ready, suspended, adjustments, readMaskPresentation, brushCursor])
+  useEffect(
+    () => () => {
+      maskOverlayOwner.current?.dispose()
+      maskOverlayOwner.current = null
+    },
+    [],
+  )
+  function brushPoint(output: { x: number; y: number }) {
+    const geometry = readMaskPresentation()?.maskGeometry
+    if (!geometry) {
+      masks?.setError(
+        'Mask geometry is unavailable. Wait for the full photograph to finish preparing.',
+      )
+      return null
+    }
+    return maskCanonicalPoint(output, geometry)
+  }
+  function pointerBrushPoint(event: PointerEvent<HTMLDivElement>) {
+    const box = event.currentTarget.getBoundingClientRect(),
+      geometry = readMaskPresentation()
+    if (!geometry || !box.width || !box.height) return null
+    const point = normalizedSourcePoint(
+      {
+        x: ((event.clientX - box.left) * geometry.viewport.width) / box.width,
+        y: ((event.clientY - box.top) * geometry.viewport.height) / box.height,
+      },
+      geometry.image,
+      geometry.viewport,
+      geometry.view,
+    )
+    if (!point) return null
+    const output = {
+      x: point.x * geometry.image.width,
+      y: point.y * geometry.image.height,
+    }
+    setBrushCursor(output)
+    return brushPoint(output)
+  }
   function keyDown(event: KeyboardEvent) {
+    if (event.defaultPrevented) return
     if (
       (event.target as HTMLElement).closest(
         'select, input, textarea, [contenteditable], [role="menu"]',
@@ -1396,6 +1632,60 @@ export function PhotoPreview({
       return
     }
     if (!ready || event.ctrlKey || event.metaKey || event.altKey) return
+    if (
+      masks?.active &&
+      [' ', 'Escape', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)
+    ) {
+      event.preventDefault()
+      event.stopPropagation()
+      if (event.key === 'Escape') {
+        masks.cancel()
+        keyboardStroke.current = false
+        return
+      }
+      const geometry = readMaskPresentation()
+      if (!geometry) return
+      const position = brushCursor ?? {
+        x: geometry.image.width / 2,
+        y: geometry.image.height / 2,
+      }
+      if (event.key === ' ') {
+        if (event.repeat) return
+        if (keyboardStroke.current) {
+          keyboardStroke.current = false
+          masks.endStroke()
+        } else {
+          const point = brushPoint(position)
+          if (point) keyboardStroke.current = masks.beginStroke(point)
+          setBrushCursor(position)
+        }
+      } else {
+        const amount = event.shiftKey ? 10 : 1
+        const next = {
+          x: Math.max(
+            0.5,
+            Math.min(
+              geometry.image.width - 0.5,
+              position.x +
+                (event.key === 'ArrowLeft' ? -amount : event.key === 'ArrowRight' ? amount : 0),
+            ),
+          ),
+          y: Math.max(
+            0.5,
+            Math.min(
+              geometry.image.height - 0.5,
+              position.y +
+                (event.key === 'ArrowUp' ? -amount : event.key === 'ArrowDown' ? amount : 0),
+            ),
+          ),
+        }
+        setBrushCursor(next)
+        const point = brushPoint(next)
+        if (point && keyboardStroke.current) masks.appendStroke(point)
+      }
+      return
+    }
+
     if (cropping && ['\\', 'y', 'j'].includes(event.key.toLowerCase())) {
       event.preventDefault()
       return
@@ -1441,6 +1731,16 @@ export function PhotoPreview({
       if (panX || panY) pan.start(event.nativeEvent)
       return
     }
+    if (masks?.active) {
+      stopDrag()
+      keyboardStroke.current = false
+      const point = pointerBrushPoint(event)
+      if (point && masks.beginStroke(point)) {
+        brushPointer.current = event.pointerId
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }
+      return
+    }
     if (toneCurves?.active) {
       stopDrag()
       const box = event.currentTarget.getBoundingClientRect()
@@ -1479,6 +1779,11 @@ export function PhotoPreview({
     pan.start(event.nativeEvent)
   }
   function pointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (masks?.active) {
+      const point = pointerBrushPoint(event)
+      if (point && brushPointer.current === event.pointerId) masks.appendStroke(point)
+      if (brushPointer.current === event.pointerId) return
+    }
     if (curvePointer.current === event.pointerId) {
       toneCurves?.moveTarget(event.clientY)
       return
@@ -1507,7 +1812,7 @@ export function PhotoPreview({
       <div className={layout.previewArea}>
         <div
           ref={viewport}
-          className={`${styles.viewport} ${ready && (panX || panY) ? styles.pannable : ''} ${dragging ? styles.dragging : ''} ${whiteBalancePicker?.active || toneCurves?.active ? styles.picking : ''}`}
+          className={`${styles.viewport} ${ready && (panX || panY) ? styles.pannable : ''} ${dragging ? styles.dragging : ''} ${whiteBalancePicker?.active || toneCurves?.active || masks?.active || objectSelection?.active ? styles.picking : ''}`}
           data-testid="preview-viewport"
           data-mode={view.fit ? 'fit' : 'manual'}
           data-scale={view.scale}
@@ -1530,6 +1835,8 @@ export function PhotoPreview({
           data-image-width={model.image.width}
           data-image-height={model.image.height}
           data-dragging={dragging}
+          data-mask-brush={masks?.active || undefined}
+          data-object-selection={objectSelection?.active || undefined}
           onPointerDownCapture={(event) => {
             if (event.button === 1) {
               pointerDown(event)
@@ -1541,7 +1848,17 @@ export function PhotoPreview({
             if (event.button === 1) event.preventDefault()
           }}
           onPointerMove={pointerMove}
+          onPointerLeave={() => {
+            if (brushPointer.current === null) setBrushCursor(null)
+          }}
           onPointerUp={(event) => {
+            if (brushPointer.current === event.pointerId) {
+              brushPointer.current = null
+              masks?.endStroke()
+              if (event.currentTarget.hasPointerCapture(event.pointerId))
+                event.currentTarget.releasePointerCapture(event.pointerId)
+              return
+            }
             if (curvePointer.current === event.pointerId) {
               curvePointer.current = null
               toneCurves?.endTarget(event.clientY)
@@ -1550,12 +1867,22 @@ export function PhotoPreview({
             } else pan.release(event.nativeEvent)
           }}
           onPointerCancel={(event) => {
+            if (brushPointer.current === event.pointerId) {
+              brushPointer.current = null
+              masks?.cancel()
+              return
+            }
             if (curvePointer.current === event.pointerId) {
               curvePointer.current = null
               toneCurves?.cancelTarget(false)
             } else pan.cancel(event.nativeEvent)
           }}
           onLostPointerCapture={(event) => {
+            if (brushPointer.current === event.pointerId) {
+              brushPointer.current = null
+              masks?.cancel()
+              return
+            }
             if (curvePointer.current === event.pointerId) {
               curvePointer.current = null
               toneCurves?.cancelTarget(false)
@@ -1565,7 +1892,14 @@ export function PhotoPreview({
             else pan.lostCapture()
           }}
           onDoubleClick={(event) => {
-            if (whiteBalancePicker?.active || toneCurves?.active || cropping) return
+            if (
+              whiteBalancePicker?.active ||
+              toneCurves?.active ||
+              masks?.active ||
+              objectSelection?.active ||
+              cropping
+            )
+              return
             if (!ready || dragged.current) return
             const box = event.currentTarget.getBoundingClientRect()
             if (current.current.view.fit)
@@ -1668,6 +2002,34 @@ export function PhotoPreview({
                 }}
               />
               <canvas
+                ref={maskOverlay}
+                className={styles.overlay}
+                aria-hidden="true"
+                data-testid="mask-coverage-overlay"
+                style={{
+                  visibility:
+                    !gpuError &&
+                    (masks?.overlayVisible || objectSelection?.proposal) &&
+                    ready &&
+                    maskPresentation?.maskGeometry
+                      ? 'visible'
+                      : 'hidden',
+                }}
+              />
+              {masks?.active && brushCursor && ready && maskPresentation?.maskGeometry && (
+                <div
+                  ref={brushCursorElement}
+                  className={styles.brushCursor}
+                  aria-hidden="true"
+                  style={maskCursorStyle(
+                    maskPresentation,
+                    model.viewport,
+                    brushCursor,
+                    masks.workspace.size,
+                  )}
+                />
+              )}
+              <canvas
                 ref={overlay}
                 className={styles.overlay}
                 aria-hidden="true"
@@ -1683,6 +2045,45 @@ export function PhotoPreview({
                 model.image.width === crop.context.source.width &&
                 model.image.height === crop.context.source.height && (
                   <CropOverlay crop={crop} viewport={model.viewport} view={model.view} />
+                )}
+              {inspection?.active &&
+                ready &&
+                !cropping &&
+                !masks?.active &&
+                !objectSelection?.active &&
+                !whiteBalancePicker?.active &&
+                !toneCurves?.active && (
+                  <InspectionRegion
+                    inspection={inspection}
+                    geometry={maskPresentation}
+                    viewport={model.viewport}
+                    onLocate={(region) => {
+                      stopDrag()
+                      change((value) => ({
+                        ...value,
+                        view: {
+                          fit: false,
+                          scale: 1,
+                          x: value.image.width / 2 - region.x - region.width / 2,
+                          y: value.image.height / 2 - region.y - region.height / 2,
+                        },
+                      }))
+                    }}
+                  />
+                )}
+              {objectSelection?.active &&
+                ready &&
+                !cropping &&
+                !masks?.active &&
+                !whiteBalancePicker?.active &&
+                !toneCurves?.active &&
+                !inspection?.active && (
+                  <ObjectSelectionOverlay
+                    selection={objectSelection}
+                    geometry={maskPresentation}
+                    viewport={model.viewport}
+                    readGeometry={readMaskPresentation}
+                  />
                 )}
               {working && mode !== 'after' && <span className={styles.beforeLabel}>Before</span>}
               {working && mode === 'split' && (
@@ -1872,6 +2273,16 @@ export function PhotoPreview({
                 </option>
               ))}
             </select>
+            {inspection && (
+              <IconButton
+                icon={Scan}
+                label="Inspect region"
+                className={styles.inspectButton}
+                aria-pressed={inspection.active}
+                disabled={!ready || cropping || inspection.loading}
+                onClick={() => (inspection.active ? inspection.close() : void inspection.start())}
+              />
+            )}
           </div>
           {photo && (
             <span

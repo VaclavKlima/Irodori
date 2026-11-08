@@ -1,3 +1,12 @@
+import { objectSelectionCapabilities } from './object-selection'
+import { validateMaskGeometry } from './mask-geometry'
+import {
+  maskCapabilities,
+  validateMaskStack,
+  validateResolvedMasks,
+  type MaskDescriptor,
+  type MaskStrokeChunk,
+} from './masks'
 import { editTransferCapabilities } from './edit-transfer-controls'
 import {
   identityToneCurves,
@@ -51,9 +60,11 @@ import {
   detailCapabilities,
 } from './detail-controls'
 
-export const SETTINGS_VERSION = 12
+export const SETTINGS_VERSION = 14
 export const editCapabilities = {
   settingsVersion: SETTINGS_VERSION,
+  objectSelection: objectSelectionCapabilities,
+  masks: maskCapabilities,
   editTransfer: editTransferCapabilities,
   curves: toneCurveCapabilities,
   ...creativeColorCapabilities,
@@ -62,8 +73,9 @@ export const editCapabilities = {
 export type EditCapabilities = typeof editCapabilities
 export type EditFlushScope = { kind: 'all' } | { kind: 'photos'; photoIds: string[] }
 
-export interface EditSettings extends AdjustmentParameters {
-  version: 12
+export interface EditSettings extends Omit<AdjustmentParameters, 'localMasks' | 'maskGeometry'> {
+  version: typeof SETTINGS_VERSION
+  maskStack: MaskDescriptor[]
   curves: ToneCurves
   noiseReduction: NoiseReductionSettings
   detailSharpening: DetailSharpeningSettings
@@ -75,7 +87,10 @@ export interface EditSettings extends AdjustmentParameters {
   lens: LensSettings
 }
 export interface EditPatch extends Partial<
-  Omit<AdjustmentParameters, 'colorMixer' | 'colorGrading' | 'curves'>
+  Omit<
+    AdjustmentParameters,
+    'colorMixer' | 'colorGrading' | 'curves' | 'localMasks' | 'maskGeometry'
+  >
 > {
   curves?: ToneCurvesPatch
   colorMixer?: ColorMixerPatch
@@ -86,6 +101,8 @@ export interface EditPatch extends Partial<
   lens?: Partial<LensSettings>
 }
 export interface EditState {
+  maskContent?: MaskStrokeChunk[]
+  maskBases?: import('./masks').MaskBaseContent[]
   hdrJpeg?: import('./lens').ProcessingMetadata['hdrJpeg']
   referenceWhiteBalance?: boolean
   hdrEligible?: boolean
@@ -107,6 +124,7 @@ export interface EditHistory extends EditState {
 export function initialSettings(lens = automaticLensSettings): EditSettings {
   return {
     version: SETTINGS_VERSION,
+    maskStack: [],
     curves: structuredClone(identityToneCurves),
     crop: { ...identityCrop },
     noiseReduction: { ...neutralNoiseReduction },
@@ -130,6 +148,7 @@ export function validateProcessingPatch(
 }
 export function mergeEditPatch(base: EditSettings, patch: EditPatch): EditSettings {
   validatePatch(patch)
+  validateMaskStack(base.maskStack ?? [])
   return structuredClone({
     ...base,
     ...patch,
@@ -157,7 +176,9 @@ function validateFields(value: unknown, creative: 'patch' | 'full'): asserts val
     Object.keys(patch).some(
       (key) =>
         ![
-          ...(creative === 'patch' ? ['noiseReduction', 'detailSharpening'] : []),
+          ...(creative === 'patch'
+            ? ['noiseReduction', 'detailSharpening']
+            : ['localMasks', 'maskGeometry']),
           'exposureEv',
           'contrast',
           'highlights',
@@ -176,6 +197,11 @@ function validateFields(value: unknown, creative: 'patch' | 'full'): asserts val
     )
   )
     throw new Error('Unknown adjustment.')
+  if (creative === 'full') {
+    const full = patch as Partial<AdjustmentParameters>
+    if (full.localMasks !== undefined) validateResolvedMasks(full.localMasks)
+    if (full.maskGeometry !== undefined) validateMaskGeometry(full.maskGeometry)
+  }
   if ('noiseReduction' in patch) validateNoiseReductionPatch(patch.noiseReduction)
   if ('detailSharpening' in patch) validateDetailSharpeningPatch(patch.detailSharpening)
   if ('curves' in patch) {

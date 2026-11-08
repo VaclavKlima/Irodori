@@ -103,14 +103,16 @@ export async function renderExport(
     let encoder = sharp(rgb, { raw: { ...geometry, channels: 3 } }).withIccProfile('srgb')
     if (exif) encoder = encoder.withExif(exif)
     try {
-      const output = await encoder
-        .jpeg({
-          quality: job.options.quality,
-          chromaSubsampling: '4:4:4',
-          progressive: false,
-          optimiseCoding: true,
-        })
-        .toBuffer()
+      const output = await (
+        job.inspection?.encoding === 'png'
+          ? encoder.png()
+          : encoder.jpeg({
+              quality: job.options.quality,
+              chromaSubsampling: '4:4:4',
+              progressive: false,
+              optimiseCoding: true,
+            })
+      ).toBuffer()
       if (plan && output.byteLength > plan.outputLimitBytes)
         throw new ExportResourceError('The SDR JPEG exceeded its admitted output storage.')
       return output
@@ -205,20 +207,33 @@ export async function renderExport(
   stage = performance.now()
   const info = await sharp(output).metadata()
   if (
-    info.format !== 'jpeg' ||
+    info.format !== (job.inspection?.encoding ?? 'jpeg') ||
     info.width !== geometry.width ||
     info.height !== geometry.height ||
     !info.icc ||
     info.isProgressive
   )
     throw new Error('Invalid exported JPEG.')
-  const path = renderedPath ?? join(job.directory, 'output.jpg')
+  const path =
+    renderedPath ??
+    join(job.directory, job.inspection?.encoding === 'png' ? 'output.png' : 'output.jpg')
   if (!renderedPath) await writeFile(path, output, { flag: 'wx' })
   // Retained only inside this disposable job directory, useful to correctness tests.
-  if (!primaryWritten) await writeFile(join(job.directory, 'sdr.jpg'), sdr, { flag: 'wx' })
+  if (!primaryWritten)
+    await writeFile(
+      join(job.directory, job.inspection?.encoding === 'png' ? 'sdr.png' : 'sdr.jpg'),
+      sdr,
+      { flag: 'wx' },
+    )
   const sha256 = createHash('sha256').update(output).digest('hex')
   diagnostics.stages.validationAndWriteMs = performance.now() - stage
   diagnostics.stages.workerMs = performance.now() - start
   onProgress?.('output-validated-written')
-  return { path, sha256, diagnostics, geometry: { width: geometry.width, height: geometry.height } }
+  return {
+    path,
+    sha256,
+    diagnostics,
+    sourceGeometry: rendition.sourceGeometry,
+    geometry: { width: geometry.width, height: geometry.height },
+  }
 }

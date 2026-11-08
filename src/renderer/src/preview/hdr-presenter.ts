@@ -24,6 +24,14 @@ import {
 } from '../../../shared/creative-color-gpu'
 import { preparedToneCurves, type CompiledToneCurves } from '../../../shared/tone-curves'
 import { packToneCurves, TONE_CURVE_PARAMETER_BYTES } from '../../../shared/tone-curves-gpu'
+import {
+  hasLocalMasks,
+  localMaskPixelData,
+  packLocalMasks,
+  maskBaseAtlasPlan,
+} from '../../../shared/masks-gpu'
+import { WebGpuMaskBaseAtlas } from './mask-base-assets'
+import { adjustmentPixelKey } from '../../../shared/adjustments'
 import { neutralColorMixer } from '../../../shared/color-mixer'
 import type { EditorPreviewPolicy } from '../../../shared/editor-preview-policy'
 import {
@@ -39,7 +47,7 @@ import type { ResourcePolicySnapshot } from '../../../shared/resource-policy'
 import { identityMatrix } from '../../../shared/white-balance'
 import type { EditGestureCommit } from './edit-gesture'
 import { reservePresentationBitmaps } from './frame-cache'
-import type { Size, View } from './geometry'
+import type { PresentedPreviewGeometry, Size, View } from './geometry'
 import { checkedHdrComparison } from './hdr-comparison-source'
 import { hdrDevice } from './hdr-device'
 import { HdrEditQueue, type HdrEditRequest } from './hdr-edit-queue'
@@ -50,7 +58,7 @@ import {
 } from './hdr-first-surface-client'
 import { HdrGestureHandoff, type HdrGestureStage } from './hdr-gesture-handoff'
 import { HDR_GPU_TIMING_BYTES, HdrGpuTimings, type HdrGpuTimingFrame } from './hdr-gpu-timings'
-import { HDR_HISTOGRAM_WORDS, readHdrHistogram } from './hdr-histogram'
+import { HDR_HISTOGRAM_WORDS, HDR_MASK_HISTOGRAM_WORDS, readHdrHistogram } from './hdr-histogram'
 import {
   HDR_BITMAP_RESERVATION,
   HdrPresentationHeadroom,
@@ -188,6 +196,7 @@ interface HistogramRequest {
   presentation: PresentationRequest
   creative?: CompiledCreativeColor
   curves?: CompiledToneCurves
+  masks?: Float32Array<ArrayBuffer>
 }
 interface RenderedPresentation {
   startedAt: number
@@ -279,6 +288,22 @@ export class HdrPresenter {
   private histogramGroup?: GPUBindGroup
   private comparisonHistogramGroup?: GPUBindGroup
   private creativePipelines?: HdrPipelines
+  private localMaskPipelines?: HdrPipelines
+  private localMaskPipelinesBases = false
+  private localMaskBaseAtlas?: WebGpuMaskBaseAtlas
+  private localMaskBaseKey = ''
+  private localHistogramBaseAtlas?: WebGpuMaskBaseAtlas
+  private localMaskBuffer?: GPUBuffer
+  private localMaskStatus?: GPUBuffer
+  private localMaskStatusReadback?: GPUBuffer
+  private localMaskPacked?: Float32Array<ArrayBuffer>
+  private localMaskPackedKey = ''
+  private localMaskUploaded?: Float32Array<ArrayBuffer>
+  private localMaskReservation: HdrManagedBytes = { ramBytes: 0, vramBytes: 0 }
+  private localHistogramMasks?: GPUBuffer
+  private localHistogramBuffer?: GPUBuffer
+  private localHistogramReadback?: GPUBuffer
+  private localHistogramReservation: HdrManagedBytes = { ramBytes: 0, vramBytes: 0 }
   private creativeBuffer?: GPUBuffer
   private curveBuffer?: GPUBuffer
   private curveHistogramBuffer?: GPUBuffer
@@ -318,6 +343,39 @@ export class HdrPresenter {
   private activeRender?: Promise<void>
   private releaseBitmaps?: () => void
   private view?: { image: Size; viewport: Size; view: View; parameters: AdjustmentParameters }
+  private displayedGeometry?: PresentedPreviewGeometry
+  get presentedGeometry(): PresentedPreviewGeometry | undefined {
+    return this.displayedGeometry
+  }
+  private capturePresentedGeometry(
+    snapshot: { image: Size; viewport: Size; view: View; parameters: AdjustmentParameters },
+    sourceIdentity: string | undefined,
+    serial: number,
+  ): PresentedPreviewGeometry {
+    const maskGeometry =
+      snapshot.parameters.maskGeometry && structuredClone(snapshot.parameters.maskGeometry)
+    if (maskGeometry?.correction) {
+      Object.freeze(maskGeometry.correction.distortion)
+      Object.freeze(maskGeometry.correction)
+    }
+    if (maskGeometry?.crop) {
+      Object.freeze(maskGeometry.crop.source)
+      Object.freeze(maskGeometry.crop.outputToSource)
+      Object.freeze(maskGeometry.crop.sourceToOutput)
+      for (const point of maskGeometry.crop.corners) Object.freeze(point)
+      Object.freeze(maskGeometry.crop.corners)
+      Object.freeze(maskGeometry.crop)
+    }
+    if (maskGeometry) Object.freeze(maskGeometry)
+    return Object.freeze({
+      image: Object.freeze({ ...snapshot.image }),
+      viewport: Object.freeze({ ...snapshot.viewport }),
+      view: Object.freeze({ ...snapshot.view }),
+      ...(maskGeometry ? { maskGeometry } : {}),
+      ...(sourceIdentity ? { sourceIdentity } : {}),
+      serial,
+    })
+  }
   private releaseActivity?: () => void
   private presentationState: HdrPresentationState | null = null
   private presentationHeadroom?: HdrPresentationHeadroom
@@ -621,6 +679,7 @@ export class HdrPresenter {
           descriptor.height,
         ])
         this.cachedPaintReceipt = undefined
+        this.displayedGeometry = undefined
         this.canvas.width = descriptor.width
         this.canvas.height = descriptor.height
         this.configure(this.target)
@@ -697,6 +756,7 @@ export class HdrPresenter {
     return work
   }
   private resetNativePublication() {
+    this.displayedGeometry = undefined
     this.maskKey = undefined
     this.canvas.dataset.editing = 'loading'
     for (const field of [
@@ -837,7 +897,10 @@ export class HdrPresenter {
     this.cachedPaintReceipt = undefined
     if (!this.restoredIdentity) return
     this.restoredIdentity = undefined
-    if (!this.nativePresented) this.canvas.style.visibility = 'hidden'
+    if (!this.nativePresented) {
+      this.canvas.style.visibility = 'hidden'
+      this.displayedGeometry = undefined
+    }
     this.canvas.dataset.cachedDisplayReady = 'false'
     delete this.canvas.dataset.cachedFencedAt
     this.cachedPresentation(false)
@@ -891,8 +954,18 @@ export class HdrPresenter {
     const source = this.sourceReservation(shared),
       mask = this.maskReservation.bytes
     return {
-      ramBytes: source.ramBytes + mask.ramBytes + this.creativeReservation.ramBytes,
-      vramBytes: source.vramBytes + mask.vramBytes + this.creativeReservation.vramBytes,
+      ramBytes:
+        source.ramBytes +
+        mask.ramBytes +
+        this.creativeReservation.ramBytes +
+        this.localMaskReservation.ramBytes +
+        this.localHistogramReservation.ramBytes,
+      vramBytes:
+        source.vramBytes +
+        mask.vramBytes +
+        this.creativeReservation.vramBytes +
+        this.localMaskReservation.vramBytes +
+        this.localHistogramReservation.vramBytes,
     }
   }
   private sharedSourceReservation(): HdrManagedBytes {
@@ -1067,12 +1140,14 @@ export class HdrPresenter {
   }
   private restoreCached(): Promise<void> {
     if (this.restoring) return this.restoring
-    const identity = this.presentationIdentity()
+    const snapshot = this.view,
+      identity = this.presentationIdentity(snapshot)
     const attempt = identity
       ? JSON.stringify([identity.key, this.presentationVersion, this.epoch])
       : ''
     if (
       !identity ||
+      !snapshot ||
       !this.device ||
       !this.context ||
       !this.presentationHeadroom ||
@@ -1147,7 +1222,12 @@ export class HdrPresenter {
     )
     const device = this.device,
       version = this.presentationVersion,
-      epoch = this.epoch
+      epoch = this.epoch,
+      restoredGeometry = this.capturePresentedGeometry(
+        snapshot,
+        this.frame!.identity ?? this.frame!.hdr!.sha256,
+        lease.serial,
+      )
     const current = () =>
       !this.abort.signal.aborted &&
       !this.nativePresented &&
@@ -1199,18 +1279,19 @@ export class HdrPresenter {
           epoch,
         })
         this.cachedPaintReceipt = receipt
+        this.displayedGeometry = restoredGeometry
         const paintCurrent = () => this.cachedPaintReceipt === receipt && this.cachedCanvasCurrent()
         // Attribute the completed cache blit before it can become visible. Readiness
         // and its clock still wait for the following actual paint observations.
         Object.assign(this.canvas.dataset, {
           cachedFencedAt: String(performance.now()),
           cachedPresentationSerial: String(lease.serial),
-          cachedParameters: JSON.stringify(this.view!.parameters),
+          cachedParameters: adjustmentPixelKey(this.view!.parameters),
           cachedSourceIdentity: this.frame!.identity ?? this.frame!.hdr!.sha256,
           cachedSettingsRevision: String(this.presentationState!.revision),
           cachedTargetGeneration: String(this.target.generation),
           cachedEpoch: String(epoch),
-          presentedView: JSON.stringify(this.view!.view),
+          presentedView: JSON.stringify(restoredGeometry.view),
         })
         this.canvas.style.visibility = 'visible'
         // Painting may stop while a window is hidden or minimized. It must not
@@ -2036,7 +2117,7 @@ export class HdrPresenter {
       !viewport.height
     )
       return
-    const editsKey = JSON.stringify(parameters)
+    const editsKey = adjustmentPixelKey(parameters)
     const changed = this.editsKey !== editsKey
     const context = this.interactivePrecision ? this.gestureContext()! : '',
       handoff = this.interactivePrecision
@@ -2243,10 +2324,32 @@ export class HdrPresenter {
     }
     const { image, viewport, view, parameters, target, mode, split, ranges } = request.value
     const curves = preparedToneCurves(parameters.curves)
+    const masks = mode !== 'before' && hasLocalMasks(parameters)
+    if (masks) {
+      const key = JSON.stringify([localMaskPixelData(parameters), parameters.maskGeometry, image])
+      if (key !== this.localMaskPackedKey) {
+        this.localMaskPacked = packLocalMasks(parameters, image)
+        this.localMaskPackedKey = key
+      }
+    }
+    const maskData = masks ? this.localMaskPacked : undefined
+    const basePlan = maskBaseAtlasPlan(masks ? parameters : {}),
+      bases = masks && basePlan.bases.length > 0
+    this.localMaskReservation = {
+      ramBytes:
+        (this.localMaskPacked?.byteLength ?? 0) * 6 +
+        (masks || this.localMaskStatus ? 8 : 0) +
+        (bases ? basePlan.decodeBytes + basePlan.uploadBytes : 0),
+      vramBytes:
+        Math.max(maskData?.byteLength ?? 0, this.localMaskBuffer?.size ?? 0) +
+        (masks || this.localMaskStatus ? 4 : 0) +
+        Math.max(bases ? basePlan.bytes : 0, this.localMaskBaseAtlas?.bytes ?? 0) +
+        (bases ? basePlan.uploadBytes : 0),
+    }
     const colour =
         prepareCreativeColor(parameters) ??
         prepareCreativeColor({ ...parameters, colorMixer: neutralColorMixer })!,
-      colourActive = creativeColorActive(colour) || !curves.identity,
+      colourActive = creativeColorActive(colour) || !curves.identity || masks,
       creative = colourActive && mode !== 'before',
       frame = this.frame!
     if (creative)
@@ -2272,6 +2375,13 @@ export class HdrPresenter {
       throw new Error('Presentation exceeds the managed RAM or GPU image resource budget.')
     }
     this.publishMemory(memory)
+    if (bases) {
+      this.localMaskBaseAtlas ??= new WebGpuMaskBaseAtlas(device)
+      await this.localMaskBaseAtlas.prepare(basePlan)
+      if (this.abort.signal.aborted || this.requestSuperseded(request)) return undefined
+      if (this.localMaskBaseKey !== basePlan.key) this.cacheGroups.clear()
+      this.localMaskBaseKey = basePlan.key
+    }
     if (creative && !this.creativePipelines) {
       const programs = await prepareHdrPipelines(device, {
         interactive: this.interactivePrecision,
@@ -2287,7 +2397,53 @@ export class HdrPresenter {
         return undefined
       this.creativePipelines = programs
     }
-    const colourPrograms = creative ? this.creativePipelines : undefined
+    if (masks && (!this.localMaskPipelines || this.localMaskPipelinesBases !== bases)) {
+      this.localMaskPipelines = await prepareHdrPipelines(device, {
+        interactive: this.interactivePrecision,
+        creative: true,
+        curves: true,
+        masks: true,
+        bases,
+      }).pipelines
+      this.localMaskPipelinesBases = bases
+      this.cacheGroups.clear()
+      if (this.abort.signal.aborted || this.requestSuperseded(request)) return undefined
+    }
+    if (maskData) {
+      if (
+        maskData.byteLength > device.limits.maxStorageBufferBindingSize ||
+        maskData.byteLength > device.limits.maxBufferSize
+      )
+        throw new Error('Local mask geometry exceeds GPU buffer limits.')
+      if (this.localMaskBuffer?.size !== maskData.byteLength) {
+        await device.queue.onSubmittedWorkDone()
+        this.localMaskBuffer?.destroy()
+        this.localMaskBuffer = device.createBuffer({
+          size: maskData.byteLength,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        })
+        this.localMaskUploaded = undefined
+        this.cacheGroups.clear()
+      }
+      if (this.localMaskUploaded !== maskData) {
+        device.queue.writeBuffer(this.localMaskBuffer!, 0, maskData)
+        this.localMaskUploaded = maskData
+      }
+      this.localMaskStatus ??= device.createBuffer({
+        size: 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      })
+      this.localMaskStatusReadback ??= device.createBuffer({
+        size: 4,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      })
+      device.queue.writeBuffer(this.localMaskStatus, 0, new Uint32Array([0]))
+    }
+    const colourPrograms = masks
+      ? this.localMaskPipelines
+      : creative
+        ? this.creativePipelines
+        : undefined
     if (creative) {
       this.creativeBuffer ??= device.createBuffer({
         size: CREATIVE_COLOR_PARAMETER_BYTES,
@@ -2394,7 +2550,7 @@ export class HdrPresenter {
         parameters.saturation,
         parameters.vibrance,
       ].every((v) => v === 0)
-    this.cache!.setEdits(JSON.stringify(parameters))
+    this.cache!.setEdits(adjustmentPixelKey(parameters))
     // Both policies retain the source detail, mip, coordinates and alpha. Only
     // active gesture arithmetic can use the separately versioned approximation.
     const plan = hdrCachePlan(this.frame!, image, viewport, view, mode, split, memory.tileSize)
@@ -2417,7 +2573,7 @@ export class HdrPresenter {
     histogramParams[14] = 10
     histogramParams[36] = Math.min(request.value.analysisSamples, image.width * image.height)
     const statisticsKey = JSON.stringify([
-      mode === 'before' ? 'before' : parameters,
+      mode === 'before' ? 'before' : adjustmentPixelKey(parameters),
       histogramParams[36],
       target.generation,
       target.mode,
@@ -2449,6 +2605,7 @@ export class HdrPresenter {
             selected.level * 3 +
             (table === this.rendering ? 0 : table === this.sdrRendering.get('srgb') ? 1 : 2) +
             (creative ? 65536 : 0) +
+            (masks ? 262144 : 0) +
             (beforeSource ? 131072 : 0)
         let cacheGroup = this.cacheGroups.get(groupKey)
         if (!cacheGroup) {
@@ -2468,6 +2625,18 @@ export class HdrPresenter {
               { binding: 5, resource: { buffer: this.jobs! } },
               ...(creative ? [{ binding: 12, resource: { buffer: this.creativeBuffer! } }] : []),
               ...(creative ? [{ binding: 14, resource: { buffer: this.curveBuffer! } }] : []),
+              ...(masks ? [{ binding: 16, resource: { buffer: this.localMaskBuffer! } }] : []),
+              ...(masks ? [{ binding: 17, resource: { buffer: this.localMaskStatus! } }] : []),
+              ...(bases
+                ? [
+                    {
+                      binding: 18,
+                      resource: this.localMaskBaseAtlas!.texture!.createView({
+                        dimension: '2d-array',
+                      }),
+                    },
+                  ]
+                : []),
             ],
           })
           this.cacheGroups.set(groupKey, cacheGroup)
@@ -2575,6 +2744,22 @@ export class HdrPresenter {
         return undefined
     }
     if (this.abort.signal.aborted) return undefined
+    if (masks) {
+      const status = device.createCommandEncoder()
+      status.copyBufferToBuffer(this.localMaskStatus!, 0, this.localMaskStatusReadback!, 0, 4)
+      device.queue.submit([status.finish()])
+      await this.localMaskStatusReadback!.mapAsync(GPUMapMode.READ)
+      try {
+        if (new Uint32Array(this.localMaskStatusReadback!.getMappedRange())[0]) {
+          this.cache!.reset()
+          throw new Error(
+            'Local Light processing produced non-finite pixels. Reduce the local adjustments.',
+          )
+        }
+      } finally {
+        this.localMaskStatusReadback!.unmap()
+      }
+    }
     // Presentation has its own completion boundary; mapping an unrelated analysis
     // buffer must never delay an already sharp completed image.
     const offscreenCompletionDeferred = this.finalInteractiveFence && interactivePrecision
@@ -2599,6 +2784,7 @@ export class HdrPresenter {
         parameters: histogramParams,
         presentation: request.value,
         ...(creative ? { creative: colour, curves } : {}),
+        ...(maskData ? { masks: maskData } : {}),
       },
     } satisfies RenderedPresentation
   }
@@ -2830,6 +3016,11 @@ export class HdrPresenter {
     if (recoverySnapshot) this.canvas.dataset.recoverySnapshot = JSON.stringify(recoverySnapshot)
     else delete this.canvas.dataset.recoverySnapshot
     this.nativePresented = true
+    this.displayedGeometry = this.capturePresentedGeometry(
+      request.value,
+      request.value.sourceIdentity,
+      Number(this.canvas.dataset.presentationSerial),
+    )
     this.invalidateFirstSurface()
     if (this.interactivePrecision) {
       this.gestureHandoff.published(
@@ -2873,6 +3064,7 @@ export class HdrPresenter {
     return true
   }
   private requestHistogram(snapshot: HistogramRequest, navigation: boolean) {
+    delete this.canvas.dataset.analysisUnavailable
     this.latestHistogram = snapshot
     const published = snapshot.key === this.publishedStatisticsKey
     // A view change does not change this analysis. Preserve its settled curve;
@@ -2906,12 +3098,89 @@ export class HdrPresenter {
   private async runHistogram() {
     const request = this.histogramQueue.take()
     if (!request || this.abort.signal.aborted) return
-    const { parameters, presentation, key, creative, curves } = request.value
+    const { parameters, presentation, key, creative, curves, masks } = request.value
     const before = presentation.mode === 'before' && !!presentation.beforeIdentity,
-      frame = before ? this.comparisonFrame! : this.frame!
+      frame = before ? this.comparisonFrame! : this.frame!,
+      sourceTexture = before ? this.comparisonTexture! : this.texture!
     const device = this.device!
-    let mapped = false
+    const current = () =>
+      !this.abort.signal.aborted &&
+      !this.histogramQueue.superseded(request) &&
+      sourceTexture === (before ? this.comparisonTexture : this.texture)
+    let mapped = false,
+      histogramBuffer = this.histogramBuffer!,
+      histogramReadback = this.histogramReadback!,
+      histogramWords = HDR_HISTOGRAM_WORDS,
+      maskedGroup: GPUBindGroup | undefined
+    const basePlan = maskBaseAtlasPlan(masks ? presentation.parameters : {}),
+      bases = !!masks && basePlan.bases.length > 0
+    let maskedPrograms: HdrPipelines | undefined
     try {
+      if (masks) {
+        histogramWords = HDR_MASK_HISTOGRAM_WORDS
+        this.localHistogramReservation = {
+          ramBytes:
+            masks.byteLength * 6 +
+            histogramWords * 12 +
+            (bases ? basePlan.decodeBytes + basePlan.uploadBytes : 0),
+          vramBytes:
+            Math.max(masks.byteLength, this.localHistogramMasks?.size ?? 0) +
+            histogramWords * 8 +
+            Math.max(bases ? basePlan.bytes : 0, this.localHistogramBaseAtlas?.bytes ?? 0) +
+            (bases ? basePlan.uploadBytes : 0),
+        }
+        const memory = await this.presentationMemory(
+          frame,
+          this.canvas.width,
+          this.canvas.height,
+          device.limits.maxTextureArrayLayers,
+        )
+        if (!current()) return
+        if (!memory.accepted)
+          throw new Error('Local histogram exceeds the managed image resource budget.')
+        this.publishMemory(memory)
+        maskedPrograms =
+          this.localMaskPipelines && this.localMaskPipelinesBases === bases
+            ? this.localMaskPipelines
+            : await prepareHdrPipelines(device, {
+                interactive: this.interactivePrecision,
+                creative: true,
+                curves: true,
+                masks: true,
+                bases,
+              }).pipelines
+        if (!current()) return
+        if (bases) {
+          this.localHistogramBaseAtlas ??= new WebGpuMaskBaseAtlas(device)
+          await this.localHistogramBaseAtlas.prepare(basePlan)
+          if (!current()) return
+        }
+        if (
+          masks.byteLength > device.limits.maxStorageBufferBindingSize ||
+          masks.byteLength > device.limits.maxBufferSize
+        )
+          throw new Error('Local histogram mask geometry exceeds GPU buffer limits.')
+        if (this.localHistogramMasks?.size !== masks.byteLength) {
+          await device.queue.onSubmittedWorkDone()
+          if (!current()) return
+          this.localHistogramMasks?.destroy()
+          this.localHistogramMasks = device.createBuffer({
+            size: masks.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          })
+        }
+        this.localHistogramBuffer ??= device.createBuffer({
+          size: histogramWords * 4,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        })
+        this.localHistogramReadback ??= device.createBuffer({
+          size: histogramWords * 4,
+          usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+        })
+        device.queue.writeBuffer(this.localHistogramMasks!, 0, masks)
+        histogramBuffer = this.localHistogramBuffer
+        histogramReadback = this.localHistogramReadback
+      }
       device.queue.writeBuffer(this.histogramUniform!, 0, parameters)
       if (creative) {
         if (curves && this.histogramCurves !== curves) {
@@ -2919,15 +3188,40 @@ export class HdrPresenter {
           this.histogramCurves = curves
         }
         device.queue.writeBuffer(this.creativeHistogramBuffer!, 0, packCreativeColor(creative))
-        this.creativeHistogramGroup ??= device.createBindGroup({
-          layout: this.creativePipelines!.histogram.getBindGroupLayout(0),
+        if (!masks)
+          this.creativeHistogramGroup ??= device.createBindGroup({
+            layout: this.creativePipelines!.histogram.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: this.histogramUniform! } },
+              { binding: 1, resource: sourceTexture.createView({ mipLevelCount: 1 }) },
+              { binding: 4, resource: { buffer: this.rendering! } },
+              { binding: 6, resource: { buffer: this.histogramBuffer! } },
+              { binding: 12, resource: { buffer: this.creativeHistogramBuffer! } },
+              { binding: 14, resource: { buffer: this.curveHistogramBuffer! } },
+            ],
+          })
+      }
+      if (masks) {
+        maskedGroup = device.createBindGroup({
+          layout: maskedPrograms!.histogram.getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: { buffer: this.histogramUniform! } },
-            { binding: 1, resource: this.texture!.createView({ mipLevelCount: 1 }) },
+            { binding: 1, resource: sourceTexture.createView({ mipLevelCount: 1 }) },
             { binding: 4, resource: { buffer: this.rendering! } },
-            { binding: 6, resource: { buffer: this.histogramBuffer! } },
+            { binding: 6, resource: { buffer: histogramBuffer } },
             { binding: 12, resource: { buffer: this.creativeHistogramBuffer! } },
             { binding: 14, resource: { buffer: this.curveHistogramBuffer! } },
+            { binding: 16, resource: { buffer: this.localHistogramMasks! } },
+            ...(bases
+              ? [
+                  {
+                    binding: 18,
+                    resource: this.localHistogramBaseAtlas!.texture!.createView({
+                      dimension: '2d-array',
+                    }),
+                  },
+                ]
+              : []),
           ],
         })
       }
@@ -2936,37 +3230,44 @@ export class HdrPresenter {
           layout: this.histogramPipeline!.getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: { buffer: this.histogramUniform! } },
-            { binding: 1, resource: this.comparisonTexture!.createView({ mipLevelCount: 1 }) },
+            { binding: 1, resource: sourceTexture.createView({ mipLevelCount: 1 }) },
             { binding: 4, resource: { buffer: this.rendering! } },
             { binding: 6, resource: { buffer: this.histogramBuffer! } },
           ],
         })
       const encoder = device.createCommandEncoder()
-      encoder.clearBuffer(this.histogramBuffer!)
+      encoder.clearBuffer(histogramBuffer)
       const pass = encoder.beginComputePass()
-      pass.setPipeline(creative ? this.creativePipelines!.histogram : this.histogramPipeline!)
+      pass.setPipeline(
+        masks
+          ? maskedPrograms!.histogram
+          : creative
+            ? this.creativePipelines!.histogram
+            : this.histogramPipeline!,
+      )
       pass.setBindGroup(
         0,
-        creative
-          ? this.creativeHistogramGroup!
-          : before
-            ? this.comparisonHistogramGroup!
-            : this.histogramGroup!,
+        masks
+          ? maskedGroup!
+          : creative
+            ? this.creativeHistogramGroup!
+            : before
+              ? this.comparisonHistogramGroup!
+              : this.histogramGroup!,
       )
       pass.dispatchWorkgroups(Math.ceil(parameters[36] / 64))
       pass.end()
-      encoder.copyBufferToBuffer(
-        this.histogramBuffer!,
-        0,
-        this.histogramReadback!,
-        0,
-        HDR_HISTOGRAM_WORDS * 4,
-      )
+      encoder.copyBufferToBuffer(histogramBuffer, 0, histogramReadback, 0, histogramWords * 4)
       device.queue.submit([encoder.finish()])
-      await this.histogramReadback!.mapAsync(GPUMapMode.READ)
+      await histogramReadback.mapAsync(GPUMapMode.READ)
       mapped = true
+      const data = new Uint32Array(histogramReadback.getMappedRange())
+      if (masks && data[HDR_HISTOGRAM_WORDS])
+        throw new Error(
+          'Local histogram processing produced non-finite pixels. Reduce the local adjustments.',
+        )
       const result = readHdrHistogram(
-        new Uint32Array(this.histogramReadback!.getMappedRange()),
+        data,
         presentation.target,
         frame.hdr!,
         presentation.inputSerial,
@@ -2979,10 +3280,13 @@ export class HdrPresenter {
         this.publishHistogram(latest?.key === key ? latest : request.value, result)
       }
     } catch (error) {
-      this.histogramQueue.finish(request)
-      if (!this.abort.signal.aborted) this.lost(`GPU histogram failed: ${String(error)}`)
+      const relevant =
+        current() && key === this.requestedStatisticsKey && this.latestHistogram?.key === key
+      const completed = this.histogramQueue.finish(request)
+      if (relevant && completed) this.lost(`GPU histogram failed: ${String(error)}`)
     } finally {
-      if (mapped) this.histogramReadback!.unmap()
+      this.histogramQueue.finish(request)
+      if (mapped) histogramReadback.unmap()
       if (!this.histogramQueue.hasPending) {
         this.releaseHistogramActivity?.()
         this.releaseHistogramActivity = undefined
@@ -3178,8 +3482,11 @@ export class HdrPresenter {
     this.releaseHistogramActivity?.()
     this.releaseHistogramActivity = undefined
     this.abort.abort()
+    this.displayedGeometry = undefined
     this.comparisonAbort?.abort()
     const maskDrained = this.maskReservation.cancelAndDrain()
+    this.localMaskBaseAtlas?.dispose()
+    this.localHistogramBaseAtlas?.dispose()
     this.invalidateFirstSurface()
     const retentionDrained = Promise.all([
       maskDrained,
@@ -3189,6 +3496,8 @@ export class HdrPresenter {
       this.comparisonWork?.catch(() => undefined),
       this.activeRender?.catch(() => undefined),
       this.firstSurfaceWork?.catch(() => undefined),
+      this.localMaskBaseAtlas?.whenDisposed,
+      this.localHistogramBaseAtlas?.whenDisposed,
     ]).then(async () => {
       await this.releaseSource()
       this.cachedPaintReceipt = undefined
@@ -3219,6 +3528,13 @@ export class HdrPresenter {
     this.creativeBuffer?.destroy()
     this.creativeHistogramBuffer?.destroy()
     this.curveBuffer?.destroy()
+    this.localMaskBuffer?.destroy()
+    this.localMaskStatus?.destroy()
+    this.localMaskStatusReadback?.destroy()
+    this.localMaskPacked = undefined
+    this.localHistogramMasks?.destroy()
+    this.localHistogramBuffer?.destroy()
+    this.localHistogramReadback?.destroy()
     this.curveHistogramBuffer?.destroy()
     if (
       cacheEligible &&

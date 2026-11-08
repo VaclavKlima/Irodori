@@ -1,11 +1,19 @@
 import { hdrRenderingShader, hdrPresentationWgsl } from './hdr-shader'
 import { hdrStatistics, type HdrStatistics } from '../../../shared/hdr-statistics'
 import type { DisplayTarget, HdrWorkingAsset } from '../../../shared/hdr'
+import { localMasksWgsl } from '../../../shared/masks-gpu'
 
 export const HDR_HISTOGRAM_WORDS = 256 + 512 * 3 + 9
-export function hdrHistogramShaderFor(creative = false, curves = false): string {
+export const HDR_MASK_HISTOGRAM_WORDS = HDR_HISTOGRAM_WORDS + 1
+export function hdrHistogramShaderFor(
+  creative = false,
+  curves = false,
+  masks = false,
+  bases = false,
+): string {
   return `${hdrRenderingShader(creative, curves)}
 ${hdrPresentationWgsl}
+${masks ? localMasksWgsl(16, bases ? 18 : undefined) : ''}
 @group(0) @binding(6) var<storage,read_write> histogram:array<atomic<u32>>;
 @compute @workgroup_size(64) fn sampleHistogram(@builtin(global_invocation_id) p:vec3u) {
   let count=u32(u.values[9].x);
@@ -15,12 +23,22 @@ ${hdrPresentationWgsl}
   let total=size.x*size.y;
   let quotient=total/count;
   let remainder=total%count;
+  let halfCarry=(quotient%2u)*(remainder%2u)*(count%2u);
   let index=min(total-1u,p.x*quotient+quotient/2u+
-    (p.x*remainder+remainder/2u+(quotient%2u)*(count/2u))/count);
+    (p.x*remainder+remainder/2u+(quotient%2u)*(count/2u)+halfCarry)/count);
   let pixel=textureLoad(pixels,vec2i(i32(index%size.x),i32(index/size.x)),0);
   if(pixel.a==0.) { return; }
   var working=pixel.rgb;
-  if(u.values[4].x!=1.) { working=adjusted(working); }
+  if(u.values[4].x!=1.) {
+    working=adjusted(working);
+    ${
+      masks
+        ? `let point=(vec2f(f32(index%size.x),f32(index/size.x))+.5)/vec2f(size)*maskData[5].yz;
+    working=applyLocalMasks(working,point,1.,true);
+    if(!localMaskFinite(working)){atomicOr(&histogram[${HDR_HISTOGRAM_WORDS}u],1u);return;}`
+        : ''
+    }
+  }
   let rgb=outputRgb(working);
   let y=dot(rgb,irodori);
   let base=1792u;

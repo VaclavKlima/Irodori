@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { initialSettings, mergeEditPatch } from '../src/shared/edits'
+import { initialSettings, mergeEditPatch, SETTINGS_VERSION } from '../src/shared/edits'
 import {
   copiedEdits,
   defaultEditTransferGroups,
@@ -45,7 +45,7 @@ test('default transfer replaces complete color/detail groups while preserving de
     whiteBalance: destination.whiteBalance,
     lens: destination.lens,
     processing: 'hdr-v1',
-    version: 12,
+    version: SETTINGS_VERSION,
   })
   source.exposureEv = 3
   expect(copied.settings.exposureEv).toBe(1.5)

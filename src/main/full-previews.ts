@@ -22,7 +22,12 @@ import {
   type HdrCacheKernelKind,
 } from '../renderer/src/preview/hdr-shader'
 import { HDR_SOURCE_MIP_POLICY } from '../renderer/src/preview/hdr-source-cache'
-import { ADJUSTMENT_VERSION, neutralAdjustments, sameAdjustments } from '../shared/adjustments'
+import {
+  ADJUSTMENT_VERSION,
+  adjustmentPixelKey,
+  neutralAdjustments,
+  sameAdjustments,
+} from '../shared/adjustments'
 import type { DisplayPreview, FullPreview, HdrPreview } from '../shared/contracts'
 import { creativeColorActive, prepareCreativeColor } from '../shared/creative-color'
 import { preparedToneCurves } from '../shared/tone-curves'
@@ -116,6 +121,9 @@ import {
 } from './processing/detail-identity'
 import { rawDecoderDefinitions } from './processing/formats'
 import { CROP_POLICY, LENS_RENDER_VERSION } from './processing/lens-correction'
+import { croppedMaskGeometry, identityMaskGeometry } from '../shared/mask-geometry'
+import { hasLocalMasks, packLocalMasks, maskBaseAtlasPlan } from '../shared/masks-gpu'
+import type { ResolvedMask } from '../shared/masks'
 import { spatialExecutionBackend } from './processing/spatial-backend'
 import type { WorkScheduler } from './work-scheduler'
 import {
@@ -849,6 +857,7 @@ export class FullPreviews {
     if (!frame?.linear) throw new Error('Native crop geometry is unavailable.')
     return {
       source: { width: frame.width, height: frame.height },
+      maskGeometry: frame.maskGeometry ?? identityMaskGeometry(frame.width, frame.height),
       options: after,
       renderingIdentity: frame.renderId,
     }
@@ -865,6 +874,53 @@ export class FullPreviews {
       source,
       settings,
       geometry: cropGeometry(source, settings),
+      renderingIdentity: prepared.renderingIdentity,
+    }
+  }
+
+  /** Geometry-only admission precedes immutable content and history publication. */
+  async validateMaskEdit(
+    id: string,
+    expectedRevision: number,
+    masks: ResolvedMask[],
+  ): Promise<void> {
+    if (!masks.length) return
+    const prepared = await this.nativeCropSource(id, expectedRevision)
+    const crop = cropGeometry(prepared.source, prepared.options.crop ?? identityCrop)
+    const packed = packLocalMasks(
+      { localMasks: masks, maskGeometry: croppedMaskGeometry(prepared.maskGeometry, crop) },
+      crop,
+    )
+    const atlas = maskBaseAtlasPlan({ localMasks: masks })
+    if (atlas.bases.length && prepared.options.processing !== 'hdr-v1') {
+      // Preserve the raster presenter's 512 MiB cap, including native float mips,
+      // a 16 MiB viewport allowance, curves/histogram and bounded strip upload.
+      const required =
+        crop.width * crop.height * ((16 * 4) / 3) +
+        packed.byteLength +
+        atlas.bytes +
+        atlas.uploadBytes +
+        17 * 1024 ** 2
+      if (required > 512 * 1024 ** 2)
+        throw new Error(
+          'These generated masks exceed the raster preview memory budget. Remove a generated mask before accepting another.',
+        )
+    }
+    await this.confirmedCropOptions(id, expectedRevision)
+  }
+
+  async getMaskContext(
+    id: string,
+    expectedRevision: number,
+  ): Promise<import('../shared/mask-geometry').PhotoMaskContext> {
+    const prepared = await this.nativeCropSource(id, expectedRevision)
+    const crop = cropGeometry(prepared.source, prepared.options.crop ?? identityCrop)
+    return {
+      photoId: id,
+      revision: expectedRevision,
+      geometry: croppedMaskGeometry(prepared.maskGeometry, crop),
+      width: crop.width,
+      height: crop.height,
       renderingIdentity: prepared.renderingIdentity,
     }
   }
@@ -1018,7 +1074,10 @@ export class FullPreviews {
                     crop: undefined,
                     noiseReduction: unfiltered ? undefined : resolved.noiseReduction,
                     detailSharpening: unfiltered ? undefined : resolved.detailSharpening,
-                    adjustments: comparison ? neutralAdjustments : resolved.adjustments,
+                    adjustments:
+                      comparison || (sourceSpace && unfiltered)
+                        ? neutralAdjustments
+                        : resolved.adjustments,
                     settings: sourceLens ? { ...sourceLens } : resolved.settings,
                   }
                 : undefined
@@ -1058,7 +1117,9 @@ export class FullPreviews {
                 parentWorkingKey: sourceKey,
                 policy,
               }
-              if (
+              if (hasLocalMasks(options.adjustments ?? neutralAdjustments))
+                request.firstDecline = 'unsupported-first-surface-view'
+              else if (
                 firstSurface.settingsRevision !== options.revision ||
                 !sameAdjustments(firstSurface.parameters, options.adjustments ?? neutralAdjustments)
               )
@@ -1122,7 +1183,7 @@ export class FullPreviews {
                         options.metadata.lensProfile.identity,
                         options.metadata.whiteBalance?.identity,
                         options.settings,
-                        options.adjustments ?? neutralAdjustments,
+                        adjustmentPixelKey(options.adjustments ?? neutralAdjustments),
                         options.processing === 'hdr-v1'
                           ? [HDR_ADJUSTMENT_VERSION, HDR_OUTPUT_VERSION]
                           : ADJUSTMENT_VERSION,
@@ -1386,6 +1447,10 @@ export class FullPreviews {
                   ? { parentWorkingKey: entry.sourceKey, workingSha256: entry.linear.sha256 }
                   : undefined,
               firstSurfaceDecline: request.firstDecline ?? entry.firstSurfaceDecline,
+              maskGeometry:
+                linearEntry?.linear?.hdr?.maskGeometry ??
+                linearEntry?.linear?.maskGeometry ??
+                identityMaskGeometry(entry.width, entry.height),
               adjustments: options?.adjustments ?? entry.adjustments,
               workingSource: linearEntry ? this.workingRef(linearEntry) : undefined,
               ...(linearEntry?.detailSource ? { requiresUnfilteredComparison: true as const } : {}),
@@ -1496,7 +1561,7 @@ export class FullPreviews {
                   detail.active ? 'detail-rendition-v1' : 'cropped-rendition-v1',
                   PREPARED_PROOF_VERSION,
                   key,
-                  parameters,
+                  adjustmentPixelKey(parameters),
                   ADJUSTMENT_VERSION,
                   HDR_ADJUSTMENT_VERSION,
                   HDR_OUTPUT_VERSION,
@@ -1831,6 +1896,16 @@ export class FullPreviews {
       }
     return {
       crop: sourceEntry.crop,
+      maskGeometry: sourceEntry.crop
+        ? croppedMaskGeometry(
+            linear.hdr?.maskGeometry ??
+              linear.maskGeometry ??
+              identityMaskGeometry(sourceEntry.crop.source.width, sourceEntry.crop.source.height),
+            sourceEntry.crop,
+          )
+        : (linear.hdr?.maskGeometry ??
+          linear.maskGeometry ??
+          identityMaskGeometry(sourceEntry.width, sourceEntry.height)),
       firstSurfaceDecline: request.firstDecline,
       adjustments: parameters,
       workingSource: this.workingRef(sourceEntry),

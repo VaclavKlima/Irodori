@@ -246,6 +246,7 @@ export interface HdrPreparationTimings {
 }
 
 export interface FullPreviewResult {
+  maskGeometry?: import('../shared/mask-geometry').MaskGeometry
   preparedProofVersion?: typeof import('../shared/preview-frame').PREPARED_PROOF_VERSION
   detail?: import('./processing/detail-preview').DetailPreviewIdentity
   crop?: import('../shared/crop').CropGeometry

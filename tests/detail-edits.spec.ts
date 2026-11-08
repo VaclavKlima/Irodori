@@ -5,7 +5,7 @@ import {
   validatePatch,
   validateProcessingPatch,
 } from '../src/shared/edits'
-import { supportsEditingSettings } from '../src/main/catalog/editing-migration'
+import { supportsEditingSettings, CATALOG_VERSION } from '../src/main/catalog/editing-migration'
 import {
   spatialControlsActive,
   spatialControlsKey,
@@ -74,7 +74,9 @@ test('spatial patches reject malformed values and cannot enter a downstream poin
 
 test('current settings require complete spatial groups while catalog 20 permits only the original v10 schema', () => {
   const current = initialSettings()
-  expect(supportsEditingSettings(current as unknown as Record<string, unknown>, 22)).toBe(true)
+  expect(
+    supportsEditingSettings(current as unknown as Record<string, unknown>, CATALOG_VERSION),
+  ).toBe(true)
   for (const change of [
     { noiseReduction: {} },
     { detailSharpening: undefined },
@@ -86,6 +88,7 @@ test('current settings require complete spatial groups while catalog 20 permits 
   delete legacy.noiseReduction
   delete legacy.detailSharpening
   delete legacy.curves
+  delete legacy.maskStack
   expect(supportsEditingSettings(legacy, 20)).toBe(true)
   expect(supportsEditingSettings(legacy, 21)).toBe(false)
 })

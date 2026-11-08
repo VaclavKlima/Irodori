@@ -30,7 +30,7 @@ selective transfer, the typed API/MCP and frozen GPU export. Focused Bazzite
 acceptance, the deliberate version-12 color-order migration and remaining clipping,
 platform and initial-activation limits are recorded in [tone curves](docs/features/tone-curves.md).
 
-Generative retouching, automatic masking, and cloud synchronization belong to later releases.
+Indicated-object selection now has a [Mac implementation](docs/features/object-selection.md) with manually editable mask proposals. Additional automatic mask types, generative retouching and cloud synchronization belong to later releases.
 
 The default [ACES 2 rendering pipeline](docs/display-rendering.md) preserves capture exposure and As Shot white balance, including night-scene darkness. Its fixed Rec.2020/D65 HDR content rendition uses nominal 1000-nit peak and 100-nit reference; monitor capability changes only presentation and diagnostics. SDR preview retains its direct rendition. It follows white balance and Light adjustments and stays separate from linear working assets. Measured Sony color/exposure calibration and physical screen luminance remain unverified.
 

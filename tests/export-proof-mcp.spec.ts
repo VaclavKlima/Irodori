@@ -11,6 +11,7 @@ import { exportGeometry } from '../src/shared/export'
 import { OUTPUT_SHARPENING_STAGE, OUTPUT_SHARPENING_VERSION } from '../src/shared/output-sharpening'
 import { sha } from './export.helpers'
 import { proofFixture } from './export-proof.helpers'
+import { inspectionContext } from '../src/main/agent/inspection-source'
 
 for (const managed of [false, true])
   test(`${managed ? 'managed Console' : 'editing MCP'} discovers output sharpening, proofs and exports frozen settings with existing authorization`, async () => {
@@ -162,6 +163,64 @@ for (const managed of [false, true])
       })
       expect(legacy.isError, JSON.stringify(legacy.content)).not.toBe(true)
       expect(legacy.structuredContent).toMatchObject({ outputSharpening: 'off' })
+      const sourceLease = f.library.exports.acquireProofSource(preparationId, f.photos[0].id)
+      const previewContext = inspectionContext(sourceLease.source, { width: 17, height: 11 })
+      sourceLease.release()
+      const inspection = await call('irodori_get_output_proof', {
+        ...args,
+        proofToken: crypto.randomUUID(),
+        inspection: {
+          region: {
+            units: 'pixels',
+            gridIdentity: previewContext.gridIdentity,
+            x: 3,
+            y: 2,
+            width: 2,
+            height: 2,
+          },
+          comparison: 'pair',
+          resolutionPercent: 100,
+          encoding: { format: 'png' },
+        },
+      })
+      expect(inspection.isError, JSON.stringify(inspection.content)).not.toBe(true)
+      const inspected = inspection.structuredContent as {
+        export: { quality: number; outputSharpening: string }
+        members: {
+          label: string
+          width: number
+          height: number
+          encoding: { format: string }
+          bounds: { x: number; y: number; width: number; height: number }
+          native: string
+          photoBounds: unknown
+        }[]
+      }
+      expect(inspected.export).toMatchObject({
+        quality: args.options.quality,
+        outputSharpening: 'standard',
+      })
+      expect(inspected.members.map((member) => member.label)).toEqual(['before', 'after'])
+      const inspectionImages = (
+        inspection.content as { type: string; mimeType?: string; data?: string }[]
+      ).filter((item) => item.type === 'image')
+      expect(inspectionImages).toHaveLength(2)
+      for (const [index, image] of inspectionImages.entries()) {
+        const member = inspected.members[index]
+        expect(member).toMatchObject({
+          native: 'export-native',
+          photoBounds: { x: 3, y: 2, width: 2, height: 2 },
+          encoding: { format: 'png' },
+        })
+        expect(image.mimeType).toBe('image/png')
+        expect(await sharp(Buffer.from(image.data!, 'base64')).metadata()).toMatchObject({
+          format: 'png',
+          width: member.width,
+          height: member.height,
+        })
+      }
+      expect(JSON.stringify(inspected)).not.toContain('irodori-photo:')
+      expect(await readdir(join(f.root, 'library', 'cache', 'output-proofs'))).toEqual([])
       for (const outputSharpening of ['strong', null, 50]) {
         const invalidOptions = { ...options, outputSharpening }
         expect(

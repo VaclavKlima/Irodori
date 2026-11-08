@@ -13,6 +13,7 @@ import { cropBands, type CropBandDiagnostics } from './crop-bands'
 import { prepareIntegerCrop, type CroppedWorkingAsset } from './crop-working'
 import { readHdrStrips } from './hdr-processing'
 import { writeHdrStrip } from './write-hdr-strip'
+import { croppedMaskGeometry, identityMaskGeometry } from '../../shared/mask-geometry'
 
 export interface CropPreparationJob extends CropAdmission {
   readonly asset: HdrWorkingAsset
@@ -124,6 +125,10 @@ export async function prepareCropWorkingAsset(
     signal.throwIfAborted()
     const resultAsset: HdrWorkingAsset = {
       ...asset,
+      maskGeometry: croppedMaskGeometry(
+        asset.maskGeometry ?? identityMaskGeometry(asset.width, asset.height),
+        geometry,
+      ),
       width: geometry.width,
       height: geometry.height,
       byteLength: geometry.width * geometry.height * 16,

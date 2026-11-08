@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "purpose": "Pinned upstream inputs for a bounded object-selection feasibility study; no production model is adopted.",
+  "retrievedOn": "2026-11-08",
+  "models": [
+    {
+      "id": "sam2.1-hiera-tiny",
+      "source": "https://github.com/facebookresearch/sam2",
+      "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://github.com/facebookresearch/sam2/blob/2b90b9f5ceec907a1c18123530e92e794ad901a4/LICENSE",
+      "checkpointUrl": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt",
+      "checkpointFilename": "sam2.1_hiera_tiny.pt",
+      "configuration": "configs/sam2.1/sam2.1_hiera_t.yaml",
+      "exportStatus": "unqualified",
+      "notes": [
+        "Official checkpoint licensing explicitly covers the model weights.",
+        "Microsoft's existing SAM2 exporter names the original SAM2 configurations, so SAM2.1 export must be qualified separately.",
+        "Use cached full-image features, positive/negative points, boxes and previous mask logits where supported."
+      ],
+      "checkpointSha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69"
+    },
+    {
+      "id": "efficient-sam-vitt",
+      "source": "https://github.com/yformer/EfficientSAM",
+      "revision": "d525f622e6f640acf5a0fc37c7ca1f243da5bde0",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://github.com/yformer/EfficientSAM/blob/d525f622e6f640acf5a0fc37c7ca1f243da5bde0/LICENSE",
+      "checkpointUrl": "https://raw.githubusercontent.com/yformer/EfficientSAM/d525f622e6f640acf5a0fc37c7ca1f243da5bde0/weights/efficient_sam_vitt.pt",
+      "checkpointFilename": "efficient_sam_vitt.pt",
+      "exportStatus": "unqualified",
+      "notes": [
+        "The checkpoint is supplied in the upstream Apache-2.0 repository; retain its upstream license and provenance with any downloaded artifact.",
+        "The upstream decoder has a six-point cap and truncates extra points; the research adapter must refuse excess prompts explicitly.",
+        "The upstream PyTorch full-size sampler is bicubic while its ONNX wrapper uses bilinear. Compare low-resolution logits and qualify one shared reconstruction path."
+      ],
+      "checkpointSha256": "dff858b19600a46461cbb7de98f796b23a7a888d9f5e34c0b033f7d6eb9e4e6a"
+    }
+  ],
+  "executionPolicy": {
+    "candidateProductionBackend": "ONNX Runtime native WebGPU",
+    "modelDownloadRequires": "successful strict native-WebGPU session and known-tensor execution gate",
+    "cpuReference": "explicit diagnostic only after the GPU gate; never an automatic retry or production fallback",
+    "artifactRequirements": [
+      "Record exact downloaded file size, SHA-256, source URL and source revision before loading.",
+      "Record exported model SHA-256, exact environment, input/output names, shapes and numerical comparison result.",
+      "Do not report segmentation quality or supported hardware from the synthetic runtime probe."
+    ]
+  }
+}

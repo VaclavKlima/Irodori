@@ -186,3 +186,92 @@ test('transient crop and ended turns refuse requests; preparations and tasks can
   const next = await gate.begin(session, 'second')
   expect(next.requestId).not.toBe(requestId)
 })
+
+test('a pending inspection is copied into a turn and cannot be retargeted or mutated by navigation', async () => {
+  const current = snapshot()
+  current.inspection = {
+    photoId: a,
+    gridIdentity: 'grid-a',
+    region: { units: 'pixels', gridIdentity: 'grid-a', x: 10, y: 20, width: 30, height: 40 },
+  }
+  const gate = new AgentRequestGate(
+    async () => current,
+    async () => 7,
+    false,
+  )
+  const context = await gate.begin(session, 'region')
+  current.inspection.region.x = 100
+  current.activePhotoId = b
+  expect(context.inspection?.region.x).toBe(10)
+  context.inspection!.region.x = 999
+  expect(gate.context().inspection?.region.x).toBe(10)
+  expect(gate.context().inspection?.photoId).toBe(a)
+})
+
+test('object-selection proposals belong to their creating turn and are consumed by acceptance', async () => {
+  let revision = 4
+  const gate = new AgentRequestGate(
+    async () => snapshot(),
+    async () => revision,
+    true,
+  )
+  const first = await gate.begin(session, 'selection-one')
+  const oldProposal = '00000000-0000-0000-0000-000000000010'
+  await gate.run(
+    'irodori_create_object_selection',
+    { requestId: first.requestId, photoId: a, expectedRevision: revision },
+    async () => ({ id: oldProposal, photoId: a, revision }),
+  )
+  const second = await gate.begin(session, 'selection-two')
+  let commits = 0
+  await expect(
+    gate.run(
+      'irodori_accept_object_selection',
+      {
+        requestId: second.requestId,
+        photoId: a,
+        expectedRevision: revision,
+        proposalId: oldProposal,
+      },
+      async () => {
+        commits++
+        return {}
+      },
+    ),
+  ).rejects.toThrow('current request')
+  const currentProposal = '00000000-0000-0000-0000-000000000011'
+  await gate.run(
+    'irodori_create_object_selection',
+    { requestId: second.requestId, photoId: a, expectedRevision: revision },
+    async () => ({ id: currentProposal, photoId: a, revision }),
+  )
+  await gate.run(
+    'irodori_accept_object_selection',
+    {
+      requestId: second.requestId,
+      photoId: a,
+      expectedRevision: revision,
+      proposalId: currentProposal,
+    },
+    async () => {
+      commits++
+      return { photoId: a, revision: ++revision }
+    },
+  )
+  await expect(
+    gate.run(
+      'irodori_accept_object_selection',
+      {
+        requestId: second.requestId,
+        photoId: a,
+        expectedRevision: revision,
+        proposalId: currentProposal,
+      },
+      async () => {
+        commits++
+        return {}
+      },
+    ),
+  ).rejects.toThrow('current request')
+  expect(commits).toBe(1)
+})

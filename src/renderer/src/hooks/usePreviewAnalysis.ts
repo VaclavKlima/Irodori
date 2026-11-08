@@ -6,6 +6,7 @@ import {
   type clippingPyramid,
 } from '../../../shared/statistics'
 import { AnalysisQueue } from '../preview/analysis-queue'
+import { hasLocalMasks } from '../../../shared/masks-gpu'
 export type ClippingMask = ReturnType<typeof clippingPyramid>
 export function usePreviewAnalysis(
   frame: WorkingFrame | null,
@@ -17,12 +18,13 @@ export function usePreviewAnalysis(
   onMask: (mask?: ClippingMask) => void,
   activity?: () => () => void,
 ) {
+  const masked = hasLocalMasks(parameters)
   const [failure, setFailure] = useState<{ identity: string; message: string }>()
   const histogram = useRef<AnalysisQueue | null>(null),
     clipping = useRef<AnalysisQueue | null>(null)
   useEffect(() => {
+    if (!frame || masked) return
     onStatistics(undefined)
-    if (!frame) return
     const worker = new Worker(new URL('../preview/analysis-worker.ts', import.meta.url), {
       type: 'module',
     })
@@ -51,10 +53,10 @@ export function usePreviewAnalysis(
       histogram.current = null
       queue.close()
     }
-  }, [frame, identity, onStatistics, activity])
+  }, [frame, identity, masked, onStatistics, activity])
   useEffect(() => {
     onMask(undefined)
-    if (!frame || !masks) return
+    if (!frame || !masks || masked) return
     const worker = new Worker(new URL('../preview/analysis-worker.ts', import.meta.url), {
       type: 'module',
     })
@@ -70,14 +72,14 @@ export function usePreviewAnalysis(
       clipping.current = null
       queue.close()
     }
-  }, [frame, identity, masks, onMask, activity])
+  }, [frame, identity, masks, masked, onMask, activity])
   const key = JSON.stringify(parameters)
   useEffect(() => {
-    histogram.current?.update(JSON.parse(key), !gesturing)
-  }, [frame, identity, key, gesturing])
+    if (!masked) histogram.current?.update(JSON.parse(key), !gesturing)
+  }, [frame, identity, key, gesturing, masked])
   useEffect(() => {
     onMask(undefined)
-    clipping.current?.update(JSON.parse(key), !gesturing)
-  }, [frame, identity, key, masks, gesturing, onMask])
-  return frame && failure?.identity === identity ? failure.message : undefined
+    if (!masked) clipping.current?.update(JSON.parse(key), !gesturing)
+  }, [frame, identity, key, masks, gesturing, onMask, masked])
+  return !masked && frame && failure?.identity === identity ? failure.message : undefined
 }

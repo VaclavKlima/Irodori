@@ -20,7 +20,30 @@ the deliberate version-12 color-order appearance migration. [Named presets](docs
 now save independent local definitions and reuse the same application/history service.
 Custom JPEG export includes [Output preview](docs/features/output-proof.md): an explicit,
 cancellable proof of the encoded JPEG at export dimensions, shared with Console.
+Console also supports [detail inspection](docs/features/detail-inspection.md): whole-photo
+or grid-bound regions, independent resolution/JPEG quality or lossless SDR PNG,
+and matched neutral Before/After. Editor's **Inspect region** adds temporary context
+for the next prompt. Native SDR delivery and HDR metadata do not establish true
+HDR vision or physical display luminance; strict HDR requests remain unavailable.
 Custom export and Console offer Off/Low/Standard/High [output sharpening](docs/features/output-sharpening.md), applied at the final output size and shared by Output preview and frozen JPEG exports.
+
+The [masking core](docs/features/local-adjustments.md) adds multiple named brush
+masks with independent Exposure, Contrast, Highlights, Shadows, Whites and Blacks.
+Open **Masks** in the inspector and use **Create mask** to choose Brush or
+Select object. The mask list keeps named rows and visibility controls; each row's
+**⋯** menu contains rename, duplicate, invert, Move up/down and delete. Dragging
+also reorders masks; the top mask applies last. **Coverage** contains selection
+and Paint/Erase tools, while **Adjustments** contains local Light controls.
+**Show overlay** remains available above both tabs. Mask edits share the photo's
+Undo/Redo, restart and frozen SDR/HDR exports. **Select object** creates
+[editable SAM 2 point/box proposals](docs/features/object-selection.md), with separate
+Paint/Erase corrections retained when AI coverage is refined. The feature is enabled
+on Mac; [Bazzite verification](docs/features/README.md#task-69) is an explicit follow-up.
+Gradients, sky/background automation, color/luminance ranges and additional local
+operators remain planned.
+GPU histograms include active local edits. Exact clipping overlays and full HDR
+statistics/pixel analysis retain their explicit limitations; the brief records
+verification scope and limits.
 
 The [GPU-first processing policy](docs/gpu-processing.md) selects one common
 production backend per stage across macOS and Bazzite. Suitable image operations

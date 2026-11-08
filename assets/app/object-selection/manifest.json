@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "model": "sam2.1-hiera-tiny",
+  "identity": "sam2.1-hiera-tiny-f32-labels-v1",
+  "runtime": "onnxruntime-node@1.31.1",
+  "source": {
+    "url": "https://github.com/facebookresearch/sam2",
+    "revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "license": "Apache-2.0",
+    "checkpoint": {
+      "sourceUrl": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt",
+      "bytes": 156008466,
+      "sha256": "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69"
+    }
+  },
+  "export": {
+    "script": "scripts/research/object-selection/export-models.py",
+    "sourceManifestSha256": "5550c5592c6331fdfd3fe58c699c8b1953d1ecf9415c2c571f41d6e4d5928b49",
+    "environment": {
+      "python": "3.12.12",
+      "platform": "macOS-26.7-arm64-arm-64bit",
+      "packages": {
+        "torch": "2.5.1",
+        "torchvision": "0.20.1",
+        "onnx": "1.17.0",
+        "numpy": "2.1.3"
+      }
+    },
+    "changes": [
+      "Split image encoder and three-candidate mask decoder with fixed 1024-square image input and six categorical prompt slots.",
+      "Exact float32 categorical prompt labels replace int64 inputs; known-probe outputs match original upstream int64 computation bitwise.",
+      "Returned low-resolution logits clamp to [-32,32], matching upstream predictor low-resolution output.",
+      "Lossless gzip packing only; reconstructed graph hashes are unchanged from qualified Mac research exports."
+    ],
+    "scriptSha256": "6d47e3989d8276fe457f6033929ca68905cef9325ae64325019f375fd05f832f",
+    "requirementsSha256": "f2918f9f4e05f8a2f8e550e8d3432fdd61d41ad0b6682c46d2ae431b35ade47d",
+    "publishedSourceManifest": {
+      "file": "scripts/research/object-selection/model-sources.json",
+      "sha256": "1297bd67aaeb15fe7926a0a254753f114ef83c9577a51610f35c70a5f411bf26"
+    },
+    "sourceManifestNote": "sourceManifestSha256 is a historical recorded digest; its original source-manifest bytes are unavailable for revalidation. publishedSourceManifest identifies the current committed research metadata. Its upstream SAM 2 revision and checkpoint digest agree with the retained export receipts; byte identity with the historical snapshot is unverified."
+  },
+  "input": {
+    "width": 1024,
+    "height": 1024,
+    "dtype": "float32",
+    "layout": "NCHW",
+    "range": [0, 1],
+    "normalization": "ImageNet mean/std inside encoder",
+    "resize": "independent X/Y antialiased bilinear, align_corners=false; no letterbox",
+    "promptSlots": 6
+  },
+  "output": {
+    "logits": [1, 3, 256, 256],
+    "scores": [1, 3],
+    "reconstruction": "highest predicted IoU candidate, first on ties; bilinear logits to canonical native grid, align_corners=false; strict threshold >0"
+  },
+  "components": [
+    {
+      "name": "encoder",
+      "bytes": 109384732,
+      "sha256": "ea9b33edd91a35d295eb9490de774a85dc85057de55fa6d94cd67510939631b9",
+      "compression": "gzip",
+      "compressedBytes": 101284935,
+      "compressedSha256": "75f928a372e6f427cfbbe19749270e35e7ad1e444a2810047854db94c43a5a81",
+      "parts": [
+        {
+          "file": "encoder.onnx.gz.00",
+          "bytes": 52428800,
+          "sha256": "fc5a3e1ca0c83bc567ca07f25275e4a87910bc7d2a373567533b14e6661e1b2a"
+        },
+        {
+          "file": "encoder.onnx.gz.01",
+          "bytes": 48856135,
+          "sha256": "11abc13c04ee7cab73c80c2e930298b16193989e358cf01c43ba1da88b121bf8"
+        }
+      ]
+    },
+    {
+      "name": "decoder",
+      "bytes": 16444091,
+      "sha256": "106c9f532dbe04d0c8226295a62625ba594f6a5ffef7d78b95b9b2fcf5f8cf95",
+      "compression": "gzip",
+      "compressedBytes": 15202717,
+      "compressedSha256": "1c8585521bacb87b33d9a858bf028cea17f21b823d6f5f1aeba5e8dfedadabc5",
+      "parts": [
+        {
+          "file": "decoder.onnx.gz.00",
+          "bytes": 15202717,
+          "sha256": "1c8585521bacb87b33d9a858bf028cea17f21b823d6f5f1aeba5e8dfedadabc5"
+        }
+      ]
+    }
+  ]
+}

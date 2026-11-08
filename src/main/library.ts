@@ -1,3 +1,14 @@
+import { ObjectSelectionService, selectedMaskStack } from './object-selection/service'
+import type { ObjectSelectionRequest, AcceptObjectSelection } from '../shared/object-selection'
+import { MaskContentStore, prepareMaskMutation } from './mask-store'
+import {
+  resolveMasks,
+  validateMaskMutation,
+  type MaskDescriptor,
+  type MaskMutation,
+  type MaskStrokeChunk,
+  type MaskBaseContent,
+} from '../shared/masks'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, type Stats } from 'node:fs'
 import { cp, lstat, mkdir, open, readdir, realpath, rename, rm, stat } from 'node:fs/promises'
@@ -471,7 +482,7 @@ export class PhotoLibrary {
     const fresh =
       version.user_version === 0 &&
       !this.db.prepare("SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' LIMIT 1").get()
-    if (!fresh && ![17, 18, 19, 20, 21, CATALOG_VERSION].includes(version.user_version))
+    if (!fresh && ![17, 18, 19, 20, 21, 22, 23, CATALOG_VERSION].includes(version.user_version))
       throw new Error(
         version.user_version > CATALOG_VERSION
           ? 'This library requires a newer version of Irodori.'
@@ -514,6 +525,10 @@ export class PhotoLibrary {
         )
           throw new Error('This edit history format is unsupported. Its files were preserved.')
       }
+      new MaskContentStore(this.db).validateExisting(
+        version.user_version >= 23,
+        version.user_version >= 24,
+      )
       new ExportReadStore(this.db).preferences()
       new EditApplicationReadStore(this.db).validateExisting()
       new PresetReadStore(this.db).validateExisting()
@@ -540,9 +555,11 @@ export class PhotoLibrary {
         this.workspace.initialize()
         new ExportReadStore(this.db).initialize()
       } else {
-        if ([17, 18, 19, 20, 21].includes(version.user_version)) migrateEditingHistory(this.db)
+        if ([17, 18, 19, 20, 21, 22, 23].includes(version.user_version))
+          migrateEditingHistory(this.db)
         this.cameraRecognition.prepare()
       }
+      new MaskContentStore(this.db).initialize()
       new EditApplicationReadStore(this.db).initialize()
       new PresetReadStore(this.db).initialize()
       for (const row of this.db.prepare('SELECT id, data FROM processing').all() as {
@@ -552,7 +569,7 @@ export class PhotoLibrary {
         const data = JSON.parse(row.data) as ProcessingOptions
         bootstrap.seedEdits(row.id, data, new Date().toISOString())
       }
-      if (fresh || [17, 18, 19, 20, 21].includes(version.user_version))
+      if (fresh || [17, 18, 19, 20, 21, 22, 23].includes(version.user_version))
         this.db.exec(`PRAGMA user_version = ${CATALOG_VERSION}`)
       this.db.exec('COMMIT')
     } catch (error) {
@@ -685,6 +702,18 @@ export class PhotoLibrary {
       this.scheduler,
     )
     await rm(join(this.root, 'cache', 'agent-previews'), { recursive: true, force: true })
+    await rm(join(this.root, 'cache', 'object-selection'), { recursive: true, force: true })
+    this.objectSelections = new ObjectSelectionService(this.root, {
+      source: (id) => this.exportSource(id),
+      context: (id, revision) => this.getMaskContext(id, revision),
+      edits: (id) => this.getEdits(id),
+      admission: (signal) => {
+        if (!this.cropAdmission)
+          throw new Error('Object selection resource admission is unavailable.')
+        return this.cropAdmission(signal)
+      },
+      commit: (request, base, maskId) => this.commitObjectSelection(request, base, maskId),
+    })
     await this.exports.recover()
     await rm(join(this.root, 'merge-reviews'), { recursive: true, force: true })
     // Only application-owned, unpublished files are recovered here.
@@ -739,7 +768,10 @@ export class PhotoLibrary {
       noiseReduction: edits.settings.noiseReduction,
       detailSharpening: edits.settings.detailSharpening,
       settings: edits.settings.lens,
-      adjustments: snapshotAdjustments(edits.settings),
+      adjustments: {
+        ...snapshotAdjustments(edits.settings),
+        localMasks: this.resolvedMasks(id, edits.settings.maskStack),
+      },
       revision: edits.revision,
     }
   }
@@ -981,8 +1013,20 @@ export class PhotoLibrary {
     return result
   }
 
+  objectSelections!: ObjectSelectionService
+
   async getEdits(id: string): Promise<EditState> {
     return this.editState(await this.getEditHistory(id))
+  }
+
+  maskContent(photoId: string, stack: readonly MaskDescriptor[]): MaskStrokeChunk[] {
+    return new MaskContentStore(this.db).content(photoId, stack)
+  }
+  maskBases(photoId: string, stack: readonly MaskDescriptor[]): MaskBaseContent[] {
+    return new MaskContentStore(this.db).bases(photoId, stack)
+  }
+  resolvedMasks(photoId: string, stack: readonly MaskDescriptor[]) {
+    return resolveMasks(stack, this.maskContent(photoId, stack), this.maskBases(photoId, stack))
   }
 
   private editState(history: EditHistory): EditState {
@@ -993,6 +1037,8 @@ export class PhotoLibrary {
       settings,
       canUndo,
       canRedo,
+      maskContent: this.maskContent(photoId, settings.maskStack),
+      maskBases: this.maskBases(photoId, settings.maskStack),
       hdrEligible: this.readProcessing(photoId)?.metadata.hdrEligible,
       hdrJpeg: this.readProcessing(photoId)?.metadata.hdrJpeg,
       whiteBalanceProfile: this.readProcessing(photoId)?.metadata.whiteBalance,
@@ -1004,11 +1050,13 @@ export class PhotoLibrary {
     history: EditHistory,
     expectedRevision: number,
     application?: ApplicationCommit,
+    maskChunks?: MaskStrokeChunk[],
+    maskBases?: MaskBaseContent[],
   ): Promise<EditState> {
     this.assertRecovered()
     const confirmed = await this.write({
       operation: 'edits.commit',
-      payload: { history, expectedRevision, application },
+      payload: { history, expectedRevision, application, maskChunks, maskBases },
     })
     if (!this.closed) this.fullPreviews.settingsChanged(confirmed.history.photoId)
     if (!this.closed)
@@ -1087,6 +1135,98 @@ export class PhotoLibrary {
     this.admission.assertTask()
     this.assertRecovered(true)
     return this.admission.run(() => this.editTransfers.start(id))
+  }
+
+  getMaskContext(id: string, expectedRevision: number) {
+    return this.fullPreviews.getMaskContext(id, expectedRevision)
+  }
+
+  getObjectSelectionContext(id: string, expectedRevision: number) {
+    return this.objectSelections.context(id, expectedRevision)
+  }
+  createObjectSelection(request: ObjectSelectionRequest, signal?: AbortSignal) {
+    return this.admission.run(() => this.objectSelections.create(request, signal))
+  }
+  acceptObjectSelection(request: AcceptObjectSelection) {
+    return this.admission.run(() => this.objectSelections.accept(request))
+  }
+  cancelObjectSelection(id: string) {
+    return this.objectSelections.cancel(id)
+  }
+  private async commitObjectSelection(
+    request: ObjectSelectionRequest,
+    base: MaskBaseContent,
+    maskId: string,
+  ): Promise<EditState> {
+    const id = request.photoId
+    const history = this.readEdits(id)
+    if (history.revision !== request.expectedRevision)
+      throw new Error('Edits changed. Generate the object selection again.')
+    const stack = selectedMaskStack(history.settings.maskStack, request, base, maskId)
+    const bases = [
+      ...this.maskBases(id, history.settings.maskStack).filter(
+        (existing) => existing.hash !== base.hash,
+      ),
+      base,
+    ]
+    const resolved = resolveMasks(stack, this.maskContent(id, history.settings.maskStack), bases)
+    await this.fullPreviews.validateMaskEdit(id, request.expectedRevision, resolved)
+    history.settings = { ...history.settings, maskStack: stack }
+    history.snapshots = history.snapshots.slice(0, history.cursor + 1)
+    history.snapshots.push({ settings: history.settings, createdAt: new Date().toISOString() })
+    history.cursor++
+    return this.scheduler.run('interactive', () =>
+      this.scheduler.mutate(async () => {
+        if (this.closed || !this.find(id)) throw new Error('This photograph is unavailable.')
+        return this.publishEdit(history, request.expectedRevision, undefined, undefined, [base])
+      }),
+    )
+  }
+
+  mutateMasks(id: string, expectedRevision: number, mutation: MaskMutation): Promise<EditState> {
+    validateMaskMutation(mutation)
+    mutation = structuredClone(mutation)
+    return this.admission.run(async () => {
+      await this.processingOptions(id)
+      if (this.closed || !this.find(id)) throw new Error('This photo is unavailable.')
+      const history = this.readEdits(id)
+      if (
+        !Number.isSafeInteger(expectedRevision) ||
+        expectedRevision < 0 ||
+        history.revision !== expectedRevision
+      )
+        throw new Error('Edit conflict: reload the confirmed settings and try again.')
+      const { stack, chunks } = prepareMaskMutation(history.settings.maskStack, mutation)
+      const resolved = resolveMasks(
+        stack,
+        [...this.maskContent(id, history.settings.maskStack), ...chunks],
+        this.maskBases(id, stack),
+      )
+      if (
+        chunks.length ||
+        (resolved.some(
+          (mask) => mask.enabled && Object.values(mask.light).some((value) => value !== 0),
+        ) &&
+          mutation.operations.some(
+            (op) =>
+              op.kind === 'duplicate' ||
+              (op.kind === 'update' && (op.light !== undefined || op.enabled === true)),
+          ))
+      )
+        await this.fullPreviews.validateMaskEdit(id, expectedRevision, resolved)
+      if (JSON.stringify(stack) === JSON.stringify(history.settings.maskStack))
+        return this.editState(history)
+      history.settings = { ...history.settings, maskStack: stack }
+      history.snapshots = history.snapshots.slice(0, history.cursor + 1)
+      history.snapshots.push({ settings: history.settings, createdAt: new Date().toISOString() })
+      history.cursor++
+      return this.scheduler.run('interactive', () =>
+        this.scheduler.mutate(async () => {
+          if (!this.find(id)) throw new Error('This photo is unavailable.')
+          return this.publishEdit(history, expectedRevision, undefined, chunks)
+        }),
+      )
+    })
   }
 
   updateEdits(id: string, patch: EditPatch, expectedRevision: number): Promise<EditState> {
@@ -1227,7 +1367,9 @@ export class PhotoLibrary {
   ) {
     this.admission.assertTask()
     this.assertRecovered(true)
-    return this.outputProofs.overview(request, signal)
+    return request.inspection === undefined
+      ? this.outputProofs.overview(request, signal)
+      : this.outputProofs.inspect(request, request.inspection, signal)
   }
   async prepareExport(ids: string[]) {
     this.admission.assertTask()
@@ -1546,82 +1688,84 @@ export class PhotoLibrary {
     }
     this.tasks.set(id, task)
     this.changed()
-    task.work = this.scheduler
-      .run(
-        'operation',
-        async () => {
-          try {
-            if (this.session && this.session.phase !== 'importing')
-              await this.dispose(this.session.id)
-            for (const photo of photos) {
-              if (task.abort.signal.aborted) break
-              task.snapshot.detail = photo.filename
-              this.changed()
-              let attempted = false
-              try {
-                await this.scheduler.checkpoint(task.abort.signal)
-                await this.scheduler.mutate(async () => {
-                  attempted = true
-                  this.assertRecovered()
-                  if (this.exports?.leased([photo.id]))
-                    throw new Error(
-                      'Finish or cancel the export before deleting its source photographs.',
-                    )
-                  if (this.merges.leased([photo.id]))
-                    throw new Error('Close the merge review before deleting source photographs.')
-                  if (!this.find(photo.id)) return
-                  const stack = this.getPhotoStack(photo.id)
-                  const cover = stack?.coverId
-                  const survivor = stack
-                    ? this.getStackMembers(stack.id).photos.find((p) => p.id !== photo.id)?.id
-                    : undefined
-                  const neighbor =
-                    this.locateGalleryPhoto(photo.id, 1) ?? this.locateGalleryPhoto(photo.id, -1)
-                  let replacementId = cover && cover !== photo.id ? cover : neighbor?.photo.id
-                  await this.fullPreviews.beginRemoval(photo.id)
-                  try {
-                    await this.removals.remove(photo.id)
-                    for (const hashes of this.importSuppression.values()) hashes.add(photo.id)
-                    // A surviving promoted cover occupies the deleted cover's gallery position.
-                    replacementId =
-                      this.listStacks().stacks.find((s) => s.id === stack?.id)?.coverId ??
-                      survivor ??
-                      replacementId
-                  } finally {
-                    await this.fullPreviews.endRemoval(photo.id, !this.find(photo.id))
-                  }
-                  task.snapshot.items!.completed++
-                  if (!this.closed)
-                    this.emit({ libraryChanged: true, deletedIds: [photo.id], replacementId })
-                }, task.abort.signal)
-              } catch (error) {
-                if (!task.abort.signal.aborted)
-                  task.errors.push({ filename: photo.filename, message: errorMessage(error) })
+    task.work = Promise.all(photos.map((photo) => this.objectSelections.beginRemoval(photo.id)))
+      .then(() =>
+        this.scheduler.run(
+          'operation',
+          async () => {
+            try {
+              if (this.session && this.session.phase !== 'importing')
+                await this.dispose(this.session.id)
+              for (const photo of photos) {
+                if (task.abort.signal.aborted) break
+                task.snapshot.detail = photo.filename
+                this.changed()
+                let attempted = false
+                try {
+                  await this.scheduler.checkpoint(task.abort.signal)
+                  await this.scheduler.mutate(async () => {
+                    attempted = true
+                    this.assertRecovered()
+                    if (this.exports?.leased([photo.id]))
+                      throw new Error(
+                        'Finish or cancel the export before deleting its source photographs.',
+                      )
+                    if (this.merges.leased([photo.id]))
+                      throw new Error('Close the merge review before deleting source photographs.')
+                    if (!this.find(photo.id)) return
+                    const stack = this.getPhotoStack(photo.id)
+                    const cover = stack?.coverId
+                    const survivor = stack
+                      ? this.getStackMembers(stack.id).photos.find((p) => p.id !== photo.id)?.id
+                      : undefined
+                    const neighbor =
+                      this.locateGalleryPhoto(photo.id, 1) ?? this.locateGalleryPhoto(photo.id, -1)
+                    let replacementId = cover && cover !== photo.id ? cover : neighbor?.photo.id
+                    await this.fullPreviews.beginRemoval(photo.id)
+                    try {
+                      await this.removals.remove(photo.id)
+                      for (const hashes of this.importSuppression.values()) hashes.add(photo.id)
+                      // A surviving promoted cover occupies the deleted cover's gallery position.
+                      replacementId =
+                        this.listStacks().stacks.find((s) => s.id === stack?.id)?.coverId ??
+                        survivor ??
+                        replacementId
+                    } finally {
+                      await this.fullPreviews.endRemoval(photo.id, !this.find(photo.id))
+                    }
+                    task.snapshot.items!.completed++
+                    if (!this.closed)
+                      this.emit({ libraryChanged: true, deletedIds: [photo.id], replacementId })
+                  }, task.abort.signal)
+                } catch (error) {
+                  if (!task.abort.signal.aborted)
+                    task.errors.push({ filename: photo.filename, message: errorMessage(error) })
+                }
+                if (attempted) task.snapshot.progress!.completed++
+                task.snapshot.errorCount = task.errors.length
+                this.changed()
               }
-              if (attempted) task.snapshot.progress!.completed++
+            } catch (error) {
+              task.errors.push({ filename: 'Library', message: errorMessage(error) })
+            } finally {
+              task.snapshot.status = task.abort.signal.aborted
+                ? 'cancelled'
+                : task.errors.length
+                  ? 'failed'
+                  : 'completed'
+              task.snapshot.title = task.abort.signal.aborted
+                ? 'Deletion cancelled'
+                : task.errors.length
+                  ? 'Deletion finished with errors'
+                  : 'Moved to Trash'
               task.snapshot.errorCount = task.errors.length
-              this.changed()
+              task.snapshot.detail = undefined
+              task.snapshot.finishedAt = Date.now()
+              this.changed(undefined, true)
             }
-          } catch (error) {
-            task.errors.push({ filename: 'Library', message: errorMessage(error) })
-          } finally {
-            task.snapshot.status = task.abort.signal.aborted
-              ? 'cancelled'
-              : task.errors.length
-                ? 'failed'
-                : 'completed'
-            task.snapshot.title = task.abort.signal.aborted
-              ? 'Deletion cancelled'
-              : task.errors.length
-                ? 'Deletion finished with errors'
-                : 'Moved to Trash'
-            task.snapshot.errorCount = task.errors.length
-            task.snapshot.detail = undefined
-            task.snapshot.finishedAt = Date.now()
-            this.changed(undefined, true)
-          }
-        },
-        task.abort.signal,
+          },
+          task.abort.signal,
+        ),
       )
       .catch((error) => {
         if (!task.abort.signal.aborted)
@@ -1633,6 +1777,9 @@ export class PhotoLibrary {
           task.snapshot.finishedAt = Date.now()
           this.changed()
         }
+      })
+      .finally(() => {
+        for (const photo of photos) this.objectSelections.endRemoval(photo.id)
       })
     return id
   }
@@ -3290,6 +3437,7 @@ export class PhotoLibrary {
     if (this.notification) clearTimeout(this.notification)
     try {
       await closeServices([
+        () => this.objectSelections?.close(),
         () => this.outputProofs?.close(),
         () => this.admission.drain(),
         async () => {

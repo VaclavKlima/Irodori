@@ -1,9 +1,12 @@
+import { useObjectSelection } from './hooks/useObjectSelection'
 import { configureCollections } from './collections/controller'
 import { APP_NAME, APP_TAGLINE } from '../../shared/app-identity'
 import { useWorkspaceCheckpoint } from './hooks/useWorkspaceCheckpoint'
 import {
   DEFAULT_INSPECTOR_SECTIONS,
   DEFAULT_CREATIVE_COLOR_SELECTION,
+  DEFAULT_MASK_WORKSPACE,
+  type MaskWorkspace,
   type CreativeColorSelection,
   type InspectorSections,
   type InspectorGroup,
@@ -22,6 +25,8 @@ import { useDisplayState } from './hooks/useDisplayState'
 import type { PreviewPreference } from '../../shared/hdr-display'
 import { usePreviewTools } from './hooks/usePreviewTools'
 import { useEdits } from './hooks/useEdits'
+import { useMasks } from './hooks/useMasks'
+import { useInspectionRegion } from './hooks/useInspectionRegion'
 import { useWhiteBalancePicker } from './hooks/useWhiteBalancePicker'
 import { useToneCurves } from './hooks/useToneCurves'
 import { useCrop } from './hooks/useCrop'
@@ -160,6 +165,14 @@ export function App() {
   const [editorConsoleHost, setEditorConsoleHost] = useState<HTMLDivElement | null>(null)
   const [libraryConsoleHost, setLibraryConsoleHost] = useState<HTMLDivElement | null>(null)
   const [inspectorGroup, setInspectorGroup] = useState<InspectorGroup>('light')
+  const [maskWorkspace, setMaskWorkspace] = useState<MaskWorkspace>(DEFAULT_MASK_WORKSPACE)
+  const changeMaskWorkspace = useCallback(
+    (masks: MaskWorkspace) => {
+      setMaskWorkspace(masks)
+      saveWorkspace({ masks })
+    },
+    [saveWorkspace],
+  )
   const [colorTab, setColorTab] = useState<ColorTab>('basic')
   const [hoverControls, setHoverControls] = useState(false)
   const [inspectorSections, setInspectorSections] = useState<InspectorSections>({
@@ -237,8 +250,31 @@ export function App() {
     !!photo && interactivePhoto === photo.id,
     displayTarget.mode === 'hdr' && !!edits.state?.hdrEligible,
   )
+  const masks = useMasks(
+    edits,
+    photo?.id,
+    workspace === 'editor' &&
+      inspectorGroup === 'masks' &&
+      !!photo &&
+      !crop.active &&
+      !crop.pending &&
+      !whiteBalancePicker.active &&
+      !mergeTargets &&
+      !exportTargets &&
+      !pasteTargets &&
+      !presetTargets &&
+      !preparingExport &&
+      !tasksOpen &&
+      !importOpen &&
+      !settingsOpen,
+    !!photo && interactivePhoto === photo.id,
+    maskWorkspace,
+    changeMaskWorkspace,
+  )
   const startCrop = async () => {
     if (!crop.supported || crop.pending) return
+    objectSelection.close()
+    inspection.close()
     whiteBalancePicker.cancel()
     toneCurves.cancelTarget()
     previewTools.update({ mode: 'after' })
@@ -247,6 +283,102 @@ export function App() {
     changeInspectorSections({ ...inspectorSections, crop: true })
     await crop.start()
   }
+  const inspection = useInspectionRegion(
+    photo?.id,
+    edits.state,
+    workspace === 'editor' &&
+      !!photo &&
+      interactivePhoto === photo.id &&
+      !crop.active &&
+      !crop.pending &&
+      !mergeTargets &&
+      !importOpen &&
+      !settingsOpen &&
+      !exportProofActive,
+    edits.flush,
+  )
+  const selectionPhotoRef = useRef(photo?.id)
+  useLayoutEffect(() => {
+    selectionPhotoRef.current = photo?.id
+  }, [photo?.id])
+  const objectSelection = useObjectSelection({
+    photoId: photo?.id,
+    revision: edits.state?.revision,
+    enabled:
+      workspace === 'editor' &&
+      inspectorGroup === 'masks' &&
+      !!photo &&
+      interactivePhoto === photo.id &&
+      !crop.active &&
+      !crop.pending &&
+      !whiteBalancePicker.active &&
+      !mergeTargets &&
+      !exportTargets &&
+      !pasteTargets &&
+      !presetTargets &&
+      !preparingExport &&
+      !tasksOpen &&
+      !importOpen &&
+      !settingsOpen &&
+      !exportProofActive,
+    prepare: async () => {
+      const id = photo?.id
+      if (!id) throw new Error('Select a photograph first.')
+      await edits.flush()
+      const confirmed = await window.irodori.getEdits(id)
+      return window.irodori.getObjectSelectionContext(id, confirmed.revision)
+    },
+    generate: async (request) => {
+      await edits.flush()
+      return window.irodori.createObjectSelection(request)
+    },
+    accept: async (proposal) => {
+      await edits.flush()
+      await edits.acceptObjectSelection(proposal)
+      if (selectionPhotoRef.current === proposal.photoId)
+        changeMaskWorkspace({
+          ...maskWorkspace,
+          photoId: proposal.photoId,
+          selectedId: proposal.mask.id,
+          detailTab: 'adjustments',
+          brush: false,
+          overlay: true,
+        })
+    },
+    cancel: (id) => window.irodori.cancelObjectSelection(id),
+    onActivate: () => {
+      inspection.close()
+      whiteBalancePicker.cancel()
+      toneCurves.cancelTarget()
+      changeMaskWorkspace({ ...maskWorkspace, detailTab: 'coverage', brush: false })
+      previewTools.update({ mode: 'after' })
+    },
+  })
+  const closeObjectSelection = objectSelection.close
+  const closeInspection = inspection.close
+  useEffect(() => {
+    if (crop.active || whiteBalancePicker.active || toneCurves.active || masks.active)
+      closeInspection()
+  }, [crop.active, whiteBalancePicker.active, toneCurves.active, masks.active, closeInspection])
+  const startInspection = async () => {
+    objectSelection.close()
+    whiteBalancePicker.cancel()
+    toneCurves.cancelTarget()
+    masks.cancel()
+    changeMaskWorkspace({ ...maskWorkspace, brush: false })
+    previewTools.update({ mode: 'after' })
+    await inspection.start()
+  }
+  useEffect(() => {
+    if (crop.active || whiteBalancePicker.active || toneCurves.active || masks.active)
+      closeObjectSelection()
+  }, [
+    crop.active,
+    whiteBalancePicker.active,
+    toneCurves.active,
+    masks.active,
+    closeObjectSelection,
+  ])
   const agentContextRef = useRef({
     workspace,
     photoId: photo?.id ?? null,
@@ -254,6 +386,7 @@ export function App() {
     crop: crop.active || crop.pending,
     saving: edits.saving,
     selected,
+    inspection: inspection.pending,
   })
   useLayoutEffect(() => {
     agentContextRef.current = {
@@ -263,6 +396,7 @@ export function App() {
       crop: crop.active || crop.pending,
       saving: edits.saving,
       selected,
+      inspection: inspection.pending,
     }
   })
   useEffect(
@@ -271,13 +405,27 @@ export function App() {
         const captured = agentContextRef.current
         if (captured.crop)
           throw new Error('Apply or cancel the crop, then submit the request again.')
+        await flushEdits()
+        if (captured.inspection) {
+          const confirmed = await window.irodori.getEdits(captured.inspection.photoId)
+          const context = await window.irodori.getPreviewContext(
+            captured.inspection.photoId,
+            confirmed.revision,
+          )
+          if (context.gridIdentity !== captured.inspection.gridIdentity)
+            throw new Error(
+              'The inspection region is stale. Select the region again before submitting.',
+            )
+        }
         const selection = await getSelection()
         const current = agentContextRef.current
         if (
           captured.workspace !== current.workspace ||
           captured.photoId !== current.photoId ||
           captured.browserId !== current.browserId ||
-          captured.selected !== current.selected
+          captured.selected !== current.selected ||
+          captured.crop !== current.crop ||
+          JSON.stringify(captured.inspection) !== JSON.stringify(current.inspection)
         )
           throw new Error('The editor changed during submission. Submit the request again.')
         return {
@@ -285,9 +433,10 @@ export function App() {
           activePhotoId: captured.workspace === 'editor' ? captured.photoId : captured.browserId,
           selectedIds: selection.map((item) => item.id),
           transient: { crop: captured.crop, saving: captured.saving },
+          ...(captured.inspection ? { inspection: structuredClone(captured.inspection) } : {}),
         }
       }),
-    [getSelection],
+    [getSelection, flushEdits],
   )
   const cropTool = { ...crop, start: startCrop }
   const presentationTools = crop.active
@@ -601,6 +750,7 @@ export function App() {
         setConsoleOpen(state?.consoleOpen ?? false)
         setConsoleHeight(state?.consoleHeight ?? null)
         setInspectorGroup(state?.inspectorGroup ?? 'light')
+        setMaskWorkspace(state?.masks ?? DEFAULT_MASK_WORKSPACE)
         setPresetWorkspace(state?.presets ?? DEFAULT_PRESET_WORKSPACE)
         setColorTab(state?.colorTab ?? 'basic')
         setHoverControls(state?.hoverControls ?? false)
@@ -1283,7 +1433,15 @@ export function App() {
                 {edits.error}
               </p>
             )}
+            {inspection.error && (
+              <p role="alert" className={styles.errorBanner}>
+                {inspection.error}
+              </p>
+            )}
             <PhotoPreview
+              objectSelection={objectSelection}
+              inspection={{ ...inspection, start: startInspection }}
+              masks={masks}
               crop={cropTool}
               toneCurves={toneCurves}
               whiteBalancePicker={whiteBalancePicker}
@@ -1300,13 +1458,13 @@ export function App() {
               photo={photo}
               initialView={restoringPreview?.photoId === photo?.id ? restoringPreview : null}
               onViewChange={savePreviewView}
-              adjustments={edits.adjustments}
+              adjustments={masks.adjustments}
               confirmedEdits={
                 edits.confirmed && edits.state?.photoId === photo?.id ? edits.state : null
               }
               tools={presentationTools}
-              gesturing={edits.gesturing}
-              editingEpoch={edits.epoch}
+              gesturing={edits.gesturing || masks.gesturing}
+              editingEpoch={edits.epoch + masks.epoch}
               gestureCommit={
                 edits.gestureCommit?.photoId === photo?.id ? edits.gestureCommit : null
               }
@@ -1328,6 +1486,8 @@ export function App() {
         </main>
 
         <Inspector
+          objectSelection={objectSelection}
+          masks={masks}
           presets={presetWorkspace}
           onPresetsChange={changePresetWorkspace}
           selectionCount={selected.size}
@@ -1336,6 +1496,11 @@ export function App() {
           group={inspectorGroup}
           colorTab={colorTab}
           onGroupChange={(inspectorGroup) => {
+            if (inspectorGroup === 'masks') {
+              whiteBalancePicker.cancel()
+              toneCurves.cancelTarget()
+              previewTools.update({ mode: 'after' })
+            }
             setInspectorGroup(inspectorGroup)
             saveWorkspace({ inspectorGroup })
           }}
@@ -1395,6 +1560,7 @@ export function App() {
       </div>
 
       <Console
+        inspection={workspace === 'editor' ? inspection.pending : undefined}
         host={workspace === 'editor' ? editorConsoleHost : libraryConsoleHost}
         open={consoleOpen}
         height={consoleHeight}

@@ -1,0 +1,4 @@
+# Isolated synthetic ONNX probe generator only; no model inference dependencies.
+numpy==2.1.3
+onnx==1.17.0
+protobuf==7.36.2

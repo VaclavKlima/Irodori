@@ -13,6 +13,7 @@ import {
   type OutputProof,
   type OutputProofOverview,
   type OutputProofRequest,
+  type OutputProofInspection,
 } from '../../shared/export-proof'
 import type { CropAdmission } from '../../shared/crop-resources'
 import type { PreviewAssetStreamLease } from '../preview-asset-stream'
@@ -29,6 +30,16 @@ import { ExportProcess } from './process'
 import type { ExportSource } from './types'
 import type { OutputProofDecodeJob, OutputProofDecoded } from './proof-decode'
 import { outputSharpeningMode } from '../../shared/output-sharpening'
+import {
+  INSPECTION_IMAGE_LIMIT,
+  INSPECTION_PAIR_LIMIT,
+  inspectionHdrCapability,
+  resolveInspection,
+  validateInspectionOptions,
+  type InspectionImage,
+  type InspectionOptions,
+} from '../../shared/inspection'
+import { inspectionContext, neutralInspectionSource } from '../agent/inspection-source'
 
 interface Asset {
   path: string
@@ -46,6 +57,11 @@ interface Entry {
   releaseSource: () => void
   releaseDisk: () => void
   draining?: () => void
+  inspection?: InspectionImage
+}
+interface InspectionMemberRequest {
+  options: InspectionOptions
+  label: 'before' | 'after'
 }
 type Request = { token: string; abort: AbortController; work: Promise<OutputProof> }
 type Decoder = (
@@ -99,7 +115,12 @@ export class OutputProofs {
     return this.overviewBytes
   }
 
-  request(owner: string, value: OutputProofRequest, signal?: AbortSignal): Promise<OutputProof> {
+  request(
+    owner: string,
+    value: OutputProofRequest,
+    signal?: AbortSignal,
+    inspection?: InspectionMemberRequest,
+  ): Promise<OutputProof> {
     const request = validateOutputProofRequest(value)
     if (this.lifetime.signal.aborted)
       return Promise.reject(new Error('Output preview service is closed.'))
@@ -114,7 +135,11 @@ export class OutputProofs {
       active = AbortSignal.any([abort.signal, this.lifetime.signal, ...(signal ? [signal] : [])])
     const work = this.tail.then(() =>
       this.scheduler.detached(() =>
-        this.scheduler.run('interactive', () => this.render(owner, request, active), active),
+        this.scheduler.run(
+          'interactive',
+          () => this.render(owner, request, active, inspection),
+          active,
+        ),
       ),
     )
     const pending = { token: request.token, abort, work }
@@ -147,12 +172,17 @@ export class OutputProofs {
     owner: string,
     request: OutputProofRequest,
     signal: AbortSignal,
+    inspection?: InspectionMemberRequest,
   ): Promise<OutputProof> {
     signal.throwIfAborted()
     if (this.entries.size >= 2)
       throw new Error('Release the previous output preview before generating another.')
     const sourceLease = this.exports.acquireProofSource(request.preparationId, request.photoId)
-    const { source, pipeline } = sourceLease
+    const { pipeline } = sourceLease,
+      source =
+        inspection?.label === 'before'
+          ? neutralInspectionSource(sourceLease.source)
+          : sourceLease.source
     let working: WorkingAssetLease | undefined,
       primary: WorkingAssetLease | undefined,
       releaseDisk: (() => void) | undefined
@@ -232,7 +262,21 @@ export class OutputProofs {
         (await hashFile(result.path)) !== result.sha256
       )
         throw new Error('The encoded output preview is damaged.')
-      const decodeJob = { ...result.geometry, hdr, admission: await this.admission(signal) }
+      if (inspection && !result.sourceGeometry)
+        throw new Error('Output inspection requires authoritative source geometry.')
+      const context = inspection
+          ? inspectionContext(sourceLease.source, result.sourceGeometry!)
+          : undefined,
+        resolved =
+          inspection && context
+            ? resolveInspection(inspection.options, context, result.geometry)
+            : undefined
+      const decodeJob = {
+        ...result.geometry,
+        hdr,
+        admission: await this.admission(signal),
+        ...(resolved ? { inspection: resolved } : {}),
+      }
       requireExportAllocation(
         exportProofDecodePlan(
           decodeJob.width,
@@ -250,10 +294,11 @@ export class OutputProofs {
         decoded.height !== result.geometry.height ||
         decoded.byteLength !== decoded.width * decoded.height * 4 ||
         hdr !== !!decoded.linear?.hdr ||
-        decoded.overview.width < 1 ||
-        decoded.overview.height < 1 ||
-        Math.max(decoded.overview.width, decoded.overview.height) > 1024 ||
-        decoded.overview.byteLength > AGENT_PREVIEW_LIMIT
+        (!inspection &&
+          (decoded.overview.width < 1 ||
+            decoded.overview.height < 1 ||
+            Math.max(decoded.overview.width, decoded.overview.height) > 1024 ||
+            decoded.overview.byteLength > AGENT_PREVIEW_LIMIT))
       )
         throw new Error('Invalid decoded output preview dimensions.')
       const identity = createHash('sha256')
@@ -282,12 +327,13 @@ export class OutputProofs {
         decoded.byteLength,
         decoded.sha256,
       )
-      await addAsset(
-        'overview',
-        join(directory, 'decoded', 'overview.jpg'),
-        decoded.overview.byteLength,
-        decoded.overview.sha256,
-      )
+      if (!inspection)
+        await addAsset(
+          'overview',
+          join(directory, 'decoded', 'overview.jpg'),
+          decoded.overview.byteLength,
+          decoded.overview.sha256,
+        )
       if (decoded.linear) {
         await validateWorkingAsset(
           {
@@ -348,6 +394,56 @@ export class OutputProofs {
             }
           : {}),
       }
+      let inspectionImage: InspectionImage | undefined
+      if (inspection && context && resolved) {
+        const transfer = decoded.inspection
+        if (
+          !transfer ||
+          transfer.width !== resolved.width ||
+          transfer.height !== resolved.height ||
+          transfer.byteLength > INSPECTION_IMAGE_LIMIT ||
+          transfer.byteLength < 1 ||
+          transfer.mimeType !== (resolved.encoding.format === 'png' ? 'image/png' : 'image/jpeg')
+        )
+          throw new Error('Invalid decoded output inspection image.')
+        const path = join(
+          directory,
+          'decoded',
+          `inspection.${resolved.encoding.format === 'png' ? 'png' : 'jpg'}`,
+        )
+        await addAsset('inspection', path, transfer.byteLength, transfer.sha256)
+        const bytes = await readFile(path)
+        inspectionImage = {
+          label: inspection.label,
+          photoId: proof.photoId,
+          revision: proof.revision,
+          renderingIdentity: createHash('sha256')
+            .update(JSON.stringify({ identity, label: inspection.label, resolved }))
+            .digest('hex'),
+          gridIdentity: context.gridIdentity,
+          width: transfer.width,
+          height: transfer.height,
+          native: 'export-native',
+          photoBounds: resolved.photoBounds,
+          bounds: resolved.bounds,
+          nativeGrid: result.geometry,
+          encoding: resolved.encoding,
+          mimeType: transfer.mimeType,
+          colorSpace: 'srgb',
+          sourceDynamicRange: context.sourceDynamicRange,
+          sourceMetadata: context.sourceMetadata,
+          requestedRendition: 'sdr',
+          effectiveRendition: 'sdr',
+          hdr: { ...inspectionHdrCapability },
+          rendition: 'sRGB SDR rendition',
+          comparison:
+            inspection.label === 'before'
+              ? 'neutral rendition derived from current revision'
+              : 'current revision',
+          byteLength: bytes.byteLength,
+          data: bytes.toString('base64'),
+        }
+      }
       // No retained source preparation or rendered intermediates in a completed proof.
       await rm(join(directory, 'preparation'), { recursive: true, force: true })
       await rm(join(directory, 'render'), { recursive: true, force: true })
@@ -368,6 +464,7 @@ export class OutputProofs {
         abort: new AbortController(),
         releaseSource: sourceLease.release,
         releaseDisk,
+        inspection: inspectionImage,
       })
       retained = true
       return structuredClone(proof)
@@ -431,6 +528,78 @@ export class OutputProofs {
     this.retirements.add(work)
     void work.finally(() => this.retirements.delete(work)).catch(() => undefined)
     return work
+  }
+  async inspect(
+    value: OutputProofRequest,
+    options: InspectionOptions,
+    signal?: AbortSignal,
+  ): Promise<OutputProofInspection> {
+    const request = validateOutputProofRequest(value),
+      inspection = validateInspectionOptions(options)
+    if (inspection.hdr) throw new Error(inspectionHdrCapability.reason)
+    const owner = `console:${randomUUID()}`,
+      frozen = this.exports.acquireProofSource(request.preparationId, request.photoId),
+      members: InspectionImage[] = []
+    let exportMetadata: OutputProofInspection['export'] | undefined,
+      retainedBytes = 0
+    try {
+      await frozen.validate()
+      const labels: ('before' | 'after')[] =
+        inspection.comparison === 'pair' ? ['before', 'after'] : [inspection.comparison ?? 'after']
+      for (const label of labels) {
+        await frozen.validate()
+        signal?.throwIfAborted()
+        const proof = await this.request(owner, { ...request, token: randomUUID() }, signal, {
+          options: inspection,
+          label,
+        })
+        try {
+          const image = this.entries.get(proof.id)?.inspection
+          if (!image) throw new Error('Output inspection did not produce an image.')
+          members.push(structuredClone(image))
+          const { version, output, quality, outputSharpening, width, height, pixelKey, pipeline } =
+            proof
+          exportMetadata = {
+            version,
+            output,
+            quality,
+            outputSharpening,
+            width,
+            height,
+            pixelKey,
+            pipeline,
+          }
+          const bytes = Buffer.byteLength(image.data)
+          this.overviewBytes += bytes
+          retainedBytes += bytes
+        } finally {
+          // Release full decoded planes before encoding/decoding the next complete JPEG.
+          await this.release(owner, proof.id)
+        }
+      }
+      await frozen.validate()
+      signal?.throwIfAborted()
+      if (members.reduce((sum, member) => sum + member.byteLength, 0) > INSPECTION_PAIR_LIMIT)
+        throw new Error(
+          'Inspection exceeds its 16 MiB pair limit. Request a smaller region or lower resolution.',
+        )
+      if (members.some((member) => member.gridIdentity !== members[0].gridIdentity))
+        throw new Error('The output inspection grid changed. Select the region again.')
+      return {
+        photoId: request.photoId,
+        revision: frozen.source.processing.revision,
+        gridIdentity: members[0].gridIdentity,
+        members,
+        export: exportMetadata!,
+      }
+    } finally {
+      try {
+        await this.disposeOwner(owner)
+      } finally {
+        frozen.release()
+        this.overviewBytes -= retainedBytes
+      }
+    }
   }
   async overview(request: OutputProofRequest, signal?: AbortSignal): Promise<OutputProofOverview> {
     const owner = `console:${randomUUID()}`

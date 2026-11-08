@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import sharp from 'sharp'
 import { hdrCacheTileSize } from '../../renderer/src/preview/hdr-render-cache'
 import { HDR_SOURCE_MIP_POLICY } from '../../renderer/src/preview/hdr-source-cache'
-import { neutralAdjustments, srgbTransform } from '../../shared/adjustments'
+import { adjustmentPixelKey, neutralAdjustments, srgbTransform } from '../../shared/adjustments'
 import { preparedToneCurves } from '../../shared/tone-curves'
 import {
   adjustHdr,
@@ -50,6 +50,8 @@ import type { LinearFrame, RawSession } from './contracts'
 import { rawDecoder } from './decoders'
 import { correctionPlan } from './lens-correction'
 import { writeHdrStrip } from './write-hdr-strip'
+import type { MaskGeometry } from '../../shared/mask-geometry'
+import { hasLocalMasks } from '../../shared/masks-gpu'
 
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const gpuPreparationTimingFields = [
@@ -62,6 +64,8 @@ const gpuPreparationTimingFields = [
   ['hdrOrientationCopyMs', 'workerGpuOrientationCopyMs'],
 ] as const
 export async function scanHdr(path: string, job: HdrStatisticsJob) {
+  if (hasLocalMasks(job.adjustments))
+    throw new Error('Exact HDR statistics with local masks require a qualified GPU analysis path.')
   if (!preparedToneCurves(job.adjustments.curves).identity)
     throw new Error(
       'Exact HDR statistics with active curves require a qualified GPU analysis path. The photograph, interactive histogram and tone samples remain available.',
@@ -73,6 +77,10 @@ export async function scanHdr(path: string, job: HdrStatisticsJob) {
 }
 
 export async function sampleHdrPixel(path: string, job: HdrPixelJob): Promise<HdrPixel> {
+  if (hasLocalMasks(job.adjustments))
+    throw new Error(
+      'Exact HDR pixel sampling with local masks requires a qualified GPU analysis path.',
+    )
   const { asset, x, y, domain, target } = job
   if (
     !Number.isSafeInteger(x) ||
@@ -202,6 +210,7 @@ async function prepare(
   }
   let frame: LinearFrame
   let gpuPlan: ReturnType<typeof correctionPlan> | undefined
+  let maskGeometry: MaskGeometry | undefined
   let gpuStarted: number | undefined
   let firstSurface: HdrFirstSurfaceArtifact | undefined
   let firstSurfaceDecline: string | undefined
@@ -238,6 +247,21 @@ async function prepare(
           options.metadata.lensProfile,
           options.settings,
         )
+        maskGeometry = {
+          version: 1,
+          sourceWidth: source.width,
+          sourceHeight: source.height,
+          canonicalWidth: source.flip & 4 ? source.height : source.width,
+          canonicalHeight: source.flip & 4 ? source.width : source.height,
+          flip: source.flip,
+          correction: {
+            width: gpuPlan.width,
+            height: gpuPlan.height,
+            left: gpuPlan.left,
+            top: gpuPlan.top,
+            distortion: Array.from({ length: 4096 }, (_, i) => gpuPlan!.lut[i * 4 + 1]),
+          },
+        }
         timings.workerCorrectionPlanMs = performance.now() - planning
         const baseEstimatedRamBytes =
           source.pixels.byteLength * 3 +
@@ -395,6 +419,7 @@ async function prepare(
   if (byteLength > 512 * 1024 ** 2 || frame.data.byteLength + width * 64 * 16 > 384 * 1024 ** 2)
     throw new Error('This photo exceeds the HDR processing memory limit.')
   const asset: HdrWorkingAsset = {
+    maskGeometry,
     kind: 'hdr-working-v1',
     width,
     height,
@@ -503,7 +528,7 @@ export async function renderHdr(
         transform: srgbTransform,
         hdr: asset,
       },
-      adjustments,
+      adjustments: { ...adjustments, maskGeometry: asset.maskGeometry },
       settingsRevision: options.revision,
       appliedCorrections: prepared?.applied,
       renderId: `${sourceVersion}-${asset.sha256}`,
@@ -530,7 +555,7 @@ export async function renderHdr(
     const mergeDevice = gpu.mergeDevice.bind(gpu)
     converter = await createPointGpu(
       asset.width * 64,
-      adjustments,
+      { ...adjustments, maskGeometry: asset.maskGeometry },
       wb,
       false,
       true,
@@ -547,7 +572,7 @@ export async function renderHdr(
       }),
     )
     for await (const strip of readHdrStrips(sourcePath, asset)) {
-      const data = (await converter.render(strip)).data
+      const data = (await converter.render(strip, top * asset.width)).data
       proofGpuStrips++
       digest.update(data)
       await file.writeFile(data)
@@ -591,7 +616,7 @@ export async function renderHdr(
     adjustments,
     settingsRevision: options.revision,
     appliedCorrections: prepared?.applied,
-    renderId: `${sourceVersion}-${HDR_ADJUSTMENT_VERSION}-${HDR_OUTPUT_VERSION}-${JSON.stringify(adjustments)}`,
+    renderId: `${sourceVersion}-${HDR_ADJUSTMENT_VERSION}-${HDR_OUTPUT_VERSION}-${adjustmentPixelKey(adjustments)}`,
     diagnostics: {
       clock: 'worker-performance',
       backend: prepared?.backend ?? 'cpu',

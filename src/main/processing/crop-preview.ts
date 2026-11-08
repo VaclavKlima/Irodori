@@ -15,6 +15,7 @@ import { prepareCropWorkingAsset } from './crop-preparation'
 import { cropFrameReader } from './crop-frame'
 import type { CropBackend } from './crop-bands'
 import { writeHdrStrip } from './write-hdr-strip'
+import { croppedMaskGeometry, identityMaskGeometry } from '../../shared/mask-geometry'
 
 export interface CropPreviewJob extends CropAdmission {
   readonly asset: WorkingAsset
@@ -74,6 +75,7 @@ export async function prepareCropPreview(
     )
     working = {
       path: result.path,
+      maskGeometry: result.asset.maskGeometry,
       width: result.asset.width,
       height: result.asset.height,
       byteLength: result.asset.byteLength,
@@ -133,6 +135,10 @@ export async function prepareCropPreview(
     }
     working = {
       path: outputPath,
+      maskGeometry: croppedMaskGeometry(
+        asset.maskGeometry ?? identityMaskGeometry(asset.width, asset.height),
+        geometry,
+      ),
       width: geometry.width,
       height: geometry.height,
       byteLength: geometry.width * geometry.height * 16,
@@ -148,6 +154,7 @@ export async function prepareCropPreview(
   }
   signal.throwIfAborted()
   const linear = {
+    maskGeometry: working.maskGeometry,
     byteLength: working.byteLength,
     sha256: working.sha256,
     transform: working.transform,

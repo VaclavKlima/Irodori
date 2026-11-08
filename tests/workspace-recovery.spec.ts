@@ -1,15 +1,19 @@
 import { expect, test } from '@playwright/test'
 import {
   DEFAULT_INSPECTOR_SECTIONS,
+  DEFAULT_MASK_WORKSPACE,
   DEFAULT_WORKSPACE,
   type WorkspaceState,
 } from '../src/shared/workspace'
 import { stackFixture, finishTask } from './stack.helpers'
+import { CATALOG_VERSION } from '../src/main/catalog/editing-migration'
 
 test('current workspace checkpoints persist idempotently without advancing catalog or stack browsing revisions', async () => {
   const t = await stackFixture(3)
   try {
-    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 22 })
+    expect(t.db.prepare('PRAGMA user_version').get()).toMatchObject({
+      user_version: CATALOG_VERSION,
+    })
     const before = t.library.getGallerySummary()
     expect(t.library.getWorkspaceState()).toMatchObject({
       checkpoint: 0,
@@ -318,6 +322,61 @@ test('console height is a validated workspace preference with defaults for older
     await t.restart()
     expect(t.library.getWorkspaceState().state?.consoleHeight).toBeNull()
     expect(t.db.prepare('SELECT * FROM edits ORDER BY id').all()).toEqual(before)
+  } finally {
+    await t.close()
+  }
+})
+
+test('mask workspace preferences migrate, validate and recover independently from photo history', async () => {
+  const t = await stackFixture(2)
+  try {
+    const masks = {
+      ...DEFAULT_MASK_WORKSPACE,
+      photoId: t.photos[0].id,
+      selectedId: '12345678-1234-1234-1234-123456789abc',
+      overlay: true,
+      brush: true,
+      mode: 'subtract' as const,
+      size: 17.5,
+      feather: 65,
+      detailTab: 'coverage' as const,
+    }
+    const photoHistory = t.db.prepare('SELECT * FROM edits ORDER BY id').all()
+    await t.library.saveWorkspaceState({ state: { masks, inspectorGroup: 'masks' } })
+    await t.restart()
+    expect(t.library.getWorkspaceState().state).toMatchObject({ masks, inspectorGroup: 'masks' })
+    const before = t.library.getWorkspaceState()
+    for (const invalid of [
+      { ...masks, size: 0 },
+      { ...masks, feather: NaN },
+      { ...masks, selectedId: '../mask' },
+      { ...masks, mode: 'multiply' },
+      { ...masks, detailTab: 'color' },
+    ]) {
+      await expect(
+        t.library.saveWorkspaceState({ state: { masks: invalid as typeof masks } }),
+      ).rejects.toThrow('Invalid workspace state')
+      expect(t.library.getWorkspaceState()).toEqual(before)
+    }
+    const row = t.db.prepare('SELECT data FROM workspace_state WHERE singleton = 1').get() as {
+      data: string
+    }
+    const legacy = JSON.parse(row.data)
+    delete legacy.masks.detailTab
+    t.db.prepare('UPDATE workspace_state SET data = ?').run(JSON.stringify(legacy))
+    const recovered = { ...masks, detailTab: 'adjustments' }
+    expect(t.library.getWorkspaceState().state?.masks).toEqual(recovered)
+    await t.restart()
+    expect(t.library.getWorkspaceState().state?.masks).toEqual(recovered)
+    await t.library.saveWorkspaceState({
+      state: { masks: { ...recovered, detailTab: 'coverage' } },
+    })
+    await t.restart()
+    expect(t.library.getWorkspaceState().state?.masks).toEqual(masks)
+    expect(t.db.prepare('SELECT * FROM edits ORDER BY id').all()).toEqual(photoHistory)
+    delete legacy.masks
+    t.db.prepare('UPDATE workspace_state SET data = ?').run(JSON.stringify(legacy))
+    expect(t.library.getWorkspaceState().state?.masks).toEqual(DEFAULT_MASK_WORKSPACE)
   } finally {
     await t.close()
   }

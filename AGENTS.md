@@ -29,6 +29,11 @@
 - xterm.js and Fit present the persistent Codex terminal. Host `node-pty` only in the bundled-Node agent worker, owned by main. Preserve the dedicated profile, strict startup restrictions, normal hook trust, frozen request IDs, output backpressure and owned-process cleanup; never expose a general command runner.
 - Keep development MCP debugging bound to `127.0.0.1:9222`; `npm run dev` enables it and `npm run dev:mcp` is an alias. Production launches must not expose the debug endpoint.
 
+## Device-by-device delivery
+
+- Implement, enable and verify a requested feature on the device currently available. Missing access to another supported device does not by itself block delivery on the current device. Keep the common backend and portable contracts; do not introduce platform-specific processing forks or weaken GPU failure, numerical, quality or resource policies.
+- Record the exact current-device evidence and add a clearly named follow-up to the canonical backlog for other-device verification or implementation. Include the platform/hardware, focused targets, expected behavior and known gaps so work can resume there. Unavailable-device checks remain incomplete; never imply cross-platform acceptance from a local pass. An observed failure on the current device still needs fixing before enabling its affected behavior.
+
 ## Verification
 
 - On macOS arm64 and Linux x64, build the native HDR mask host with `npm run build:cpu-native` and prepare the accepted native HDR codec before development/package builds; Linux also needs its native RAW host. See the [native prerequisites](README.md#linux-x64-native-prerequisites). The macOS Rust codec-host replacement failed its full-image gate and remains research-only; preserve the accepted C++ host.

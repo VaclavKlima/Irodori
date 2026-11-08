@@ -102,6 +102,7 @@ export function exportGpuAllocation(
   limitBytes = EXPORT_GPU_LIMIT_BYTES,
   primary = false,
   curves = false,
+  maskBytes = 0,
 ) {
   if (
     !Number.isSafeInteger(capacity) ||
@@ -112,6 +113,7 @@ export function exportGpuAllocation(
     throw new Error('Invalid export GPU allocation.')
   bytes(deferredPixels)
   bytes(limitBytes)
+  bytes(maskBytes)
   if (deferredPixels * 16 > MAX_FRAME_BYTES) throw new Error('Invalid retained export dimensions.')
   const stride = packed ? (hdr ? 3 : 1) : hdr ? 6 : 3,
     outputBytes = bytes(4 + capacity * stride * 4),
@@ -122,7 +124,8 @@ export function exportGpuAllocation(
         2 * ACES_DATA_BYTES +
         acesPrecisionData.byteLength +
         (creative ? CREATIVE_COLOR_PARAMETER_BYTES : 0) +
-        (curves ? TONE_CURVE_PARAMETER_BYTES : 0),
+        (curves ? TONE_CURVE_PARAMETER_BYTES : 0) +
+        maskBytes,
     ),
     limit = Math.min(limitBytes, EXPORT_GPU_LIMIT_BYTES),
     deferredBytes = hdr && packed ? bytes(deferredPixels * 20) : 0,
@@ -210,6 +213,7 @@ export interface ExportRenderLayout {
   readonly authoredHdr?: boolean
   readonly creative: boolean
   readonly curves?: boolean
+  readonly maskBytes?: number
   /** Active output filtering needs linear renditions even at unchanged dimensions. */
   readonly outputSharpening?: boolean
   /** Distinct original/filtered backing allocations, already retained before output allocation. */
@@ -238,7 +242,8 @@ export function exportRenderMemoryPlan(layout: ExportRenderLayout, admission: Ex
       2 * acesPrecisionData.byteLength +
       4096 +
       (layout.creative ? 2 * CREATIVE_COLOR_PARAMETER_BYTES : 0) +
-      (layout.curves ? 2 * TONE_CURVE_PARAMETER_BYTES : 0),
+      (layout.curves ? 2 * TONE_CURVE_PARAMETER_BYTES : 0) +
+      6 * bytes(layout.maskBytes ?? 0),
     cpuWorkBytes = bytes(
       layout.width * Math.min(64, layout.height) * (channels * 4 + (layout.sourceHdr ? 16 : 0)) +
         controls,
@@ -263,6 +268,7 @@ export function exportRenderMemoryPlan(layout: ExportRenderLayout, admission: Ex
       availableVram,
       layout.authoredHdr === true,
       layout.curves === true,
+      layout.maskBytes ?? 0,
     ),
     gpuWorkBytes = bytes(
       capacity * (3 * 16 + 2 * gpuBuffers.stride * 4 + (layout.authoredHdr ? 32 : 0)) + controls,
