@@ -5,7 +5,8 @@ The snapshot below preserves the former two-goal plan, evidence, failures and
 acceptance requirements. Its instructions to continue the whole milestone, finish
 all gates together or wait for Goal 1 before every later tool are historical.
 Use the [current task index](professional-editing.md) and
-[canonical backlog](README.md#workspace-feedback-backlog) for new work.
+[GitHub issues](https://github.com/VaclavKlima/Irodori/issues) for new work;
+the [legacy map](README.md#workspace-feedback-backlog) preserves old references.
 No unchecked criterion became a pass through this reorganization.
 
 ---

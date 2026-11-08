@@ -1,0 +1,1700 @@
+{
+  "repository": "VaclavKlima/Irodori",
+  "source_commit": "65245e252e1beb9ec5fc768864c964be9f5509c1",
+  "scan": {
+    "query": "TODO/FIXME/XXX plus status and remaining/follow-up/deferred/next headings; full numbered entries and planned brief acceptance reviewed separately.",
+    "first_party_code_result": "No actionable TODO/FIXME in src/ or test/source implementations. Research README references map to existing owners.",
+    "excluded_content": "Binary/photographic payloads, embedded generated study data and vendored upstream TODOs are not first-party work requests.",
+    "initial_connector_search": "Both open and closed issue searches returned zero existing issues. Recent-record discovery and exact marker readback protect against indexing delay."
+  },
+  "requirements": [
+    {
+      "id": "legacy-1",
+      "source": "docs/features/README.md",
+      "line": 32,
+      "disposition": "historical",
+      "owners": ["legacy-01"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-2",
+      "source": "docs/features/README.md",
+      "line": 33,
+      "disposition": "historical",
+      "owners": ["legacy-02"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-3",
+      "source": "docs/features/README.md",
+      "line": 34,
+      "disposition": "historical",
+      "owners": ["legacy-03"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-4",
+      "source": "docs/features/README.md",
+      "line": 35,
+      "disposition": "historical",
+      "owners": ["legacy-04"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-5",
+      "source": "docs/features/README.md",
+      "line": 36,
+      "disposition": "historical",
+      "owners": ["legacy-05"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-6",
+      "source": "docs/features/README.md",
+      "line": 37,
+      "disposition": "historical",
+      "owners": ["legacy-06"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-7",
+      "source": "docs/features/README.md",
+      "line": 38,
+      "disposition": "historical",
+      "owners": ["legacy-07"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-8",
+      "source": "docs/features/README.md",
+      "line": 39,
+      "disposition": "historical",
+      "owners": ["legacy-08"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-9",
+      "source": "docs/features/README.md",
+      "line": 40,
+      "disposition": "owned",
+      "owners": ["legacy-09"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-10",
+      "source": "docs/features/README.md",
+      "line": 41,
+      "disposition": "historical",
+      "owners": ["legacy-10"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-11",
+      "source": "docs/features/README.md",
+      "line": 42,
+      "disposition": "historical",
+      "owners": ["legacy-11"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-12",
+      "source": "docs/features/README.md",
+      "line": 43,
+      "disposition": "historical",
+      "owners": ["legacy-12"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-13",
+      "source": "docs/features/README.md",
+      "line": 44,
+      "disposition": "historical",
+      "owners": ["legacy-13"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-14",
+      "source": "docs/features/README.md",
+      "line": 45,
+      "disposition": "historical",
+      "owners": ["legacy-14"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-15",
+      "source": "docs/features/README.md",
+      "line": 46,
+      "disposition": "historical",
+      "owners": ["legacy-15"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-16",
+      "source": "docs/features/README.md",
+      "line": 47,
+      "disposition": "historical",
+      "owners": ["legacy-16"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-17",
+      "source": "docs/features/README.md",
+      "line": 48,
+      "disposition": "historical",
+      "owners": ["legacy-17"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-18",
+      "source": "docs/features/README.md",
+      "line": 49,
+      "disposition": "historical",
+      "owners": ["legacy-18"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-19",
+      "source": "docs/features/README.md",
+      "line": 50,
+      "disposition": "historical",
+      "owners": ["legacy-19"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-20",
+      "source": "docs/features/README.md",
+      "line": 51,
+      "disposition": "historical",
+      "owners": ["legacy-20"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-21",
+      "source": "docs/features/README.md",
+      "line": 52,
+      "disposition": "owned",
+      "owners": ["icon-macos", "icon-bazzite", "icon-windows"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-22",
+      "source": "docs/features/README.md",
+      "line": 53,
+      "disposition": "owned",
+      "owners": ["legacy-22"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-23",
+      "source": "docs/features/README.md",
+      "line": 54,
+      "disposition": "owned",
+      "owners": ["legacy-23"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-24",
+      "source": "docs/features/README.md",
+      "line": 55,
+      "disposition": "historical",
+      "owners": ["legacy-24"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-25",
+      "source": "docs/features/README.md",
+      "line": 56,
+      "disposition": "historical",
+      "owners": ["legacy-25"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-26",
+      "source": "docs/features/README.md",
+      "line": 57,
+      "disposition": "historical",
+      "owners": ["legacy-26"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-27",
+      "source": "docs/features/README.md",
+      "line": 58,
+      "disposition": "historical",
+      "owners": ["legacy-27"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-28",
+      "source": "docs/features/README.md",
+      "line": 59,
+      "disposition": "historical",
+      "owners": ["legacy-28"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-29",
+      "source": "docs/features/README.md",
+      "line": 63,
+      "disposition": "owned",
+      "owners": ["legacy-29"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-30",
+      "source": "docs/features/README.md",
+      "line": 64,
+      "disposition": "owned",
+      "owners": ["legacy-30"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-31",
+      "source": "docs/features/README.md",
+      "line": 66,
+      "disposition": "owned",
+      "owners": ["legacy-31"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-32",
+      "source": "docs/features/README.md",
+      "line": 68,
+      "disposition": "owned",
+      "owners": [
+        "raw-ownership",
+        "analysis-consolidation",
+        "merge-kernels",
+        "merge-provenance",
+        "hdr-codec-host"
+      ],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-33",
+      "source": "docs/features/README.md",
+      "line": 72,
+      "disposition": "historical",
+      "owners": ["legacy-33"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-34",
+      "source": "docs/features/README.md",
+      "line": 73,
+      "disposition": "historical",
+      "owners": ["legacy-34"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-35",
+      "source": "docs/features/README.md",
+      "line": 75,
+      "disposition": "owned",
+      "owners": ["legacy-35"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-36",
+      "source": "docs/features/README.md",
+      "line": 77,
+      "disposition": "owned",
+      "owners": ["legacy-36"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-37",
+      "source": "docs/features/README.md",
+      "line": 79,
+      "disposition": "owned",
+      "owners": [
+        "camera-linux-paired",
+        "camera-fidelity",
+        "camera-native-sequence",
+        "camera-windows"
+      ],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-38",
+      "source": "docs/features/README.md",
+      "line": 135,
+      "disposition": "historical",
+      "owners": ["legacy-38"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-39",
+      "source": "docs/features/README.md",
+      "line": 136,
+      "disposition": "owned",
+      "owners": ["legacy-39"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-40",
+      "source": "docs/features/README.md",
+      "line": 137,
+      "disposition": "owned",
+      "owners": ["legacy-40"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-41",
+      "source": "docs/features/README.md",
+      "line": 138,
+      "disposition": "owned",
+      "owners": ["legacy-41"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-42",
+      "source": "docs/features/README.md",
+      "line": 139,
+      "disposition": "owned",
+      "owners": ["legacy-42"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-43",
+      "source": "docs/features/README.md",
+      "line": 140,
+      "disposition": "owned",
+      "owners": ["legacy-43"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-44",
+      "source": "docs/features/README.md",
+      "line": 141,
+      "disposition": "owned",
+      "owners": ["legacy-44"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-45",
+      "source": "docs/features/README.md",
+      "line": 142,
+      "disposition": "historical",
+      "owners": ["legacy-45"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-46",
+      "source": "docs/features/README.md",
+      "line": 143,
+      "disposition": "historical",
+      "owners": ["legacy-46"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-47",
+      "source": "docs/features/README.md",
+      "line": 144,
+      "disposition": "historical",
+      "owners": ["legacy-47"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-48",
+      "source": "docs/features/README.md",
+      "line": 145,
+      "disposition": "historical",
+      "owners": ["legacy-48"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-49",
+      "source": "docs/features/README.md",
+      "line": 146,
+      "disposition": "owned",
+      "owners": ["legacy-49"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-50",
+      "source": "docs/features/README.md",
+      "line": 147,
+      "disposition": "historical",
+      "owners": ["legacy-50"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-51",
+      "source": "docs/features/README.md",
+      "line": 81,
+      "disposition": "historical",
+      "owners": ["legacy-51"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-52",
+      "source": "docs/features/README.md",
+      "line": 83,
+      "disposition": "historical",
+      "owners": ["legacy-52"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-53",
+      "source": "docs/features/README.md",
+      "line": 85,
+      "disposition": "owned",
+      "owners": ["legacy-53"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-54",
+      "source": "docs/features/README.md",
+      "line": 87,
+      "disposition": "owned",
+      "owners": [
+        "refine-edge-study",
+        "refine-edge-implementation",
+        "local-dehaze",
+        "local-clarity"
+      ],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-55",
+      "source": "docs/features/README.md",
+      "line": 93,
+      "disposition": "historical",
+      "owners": ["legacy-55"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-56",
+      "source": "docs/features/README.md",
+      "line": 95,
+      "disposition": "historical",
+      "owners": ["legacy-56"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-57",
+      "source": "docs/features/README.md",
+      "line": 97,
+      "disposition": "owned",
+      "owners": ["hdr-agent", "hdr-display"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-58",
+      "source": "docs/features/README.md",
+      "line": 101,
+      "disposition": "owned",
+      "owners": ["mask-gradients", "mask-combinations"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-59",
+      "source": "docs/features/README.md",
+      "line": 103,
+      "disposition": "owned",
+      "owners": ["hdr-agent"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-60",
+      "source": "docs/features/README.md",
+      "line": 105,
+      "disposition": "owned",
+      "owners": ["legacy-60"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-61",
+      "source": "docs/features/README.md",
+      "line": 107,
+      "disposition": "owned",
+      "owners": ["legacy-61"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-62",
+      "source": "docs/features/README.md",
+      "line": 109,
+      "disposition": "owned",
+      "owners": ["legacy-62"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-63",
+      "source": "docs/features/README.md",
+      "line": 111,
+      "disposition": "owned",
+      "owners": ["local-texture", "local-clarity"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-64",
+      "source": "docs/features/README.md",
+      "line": 113,
+      "disposition": "owned",
+      "owners": ["legacy-64"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-65",
+      "source": "docs/features/README.md",
+      "line": 115,
+      "disposition": "owned",
+      "owners": ["legacy-65"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-66",
+      "source": "docs/features/README.md",
+      "line": 118,
+      "disposition": "owned",
+      "owners": ["mask-sky-background"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-67",
+      "source": "docs/features/README.md",
+      "line": 120,
+      "disposition": "owned",
+      "owners": ["legacy-67"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-68",
+      "source": "docs/features/README.md",
+      "line": 122,
+      "disposition": "owned",
+      "owners": ["legacy-68"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-69",
+      "source": "docs/features/README.md",
+      "line": 124,
+      "disposition": "owned",
+      "owners": ["object-bazzite", "edges-bazzite"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "legacy-70",
+      "source": "docs/features/README.md",
+      "line": 126,
+      "disposition": "owned",
+      "owners": ["github-migration"],
+      "note": "Complete entry and continuation paragraphs are frozen in source-inventory.json."
+    },
+    {
+      "id": "scan-71",
+      "source": "AGENTS.md",
+      "line": 8,
+      "excerpt": "- Scope professional-editing work through one selected TODO in the [canonical backlog](docs/features/README.md) and [task index](docs/features/professional-editing.md). The former two-goal aggregate plan is historical. Preserve existing work and evidence; unrelated research, optional tools and unverified calibration/performance claims stay in their own tasks. Stop after the selected deliverable and relevant checks; do not automatically resume the entire old milestone or repeat passed verification.",
+      "disposition": "owned",
+      "owners": ["github-migration", "github-task-skill"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-72",
+      "source": "docs/bazzite-native-engine.md",
+      "line": 1840,
+      "excerpt": "## Historical October 19 implementation plan and intermediate gates",
+      "disposition": "owned",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-73",
+      "source": "docs/bazzite-editor-handoff.md",
+      "line": 20,
+      "excerpt": "checkpoint and five-second service stretch. Historical TODO 29 references below",
+      "disposition": "historical",
+      "owners": ["legacy-31"],
+      "note": "Historical merge TODO 29 in this document means legacy 31; no global bare-number substitution."
+    },
+    {
+      "id": "scan-74",
+      "source": "docs/bazzite-editor-handoff.md",
+      "line": 205,
+      "excerpt": "At this historical checkpoint the older GPU-merge continuation was TODO #29;",
+      "disposition": "historical",
+      "owners": ["legacy-31"],
+      "note": "Historical merge TODO 29 in this document means legacy 31; no global bare-number substitution."
+    },
+    {
+      "id": "scan-75",
+      "source": "docs/performance-research-bazzite.md",
+      "line": 145,
+      "excerpt": "## Remaining research and deliverable",
+      "disposition": "owned",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-76",
+      "source": "docs/merge-processing.md",
+      "line": 104,
+      "excerpt": "## Verification and remaining gates",
+      "disposition": "owned",
+      "owners": ["legacy-31", "merge-kernels", "merge-provenance"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-77",
+      "source": "docs/hdr-processing.md",
+      "line": 82,
+      "excerpt": "## Multi-monitor refresh and allocation follow-up — September 25, 2026",
+      "disposition": "owned",
+      "owners": ["hdr-display", "analysis-consolidation", "legacy-44"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-78",
+      "source": "docs/shutdown.md",
+      "line": 6,
+      "excerpt": "development session observed on 2026-10-14 is the motivation for TODO #25; its original cause remains",
+      "disposition": "owned",
+      "owners": ["legacy-25"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-79",
+      "source": "docs/project-identity.md",
+      "line": 78,
+      "excerpt": "**Status: selected by the owner.** The chosen presentation is **Irodori**, with",
+      "disposition": "owned",
+      "owners": ["legacy-22", "legacy-36"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-80",
+      "source": "docs/gpu-merge-preparation.md",
+      "line": 419,
+      "excerpt": "## Final visible workflow and remaining miss",
+      "disposition": "owned",
+      "owners": ["legacy-31", "merge-kernels", "merge-provenance"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-81",
+      "source": "docs/gpu-merge-preparation.md",
+      "line": 563,
+      "excerpt": "## Remaining acceptance",
+      "disposition": "owned",
+      "owners": ["legacy-31", "merge-kernels", "merge-provenance"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-82",
+      "source": "docs/camera-control.md",
+      "line": 560,
+      "excerpt": "## Bazzite follow-up, 2026-10-30",
+      "disposition": "owned",
+      "owners": [
+        "camera-linux-paired",
+        "camera-fidelity",
+        "camera-native-sequence",
+        "camera-windows"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-83",
+      "source": "docs/hdr-diagnostic.md",
+      "line": 63,
+      "excerpt": "## Deferred physical and platform acceptance",
+      "disposition": "owned",
+      "owners": ["hdr-display"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-84",
+      "source": "docs/features/named-presets.md",
+      "line": 3,
+      "excerpt": "TODO [#46](README.md#task-46) adds local user-created presets. The **Presets**",
+      "disposition": "owned",
+      "owners": ["legacy-46"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-85",
+      "source": "docs/features/tone-curves.md",
+      "line": 108,
+      "excerpt": "## Remaining boundaries",
+      "disposition": "owned",
+      "owners": ["legacy-45", "analysis-consolidation", "legacy-44"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-86",
+      "source": "docs/features/professional-editing-history.md",
+      "line": 3,
+      "excerpt": "**Archived on 2026-11-01 when the user requested individual TODO tasks.**",
+      "disposition": "historical",
+      "owners": [
+        "legacy-38",
+        "legacy-39",
+        "legacy-40",
+        "legacy-41",
+        "legacy-42",
+        "legacy-43",
+        "legacy-44"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-87",
+      "source": "docs/features/professional-editing-history.md",
+      "line": 264,
+      "excerpt": "## Remaining Goal 1 evidence — 2026-11-01",
+      "disposition": "historical",
+      "owners": [
+        "legacy-38",
+        "legacy-39",
+        "legacy-40",
+        "legacy-41",
+        "legacy-42",
+        "legacy-43",
+        "legacy-44"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-88",
+      "source": "docs/features/output-sharpening.md",
+      "line": 1,
+      "excerpt": "# Output sharpening — TODO #48",
+      "disposition": "owned",
+      "owners": ["legacy-48"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-89",
+      "source": "docs/features/object-selection.md",
+      "line": 5,
+      "excerpt": "The first implementation portion of [TODO 54](README.md#task-54) enables local SAM 2.1 Tiny object selection on the current Mac. It reuses the existing multiple-mask editor and six local Light controls. The user explicitly selected delivery on the available device, with [Bazzite follow-up](README.md#task-69), rather than waiting for another device before activation. The [research study](object-selection-research.md) retains model comparisons, limitations and the original proposal; this delivery supersedes its activation ordering.",
+      "disposition": "owned",
+      "owners": ["refine-edge-study", "refine-edge-implementation", "object-bazzite"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-90",
+      "source": "docs/features/object-selection.md",
+      "line": 21,
+      "excerpt": "This selects indicated animals, plants, vehicles and other visible objects. It does not supply text grounding, automatic subject discovery, sky classification, reflection correspondence or finished hair/fur/feather matting. A reflection should be indicated separately. The research found coarse edges, false holes, unwanted fragments and severe fence-gap failures. Transparent objects have semantic coverage, not measured physical alpha. These limits remain visible in the research evidence and TODO 54's remaining quality acceptance.",
+      "disposition": "owned",
+      "owners": ["refine-edge-study", "refine-edge-implementation", "object-bazzite"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-91",
+      "source": "docs/features/object-selection.md",
+      "line": 88,
+      "excerpt": "## Bazzite follow-up",
+      "disposition": "owned",
+      "owners": ["refine-edge-study", "refine-edge-implementation", "object-bazzite"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-92",
+      "source": "docs/features/object-selection.md",
+      "line": 90,
+      "excerpt": "[TODO 69](README.md#task-69) owns verification and any necessary implementation fixes on Bazzite. On that device:",
+      "disposition": "owned",
+      "owners": ["refine-edge-study", "refine-edge-implementation", "object-bazzite"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-93",
+      "source": "docs/features/professional-editing.md",
+      "line": 6,
+      "excerpt": "individual TODO items because it was taking too long. The",
+      "disposition": "owned",
+      "owners": ["github-migration", "github-task-skill"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-94",
+      "source": "docs/features/professional-editing.md",
+      "line": 56,
+      "excerpt": "| TODO                     | Work                                              | Current state / dependency                                                                                                                                                                             |",
+      "disposition": "owned",
+      "owners": ["github-migration", "github-task-skill"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-95",
+      "source": "docs/features/professional-editing.md",
+      "line": 102,
+      "excerpt": "- State the selected TODO, concrete deliverable, relevant source/hardware scope",
+      "disposition": "owned",
+      "owners": ["github-migration", "github-task-skill"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-96",
+      "source": "docs/features/professional-editing.md",
+      "line": 127,
+      "excerpt": "## Remaining Goal 1 evidence — 2026-11-01",
+      "disposition": "owned",
+      "owners": ["github-migration", "github-task-skill"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-97",
+      "source": "docs/features/local-adjustments.md",
+      "line": 7,
+      "excerpt": "The [November 8 object-selection extension](object-selection.md) enables SAM 2 point/box proposals on Mac, with immutable generated R8 bases underneath separate Paint/Erase corrections. Settings 14/catalog 24 preserve the delivered brush history while adding these references and shared GPU coverage. Bazzite verification is [TODO 69](README.md#task-69); fine-edge matting, automatic sky/background and additional local operators remain separate. The [research record](object-selection-research.md) retains original measurements and known quality failures.",
+      "disposition": "owned",
+      "owners": [
+        "legacy-56",
+        "mask-gradients",
+        "mask-combinations",
+        "mask-sky-background",
+        "legacy-67",
+        "legacy-68",
+        "legacy-61",
+        "object-bazzite",
+        "edges-bazzite"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-98",
+      "source": "docs/features/local-adjustments.md",
+      "line": 132,
+      "excerpt": "## Mask-aware histogram follow-up — November 7, 2026",
+      "disposition": "owned",
+      "owners": [
+        "legacy-56",
+        "mask-gradients",
+        "mask-combinations",
+        "mask-sky-background",
+        "legacy-67",
+        "legacy-68",
+        "legacy-61",
+        "object-bazzite",
+        "edges-bazzite"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-99",
+      "source": "docs/features/local-adjustments.md",
+      "line": 251,
+      "excerpt": "acceptance; [Bazzite TODO 69](README.md#task-69) retains native Wayland and other",
+      "disposition": "owned",
+      "owners": [
+        "legacy-56",
+        "mask-gradients",
+        "mask-combinations",
+        "mask-sky-background",
+        "legacy-67",
+        "legacy-68",
+        "legacy-61",
+        "object-bazzite",
+        "edges-bazzite"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-100",
+      "source": "docs/features/output-proof.md",
+      "line": 1,
+      "excerpt": "# Final-output-size proof — TODO #47",
+      "disposition": "owned",
+      "owners": ["legacy-47"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-101",
+      "source": "docs/features/mask-edges.md",
+      "line": 5,
+      "excerpt": "This is the first edge-quality portion of [TODO 54](README.md#task-54). It adds",
+      "disposition": "owned",
+      "owners": ["edges-bazzite", "refine-edge-study"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-102",
+      "source": "docs/features/mask-edges.md",
+      "line": 152,
+      "excerpt": "[Bazzite TODO 69](README.md#task-69) covers both available Radeon adapters and",
+      "disposition": "owned",
+      "owners": ["edges-bazzite", "refine-edge-study"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-103",
+      "source": "docs/features/hdr-file-support.md",
+      "line": 24,
+      "excerpt": "## Native macOS reader follow-up",
+      "disposition": "owned",
+      "owners": ["hdr-next-format", "hdr-native-readers"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-104",
+      "source": "docs/features/detail-inspection.md",
+      "line": 1,
+      "excerpt": "# Flexible detail inspection — TODO #55",
+      "disposition": "owned",
+      "owners": ["legacy-55", "hdr-agent", "hdr-display"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-105",
+      "source": "docs/features/detail-inspection.md",
+      "line": 94,
+      "excerpt": "## HDR capability and remaining acceptance",
+      "disposition": "owned",
+      "owners": ["legacy-55", "hdr-agent", "hdr-display"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-106",
+      "source": "docs/features/professional-editing-processing.md",
+      "line": 433,
+      "excerpt": "## Strong-noise acceptance remains open — 2026-10-29",
+      "disposition": "owned",
+      "owners": ["legacy-39", "legacy-40", "legacy-41", "legacy-42", "legacy-43", "legacy-44"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-107",
+      "source": "docs/features/professional-editing-processing.md",
+      "line": 1238,
+      "excerpt": "## Remaining native Goal 1 acceptance audit — 2026-10-30",
+      "disposition": "owned",
+      "owners": ["legacy-39", "legacy-40", "legacy-41", "legacy-42", "legacy-43", "legacy-44"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-108",
+      "source": "docs/features/professional-editing-processing.md",
+      "line": 1434,
+      "excerpt": "## Remaining creative cadence configurations — 2026-10-30",
+      "disposition": "owned",
+      "owners": ["legacy-39", "legacy-40", "legacy-41", "legacy-42", "legacy-43", "legacy-44"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-109",
+      "source": "docs/features/object-selection-research.md",
+      "line": 7,
+      "excerpt": "The bounded feasibility study for [TODO 54](README.md#task-54), shared with [TODO 66](README.md#task-66), establishes local native-GPU inference and a model-independent manual-correction representation. It does **not** activate automatic masks in the Editor or Console. Both backlog items remain open. Production dependencies, settings/catalog versions, processing algorithms and the user's managed library were unchanged by this research.",
+      "disposition": "owned",
+      "owners": [
+        "refine-edge-study",
+        "refine-edge-implementation",
+        "mask-sky-background",
+        "object-bazzite"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-110",
+      "source": "docs/features/object-selection-research.md",
+      "line": 74,
+      "excerpt": "See the [held-out quality review](../../artifacts/research/object-selection/2026-11-08/proofs/holdout-v1-quality-review.md). An independent review inspected the SAM 2 pine crown, robin head and glass-handle native panels. These failures are retained outcomes. Neither candidate qualifies an automatic finished mask or the fine-edge acceptance in TODO 54; the measured study supports a reviewed, manually repairable starting proposal.",
+      "disposition": "owned",
+      "owners": [
+        "refine-edge-study",
+        "refine-edge-implementation",
+        "mask-sky-background",
+        "object-bazzite"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-111",
+      "source": "docs/features/object-selection-research.md",
+      "line": 97,
+      "excerpt": "## Verification and remaining acceptance",
+      "disposition": "owned",
+      "owners": [
+        "refine-edge-study",
+        "refine-edge-implementation",
+        "mask-sky-background",
+        "object-bazzite"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-112",
+      "source": "docs/features/object-selection-research.md",
+      "line": 103,
+      "excerpt": "No comprehensive checkpoint, Bazzite/Windows qualification, production model packaging, complete source-to-coverage/UI timing, real user correction timing, annotated photographic accuracy or physical alpha measurement was performed. The committed protocol does not turn missing evidence into a pass. TODO 54's production subject selection, refinement, history/restart/export and fine-edge acceptance remain open; TODO 66 shares that future service rather than adding another inference backend.",
+      "disposition": "owned",
+      "owners": [
+        "refine-edge-study",
+        "refine-edge-implementation",
+        "mask-sky-background",
+        "object-bazzite"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-113",
+      "source": "docs/features/denoising-method-review.md",
+      "line": 41,
+      "excerpt": "## Recommended next decision",
+      "disposition": "owned",
+      "owners": ["legacy-39"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-114",
+      "source": "docs/features/lightroom-comparison.md",
+      "line": 179,
+      "excerpt": "## Following goals",
+      "disposition": "historical",
+      "owners": [
+        "legacy-39",
+        "legacy-40",
+        "legacy-41",
+        "legacy-42",
+        "legacy-43",
+        "legacy-44",
+        "legacy-49",
+        "legacy-65"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-115",
+      "source": "docs/features/lightroom-comparison.md",
+      "line": 230,
+      "excerpt": "individual TODO tasks on 2026-11-01 to reduce the scope and cost of each goal.",
+      "disposition": "historical",
+      "owners": [
+        "legacy-39",
+        "legacy-40",
+        "legacy-41",
+        "legacy-42",
+        "legacy-43",
+        "legacy-44",
+        "legacy-49",
+        "legacy-65"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-116",
+      "source": "docs/mac-workability.md",
+      "line": 29,
+      "excerpt": "## October 18 everyday editor responsiveness follow-up",
+      "disposition": "historical",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Historical merge TODO 29 in this document means legacy 31; no global bare-number substitution."
+    },
+    {
+      "id": "scan-117",
+      "source": "docs/mac-workability.md",
+      "line": 60,
+      "excerpt": "[TODO #29](features/README.md#workspace-feedback-backlog). Follow",
+      "disposition": "historical",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Historical merge TODO 29 in this document means legacy 31; no global bare-number substitution."
+    },
+    {
+      "id": "scan-118",
+      "source": "docs/mac-workability.md",
+      "line": 65,
+      "excerpt": "## October 18 GPU preparation follow-up",
+      "disposition": "historical",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Historical merge TODO 29 in this document means legacy 31; no global bare-number substitution."
+    },
+    {
+      "id": "scan-119",
+      "source": "docs/mac-workability.md",
+      "line": 1346,
+      "excerpt": "## Next Mac merge improvement plan",
+      "disposition": "historical",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Historical merge TODO 29 in this document means legacy 31; no global bare-number substitution."
+    },
+    {
+      "id": "scan-120",
+      "source": "docs/mac-workability.md",
+      "line": 1633,
+      "excerpt": "[TODO #29](features/README.md#workspace-feedback-backlog). The user paused the Mac",
+      "disposition": "historical",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Historical merge TODO 29 in this document means legacy 31; no global bare-number substitution."
+    },
+    {
+      "id": "scan-121",
+      "source": "scripts/research/object-selection/README.md",
+      "line": 3,
+      "excerpt": "These offline tools implement the bounded feasibility study for the selection and manual-refinement portion of [TODO 54](../../../docs/features/README.md#task-54), shared with TODO 66. They do not activate an application tool, install a production dependency, open a managed library, or provide an inference fallback. See the [findings and remaining gates](../../../docs/features/object-selection-research.md).",
+      "disposition": "owned",
+      "owners": ["refine-edge-study", "object-bazzite"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-122",
+      "source": "scripts/research/object-selection/README.md",
+      "line": 11,
+      "excerpt": "policy, with Bazzite verification in [TODO 69](../../../docs/features/README.md#task-69).",
+      "disposition": "owned",
+      "owners": ["refine-edge-study", "object-bazzite"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-123",
+      "source": "scripts/research/strong-noise/README.md",
+      "line": 5,
+      "excerpt": "its output and all existing edit history remain unchanged. Further strong-noise work is separately scoped by TODO #39; see",
+      "disposition": "owned",
+      "owners": ["legacy-39"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-124",
+      "source": "docs/professional-editing-handoff.md",
+      "line": 500,
+      "excerpt": "## Next stronger-noise experiment after the native checks",
+      "disposition": "owned",
+      "owners": ["legacy-39", "legacy-40", "legacy-41", "legacy-42", "legacy-43", "legacy-44"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-125",
+      "source": "docs/professional-editing-handoff.md",
+      "line": 883,
+      "excerpt": "## GPU-only clarification and next work — 2026-10-31",
+      "disposition": "owned",
+      "owners": ["legacy-39", "legacy-40", "legacy-41", "legacy-42", "legacy-43", "legacy-44"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-126",
+      "source": "docs/professional-editing-handoff.md",
+      "line": 1559,
+      "excerpt": "### Split into individual TODO tasks — 2026-11-01",
+      "disposition": "owned",
+      "owners": ["legacy-39", "legacy-40", "legacy-41", "legacy-42", "legacy-43", "legacy-44"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-127",
+      "source": "docs/professional-editing-handoff.md",
+      "line": 1579,
+      "excerpt": "concrete TODO for subsequent goal work instead of automatically continuing the",
+      "disposition": "owned",
+      "owners": ["legacy-39", "legacy-40", "legacy-41", "legacy-42", "legacy-43", "legacy-44"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-128",
+      "source": "docs/editor-responsiveness.md",
+      "line": 322,
+      "excerpt": "## Cache and native transport follow-up",
+      "disposition": "historical",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Historical merge TODO 29 in this document means legacy 31; no global bare-number substitution."
+    },
+    {
+      "id": "scan-129",
+      "source": "docs/editor-responsiveness.md",
+      "line": 431,
+      "excerpt": "## Pending follow-up experiments",
+      "disposition": "historical",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Historical merge TODO 29 in this document means legacy 31; no global bare-number substitution."
+    },
+    {
+      "id": "scan-130",
+      "source": "docs/editor-responsiveness.md",
+      "line": 471,
+      "excerpt": "## Measurement corrections before the next native run",
+      "disposition": "historical",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Historical merge TODO 29 in this document means legacy 31; no global bare-number substitution."
+    },
+    {
+      "id": "scan-131",
+      "source": "docs/editor-responsiveness.md",
+      "line": 667,
+      "excerpt": "display/adapter metadata and cache conditions under TODO #29, without claiming",
+      "disposition": "historical",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Historical merge TODO 29 in this document means legacy 31; no global bare-number substitution."
+    },
+    {
+      "id": "scan-132",
+      "source": "docs/editor-responsiveness.md",
+      "line": 670,
+      "excerpt": "## Deferred Bazzite handoff",
+      "disposition": "historical",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Historical merge TODO 29 in this document means legacy 31; no global bare-number substitution."
+    },
+    {
+      "id": "scan-133",
+      "source": "docs/editor-responsiveness.md",
+      "line": 674,
+      "excerpt": "[TODO #29](features/README.md#workspace-feedback-backlog), using",
+      "disposition": "historical",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Historical merge TODO 29 in this document means legacy 31; no global bare-number substitution."
+    },
+    {
+      "id": "scan-134",
+      "source": "docs/processing-stages.md",
+      "line": 29,
+      "excerpt": "| Whole-mask edge preparation                 | Common native Dawn/WGSL in a bundled-Node worker; native Sharp PNG codec                                                                                      | Complete base/ordered brush/inverted coverage, exact disk ±16 px, Gaussian radius ≤64 px, native 128-row strips and full halos, disposable revision/source-bound R8, unchanged memory ceilings | [Implementation and focused Mac acceptance](features/mask-edges.md); [Bazzite qualification TODO 69](features/README.md#task-69). Zero/zero preserves the existing path. No per-renderer filter forks, CPU filter fallback, model rerun or full-image TypeScript pixel math.                                                                                                                                                                                                                                     |",
+      "disposition": "owned",
+      "owners": [
+        "raw-ownership",
+        "analysis-consolidation",
+        "merge-kernels",
+        "merge-provenance",
+        "hdr-codec-host",
+        "object-bazzite",
+        "edges-bazzite"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-135",
+      "source": "docs/processing-stages.md",
+      "line": 30,
+      "excerpt": "| Object selection and generated coverage     | Common ONNX Runtime Node native WebGPU SAM 2.1 Tiny in a bundled-Node worker; common Dawn preprocessing/reconstruction; shared WGSL/GLSL R8 coverage sampling | Pinned portable graph hashes, one source/embedding, explicit GPU failure/cancel/retry; 32 MP/8192 source bound, compact bounded atlas, immutable PNG base plus ordered corrections             | [Mac delivery and device evidence](features/object-selection.md); [Bazzite verification/implementation TODO 69](features/README.md#task-69). Native codecs remain outside Electron. No heavy CPU inference fallback or full-image TypeScript reconstruction.                                                                                                                                                                                                                                                     |",
+      "disposition": "owned",
+      "owners": [
+        "raw-ownership",
+        "analysis-consolidation",
+        "merge-kernels",
+        "merge-provenance",
+        "hdr-codec-host",
+        "object-bazzite",
+        "edges-bazzite"
+      ],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-136",
+      "source": "docs/performance-research.md",
+      "line": 438,
+      "excerpt": "## Evidence protocol and remaining acceptance",
+      "disposition": "owned",
+      "owners": ["legacy-31", "legacy-44"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-137",
+      "source": "docs/design/README.md",
+      "line": 195,
+      "excerpt": "## Next session",
+      "disposition": "historical",
+      "owners": ["legacy-34"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "scan-138",
+      "source": "native/irodori-cpu-render/README.md",
+      "line": 193,
+      "excerpt": "## Application verification and remaining gates",
+      "disposition": "owned",
+      "owners": ["analysis-consolidation", "hdr-codec-host"],
+      "note": "Reference/acceptance/evidence belongs to the linked outcome(s), not an additional duplicate issue."
+    },
+    {
+      "id": "generated-study",
+      "source": "docs/design/photo-browser-study.html",
+      "line": 1541,
+      "disposition": "unadopted",
+      "owners": [],
+      "note": "Generated historical study payload is not an actionable first-party TODO; approved navigation is legacy 51."
+    },
+    {
+      "id": "third-party-todos",
+      "source": "native/irodori-cpu-render/upstream/",
+      "disposition": "third-party",
+      "owners": [],
+      "note": "Vendored LLVM/libc TODOs and FIXMEs are upstream maintenance, not adopted Irodori work. Preserve attribution and do not revive them.",
+      "locations": [
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/OSUtil/io.h",
+          "line": 32
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/CPP/bit.h",
+          "line": 284
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/CPP/type_traits/is_complex.h",
+          "line": 24
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/CPP/type_traits/is_floating_point.h",
+          "line": 33
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/FPUtil/multiply_add.h",
+          "line": 46
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/FPUtil/PolyEval.h",
+          "line": 66
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/include/llvm-libc-macros/float-macros.h",
+          "line": 182
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/big_int.h",
+          "line": 509
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/big_int.h",
+          "line": 596
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/big_int.h",
+          "line": 719
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/include/llvm-libc-types/float128.h",
+          "line": 18
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/include/llvm-libc-macros/cfloat128-macros.h",
+          "line": 19
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/FPUtil/FPBits.h",
+          "line": 588
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/FPUtil/FPBits.h",
+          "line": 594
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/FPUtil/FPBits.h",
+          "line": 738
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/FPUtil/FPBits.h",
+          "line": 801
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/FPUtil/FEnvImpl.h",
+          "line": 113
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/provenance/v8-DEPS",
+          "line": 204
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/provenance/chromium-DEPS",
+          "line": 79
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/provenance/chromium-DEPS",
+          "line": 84
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/provenance/chromium-DEPS",
+          "line": 289
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/provenance/chromium-DEPS",
+          "line": 593
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/provenance/chromium-DEPS",
+          "line": 1263
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/provenance/chromium-DEPS",
+          "line": 1785
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/provenance/chromium-DEPS",
+          "line": 2286
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/provenance/chromium-DEPS",
+          "line": 2918
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/provenance/chromium-DEPS",
+          "line": 4381
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/provenance/chromium-DEPS",
+          "line": 4382
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/provenance/chromium-DEPS",
+          "line": 4383
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/macros/attributes.h",
+          "line": 72
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/macros/optimization.h",
+          "line": 50
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/macros/config.h",
+          "line": 24
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/macros/config.h",
+          "line": 68
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/include/llvm-libc-macros/float16-macros.h",
+          "line": 21
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/FPUtil/dyadic_float.h",
+          "line": 335
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/FPUtil/dyadic_float.h",
+          "line": 418
+        },
+        {
+          "path": "native/irodori-cpu-render/upstream/electron-llvm/llvm-libc/src/__support/macros/properties/types.h",
+          "line": 73
+        }
+      ]
+    },
+    {
+      "id": "brief-camera-color-profiles",
+      "source": "docs/features/camera-color-profiles.md",
+      "disposition": "owned",
+      "owners": ["camera-characterization"],
+      "acceptance": "- Record mean, 95th-percentile, and maximum color error against independent chart values under at least two illuminants; freeze numerical thresholds before choosing the profile implementation.\n- Verify neutral ramps, skin, foliage, saturated lights, mixed light, and above-white samples in both SDR and HDR transforms; record visual review separately from chart metrics.\n- As Shot and legacy settings preserve their established output; profile edits, white balance, history branching, restart, and UI/MCP parity pass.\n- A second camera provider integrates without camera names or aliases added to GPU algorithms. Unsupported modes and invalid profile data return deterministic reasons.\n- GPU transforms meet foundation tolerances against independent references; capability refusal, device loss/retry and cleanup pass, and cache keys distinguish profile versions without changing originals.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-color-grading",
+      "source": "docs/features/color-grading.md",
+      "disposition": "owned",
+      "owners": ["legacy-40", "legacy-44"],
+      "acceptance": "- Neutral or powerless controls preserve pixels exactly, including unused Hue,\n  Blending and Balance; alpha remains unchanged.\n- Independent references verify hue directions, normalized continuous tonal weights,\n  balance direction, tint/luminance behavior and signed/16×-white values.\n- Production GPU and exported pixels retain the fixed numerical limits against independent references; historical CPU/native proofs remain evidence without requiring duplicate production backends.\n  Single-pass integration and retained source reuse meet existing resource gates.\n- Each gesture commits once through shared history, including reset, Undo/Redo,\n  restart, stale revisions and equivalent typed UI/MCP edits.\n- Real photographs and combined RAW/raster/merge workflows verify useful tinting,\n  shadow/highlight detail, minimum-size keyboard use and output agreement. Retain\n  separate native/foreground and source-matched performance acceptance.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-color-mixer",
+      "source": "docs/features/color-mixer.md",
+      "disposition": "owned",
+      "owners": ["legacy-40", "legacy-44"],
+      "acceptance": "- All-zero mixer output is identical to the preceding pipeline; changing one range follows its documented influence weights on a synthetic hue wheel.\n- Dense hue sweeps cross 0°/360° and every range boundary without discontinuities above the fixed research tolerance.\n- Near-neutral colors remain stable; exercise dark, saturated, and 16×-white samples, preserving finite values and alpha.\n- Compare GPU RGB/hue/luminance errors against the independent reference with fixed tolerances; test overlapping extreme settings, explicit capability refusal, device loss/retry and resource cleanup. Retain historical CPU proofs without requiring another production backend.\n- Shared history, migrations, restart, stale revisions, keyboard use, and equivalent UI/MCP edits pass.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-crop-straighten",
+      "source": "docs/features/crop-straighten.md",
+      "disposition": "owned",
+      "owners": ["legacy-42", "legacy-44"],
+      "acceptance": "- Independent Decimal80 corner-search/rotation references cover all quarter turns,\n  both angle limits, fractional centers, aspect locks, non-square and 32768-pixel sources.\n  Uniform Fit is maximal at its center and never expands.\n- Identity and integer crops/quarter turns preserve all channel/alpha bits. Geometry,\n  authoritative dimensions, reset and inverse coordinates survive Undo/Redo/restart.\n- Freeze and satisfy filter texture/ringing/alpha/numeric limits on ramps, diagonal\n  and repeating detail, signed/HDR inputs and real photos. Check boundary support,\n  GPU agreement with independent references and tile seams without an SDR intermediate or hidden enlargement.\n- Preview, exact 100%, histogram/analysis, picker and independently decoded exports\n  use matching geometry. Authored HDR and SDR-primary color semantics remain distinct.\n- Handles, numeric edits, aspect/rotate/angle/Apply/Cancel support keyboard, focus,\n  capture loss, photo/revision changes and native minimum-size layout.\n- Migration, frozen individual/batch export, typed UI/MCP parity, source reuse,\n  destination checks, cache identity, RAM/VRAM, cancellation and recovery pass.\n- Real RAW/native/performance gates remain required when the desktop is available;\n  scalar/component evidence alone cannot close this feature.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-export",
+      "source": "docs/features/export.md",
+      "disposition": "owned",
+      "owners": ["legacy-47", "legacy-48", "hdr-next-format", "hdr-native-readers"],
+      "acceptance": "See current focused acceptance and remaining boundaries in this brief.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-hdr-analysis",
+      "source": "docs/features/hdr-analysis.md",
+      "disposition": "owned",
+      "owners": ["analysis-consolidation", "legacy-61", "hdr-agent"],
+      "acceptance": "- Analytic float ramps and impulses verify bin counts, percentiles, overflow, black/negative handling, alpha rules, and values at 1×, 2×, 4×, and 16× white.\n- Demonstrate that source saturation, above-white data, SDR target clipping, HDR headroom limits, and gamut warnings can differ on the same image.\n- Sampled and exact results meet a fixed sampling-error bound on licensed fixtures; exact MCP results agree with independent full-image counts.\n- Rapid edits, monitor changes, deletion, cache eviction, and cancellation cannot display stale statistics; zoom/pan do not change counts.\n- Existing SDR API tests remain valid; keyboard access, one-pixel overlays at Fit, bounded memory, and interaction gates pass with analysis enabled.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-hdr-display",
+      "source": "docs/features/hdr-display.md",
+      "disposition": "owned",
+      "owners": ["hdr-display"],
+      "acceptance": "- Measure a neutral patch ladder containing 1×, 2×, and 4× reference white up to available headroom on actual HDR hardware. Record meter readings, OS settings, display model, calibration, runtime, GPU/driver, and output mode; distinguish panel limits from processing clipping.\n- Verify neutral/chromatic patches, SDR UI white, target gamut, and SDR/HDR comparison against known references. A screenshot or successful API call alone cannot pass this gate.\n- Monitor moves, HDR toggles, sleep/wake, mixed DPI and missing headroom queries produce correct target changes, stale-frame rejection and labeled supported SDR output. GPU/context loss separately verifies explicit errors, matching source/history preservation, resource cleanup and GPU retry against independent pixel references.\n- Maintain CSS-pixel zoom, pointer anchoring, pan constraints, capture cleanup, retries, and 1100 × 700 console layout. Record actual Electron presentation latency and memory separately from compute.\n- Complete the platform matrix below with evidence or a concrete unsupported reason before release; no unverified row may be marketed as working HDR.\n\n| Platform/configuration                       | HDR status today | Required release evidence                                                                                      |\n| -------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------- |\n| Linux, Wayland and X11 considered separately | Unverified       | Compositor/OS HDR path, GPU/driver, display/headroom, fallback and monitor transitions.                        |\n| Windows                                      | Unverified       | OS HDR on/off, GPU/driver, display/headroom, color management and mixed-monitor transitions.                   |\n| macOS                                        | Unverified       | Built-in/external HDR configurations, reference brightness/headroom, color management and monitor transitions. |",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-hdr-file-support",
+      "source": "docs/features/hdr-file-support.md",
+      "disposition": "owned",
+      "owners": ["hdr-next-format", "hdr-native-readers"],
+      "acceptance": "- Every advertised matrix variant has licensed real files and independent reference vectors covering dark values, above-white values, saturated colors, orientation, alpha where supported, and metadata.\n- Compare decoded linear values and color/brightness descriptors against an independent implementation within fixed codec-specific tolerances.\n- Gain-map fixtures include varying headroom, per-channel parameters, reduced-resolution maps, absent optional fields, invalid required fields, and unsupported variants; verify HDR and SDR outcomes separately.\n- Import, duplicate detection, cancellation, restart, interpretation history, cache rebuild, supported decoder/codec recovery, and malformed-file limits pass without changing originals. Editing/rendering follows the [GPU-only direction](../gpu-processing.md), with explicit capability errors and retry cleanup rather than CPU rendering fallback.\n- Export/reimport and an independent viewer validate each enabled writer; publish Linux/Windows/macOS codec/reader results and unsupported reasons, separate from display capability.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-hdr-merge",
+      "source": "docs/features/hdr-merge.md",
+      "disposition": "owned",
+      "owners": ["legacy-31", "merge-kernels", "merge-provenance"],
+      "acceptance": "- Licensed stationary brackets recover known exposure ratios and highlight/shadow detail unavailable in a single middle exposure, within frozen radiometric tolerances.\n- Synthetic translations/rotations and real handheld brackets meet a recorded registration residual threshold; parallax and low-overlap sequences are either corrected within that threshold or explicitly rejected.\n- Annotated foliage, people, water, occlusion, and clipped-reference sequences verify deghosting, reference selection, correction overlays, and source override behavior with region error measurements.\n- Rebuilding from retained sources and manifest reproduces the master within the recorded deterministic tolerance; a source deletion preserves normal merged editing/export but accurately reports re-merge limitations.\n- Cancellation and injected crashes at every publication boundary, disk-full, source deletion races, system Trash failure, and restart recovery leave no incomplete catalog assets or lost originals.\n- Merge review is keyboard accessible; UI/MCP recipes agree; inherited edits/history/export and cache eviction work. Measure peak memory and time by dimensions/bracket count without weakening preview gates.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-hdr-processing",
+      "source": "docs/features/hdr-processing.md",
+      "disposition": "owned",
+      "owners": ["raw-ownership", "hdr-display", "hdr-next-format", "analysis-consolidation"],
+      "acceptance": "- Preserve distinct synthetic values at 0, 0.18, 1, 2, 4, and 16 through edit/save/reload; exposure +1 then −1 recovers inputs within the recorded precision tolerance before output conversion.\n- Validate a single RAW, a merged fixture, and imported HDR against independent linear references; report any source clipping separately from display clipping.\n- GPU results pass fixed absolute/relative float tolerances against independent references, including negative channels and alpha; define tolerances and precision choice in the foundation decision record before acceptance. Verify explicit capability refusal and device-loss/retry cleanup.\n- Existing numeric histories remain intact through automatic rendering cutover; Undo/Redo, migration rollback, cache invalidation, stale requests, and crash recovery pass.\n- Peak allocations stay within declared bounds on maximum supported dimensions and concurrent import; cancellation releases resources. Preserve the roadmap's SDR performance gates and record separate HDR timings.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-local-adjustments",
+      "source": "docs/features/local-adjustments.md",
+      "disposition": "owned",
+      "owners": [
+        "legacy-56",
+        "mask-gradients",
+        "mask-combinations",
+        "local-dehaze",
+        "local-texture",
+        "local-clarity",
+        "mask-sky-background",
+        "legacy-67",
+        "legacy-68",
+        "refine-edge-implementation"
+      ],
+      "acceptance": "- Zero coverage and neutral local settings preserve baseline output; full coverage equals the corresponding global operator at the defined stage.\n- Synthetic brush/gradient references verify feather falloff, inversion, add/subtract, overlap, and tile seams within fixed tolerances.\n- Masks remain registered after zoom, pan, orientation, lens toggles, and merge crop; test edges at Fit and 100%.\n- Multiple masks, Undo/Redo, redo branching, restart, migration, deletion, cancellation, and missing-content recovery retain valid durable references.\n- Keyboard-only creation/refinement and UI/MCP equivalence pass; enforce memory bounds and measure interaction latency separately for complex masks.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-noise-reduction",
+      "source": "docs/features/noise-reduction.md",
+      "disposition": "owned",
+      "owners": ["legacy-39", "legacy-44"],
+      "acceptance": "- Zero strength reproduces the input; synthetic and paired real captures meet fixed noise-reduction and texture-retention thresholds recorded before algorithm approval.\n- Verify dark textures, skin, stars, saturated highlights, and fine repeating detail at native scale; quantify edge broadening and chroma bleeding.\n- Merged fixtures include regions sourced from one frame and multiple frames; demonstrate no denoising seam across deghost boundaries.\n- Compare GPU output with independent numeric and photographic references, including tiled/untiled agreement, within foundation tolerances; test alpha, extreme HDR values, memory bounds, cancellation, explicit unsupported-domain errors and GPU retry cleanup.\n- History, restart, migration, combined local edits, UI/MCP parity, and full-resolution export equivalence pass; report processing cost separately.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-sharpening",
+      "source": "docs/features/sharpening.md",
+      "disposition": "owned",
+      "owners": ["legacy-41", "legacy-48", "legacy-44"],
+      "acceptance": "- Amount 0 is identical to baseline; flat fields remain unchanged and alpha is preserved.\n- Edge/impulse fixtures meet predeclared overshoot, halo-width, and noise-amplification thresholds across SDR and 16×-white samples.\n- Verify native 100%, Fit, multiple device pixel ratios, and two export sizes; radius behavior follows source or output pixels as specified.\n- GPU tiled and independent reference output agree within fixed tolerances without seams; test explicit capability refusal, device loss/retry, bounded memory, cancellation and resource cleanup.\n- Detail history/restart, export preset round trips, UI/MCP parity, and preview/export proof agreement pass with real noisy and merged fixtures.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-tone-curves",
+      "source": "docs/features/tone-curves.md",
+      "disposition": "owned",
+      "owners": ["legacy-45", "analysis-consolidation", "legacy-44"],
+      "acceptance": "See current focused acceptance and remaining boundaries in this brief.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-tone-mapping",
+      "source": "docs/features/tone-mapping.md",
+      "disposition": "owned",
+      "owners": ["tone-rendering-controls", "hdr-display"],
+      "acceptance": "- Neutral and colored ramps through 16× reference white remain finite; the neutral ramp is monotonic with no shoulder discontinuity or unintended shadow plateau.\n- Freeze measurable hue, gamut, and gradient-error limits in the research record; pass them on independent references for SDR and at least two HDR headrooms.\n- Verify neutral defaults, extreme combined adjustments, alpha, GPU agreement with independent references, capability refusal/retry cleanup, history/restart, and byte preservation of originals and masters.\n- Preview and export agree for the same target within the codec's declared tolerance; switching monitors does not change master bytes or edit revisions.\n- Publish comparison images and brightness plots showing preserved shadow separation and smooth highlights, with no unreported channel clipping.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-upscaling",
+      "source": "docs/features/upscaling.md",
+      "disposition": "owned",
+      "owners": ["legacy-42", "legacy-44", "legacy-49"],
+      "acceptance": "See current focused acceptance and remaining boundaries in this brief.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-vibrance-saturation",
+      "source": "docs/features/vibrance-saturation.md",
+      "disposition": "owned",
+      "owners": ["legacy-40", "legacy-44"],
+      "acceptance": "- Both zero values reproduce baseline pixels; Saturation −100 produces equal working neutral channels within the chosen neutral-axis tolerance and preserves alpha.\n- Test a brightness sweep from near black through 16× reference white and hue sweeps across the full circle; no NaNs, abrupt hue shifts, or clipping of the master.\n- Vibrance measurably applies its documented weighting; record hue/luminance errors against fixed independent references.\n- GPU output meets foundation tolerances against independent references; combined extremes, migrations, history/restart, stale requests, capability refusal/retry cleanup and MCP parity pass. Historical CPU evidence does not require a second production backend.\n- Gestures retain one commit and keyboard cancellation; meet existing SDR interaction gates and record HDR latency separately.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "brief-white-balance-picker",
+      "source": "docs/features/white-balance-picker.md",
+      "disposition": "owned",
+      "owners": ["legacy-43"],
+      "acceptance": "- Known neutral patches under at least two measured illuminants recover neutrality within a fixed residual tolerance selected during research.\n- Tests reject clipped channels, black, transparency, tiny valid regions, and unsupported camera profiles without adding history.\n- Cropped, rotated, panned, Fit, and 100% samples identify the same source area within the documented pixel-boundary rule.\n- One accepted sample creates one combined edit; Undo/Redo, restart, concurrent MCP edits, Escape, and As Shot pass.\n- Keyboard-only use works at 1100 × 700 with the console open, and sampling does not alter originals or display mode.",
+      "note": "Technical acceptance stays authoritative in the brief. Delivered portions keep their original receipts; open owners carry remaining requirements."
+    },
+    {
+      "id": "full-hdr",
+      "source": "docs/features/README.md",
+      "disposition": "owned",
+      "owners": [
+        "raw-ownership",
+        "analysis-consolidation",
+        "merge-kernels",
+        "merge-provenance",
+        "hdr-codec-host",
+        "hdr-next-format",
+        "hdr-native-readers",
+        "hdr-display",
+        "hdr-agent",
+        "legacy-61",
+        "legacy-44"
+      ],
+      "note": "Full HDR checklist: RAW/bracket/import editing and restart → processing/format/merge owners; controls → operator/mask owners; physical and platform behavior → hdr-display; controlled SDR/output/round trips → format/native-reader owners; exact analysis → analysis-consolidation/legacy-61; memory/performance/recovery/accessibility/MCP → affected owner acceptance and legacy-44. No criterion becomes a pass from migration."
+    },
+    {
+      "id": "roadmap-candidates",
+      "source": "docs/features/lightroom-comparison.md",
+      "disposition": "unadopted",
+      "owners": [],
+      "note": "Ratings/keywords/collections, print workflows and unspecified effects are unadopted future candidates; not newly authorized deliverables. Film grain, retouching and depth/FSR have their explicit issues."
+    },
+    {
+      "id": "export-candidates",
+      "source": "docs/features/export.md",
+      "disposition": "unadopted",
+      "owners": [],
+      "note": "Additional formats are the decision-gated next-format outcome. Watermarks and named export presets are unadopted roadmap options, not adopted by this migration. Packaged license/source/relinking conditions remain release acceptance, not a new source-license defect."
+    },
+    {
+      "id": "rejected-candidates",
+      "source": "docs/processing-stages.md",
+      "disposition": "superseded",
+      "owners": [],
+      "note": "Rejected Float32 masks, failed common Rust codec-host candidate, retired camera/reference GPU executors and rejected denoising C16/BM3D remain rejected/research-only; historical GPU-only mandates and aggregate editing goals are superseded by current policy."
+    },
+    {
+      "id": "additional-camera-characterization",
+      "source": "Approved migration plan",
+      "disposition": "owned",
+      "owners": ["camera-characterization"],
+      "note": "Explicit additional outcome; optional research remains deferred and is not implementation adoption."
+    },
+    {
+      "id": "additional-hdr-next-format",
+      "source": "Approved migration plan",
+      "disposition": "owned",
+      "owners": ["hdr-next-format"],
+      "note": "Explicit additional outcome; optional research remains deferred and is not implementation adoption."
+    },
+    {
+      "id": "additional-hdr-native-readers",
+      "source": "Approved migration plan",
+      "disposition": "owned",
+      "owners": ["hdr-native-readers"],
+      "note": "Explicit additional outcome; optional research remains deferred and is not implementation adoption."
+    },
+    {
+      "id": "additional-tone-rendering-controls",
+      "source": "Approved migration plan",
+      "disposition": "owned",
+      "owners": ["tone-rendering-controls"],
+      "note": "Explicit additional outcome; optional research remains deferred and is not implementation adoption."
+    },
+    {
+      "id": "additional-github-task-skill",
+      "source": "Approved migration plan",
+      "disposition": "owned",
+      "owners": ["github-task-skill"],
+      "note": "Explicit additional outcome; optional research remains deferred and is not implementation adoption."
+    }
+  ]
+}

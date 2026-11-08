@@ -14,10 +14,10 @@ fixed budgets and pending statements below describe their original checkpoints;
 they do not configure the current build or reopen completed editor acceptance.
 
 Bazzite editor responsiveness during real merge work is separate from whole-merge
-performance. [Backlog 31](features/README.md#workspace-feedback-backlog) remains open
-for the frozen merge continuation, native CPU/GPU adoption and unchanged
+performance. [The merge-acceptance issue](https://github.com/VaclavKlima/Irodori/issues/35) tracks
+the frozen merge continuation, native CPU/GPU adoption and unchanged
 10-second median / 12-second maximum visible HDR, separate 15-second visible
-checkpoint and five-second service stretch. Historical TODO 29 references below
+checkpoint and five-second service stretch. Historical TODO 29 references below mean [the merge-acceptance issue](https://github.com/VaclavKlima/Irodori/issues/35), corresponding to legacy task 31 in the migration map, and
 predate the protected current deletion/concurrent-queue items 29/30. macOS
 acceptance remains a separate task; Bazzite evidence does not certify it.
 

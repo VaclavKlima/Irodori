@@ -2,7 +2,7 @@
 
 _Personal photo editing_
 
-A local desktop photo editor with an integrated agent console. The current milestone provides **photo import, a persistent local library, nondestructive exposure, contrast, highlights, shadows, whites, blacks, Saturation/Vibrance, and lens edits, shared Undo/Redo, camera-aware RAW white balance, RGB histograms, clipping overlays, Before/After comparison, MCP pixel inspection, experimental Sony RAW HDR/SDR preview, and individual/batch SDR/HDR JPEG export** in an Electron desktop workspace. The [professional-editing task index](docs/features/professional-editing.md) records delivered tools, known limits and individually scoped follow-up work.
+A local desktop photo editor with an integrated agent console. The current milestone provides **photo import, a persistent local library, nondestructive exposure, contrast, highlights, shadows, whites, blacks, Saturation/Vibrance, and lens edits, shared Undo/Redo, camera-aware RAW white balance, RGB histograms, clipping overlays, Before/After comparison, MCP pixel inspection, experimental Sony RAW HDR/SDR preview, and individual/batch SDR/HDR JPEG export** in an Electron desktop workspace. [GitHub Issues](https://github.com/VaclavKlima/Irodori/issues) owns task scope, priority and completion. The [professional-editing guide](docs/features/professional-editing.md) records delivered tools and technical limits; the [legacy task map](docs/features/README.md#workspace-feedback-backlog) preserves old TODO references.
 
 The ongoing professional-editing work adds crop/straighten, eight-range HSL,
 three-way grading and **Detail** controls for Luminance noise, Color noise,

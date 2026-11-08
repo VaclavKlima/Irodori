@@ -3,9 +3,10 @@
 ## Current delivery approach — 2026-11-01
 
 The user requested splitting the oversized professional-editing goal into
-individual TODO items because it was taking too long. The
-[workspace backlog](README.md#workspace-feedback-backlog) is now the source of
-work scope and completion status. Select one item for a small goal; finish its
+individual tasks because it was taking too long. The
+[GitHub issue backlog](https://github.com/VaclavKlima/Irodori/issues) is the source of
+work scope, priority and completion status. The [legacy map](README.md#workspace-feedback-backlog)
+preserves old references. Select one item for a small goal; finish its
 bounded deliverable and relevant checks before selecting another.
 
 The former Goal 1 / Goal 2 order is retained as
@@ -26,7 +27,7 @@ selective copy/paste and [named presets](named-presets.md) with bounded batch ap
 photo-wide history; resize choices belong to frozen export settings/jobs. Both
 use the typed application/MCP API.
 
-Inspector items #26–28 are complete for their recorded Bazzite scope. Combined
+Legacy inspector items #26–28 are complete for their recorded Bazzite scope. Combined
 RAW/raster/gain-map/v4-merge edit/export/restart, native keyboard/minimum-size,
 source/resource protection and full-size 1.25× SDR/HDR export have focused passes.
 The [processing ledger](professional-editing-processing.md) and individual briefs
@@ -45,61 +46,24 @@ upscaling already available.
 
 ## Task index
 
-These rows index independently selectable tasks. Full descriptions, priorities
-and finish lines live in the backlog, rather than a second aggregate checklist here.
+Select current work in [GitHub Issues](https://github.com/VaclavKlima/Irodori/issues).
+The [static legacy map](README.md#workspace-feedback-backlog) resolves every
+former TODO number, including split and shared requirements; this guide does not
+maintain a second status table.
 
-Follow the [editing-quality priority](README.md#workspace-feedback-backlog):
-masking (#54/#56/#58), then native-detail inspection (#55), then HDR visual
-assessment (#57), ahead of additional stylistic effects. Reuse existing UI and
-processing owners when exposing these capabilities to the app agent.
+Preserve masking → native-detail inspection → HDR visual assessment before
+additional stylistic effects. Optional research, unavailable calibration and
+unrelated queue/merge/branding work stay independent. Current-device delivery
+uses linked hardware follow-ups rather than claiming cross-platform acceptance.
 
-| TODO                     | Work                                              | Current state / dependency                                                                                                                                                                             |
-| ------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [#38](README.md#task-38) | Consolidate the existing editor changes           | Complete for the publication checkpoint; remaining quality/research tasks stay open.                                                                                                                   |
-| [#39](README.md#task-39) | Improve strong-noise removal                      | Quality unresolved; review existing results before authorizing another bounded study.                                                                                                                  |
-| [#40](README.md#task-40) | Finish photographic color review                  | Functional tools and one native skin review exist; review only missing declared subjects/domains.                                                                                                      |
-| [#41](README.md#task-41) | Finish detail-sharpening appearance review        | Functional and cancellation/contention checks exist; keep strong-noise research in #39.                                                                                                                |
-| [#42](README.md#task-42) | Finish crop/enlargement appearance review         | Functional and full-size exports exist; remaining native texture/ringing comparisons only.                                                                                                             |
-| [#43](README.md#task-43) | Measure white-balance picker accuracy             | Deferred research; required target/meter and a qualifying cohort are unavailable.                                                                                                                      |
-| [#44](README.md#task-44) | Resolve remaining performance/resource questions  | Separate from feature work; native-120 investigation retains its effort stop.                                                                                                                          |
-| [#45](README.md#task-45) | Add Master/RGB tone curves                        | Complete for focused Bazzite acceptance; photographic, native, timing and bounded compatibility evidence and limits in the curve brief.                                                                |
-| [#46](README.md#task-46) | Add named versioned presets                       | Implemented local definitions and shared application/history; [evidence and live-client limits](named-presets.md).                                                                                     |
-| [#47](README.md#task-47) | Add final-output-size proof                       | Implemented shared JPEG proofs in Custom export and Console; [focused Bazzite acceptance and limits](output-proof.md).                                                                                 |
-| [#48](README.md#task-48) | Add export-only output sharpening                 | Implemented in Custom export/proof and Console; [focused Bazzite acceptance and limits](output-sharpening.md).                                                                                         |
-| [#49](README.md#task-49) | Evaluate optional spatial FSR                     | Optional later task; a justified rejection is a valid outcome.                                                                                                                                         |
-| [#51](README.md#task-51) | Adopt List + Beside browser navigation            | Complete for local Bazzite acceptance; collection, selection, menus and recovery preserved.                                                                                                            |
-| [#54](README.md#task-54) | Add general object masks and local controls       | [Selection implemented on Mac](object-selection.md); [whole-mask edge controls verified on Mac](mask-edges.md). Image-guided matting and local contrast/dehaze remain open; Bazzite is #69.            |
-| [#55](README.md#task-55) | Add native-detail inspection for users and agent  | [Delivered native SDR workflow](detail-inspection.md); focused macOS regions, encoding, pairs and Console-context checks pass. Other-platform/live-model qualification remains explicit.               |
-| [#56](README.md#task-56) | Add the ordered multiple-mask editing core        | Implemented with focused macOS acceptance: ordered brush masks, six Light controls, history/restart, UI/MCP and frozen output. Platform/analysis limits remain explicit in the local-adjustment brief. |
-| [#57](README.md#task-57) | Add HDR-aware agent preview and editing           | Planned; verify visual highlight brightness/roll-off, client support and physical presentation with explicit measurement limits.                                                                       |
-| [#58](README.md#task-58) | Add masking workspace and radial/gradient tools   | Planned; shared mask combinations and subject-protected radial/linear gradients, preserving refined subject boundaries.                                                                                |
-| [#59](README.md#task-59) | Add matched before/after previews                 | [Implemented SDR preview portion](detail-inspection.md); matched current-geometry neutral Before/After. True HDR qualification remains open.                                                           |
-| [#60](README.md#task-60) | Add temporary edit previews and variants          | Planned; compare two or three looks without changing history, then apply the chosen look as one undoable edit.                                                                                         |
-| [#61](README.md#task-61) | Add regional histograms and clipping overlays     | Planned; extend existing analysis to spatial regions/masks with explicit domains, revisions and availability.                                                                                          |
-| [#62](README.md#task-62) | Add healing and clone tools                       | Planned; approved source-guided repairs, including grass crossing a reflection; preserve structure without claiming hidden-detail recovery.                                                            |
-| [#63](README.md#task-63) | Add local Texture and Clarity controls            | Planned; independent feather/ripple detail strength, shared local contrast and native halo/noise review; masked color stays in #68.                                                                    |
-| [#64](README.md#task-64) | Add named per-photo edit checkpoints              | Planned; save, compare and restore Natural/Cinematic versions across restart; reusable cross-photo presets remain #46.                                                                                 |
-| [#65](README.md#task-65) | Evaluate editable depth maps and depth blur       | Optional later research; use the agent's control list as exploratory input and decide scope/adoption from feasibility and quality.                                                                     |
-| [#66](README.md#task-66) | Add automatic sky, background and object masks    | [Indicated objects implemented on Mac](object-selection.md) through #54; automatic sky/background classification remains open.                                                                         |
-| [#67](README.md#task-67) | Add color and luminance range masks               | Planned; define HDR/domain semantics and combine with spatial masks through #58.                                                                                                                       |
-| [#68](README.md#task-68) | Add masked color adjustments                      | Planned; independent subject/reflection/water color balance and saturation, with shared masks/history and explicit SDR/HDR semantics.                                                                  |
-| [#69](README.md#task-69) | Verify object selection and mask edges on Bazzite | [Explicit device handoff](object-selection.md#bazzite-follow-up); both Radeon adapters, edge numerics/admission, migration/history/output/Console and native Wayland interaction.                      |
-
-The planned [GitHub task migration (#70)](README.md#task-70) covers this index and
-all other repository TODOs, including completed work. Completed tasks must be
-marked Done/closed in GitHub; the repository backlog remains authoritative until
-the migration and replacement links are verified.
-
-Reuse existing #10 for general Linux dropdowns and #32 for the remaining GPU-first
-consolidation. The [stage inventory](../processing-stages.md) records current owners, retired executors, rejected candidates and remaining platform/removal gates. UI work follows the implemented #33 inspector navigation and #34
-[Sunflower design system](../design-system.md). Keep #25 shutdown recovery,
-#29 background deletion, #30 queue redesign,
-#31 merge acceptance, #35 asset migration and camera/branding tasks separate.
-Do not duplicate or automatically pull these items into an editing task.
+Use the [task-management skill](../../.agents/skills/irodori-github-tasks/SKILL.md)
+and [issue policy](../task-management.md) for creation, selection, progress,
+blockers and completion. Technical decisions, rejected candidates and exact
+verification receipts remain in the briefs, processing ledger and stage inventory.
 
 ## How to work on a task
 
-- State the selected TODO, concrete deliverable, relevant source/hardware scope
+- State the selected GitHub issue, concrete deliverable, relevant source/hardware scope
   and stopping condition before coding. One task need not solve another task's
   research, performance or platform questions. Record only demonstrated
   dependencies, such as output sharpening needing final-size proof.
@@ -128,7 +92,7 @@ advanced global tool are not automatic blockers for all future development.
 
 The [archived evidence map](professional-editing-history.md#remaining-goal-1-evidence--2026-11-01)
 preserves the former exit requirements. Unfinished areas are now assigned to
-#39–44 above; none was converted to a pass. The functional receipts remain in
+[legacy tasks 39–44 and their GitHub destinations](README.md#workspace-feedback-backlog); none was converted to a pass. The functional receipts remain in
 [professional-editing processing](professional-editing-processing.md), with
 operator details in [color](color-mixer-grading-processing.md),
 [detail](detail-processing.md), [crop](crop-straighten.md),

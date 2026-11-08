@@ -6,7 +6,8 @@ that Irodori reproduces Adobe's rendering or matches every Lightroom feature.
 
 The user requested smaller independent tasks after the former two-goal milestone
 took too long. Use the [current task index](professional-editing.md) and
-[canonical backlog #38–49](README.md#professional-editing-follow-up-tasks).
+[GitHub issues](https://github.com/VaclavKlima/Irodori/issues). The
+[legacy map](README.md#workspace-feedback-backlog) preserves the former numbers.
 The priorities, First/Next labels and Goal 1 / Goal 2 sections below preserve the
 October 25 evaluation; they no longer require completing every research gate
 before selecting another feature. Existing work, evidence and failed/unverified

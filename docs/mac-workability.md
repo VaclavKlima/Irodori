@@ -57,7 +57,7 @@ human Retina/HDR quality validation, remain required. This follow-up does not
 rewrite the earlier failed/incomplete checkpoint or its gates.
 
 The user-requested Bazzite deferral covers this later editor work under
-[TODO #29](features/README.md#workspace-feedback-backlog). Follow
+[historical merge TODO #29, now the merge-acceptance issue](https://github.com/VaclavKlima/Irodori/issues/35). Follow
 [the editor continuation](#everyday-editor-continuation) after its own tested
 revision is frozen. No Linux result or preview default adoption follows from
 the Mac measurements.
@@ -1630,7 +1630,7 @@ below do not select a current implementation. Final ordinary-build foreground
 acceptance remains open, and current Mac testing is a separate goal.
 
 This was the later editor experiment's Linux checklist under
-[TODO #29](features/README.md#workspace-feedback-backlog). The user paused the Mac
+[historical merge TODO #29, now the merge-acceptance issue](https://github.com/VaclavKlima/Irodori/issues/35). The user paused the Mac
 goal on October 19 to continue on Bazzite. Use the
 [transfer handoff](bazzite-editor-handoff.md), including source/test checkpoint
 `3c9111b05dd24f4e7d52dd45b63f4d90856b97ff` and its unrun corrected native case. Keep it

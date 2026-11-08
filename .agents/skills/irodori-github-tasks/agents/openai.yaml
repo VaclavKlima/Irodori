@@ -1,0 +1,5 @@
+interface:
+  display_name: "Irodori GitHub Tasks"
+  short_description: "Manage focused Irodori tasks in GitHub Issues"
+policy:
+  allow_implicit_invocation: true

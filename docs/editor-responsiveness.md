@@ -671,7 +671,7 @@ Linux verification while that machine is unavailable.
 
 The user deferred Bazzite work while the machine is unavailable. Track everyday
 editor verification alongside merge verification under
-[TODO #29](features/README.md#workspace-feedback-backlog), using
+[historical merge TODO #29, now the merge-acceptance issue](https://github.com/VaclavKlima/Irodori/issues/35), using
 [the separate editor continuation checklist](mac-workability.md#everyday-editor-continuation).
 The merge implementation remains frozen at
 `0a70599669c884fc70d2e2afe5f9a6527df44dbb`; it is not the revision for this later
