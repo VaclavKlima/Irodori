@@ -1,0 +1,239 @@
+{
+  "version": 1,
+  "id": "wikimedia-general-object-selection-2026-11-08",
+  "purpose": "Photographic fixtures for bounded general-object selection research; no production assets or automatic user-library import.",
+  "files": [
+    {
+      "id": "wig-museum",
+      "caseId": "d06-wig",
+      "file": "originals/Wig,_Fiji_Islands,_bleached_human_hair_-_Pacific_collection_-_Peabody_Museum,_Harvard_University_-_DSC05759.JPG",
+      "bytes": 5113260,
+      "sha256": "cefc6aacd187ed7f7ac8f0a60fbd9a9abfe042fa409d7a6f72b507040e1aa53b",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Wig%2C_Fiji_Islands%2C_bleached_human_hair_-_Pacific_collection_-_Peabody_Museum%2C_Harvard_University_-_DSC05759.JPG",
+      "sourceRevision": "https://commons.wikimedia.org/w/index.php?title=File:Wig%2C_Fiji_Islands%2C_bleached_human_hair_-_Pacific_collection_-_Peabody_Museum%2C_Harvard_University_-_DSC05759.JPG&oldid=1144299591",
+      "originalUrl": "https://upload.wikimedia.org/wikipedia/commons/a/a5/Wig%2C_Fiji_Islands%2C_bleached_human_hair_-_Pacific_collection_-_Peabody_Museum%2C_Harvard_University_-_DSC05759.JPG",
+      "photographer": "Daderot",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedAt": "2026-11-08",
+      "originalUnchanged": true,
+      "split": "development",
+      "coverage": [
+        "wig",
+        "hair-like-boundary",
+        "fine-curly-structures",
+        "partial-frame",
+        "hair-outline"
+      ],
+      "privacyReview": {
+        "date": "2026-11-08",
+        "entireOriginalInspected": true,
+        "embeddedPreviewsInspected": true,
+        "noEmbeddedPreview": false,
+        "metadataTool": "ExifTool read-only interpreted, unknown and embedded metadata (-a -u -U -ee3 -api RequestAll=3 -all:all)",
+        "pixelFindings": "Full original and embedded thumbnail show historical wig on public museum mount, generic display glass and museum description label. Public accession/collector description is not a private document. No identifiable person, private screen/address/plate or device serial observed.",
+        "metadataFindings": "ExifTool read-only interpreted/unknown metadata:438 tags. Artist/Creator fields both identify Picasa software. No camera/lens/internal serial, GPS or private owner/contact metadata found.",
+        "independentReview": "Root agent independently inspected each complete original and confirmed inclusion after source-license review."
+      },
+      "permission": {
+        "source": "Photographer own-work grant on the linked primary Commons file page.",
+        "testingAndBenchmarking": true,
+        "gitHubRedistribution": true,
+        "conditions": "Photographer dedicates rights to public domain; retain provenance and courtesy attribution."
+      },
+      "limitations": [
+        "No actual human portrait or head-hair outline coverage.",
+        "hair-outline coverage is limited to a wig and does not establish human-portrait hair quality."
+      ]
+    },
+    {
+      "id": "bicycle-mavic",
+      "caseId": "d07-bicycle",
+      "file": "originals/Bicycle_with_Mavic_CXP_14_wheels.jpg",
+      "bytes": 131683,
+      "sha256": "24e93ef51df4067b4a2d847495de6f1ad3eb5795c4224f46f548d06509f8eee1",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Bicycle_with_Mavic_CXP_14_wheels.jpg",
+      "sourceRevision": "https://commons.wikimedia.org/w/index.php?title=File:Bicycle_with_Mavic_CXP_14_wheels.jpg&oldid=942548438",
+      "originalUrl": "https://upload.wikimedia.org/wikipedia/commons/9/99/Bicycle_with_Mavic_CXP_14_wheels.jpg",
+      "photographer": "Dhodges",
+      "license": "CC-BY-2.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/2.0/",
+      "downloadedAt": "2026-11-08",
+      "originalUnchanged": true,
+      "split": "development",
+      "coverage": [
+        "rigid-object",
+        "thin-structures",
+        "holes",
+        "clutter",
+        "partial-frame",
+        "multiple-adjacent-objects"
+      ],
+      "privacyReview": {
+        "date": "2026-11-08",
+        "entireOriginalInspected": true,
+        "embeddedPreviewsInspected": false,
+        "noEmbeddedPreview": true,
+        "metadataTool": "ExifTool read-only interpreted, unknown and embedded metadata (-a -u -U -ee3 -api RequestAll=3 -all:all)",
+        "pixelFindings": "Full original shows partial foreground bicycle, neighboring bicycles, tree and park. Tiny defocused partial figure at far-left edge is clipped; root independently reviewed and observed no identifiable face. No plate, private document, screen, address or visible device serial observed.",
+        "metadataFindings": "ExifTool read-only all interpreted/unknown metadata:50 tags. No nonempty private name/contact/GPS/device serial tags. No embedded thumbnail or preview present.",
+        "independentReview": "Root agent independently inspected each complete original and confirmed inclusion after source-license review."
+      },
+      "permission": {
+        "source": "Photographer own-work grant on the linked primary Commons file page.",
+        "testingAndBenchmarking": true,
+        "gitHubRedistribution": true,
+        "conditions": "Retain photographer credit, source URL, license link and indication of changes."
+      },
+      "limitations": []
+    },
+    {
+      "id": "flamingo-slimbridge",
+      "caseId": "d08-flamingo",
+      "file": "originals/Two_andeanflamingo_june2003_arp.jpg",
+      "bytes": 1890748,
+      "sha256": "6afbf8a85989a704738327f0a8016ea4d5b080668322b8fddfcbf8bfdc34effa",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Two_andeanflamingo_june2003_arp.jpg",
+      "sourceRevision": "https://commons.wikimedia.org/w/index.php?title=File:Two_andeanflamingo_june2003_arp.jpg&oldid=1248760494",
+      "originalUrl": "https://upload.wikimedia.org/wikipedia/commons/3/3e/Two_andeanflamingo_june2003_arp.jpg",
+      "photographer": "Adrian Pingstone (Arpingstone)",
+      "license": "Public-domain-dedication-PD-user",
+      "licenseUrl": "https://commons.wikimedia.org/wiki/File:Two_andeanflamingo_june2003_arp.jpg#Licensing",
+      "downloadedAt": "2026-11-08",
+      "originalUnchanged": true,
+      "split": "development",
+      "coverage": ["bird", "thin-structures", "multiple-adjacent-objects", "occlusion"],
+      "privacyReview": {
+        "date": "2026-11-08",
+        "entireOriginalInspected": true,
+        "embeddedPreviewsInspected": true,
+        "noEmbeddedPreview": false,
+        "metadataTool": "ExifTool read-only interpreted, unknown and embedded metadata (-a -u -U -ee3 -api RequestAll=3 -all:all)",
+        "pixelFindings": "Entire original and embedded thumbnail show two flamingos on generic mud/water substrate. No identifiable person, private screen/document/address/plate or device serial observed. Leg rings identify captive birds, not people or devices.",
+        "metadataFindings": "ExifTool read-only interpreted/unknown metadata:130 tags. ProfileCreator identifies Hewlett-Packard standard ICC profile, not private creator information. No nonempty private name/contact/GPS/camera/lens/internal serial tags.",
+        "independentReview": "Root agent independently inspected each complete original and confirmed inclusion after source-license review."
+      },
+      "permission": {
+        "source": "Photographer own-work grant on the linked primary Commons file page.",
+        "testingAndBenchmarking": true,
+        "gitHubRedistribution": true,
+        "conditions": "Retain provenance and courtesy photographer credit; no endorsement implied."
+      },
+      "limitations": [
+        "No distinct mirror reflection in this source; reflection separation is covered by other corpus scenes.",
+        "Source is 1558x1148; it does not establish native 20MP feather quality."
+      ]
+    },
+    {
+      "id": "robin-mealworm",
+      "caseId": "h11-robin",
+      "file": "originals/European_Robin_(Erithacus_rubecula)_with_mealworm.jpeg",
+      "bytes": 326482,
+      "sha256": "4f70779f8bd8d8f3cd38e4dc2af6c05f841123b931bcfedf8c8aec7cc36f1b8a",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:European_Robin_%28Erithacus_rubecula%29_with_mealworm.jpeg",
+      "sourceRevision": "https://commons.wikimedia.org/w/index.php?title=File:European_Robin_%28Erithacus_rubecula%29_with_mealworm.jpeg&oldid=1235004900",
+      "originalUrl": "https://upload.wikimedia.org/wikipedia/commons/3/3c/European_Robin_%28Erithacus_rubecula%29_with_mealworm.jpeg",
+      "photographer": "Philip Heron",
+      "license": "CC-BY-SA-3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "downloadedAt": "2026-11-08",
+      "originalUnchanged": true,
+      "split": "holdout",
+      "coverage": ["bird", "feather-boundary", "partial-frame", "occlusion"],
+      "privacyReview": {
+        "date": "2026-11-08",
+        "entireOriginalInspected": true,
+        "embeddedPreviewsInspected": false,
+        "noEmbeddedPreview": true,
+        "metadataTool": "ExifTool read-only interpreted, unknown and embedded metadata (-a -u -U -ee3 -api RequestAll=3 -all:all)",
+        "pixelFindings": "Entire original shows robin with mealworm on generic out-of-focus background. No identifiable human, private document/screen/address/plate/device serial observed.",
+        "metadataFindings": "ExifTool read-only interpreted/unknown metadata:48 tags. No nonempty private name/contact/GPS/serial metadata. No embedded thumbnail or preview present.",
+        "independentReview": "Root agent independently inspected each complete original and confirmed inclusion after source-license review."
+      },
+      "permission": {
+        "source": "Photographer own-work grant on the linked primary Commons file page.",
+        "testingAndBenchmarking": true,
+        "gitHubRedistribution": true,
+        "conditions": "Retain photographer credit, source URL, license link, indication of changes; distribute adaptations under the same or compatible license."
+      },
+      "limitations": []
+    },
+    {
+      "id": "glass-mug",
+      "caseId": "h12-glass",
+      "file": "originals/Kitchenware_Glass_Mug_Rezowan.JPG",
+      "bytes": 1792437,
+      "sha256": "9bfb67a05858b5605949d0aec2a7d6bf61a5456cd0a639c93ecef6934b15642a",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Kitchenware_Glass_Mug_Rezowan.JPG",
+      "sourceRevision": "https://commons.wikimedia.org/w/index.php?title=File:Kitchenware_Glass_Mug_Rezowan.JPG&oldid=1162386980",
+      "originalUrl": "https://upload.wikimedia.org/wikipedia/commons/3/3f/Kitchenware_Glass_Mug_Rezowan.JPG",
+      "photographer": "Rezowan",
+      "license": "CC-BY-SA-3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "downloadedAt": "2026-11-08",
+      "originalUnchanged": true,
+      "split": "holdout",
+      "coverage": [
+        "glass",
+        "transmission",
+        "handle-hole",
+        "reflection-separation",
+        "reflection-or-glass-stress"
+      ],
+      "privacyReview": {
+        "date": "2026-11-08",
+        "entireOriginalInspected": true,
+        "embeddedPreviewsInspected": true,
+        "noEmbeddedPreview": false,
+        "metadataTool": "ExifTool read-only interpreted, unknown and embedded metadata (-a -u -U -ee3 -api RequestAll=3 -all:all)",
+        "pixelFindings": "Entire original and embedded thumbnail show glass mug on generic tabletop against red surface. No identifiable person, private screen/document/address/plate/device serial observed.",
+        "metadataFindings": "ExifTool read-only interpreted/unknown metadata:422 tags. OwnerName exists but is empty/whitespace. No nonempty private names/contact/GPS/camera/lens/internal serial tags.",
+        "independentReview": "Root agent independently inspected each complete original and confirmed inclusion after source-license review."
+      },
+      "permission": {
+        "source": "Photographer own-work grant on the linked primary Commons file page.",
+        "testingAndBenchmarking": true,
+        "gitHubRedistribution": true,
+        "conditions": "Retain photographer credit, source URL, license link, indication of changes; distribute adaptations under the same or compatible license."
+      },
+      "limitations": ["No controlled transparency alpha ground truth."]
+    },
+    {
+      "id": "plain-mug",
+      "caseId": "d09-plain-mug",
+      "file": "originals/Mug_image.jpg",
+      "bytes": 117361,
+      "sha256": "f46f6bc74eb235b489bcd75430f31f66a7ff4a84a87ed239f9bc8aa47b163a5f",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Mug_image.jpg",
+      "sourceRevision": "https://commons.wikimedia.org/w/index.php?title=File:Mug_image.jpg&oldid=1129715131",
+      "originalUrl": "https://upload.wikimedia.org/wikipedia/commons/0/00/Mug_image.jpg",
+      "photographer": "Mohanraj55",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "downloadedAt": "2026-11-08",
+      "originalUnchanged": true,
+      "split": "development",
+      "coverage": ["rigid-object", "handle-hole", "translucent-object", "clutter"],
+      "privacyReview": {
+        "date": "2026-11-08",
+        "entireOriginalInspected": true,
+        "embeddedPreviewsInspected": false,
+        "noEmbeddedPreview": true,
+        "metadataTool": "ExifTool read-only interpreted, unknown and embedded metadata (-a -u -U -ee3 -api RequestAll=3 -all:all)",
+        "pixelFindings": "Entire original shows plain translucent white/green plastic mug with spout and handle on generic textile against a plain wall. No logos, prominent third-party artwork, identifiable person, private document or screen, address, plate or device serial observed. Textile background is incidental.",
+        "metadataFindings": "48 interpreted/unknown tags; no nonempty private owner/name/contact, GPS or camera/lens/internal serial metadata. No embedded preview or thumbnail.",
+        "independentReview": "Root agent independently inspected the full original and primary photographer-license page and approved inclusion."
+      },
+      "permission": {
+        "source": "Photographer own-work CC0 dedication on the linked primary Commons file page.",
+        "testingAndBenchmarking": true,
+        "gitHubRedistribution": true,
+        "conditions": "Photographer dedicates rights to public domain; retain provenance and courtesy attribution."
+      },
+      "limitations": [
+        "Translucent plastic is a semantic-selection stress case, not controlled alpha ground truth.",
+        "The published original is 960x1280; it does not establish 20 MP edge quality."
+      ]
+    }
+  ]
+}
