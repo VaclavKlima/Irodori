@@ -5,10 +5,11 @@
 This is the first edge-quality portion of [TODO 54](README.md#task-54). It adds
 nondestructive shaping to existing brush and indicated-object masks. Image-guided
 Refine Edge/matting, recovered hair/fur/feather detail, gradients and additional
-local operators remain separate work. [Bazzite verification](README.md#task-69)
-is a device follow-up; current-device acceptance is recorded below.
+local operators remain separate work. [Bazzite qualification](masking-bazzite-acceptance.md)
+records focused checks on both Radeon adapters and retains the separate RAW
+startup limitation. Original Mac acceptance is recorded below.
 
-Enabled on Mac after the focused checks below. The development app was restarted;
+The original Mac activation followed the focused checks below. Its development app was restarted;
 read-only before/after checks confirm the same active photo, revision 78, four
 mask identities and every prior setting, with neutral edge defaults and settings 15. No photo edits or imports were performed in the user library for acceptance.
 Private readbacks remain under `artifacts/research/mask-edges/2026-11-08/`.
@@ -149,7 +150,8 @@ case is resolved by the geometry-ownership receipt. Historical unrelated
 platform skips remain incomplete. Existing object-selection acceptance and
 photographic quality limitations remain in the [selection brief](object-selection.md).
 
-[Bazzite TODO 69](README.md#task-69) covers both available Radeon adapters and
-native Wayland behavior. Windows, real merged-photograph edge-quality review,
+[Bazzite issues #87/#88](masking-bazzite-acceptance.md) retain the later focused
+checks on both Radeon adapters and native Wayland behavior, including exact
+reruns and the independent unresolved RAW startup issue. Windows, real merged-photograph edge-quality review,
 image-guided matting and physical HDR measurements remain unverified. Edge
 softening/shifting does not recover missing fine detail or prove physical alpha.

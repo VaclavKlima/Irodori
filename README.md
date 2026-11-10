@@ -37,8 +37,9 @@ and Paint/Erase tools, while **Adjustments** contains local Light controls.
 **Show overlay** remains available above both tabs. Mask edits share the photo's
 Undo/Redo, restart and frozen SDR/HDR exports. **Select object** creates
 [editable SAM 2 point/box proposals](docs/features/object-selection.md), with separate
-Paint/Erase corrections retained when AI coverage is refined. The feature is enabled
-on Mac; [Bazzite verification](docs/features/README.md#task-69) is an explicit follow-up.
+Paint/Erase corrections retained when AI coverage is refined. The same implementation has focused
+[Bazzite masking checks](docs/features/masking-bazzite-acceptance.md) on both Radeon
+adapters; that record retains the separate RAW-startup and platform limitations.
 **Coverage → Mask edges** adds whole-mask [Feather and Expand/Contract](docs/features/mask-edges.md),
 including manual corrections, with shared Undo/Redo, Console and frozen exports.
 Gradients, sky/background automation, color/luminance ranges and additional local

@@ -4,6 +4,13 @@
 
 The first implementation portion of [TODO 54](README.md#task-54) enables local SAM 2.1 Tiny object selection on the current Mac. It reuses the existing multiple-mask editor and six local Light controls. The user explicitly selected delivery on the available device, with [Bazzite follow-up](README.md#task-69), rather than waiting for another device before activation. The [research study](object-selection-research.md) retains model comparisons, limitations and the original proposal; this delivery supersedes its activation ordering.
 
+The [November 10 Bazzite qualification](masking-bazzite-acceptance.md) records
+local masking acceptance on RX 7900 XTX and Radeon 610M, exact provider/device
+evidence, native interaction and packaged-worker checks. Publication remains
+separate. The intermittent initial packaged RAW decoder failure is retained in
+[issue #94](https://github.com/VaclavKlima/Irodori/issues/94); a passing rerun does
+not resolve that source/startup defect.
+
 ## Editing workflow
 
 Open **Masks → Create mask → Select object…**. This opens the **Coverage** tab. Draw a box, or indicate an object with a positive point. Add positive/negative guide points and choose **Create selection**. The box guides the model; it does not clip the resulting mask. Inspect the coverage overlay, then choose **Use mask** to create an Object mask. Nothing enters photo history before acceptance. A ready proposal makes **Use mask** the primary action; changing its guides requires **Update selection** before acceptance. Acceptance opens **Adjustments** for the selected mask's local Light controls.
@@ -87,7 +94,10 @@ GPU preprocessing agrees with the frozen reference within `3.58e-7`; the separat
 
 ## Bazzite follow-up
 
-[TODO 69](README.md#task-69) owns verification and any necessary implementation fixes on Bazzite. On that device:
+[Issues #87](https://github.com/VaclavKlima/Irodori/issues/87) and
+[#88](https://github.com/VaclavKlima/Irodori/issues/88) own Bazzite delivery. The
+[November 10 local qualification](masking-bazzite-acceptance.md) records the focused
+receipts and limits. The original checklist below is retained as scope context:
 
 1. Install locked dependencies and the existing native prerequisites, then run `npm run setup:object-selection` and build. Confirm packaged and development workers load bundled graphs without research paths or Python.
 2. Run the object-selection model/worker/service, generated-base, UI/presentation and MCP targets listed in the verification registry. Repeat GPU checks on the available discrete Radeon and Radeon 610M using the existing documented adapter-selection workflow. Record actual provider/device/limits; do not infer the ORT adapter or its memory capacity from a different Dawn owner.

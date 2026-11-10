@@ -7,6 +7,15 @@ import { createMask, maskDetailTab } from './mask-panel.helpers'
 import { captureWindow } from './window-capture.helpers'
 import { openPreviewOptions } from './preview-options.helpers'
 
+import { foregroundTest } from './foreground'
+
+const nativeLayout =
+  process.platform === 'linux' && Boolean(process.env.WAYLAND_DISPLAY)
+    ? foregroundTest(
+        'Wayland native resizing and stable layout require a window presented by the compositor.',
+      )
+    : {}
+
 test('whole-mask edge inputs commit once, reset atomically and retain manual corrections through history and restart', async ({
   irodori,
 }) => {
@@ -26,6 +35,7 @@ test('whole-mask edge inputs commit once, reset atomically and retain manual cor
   await expect.poll(history).toMatchObject({ revision: 1 })
   const canvas = page.getByTestId('main-preview')
   await expect(canvas).toHaveAttribute('data-editing', 'ready')
+  await expect(canvas).toHaveAttribute('data-frame-geometry-revision', '1')
   await canvas.focus()
   await canvas.press('Space')
   await canvas.press('ArrowRight')
@@ -92,83 +102,85 @@ test('whole-mask edge inputs commit once, reset atomically and retain manual cor
   expect((await history()).settings.maskStack[0].head).toBe(head)
 })
 
-test('edge drafts stay on their mask, external revisions replace drafts and Coverage remains usable at the Console-open minimum', async ({
-  irodori: { app, page },
-}, testInfo) => {
-  test.setTimeout(90000)
-  await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'], true, 'keyboard')
-  const photoId = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
-  const history = () => page.evaluate((id) => window.irodori.getEditHistory(id), photoId)
-  await navigateInspector(page, 'Masks')
-  await createMask(page)
-  await expect.poll(history).toMatchObject({ revision: 1 })
-  const first = (await history()).settings.maskStack[0].id
-  await createMask(page)
-  await expect.poll(history).toMatchObject({ revision: 2 })
-  const second = (await history()).settings.maskStack[0].id
-  const feather = page.getByRole('spinbutton', { name: 'Feather value', exact: true })
-  const shift = page.getByRole('spinbutton', { name: 'Expand/Contract value', exact: true })
-  await feather.fill('2.5')
-  await activateButton(page.locator(`[data-mask-id="${first}"] [data-mask-select]`))
-  await expect.poll(history).toMatchObject({ revision: 3 })
-  const stack = (await history()).settings.maskStack
-  expect(stack.find((mask) => mask.id === second)?.edge).toEqual({ featherPx: 2.5, shiftPx: 0 })
-  expect(stack.find((mask) => mask.id === first)?.edge).toEqual({ featherPx: 0, shiftPx: 0 })
-  await expect(feather).toHaveValue('0.0')
-  await feather.fill('1.5')
-  await page.evaluate(
-    async ({ photoId, first }) => {
-      const state = await window.irodori.getEdits(photoId)
-      await window.irodori.mutateMasks(photoId, state.revision, {
-        operations: [{ kind: 'update', id: first, edge: { shiftPx: -2 } }],
-      })
-    },
-    { photoId, first },
-  )
-  await expect.poll(history).toMatchObject({ revision: 4 })
-  await expect(feather).toHaveValue('0.0')
-  await expect(shift).toHaveValue('-2')
-  await shift.press('Tab')
-  expect((await history()).revision).toBe(4)
-  await createMask(page, 'Select object…')
-  await expect(page.getByTestId('object-selection-overlay')).toBeVisible()
-  await expect(feather).toBeHidden()
-  await expect(page.getByRole('tab', { name: 'Adjustments', exact: true })).toHaveAttribute(
-    'aria-disabled',
-    'true',
-  )
-  await activateButton(page.getByRole('button', { name: 'Cancel selection', exact: true }))
-  await expect(feather).toHaveValue('0.0')
-  await expect(shift).toHaveValue('-2')
-  expect((await history()).revision).toBe(4)
-  const native = await app.browserWindow(page)
-  await native.evaluate((window) => window.setContentSize(1100, 700))
-  await activateButton(page.getByTestId('console-toggle'))
-  const list = page.getByTestId('masks-list')
-  const listScroll = await list.evaluate((element) => element.scrollTop)
-  await shift.scrollIntoViewIfNeeded()
-  const panel = page.getByTestId('masks-panel')
-  await expect(panel.getByRole('button', { name: 'Create mask', exact: true })).toBeInViewport({
-    ratio: 1,
-  })
-  await expect(page.getByRole('tab', { name: 'Coverage', exact: true })).toBeInViewport({
-    ratio: 1,
-  })
-  expect(await list.evaluate((element) => element.scrollTop)).toBe(listScroll)
-  expect(await page.getByTestId('inspector-scroll').evaluate((element) => element.scrollTop)).toBe(
-    0,
-  )
-  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
-  await captureWindow(app, page, testInfo.outputPath('1100-console-mask-edges.png'))
-  await page.getByTestId('mask-details-scroll').evaluate((element) => {
-    element.scrollTop = 0
-  })
-  await expect(page.getByRole('button', { name: 'Mask edges', exact: true })).toBeInViewport({
-    ratio: 1,
-  })
-  await expect(feather).toBeInViewport({ ratio: 1 })
-  await captureWindow(app, page, testInfo.outputPath('1100-console-mask-edges-top.png'))
-})
+test(
+  'edge drafts stay on their mask, external revisions replace drafts and Coverage remains usable at the Console-open minimum',
+  nativeLayout,
+  async ({ irodori: { app, page } }, testInfo) => {
+    test.setTimeout(90000)
+    await importPhotos(app, page, ['tests/fixtures/photos/alpine-lake.jpg'], true, 'keyboard')
+    const photoId = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
+    const history = () => page.evaluate((id) => window.irodori.getEditHistory(id), photoId)
+    await navigateInspector(page, 'Masks')
+    await createMask(page)
+    await expect.poll(history).toMatchObject({ revision: 1 })
+    const first = (await history()).settings.maskStack[0].id
+    await createMask(page)
+    await expect.poll(history).toMatchObject({ revision: 2 })
+    const second = (await history()).settings.maskStack[0].id
+    const feather = page.getByRole('spinbutton', { name: 'Feather value', exact: true })
+    const shift = page.getByRole('spinbutton', { name: 'Expand/Contract value', exact: true })
+    await feather.fill('2.5')
+    await activateButton(page.locator(`[data-mask-id="${first}"] [data-mask-select]`))
+    await expect.poll(history).toMatchObject({ revision: 3 })
+    const stack = (await history()).settings.maskStack
+    expect(stack.find((mask) => mask.id === second)?.edge).toEqual({ featherPx: 2.5, shiftPx: 0 })
+    expect(stack.find((mask) => mask.id === first)?.edge).toEqual({ featherPx: 0, shiftPx: 0 })
+    await expect(feather).toHaveValue('0.0')
+    await feather.fill('1.5')
+    await page.evaluate(
+      async ({ photoId, first }) => {
+        const state = await window.irodori.getEdits(photoId)
+        await window.irodori.mutateMasks(photoId, state.revision, {
+          operations: [{ kind: 'update', id: first, edge: { shiftPx: -2 } }],
+        })
+      },
+      { photoId, first },
+    )
+    await expect.poll(history).toMatchObject({ revision: 4 })
+    await expect(feather).toHaveValue('0.0')
+    await expect(shift).toHaveValue('-2')
+    await shift.press('Tab')
+    expect((await history()).revision).toBe(4)
+    await createMask(page, 'Select object…')
+    await expect(page.getByTestId('object-selection-overlay')).toBeVisible()
+    await expect(feather).toBeHidden()
+    await expect(page.getByRole('tab', { name: 'Adjustments', exact: true })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
+    await activateButton(page.getByRole('button', { name: 'Cancel selection', exact: true }))
+    await expect(feather).toHaveValue('0.0')
+    await expect(shift).toHaveValue('-2')
+    expect((await history()).revision).toBe(4)
+    const native = await app.browserWindow(page)
+    await native.evaluate((window) => window.setContentSize(1100, 700))
+    await activateButton(page.getByTestId('console-toggle'))
+    const list = page.getByTestId('masks-list')
+    const listScroll = await list.evaluate((element) => element.scrollTop)
+    await shift.scrollIntoViewIfNeeded()
+    const panel = page.getByTestId('masks-panel')
+    await expect(panel.getByRole('button', { name: 'Create mask', exact: true })).toBeInViewport({
+      ratio: 1,
+    })
+    await expect(page.getByRole('tab', { name: 'Coverage', exact: true })).toBeInViewport({
+      ratio: 1,
+    })
+    expect(await list.evaluate((element) => element.scrollTop)).toBe(listScroll)
+    expect(
+      await page.getByTestId('inspector-scroll').evaluate((element) => element.scrollTop),
+    ).toBe(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+    await captureWindow(app, page, testInfo.outputPath('1100-console-mask-edges.png'))
+    await page.getByTestId('mask-details-scroll').evaluate((element) => {
+      element.scrollTop = 0
+    })
+    await expect(page.getByRole('button', { name: 'Mask edges', exact: true })).toBeInViewport({
+      ratio: 1,
+    })
+    await expect(feather).toBeInViewport({ ratio: 1 })
+    await captureWindow(app, page, testInfo.outputPath('1100-console-mask-edges-top.png'))
+  },
+)
 
 test('neutral Before renders while a real committed edge-coverage reply is pending', async ({
   irodori: { app, page },
@@ -199,6 +211,7 @@ test('neutral Before renders while a real committed edge-coverage reply is pendi
   await navigateInspector(page, 'Masks')
   await createMask(page)
   await expect.poll(history).toMatchObject({ revision: 1 })
+  await expect(canvas).toHaveAttribute('data-frame-geometry-revision', '1')
   await canvas.focus()
   await canvas.press('Space')
   await canvas.press('ArrowRight')

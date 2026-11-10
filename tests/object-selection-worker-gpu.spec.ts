@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
+import { mkdir, mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import * as ort from 'onnxruntime-node'
 import sharp from 'sharp'
 import { createObjectSelectionGpu } from '../src/main/object-selection/gpu'
@@ -68,6 +70,84 @@ test('the production inference policy refuses an actual CPU-only operator withou
       options,
     ),
   ).rejects.toThrow(/CPU|fallback|execution provider/i)
+})
+
+// eslint-disable-next-line no-empty-pattern
+test('the pinned encoder and decoder identify their native provider and physical Linux GPU independently of Dawn', async ({}, info) => {
+  test.setTimeout(150000)
+  const output = info.outputPath('native-ort')
+  await mkdir(output, { recursive: true })
+  const require = createRequire(import.meta.url)
+  const platform = process.platform === 'win32' ? 'win' : process.platform
+  const executable = join(
+    dirname(require.resolve(`node-${platform}-${process.arch}/package.json`)),
+    'bin',
+    process.platform === 'win32' ? 'node.exe' : 'node',
+  )
+  const env = { ...process.env }
+  delete env.ELECTRON_RUN_AS_NODE
+  delete env.NODE_OPTIONS
+  const log = await open(join(output, 'process.log'), 'w')
+  const child = spawn(
+    executable,
+    [
+      resolve('tests/object-selection-runtime-child.mjs'),
+      resolve('out/main/object-selection-model'),
+      output,
+    ],
+    {
+      env,
+      stdio: ['ignore', log.fd, log.fd],
+    },
+  )
+  const timer = setTimeout(() => child.kill('SIGKILL'), 120000)
+  try {
+    const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (accept, reject) => {
+        child.once('error', reject)
+        child.once('close', (code, signal) => accept({ code, signal }))
+      },
+    )
+    await info.attach('native-ort-log', {
+      path: join(output, 'process.log'),
+      contentType: 'text/plain',
+    })
+    const path = join(output, 'runtime-device.json')
+    const report = await readFile(path, 'utf8').catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return undefined
+      throw error
+    })
+    if (report !== undefined)
+      await info.attach('native-ort-device', { path, contentType: 'application/json' })
+    expect(exit).toEqual({ code: 0, signal: null })
+    expect(report).toBeDefined()
+    const result = JSON.parse(report!)
+    expect(result.status).toBe('passed')
+    expect(result.cpuFallbackDisabled).toBe(true)
+    expect(result.profiles).toHaveLength(2)
+    for (const profile of result.profiles) {
+      expect(profile.nodes).toBeGreaterThan(0)
+      expect(profile.providers).toEqual(['WebGpuExecutionProvider'])
+    }
+    if (process.platform === 'linux') {
+      expect(result.activeDevices).toHaveLength(1)
+      const selected = /^pci-([\da-f]{4})_([\da-f]{2})_([\da-f]{2})_([\da-f])!$/i.exec(
+        env.DRI_PRIME ?? '',
+      )
+      if (selected)
+        expect(result.activeDevices).toEqual([
+          `${selected[1]}:${selected[2]}:${selected[3]}.${selected[4]}`.toLowerCase(),
+        ])
+    }
+  } finally {
+    clearTimeout(timer)
+    if (child.exitCode === null && child.signalCode === null) {
+      const closed = new Promise<void>((accept) => child.once('close', () => accept()))
+      child.kill('SIGKILL')
+      await closed
+    }
+    await log.close()
+  }
 })
 
 test('the bundled GPU worker retains features, returns native binary coverage and owns cancellation/retry', async () => {

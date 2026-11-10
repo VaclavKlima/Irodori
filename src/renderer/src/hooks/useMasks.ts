@@ -61,10 +61,6 @@ export function useMasks(
   const error = failure?.scope === scope ? failure.message : ''
   const setError = useCallback((message: string) => setFailure({ scope, message }), [scope])
   const [epoch, setEpoch] = useState(0)
-  const current = useRef({ edits, photoId, enabled, workspace, onWorkspace })
-  useLayoutEffect(() => {
-    current.current = { edits, photoId, enabled, workspace, onWorkspace }
-  })
   const publish = useCallback((value: Draft | null) => {
     draftRef.current = value
     setDraft(value)
@@ -83,6 +79,10 @@ export function useMasks(
       ? workspace.selectedId
       : (confirmed[0]?.id ?? null)
   const selected = confirmed.find((m) => m.id === selectedId) ?? null
+  const current = useRef({ edits, photoId, enabled, workspace, selectedId, onWorkspace })
+  useLayoutEffect(() => {
+    current.current = { edits, photoId, enabled, workspace, selectedId, onWorkspace }
+  })
   const brushValues =
     brushDraft?.scope === scope && brushDraft.selectedId === selectedId ? brushDraft.values : null
   const supported = enabled && previewReady && edits.confirmed && !!state && !!photoId
@@ -90,7 +90,15 @@ export function useMasks(
   const active = supported && workspace.brush && workspace.detailTab === 'coverage' && !!selected
   const changeWorkspace = (patch: Partial<MaskWorkspace>) => {
     const value = current.current
-    value.onWorkspace({ ...value.workspace, photoId: value.photoId ?? null, selectedId, ...patch })
+    const next = {
+      ...value.workspace,
+      photoId: value.photoId ?? null,
+      selectedId: value.selectedId,
+      ...patch,
+    }
+    // A tab change may resume before React publishes an accepted create's selection.
+    current.current = { ...value, workspace: next, selectedId: next.selectedId }
+    value.onWorkspace(next)
   }
   const mutate = async (operations: MaskOperation[], expectedRevision?: number) => {
     if (current.current.photoId !== photoId || !current.current.enabled) return

@@ -30,14 +30,14 @@ const executable =
   )
 
 test(
-  'unsigned packaged application starts offline with isolated profile, imports RAW, exports, excludes retired assets, decodes fallback and restarts',
+  'unsigned packaged application starts offline, imports RAW, selects an object, exports mask edits, excludes retired assets, decodes fallback and restarts',
   foregroundTest(
     'Actual host-native packaged startup and desktop identity require the original packaged main entry in the foreground.',
   ),
   // eslint-disable-next-line no-empty-pattern -- This test launches the packaged executable through the shared launcher.
   async ({}, info) => {
     requiresForeground(test, 'Packaged startup uses the original production entry.')
-    test.setTimeout(120000)
+    test.setTimeout(180000)
     test.skip(
       !(await access(executable).then(
         () => true,
@@ -93,10 +93,19 @@ test(
         'out/main/catalog-worker.js',
         'out/main/export-worker.js',
         'out/main/merge-worker.js',
+        'out/main/object-selection-worker.js',
+        'out/main/mask-edge-worker.js',
+        'out/main/object-selection-model/manifest.json',
         'node_modules/sharp/package.json',
         'node_modules/webgpu/package.json',
+        'node_modules/onnxruntime-node/package.json',
       ])
         await access(join(runtime.root, path))
+      expect(
+        JSON.parse(
+          await readFile(join(runtime.root, 'node_modules/onnxruntime-node/package.json'), 'utf8'),
+        ).version,
+      ).toBe('1.31.1')
       for (const path of ['tests', 'assets/tests', 'node_modules/electron', 'app.asar'])
         expect(
           await access(join(runtime.root, path)).then(
@@ -120,6 +129,93 @@ test(
       expect(await readFile(join(profile, 'library/originals', photo.id, 'original.arw'))).toEqual(
         original,
       )
+      const selection = await page.evaluate(async (photoId) => {
+        const context = await window.irodori.getObjectSelectionContext(photoId, 0)
+        const proposal = await window.irodori.createObjectSelection({
+          photoId,
+          expectedRevision: 0,
+          gridIdentity: context.gridIdentity,
+          prompts: {
+            box: [0.2, 0.15, 0.85, 0.8],
+            positivePoints: [[0.5, 0.5]],
+            negativePoints: [],
+          },
+        })
+        return {
+          proposalId: proposal.id,
+          maskId: proposal.mask.id,
+          modelIdentity: proposal.modelIdentity,
+          width: context.geometry.canonicalWidth,
+          height: context.geometry.canonicalHeight,
+          base: proposal.mask.base && {
+            hash: proposal.mask.base.hash,
+            width: proposal.mask.base.width,
+            height: proposal.mask.base.height,
+          },
+        }
+      }, photo.id)
+      expect(selection.modelIdentity).toBe('sam2.1-hiera-tiny-f32-labels-v1')
+      expect(selection.base).toMatchObject({ width: selection.width, height: selection.height })
+      expect(selection.base?.hash).toMatch(/^[a-f0-9]{64}$/)
+      const accepted = await page.evaluate(
+        (request) => window.irodori.acceptObjectSelection(request),
+        { photoId: photo.id, proposalId: selection.proposalId, expectedRevision: 0 },
+      )
+      expect(accepted.revision).toBe(1)
+      const edited = await page.evaluate(
+        ({ photoId, maskId, revision }) =>
+          window.irodori.mutateMasks(photoId, revision, {
+            operations: [
+              {
+                kind: 'update',
+                id: maskId,
+                edge: { featherPx: 2, shiftPx: 1 },
+                light: { exposureEv: 0.25 },
+              },
+            ],
+          }),
+        { photoId: photo.id, maskId: selection.maskId, revision: accepted.revision },
+      )
+      expect(edited.revision).toBe(2)
+      expect(edited.settings.maskStack[0]).toMatchObject({
+        id: selection.maskId,
+        base: selection.base,
+        edge: { featherPx: 2, shiftPx: 1 },
+        light: { exposureEv: 0.25 },
+      })
+      const coverage = await page.evaluate(
+        async ({ photoId, maskId, revision }) => {
+          const prepared = await window.irodori.prepareMaskCoverage({
+            photoId,
+            revision,
+            maskIds: [maskId],
+          })
+          const asset = prepared.coverages[maskId]
+          return {
+            width: asset.width,
+            height: asset.height,
+            hash: asset.hash,
+            key: asset.key,
+            encodedBytes:
+              (asset.pngBase64.length / 4) * 3 -
+              (asset.pngBase64.endsWith('==') ? 2 : asset.pngBase64.endsWith('=') ? 1 : 0),
+          }
+        },
+        { photoId: photo.id, maskId: selection.maskId, revision: edited.revision },
+      )
+      expect(coverage).toMatchObject({ width: selection.width, height: selection.height })
+      expect(coverage.hash).toMatch(/^[a-f0-9]{64}$/)
+      expect(coverage.encodedBytes).toBeGreaterThan(0)
+      const savedHistory = await page.evaluate(async (photoId) => {
+        const { revision, settings, cursor, snapshots, canUndo, canRedo } =
+          await window.irodori.getEditHistory(photoId)
+        return { revision, settings, cursor, snapshots, canUndo, canRedo }
+      }, photo.id)
+      expect(savedHistory.snapshots).toHaveLength(3)
+      await info.attach('packaged-object-selection-and-mask-edges', {
+        contentType: 'application/json',
+        body: JSON.stringify({ ...selection, revision: edited.revision, coverage }),
+      })
       const destination = join(profile, 'package-exports')
       await mkdir(destination)
       await app.evaluate(({ dialog }, path) => {
@@ -225,6 +321,9 @@ test(
       await expect(restarted.getByTestId('preview-filename')).toHaveText(photo.filename)
       await expect(restarted.getByTestId('console-panel')).toBeVisible()
       expect((await restarted.evaluate(() => window.irodori.listPhotos())).total).toBe(1)
+      expect(
+        await restarted.evaluate((id) => window.irodori.getEditHistory(id), photo.id),
+      ).toMatchObject(savedHistory)
       expect((await readdir(join(runtime.root, 'node_modules'))).includes('@electron')).toBe(false)
     } finally {
       if (session) {

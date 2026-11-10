@@ -36,15 +36,47 @@ test(
         { type: 'keyUp', keyCode, modifiers },
       ])
     const click = async (locator: Locator) => {
+      await expect(locator).toBeEnabled()
+      await expect(locator).not.toHaveAttribute('aria-disabled', 'true')
       await locator.scrollIntoViewIfNeeded()
       const box = (await locator.boundingBox())!,
         x = Math.round(box.x + box.width / 2),
         y = Math.round(box.y + box.height / 2)
-      await send([
-        { type: 'mouseMove', x, y },
-        { type: 'mouseDown', x, y, button: 'left', clickCount: 1 },
-        { type: 'mouseUp', x, y, button: 'left', clickCount: 1 },
-      ])
+      const receipt = await locator.evaluateHandle((element) => {
+        const events = { pointerdown: false, mousedown: false, click: false }
+        const received = (event: Event) => {
+          if (!event.isTrusted || !element.contains(event.target as Node)) return
+          if ((event as MouseEvent).button !== 0) return
+          events[event.type as keyof typeof events] = true
+        }
+        for (const type of Object.keys(events)) document.addEventListener(type, received, true)
+        return {
+          state: () => ({ ...events }),
+          close: () => {
+            for (const type of Object.keys(events))
+              document.removeEventListener(type, received, true)
+          },
+        }
+      })
+      let pressed = false
+      try {
+        await send([{ type: 'mouseMove', x, y }])
+        pressed = true
+        await send([{ type: 'mouseDown', x, y, button: 'left', clickCount: 1 }])
+        await expect
+          .poll(() => receipt.evaluate((control) => control.state()))
+          .toMatchObject({ pointerdown: true, mousedown: true })
+        await send([{ type: 'mouseUp', x, y, button: 'left', clickCount: 1 }])
+        pressed = false
+        await expect.poll(() => receipt.evaluate((control) => control.state().click)).toBe(true)
+      } finally {
+        if (pressed)
+          await send([{ type: 'mouseUp', x, y, button: 'left', clickCount: 1 }]).catch(
+            () => undefined,
+          )
+        await receipt.evaluate((control) => control.close())
+        await receipt.dispose()
+      }
     }
     await click(page.getByTestId('console-toggle'))
     await navigateInspector(page, 'Masks')
@@ -120,6 +152,45 @@ test(
     await page.getByRole('tab', { name: 'Info', exact: true }).focus()
     await expect(page.getByRole('tab', { name: 'Info', exact: true })).toBeInViewport()
     await page.getByRole('tab', { name: 'Masks', exact: true }).focus()
+
+    await click(page.locator(`[data-mask-id="${first}"] [data-mask-select]`))
+    await click(page.getByRole('tab', { name: 'Coverage', exact: true }))
+    const beforeEdges = await history(),
+      edgeRevision = beforeEdges.revision + 1,
+      feather = page.getByRole('spinbutton', { name: 'Feather value', exact: true }),
+      shift = page.getByRole('spinbutton', { name: 'Expand/Contract value', exact: true })
+    await click(feather)
+    await feather.fill('3.5')
+    expect((await history()).revision).toBe(beforeEdges.revision)
+    await key('Enter')
+    await expect.poll(history).toMatchObject({ revision: edgeRevision })
+    await expect(feather).toHaveValue('3.5')
+    await expect(feather).toBeFocused()
+    await expect(canvas).toHaveAttribute('data-editing', 'ready')
+    await expect(canvas).toHaveAttribute('data-frame-geometry-revision', String(edgeRevision))
+    const edgeMask = (await history()).settings.maskStack.find((mask) => mask.id === first)!
+    expect(edgeMask).toMatchObject({
+      head,
+      light: { exposureEv: 0.75 },
+      edge: { featherPx: 3.5, shiftPx: 0 },
+    })
+    await click(shift)
+    await shift.fill('-3')
+    await key('Escape')
+    await expect(shift).toHaveValue('0')
+    await expect(shift).toBeFocused()
+    expect((await history()).revision).toBe(edgeRevision)
+    expect((await history()).settings.maskStack.find((mask) => mask.id === first)).toEqual(edgeMask)
+    const undo = page.getByRole('button', { name: 'Undo', exact: true })
+    await click(undo)
+    await expect.poll(history).toMatchObject({ revision: edgeRevision + 1 })
+    expect((await history()).settings.maskStack).toEqual(beforeEdges.settings.maskStack)
+    await expect(feather).toHaveValue('0.0')
+    await expect(undo).toBeFocused()
+    await expect(canvas).toHaveAttribute('data-editing', 'ready')
+    await expect(canvas).toHaveAttribute('data-frame-geometry-revision', String(edgeRevision + 1))
+    expect(await page.locator('[data-hover-controls]').boundingBox()).toEqual(stageBefore)
+    expect(await page.getByTestId('inspector-pinned').boundingBox()).toEqual(histogramBefore)
     await page.screenshot({ path: info.outputPath('masks-minimum-console.png'), scale: 'css' })
     await writeFile(
       info.outputPath('masks-native.json'),
@@ -129,6 +200,13 @@ test(
           stage: stageBefore,
           histogram: histogramBefore,
           history: (await history()).revision,
+          maskEdges: {
+            maskId: first,
+            committedRevision: edgeRevision,
+            committed: edgeMask.edge,
+            cancelledShiftPx: -3,
+            undoneRevision: edgeRevision + 1,
+          },
           focus: await native.evaluate((window) => ({
             window: window.isFocused(),
             contents: window.webContents.isFocused(),
