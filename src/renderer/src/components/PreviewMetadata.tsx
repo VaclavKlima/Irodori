@@ -10,7 +10,13 @@ export function PreviewMetadata({ photo }: { photo: Photo }) {
           (value) => value?.trim(),
         )
   return (
-    <div className={styles.metadata} data-testid="preview-metadata" aria-label="Photo metadata">
+    <div
+      className={styles.metadata}
+      data-testid="preview-metadata"
+      aria-label="Photo metadata"
+      data-selectable-text
+      tabIndex={0}
+    >
       {equipment.length > 0 && (
         <div className={styles.equipment} data-testid="preview-equipment">
           {equipment.map((value, index) => (

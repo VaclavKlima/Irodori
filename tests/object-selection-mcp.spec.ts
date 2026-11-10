@@ -38,6 +38,7 @@ test('actual catalog 23 startup upgrades all brush history to 24 and rejects dis
         { kind: 'create', id: maskId, name: 'Pre-existing brush mask' },
         {
           kind: 'stroke',
+          strokeTarget: 'primary',
           id: maskId,
           stroke: { mode: 'add', radius: 0.1, feather: 0.5, points: [{ x: 0.3, y: 0.4 }] },
         },
@@ -47,6 +48,7 @@ test('actual catalog 23 startup upgrades all brush history to 24 and rejects dis
       operations: [
         {
           kind: 'stroke',
+          strokeTarget: 'primary',
           id: maskId,
           stroke: { mode: 'subtract', radius: 0.03, feather: 0.2, points: [{ x: 0.5, y: 0.6 }] },
         },
@@ -69,6 +71,8 @@ test('actual catalog 23 startup upgrades all brush history to 24 and rejects dis
         for (const mask of settings.maskStack) {
           delete mask.edge
           delete mask.color
+          delete mask.operands
+          delete mask.resultHead
         }
       }
       db.prepare('UPDATE edits SET data=? WHERE id=?').run(JSON.stringify(stored), photoId)
@@ -99,6 +103,8 @@ test('actual catalog 23 startup upgrades all brush history to 24 and rejects dis
         for (const mask of settings.maskStack) {
           delete mask.edge
           delete mask.color
+          delete mask.operands
+          delete mask.resultHead
         }
       }
       future.settings.maskStack[0].base = { version: 1, hash: 'e'.repeat(64), width: 8, height: 6 }
@@ -417,6 +423,8 @@ test('actual managed MCP delivers a native proposal and preserves manual edits t
       (await library.getEdits(photoId)).settings.maskStack,
     )[0]
     expect(after.strokes).toEqual(before.strokes)
+    expect(after.resultStrokes).toEqual(before.resultStrokes)
+    expect(after.resultStrokes).toHaveLength(2)
     expect(after.light).toEqual(before.light)
     expect(after.head).toBe(before.head)
     await call('irodori_undo_edit', { photoId, expectedRevision: 4 })

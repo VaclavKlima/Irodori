@@ -17,6 +17,7 @@ import { prepareMaskMutation } from '../src/main/mask-store'
 import { initialSettings, SETTINGS_VERSION } from '../src/shared/edits'
 import {
   migrateEditingHistory,
+  CATALOG_VERSION,
   supportsEditingSettings,
 } from '../src/main/catalog/editing-migration'
 import { catalogTransaction } from '../src/main/catalog/transaction'
@@ -88,12 +89,14 @@ test('edge updates and duplication retain immutable Paint/Erase history and inde
     { featherPx: 12.5, shiftPx: -3 },
   ])
   for (const mask of updated.stack) {
-    expect(mask.head).toBe(first.stack[0].head)
+    expect(mask.head).toBeNull()
+    expect(mask.resultHead).not.toBeNull()
+    expect(mask.resultHead).toBe(first.stack[0].resultHead)
     expect(mask.light).toEqual(first.stack[0].light)
     expect(mask.inverted).toBe(true)
   }
   expect(
-    resolveMasks(updated.stack, first.chunks).map((mask) => [mask.edge, mask.strokes]),
+    resolveMasks(updated.stack, first.chunks).map((mask) => [mask.edge, mask.resultStrokes]),
   ).toEqual([
     [{ featherPx: 12.5, shiftPx: 4 }, first.chunks.map((chunk) => chunk.stroke)],
     [{ featherPx: 12.5, shiftPx: -3 }, first.chunks.map((chunk) => chunk.stroke)],
@@ -149,6 +152,8 @@ test('settings 14 history gains neutral edges without changing revisions, cursor
       for (const mask of value.maskStack) {
         delete mask.edge
         delete mask.color
+        delete mask.operands
+        delete mask.resultHead
       }
     }
     expect(supportsEditingSettings(legacy.settings, 24)).toBe(true)
@@ -158,7 +163,7 @@ test('settings 14 history gains neutral edges without changing revisions, cursor
     const actual = JSON.parse((db.prepare('SELECT data FROM edits').get() as { data: string }).data)
     expect(actual).toEqual(expected)
     expect(actual.settings.version).toBe(SETTINGS_VERSION)
-    expect(supportsEditingSettings(actual.settings, 27)).toBe(true)
+    expect(supportsEditingSettings(actual.settings, CATALOG_VERSION)).toBe(true)
     expect(supportsEditingSettings(actual.settings, 24)).toBe(false)
   } finally {
     db.close()
@@ -175,6 +180,11 @@ test('future edge fields disguised as older settings refuse the entire migration
       maskStack: prepareMaskMutation([], {
         operations: [{ kind: 'create', id: randomUUID(), name: 'Future field' }],
       }).stack,
+    }
+    for (const mask of bad.maskStack) {
+      Reflect.deleteProperty(mask, 'color')
+      Reflect.deleteProperty(mask, 'operands')
+      Reflect.deleteProperty(mask, 'resultHead')
     }
     for (const version of [13, 14]) expect(supportsEditingSettings({ ...bad, version })).toBe(false)
     db.prepare('INSERT INTO edits VALUES (?, ?)').run(
@@ -220,7 +230,11 @@ test('settings 15 adds neutral Color to all history while preserving authored ed
       ...legacy.snapshots.map((snapshot: { settings: unknown }) => snapshot.settings),
     ]) {
       settings.version = 15
-      for (const mask of settings.maskStack) delete mask.color
+      for (const mask of settings.maskStack) {
+        delete mask.color
+        delete mask.operands
+        delete mask.resultHead
+      }
     }
     expect(supportsEditingSettings(legacy.settings, 25)).toBe(true)
     expect(supportsEditingSettings(legacy.settings, 26)).toBe(false)
@@ -229,7 +243,7 @@ test('settings 15 adds neutral Color to all history while preserving authored ed
     const actual = JSON.parse((db.prepare('SELECT data FROM edits').get() as { data: string }).data)
     expect(actual).toEqual(expected)
     expect(actual.settings.maskStack[0].color).toEqual(neutralMaskColor)
-    expect(supportsEditingSettings(actual.settings, 27)).toBe(true)
+    expect(supportsEditingSettings(actual.settings, CATALOG_VERSION)).toBe(true)
     const before = db.prepare('SELECT data FROM edits').get()
     catalogTransaction(db, () => migrateEditingHistory(db))
     expect(db.prepare('SELECT data FROM edits').get()).toEqual(before)
@@ -245,6 +259,10 @@ test('Color fields disguised as older settings are rejected before any migration
     const stack = prepareMaskMutation([], {
       operations: [{ kind: 'create', id: randomUUID(), name: 'Future Color' }],
     }).stack
+    for (const mask of stack) {
+      Reflect.deleteProperty(mask, 'operands')
+      Reflect.deleteProperty(mask, 'resultHead')
+    }
     for (const version of [13, 14, 15]) {
       const masks = structuredClone(stack)
       if (version < 15) for (const mask of masks) Reflect.deleteProperty(mask, 'edge')

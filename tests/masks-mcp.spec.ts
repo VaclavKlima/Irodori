@@ -229,7 +229,7 @@ test('managed MCP maps bounded points, freezes targets and shares mask operation
     expect(uiState.settings).toEqual(first.settings)
     expect(uiState.maskContent).toHaveLength(2)
     expect(
-      f.t.library.resolvedMasks(photoId, uiState.settings.maskStack)[1].strokes[0].points,
+      f.t.library.resolvedMasks(photoId, uiState.settings.maskStack)[1].resultStrokes![0].points,
     ).toEqual([context.points[1]])
     expect((await f.t.library.getEditHistory(photoId)).snapshots).toHaveLength(2)
     const reordered = await f.call<EditState>('irodori_mutate_masks', {
@@ -478,6 +478,89 @@ test('managed MCP maps extended gradient points explicitly and commits complete 
     expect((await f.t.library.getEdits(photoId)).revision).toBe(2)
     const undone = await f.call<EditState>('irodori_undo_edit', { photoId, expectedRevision: 2 })
     expect(undone.settings.maskStack[0].gradient).toEqual(gradient)
+  } finally {
+    await f.close()
+  }
+})
+
+test('MCP edits independent copied groups and explicit result corrections through shared Undo/Redo', async () => {
+  const f = await fixture()
+  try {
+    const photoId = f.t.ids[0],
+      source = randomUUID(),
+      destination = randomUUID(),
+      component = randomUUID()
+    const radial = {
+      kind: 'radial' as const,
+      center: { x: 0.5, y: 0.5 },
+      radiusX: 0.4,
+      radiusY: 0.4,
+      rotation: 0,
+      feather: 50,
+    }
+    const created = await f.call<EditState>('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: 0,
+      maskMutation: {
+        operations: [
+          { kind: 'create', id: source, name: 'Bird', gradient: radial },
+          { kind: 'create', id: destination, name: 'Water', gradient: radial },
+          { kind: 'update', id: destination, light: { exposureEv: -1 } },
+          {
+            kind: 'component-copy',
+            id: destination,
+            componentId: component,
+            sourceMaskId: source,
+            name: 'Protected bird',
+            operator: 'subtract',
+          },
+        ],
+      },
+    })
+    expect(created.revision).toBe(1)
+    const water = created.settings.maskStack.find((mask) => mask.id === destination)!
+    expect(water.operands?.[0]).toMatchObject({
+      id: component,
+      operator: 'subtract',
+      gradient: radial,
+    })
+    expect(water.operands?.[0]).not.toHaveProperty('light')
+    const changed = await f.call<EditState>('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: 1,
+      maskMutation: {
+        operations: [
+          { kind: 'update', id: source, gradient: { ...radial, feather: 0 } },
+          {
+            kind: 'component-update',
+            id: destination,
+            componentId: component,
+            operator: 'intersect',
+            name: 'Restricted water',
+          },
+          {
+            kind: 'stroke',
+            id: destination,
+            componentId: component,
+            strokeTarget: 'result',
+            stroke: { mode: 'subtract', radius: 0.1, feather: 0, points: [{ x: 0.5, y: 0.5 }] },
+          },
+        ],
+      },
+    })
+    const copy = changed.settings.maskStack.find((mask) => mask.id === destination)!.operands![0]
+    expect(copy.gradient).toEqual(radial)
+    expect(copy.head).toBeNull()
+    expect(copy.resultHead).toHaveLength(64)
+    const resolved = f.t.library
+      .resolvedMasks(photoId, changed.settings.maskStack)
+      .find((mask) => mask.id === destination)!
+    expect(resolved.operands![0].resultStrokes).toHaveLength(1)
+    const undone = await f.call<EditState>('irodori_undo_edit', { photoId, expectedRevision: 2 })
+    expect(undone.settings).toEqual(created.settings)
+    const redone = await f.call<EditState>('irodori_redo_edit', { photoId, expectedRevision: 3 })
+    expect(redone.settings).toEqual(changed.settings)
+    expect((await f.t.library.getEditHistory(photoId)).snapshots).toHaveLength(3)
   } finally {
     await f.close()
   }

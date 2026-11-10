@@ -169,23 +169,38 @@ async function fixture() {
       source.processing.revision = state.revision
     },
     setMask: (mask: ResolvedMask) => {
-      const { base } = mask
-      state.settings.maskStack = [
-        {
-          id: mask.id,
-          name: mask.name,
-          enabled: mask.enabled,
-          inverted: mask.inverted,
-          head: mask.head,
-          light: { ...mask.light },
-          color: { ...mask.color },
-          edge: { ...mask.edge },
-          ...(mask.gradient ? { gradient: structuredClone(mask.gradient) } : {}),
-          ...(base
-            ? { base: { version: 1, hash: base.hash, width: base.width, height: base.height } }
+      const descriptor = (
+        node: import('../src/shared/masks').ResolvedMaskCoverage,
+      ): import('../src/shared/masks').MaskCoverageNode => {
+        const metadata = Object.fromEntries(
+          Object.entries(node).filter(
+            ([key]) =>
+              !['strokes', 'resultStrokes', 'preparedCoverage', 'base', 'operands'].includes(key),
+          ),
+        )
+        return {
+          ...metadata,
+          ...(node.base
+            ? {
+                base: {
+                  version: 1,
+                  hash: node.base.hash,
+                  width: node.base.width,
+                  height: node.base.height,
+                },
+              }
             : {}),
-        },
-      ]
+          ...(node.operands
+            ? {
+                operands: node.operands.map((child) => ({
+                  ...descriptor(child),
+                  operator: child.operator,
+                })),
+              }
+            : {}),
+        } as import('../src/shared/masks').MaskCoverageNode
+      }
+      state.settings.maskStack = [{ ...descriptor(mask), light: mask.light, color: mask.color }]
       source.processing.adjustments = {
         ...source.processing.adjustments!,
         localMasks: [structuredClone(mask)],
@@ -570,6 +585,7 @@ test('catalog 23 / settings 13 migration preserves every brush-history branch, h
         { kind: 'create', id: maskId, name: 'Existing manual object' },
         {
           kind: 'stroke',
+          strokeTarget: 'primary',
           id: maskId,
           stroke: { mode: 'add', radius: 0.1, feather: 0.6, points: [{ x: 0.2, y: 0.3 }] },
         },
@@ -579,6 +595,7 @@ test('catalog 23 / settings 13 migration preserves every brush-history branch, h
       operations: [
         {
           kind: 'stroke',
+          strokeTarget: 'primary',
           id: maskId,
           stroke: { mode: 'subtract', radius: 0.03, feather: 0.4, points: [{ x: 0.4, y: 0.5 }] },
         },
@@ -614,6 +631,8 @@ test('catalog 23 / settings 13 migration preserves every brush-history branch, h
       for (const mask of value.maskStack) {
         delete mask.edge
         delete mask.color
+        delete mask.operands
+        delete mask.resultHead
       }
     }
     expect(supportsEditingSettings(legacy.settings, 23)).toBe(true)
@@ -766,6 +785,208 @@ test('gradient refinement refuses before canonical decoding or object inference'
       'cannot refine a gradient',
     )
     expect(f.calls).toMatchObject({ decode: 0, run: 0, commits: 0, coverage: 0 })
+  } finally {
+    await f.close()
+  }
+})
+
+test('a component proposal freezes its destination, previews the destination tree and preserves root controls', async () => {
+  const f = await fixture()
+  try {
+    const rootId = randomUUID(),
+      componentId = randomUUID()
+    const mask: ResolvedMask = {
+      id: rootId,
+      name: 'Water',
+      enabled: true,
+      inverted: false,
+      head: null,
+      edge: { featherPx: 0, shiftPx: 0 },
+      gradient: {
+        kind: 'radial',
+        center: { x: 0.5, y: 0.5 },
+        radiusX: 0.4,
+        radiusY: 0.3,
+        rotation: 0,
+        feather: 50,
+      },
+      light: { ...neutralMaskLight, exposureEv: -1 },
+      color: { ...neutralMaskColor },
+      strokes: [],
+      operands: [],
+      resultHead: null,
+    }
+    f.setMask(mask)
+    const request = await f.request({
+      target: {
+        kind: 'new-component',
+        maskId: rootId,
+        componentId,
+        name: 'Protected bird',
+        operator: 'subtract',
+      },
+    })
+    const pending = f.service.create(request)
+    // Mutating the caller-owned object after dispatch cannot change acceptance.
+    if (request.target?.kind === 'new-component') request.target.operator = 'add'
+    const proposal = await pending
+    expect(proposal.mask.id).toBe(rootId)
+    expect(proposal.mask.gradient).toEqual(mask.gradient)
+    expect(proposal.mask.light).toEqual(mask.light)
+    expect(proposal.mask.base).toBeUndefined()
+    expect(proposal.mask.operands?.[0]).toMatchObject({
+      id: componentId,
+      operator: 'subtract',
+      name: 'Protected bird',
+    })
+    expect(proposal.mask.operands?.[0].base?.hash).toHaveLength(64)
+    expect(f.calls.commits).toBe(0)
+    const accepted = await f.service.accept({
+      photoId: request.photoId,
+      expectedRevision: 4,
+      proposalId: proposal.id,
+    })
+    expect(accepted.settings.maskStack).toHaveLength(1)
+    expect(accepted.settings.maskStack[0].operands?.[0].operator).toBe('subtract')
+    expect(accepted.settings.maskStack[0].light).toEqual(mask.light)
+    expect(f.calls.commits).toBe(1)
+  } finally {
+    await f.close()
+  }
+})
+
+test('component selection refuses missing destinations and conflicting target forms before inference', async () => {
+  const f = await fixture()
+  try {
+    const request = await f.request({
+      target: { kind: 'replace-component', maskId: randomUUID(), componentId: randomUUID() },
+    })
+    await expect(f.service.create(request)).rejects.toThrow(/unavailable/)
+    expect(f.calls.decode).toBe(0)
+    expect(f.calls.run).toBe(0)
+    expect(() => f.service.create({ ...request, maskId: randomUUID() })).toThrow(/one explicit/)
+  } finally {
+    await f.close()
+  }
+})
+
+test('nested object replacement retains both correction chains, grouping and destination adjustments', async () => {
+  const f = await fixture()
+  try {
+    const rootId = randomUUID(),
+      childId = randomUUID()
+    const stroke = {
+      mode: 'subtract' as const,
+      radius: 0.1,
+      feather: 0,
+      points: [{ x: 0.3, y: 0.3 }],
+    }
+    const mask: ResolvedMask = {
+      id: rootId,
+      name: 'Destination',
+      enabled: true,
+      inverted: false,
+      head: null,
+      light: { ...neutralMaskLight, exposureEv: -1 },
+      color: { ...neutralMaskColor },
+      edge: { featherPx: 0, shiftPx: 0 },
+      strokes: [],
+      operands: [
+        {
+          id: childId,
+          name: 'Refined protection',
+          enabled: true,
+          inverted: true,
+          head: 'b'.repeat(64),
+          resultHead: 'c'.repeat(64),
+          operator: 'subtract',
+          edge: { featherPx: 0, shiftPx: 0 },
+          base: generatedMask(16, 16, () => 0),
+          strokes: [stroke],
+          resultStrokes: [stroke],
+          operands: [],
+        },
+      ],
+    }
+    f.setMask(mask)
+    const request = await f.request({
+      target: { kind: 'replace-component', maskId: rootId, componentId: childId },
+    })
+    const proposal = await f.service.create(request)
+    const part = proposal.mask.operands![0]
+    expect(part.base?.hash).not.toBe(mask.operands![0].base?.hash)
+    expect(part).toMatchObject({
+      id: childId,
+      operator: 'subtract',
+      inverted: true,
+      head: 'b'.repeat(64),
+      resultHead: 'c'.repeat(64),
+      strokes: [stroke],
+      resultStrokes: [stroke],
+    })
+    expect(proposal.mask.light).toEqual(mask.light)
+    const accepted = await f.service.accept({
+      photoId: request.photoId,
+      expectedRevision: 4,
+      proposalId: proposal.id,
+    })
+    expect(accepted.settings.maskStack[0].operands![0]).toMatchObject({
+      id: childId,
+      head: 'b'.repeat(64),
+      resultHead: 'c'.repeat(64),
+      base: { hash: part.base!.hash },
+    })
+    expect(f.calls.commits).toBe(1)
+  } finally {
+    await f.close()
+  }
+})
+
+test('explicit object starting-source replacement remains a proposal until acceptance and preserves corrections', async () => {
+  const f = await fixture()
+  try {
+    const id = randomUUID()
+    const gradient = { kind: 'linear' as const, start: { x: 0.2, y: 0.3 }, end: { x: 0.8, y: 0.7 } }
+    const stroke = { mode: 'add' as const, radius: 0.1, feather: 0, points: [{ x: 0.3, y: 0.3 }] }
+    const mask: ResolvedMask = {
+      id,
+      name: 'Starting gradient',
+      enabled: true,
+      inverted: true,
+      head: 'b'.repeat(64),
+      resultHead: 'c'.repeat(64),
+      gradient,
+      light: { ...neutralMaskLight, exposureEv: -1 },
+      color: { ...neutralMaskColor },
+      edge: { featherPx: 0, shiftPx: 0 },
+      strokes: [stroke],
+      resultStrokes: [stroke],
+      operands: [],
+    }
+    f.setMask(mask)
+    const request = await f.request({
+      target: { kind: 'replace-component', maskId: id, replacePrimary: true },
+    })
+    const proposal = await f.service.create(request)
+    expect(f.state().settings.maskStack[0].gradient).toEqual(gradient)
+    expect(proposal.mask.gradient).toBeUndefined()
+    expect(proposal.mask).toMatchObject({
+      head: mask.head,
+      resultHead: mask.resultHead,
+      light: mask.light,
+      inverted: true,
+      strokes: [stroke],
+      resultStrokes: [stroke],
+    })
+    const accepted = await f.service.accept({
+      photoId: request.photoId,
+      expectedRevision: 4,
+      proposalId: proposal.id,
+    })
+    expect(accepted.settings.maskStack[0].gradient).toBeUndefined()
+    expect(accepted.settings.maskStack[0].base?.hash).toBe(proposal.mask.base?.hash)
+    expect(accepted.settings.maskStack[0].head).toBe(mask.head)
+    expect(f.calls.commits).toBe(1)
   } finally {
     await f.close()
   }

@@ -5,19 +5,24 @@ import { join } from 'node:path'
 import { neutralAdjustments } from '../../shared/adjustments'
 import { noLensSettings } from '../../shared/lens'
 import {
+  maskCapabilities,
   neutralMaskEdge,
   neutralMaskLight,
   neutralMaskColor,
-  maskHasEdges,
   maskBaseReference,
   validatePreparedMaskCoverage,
+  findMaskComponent,
+  coverageNodes,
+  validateMaskStack,
   type MaskBaseContent,
   type MaskDescriptor,
   type PreparedMaskCoverage,
   type ResolvedMask,
+  type ResolvedMaskCoverage,
 } from '../../shared/masks'
 import {
   objectSelectionCapabilities,
+  objectSelectionTarget,
   validateAcceptObjectSelection,
   validateObjectSelectionRequest,
   validateSelectionTarget,
@@ -29,6 +34,7 @@ import {
 import type { PhotoMaskContext } from '../../shared/mask-geometry'
 import type { EditState } from '../../shared/edits'
 import type { CropAdmission } from '../../shared/crop-resources'
+import { maskTreeHasEdges } from '../../shared/masks-gpu'
 import { PreviewProcess } from '../preview-process'
 import type { ExportSource } from '../export/types'
 import { ObjectSelectionProcess } from './process'
@@ -154,15 +160,9 @@ export class ObjectSelectionService {
     })
   }
   private async validate(request: ObjectSelectionRequest) {
-    if (request.maskId) {
-      const state = await this.owner.edits(request.photoId)
-      const target = state.settings.maskStack.find((mask) => mask.id === request.maskId)
-      if (!target) throw new Error('The mask to refine is unavailable.')
-      if (target.gradient)
-        throw new Error(
-          'Object selection cannot refine a gradient mask. Create a separate object mask.',
-        )
-    }
+    const state = await this.owner.edits(request.photoId)
+    // Validate the frozen destination before source preparation or inference.
+    validateSelectionDestination(state.settings.maskStack, request)
     const context = await this.context(request.photoId, request.expectedRevision)
     if (context.gridIdentity !== request.gridIdentity)
       throw new Error('The photograph geometry changed. Indicate the object again.')
@@ -256,39 +256,45 @@ export class ObjectSelectionService {
       }
       verifiedMaskBaseBytes(base)
       const current = await this.owner.edits(request.photoId)
-      const target = request.maskId
-        ? current.settings.maskStack.find((mask) => mask.id === request.maskId)
-        : undefined
-      if (request.maskId && !target) throw new Error('The mask to refine is unavailable.')
-      const id = target?.id ?? randomUUID()
-      const resolved = target
-        ? source.processing.adjustments?.localMasks?.find((mask) => mask.id === target.id)
-        : undefined
-      if (target && !resolved)
+      const destination = objectSelectionTarget(request)
+      const id = destination.kind === 'new-mask' ? randomUUID() : destination.maskId
+      const stack = selectedMaskStack(current.settings.maskStack, request, base, id)
+      const descriptor = stack.find((mask) => mask.id === id)!
+      const resolved = source.processing.adjustments?.localMasks?.find((mask) => mask.id === id)
+      if (destination.kind !== 'new-mask' && !resolved)
         throw new Error('The selected mask content is inconsistent. Reload the confirmed masks.')
+      const oldNodes = new Map(
+        resolved ? coverageNodes(resolved).map((node) => [node.id, node]) : [],
+      )
+      const hydrate = (
+        node: import('../../shared/masks').MaskCoverageNode,
+      ): ResolvedMaskCoverage => {
+        const old = oldNodes.get(node.id) as ResolvedMaskCoverage | undefined
+        const changed =
+          destination.kind === 'new-mask' ||
+          node.id === (destination.componentId ?? destination.maskId)
+        return {
+          ...node,
+          base: changed ? base : old?.base,
+          strokes: old?.strokes ?? [],
+          resultStrokes: old?.resultStrokes ?? [],
+          operands: (node.operands ?? []).map((child) => ({
+            ...hydrate(child),
+            operator: child.operator,
+          })),
+          preparedCoverage: undefined,
+        }
+      }
       const proposal: ObjectSelectionProposal = {
+        target: structuredClone(destination),
         id: randomUUID(),
         photoId: request.photoId,
         revision: request.expectedRevision,
         gridIdentity: request.gridIdentity,
         modelIdentity: result.modelIdentity,
-        mask: {
-          ...(resolved ?? {
-            id,
-            name: 'Object',
-            enabled: true,
-            inverted: false,
-            head: null,
-            light: { ...neutralMaskLight },
-            color: { ...neutralMaskColor },
-            edge: { ...neutralMaskEdge },
-            strokes: [],
-          }),
-          base,
-          preparedCoverage: undefined,
-        },
+        mask: { ...hydrate(descriptor), light: descriptor.light, color: descriptor.color },
       }
-      if (maskHasEdges(proposal.mask)) {
+      if (maskTreeHasEdges(proposal.mask)) {
         if (!this.owner.prepareCoverage)
           throw new Error(
             'Mask edge coverage preparation is unavailable. Cancel selection and retry GPU.',
@@ -391,14 +397,11 @@ export function selectedMaskStack(
   base: MaskBaseContent,
   id: string,
 ): MaskDescriptor[] {
-  const reference = { version: 1 as const, hash: base.hash, width: base.width, height: base.height }
-  if (request.maskId) {
-    if (!current.some((mask) => mask.id === request.maskId))
-      throw new Error('The selected mask is unavailable.')
-    return current.map((mask) => (mask.id === request.maskId ? { ...mask, base: reference } : mask))
-  }
-  return [
-    {
+  const reference = maskBaseReference(base)
+  const stack = structuredClone(current) as MaskDescriptor[]
+  const destination = validateSelectionDestination(stack, request)
+  if (destination.kind === 'new-mask') {
+    stack.unshift({
       id,
       name: 'Object',
       enabled: true,
@@ -408,7 +411,75 @@ export function selectedMaskStack(
       light: { ...neutralMaskLight },
       color: { ...neutralMaskColor },
       edge: { ...neutralMaskEdge },
-    },
-    ...current,
-  ]
+      operands: [],
+      resultHead: null,
+    })
+  } else {
+    const root = stack.find((mask) => mask.id === destination.maskId)!
+    if (destination.kind === 'replace-component') {
+      const component = findMaskComponent(root, destination.componentId)
+      if (destination.replacePrimary) delete component.gradient
+      component.base = reference
+    } else {
+      const parent = findMaskComponent(root, destination.parentId)
+      parent.operands ??= []
+      parent.operands.push({
+        id: destination.componentId,
+        name: destination.name,
+        operator: destination.operator,
+        enabled: true,
+        inverted: false,
+        head: null,
+        base: reference,
+        edge: { ...neutralMaskEdge },
+        operands: [],
+        resultHead: null,
+      })
+    }
+  }
+  validateMaskStack(stack)
+  return stack
+}
+
+function validateSelectionDestination(
+  current: readonly MaskDescriptor[],
+  request: ObjectSelectionRequest,
+) {
+  const target = objectSelectionTarget(request)
+  if (target.kind === 'new-mask') {
+    if (current.length >= maskCapabilities.maxMasks) throw new Error('Too many local masks.')
+    return target
+  }
+  const root = current.find((mask) => mask.id === target.maskId)
+  if (!root) throw new Error('The mask to refine is unavailable.')
+  const component = findMaskComponent(
+    root,
+    target.kind === 'new-component' ? target.parentId : target.componentId,
+  )
+  if (target.kind === 'replace-component' && component.gradient && !target.replacePrimary)
+    throw new Error('Object selection cannot refine a gradient. Choose an object or brush part.')
+  if (target.kind === 'new-component') {
+    if (current.some((mask) => coverageNodes(mask).some((node) => node.id === target.componentId)))
+      throw new Error('This coverage component ID already exists.')
+    // Admit the whole proposed tree, including disabled operands, before inference.
+    const candidate = structuredClone(current) as MaskDescriptor[]
+    const parent = findMaskComponent(
+      candidate.find((mask) => mask.id === target.maskId)!,
+      target.parentId,
+    )
+    parent.operands ??= []
+    parent.operands.push({
+      id: target.componentId,
+      name: target.name,
+      operator: target.operator,
+      enabled: true,
+      inverted: false,
+      head: null,
+      edge: { ...neutralMaskEdge },
+      operands: [],
+      resultHead: null,
+    })
+    validateMaskStack(candidate)
+  }
+  return target
 }

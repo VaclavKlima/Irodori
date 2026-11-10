@@ -371,3 +371,12 @@ supervisor matches `Irodori` anywhere in an executable path and consequently
 counts bundled Node descendants as live applications. That separate runtime
 limitation is not a clean prerequisite pass. No comprehensive checkpoint or
 processing benchmark was run for this layout.
+
+## Compound coverage — November 10, 2026
+
+[Compound masks](mask-compounds.md) extend coverage with owned Add, Subtract and
+Intersect parts, editable independent copies, fixed starting coverage and separate
+result corrections. [Issue #85](https://github.com/VaclavKlima/Irodori/issues/85)
+owns implementation and acceptance; [#99](https://github.com/VaclavKlima/Irodori/issues/99)
+tracks other-device verification. This tree order supersedes the earlier single
+source/brush coverage description above; root Light/Color still apply once.

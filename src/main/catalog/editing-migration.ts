@@ -17,7 +17,7 @@ import {
   validateDetailSharpening,
 } from '../../shared/spatial-detail'
 
-export const CATALOG_VERSION = 27
+export const CATALOG_VERSION = 28
 
 /** Validate the entire library before startup permits any migration or recovery write. */
 export function supportsEditingSettings(
@@ -36,7 +36,11 @@ export function supportsEditingSettings(
   if ((settings.version as number) < 10 && ('colorMixer' in settings || 'colorGrading' in settings))
     return false
   const legacy = settings.version === 7
-  if (![7, 8, 9, 10, 11, 12, 13, 14, 15, 16, SETTINGS_VERSION].includes(settings.version as number))
+  if (
+    ![7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, SETTINGS_VERSION].includes(
+      settings.version as number,
+    )
+  )
     return false
   if (
     catalogVersion !== undefined &&
@@ -53,7 +57,8 @@ export function supportsEditingSettings(
           24: 14,
           25: 15,
           26: 16,
-          27: SETTINGS_VERSION,
+          27: 17,
+          28: SETTINGS_VERSION,
         } as Record<number, number>
       )[catalogVersion]
   )
@@ -76,7 +81,9 @@ export function supportsEditingSettings(
             typeof mask !== 'object' ||
             (version < 15 && Object.hasOwn(mask, 'edge')) ||
             (version < 16 && Object.hasOwn(mask, 'color')) ||
-            (version < 17 && Object.hasOwn(mask, 'gradient')),
+            (version < 17 && Object.hasOwn(mask, 'gradient')) ||
+            (version < 18 &&
+              (Object.hasOwn(mask, 'operands') || Object.hasOwn(mask, 'resultHead'))),
         )
       )
         return false
@@ -168,6 +175,7 @@ export function migrateEditingHistory(db: DatabaseSync): void {
           (settings.version as number) >= 13
             ? (settings.maskStack as MaskDescriptor[]).map((mask) => ({
                 ...mask,
+                ...((settings.version as number) < 18 ? { operands: [], resultHead: null } : {}),
                 ...((settings.version as number) < 15 ? { edge: { ...neutralMaskEdge } } : {}),
                 ...((settings.version as number) < 16 ? { color: { ...neutralMaskColor } } : {}),
               }))

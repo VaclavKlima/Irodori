@@ -147,6 +147,10 @@ function storedHistory(history: EditHistory, catalogVersion: number): EditHistor
         if (catalogVersion < 25) delete mask.edge
         if (catalogVersion < 26) delete mask.color
         if (catalogVersion < 27) delete mask.gradient
+        if (catalogVersion < 28) {
+          delete mask.operands
+          delete mask.resultHead
+        }
       }
     }
     if (catalogVersion < 22) delete legacy.curves
@@ -533,7 +537,7 @@ test('creative color preflight rejects malformed current and redo groups before 
   }
 })
 
-for (const previousVersion of [24, 25, 26])
+for (const previousVersion of [24, 25, 26, 27])
   test(`catalog ${previousVersion} upgrades local controls neutrally across current, undo and redo snapshots without rewriting immutable content`, async () => {
     const f = await fixture()
     try {
@@ -549,6 +553,7 @@ for (const previousVersion of [24, 25, 26])
             { kind: 'create', id, name: 'Retained object' },
             {
               kind: 'stroke',
+              strokeTarget: 'primary',
               id,
               stroke: { mode: 'add', radius: 0.1, feather: 0.5, points: [{ x: 0.3, y: 0.4 }] },
             },
@@ -565,6 +570,7 @@ for (const previousVersion of [24, 25, 26])
           operations: [
             {
               kind: 'stroke',
+              strokeTarget: 'primary',
               id,
               stroke: {
                 mode: 'subtract',

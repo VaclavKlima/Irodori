@@ -42,6 +42,7 @@ import { InspectorSection } from './InspectorSection'
 import type { MasksController } from '../hooks/useMasks'
 import type { ObjectSelectionController } from '../hooks/useObjectSelection'
 import { ObjectSelectionControls } from './ObjectSelection'
+import { MaskParts } from './MaskParts'
 import { GradientShape } from './GradientShape'
 import { maskCreationActions, startMaskCreation, type MaskToolId } from './mask-tools'
 import styles from './Masks.module.css'
@@ -349,7 +350,12 @@ export function Masks({
     } else masks.move(mask.id, targetIndex + (id === 'up' ? -1 : 1))
   }
   return (
-    <section className={styles.panel} aria-label="Local masks" data-testid="masks-panel">
+    <section
+      className={styles.panel}
+      aria-label="Local masks"
+      data-testid="masks-panel"
+      data-ready={masks.available}
+    >
       <div className={styles.heading}>
         <h2>
           Masks <span className={styles.count}>{masks.masks.length || ''}</span>
@@ -387,15 +393,15 @@ export function Masks({
               : Brush
           const rename = renaming?.scope === masks.scope && renaming?.id === mask.id
           const type = mask.gradient
-            ? `${mask.gradient.kind === 'linear' ? 'Linear' : 'Radial'} gradient${mask.head ? ' + Brush' : ''}`
+            ? `${mask.gradient.kind === 'linear' ? 'Linear' : 'Radial'} gradient${mask.head || mask.resultHead ? ' + Brush' : ''}`
             : mask.base
-              ? mask.head
+              ? mask.head || mask.resultHead
                 ? 'Object + Brush'
                 : 'Object'
-              : mask.head
+              : mask.head || mask.resultHead
                 ? 'Brush'
                 : 'Empty'
-          const metadata = `${type}${mask.inverted ? ' · Inverted' : ''}${!mask.enabled ? ' · Disabled' : ''}`
+          const metadata = `${mask.operands?.length ? 'Combined' : type}${mask.inverted ? ' · Inverted' : ''}${!mask.enabled ? ' · Disabled' : ''}`
           return (
             <li
               key={mask.id}
@@ -470,7 +476,7 @@ export function Masks({
                   title={mask.name}
                   data-mask-select
                   aria-pressed={mask.id === masks.selectedId}
-                  disabled={!masks.supported}
+                  disabled={!masks.canNavigate}
                   onClick={() => void masks.select(mask.id).catch(() => undefined)}
                 >
                   <span>
@@ -499,15 +505,28 @@ export function Masks({
       </ol>
       {(selected || selecting) && (
         <>
-          <label className={styles.overlayToggle}>
-            <input
-              type="checkbox"
-              checked={selecting || masks.workspace.overlay}
-              disabled={!providedMasks.supported || selecting}
-              onChange={(event) => masks.preference({ overlay: event.target.checked })}
-            />
-            Show overlay
-          </label>
+          <div className={styles.overlayRow}>
+            <label className={styles.overlayToggle}>
+              <input
+                type="checkbox"
+                checked={selecting || masks.workspace.overlay}
+                disabled={!providedMasks.supported || selecting}
+                onChange={(event) => masks.preference({ overlay: event.target.checked })}
+              />
+              Show overlay
+            </label>
+            <select
+              aria-label="Coverage inspection"
+              value={masks.workspace.overlayScope ?? 'result'}
+              disabled={selecting}
+              onChange={(event) =>
+                masks.preference({ overlayScope: event.target.value as 'result' | 'selected-part' })
+              }
+            >
+              <option value="result">Result</option>
+              <option value="selected-part">Selected part</option>
+            </select>
+          </div>
           <div
             className={styles.tabs}
             aria-describedby={selecting ? 'mask-selection-lock' : undefined}
@@ -540,7 +559,14 @@ export function Masks({
               {objectSelection && <ObjectSelectionControls selection={objectSelection} />}
               {selected && !selecting && (
                 <>
-                  {selected.gradient && <GradientShape masks={masks} />}
+                  <MaskParts masks={masks} objectSelection={objectSelection} />
+                  {masks.selectedPart?.gradient && <GradientShape masks={masks} />}
+                  {masks.selectedComponentId === null && (
+                    <p className={styles.hint}>
+                      Paint and Erase correct the completed combination. Light and Color apply once
+                      to the result.
+                    </p>
+                  )}
                   <InspectorSection
                     id="mask-edge-controls"
                     title="Mask edges"
@@ -555,6 +581,7 @@ export function Masks({
                           masks.update({
                             kind: 'update',
                             id: selected.id,
+                            componentId: masks.selectedComponentId ?? undefined,
                             edge: { ...neutralMaskEdge },
                           })
                         }
@@ -649,13 +676,19 @@ export function Masks({
                       </p>
                     </div>
                   </div>
-                  {objectSelection && selected.base && (
+                  {objectSelection && masks.selectedPart?.base && (
                     <div className={styles.section}>
                       <h3>Object selection</h3>
                       <Button
                         leadingIcon={ScanSearch}
                         disabled={!objectSelection.available || !masks.available}
-                        onClick={() => void objectSelection.start(selected.id)}
+                        onClick={() =>
+                          void objectSelection.start({
+                            kind: 'replace-component',
+                            maskId: selected.id,
+                            componentId: masks.selectedComponentId ?? undefined,
+                          })
+                        }
                       >
                         Refine object selection…
                       </Button>

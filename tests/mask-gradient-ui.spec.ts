@@ -275,6 +275,7 @@ test(
     await expect(page.getByRole('tab', { name: 'Coverage', exact: true })).toBeInViewport({
       ratio: 1,
     })
+    await page.getByRole('button', { name: 'Edit gradient', exact: true }).scrollIntoViewIfNeeded()
     await expect(page.getByRole('button', { name: 'Edit gradient', exact: true })).toBeInViewport({
       ratio: 1,
     })

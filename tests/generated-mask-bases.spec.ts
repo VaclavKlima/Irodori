@@ -45,14 +45,16 @@ test('generated base replacement preserves ordered Paint/Erase and immutable con
     catalogTransaction(db, () => store.publish(photo, accepted, first.chunks, [a]))
     const refined = prepareMaskBaseReplacement(accepted, id, b)
     catalogTransaction(db, () => store.publish(photo, refined, [], [b]))
-    expect(refined[0].head).toBe(accepted[0].head)
+    expect(refined[0].head).toBeNull()
+    expect(refined[0].resultHead).not.toBeNull()
+    expect(refined[0].resultHead).toBe(accepted[0].resultHead)
     expect(JSON.stringify(refined)).not.toMatch(/pngBase64|points/)
     const decoded = resolveMasks(
       refined,
       store.content(photo, refined),
       store.bases(photo, refined),
     )
-    expect(decoded[0].strokes.map((s) => s.mode)).toEqual(['add', 'subtract'])
+    expect(decoded[0].resultStrokes!.map((s) => s.mode)).toEqual(['add', 'subtract'])
     expect(decoded[0].base?.hash).toBe(b.hash)
     expect(() => resolveMasks(refined, first.chunks)).toThrow('missing')
     catalogTransaction(db, () => store.publish(photo, []))
@@ -98,12 +100,16 @@ test('base hash changes rendering identity; duplicate masks share one native atl
   expect(plan.uploadBytes).toBeLessThanOrEqual(4 * 1024 * 1024)
   expect(localMaskPixelData({ localMasks: masks })).toEqual([
     {
-      inverted: false,
       light: masks[0].light,
       color: masks[0].color,
-      edge: masks[0].edge,
-      strokes: [],
-      base: maskBaseReference(a),
+      coverage: {
+        inverted: false,
+        edge: masks[0].edge,
+        strokes: [],
+        resultStrokes: [],
+        operands: [],
+        base: maskBaseReference(a),
+      },
     },
   ])
   expect(() => packLocalMasks({ localMasks: masks }, { width: 31, height: 24 })).toThrow(

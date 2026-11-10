@@ -16,7 +16,10 @@ import {
   validatePreparedMaskCoverage,
   type PreparedMaskCoverage,
   type ResolvedMask,
+  neutralMaskLight,
+  neutralMaskColor,
 } from '../../shared/masks'
+import { maskCoverageNodes, mapMaskCoverage } from '../../shared/masks-gpu'
 import { verifiedMaskBaseBytes } from '../mask-store'
 import { prepareMaskEdgeCoverage } from './gpu'
 
@@ -27,10 +30,18 @@ export interface NativeMaskEdgeOptions {
 
 /** Enabled local adjustments share prepared coverage in the native photograph point pass. */
 export function activeNativeMaskEdges(adjustments: Pick<AdjustmentParameters, 'localMasks'>) {
-  for (const mask of adjustments.localMasks ?? []) validateMaskEdge(mask.edge)
-  return (adjustments.localMasks ?? []).filter(
-    (mask) => mask.enabled && maskHasEdges(mask) && hasMaskAdjustments(mask),
-  )
+  for (const mask of adjustments.localMasks ?? [])
+    for (const node of maskCoverageNodes(mask, true)) validateMaskEdge(node.edge)
+  const active: ResolvedMask[] = []
+  const visit = (node: ResolvedMask) => {
+    if (!node.preparedCoverage)
+      for (const child of node.operands ?? [])
+        if (child.enabled) visit({ ...child, light: neutralMaskLight, color: neutralMaskColor })
+    if (maskHasEdges(node)) active.push(node)
+  }
+  for (const mask of adjustments.localMasks ?? [])
+    if (mask.enabled && hasMaskAdjustments(mask)) visit(mask)
+  return active
 }
 
 function validateCoverage(coverage: PreparedMaskCoverage, width: number, height: number) {
@@ -48,7 +59,7 @@ async function encodedCoverage(
   height: number,
   signal: AbortSignal,
 ) {
-  if (mask.base) verifiedMaskBaseBytes(mask.base)
+  for (const node of maskCoverageNodes(mask)) if (node.base) verifiedMaskBaseBytes(node.base)
   const pixels = await prepareMaskEdgeCoverage(device, mask, width, height, signal)
   signal.throwIfAborted()
   if (pixels.byteLength !== width * height)
@@ -115,8 +126,13 @@ export async function prepareNativeMaskEdges(
   let encodedBytes = 0
   for (const mask of active) {
     signal.throwIfAborted()
+    const input = mapMaskCoverage(mask, (node) =>
+      node.id !== mask.id && prepared.has(node.id)
+        ? { ...node, preparedCoverage: prepared.get(node.id)! }
+        : node,
+    )
     const coverage =
-      mask.preparedCoverage ?? (await encodedCoverage(device, mask, width, height, signal))
+      mask.preparedCoverage ?? (await encodedCoverage(device, input, width, height, signal))
     validateCoverage(coverage, width, height)
     encodedBytes += Buffer.byteLength(coverage.pngBase64, 'base64')
     if (encodedBytes > maskCapabilities.maxLiveBaseEncodedBytes)
@@ -130,7 +146,9 @@ export async function prepareNativeMaskEdges(
     adjustments: {
       ...adjustments,
       localMasks: adjustments.localMasks?.map((mask) =>
-        prepared.has(mask.id) ? { ...mask, preparedCoverage: prepared.get(mask.id)! } : mask,
+        mapMaskCoverage(mask, (node) =>
+          prepared.has(node.id) ? { ...node, preparedCoverage: prepared.get(node.id)! } : node,
+        ),
       ),
     },
     peakBytes: own.ownGpu,

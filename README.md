@@ -43,7 +43,10 @@ adapters; that record links the separate RAW startup correction and platform lim
 **Coverage → Mask edges** adds whole-mask [Feather and Expand/Contract](docs/features/mask-edges.md),
 including manual corrections, with shared Undo/Redo, Console and frozen exports.
 [Linear/radial gradients](docs/features/mask-gradients.md) support drawing, centered
-keyboard creation and editable photo-registered geometry. Sky/background automation,
+keyboard creation and editable photo-registered geometry. [Compound coverage](docs/features/mask-compounds.md) adds ordered Add, Subtract and
+Intersect parts, independent editable copies and nested groups. Coverage keeps
+starting coverage fixed and separates part editing from result corrections;
+Light/Color applies once to the destination result. Sky/background automation,
 color/luminance ranges and additional local operators remain planned.
 GPU histograms include active local edits. Exact clipping overlays and full HDR
 statistics/pixel analysis retain their explicit limitations; the brief records

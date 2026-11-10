@@ -365,7 +365,9 @@ function MetadataRow({ label, value }: { label: string; value?: string }) {
   return (
     <>
       <dt>{label}</dt>
-      <dd>{value || '—'}</dd>
+      <dd data-selectable-text tabIndex={value ? 0 : undefined} aria-label={label}>
+        {value || '—'}
+      </dd>
     </>
   )
 }

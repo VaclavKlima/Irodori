@@ -69,49 +69,53 @@ export function DisplayDetails({
         </summary>
         <div className={styles.panel}>
           {controls}
-          <strong>Display details</strong>
-          <p>
-            Requested: {target.requested.toUpperCase()} · Presented:{' '}
-            {mode?.toUpperCase() ?? 'No frame yet'}
-          </p>
-          <p>{reason}</p>
-          {hdrJpeg?.state === 'supported' && <p>ISO HDR JPEG · Authored HDR and SDR renditions.</p>}
-          <p>
-            Frame:{' '}
-            {presented
-              ? `${colorSpace} · ${precision}`
-              : !photoId || presentation?.stage === 'failed'
+          <div data-selectable-text tabIndex={0} aria-label="Display diagnostics">
+            <strong>Display details</strong>
+            <p>
+              Requested: {target.requested.toUpperCase()} · Presented:{' '}
+              {mode?.toUpperCase() ?? 'No frame yet'}
+            </p>
+            <p>{reason}</p>
+            {hdrJpeg?.state === 'supported' && (
+              <p>ISO HDR JPEG · Authored HDR and SDR renditions.</p>
+            )}
+            <p>
+              Frame:{' '}
+              {presented
+                ? `${colorSpace} · ${precision}`
+                : !photoId || presentation?.stage === 'failed'
+                  ? 'Unavailable'
+                  : 'Preparing'}
+            </p>
+            <p>
+              Monitor: {caps?.monitor?.label ?? 'Unavailable'}
+              {caps?.monitor &&
+                ` · ${caps.monitor.width} × ${caps.monitor.height} · ${caps.monitor.scale}× scale`}
+            </p>
+            <p>
+              Reported headroom:{' '}
+              {caps?.headroomStops === null || caps?.headroomStops === undefined
                 ? 'Unavailable'
-                : 'Preparing'}
-          </p>
-          <p>
-            Monitor: {caps?.monitor?.label ?? 'Unavailable'}
-            {caps?.monitor &&
-              ` · ${caps.monitor.width} × ${caps.monitor.height} · ${caps.monitor.scale}× scale`}
-          </p>
-          <p>
-            Reported headroom:{' '}
-            {caps?.headroomStops === null || caps?.headroomStops === undefined
-              ? 'Unavailable'
-              : `${caps.headroomStops.toFixed(3)} stops (${(2 ** caps.headroomStops).toFixed(2)}×)`}
-          </p>
-          <p>
-            Adapter:{' '}
-            {caps?.adapter
-              ? [caps.adapter.vendor, caps.adapter.architecture, caps.adapter.description]
-                  .filter(Boolean)
-                  .join(' · ')
-              : 'Unavailable'}
-          </p>
-          <p>
-            Extended canvas: {caps?.extended ? 'Supported' : 'Unavailable'} · Permission:{' '}
-            {caps?.permission ?? 'Unknown'}
-          </p>
-          <p>
-            Renderer: {presentation?.backend ?? 'Preparing'} · Target generation:{' '}
-            {target.generation}
-          </p>
-          <p>Physical luminance is unverified.</p>
+                : `${caps.headroomStops.toFixed(3)} stops (${(2 ** caps.headroomStops).toFixed(2)}×)`}
+            </p>
+            <p>
+              Adapter:{' '}
+              {caps?.adapter
+                ? [caps.adapter.vendor, caps.adapter.architecture, caps.adapter.description]
+                    .filter(Boolean)
+                    .join(' · ')
+                : 'Unavailable'}
+            </p>
+            <p>
+              Extended canvas: {caps?.extended ? 'Supported' : 'Unavailable'} · Permission:{' '}
+              {caps?.permission ?? 'Unknown'}
+            </p>
+            <p>
+              Renderer: {presentation?.backend ?? 'Preparing'} · Target generation:{' '}
+              {target.generation}
+            </p>
+            <p>Physical luminance is unverified.</p>
+          </div>
         </div>
       </details>
     </div>

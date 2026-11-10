@@ -298,3 +298,15 @@ scrolling. One mounted terminal moves between Editor/Library slots and remains
 mounted while hidden. Shift+Tab leaves terminal input for its controls. The
 historical prototype's disconnected text is superseded by this selected console
 deliverable; the reference photograph/inspector/browser geometry is unchanged.
+
+## Compound mask extension — November 10, 2026
+
+The [compound-mask study](design/mask-compounds.html) was approved before
+production UI changes. Coverage parts adds Combine… with Add/Subtract/Intersect
+methods or independent editable copies. Result and fixed Starting coverage
+precede expandable nested operands. Parts scroll independently; per-part menus
+and parent-local keyboard/pointer ordering preserve the mask-list and details
+owners. Result / Selected part inspection is a workspace preference. Handles
+appear only for the selected gradient in Coverage. Native 1100 × 700 review
+keeps Console open and the photograph dominant; see
+[compound coverage](features/mask-compounds.md).

@@ -254,9 +254,9 @@ test('atomic neutral gradients request geometry admission, duplicate corrections
     expect(admitted).toHaveLength(3)
     expect(changed.settings.maskStack.map((mask) => mask.gradient)).toEqual([next, next])
     expect(changed.maskContent).toEqual(corrected.maskContent)
-    expect(changed.settings.maskStack.map((mask) => mask.head)).toEqual([
-      corrected.settings.maskStack[0].head,
-      corrected.settings.maskStack[0].head,
+    expect(changed.settings.maskStack.map((mask) => mask.resultHead)).toEqual([
+      corrected.settings.maskStack[0].resultHead,
+      corrected.settings.maskStack[0].resultHead,
     ])
     await f.library.undoEdit(photoId, 3)
     await f.restart()
@@ -265,6 +265,233 @@ test('atomic neutral gradients request geometry admission, duplicate corrections
     const redone = await f.library.redoEdit(photoId, state.revision)
     expect(redone.settings.maskStack).toEqual(changed.settings.maskStack)
     expect(redone.maskContent).toEqual(corrected.maskContent)
+  } finally {
+    await f.close()
+  }
+})
+
+test('shared compound service persists nested independent copies and one-step component edits across Undo/Redo and restart', async () => {
+  const f = await transferFixture(1),
+    photoId = f.ids[0],
+    sourceId = randomUUID(),
+    destinationId = randomUUID(),
+    birdId = randomUUID(),
+    copyId = randomUUID()
+  f.library.fullPreviews.validateMaskEdit = async () => {}
+  try {
+    const created = await f.library.mutateMasks(photoId, 0, {
+      operations: [
+        {
+          kind: 'create',
+          id: sourceId,
+          name: 'Bird',
+          gradient: {
+            kind: 'radial',
+            center: { x: 0.5, y: 0.5 },
+            radiusX: 0.3,
+            radiusY: 0.4,
+            rotation: 0,
+            feather: 25,
+          },
+        },
+        {
+          kind: 'component-add',
+          id: sourceId,
+          componentId: birdId,
+          name: 'Feathers',
+          operator: 'add',
+          stroke: { mode: 'add', radius: 0.1, feather: 0.5, points: [{ x: 0.3, y: 0.4 }] },
+        },
+        {
+          kind: 'stroke',
+          id: sourceId,
+          componentId: birdId,
+          stroke: { mode: 'subtract', radius: 0.05, feather: 0, points: [{ x: 0.2, y: 0.4 }] },
+        },
+        {
+          kind: 'create',
+          id: destinationId,
+          name: 'Protected water',
+          gradient: { kind: 'linear', start: { x: 0.1, y: 0.1 }, end: { x: 0.9, y: 0.9 } },
+        },
+        {
+          kind: 'component-copy',
+          id: destinationId,
+          componentId: copyId,
+          name: 'Bird protection',
+          sourceMaskId: sourceId,
+          operator: 'subtract',
+        },
+        { kind: 'update', id: destinationId, light: { exposureEv: -1 } },
+      ],
+    })
+    expect(created.revision).toBe(1)
+    expect((await f.library.getEditHistory(photoId)).snapshots).toHaveLength(2)
+    const copied = structuredClone(created.settings.maskStack[0].operands![0])
+    const changed = await f.library.mutateMasks(photoId, 1, {
+      operations: [
+        { kind: 'component-update', id: sourceId, componentId: birdId, clearPrimary: true },
+        {
+          kind: 'component-update',
+          id: destinationId,
+          componentId: copyId,
+          operator: 'intersect',
+          edge: { featherPx: 3 },
+        },
+      ],
+    })
+    expect(changed.revision).toBe(2)
+    expect(changed.settings.maskStack[0].operands![0].operands).toEqual(copied.operands)
+    await expect(
+      f.library.mutateMasks(photoId, 1, {
+        operations: [{ kind: 'component-remove', id: destinationId, componentId: copyId }],
+      }),
+    ).rejects.toThrow('conflict')
+    const undone = await f.library.undoEdit(photoId, 2)
+    expect(undone.settings.maskStack).toEqual(created.settings.maskStack)
+    await f.restart()
+    f.library.fullPreviews.validateMaskEdit = async () => {}
+    const restored = await f.library.getEdits(photoId)
+    expect(restored.settings.maskStack).toEqual(created.settings.maskStack)
+    expect(restored.maskContent).toEqual(created.maskContent)
+    const redone = await f.library.redoEdit(photoId, restored.revision)
+    expect(redone.settings.maskStack).toEqual(changed.settings.maskStack)
+    const history = await f.library.getEditHistory(photoId)
+    expect(history.snapshots).toHaveLength(3)
+    expect(JSON.stringify(history)).not.toContain('"points"')
+  } finally {
+    await f.close()
+  }
+})
+
+test('transient compound edge previews resolve draft geometry through the service without publishing history or immutable content', async () => {
+  const { MaskEdgeService } = await import('../src/main/mask-edges/service')
+  const { identityMaskGeometry } = await import('../src/shared/mask-geometry')
+  const { cropAdmission } = await import('./crop-frame.helpers')
+  const { dirname } = await import('node:path')
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  const { createHash } = await import('node:crypto')
+  const sharp = (await import('sharp')).default
+  const f = await transferFixture(1),
+    photoId = f.ids[0],
+    id = randomUUID(),
+    partId = randomUUID()
+  const inputs: import('../src/shared/masks').ResolvedMask[] = []
+  try {
+    f.library.fullPreviews.validateMaskEdit = async () => {}
+    f.library.cropAdmission = async () => cropAdmission()
+    f.library.getMaskContext = async (_photoId, revision) => ({
+      photoId,
+      revision,
+      width: 8,
+      height: 6,
+      geometry: identityMaskGeometry(8, 6),
+      renderingIdentity: 'draft-compound-context',
+    })
+    expect(f.library.maskEdges).toBeInstanceOf(MaskEdgeService)
+    Reflect.set(f.library.maskEdges, 'runtime', {
+      close: async () => {},
+      prepare: async (
+        mask: import('../src/shared/masks').ResolvedMask,
+        width: number,
+        height: number,
+        key: string,
+        path: string,
+        signal: AbortSignal,
+      ) => {
+        inputs.push(structuredClone(mask))
+        signal.throwIfAborted()
+        const png = await sharp(Buffer.alloc(width * height, 128), {
+          raw: { width, height, channels: 1 },
+        })
+          .toColourspace('b-w')
+          .png()
+          .toBuffer()
+        await mkdir(dirname(path), { recursive: true })
+        await writeFile(path, png)
+        return {
+          path,
+          key,
+          width,
+          height,
+          hash: createHash('sha256').update(png).digest('hex'),
+          encodedBytes: png.length,
+        }
+      },
+    })
+    const committed = await f.library.mutateMasks(photoId, 0, {
+      operations: [
+        {
+          kind: 'create',
+          id,
+          name: 'Water',
+          gradient: { kind: 'linear', start: { x: 0.1, y: 0.1 }, end: { x: 0.9, y: 0.9 } },
+        },
+        { kind: 'update', id, edge: { featherPx: 2 } },
+      ],
+    })
+    const before = await f.library.getEditHistory(photoId)
+    const db = new DatabaseSync(join(f.root, 'library', 'catalog.sqlite'))
+    try {
+      const immutableBefore = db.prepare('SELECT * FROM mask_content').all()
+      const draft = await f.library.prepareMaskCoverage({
+        photoId,
+        revision: committed.revision,
+        maskIds: [id],
+        mutation: {
+          operations: [
+            {
+              kind: 'component-add',
+              id,
+              componentId: partId,
+              name: 'Uncommitted protection',
+              operator: 'subtract',
+              stroke: { mode: 'add', radius: 0.1, feather: 0.5, points: [{ x: 0.4, y: 0.5 }] },
+            },
+            { kind: 'component-update', id, componentId: partId, edge: { featherPx: 1 } },
+            {
+              kind: 'stroke',
+              id,
+              stroke: {
+                mode: 'subtract',
+                radius: 0.05,
+                feather: 0.5,
+                points: [{ x: 0.6, y: 0.5 }],
+              },
+            },
+          ],
+        },
+      })
+      expect(draft.coverages[id]).toBeDefined()
+      expect(draft.coverages[partId]).toBeDefined()
+      expect(inputs.find((node) => node.id === partId)!.strokes).toHaveLength(1)
+      const preparedRoot = inputs.find((node) => node.id === id)!
+      expect(preparedRoot.resultStrokes).toHaveLength(1)
+      expect(preparedRoot.operands![0].preparedCoverage).toEqual(draft.coverages[partId])
+      expect(await f.library.getEditHistory(photoId)).toEqual(before)
+      expect(db.prepare('SELECT * FROM mask_content').all()).toEqual(immutableBefore)
+      await f.library.cancelMaskCoverage(photoId)
+      expect(await f.library.getEdits(photoId)).toEqual(committed)
+      await expect(
+        f.library.prepareMaskCoverage({
+          photoId,
+          revision: 0,
+          maskIds: [id],
+          mutation: {
+            operations: [
+              {
+                kind: 'stroke',
+                id,
+                stroke: { mode: 'add', radius: 0.1, feather: 0, points: [{ x: 0.5, y: 0.5 }] },
+              },
+            ],
+          },
+        }),
+      ).rejects.toThrow(/changed|conflict/i)
+      expect(inputs).toHaveLength(2)
+    } finally {
+      db.close()
+    }
   } finally {
     await f.close()
   }

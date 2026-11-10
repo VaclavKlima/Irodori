@@ -2,9 +2,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { AdjustmentParameters } from '../../../shared/adjustments'
 import {
   maskCapabilities,
-  maskHasEdges,
+  findMaskComponent,
   neutralMaskColor,
   neutralMaskEdge,
+  neutralMaskLight,
+  type MaskOperator,
   validateMaskGradient,
   type MaskColor,
   type MaskEdgeSettings,
@@ -15,6 +17,7 @@ import {
   type MaskStroke,
   type ResolvedMask,
 } from '../../../shared/masks'
+import { mapMaskCoverage, maskCoverageNodes } from '../../../shared/masks-gpu'
 import type { MaskGeometry } from '../../../shared/mask-geometry'
 import type { MaskDetailTab, MaskWorkspace } from '../../../shared/workspace'
 import type { EditController } from './useEdits'
@@ -23,6 +26,9 @@ type Draft = {
   photoId: string
   revision: number
   maskId: string
+  componentId?: string
+  strokeTarget?: 'primary' | 'result'
+  newComponent?: { componentId: string; parentId?: string; name: string; operator: MaskOperator }
   light?: MaskLight
   color?: MaskColor
   edge?: MaskEdgeSettings
@@ -52,8 +58,19 @@ export function useMasks(
   onWorkspace: (workspace: MaskWorkspace) => void,
 ) {
   const scope = useMemo(() => ({ photoId, enabled }), [photoId, enabled])
+  const creationEpoch = useRef(0)
   const [draft, setDraft] = useState<Draft | null>(null)
   const draftRef = useRef<Draft | null>(null)
+  const [armedPart, setArmedPart] = useState<{
+    scope: object
+    revision: number
+    maskId: string
+    componentId: string
+    parentId?: string
+    name: string
+    operator: MaskOperator
+    kind: 'brush' | MaskGradient['kind']
+  } | null>(null)
   const [armedGradient, setArmedGradient] = useState<{
     scope: object
     revision: number
@@ -68,7 +85,7 @@ export function useMasks(
   const [pending, setPending] = useState(false)
   const [committingAdjustments, setCommittingAdjustments] = useState<Pick<
     Draft,
-    'photoId' | 'revision' | 'maskId' | 'edge' | 'color' | 'gradient'
+    'photoId' | 'revision' | 'maskId' | 'componentId' | 'edge' | 'color' | 'gradient'
   > | null>(null)
   const pendingCommit = useRef<Promise<void> | null>(null)
   const [brushDraft, setBrushDraft] = useState<{
@@ -88,8 +105,10 @@ export function useMasks(
     setEpoch((v) => v + 1)
   }, [])
   const cancel = useCallback(() => {
+    creationEpoch.current++
     publish(null)
     setArmedGradient(null)
+    setArmedPart(null)
   }, [publish])
   const state = edits.state
   const confirmed = useMemo(
@@ -101,10 +120,26 @@ export function useMasks(
       ? workspace.selectedId
       : (confirmed[0]?.id ?? null)
   const selected = confirmed.find((m) => m.id === selectedId) ?? null
-  const creatingGradient =
-    armedGradient?.scope === scope && armedGradient.revision === state?.revision
-      ? armedGradient.kind
+  const selectedComponentId =
+    workspace.photoId === photoId &&
+    workspace.selectedId === selectedId &&
+    selected &&
+    maskCoverageNodes(selected, true).some((node) => node.id === workspace.selectedComponentId)
+      ? (workspace.selectedComponentId ?? null)
       : null
+  const selectedPart =
+    selectedComponentId && selected
+      ? (maskCoverageNodes(selected, true).find((node) => node.id === selectedComponentId) ?? null)
+      : null
+  const selectedCoverage = selectedPart ?? selected
+  const activePart =
+    armedPart?.scope === scope && armedPart.revision === state?.revision ? armedPart : null
+  const creatingGradient =
+    activePart && activePart.kind !== 'brush'
+      ? activePart.kind
+      : armedGradient?.scope === scope && armedGradient.revision === state?.revision
+        ? armedGradient.kind
+        : null
   const gradientDimensions =
     gradientGeometry &&
     gradientGeometry.photoId === photoId &&
@@ -117,7 +152,14 @@ export function useMasks(
   })
   const brushValues =
     brushDraft?.scope === scope && brushDraft.selectedId === selectedId ? brushDraft.values : null
-  const supported = enabled && previewReady && edits.confirmed && !!state && !!photoId
+  const supported =
+    enabled &&
+    (previewReady ||
+      !!activePart ||
+      !!(draft && draft.photoId === photoId && draft.revision === state?.revision)) &&
+    edits.confirmed &&
+    !!state &&
+    !!photoId
   const available = supported && !pending && !edits.saving
   const active =
     supported &&
@@ -128,7 +170,7 @@ export function useMasks(
   const editingGradient =
     supported &&
     !creatingGradient &&
-    !!selected?.gradient &&
+    !!selectedPart?.gradient &&
     workspace.detailTab === 'coverage' &&
     !workspace.brush
   const registerGradientGeometry = useCallback((geometry?: MaskGeometry) => {
@@ -193,6 +235,7 @@ export function useMasks(
         photoId: value.photoId,
         revision: value.revision,
         maskId: value.maskId,
+        componentId: value.componentId,
         edge: value.edge,
         color: value.color,
         gradient: value.gradient,
@@ -212,6 +255,7 @@ export function useMasks(
         {
           kind: 'update',
           id: value.maskId,
+          ...(value.componentId ? { componentId: value.componentId } : {}),
           ...(value.light ? { light: value.light } : {}),
           ...(value.color ? { color: value.color } : {}),
           ...(value.edge ? { edge: value.edge } : {}),
@@ -282,36 +326,123 @@ export function useMasks(
   }, [active, draft, cancel, creatingGradient])
   const resolved = useMemo<ResolvedMask[]>(() => {
     if (!draft || draft.photoId !== photoId || draft.revision !== state?.revision) return confirmed
-    let result = confirmed.map((mask) =>
-      mask.id !== draft.maskId
-        ? mask
-        : {
-            ...mask,
-            light: draft.light ?? mask.light,
-            color: draft.color ?? mask.color,
-            gradient: !maskHasEdges(mask) ? (draft.gradient ?? mask.gradient) : mask.gradient,
-            strokes:
-              draft.stroke && !maskHasEdges(mask) ? [...mask.strokes, draft.stroke] : mask.strokes,
-          },
-    )
+    let result = confirmed.map((root) => {
+      if (root.id !== draft.maskId) return root
+      const nextRoot = mapMaskCoverage(root, (mask) => {
+        const target = draft.componentId ?? root.id
+        if (mask.id !== target) return mask
+        const next = {
+          ...mask,
+
+          ...(mask.id === root.id
+            ? { light: draft.light ?? mask.light, color: draft.color ?? mask.color }
+            : {}),
+          gradient: draft.gradient && !draft.newComponent ? draft.gradient : mask.gradient,
+          ...(draft.stroke && !draft.newComponent
+            ? draft.strokeTarget === 'primary'
+              ? { strokes: [...mask.strokes, draft.stroke] }
+              : { resultStrokes: [...(mask.resultStrokes ?? []), draft.stroke] }
+            : {}),
+        }
+        if (draft.newComponent && (draft.stroke || draft.gradient)) {
+          const { componentId: id, name, operator } = draft.newComponent
+          next.operands = [
+            ...(next.operands ?? []),
+            {
+              id,
+              name,
+              operator,
+              enabled: true,
+              inverted: false,
+              head: null,
+              resultHead: null,
+              strokes: draft.stroke ? [draft.stroke] : [],
+              resultStrokes: [],
+              operands: [],
+              edge: { ...neutralMaskEdge },
+              ...(draft.gradient ? { gradient: draft.gradient } : {}),
+            },
+          ]
+        }
+        return next
+      })
+      return draft.gradient || draft.stroke
+        ? mapMaskCoverage(nextRoot, (node) => ({ ...node, preparedCoverage: undefined }))
+        : nextRoot
+    })
     if (draft.order) result = draft.order.map((id) => result.find((mask) => mask.id === id)!)
     return result
   }, [confirmed, draft, photoId, state?.revision])
+  const coverageMutation =
+    draft && draft.photoId === photoId && draft.revision === state?.revision
+      ? draft.newComponent && (draft.stroke || draft.gradient)
+        ? {
+            operations: [
+              {
+                kind: 'component-add' as const,
+                id: draft.maskId,
+                ...draft.newComponent,
+                ...(draft.gradient ? { gradient: draft.gradient } : {}),
+                ...(draft.stroke ? { stroke: draft.stroke } : {}),
+              },
+            ],
+          }
+        : draft.stroke
+          ? {
+              operations: [
+                {
+                  kind: 'stroke' as const,
+                  id: draft.maskId,
+                  componentId: draft.componentId,
+                  strokeTarget: draft.strokeTarget,
+                  stroke: draft.stroke,
+                },
+              ],
+            }
+          : draft.gradient
+            ? {
+                operations: [
+                  {
+                    kind: 'update' as const,
+                    id: draft.maskId,
+                    componentId: draft.componentId,
+                    ...(draft.gradient ? { gradient: draft.gradient } : {}),
+                  },
+                ],
+              }
+            : undefined
+      : undefined
   const adjustments: AdjustmentParameters = { ...edits.adjustments, localMasks: resolved }
+  const resolvedRoot = resolved.find((mask) => mask.id === selectedId)
+  const resolvedPart =
+    selectedComponentId && resolvedRoot
+      ? maskCoverageNodes(resolvedRoot, true).find((node) => node.id === selectedComponentId)
+      : undefined
+  const overlayMask: ResolvedMask | undefined =
+    workspace.overlayScope === 'selected-part' && resolvedPart
+      ? {
+          ...resolvedPart,
+          enabled: true,
+          light: { ...neutralMaskLight },
+          color: { ...neutralMaskColor },
+        }
+      : resolvedRoot
   const edgeValues =
     draft &&
     draft.photoId === photoId &&
     draft.revision === state?.revision &&
     draft.maskId === selectedId &&
+    (draft.componentId ?? null) === selectedComponentId &&
     draft.edge
       ? draft.edge
       : committingAdjustments &&
           committingAdjustments.photoId === photoId &&
           committingAdjustments.revision === state?.revision &&
           committingAdjustments.maskId === selectedId &&
+          (committingAdjustments.componentId ?? null) === selectedComponentId &&
           committingAdjustments.edge
         ? committingAdjustments.edge
-        : (selected?.edge ?? neutralMaskEdge)
+        : (selectedCoverage?.edge ?? neutralMaskEdge)
   const colorValues =
     draft &&
     draft.photoId === photoId &&
@@ -340,10 +471,30 @@ export function useMasks(
       value.revision !== current.current.edits.state?.revision
     )
       return
-    await mutate([{ kind: 'stroke', id: value.maskId, stroke: value.stroke }], value.revision)
+    if (value.newComponent) {
+      await mutate(
+        [{ kind: 'component-add', id: value.maskId, ...value.newComponent, stroke: value.stroke }],
+        value.revision,
+      )
+      setArmedPart(null)
+      changeWorkspace({ selectedComponentId: value.newComponent.componentId })
+    } else
+      await mutate(
+        [
+          {
+            kind: 'stroke',
+            id: value.maskId,
+            componentId: value.componentId,
+            strokeTarget: value.strokeTarget,
+            stroke: value.stroke,
+          },
+        ],
+        value.revision,
+      )
   }
   const previewGradient = (gradient: MaskGradient, gradientInput = false) => {
-    if (busy.current || !available || !state || !selected?.gradient || !photoId) return false
+    if (busy.current || !available || !state || !selected || !selectedPart?.gradient || !photoId)
+      return false
     try {
       validateMaskGradient(gradient, gradientDimensions?.width, gradientDimensions?.height)
     } catch (error) {
@@ -359,6 +510,7 @@ export function useMasks(
       photoId,
       revision: state.revision,
       maskId: selected.id,
+      componentId: selectedComponentId ?? undefined,
       gradient,
       gradientInput,
     })
@@ -378,33 +530,50 @@ export function useMasks(
     const confirmed = current.current.edits.state.settings.maskStack.find(
       (mask) => mask.id === value.maskId,
     )
-    if (!confirmed || JSON.stringify(confirmed.gradient) === JSON.stringify(value.gradient)) return
-    await mutate([{ kind: 'update', id: value.maskId, gradient: value.gradient }], value.revision)
+    const component = confirmed ? findMaskComponent(confirmed, value.componentId) : undefined
+    if (!component || JSON.stringify(component.gradient) === JSON.stringify(value.gradient)) return
+    await mutate(
+      [
+        {
+          kind: 'update',
+          id: value.maskId,
+          componentId: value.componentId,
+          gradient: value.gradient,
+        },
+      ],
+      value.revision,
+    )
   }
   const gradientValues =
     draft &&
     draft.photoId === photoId &&
     draft.revision === state?.revision &&
     draft.maskId === selectedId &&
+    (draft.componentId ?? null) === selectedComponentId &&
     draft.gradient
       ? draft.gradient
       : committingAdjustments &&
           committingAdjustments.photoId === photoId &&
           committingAdjustments.revision === state?.revision &&
           committingAdjustments.maskId === selectedId &&
+          (committingAdjustments.componentId ?? null) === selectedComponentId &&
           committingAdjustments.gradient
         ? committingAdjustments.gradient
-        : selected?.gradient
+        : selectedPart?.gradient
   return {
     photoId,
     scope,
     masks: resolved,
     selectedId,
     selected: resolved.find((m) => m.id === selectedId) ?? null,
+    selectedComponentId,
+    selectedPart,
+    coverageTarget: selectedCoverage,
     edgeValues,
     colorValues,
     available,
     supported,
+    canNavigate: enabled && edits.confirmed && !!state && !!photoId,
     active,
     creatingGradient,
     editingGradient,
@@ -425,10 +594,12 @@ export function useMasks(
       safely(
         (async () => {
           if (!available || busy.current || confirmed.length >= maskCapabilities.maxMasks) return
+          const token = creationEpoch.current
           await edits.flush()
           if (
             current.current.photoId !== photoId ||
             !current.current.enabled ||
+            creationEpoch.current !== token ||
             !current.current.edits.state
           )
             return
@@ -437,35 +608,90 @@ export function useMasks(
           setArmedGradient({ scope, revision: current.current.edits.state.revision, kind })
         })(),
       ),
+    previewCreatedGradient: (gradient: MaskGradient) => {
+      if (!activePart || !photoId || !state) return
+      try {
+        validateMaskGradient(gradient, gradientDimensions?.width, gradientDimensions?.height)
+      } catch {
+        return
+      }
+      publish({
+        photoId,
+        revision: state.revision,
+        maskId: activePart.maskId,
+        componentId: activePart.parentId,
+        newComponent: {
+          componentId: activePart.componentId,
+          parentId: activePart.parentId,
+          name: activePart.name,
+          operator: activePart.operator,
+        },
+        gradient,
+      })
+    },
     createGradient: async (gradient: MaskGradient) => {
       if (!available || busy.current || !photoId || !state) return
       validateMaskGradient(gradient, gradientDimensions?.width, gradientDimensions?.height)
+      const revision = state.revision
+      const token = creationEpoch.current
+      const part = activePart
       await edits.flush()
-      if (current.current.photoId !== photoId || !current.current.enabled) return
-      const revision = current.current.edits.state?.revision
-      if (revision === undefined) return
+      if (
+        current.current.photoId !== photoId ||
+        !current.current.enabled ||
+        current.current.edits.state?.revision !== revision ||
+        creationEpoch.current !== token
+      ) {
+        cancel()
+        return
+      }
       cancel()
-      const id = crypto.randomUUID()
+      const id = part?.componentId ?? crypto.randomUUID()
       await mutate(
         [
-          {
-            kind: 'create',
-            id,
-            name: `${gradient.kind === 'linear' ? 'Linear' : 'Radial'} gradient ${confirmed.length + 1}`,
-            gradient,
-          },
+          part
+            ? {
+                kind: 'component-add',
+                id: part.maskId,
+                componentId: id,
+                parentId: part.parentId,
+                name: part.name,
+                operator: part.operator,
+                gradient,
+              }
+            : {
+                kind: 'create',
+                id,
+                name: `${gradient.kind === 'linear' ? 'Linear' : 'Radial'} gradient ${confirmed.length + 1}`,
+                gradient,
+              },
         ],
         revision,
       )
       if (current.current.photoId !== photoId || !current.current.enabled) return
-      changeWorkspace({ selectedId: id, detailTab: 'adjustments', brush: false, overlay: true })
+      changeWorkspace({
+        selectedId: part?.maskId ?? id,
+        selectedComponentId: id,
+        detailTab: part ? 'coverage' : 'adjustments',
+        brush: false,
+        overlay: true,
+      })
     },
     overlayVisible: enabled && workspace.overlay,
+    overlayMask,
     busy: pending || edits.saving,
     error,
     setError,
-    workspace: { ...workspace, ...brushValues },
+    workspace: {
+      ...workspace,
+      ...brushValues,
+      overlayScope:
+        selectedComponentId === null
+          ? ('result' as const)
+          : (workspace.overlayScope ?? ('result' as const)),
+    },
     adjustments,
+    coverageMutation,
     gesturing: !!draft,
     drawing: !!draft?.stroke,
     strokeDraft:
@@ -475,13 +701,57 @@ export function useMasks(
     epoch,
     cancel,
     flush,
-    resetKey: `${photoId}:${state?.revision}:${selectedId}:${gradientRejected}`,
+    resetKey: `${photoId}:${state?.revision}:${selectedId}:${selectedComponentId}:${gradientRejected}`,
+    selectComponent: async (componentId: string | null) => {
+      await edits.flush()
+      if (current.current.photoId !== photoId || !current.current.enabled) return
+      cancel()
+      changeWorkspace({ selectedComponentId: componentId, brush: false })
+    },
+    armComponent: (
+      operator: MaskOperator,
+      kind: 'brush' | MaskGradient['kind'],
+      parentId?: string,
+    ) =>
+      safely(
+        (async () => {
+          if (!available || !selected) return
+          const token = creationEpoch.current
+          await edits.flush()
+          if (
+            current.current.photoId !== photoId ||
+            !current.current.enabled ||
+            creationEpoch.current !== token ||
+            current.current.selectedId !== selected.id ||
+            !current.current.edits.state
+          )
+            return
+          cancel()
+          setArmedPart({
+            scope,
+            revision: current.current.edits.state.revision,
+            maskId: selected.id,
+            parentId,
+            componentId: crypto.randomUUID(),
+            name: `${kind === 'brush' ? 'Brush' : kind === 'linear' ? 'Linear gradient' : 'Radial gradient'} part`,
+            operator,
+            kind,
+          })
+          changeWorkspace({
+            detailTab: 'coverage',
+            brush: kind === 'brush',
+            mode: 'add',
+            overlay: true,
+          })
+        })(),
+      ),
+    addingPart: !!activePart,
     select: async (id: string) => {
       await edits.flush()
       if (current.current.photoId !== photoId || !current.current.enabled) return
       if (!current.current.edits.state?.settings.maskStack.some((mask) => mask.id === id)) return
       cancel()
-      changeWorkspace({ selectedId: id })
+      changeWorkspace({ selectedId: id, selectedComponentId: null })
     },
     showDetailTab: async (detailTab: MaskDetailTab) => {
       await edits.flush()
@@ -504,6 +774,7 @@ export function useMasks(
           if (current.current.photoId !== photoId || !current.current.enabled) return
           changeWorkspace({
             selectedId: id,
+            selectedComponentId: id,
             detailTab: 'coverage',
             brush: true,
             mode: 'add',
@@ -536,7 +807,7 @@ export function useMasks(
             },
           ])
           if (current.current.photoId === photoId && current.current.enabled)
-            changeWorkspace({ selectedId: id })
+            changeWorkspace({ selectedId: id, selectedComponentId: null })
         })(),
       ),
     changeLight: (key: keyof MaskLight, value: number) => {
@@ -595,8 +866,9 @@ export function useMasks(
         photoId,
         revision: state.revision,
         maskId: selected.id,
+        componentId: selectedComponentId ?? undefined,
         edge: {
-          ...(prior?.edge ?? selected.edge),
+          ...(prior?.edge ?? selectedCoverage!.edge),
           [key]: value,
         },
       })
@@ -652,6 +924,18 @@ export function useMasks(
         photoId,
         revision: state.revision,
         maskId: selected.id,
+        componentId: activePart ? activePart.parentId : (selectedComponentId ?? undefined),
+        strokeTarget: selectedComponentId ? 'primary' : 'result',
+        ...(activePart
+          ? {
+              newComponent: {
+                componentId: activePart.componentId,
+                parentId: activePart.parentId,
+                name: activePart.name,
+                operator: activePart.operator,
+              },
+            }
+          : {}),
         stroke: {
           mode: workspace.mode,
           radius: workspace.size / 200,

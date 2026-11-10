@@ -7,6 +7,7 @@ import {
   maskBaseReference,
   type PreparedMaskCoverage,
   type ResolvedMask,
+  type MaskMutation,
 } from '../../shared/masks'
 import {
   maskEdgeMemoryPlan,
@@ -19,6 +20,7 @@ import type { PhotoMaskContext } from '../../shared/mask-geometry'
 import type { CropAdmission } from '../../shared/crop-resources'
 import type { EditState } from '../../shared/edits'
 import { verifiedMaskBaseBytes } from '../mask-store'
+import { maskCoverageNodes, mapMaskCoverage } from '../../shared/masks-gpu'
 import { MaskEdgeProcess } from './process'
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -26,7 +28,7 @@ interface Owner {
   context(id: string, revision: number): Promise<PhotoMaskContext>
   edits(id: string): Promise<EditState>
   source(id: string): Promise<unknown>
-  masks(state: EditState): ResolvedMask[]
+  masks(state: EditState, mutation?: MaskMutation): ResolvedMask[]
   admission(signal: AbortSignal): Promise<CropAdmission>
   reserve(bytes: number): Promise<() => void>
 }
@@ -118,17 +120,31 @@ export class MaskEdgeService {
     signal.throwIfAborted()
     if (state.revision !== request.revision)
       throw new Error('Edits changed. Refresh mask coverage.')
-    const masks = proposal ? [proposal] : this.owner.masks(state),
-      chosen = request.maskIds
-        .map((id) => {
-          const mask = masks.find((mask) => mask.id === id)
-          if (!mask) throw new Error('The selected mask is unavailable.')
-          return mask
-        })
-        .filter(maskHasEdges)
+    const masks = proposal ? [proposal] : this.owner.masks(state, request.mutation)
+    const allNodes = masks.flatMap((mask) => maskCoverageNodes(mask, true))
+    const selected = request.maskIds.map((id) => {
+      const mask = allNodes.find((mask) => mask.id === id)
+      if (!mask) throw new Error('The selected mask component is unavailable.')
+      return mask
+    })
+    // Shared subtrees are prepared once, children before the parent that consumes them.
+    const chosen: ResolvedMask[] = []
+    const seen = new Set<string>()
+    for (const mask of selected)
+      for (const node of maskCoverageNodes(mask).reverse())
+        if ((maskHasEdges(node) || (proposal && node.id === proposal.id)) && !seen.has(node.id)) {
+          seen.add(node.id)
+          chosen.push(node)
+        }
     const { canonicalWidth: width, canonicalHeight: height } = context.geometry
     const sourceIdentity = digest([request.photoId, source, width, height])
-    const memory = maskEdgeMemoryPlan(width, height, chosen, await this.owner.admission(signal))
+    const memory = maskEdgeMemoryPlan(
+      width,
+      height,
+      selected,
+      await this.owner.admission(signal),
+      Boolean(proposal),
+    )
     if (!memory.accepted)
       throw new Error(
         'Mask edges exceed the current image-memory budget. Reset Mask edges, close other processing or increase the resource budget, then retry GPU.',
@@ -146,7 +162,12 @@ export class MaskEdgeService {
           path = join(directory, 'coverage.png')
         try {
           await mkdir(directory, { recursive: true })
-          const result = await this.runtime.prepare(mask, width, height, key, path, signal)
+          const input = mapMaskCoverage(mask, (node) =>
+            node.id !== mask.id && coverages[node.id]
+              ? { ...node, preparedCoverage: coverages[node.id] }
+              : node,
+          )
+          const result = await this.runtime.prepare(input, width, height, key, path, signal)
           signal.throwIfAborted()
           if (
             result.key !== key ||

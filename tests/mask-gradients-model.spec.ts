@@ -30,7 +30,7 @@ test('linear and radial contracts admit extended source geometry and refuse dege
       rotation: -180,
       feather: 100,
     }
-  expect(maskCapabilities.version).toBe(4)
+  expect(maskCapabilities.version).toBe(5)
   for (const gradient of [linear, radial, { ...radial, feather: 0 }, { ...radial, rotation: 180 }])
     expect(() => validateMaskGradient(gradient, 100, 80)).not.toThrow()
   for (const gradient of [
@@ -138,7 +138,7 @@ test('gradient identity, neutral admission, Color offsets and final prepared cov
   const initial = structuredClone(localMaskPixelData(parameters)),
     key = maskEdgePixelIdentity(mask),
     packed = packLocalMasks(parameters, image)
-  expect(MASK_DESCRIPTOR_VEC4S).toBe(11)
+  expect(MASK_DESCRIPTOR_VEC4S).toBe(12)
   expect([...packed.subarray(60, 68)]).toEqual([1, 0, 0, 0, 100, 0, 0, 0])
   expect(localMaskAllocationBytes(parameters, image)).toBe(packed.byteLength)
   mask.gradient = { ...mask.gradient!, end: { x: 0.8, y: 0.2 } } as typeof mask.gradient

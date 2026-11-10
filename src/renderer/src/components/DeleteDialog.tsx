@@ -60,7 +60,12 @@ export function DeleteDialog({
         Merged results remain usable after source deletion, but reproducing their merge requires the
         original source bytes.
       </p>
-      <ul className={styles.targets} tabIndex={0} aria-label="Photos to move to Trash">
+      <ul
+        className={styles.targets}
+        tabIndex={0}
+        aria-label="Photos to move to Trash"
+        data-selectable-text
+      >
         {photos.map((photo) => (
           <li key={photo.id}>{photo.filename}</li>
         ))}

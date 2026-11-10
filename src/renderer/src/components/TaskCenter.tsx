@@ -150,7 +150,7 @@ function TaskDetails({
         </p>
       )}
       {task.detail && (
-        <p className={styles.filename} title={task.detail}>
+        <p className={styles.filename} title={task.detail} data-selectable-text tabIndex={0}>
           {task.detail}
         </p>
       )}

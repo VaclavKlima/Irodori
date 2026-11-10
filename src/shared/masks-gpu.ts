@@ -16,48 +16,135 @@ import {
   hasMaskAdjustments,
   validateMaskStroke,
   type ResolvedMask,
+  type ResolvedMaskCoverage,
   type MaskBaseContent,
   maskHasEdges,
   validatePreparedMaskCoverage,
   validateMaskGradient,
+  neutralMaskLight,
+  neutralMaskColor,
+  neutralMaskEdge,
 } from './masks'
 
 export const MASK_RENDERING_VERSION =
-  'ordered-light-color-gradient-brush-generated-edge-native-v5-' + MASK_COLOR_VERSION
-export const MASK_DESCRIPTOR_VEC4S = 11
+  'ordered-light-color-compound-postfix-native-v6-' + MASK_COLOR_VERSION
+export const MASK_DESCRIPTOR_VEC4S = 12
 export const MASK_GPU_TEXTURE_WIDTH = 256
 export const MAX_MASK_BASE_ATLAS_BYTES = maskCapabilities.maxBaseAtlasBytes
 const TILE_EDGE = 256
 export const MAX_MASK_GPU_BYTES = maskCapabilities.maxRetainedBytes
 
-/** An empty or erase-only uninverted mask cannot affect any photograph pixel. */
+/** Tree traversal is bounded by shared descriptor admission; disabled operands never execute. */
+export function maskCoverageNodes(mask: ResolvedMask, includeDisabled = false): ResolvedMask[] {
+  const nodes: ResolvedMask[] = []
+  const visit = (node: ResolvedMask, depth: number) => {
+    if (depth > 8 || nodes.length >= 32)
+      throw new Error('Compound mask coverage exceeds its node or depth limit.')
+    nodes.push(node)
+    for (const child of node.operands ?? [])
+      if (includeDisabled || child.enabled)
+        visit({ ...child, light: neutralMaskLight, color: neutralMaskColor }, depth + 1)
+  }
+  visit(mask, 1)
+  return nodes
+}
+export function maskTreeHasEdges(mask: ResolvedMask): boolean {
+  return maskCoverageNodes(mask).some(maskHasEdges)
+}
+function coverageFields(node: ResolvedMask): ResolvedMaskCoverage {
+  const coverage = { ...node }
+  Reflect.deleteProperty(coverage, 'light')
+  Reflect.deleteProperty(coverage, 'color')
+  return coverage
+}
+export function mapMaskCoverage(
+  mask: ResolvedMask,
+  map: (node: ResolvedMask) => ResolvedMask,
+): ResolvedMask {
+  const operands = mask.operands?.map((child) => {
+    const node = coverageFields(
+      mapMaskCoverage({ ...child, light: neutralMaskLight, color: neutralMaskColor }, map),
+    )
+    return { ...node, operator: child.operator }
+  })
+  return map({ ...mask, ...(operands ? { operands } : {}) })
+}
+/** Pixel identities deliberately omit labels, IDs and shared immutable chain hashes. */
+export function coveragePixelData(mask: ResolvedMask): unknown {
+  return {
+    inverted: mask.inverted,
+    strokes: mask.strokes,
+    edge: mask.edge,
+    resultStrokes: mask.resultStrokes ?? [],
+    ...(mask.base ? { base: maskBaseReference(mask.base) } : {}),
+    ...(mask.gradient ? { gradient: mask.gradient } : {}),
+    operands: (mask.operands ?? [])
+      .filter((node) => node.enabled)
+      .map((node) => ({
+        operator: node.operator,
+        coverage: coveragePixelData({ ...node, light: neutralMaskLight, color: neutralMaskColor }),
+      })),
+  }
+}
+/** Conservative geometry test: subtraction/intersection may remove, never create, coverage. */
 export function maskHasCoverage(
-  mask: Pick<ResolvedMask, 'inverted' | 'strokes' | 'base' | 'gradient'>,
+  mask: Pick<
+    ResolvedMask,
+    'inverted' | 'strokes' | 'base' | 'gradient' | 'operands' | 'resultStrokes'
+  >,
 ): boolean {
-  return (
-    Boolean(mask.base || mask.gradient) ||
+  return Boolean(
+    mask.base ||
+    mask.gradient ||
     mask.inverted ||
-    mask.strokes.some((stroke) => stroke.mode === 'add')
+    mask.strokes.some((stroke) => stroke.mode === 'add') ||
+    mask.resultStrokes?.some((stroke) => stroke.mode === 'add') ||
+    mask.operands?.some((node) => node.enabled && node.operator === 'add' && maskHasCoverage(node)),
   )
 }
 
-/** One native R8 atlas shares a binding across every distinct generated base. */
+/** Prepared coverage replaces the complete node including descendants and inversion. */
 function renderMask(mask: ResolvedMask, coverageOnly = false): ResolvedMask {
-  if (!maskHasEdges(mask)) return mask
-  if (!mask.preparedCoverage) {
+  if (mask.preparedCoverage) {
+    validatePreparedMaskCoverage(mask.preparedCoverage)
+    const base = {
+      ...maskBaseReference(mask.preparedCoverage),
+      pngBase64: mask.preparedCoverage.pngBase64,
+    }
+    return {
+      ...mask,
+      base,
+      gradient: undefined,
+      strokes: [],
+      operands: [],
+      resultStrokes: [],
+      inverted: false,
+    }
+  }
+  if (maskHasEdges(mask)) {
     if (coverageOnly || (mask.enabled && hasMaskAdjustments(mask)))
       throw new Error('Mask edge coverage is not ready. Retry GPU after preparation completes.')
-    return { ...mask, base: undefined, gradient: undefined, strokes: [], inverted: false }
+    return {
+      ...mask,
+      base: undefined,
+      gradient: undefined,
+      strokes: [],
+      operands: [],
+      resultStrokes: [],
+      inverted: false,
+    }
   }
-  validatePreparedMaskCoverage(mask.preparedCoverage)
-  const base = {
-    version: 1 as const,
-    hash: mask.preparedCoverage.hash,
-    width: mask.preparedCoverage.width,
-    height: mask.preparedCoverage.height,
-    pngBase64: mask.preparedCoverage.pngBase64,
+  return {
+    ...mask,
+    operands: (mask.operands ?? [])
+      .filter((node) => node.enabled)
+      .map((node) => {
+        const coverage = coverageFields(
+          renderMask({ ...node, light: mask.light, color: mask.color }, coverageOnly),
+        )
+        return { ...coverage, operator: node.operator }
+      }),
   }
-  return { ...mask, base, gradient: undefined, strokes: [], inverted: false }
 }
 export function maskBaseAtlasPlan(
   parameters: Pick<AdjustmentParameters, 'localMasks'>,
@@ -65,10 +152,13 @@ export function maskBaseAtlasPlan(
 ) {
   const unique = new Map<string, MaskBaseContent>()
   for (const original of parameters.localMasks ?? []) {
+    maskCoverageNodes(original, true)
     const mask = renderMask(original, coverageOnly)
-    if (!mask.base) continue
-    validateMaskBaseContent(mask.base)
-    unique.set(mask.base.hash, mask.base)
+    for (const node of maskCoverageNodes(mask)) {
+      if (!node.base) continue
+      validateMaskBaseContent(node.base)
+      unique.set(node.base.hash, node.base)
+    }
   }
   const bases = [...unique.values()],
     width = bases[0]?.width ?? 1,
@@ -110,29 +200,24 @@ export function localMaskAllocationBytes(
   image: { width: number; height: number },
 ) {
   const masks = parameters.localMasks ?? []
-  const unfiltered = masks.map((mask) => ({
-    ...mask,
-    edge: { featherPx: 0, shiftPx: 0 },
-    preparedCoverage: undefined,
-  }))
+  const unfiltered = masks.map((mask) =>
+    mapMaskCoverage(mask, (node) => ({
+      ...node,
+      edge: neutralMaskEdge,
+      preparedCoverage: undefined,
+    })),
+  )
   const geometryBytes = packLocalMasks({ ...parameters, localMasks: unfiltered }, image).byteLength
   const layers = new Set(
-    masks.flatMap((mask) => {
-      if (maskHasEdges(mask))
-        return mask.enabled && hasMaskAdjustments(mask)
-          ? [
-              JSON.stringify([
-                mask.base?.hash,
-                mask.gradient,
-                mask.head,
-                mask.strokes,
-                mask.inverted,
-                mask.edge,
-              ]),
-            ]
-          : []
-      return mask.base ? [mask.base.hash] : []
-    }),
+    masks.flatMap((root) =>
+      maskCoverageNodes(root).flatMap((mask) =>
+        maskHasEdges(mask)
+          ? ['edge:' + JSON.stringify(coveragePixelData(mask))]
+          : mask.base
+            ? [mask.base.hash]
+            : [],
+      ),
+    ),
   ).size
   const width = parameters.maskGeometry?.canonicalWidth ?? image.width,
     height = parameters.maskGeometry?.canonicalHeight ?? image.height
@@ -148,13 +233,9 @@ export function localMaskPixelData(parameters: Pick<AdjustmentParameters, 'local
     parameters.localMasks
       ?.filter((mask) => mask.enabled && maskHasCoverage(mask) && hasMaskAdjustments(mask))
       .map((mask) => ({
-        inverted: mask.inverted,
+        coverage: coveragePixelData(mask),
         light: mask.light,
         color: mask.color,
-        strokes: mask.strokes,
-        edge: mask.edge,
-        ...(mask.base ? { base: maskBaseReference(mask.base) } : {}),
-        ...(mask.gradient ? { gradient: mask.gradient } : {}),
       })) ?? []
   )
 }
@@ -185,10 +266,49 @@ export function packLocalMasks(
   image: { width: number; height: number },
   coverageOnly = false,
 ) {
-  const masks = (parameters.localMasks ?? []).map((mask) => renderMask(mask, coverageOnly))
+  if ((parameters.localMasks?.length ?? 0) > maskCapabilities.maxMasks)
+    throw new Error('Too many local masks.')
+  let totalNodes = 0
+  for (const root of parameters.localMasks ?? []) totalNodes += maskCoverageNodes(root, true).length
+  if (totalNodes > 256) throw new Error('The photograph exceeds its 256 coverage node limit.')
+  const roots = (parameters.localMasks ?? []).map((mask) => renderMask(mask, coverageOnly))
+  // Root descriptors retain Light/Color and output order. Extra descriptors hold coverage only.
+  const masks = roots.map((mask) => ({ ...mask, inverted: false }))
+  const programs: number[][] = roots.map(() => [])
+  roots.forEach((root, rootIndex) => {
+    const emit = (node: ResolvedMask, primaryIndex?: number) => {
+      const index = primaryIndex ?? masks.length
+      if (primaryIndex === undefined) masks.push({ ...node, inverted: false })
+      programs[rootIndex].push(0, index, 0, 0)
+      for (const child of node.operands ?? []) {
+        if (!child.enabled) continue
+        emit({ ...child, light: neutralMaskLight, color: neutralMaskColor })
+        programs[rootIndex].push(
+          child.operator === 'add' ? 1 : child.operator === 'subtract' ? 2 : 3,
+          0,
+          0,
+          0,
+        )
+      }
+      if (node.resultStrokes?.length) {
+        const correction = masks.length
+        masks.push({
+          ...node,
+          base: undefined,
+          gradient: undefined,
+          strokes: node.resultStrokes,
+          inverted: false,
+          operands: [],
+          resultStrokes: [],
+        })
+        programs[rootIndex].push(4, correction, 0, 0)
+      }
+      if (node.inverted) programs[rootIndex].push(5, 0, 0, 0)
+    }
+    emit(root, rootIndex)
+  })
   const atlas = maskBaseAtlasPlan(parameters, coverageOnly)
   validateLocalMaskGain(parameters)
-  if (masks.length > maskCapabilities.maxMasks) throw new Error('Too many local masks.')
   const geometry = parameters.maskGeometry ?? identityMaskGeometry(image.width, image.height)
   validateMaskGeometry(geometry)
   if (
@@ -213,7 +333,7 @@ export function packLocalMasks(
   values.splice(
     0,
     24,
-    masks.length,
+    roots.length,
     width,
     height,
     short,
@@ -329,7 +449,18 @@ export function packLocalMasks(
       Number(balance !== null),
       ...packedBalance,
       ...packedGradient,
+      0,
+      0,
+      0,
+      0,
     )
+  }
+  for (let index = 0; index < programs.length; index++) {
+    const program = programs[index]
+    const at = values.length / 4
+    for (let i = 0; i < program.length; i += 4) add(...program.slice(i, i + 4))
+    values[(6 + index * MASK_DESCRIPTOR_VEC4S + 11) * 4] = at
+    values[(6 + index * MASK_DESCRIPTOR_VEC4S + 11) * 4 + 1] = program.length / 4
   }
   if (c) {
     values[20] = values.length / 4
@@ -406,13 +537,13 @@ fn maskGradientCoverage(index:u32,point:vec2f)->f32 {
  }
  return 0.;
 }
-fn maskCoverage(index:u32,canonical:vec2f)->f32 {
+fn maskPrimaryCoverage(index:u32,canonical:vec2f,initial:f32)->f32 {
  let mask=maskData[6u+index*${MASK_DESCRIPTOR_VEC4S}u]; let size=maskData[0].yz; let short=maskData[0].w;
  let dimensions=vec2u(maskData[4].zw);
  let tile=clamp(vec2i(floor(canonical*size/maskData[5].w)),vec2i(0),vec2i(dimensions)-1);
  let bin=maskData[u32(mask.x)+u32(tile.y)*dimensions.x+u32(tile.x)];
  let point=canonical*size/short;
- var coverage=${baseBinding === undefined ? '0.' : 'select(0.,maskBaseCoverage(i32(mask.w)-1,canonical),mask.w>0.)'}; coverage=max(coverage,maskGradientCoverage(index,canonical*size));var brush=0.; var last=-1; var subtract=false;
+ var coverage=max(initial,${baseBinding === undefined ? '0.' : 'select(0.,maskBaseCoverage(i32(mask.w)-1,canonical),mask.w>0.)'}); coverage=max(coverage,maskGradientCoverage(index,canonical*size));var brush=0.; var last=-1; var subtract=false;
  for(var i=0u;i<u32(bin.y);i++){
   let entry=maskData[u32(bin.x)+i]; let stroke=i32(entry.y);
   if(stroke!=last){
@@ -428,7 +559,21 @@ fn maskCoverage(index:u32,canonical:vec2f)->f32 {
   brush=max(brush,amount);
  }
  if(last>=0){if(subtract){coverage*=1.-brush;}else{coverage=max(coverage,brush);}}
- return select(coverage,1.-coverage,mask.y!=0.);
+ return coverage;
+}
+fn maskCoverage(index:u32,canonical:vec2f)->f32 {
+ let program=maskData[6u+index*${MASK_DESCRIPTOR_VEC4S}u+11u];
+ var stack:array<f32,9>;var size=0u;
+ for(var i=0u;i<u32(program.y);i++){
+  let instruction=maskData[u32(program.x)+i];let opcode=u32(instruction.x);
+  if(opcode==0u){stack[size]=maskPrimaryCoverage(u32(instruction.y),canonical,0.);size++;}
+  else if(opcode==4u){stack[size-1u]=maskPrimaryCoverage(u32(instruction.y),canonical,stack[size-1u]);}
+  else if(opcode==5u){stack[size-1u]=1.-stack[size-1u];}
+  else{let b=stack[size-1u];size--;let a=stack[size-1u];
+   if(opcode==1u){stack[size-1u]=max(a,b);}else if(opcode==2u){stack[size-1u]=a*(1.-b);}else{stack[size-1u]=a*b;}
+  }
+ }
+ return stack[0];
 }
 fn maskLight(input:vec3f,light:vec4f,endpoints:vec2f,white:f32,scene:bool)->vec3f {
  if(all(light==vec4f(0.)) && all(endpoints==vec2f(0.))){return input;}
@@ -527,11 +672,11 @@ float maskGradientCoverage(int index,vec2 point){
  }
  return 0.;
 }
-float maskCoverage(int index,vec2 canonical){
+float maskPrimaryCoverage(int index,vec2 canonical,float initial){
  vec4 mask=maskDataAt(6+index*${MASK_DESCRIPTOR_VEC4S});vec2 size=maskDataAt(0).yz;float shortSide=maskDataAt(0).w;
  ivec2 dimensions=ivec2(maskDataAt(4).zw),tile=clamp(ivec2(floor(canonical*size/maskDataAt(5).w)),ivec2(0),dimensions-1);
  vec4 bin=maskDataAt(int(mask.x)+tile.y*dimensions.x+tile.x);vec2 point=canonical*size/shortSide;
- float coverage=${bases ? 'mask.w>0.?maskBaseCoverage(int(mask.w)-1,canonical):0.' : '0.'},brush=0.;coverage=max(coverage,maskGradientCoverage(index,canonical*size));int last=-1;bool subtract=false;
+ float coverage=max(initial,${bases ? 'mask.w>0.?maskBaseCoverage(int(mask.w)-1,canonical):0.' : '0.'}),brush=0.;coverage=max(coverage,maskGradientCoverage(index,canonical*size));int last=-1;bool subtract=false;
  for(int i=0;i<int(bin.y);i++){
   vec4 entry=maskDataAt(int(bin.x)+i);int stroke=int(entry.y);
   if(stroke!=last){if(last>=0){coverage=subtract?coverage*(1.-brush):max(coverage,brush);}brush=0.;last=stroke;subtract=maskDataAt(stroke).z!=0.;}
@@ -541,7 +686,18 @@ float maskCoverage(int index,vec2 canonical){
   if(style.y>0.)amount=1.-smoothstep(style.x*(1.-style.y),style.x,distance);brush=max(brush,amount);
  }
  if(last>=0)coverage=subtract?coverage*(1.-brush):max(coverage,brush);
- return mask.y!=0.?1.-coverage:coverage;
+ return coverage;
+}
+float maskCoverage(int index,vec2 canonical){
+ vec4 program=maskDataAt(6+index*${MASK_DESCRIPTOR_VEC4S}+11);float stack[9];int size=0;
+ for(int i=0;i<int(program.y);i++){
+  vec4 instruction=maskDataAt(int(program.x)+i);int opcode=int(instruction.x);
+  if(opcode==0){stack[size]=maskPrimaryCoverage(int(instruction.y),canonical,0.);size++;}
+  else if(opcode==4){stack[size-1]=maskPrimaryCoverage(int(instruction.y),canonical,stack[size-1]);}
+  else if(opcode==5){stack[size-1]=1.-stack[size-1];}
+  else{float b=stack[size-1];size--;float a=stack[size-1];stack[size-1]=opcode==1?max(a,b):opcode==2?a*(1.-b):a*b;}
+ }
+ return stack[0];
 }
 vec3 applyLocalMasks(vec3 inputRgb,vec2 pixel,float white){
  vec2 point=maskCanonical(pixel);vec3 rgb=inputRgb;

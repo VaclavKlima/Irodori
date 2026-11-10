@@ -1,3 +1,5 @@
+import { findMaskComponent } from '../shared/masks'
+import { objectSelectionTarget } from '../shared/object-selection'
 import { selectionCanonicalBox } from '../shared/object-selection'
 import { maskCanonicalPoint } from '../shared/mask-geometry'
 import { MergeError } from '../shared/merge'
@@ -525,21 +527,79 @@ export async function startEditorEndpoint(
                   prompts:
                     args.prompts as import('../shared/object-selection').ObjectSelectionPrompts,
                   ...(args.maskId === undefined ? {} : { maskId: args.maskId as string }),
+                  ...(args.selectionTarget === undefined
+                    ? {}
+                    : {
+                        target:
+                          args.selectionTarget as import('../shared/object-selection').ObjectSelectionTarget,
+                      }),
                 },
                 gate ? AbortSignal.any([gate.signal, lifetime.signal]) : lifetime.signal,
               )
-              const { strokes, base, ...mask } = proposal.mask
+              const destination = objectSelectionTarget({
+                photoId,
+                expectedRevision,
+                gridIdentity: args.gridIdentity as string,
+                prompts:
+                  args.prompts as import('../shared/object-selection').ObjectSelectionPrompts,
+                ...(args.maskId === undefined ? {} : { maskId: args.maskId as string }),
+                ...(args.selectionTarget === undefined
+                  ? {}
+                  : {
+                      target:
+                        args.selectionTarget as import('../shared/object-selection').ObjectSelectionTarget,
+                    }),
+              })
+              const componentId =
+                destination.kind === 'new-mask' ? undefined : destination.componentId
+              const selected = findMaskComponent(
+                proposal.mask,
+                componentId,
+              ) as import('../shared/masks').ResolvedMaskCoverage
+              const { strokes, base } = selected
+              const describe = (node: import('../shared/masks').ResolvedMaskCoverage): unknown => {
+                const { base, operands } = node
+                const metadata = Object.fromEntries(
+                  Object.entries(node).filter(
+                    ([key]) =>
+                      ![
+                        'strokes',
+                        'resultStrokes',
+                        'base',
+                        'preparedCoverage',
+                        'operands',
+                      ].includes(key),
+                  ),
+                )
+                return {
+                  ...metadata,
+                  ...(base
+                    ? {
+                        base: {
+                          version: base.version,
+                          hash: base.hash,
+                          width: base.width,
+                          height: base.height,
+                        },
+                      }
+                    : {}),
+                  operands: (operands ?? []).map(describe),
+                }
+              }
+              const mask = describe(proposal.mask) as Record<string, unknown>
               if (!base) throw new Error('The selection proposal has no generated coverage.')
               const { pngBase64, ...reference } = base
               result = {
                 id: proposal.id,
                 proposalId: proposal.id,
+                target: proposal.target,
                 photoId: proposal.photoId,
                 revision: proposal.revision,
                 gridIdentity: proposal.gridIdentity,
                 modelIdentity: proposal.modelIdentity,
-                mask: { ...mask, base: reference },
-                manualStrokeCount: strokes.length,
+                mask: { ...mask },
+                selectionBase: reference,
+                manualStrokeCount: strokes.length + (selected.resultStrokes?.length ?? 0),
                 data: pngBase64,
                 mimeType: 'image/png',
                 width: base.width,

@@ -8,6 +8,57 @@ New inputs should be compact, neutral, and subtle. Use consistent spacing and ty
 
 Photo command menus follow the separate authoritative [menu design standard](menu-design.md): shared model/renderer, explicit targets, hidden structural mismatches, and concise accessible explanations for temporary blockers.
 
+## Desktop shortcuts and text selection
+
+Irodori is a desktop workspace. Interface text is not selectable by default:
+navigation, headings, button/menu labels, collection rows, slider labels and
+status chrome belong to controls. Selecting photographs is application state,
+separate from selecting text. Keep accessible names, focus and keyboard activation.
+
+Text fields, numeric values, search, textareas and editable content retain native
+selection, clipboard and text Undo/Redo. Read-only fields still allow selection
+and copy. Do not disable a field just to prevent selection. Console's xterm owns
+its terminal selection and key handling; its header remains ordinary app chrome.
+
+Useful read-only content is copyable: metadata values, filenames in information
+and confirmation views, destination paths, task error details and display
+diagnostics. Mark the smallest useful text region with `data-selectable-text`;
+give a useful standalone region `tabIndex={0}` and an accessible name when needed.
+Error text exposed through `role="alert"` is also selectable. Keep action controls
+outside copyable regions where possible. Do not mark whole panels, collection
+items, the app root or Console as selectable merely to make one value copyable.
+
+The shared [input policy](../src/renderer/src/input-policy.ts) is installed by the
+renderer entrypoint, alongside the global CSS defaults. Ctrl+A / Command+A never
+selects the application document. Inside a text editor it keeps native behavior;
+inside a focused copyable region it selects only that region. Outside these
+owners it has no document-selection action. Native Edit → Select All must obey
+the same boundary. Ordinary drag selection stays within one copyable region.
+Preserve composition, native controls and the terminal; do not stop propagation
+or blanket-cancel key, pointer or context-menu events.
+
+Use Ctrl on Linux/Windows and Command on macOS for the primary application
+modifier. Define each new shortcut's owner, focus exclusions, modifier/repeat
+behavior, availability, pending-edit/cancellation behavior and matching menu or
+accessible hint. Prefer existing owners and handlers to a second global dispatcher.
+
+| Shortcut / gesture                          | Owner and behavior                                                                                                                            |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Primary+A                                   | Native text editor; focused copyable text selects that region. App chrome has no Select All text action. Console retains terminal behavior.   |
+| Primary+C/X/V and text Undo/Redo            | Focused text editor. Copyable text supports Copy. Console follows its own clipboard/interrupt contract below.                                 |
+| Primary+Z; Primary+Shift+Z / Primary+Y      | Active photograph's shared Undo/Redo when focus is outside text entry and Console, subject to existing edit guards.                           |
+| Delete / Backspace                          | Existing photo-deletion owner with its current platform rules, exclusions, frozen targets and Trash confirmation.                             |
+| Arrow, Home/End, Page Up/Down, Space, Enter | Focused collection/control owns navigation, selection or activation; preserve modifiers and range anchors.                                    |
+| Preview `+` / `=`, `-`, `0`, `1`, arrows    | Focused preview zooms in/out, fits, selects 100%, or pans; Shift pans farther. Forms, menus and active tools retain their guards.             |
+| Preview `\`, `Y`, `J`                       | Focused preview toggles Before, split comparison, or both clipping overlays when available. Active crop/picking tools retain their overrides. |
+| Escape                                      | The active transient tool, menu or dialog owns cancellation and focus restoration.                                                            |
+| Tab / Shift+Tab                             | Normal focus navigation; Console's Shift+Tab returns to its controls.                                                                         |
+
+Use the repository [Irodori input skill](../.agents/skills/irodori-input/SKILL.md)
+when adding or changing shortcuts or selectable text. Verify `desktop-input-ui`
+and affected existing owners. Native clipboard, pointer selection and OS focus
+cases require `--foreground`; do not replace them with synthetic passes.
+
 ## Dropdowns and native picker stability
 
 Use standard HTML `<select>` elements for ordinary single-choice dropdowns. These

@@ -57,6 +57,9 @@ export type MaskDetailTab = 'coverage' | 'adjustments'
 export interface MaskWorkspace {
   photoId: string | null
   selectedId: string | null
+  /** Null selects the completed result; root ID selects starting coverage. */
+  selectedComponentId?: string | null
+  overlayScope?: 'result' | 'selected-part'
   overlay: boolean
   brush: boolean
   mode: 'add' | 'subtract'
@@ -68,6 +71,8 @@ export interface MaskWorkspace {
 export const DEFAULT_MASK_WORKSPACE: MaskWorkspace = {
   photoId: null,
   selectedId: null,
+  selectedComponentId: null,
+  overlayScope: 'result',
   overlay: false,
   brush: false,
   mode: 'add',
@@ -81,12 +86,20 @@ export function validMaskWorkspace(value: unknown): value is MaskWorkspace {
     !!v &&
     typeof v === 'object' &&
     !Array.isArray(v) &&
-    Object.keys(v).length === 8 &&
+    Object.keys(v).length >= 8 &&
+    Object.keys(v).length <= 10 &&
     Object.keys(v).every((k) => k in DEFAULT_MASK_WORKSPACE) &&
     (v.photoId === null || (typeof v.photoId === 'string' && /^[a-f0-9]{64}$/.test(v.photoId))) &&
     (v.selectedId === null ||
       (typeof v.selectedId === 'string' &&
         /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(v.selectedId))) &&
+    (v.selectedComponentId === undefined ||
+      v.selectedComponentId === null ||
+      (typeof v.selectedComponentId === 'string' &&
+        /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(v.selectedComponentId))) &&
+    (v.overlayScope === undefined ||
+      v.overlayScope === 'result' ||
+      v.overlayScope === 'selected-part') &&
     typeof v.overlay === 'boolean' &&
     typeof v.brush === 'boolean' &&
     (v.mode === 'add' || v.mode === 'subtract') &&
@@ -100,7 +113,7 @@ export function validMaskWorkspace(value: unknown): value is MaskWorkspace {
   )
 }
 export function recoverMaskWorkspace(value: unknown): MaskWorkspace {
-  if (validMaskWorkspace(value)) return value
+  if (validMaskWorkspace(value)) return { ...DEFAULT_MASK_WORKSPACE, ...value }
   if (
     value &&
     typeof value === 'object' &&
@@ -108,7 +121,7 @@ export function recoverMaskWorkspace(value: unknown): MaskWorkspace {
     !Object.hasOwn(value, 'detailTab')
   ) {
     const recovered = { ...value, detailTab: DEFAULT_MASK_WORKSPACE.detailTab }
-    if (validMaskWorkspace(recovered)) return recovered
+    if (validMaskWorkspace(recovered)) return { ...DEFAULT_MASK_WORKSPACE, ...recovered }
   }
   return { ...DEFAULT_MASK_WORKSPACE }
 }

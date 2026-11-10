@@ -193,6 +193,8 @@ void main(){
     gl.uniform1f(location('dpr'), dpr)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     if (gl.getError() !== gl.NO_ERROR) throw new Error('GPU mask coverage presentation failed.')
+    this.canvas.dataset.preparedKey = mask.preparedCoverage?.key ?? 'analytic'
+    this.canvas.dataset.coverageId = mask.id
     this.presented(maskId)
   }
   clear() {

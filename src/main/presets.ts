@@ -43,11 +43,11 @@ export class Presets {
           ))
     )
       throw new Error(
-        'Invalid preset source. Use source.mode "photo" with photoId and groups, or source.mode "explicit" with settingsVersion: 17, groups and values. Explicit camera-dependent groups also require referencePhotoId.',
+        'Invalid preset source. Use source.mode "photo" with photoId and groups, or source.mode "explicit" with settingsVersion: 18, groups and values. Explicit camera-dependent groups also require referencePhotoId.',
       )
     if (
       input.mode === 'explicit' &&
-      ![12, 13, 14, 15, 16, SETTINGS_VERSION].includes(input.settingsVersion)
+      ![12, 13, 14, 15, 16, 17, SETTINGS_VERSION].includes(input.settingsVersion)
     )
       throw new Error('This preset settings format is unsupported.')
     validatePresetGroups(input.groups)

@@ -17,6 +17,27 @@ interface Suite {
   explicitOnly?: boolean
 }
 const definitions: Suite[] = [
+  { file: 'desktop-input-ui', group: 'electron', scopes: ['ui'], exclusive: true },
+  { file: 'mask-compound-ui', group: 'electron', scopes: ['adjustments', 'ui'], exclusive: true },
+  {
+    file: 'mask-compound-photographic',
+    group: 'raw-gpu',
+    scopes: ['adjustments', 'preview'],
+    exclusive: true,
+  },
+  { file: 'mask-compound-model', group: 'node', scopes: ['adjustments', 'library'] },
+  {
+    file: 'mask-compound-gpu',
+    group: 'raw-gpu',
+    scopes: ['adjustments', 'preview'],
+    exclusive: true,
+  },
+  {
+    file: 'mask-compound-webgl',
+    group: 'raw-gpu',
+    scopes: ['adjustments', 'preview'],
+    exclusive: true,
+  },
   { file: 'mask-gradients-model', group: 'node', scopes: ['adjustments', 'preview'] },
   {
     file: 'mask-gradients-gpu',

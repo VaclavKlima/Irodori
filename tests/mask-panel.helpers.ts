@@ -3,6 +3,7 @@ import { expect } from '@playwright/test'
 import { activateButton } from './button.helpers'
 
 export async function createMask(page: Page, tool: 'Brush' | 'Select object…' = 'Brush') {
+  await expect(page.getByTestId('masks-panel')).toHaveAttribute('data-ready', 'true')
   const rows = page.getByTestId('masks-list').locator('[data-mask-id]')
   const previousIds =
     tool === 'Brush'

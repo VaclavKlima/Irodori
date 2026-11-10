@@ -26,6 +26,7 @@
   -webkit-font-smoothing: antialiased;
   color: var(--text);
   background: var(--canvas);
+  user-select: none;
 }
 * {
   box-sizing: border-box;
@@ -44,6 +45,29 @@ body,
 body {
   min-width: 1100px;
   font-size: 12px;
+}
+:where(
+  input,
+  textarea,
+  [contenteditable]:not([contenteditable='false']),
+  [data-selectable-text],
+  [role='alert']
+) {
+  user-select: text;
+}
+:where(
+  button,
+  select,
+  summary,
+  [role='button'],
+  [role='menuitem'],
+  input[type='range'],
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='color'],
+  input[type='file']
+) {
+  user-select: none;
 }
 button,
 input,

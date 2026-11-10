@@ -1,0 +1,1148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Irodori — Compound masks</title>
+    <style>
+      @font-face {
+        font-family: Lato;
+        src: url('../../assets/app/fonts/lato/Lato-Regular.ttf');
+      }
+      @font-face {
+        font-family: Lato;
+        font-weight: 600;
+        src: url('../../assets/app/fonts/lato/Lato-Semibold.ttf');
+      }
+      :root {
+        --canvas: #161616;
+        --surface: #202020;
+        --raised: #303030;
+        --line: #3d3d3d;
+        --text: #f2f2f2;
+        --muted: #c0c0c0;
+        --accent: #e7c75c;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--canvas);
+        color: var(--text);
+        font:
+          12px Lato,
+          system-ui;
+        min-width: 1100px;
+        min-height: 700px;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button,
+      select {
+        min-height: 28px;
+        border: 1px solid #606060;
+        border-radius: 3px;
+        background: var(--raised);
+        padding: 4px 7px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #3c3c3c;
+      }
+      button:focus-visible,
+      select:focus-visible,
+      input:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+      button[aria-pressed='true'],
+      button.active {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      button.quiet {
+        border-color: transparent;
+        background: transparent;
+        padding: 3px;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 11px;
+      }
+      header {
+        height: 48px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 0 16px;
+      }
+      header img {
+        width: 32px;
+        height: 32px;
+      }
+      header strong {
+        font-size: 18px;
+      }
+      header .muted {
+        margin-left: auto;
+      }
+      .work {
+        height: calc(100vh - 75px);
+        min-height: 625px;
+        padding: 8px;
+        display: grid;
+        grid-template-columns: 224px minmax(0, 1fr) 344px;
+        grid-template-rows: minmax(429px, 1fr) 180px;
+        gap: 8px;
+      }
+      .surface {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .photos {
+        grid-row: 1/3;
+        display: flex;
+        flex-direction: column;
+      }
+      .panel-heading {
+        height: 38px;
+        padding: 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      .photo-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 56px;
+        margin: 6px;
+        border-left: 2px solid var(--accent);
+        padding: 5px;
+        background: var(--raised);
+      }
+      .thumb {
+        width: 50px;
+        height: 44px;
+        object-fit: cover;
+      }
+      .photo-row span {
+        overflow-wrap: anywhere;
+        font-size: 11px;
+      }
+      .photos footer {
+        margin-top: auto;
+        padding: 10px;
+        border-top: 1px solid var(--line);
+      }
+      .stage {
+        background: var(--canvas);
+        position: relative;
+        padding: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .stage > img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      .float {
+        position: absolute;
+        background: #202020eb;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 7px;
+      }
+      .photo-menu {
+        top: 9px;
+        left: 9px;
+        font-size: 11px;
+      }
+      .zoom {
+        bottom: 9px;
+        right: 9px;
+        height: 26px;
+      }
+      .zoom select {
+        min-height: 22px;
+        font-size: 11px;
+        padding: 0 3px;
+      }
+      .inspector {
+        display: flex;
+        flex-direction: column;
+      }
+      .histogram {
+        height: 157px;
+        flex: none;
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .histogram.collapsed {
+        height: 28px;
+        overflow: hidden;
+        padding: 0 12px;
+      }
+      .histogram .bar {
+        height: 27px;
+      }
+      .histogram svg {
+        width: 100%;
+        height: 96px;
+        background: var(--canvas);
+      }
+      .inspector-body {
+        min-height: 0;
+        display: flex;
+        flex: 1;
+      }
+      .rail {
+        width: 52px;
+        flex: none;
+        border-right: 1px solid var(--line);
+        padding: 6px 3px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .rail button {
+        height: 40px;
+        min-height: 40px;
+        background: transparent;
+        border: 1px solid transparent;
+        font-size: 10px;
+        padding: 0;
+      }
+      .rail button.active {
+        border-color: var(--accent);
+      }
+      .masks {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 6px 8px 10px;
+      }
+      .bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 5px;
+      }
+      .mask-list {
+        max-height: 48px;
+        overflow-y: auto;
+        flex: none;
+        margin: 5px 0;
+        scrollbar-gutter: stable;
+      }
+      .mask-root {
+        height: 44px;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        padding: 4px;
+        display: flex;
+        gap: 3px;
+        margin-bottom: 4px;
+      }
+      .mask-root.selected {
+        background: var(--raised);
+        border-color: var(--accent);
+      }
+      .mask-root .mask-select {
+        flex: 1;
+        text-align: left;
+        border: 0;
+        background: transparent;
+        padding: 2px;
+        font-size: 11px;
+      }
+      .mask-select small {
+        display: block;
+        color: var(--muted);
+        font-size: 10px;
+        margin-top: 2px;
+      }
+      .overlay {
+        height: 28px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex: none;
+        font-size: 11px;
+      }
+      .overlay input {
+        accent-color: var(--accent);
+        margin: 0;
+      }
+      .overlay select {
+        margin-left: auto;
+        max-width: 112px;
+        min-height: 24px;
+        font-size: 11px;
+        padding: 2px;
+      }
+      .tabs {
+        display: flex;
+        gap: 4px;
+        flex: none;
+        margin: 2px 0 6px;
+      }
+      .tabs button {
+        flex: 1;
+        font-size: 11px;
+        padding: 3px;
+      }
+      .details {
+        min-height: 48px;
+        flex: 1;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
+        padding-right: 3px;
+      }
+      .section {
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 8px;
+        margin-bottom: 8px;
+      }
+      .parts-heading {
+        position: sticky;
+        top: 0;
+        background: var(--surface);
+        z-index: 1;
+        padding-bottom: 4px;
+      }
+      .parts {
+        max-height: 160px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
+        margin: 4px 0;
+      }
+      .part {
+        display: flex;
+        align-items: center;
+        gap: 1px;
+        height: 30px;
+        border: 1px solid transparent;
+        border-radius: 3px;
+        font-size: 11px;
+      }
+      .part.selected {
+        border-color: var(--accent);
+        background: var(--raised);
+      }
+      .part.disabled {
+        opacity: 0.55;
+      }
+      .part button {
+        min-height: 24px;
+        padding: 1px 3px;
+        font-size: 11px;
+      }
+      .part .pick {
+        flex: 1;
+        min-width: 0;
+        text-align: left;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .part .operation {
+        color: var(--accent);
+        display: inline-block;
+        width: 13px;
+        text-align: center;
+      }
+      .part .handle {
+        cursor: grab;
+        color: var(--muted);
+        touch-action: none;
+      }
+      .part .disclose {
+        width: 17px;
+        flex: none;
+      }
+      .part .eye {
+        width: 20px;
+        flex: none;
+      }
+      .part .more {
+        width: 20px;
+        flex: none;
+      }
+      .indent {
+        margin-left: 12px;
+        border-left: 1px solid var(--line);
+        padding-left: 3px;
+      }
+      .section h3 {
+        font-size: 12px;
+        font-weight: 600;
+        margin: 6px 0;
+      }
+      .section p {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.4;
+        margin: 5px 0;
+      }
+      .button-pair {
+        display: flex;
+        gap: 4px;
+        margin: 5px 0;
+      }
+      .button-pair button {
+        flex: 1;
+        font-size: 11px;
+      }
+      .control {
+        display: block;
+        margin: 8px 0;
+        font-size: 11px;
+      }
+      .control span {
+        float: right;
+      }
+      .control input[type='range'] {
+        display: block;
+        width: 100%;
+        accent-color: var(--accent);
+        height: 14px;
+        margin-top: 5px;
+      }
+      .geometry label {
+        display: flex;
+        justify-content: space-between;
+        margin: 5px 0;
+      }
+      .geometry input {
+        background: var(--canvas);
+        border: 1px solid #606060;
+        width: 60px;
+      }
+      .section summary {
+        cursor: pointer;
+        min-height: 28px;
+        padding-top: 6px;
+      }
+      .console {
+        grid-column: 2/4;
+        background: var(--canvas);
+      }
+      .console .panel-heading {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        height: 36px;
+      }
+      .console .content {
+        padding: 18px 22px;
+        font: 11px/1.8 monospace;
+        color: var(--muted);
+      }
+      .footer {
+        height: 27px;
+        border-top: 1px solid var(--line);
+        padding: 5px 10px;
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+      }
+      .menu {
+        position: fixed;
+        width: 236px;
+        background: var(--surface);
+        border: 1px solid #606060;
+        border-radius: 4px;
+        box-shadow: 0 5px 18px #0007;
+        padding: 4px;
+        z-index: 20;
+      }
+      .menu button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        min-height: 28px;
+        border: 0;
+        background: transparent;
+        font-size: 11px;
+      }
+      .menu button:hover {
+        background: var(--raised);
+      }
+      .menu .title {
+        padding: 5px 7px;
+        color: var(--muted);
+        font-size: 11px;
+        border-bottom: 1px solid var(--line);
+      }
+      .menu hr {
+        border: 0;
+        border-top: 1px solid var(--line);
+        margin: 4px;
+      }
+      .menu [disabled] {
+        opacity: 0.45;
+      }
+      .draft {
+        position: absolute;
+        bottom: 42px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #202020eb;
+        padding: 8px;
+        max-width: 90%;
+        border-radius: 4px;
+        font-size: 11px;
+      }
+      .draft button {
+        margin-left: 4px;
+      }
+      .guide {
+        position: absolute;
+        inset: 30% 25%;
+        border: 1px solid white;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      .guide:before,
+      .guide:after {
+        content: '';
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        background: white;
+        border: 1px solid #161616;
+        border-radius: 50%;
+        top: calc(50% - 4px);
+      }
+      .guide:before {
+        left: -4px;
+      }
+      .guide:after {
+        right: -4px;
+      }
+      dialog {
+        color: var(--text);
+        background: var(--surface);
+        border: 1px solid #606060;
+        border-radius: 5px;
+        padding: 22px;
+      }
+      dialog input {
+        display: block;
+        background: var(--canvas);
+        color: var(--text);
+        border: 1px solid #606060;
+        width: 260px;
+        padding: 6px;
+        margin: 12px 0;
+      }
+      dialog::backdrop {
+        background: #0008;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      @media (min-width: 1200px) {
+        .work {
+          padding: 10px;
+          gap: 10px;
+          grid-template-columns: 224px minmax(0, 1fr) 368px;
+        }
+        .masks {
+          padding-inline: 10px;
+        }
+        .parts {
+          max-height: 210px;
+        }
+      }
+      @media (min-height: 761px) {
+        .work {
+          grid-template-rows: minmax(429px, 1fr) 216px;
+        }
+        .mask-list {
+          max-height: 92px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          scroll-behavior: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img src="../../assets/app/icons/generated/icon-64.png" alt="Little Jizō" /><strong
+        >Irodori</strong
+      ><span>Library</span><span style="color: var(--accent)">Editor</span
+      ><span class="muted">Compound mask interaction study · no library or processing access</span>
+    </header>
+    <main class="work">
+      <aside class="surface photos">
+        <div class="panel-heading"><strong>Photos</strong></div>
+        <div class="photo-row">
+          <img
+            class="thumb"
+            src="../../assets/tests/images/raster/wikimedia/flamingo-reflection/originals/Flamant_rose_Salines_de_Thyna.jpg"
+            alt="Flamingo and water"
+          /><span>Flamant_rose_Salines_de_Thyna.jpg<br /><small class="muted">Current</small></span>
+        </div>
+        <footer class="muted">1 photograph · Study fixture</footer>
+      </aside>
+      <section class="surface stage">
+        <img
+          src="../../assets/tests/images/raster/wikimedia/flamingo-reflection/originals/Flamant_rose_Salines_de_Thyna.jpg"
+          alt="Flamingo standing in water, by Elgollimoh"
+        />
+        <div class="float photo-menu">
+          Flamant_rose… <span class="muted">SDR</span
+          ><button class="quiet" title="Undo study action" onclick="undo()">↶</button
+          ><button class="quiet" title="Redo study action" onclick="redo()">↷</button>
+        </div>
+        <div class="guide" hidden></div>
+        <div class="draft" hidden></div>
+        <div class="float zoom">
+          <span class="muted">2344 × 2708</span
+          ><select aria-label="Zoom">
+            <option>Fit</option>
+            <option>100%</option>
+          </select>
+        </div>
+      </section>
+      <aside class="surface inspector">
+        <section class="histogram">
+          <div class="bar">
+            <strong>Histogram</strong
+            ><button
+              class="quiet"
+              onclick="document.querySelector('.histogram').classList.toggle('collapsed')"
+              title="Toggle histogram"
+            >
+              ⌃
+            </button>
+          </div>
+          <svg viewBox="0 0 300 96" aria-label="Histogram study placeholder">
+            <path
+              fill="#c0c0c040"
+              d="M0 96V87L14 85 29 81 44 74 57 59 65 55 76 45 83 38 96 18 112 43 125 30 139 14 154 34 173 62 192 65 207 80 227 84 245 91 267 93 300 94V96Z"
+            />
+            <path
+              fill="#e7c75c35"
+              d="M0 96L30 92 51 84 68 76 87 57 106 43 124 39 139 55 159 61 173 53 195 74 214 78 236 86 260 89 300 94V96Z"
+            />
+          </svg>
+          <div class="muted">Study display · Source photograph unchanged</div>
+        </section>
+        <div class="inspector-body">
+          <nav class="rail" aria-label="Editing tools">
+            <button>Light</button><button>Color</button><button>Detail</button
+            ><button>Geometry</button><button class="active">Masks</button>
+          </nav>
+          <section class="masks">
+            <div class="bar">
+              <strong>Masks <span class="muted">2</span></strong
+              ><button id="create" onclick="openCreation(this)">＋ Create mask</button>
+            </div>
+            <div class="mask-list">
+              <div class="mask-root selected">
+                <button class="mask-select">
+                  <strong>Water darkening</strong><small>Combined · Enabled</small></button
+                ><button class="quiet" title="Toggle mask">◉</button
+                ><button class="quiet" title="Mask actions">⋯</button>
+              </div>
+              <div class="mask-root">
+                <button class="mask-select">
+                  <strong>Bird</strong><small>Object · Enabled</small></button
+                ><button class="quiet">◉</button><button class="quiet">⋯</button>
+              </div>
+            </div>
+            <div class="overlay">
+              <input type="checkbox" id="show" /><label for="show">Show overlay</label
+              ><select
+                id="overlay-scope"
+                aria-label="Coverage inspection"
+                onchange="announce('Inspecting ' + this.value.toLowerCase() + '.')"
+              >
+                <option>Result</option>
+                <option>Selected part</option>
+              </select>
+            </div>
+            <div class="tabs">
+              <button class="active" id="coverage-tab" onclick="tab(false)">Coverage</button
+              ><button id="adjustments-tab" onclick="tab(true)">Adjustments</button>
+            </div>
+            <div class="details" id="coverage">
+              <section class="section">
+                <div class="bar parts-heading">
+                  <strong>Coverage parts</strong
+                  ><button id="combine" onclick="openCombine(this)">Combine…</button>
+                </div>
+                <div class="parts" id="parts" aria-label="Coverage parts"></div>
+                <p>Only coverage is copied. Light and Color apply once to the result.</p>
+              </section>
+              <div id="selected-controls"></div>
+            </div>
+            <div class="details" id="adjustments" hidden>
+              <section class="section">
+                <h3>Light</h3>
+                <label class="control"
+                  >Exposure <span>−0.65 EV</span
+                  ><input type="range" min="-5" max="5" value="-.65" step=".01" /></label
+                ><label class="control"
+                  >Contrast <span>0</span><input type="range" min="-100" max="100" value="0"
+                /></label>
+              </section>
+              <details class="section">
+                <summary>Color</summary>
+                <label class="control"
+                  >Saturation <span>0</span><input type="range" min="-100" max="100" value="0"
+                /></label>
+              </details>
+              <p class="muted">Adjustments belong to Water darkening and apply once.</p>
+            </div>
+          </section>
+        </div>
+      </aside>
+      <section class="surface console">
+        <div class="panel-heading">
+          <strong>Console</strong><span class="muted">Disconnected</span
+          ><button class="quiet" style="margin-left: auto">⌄</button>
+        </div>
+        <div class="content">Sign in to use the photo editing assistant.</div>
+      </section>
+    </main>
+    <footer class="footer">
+      <span>Console · Compound mask study</span
+      ><span id="status" role="status">Independent editable copy · Destination edges neutral</span>
+    </footer>
+    <dialog id="rename">
+      <form method="dialog">
+        <label>Part name<input id="rename-value" maxlength="100" required /></label>
+        <div class="bar">
+          <button value="cancel">Cancel</button><button value="save">Save</button>
+        </div>
+      </form>
+    </dialog>
+    <script>
+      const $ = (s) => document.querySelector(s)
+      let serial = 10,
+        selected = 'result',
+        history = [],
+        future = [],
+        draft = null,
+        drag = null
+      let root = {
+        id: 'root',
+        expanded: true,
+        name: 'Starting coverage',
+        kind: 'radial',
+        enabled: true,
+        children: [
+          {
+            id: 'bird',
+            name: 'Bird copy',
+            kind: 'object',
+            operator: 'subtract',
+            enabled: true,
+            expanded: true,
+            children: [
+              {
+                id: 'feet',
+                name: 'Leg refinement',
+                kind: 'brush',
+                operator: 'add',
+                enabled: true,
+                children: [],
+              },
+            ],
+          },
+          {
+            id: 'water',
+            name: 'Water boundary',
+            kind: 'linear',
+            operator: 'intersect',
+            enabled: true,
+            children: [],
+          },
+        ],
+      }
+      function snapshot() {
+        return JSON.stringify({ root, selected })
+      }
+      function save() {
+        history.push(snapshot())
+        future = []
+      }
+      function restore(s) {
+        ;({ root, selected } = JSON.parse(s))
+        render()
+      }
+      function undo() {
+        if (!history.length) return
+        future.push(snapshot())
+        restore(history.pop())
+        announce('Study action undone.')
+      }
+      function redo() {
+        if (!future.length) return
+        history.push(snapshot())
+        restore(future.pop())
+        announce('Study action redone.')
+      }
+      function announce(t) {
+        $('#status').textContent = t
+      }
+      function find(id, node = root, parent = null) {
+        if (node.id === id) return { node, parent }
+        for (const child of node.children) {
+          const result = find(id, child, node)
+          if (result) return result
+        }
+        return null
+      }
+      function clone(node) {
+        return {
+          ...structuredClone(node),
+          id: 'part-' + serial++,
+          children: node.children.map(clone),
+        }
+      }
+      function esc(s) {
+        return s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;')
+      }
+      function select(id) {
+        selected = id
+        render()
+        announce(
+          id === 'result'
+            ? 'Result selected. Paint and Erase correct the completed combination.'
+            : find(id).node.name + ' selected.',
+        )
+      }
+      function part(node, depth) {
+        const fixed = node.id === 'root'
+        const row = `<div class="part ${selected === node.id ? 'selected' : ''} ${node.enabled ? '' : 'disabled'}" data-id="${node.id}" style="margin-left:${depth * 12}px"><button class="quiet handle" ${fixed ? 'disabled' : ''} aria-label="Reorder ${esc(node.name)}" title="Drag to reorder; Alt+Up/Down within parent" onpointerdown="startDrag(event,'${node.id}')" onkeydown="reorderKeys(event,'${node.id}')">${fixed ? '' : '⠿'}</button><button class="quiet disclose" aria-label="Expand ${esc(node.name)}" aria-expanded="${!!node.expanded}" onclick="expand('${node.id}')">${node.children.length ? (node.expanded ? '⌄' : '›') : ''}</button><button class="quiet pick" aria-pressed="${selected === node.id}" onclick="select('${node.id}')"><span class="operation">${fixed ? '' : node.operator === 'add' ? '+' : node.operator === 'subtract' ? '−' : '∩'}</span>${esc(node.name)}</button>${fixed ? '' : `<button class="quiet eye" title="${node.enabled ? 'Disable' : 'Enable'} ${esc(node.name)}" onclick="toggle('${node.id}')">${node.enabled ? '◉' : '○'}</button>`}<button class="quiet more" aria-label="Actions for ${esc(node.name)}" onclick="partMenu(this,'${node.id}')">⋯</button></div>`
+        return (
+          row + (node.expanded ? node.children.map((child) => part(child, depth + 1)).join('') : '')
+        )
+      }
+      function render() {
+        const scroll = $('#parts').scrollTop
+        $('#parts').innerHTML =
+          `<div class="part ${selected === 'result' ? 'selected' : ''}"><button class="quiet pick" aria-pressed="${selected === 'result'}" onclick="select('result')">Result <span class="muted">· Completed combination</span></button></div>` +
+          part(root, 0)
+        $('#parts').scrollTop = scroll
+        const node = selected === 'result' ? null : find(selected)?.node
+        if (!node && selected !== 'result') {
+          selected = 'result'
+          return render()
+        }
+        $('.guide').hidden = !node || !['linear', 'radial'].includes(node.kind)
+        $('#selected-controls').innerHTML =
+          `<section class="section"><h3>${node ? esc(node.name) : 'Result corrections'}</h3>${node?.kind === 'radial' || node?.kind === 'linear' ? `<p>${node.kind === 'radial' ? 'Radial' : 'Linear'} gradient · Editable geometry</p><button onclick="announce('Drag the selected gradient handles. Escape cancels an unfinished gesture.')">Edit gradient</button><details class="geometry"><summary>Geometry</summary><label>Center X <input value="1172"></label><label>Center Y <input value="1354"></label></details>` : node?.kind === 'object' ? '<button onclick="announce(\'Refine this copied object base; the original Bird mask stays independent.\')">Refine object…</button><p>Paint and Erase corrections are retained when the object base changes.</p>' : !node ? '<p>Paint and Erase affect the completed combination, before inversion and edges.</p>' : '<p>Paint and Erase edit this part.</p>'}<div class="button-pair"><button onclick="announce('Paint selected for ${node ? esc(node.name) : 'Result'}.')">Paint</button><button onclick="announce('Erase selected for ${node ? esc(node.name) : 'Result'}.')">Erase</button></div><label class="control">Size <span>70 px</span><input type="range" min="1" max="300" value="70"></label><label class="control">Brush Feather <span>60 %</span><input type="range" min="0" max="100" value="60"></label></section><details class="section"><summary>${node ? 'Part' : 'Result'} edges</summary><label class="control">Feather <span>0 px</span><input type="range" value="0" min="0" max="64"></label><label class="control">Expand/Contract <span>0 px</span><input type="range" value="0" min="-16" max="16"></label></details>`
+      }
+      function expand(id) {
+        find(id).node.expanded = !find(id).node.expanded
+        render()
+      }
+      function toggle(id) {
+        save()
+        find(id).node.enabled = !find(id).node.enabled
+        render()
+      }
+      function tab(adjustments) {
+        $('#coverage').hidden = adjustments
+        $('#adjustments').hidden = !adjustments
+        $('#coverage-tab').classList.toggle('active', !adjustments)
+        $('#adjustments-tab').classList.toggle('active', adjustments)
+        $('.guide').hidden =
+          adjustments ||
+          selected === 'result' ||
+          !['linear', 'radial'].includes(find(selected)?.node.kind)
+      }
+      function closeMenu() {
+        document.querySelector('.menu')?.remove()
+      }
+      function menu(trigger, title, items) {
+        closeMenu()
+        const el = document.createElement('div')
+        el.className = 'menu'
+        el.setAttribute('role', 'menu')
+        const bounds = trigger.getBoundingClientRect()
+        el.style.left = Math.min(innerWidth - 244, bounds.right - 236) + 'px'
+        el.style.top = Math.min(innerHeight - items.length * 28 - 48, bounds.bottom + 3) + 'px'
+        el.innerHTML = '<div class="title">' + title + '</div>'
+        items.forEach(([label, action, disabled]) => {
+          const b = document.createElement('button')
+          b.textContent = label
+          b.role = 'menuitem'
+          b.disabled = !!disabled
+          b.onclick = () => {
+            closeMenu()
+            action()
+          }
+          el.append(b)
+        })
+        document.body.append(el)
+        el.querySelector('button')?.focus()
+        el.onkeydown = (e) => {
+          const all = [...el.querySelectorAll('button:not(:disabled)')],
+            i = all.indexOf(document.activeElement)
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault()
+            all[(i + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length].focus()
+          }
+          if (e.key === 'Escape') {
+            closeMenu()
+            trigger.focus()
+          }
+        }
+      }
+      function openCombine(trigger) {
+        menu(trigger, 'Combine coverage', [
+          ['Add', () => methods(trigger, 'add')],
+          ['Subtract', () => methods(trigger, 'subtract')],
+          ['Intersect', () => methods(trigger, 'intersect')],
+        ])
+      }
+      function methods(trigger, operator) {
+        menu(trigger, operator[0].toUpperCase() + operator.slice(1) + ' part', [
+          ['Brush', () => newPart(operator, 'brush')],
+          ['Select object…', () => newPart(operator, 'object')],
+          ['Linear gradient', () => newPart(operator, 'linear')],
+          ['Radial gradient', () => newPart(operator, 'radial')],
+          [
+            'Copy existing mask…',
+            () =>
+              menu(trigger, 'Copy coverage from this photograph', [
+                ['Bird · Object', () => copyBird(operator)],
+                ['Water darkening · Combined', () => copyCombined(operator)],
+              ]),
+          ],
+        ])
+      }
+      function openCreation(trigger) {
+        menu(trigger, 'Create mask', [
+          [
+            'Brush',
+            () =>
+              announce('Create mask stays unchanged; this study demonstrates Combine in Coverage.'),
+          ],
+          ['Select object…', () => announce('Create mask stays unchanged.')],
+          ['Linear gradient', () => announce('Create mask stays unchanged.')],
+          ['Radial gradient', () => announce('Create mask stays unchanged.')],
+        ])
+      }
+      function copyBird(operator) {
+        save()
+        root.children.push({
+          id: 'part-' + serial++,
+          name: 'Bird copy',
+          kind: 'object',
+          operator,
+          enabled: true,
+          expanded: true,
+          children: [],
+        })
+        render()
+        announce(
+          'Independent coverage copied. Original Bird and destination adjustments are unchanged.',
+        )
+      }
+      function copyCombined(operator) {
+        save()
+        const copied = clone(root)
+        copied.name = 'Water darkening copy'
+        copied.operator = operator
+        copied.expanded = true
+        root.children.push(copied)
+        render()
+        announce('Combined coverage copied with editable nested geometry.')
+      }
+      function newPart(operator, kind) {
+        draft = {
+          id: 'part-' + serial++,
+          name: kind === 'object' ? 'Object part' : kind[0].toUpperCase() + kind.slice(1) + ' part',
+          kind,
+          operator,
+          enabled: true,
+          children: [],
+        }
+        $('.draft').hidden = false
+        $('.draft').innerHTML =
+          `${kind === 'brush' ? 'Paint the first stroke' : kind === 'object' ? 'Object proposal preview' : 'Drag to place the gradient'} <button onclick="commitDraft()">${kind === 'object' ? 'Accept' : kind === 'brush' ? 'Complete stroke' : 'Place centered'}</button><button onclick="cancelDraft()">Cancel</button>`
+        announce(
+          'Draft part previews within Water darkening. Cancellation creates no part or history.',
+        )
+      }
+      function commitDraft() {
+        if (!draft) return
+        save()
+        root.children.push(draft)
+        selected = draft.id
+        draft = null
+        $('.draft').hidden = true
+        render()
+        announce('Part accepted as one study Undo step.')
+      }
+      function cancelDraft() {
+        draft = null
+        $('.draft').hidden = true
+        announce('Draft cancelled. No part or history was created.')
+      }
+      function partMenu(trigger, id) {
+        const { node, parent } = find(id),
+          fixed = id === 'root'
+        const items = [
+          ['Rename…', () => rename(id)],
+          ...(fixed
+            ? [
+                [
+                  'Replace starting coverage…',
+                  () =>
+                    menu(trigger, 'Replace starting coverage', [
+                      ['Empty brush', () => replace('brush')],
+                      ['Linear gradient', () => replace('linear')],
+                      ['Radial gradient', () => replace('radial')],
+                    ]),
+                ],
+                ['Clear to empty brush', () => replace('brush')],
+              ]
+            : [
+                [
+                  'Change operation…',
+                  () =>
+                    menu(trigger, 'Operation', [
+                      ...['add', 'subtract', 'intersect'].map((op) => [
+                        op[0].toUpperCase() + op.slice(1),
+                        () => {
+                          save()
+                          node.operator = op
+                          render()
+                        },
+                      ]),
+                    ]),
+                ],
+                [
+                  'Duplicate part',
+                  () => {
+                    save()
+                    parent.children.splice(parent.children.indexOf(node) + 1, 0, clone(node))
+                    render()
+                  },
+                ],
+                ['Move up', () => move(id, -1), parent.children.indexOf(node) === 0],
+                [
+                  'Move down',
+                  () => move(id, 1),
+                  parent.children.indexOf(node) === parent.children.length - 1,
+                ],
+                [
+                  'Remove part',
+                  () => {
+                    save()
+                    parent.children = parent.children.filter((child) => child !== node)
+                    if (selected === id) selected = 'result'
+                    render()
+                  },
+                ],
+              ]),
+        ]
+        menu(trigger, node.name, items)
+      }
+      function replace(kind) {
+        save()
+        root.kind = kind
+        announce('Starting coverage replaced; ordered operands remain after it.')
+        render()
+      }
+      function rename(id) {
+        const { node } = find(id)
+        $('#rename-value').value = node.name
+        $('#rename').showModal()
+        $('#rename').onclose = () => {
+          if ($('#rename').returnValue === 'save' && $('#rename-value').value.trim()) {
+            save()
+            node.name = $('#rename-value').value.trim()
+            render()
+          }
+        }
+      }
+      function move(id, delta) {
+        const found = find(id)
+        if (!found?.parent) return
+        const { node, parent } = found,
+          index = parent.children.indexOf(node),
+          target = index + delta
+        if (target < 0 || target >= parent.children.length) return
+        save()
+        parent.children.splice(index, 1)
+        parent.children.splice(target, 0, node)
+        render()
+        announce('Part moved within its parent. Starting coverage is fixed.')
+      }
+      function reorderKeys(event, id) {
+        if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+          event.preventDefault()
+          move(id, event.key === 'ArrowUp' ? -1 : 1)
+        }
+      }
+      function startDrag(event, id) {
+        if (id === 'root') return
+        const found = find(id)
+        drag = { id, parent: found.parent.id, origin: event.clientY }
+        event.currentTarget.setPointerCapture(event.pointerId)
+        event.currentTarget.onpointerup = (e) => {
+          const delta = e.clientY - drag.origin
+          if (Math.abs(delta) > 10) move(id, delta < 0 ? -1 : 1)
+          drag = null
+        }
+        event.currentTarget.onpointercancel = () => {
+          drag = null
+          announce('Reorder cancelled.')
+        }
+      }
+      document.addEventListener('pointerdown', (event) => {
+        if (
+          !event.target.closest('.menu') &&
+          !event.target.closest('#combine') &&
+          !event.target.closest('.more') &&
+          !event.target.closest('#create')
+        )
+          closeMenu()
+      })
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          closeMenu()
+          cancelDraft()
+          drag = null
+        }
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.key === 'z' &&
+          !event.target.closest('input')
+        ) {
+          event.preventDefault()
+          event.shiftKey ? redo() : undo()
+        }
+      })
+      render()
+    </script>
+  </body>
+</html>

@@ -52,7 +52,9 @@ export interface MaskBaseContent extends MaskBaseReference {
 }
 /** Main-prepared final coverage; never durable mask content or an upload contract. */
 export type PreparedMaskCoverage = Readonly<MaskBaseContent & { key: string; version: 1 }>
-export interface MaskDescriptor {
+export type MaskOperator = 'add' | 'subtract' | 'intersect'
+export type MaskCombineOperator = MaskOperator
+export interface MaskCoverageNode {
   id: string
   name: string
   enabled: boolean
@@ -60,25 +62,44 @@ export interface MaskDescriptor {
   head: string | null
   base?: MaskBaseReference
   gradient?: MaskGradient
+  edge: MaskEdgeSettings
+  /** Ordered operands; the primary source always starts the calculation. */
+  operands?: MaskOperand[]
+  /** Manual corrections applied after composition and before inversion/edges. */
+  resultHead?: string | null
+}
+export interface MaskOperand extends MaskCoverageNode {
+  operator: MaskOperator
+}
+export interface MaskDescriptor extends MaskCoverageNode {
   light: MaskLight
   color: MaskColor
-  edge: MaskEdgeSettings
 }
 export interface MaskStrokeChunk {
   hash: string
   parent: string | null
   stroke: MaskStroke
 }
-export interface ResolvedMask extends MaskDescriptor {
+export interface ResolvedMaskCoverage extends Omit<MaskCoverageNode, 'base' | 'operands'> {
   base?: MaskBaseContent
   preparedCoverage?: PreparedMaskCoverage
   strokes: MaskStroke[]
+  resultStrokes?: MaskStroke[]
+  operands?: ResolvedMaskOperand[]
+}
+export interface ResolvedMaskOperand extends ResolvedMaskCoverage {
+  operator: MaskOperator
+}
+export interface ResolvedMask extends ResolvedMaskCoverage {
+  light: MaskLight
+  color: MaskColor
 }
 export type MaskOperation =
   | { kind: 'create'; id: string; name: string; gradient?: MaskGradient }
   | {
       kind: 'update'
       id: string
+      componentId?: string
       name?: string
       enabled?: boolean
       inverted?: boolean
@@ -90,12 +111,53 @@ export type MaskOperation =
   | { kind: 'duplicate'; id: string; newId: string; name: string }
   | { kind: 'delete'; id: string }
   | { kind: 'reorder'; ids: string[] }
-  | { kind: 'stroke'; id: string; stroke: MaskStroke }
+  | {
+      kind: 'stroke'
+      id: string
+      componentId?: string
+      strokeTarget?: 'primary' | 'result'
+      stroke: MaskStroke
+    }
+  | {
+      kind: 'component-add'
+      id: string
+      componentId: string
+      parentId?: string
+      name: string
+      operator: MaskOperator
+      gradient?: MaskGradient
+      stroke?: MaskStroke
+    }
+  | {
+      kind: 'component-copy'
+      id: string
+      componentId: string
+      parentId?: string
+      name: string
+      operator: MaskOperator
+      sourceMaskId: string
+      sourceComponentId?: string
+    }
+  | {
+      kind: 'component-update'
+      id: string
+      componentId: string
+      name?: string
+      enabled?: boolean
+      inverted?: boolean
+      edge?: Partial<MaskEdgeSettings>
+      gradient?: MaskGradient
+      operator?: MaskOperator
+      clearPrimary?: true
+    }
+  | { kind: 'component-duplicate'; id: string; componentId: string; newId: string; name: string }
+  | { kind: 'component-remove'; id: string; componentId: string }
+  | { kind: 'component-reorder'; id: string; parentId?: string; ids: string[] }
 export interface MaskMutation {
   operations: MaskOperation[]
 }
 export const maskCapabilities = {
-  version: 4,
+  version: 5,
   order: 'top-last',
   types: ['brush', 'linear', 'radial'],
   gradient: {
@@ -136,6 +198,18 @@ export const maskCapabilities = {
     shiftPx: { min: -16, max: 16, step: 1, default: 0 },
     automaticMatting: false,
   },
+  compound: {
+    operators: ['add', 'subtract', 'intersect'],
+    add: 'max(A,B)',
+    subtract: 'A*(1-B)',
+    intersect: 'A*B',
+    order: 'primary-strokes-operands-result-corrections-invert-shift-feather',
+    copy: 'independent-editable-coverage-tree',
+    strokeDefault: 'result',
+  },
+  maxNodesPerMask: 32,
+  maxNodesPerPhoto: 256,
+  maxDepth: 8,
   maxMasks: 32,
   maxStrokePoints: 4096,
   maxLivePoints: 65536,
@@ -395,37 +469,100 @@ export function validateMaskStroke(value: unknown): asserts value is MaskStroke 
     )
       throw new Error('Brush points must use normalized source coordinates.')
 }
+/** Traversal includes disabled parts for immutable content and resource accounting. */
+export function coverageNodes<T extends MaskCoverageNode>(root: T): MaskCoverageNode[] {
+  const result: MaskCoverageNode[] = [],
+    seen = new Set<MaskCoverageNode>(),
+    pending = [{ node: root as MaskCoverageNode, depth: 1 }]
+  while (pending.length) {
+    const { node, depth } = pending.pop()!
+    if (
+      seen.has(node) ||
+      depth > maskCapabilities.maxDepth ||
+      result.length >= maskCapabilities.maxNodesPerMask
+    )
+      throw new Error('Mask coverage exceeds its node or depth limit or contains a cycle.')
+    seen.add(node)
+    result.push(node)
+    if (node.operands !== undefined && !Array.isArray(node.operands))
+      throw new Error('Invalid mask operands.')
+    for (const child of [...(node.operands ?? [])].reverse())
+      pending.push({ node: child, depth: depth + 1 })
+  }
+  return result
+}
+export function findMaskComponent<T extends MaskCoverageNode>(
+  root: T,
+  componentId?: string,
+): MaskCoverageNode {
+  if (!componentId || componentId === root.id) return root
+  for (const node of coverageNodes(root)) if (node.id === componentId) return node
+  throw new Error('This mask component is unavailable. Refresh the confirmed masks.')
+}
+function validateMaskOperator(value: unknown): asserts value is MaskOperator {
+  if (typeof value !== 'string' || !['add', 'subtract', 'intersect'].includes(value))
+    throw new Error('Invalid mask combination operator.')
+}
 export function validateMaskStack(value: unknown): asserts value is MaskDescriptor[] {
   if (!Array.isArray(value) || value.length > maskCapabilities.maxMasks)
     throw new Error('Too many local masks.')
   const ids = new Set<string>()
+  let total = 0
   for (const mask of value) {
-    if (
-      !fields(
-        mask,
-        ['id', 'name', 'enabled', 'inverted', 'head', 'light', 'color', 'edge'],
-        ['base', 'gradient'],
+    let count = 0
+    const visit = (node: unknown, depth: number, root: boolean) => {
+      if (
+        ++count > maskCapabilities.maxNodesPerMask ||
+        ++total > maskCapabilities.maxNodesPerPhoto ||
+        depth > maskCapabilities.maxDepth
       )
-    )
-      throw new Error('Invalid mask descriptor.')
-    validateMaskId(mask.id)
-    validateMaskName(mask.name)
-    validateMaskLight(mask.light)
-    validateMaskColor(mask.color)
-    validateMaskEdge(mask.edge)
-    if (mask.base !== undefined) validateMaskBaseReference(mask.base)
-    if (mask.gradient !== undefined) {
-      validateMaskGradient(mask.gradient)
-      if (mask.base) throw new Error('A gradient and generated object base are mutually exclusive.')
+        throw new Error('Mask coverage exceeds its node or depth limit.')
+      if (
+        !fields(
+          node,
+          [
+            'id',
+            'name',
+            'enabled',
+            'inverted',
+            'head',
+            'edge',
+            ...(root ? ['light', 'color'] : ['operator']),
+          ],
+          ['base', 'gradient', 'operands', 'resultHead'],
+        )
+      )
+        throw new Error('Invalid mask descriptor.')
+      validateMaskId(node.id)
+      validateMaskName(node.name)
+      validateMaskEdge(node.edge)
+      if (root) {
+        validateMaskLight(node.light)
+        validateMaskColor(node.color)
+      } else validateMaskOperator(node.operator)
+      if (node.base !== undefined) validateMaskBaseReference(node.base)
+      if (node.gradient !== undefined) {
+        validateMaskGradient(node.gradient)
+        if (node.base)
+          throw new Error('A gradient and generated object base are mutually exclusive.')
+      }
+      const validHead = (head: unknown) =>
+        head === null || (typeof head === 'string' && maskHash.test(head))
+      if (
+        ids.has(node.id) ||
+        typeof node.enabled !== 'boolean' ||
+        typeof node.inverted !== 'boolean' ||
+        !validHead(node.head) ||
+        (node.resultHead !== undefined && !validHead(node.resultHead))
+      )
+        throw new Error('Invalid mask descriptor.')
+      ids.add(node.id)
+      if (node.operands !== undefined) {
+        if (!Array.isArray(node.operands)) throw new Error('Invalid mask operands.')
+        for (const child of node.operands) visit(child, depth + 1, false)
+      }
     }
-    if (
-      ids.has(mask.id) ||
-      typeof mask.enabled !== 'boolean' ||
-      typeof mask.inverted !== 'boolean' ||
-      (mask.head !== null && (typeof mask.head !== 'string' || !maskHash.test(mask.head)))
-    )
-      throw new Error('Invalid mask descriptor.')
-    ids.add(mask.id)
+    visit(mask, 1, true)
   }
 }
 export function validateMaskMutation(value: unknown): asserts value is MaskMutation {
@@ -459,11 +596,12 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
           !fields(
             op,
             ['kind', 'id'],
-            ['name', 'enabled', 'inverted', 'light', 'color', 'edge', 'gradient'],
+            ['componentId', 'name', 'enabled', 'inverted', 'light', 'color', 'edge', 'gradient'],
           )
         )
           throw new Error('Invalid mask update.')
         validateMaskId(op.id)
+        if (op.componentId !== undefined) validateMaskId(op.componentId)
         if (op.name !== undefined) validateMaskName(op.name)
         if (op.light !== undefined) validateMaskLight(op.light, true)
         if (op.color !== undefined) validateMaskColor(op.color, true)
@@ -488,10 +626,67 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
         op.ids.forEach(validateMaskId)
         break
       case 'stroke':
-        if (!fields(op, ['kind', 'id', 'stroke'])) throw new Error('Invalid brush operation.')
+        if (!fields(op, ['kind', 'id', 'stroke'], ['componentId', 'strokeTarget']))
+          throw new Error('Invalid brush operation.')
         validateMaskId(op.id)
+        if (op.componentId !== undefined) validateMaskId(op.componentId)
+        if (
+          op.strokeTarget !== undefined &&
+          !['primary', 'result'].includes(String(op.strokeTarget))
+        )
+          throw new Error('Invalid brush target.')
         validateMaskStroke(op.stroke)
         break
+      case 'component-add':
+      case 'component-copy':
+      case 'component-update':
+      case 'component-duplicate':
+      case 'component-remove':
+      case 'component-reorder': {
+        const schemas: Record<string, [string[], string[]]> = {
+          'component-add': [
+            ['componentId', 'name', 'operator'],
+            ['parentId', 'gradient', 'stroke'],
+          ],
+          'component-copy': [
+            ['componentId', 'name', 'operator', 'sourceMaskId'],
+            ['parentId', 'sourceComponentId'],
+          ],
+          'component-update': [
+            ['componentId'],
+            ['name', 'enabled', 'inverted', 'edge', 'gradient', 'operator', 'clearPrimary'],
+          ],
+          'component-duplicate': [['componentId', 'newId', 'name'], []],
+          'component-remove': [['componentId'], []],
+          'component-reorder': [['ids'], ['parentId']],
+        }
+        const [required, optional] = schemas[op.kind]
+        if (!fields(op, ['kind', 'id', ...required], optional))
+          throw new Error('Invalid mask component operation.')
+        validateMaskId(op.id)
+        for (const key of ['componentId', 'newId', 'parentId', 'sourceMaskId', 'sourceComponentId'])
+          if (op[key] !== undefined) validateMaskId(op[key])
+        if (op.name !== undefined) validateMaskName(op.name)
+        if (op.operator !== undefined) validateMaskOperator(op.operator)
+        if (op.gradient !== undefined) validateMaskGradient(op.gradient)
+        if (op.stroke !== undefined) validateMaskStroke(op.stroke)
+        if (op.edge !== undefined) validateMaskEdge(op.edge, true)
+        for (const key of ['enabled', 'inverted'])
+          if (op[key] !== undefined && typeof op[key] !== 'boolean')
+            throw new Error('Invalid mask component state.')
+        if (op.clearPrimary !== undefined && op.clearPrimary !== true)
+          throw new Error('Invalid primary replacement.')
+        if (op.ids !== undefined) {
+          if (
+            !Array.isArray(op.ids) ||
+            op.ids.length > maskCapabilities.maxNodesPerMask ||
+            new Set(op.ids).size !== op.ids.length
+          )
+            throw new Error('Invalid component ordering.')
+          op.ids.forEach(validateMaskId)
+        }
+        break
+      }
       default:
         throw new Error('Unknown mask operation.')
     }
@@ -528,7 +723,7 @@ export function resolveMasks(
     liveBases = new Set<string>()
   let baseBytes = 0,
     baseAtlasBytes = 0
-  return stack.map((mask) => {
+  const resolve = (mask: MaskCoverageNode): ResolvedMaskCoverage => {
     let base: MaskBaseContent | undefined
     if (mask.base) {
       base = baseContent.get(mask.base.hash)
@@ -548,23 +743,26 @@ export function resolveMasks(
           'Generated masks exceed the 256 MiB native coverage atlas limit. Remove a generated mask before trying again.',
         )
     }
-    const strokes: MaskStroke[] = [],
-      seen = new Set<string>()
-    let head = mask.head
-    while (head !== null) {
-      if (seen.has(head)) throw new Error('Cyclic mask content.')
-      seen.add(head)
-      const chunk = chunks.get(head)
-      if (!chunk) throw new Error('Historical mask content is missing.')
-      validateMaskStroke(chunk.stroke)
-      if (!live.has(head)) {
-        live.add(head)
-        points += chunk.stroke.points.length
+    const chain = (initial: string | null): MaskStroke[] => {
+      const strokes: MaskStroke[] = [],
+        seen = new Set<string>()
+      let head = initial
+      while (head !== null) {
+        if (seen.has(head)) throw new Error('Cyclic mask content.')
+        seen.add(head)
+        const chunk = chunks.get(head)
+        if (!chunk) throw new Error('Historical mask content is missing.')
+        validateMaskStroke(chunk.stroke)
+        if (!live.has(head)) {
+          live.add(head)
+          points += chunk.stroke.points.length
+        }
+        if (points > maskCapabilities.maxLivePoints || seen.size > maskCapabilities.maxLivePoints)
+          throw new Error('The live brush geometry limit was exceeded.')
+        strokes.push(chunk.stroke)
+        head = chunk.parent
       }
-      if (points > maskCapabilities.maxLivePoints || seen.size > maskCapabilities.maxLivePoints)
-        throw new Error('The live brush geometry limit was exceeded.')
-      strokes.push(chunk.stroke)
-      head = chunk.parent
+      return strokes.reverse()
     }
     const descriptor = {
       id: mask.id,
@@ -572,30 +770,52 @@ export function resolveMasks(
       enabled: mask.enabled,
       inverted: mask.inverted,
       head: mask.head,
-      light: mask.light,
-      color: mask.color,
       edge: mask.edge,
       ...(mask.gradient ? { gradient: mask.gradient } : {}),
     }
-    return { ...descriptor, ...(base ? { base } : {}), strokes: strokes.reverse() }
-  })
+    return {
+      ...descriptor,
+      ...(base ? { base } : {}),
+      strokes: chain(mask.head),
+      resultHead: mask.resultHead ?? null,
+      resultStrokes: chain(mask.resultHead ?? null),
+      operands: (mask.operands ?? []).map((child) => ({
+        ...resolve(child),
+        operator: child.operator,
+      })),
+    }
+  }
+  return stack.map((mask) => ({ ...resolve(mask), light: mask.light, color: mask.color }))
 }
 
 export function validateResolvedMasks(value: unknown): asserts value is ResolvedMask[] {
   if (!Array.isArray(value) || value.length > maskCapabilities.maxMasks)
     throw new Error('Invalid resolved masks.')
-  let points = 0
-  const descriptors = value.map((mask: unknown) => {
+  let points = 0,
+    nodes = 0
+  const descriptor = (mask: unknown, depth: number, root: boolean): Record<string, unknown> => {
+    if (++nodes > maskCapabilities.maxNodesPerPhoto || depth > maskCapabilities.maxDepth)
+      throw new Error('Mask coverage exceeds its node or depth limit.')
     if (
       !fields(
         mask,
-        ['id', 'name', 'enabled', 'inverted', 'head', 'light', 'color', 'edge', 'strokes'],
-        ['base', 'preparedCoverage', 'gradient'],
+        [
+          'id',
+          'name',
+          'enabled',
+          'inverted',
+          'head',
+          'edge',
+          'strokes',
+          ...(root ? ['light', 'color'] : ['operator']),
+        ],
+        ['base', 'preparedCoverage', 'gradient', 'operands', 'resultHead', 'resultStrokes'],
       ) ||
-      !Array.isArray(mask.strokes)
+      !Array.isArray(mask.strokes) ||
+      (mask.resultStrokes !== undefined && !Array.isArray(mask.resultStrokes))
     )
       throw new Error('Invalid resolved mask geometry.')
-    for (const stroke of mask.strokes) {
+    for (const stroke of [...mask.strokes, ...((mask.resultStrokes ?? []) as unknown[])]) {
       validateMaskStroke(stroke)
       points += stroke.points.length
       if (points > maskCapabilities.maxLivePoints)
@@ -603,14 +823,24 @@ export function validateResolvedMasks(value: unknown): asserts value is Resolved
     }
     if (mask.base !== undefined) validateMaskBaseContent(mask.base)
     if (mask.preparedCoverage !== undefined) validatePreparedMaskCoverage(mask.preparedCoverage)
+    if (mask.operands !== undefined && !Array.isArray(mask.operands))
+      throw new Error('Invalid mask operands.')
     return {
       ...Object.fromEntries(
         Object.entries(mask).filter(
-          ([key]) => key !== 'strokes' && key !== 'base' && key !== 'preparedCoverage',
+          ([key]) =>
+            !['strokes', 'resultStrokes', 'base', 'preparedCoverage', 'operands'].includes(key),
         ),
       ),
       ...(mask.base ? { base: maskBaseReference(mask.base as MaskBaseContent) } : {}),
+      ...(mask.operands !== undefined
+        ? {
+            operands: (mask.operands as unknown[]).map((child) =>
+              descriptor(child, depth + 1, false),
+            ),
+          }
+        : {}),
     }
-  })
-  validateMaskStack(descriptors)
+  }
+  validateMaskStack(value.map((mask) => descriptor(mask, 1, true)))
 }

@@ -1,6 +1,6 @@
 /* eslint-disable no-empty-pattern -- Playwright requires destructured fixture arguments. */
 import { expect, test } from '@playwright/test'
-import { lstat, mkdir } from 'node:fs/promises'
+import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import sharp from 'sharp'
 import { identity } from '../src/main/export/files'
@@ -11,6 +11,9 @@ import { hdrJpegFixture } from './hdr-jpeg.helpers'
 import { syntheticMerge } from './merge.helpers'
 import { sourceFor, compare } from './helpers/mask-rendering'
 import { gradientMask } from './helpers/mask-gradients'
+import { transferFixture } from './edit-transfer.helpers'
+import type { ExportSource } from '../src/main/export/types'
+import { PreviewProcess } from '../src/main/preview-process'
 
 test('linear/radial gradients with local Light/Color and corrections share frozen real SDR/HDR proof/export', async ({}, info) => {
   test.setTimeout(180000)
@@ -254,5 +257,197 @@ test('authored HDR and cropped synthetic merge-master edge masks agree between p
     })
   } finally {
     await merge.close()
+  }
+})
+
+test('compound coverage freezes SDR/HDR exports independently from source edits and survives shared-service restart', async ({}, info) => {
+  test.setTimeout(180000)
+  const f = await transferFixture(
+    0,
+    () => new PreviewProcess(resolve('out/main/preview-worker.js')),
+  )
+  const sources = [
+    await sourceFor(resolve('tests/fixtures/photos/forest-light.jpg')),
+    await sourceFor(resolve('tests/fixtures/sony-zv1.ARW'), true),
+  ]
+  try {
+    for (const [index, source] of sources.entries()) {
+      const photoId = source.photo.id,
+        sourceId = crypto.randomUUID(),
+        legacyId = crypto.randomUUID(),
+        partId = crypto.randomUUID(),
+        destinationId = crypto.randomUUID(),
+        copiedId = crypto.randomUUID()
+      const directory = join(f.root, 'library', 'originals', photoId)
+      await mkdir(directory, { recursive: true })
+      await writeFile(
+        join(directory, source.hdr ? 'original.arw' : 'original.jpg'),
+        await readFile(source.path),
+      )
+      await f.library.catalogCommands.command({
+        operation: 'original.publish',
+        payload: {
+          photo: { ...source.photo, filename: source.hdr ? 'Sony.ARW' : 'Forest.jpg' },
+          processingIdentity: source.processing.processing!,
+          metadata: source.processing.metadata,
+          createdAt: source.photo.importedAt,
+        },
+      })
+      f.library.fullPreviews.validateMaskEdit = async () => {}
+      const radius = source.hdr ? 0.025 : 0.3
+      const created = await f.library.mutateMasks(photoId, 0, {
+        operations: [
+          {
+            kind: 'create',
+            id: legacyId,
+            name: 'Retained settings 17 gradient',
+            gradient: { kind: 'linear', start: { x: 0.2, y: 0.2 }, end: { x: 0.8, y: 0.8 } },
+          },
+          {
+            kind: 'stroke',
+            id: legacyId,
+            strokeTarget: 'primary',
+            stroke: {
+              mode: 'subtract',
+              radius: radius * 0.1,
+              feather: 0.5,
+              points: [{ x: 0.5, y: 0.5 }],
+            },
+          },
+          { kind: 'update', id: legacyId, light: { exposureEv: 0.15 } },
+          {
+            kind: 'create',
+            id: sourceId,
+            name: 'Independent source',
+            gradient: {
+              kind: 'radial',
+              center: { x: 0.5, y: 0.5 },
+              radiusX: radius * 0.55,
+              radiusY: radius * 0.8,
+              rotation: 15,
+              feather: 45,
+            },
+          },
+          {
+            kind: 'component-add',
+            id: sourceId,
+            componentId: partId,
+            name: 'Source refinement',
+            operator: 'add',
+            stroke: {
+              mode: 'add',
+              radius: radius * 0.12,
+              feather: 0.6,
+              points: [{ x: 0.5 + radius * 0.5, y: 0.5 }],
+            },
+          },
+          {
+            kind: 'create',
+            id: destinationId,
+            name: 'Compound lighting',
+            gradient: {
+              kind: 'radial',
+              center: { x: 0.5, y: 0.5 },
+              radiusX: radius,
+              radiusY: radius,
+              rotation: 32,
+              feather: 60,
+            },
+          },
+          {
+            kind: 'component-copy',
+            id: destinationId,
+            componentId: copiedId,
+            name: 'Protected copy',
+            operator: 'subtract',
+            sourceMaskId: sourceId,
+          },
+          {
+            kind: 'stroke',
+            id: destinationId,
+            stroke: {
+              mode: 'add',
+              radius: radius * 0.08,
+              feather: 0.6,
+              points: [{ x: 0.5 + radius * 0.8, y: 0.5 }],
+            },
+          },
+          {
+            kind: 'update',
+            id: destinationId,
+            light: { exposureEv: -0.7 },
+            color: { temperature: -6, saturation: 8 },
+          },
+        ],
+      })
+      if (source.hdr)
+        await f.library.updateEdits(
+          photoId,
+          {
+            crop: { ...identityCrop, width: 0.05, height: 0.05, quarterTurns: 1, angle: 1.25 },
+          },
+          created.revision,
+        )
+      const capture = async (): Promise<ExportSource> => {
+        const preparation = await f.library.exports.prepare([photoId]),
+          lease = f.library.exports.acquireProofSource(preparation.id, photoId)
+        try {
+          return structuredClone(lease.source)
+        } finally {
+          lease.release()
+          f.library.exports.dispose(preparation.id)
+        }
+      }
+      const frozen = await capture()
+      // A legacy frozen settings-17 mask has no compound fields and remains accepted.
+      const legacySource = frozen.processing.adjustments!.localMasks!.find(
+        (node) => node.id === legacyId,
+      )!
+      delete legacySource.operands
+      delete legacySource.resultStrokes
+      delete legacySource.resultHead
+      const before = await compare(
+        frozen,
+        info.outputPath(`compound-${index}-before-restart`),
+        source.hdr,
+      )
+      const state = await f.library.getEdits(photoId)
+      await f.library.mutateMasks(photoId, state.revision, {
+        operations: [
+          { kind: 'component-update', id: sourceId, componentId: sourceId, clearPrimary: true },
+          { kind: 'component-remove', id: sourceId, componentId: partId },
+        ],
+      })
+      await f.restart()
+      f.library.fullPreviews.validateMaskEdit = async () => {}
+      const restored = await capture()
+      const protectedGroup = restored.processing.adjustments!.localMasks!.find(
+        (node) => node.id === destinationId,
+      )!.operands![0]
+      expect(protectedGroup.gradient).toEqual(created.settings.maskStack[0].operands![0].gradient)
+      expect(protectedGroup.operands).toHaveLength(1)
+      // Only the coverage source was edited; its neutral adjustments make its own pixels inert.
+      const after = await compare(
+        restored,
+        info.outputPath(`compound-${index}-after-restart`),
+        source.hdr,
+      )
+      expect(after.info).toEqual(before.info)
+      expect(after.data).toEqual(before.data)
+      const latest = await f.library.getEdits(photoId)
+      await f.library.mutateMasks(photoId, latest.revision, {
+        operations: [{ kind: 'update', id: destinationId, light: { exposureEv: 0.5 } }],
+      })
+      expect(
+        frozen.processing.adjustments!.localMasks!.find((node) => node.id === destinationId)!.light
+          .exposureEv,
+      ).toBe(-0.7)
+      expect(
+        frozen.processing.adjustments!.localMasks!.find((node) => node.id === destinationId)!
+          .operands![0].operands,
+      ).toHaveLength(1)
+    }
+  } finally {
+    await f.close()
   }
 })

@@ -8,14 +8,17 @@ import type { LibraryEvent } from '../src/shared/contracts'
 import { PhotoLibrary } from './photo-library.helpers'
 import { processingMetadata } from '../src/main/processing/metadata'
 
-export async function transferFixture(count = 4) {
+export async function transferFixture(
+  count = 4,
+  fullPreviewProcessor?: () => ConstructorParameters<typeof PhotoLibrary>[16],
+) {
   const root = await mkdtemp(join(tmpdir(), 'irodori-edit-transfer-'))
   const events: LibraryEvent[] = [],
     ids: string[] = [],
     originals = new Map<string, Buffer>()
   let listener: (event: LibraryEvent) => void = () => {}
-  const create = () =>
-    new PhotoLibrary(
+  const create = () => {
+    const args: ConstructorParameters<typeof PhotoLibrary> = [
       join(root, 'library'),
       {
         async process() {
@@ -27,7 +30,10 @@ export async function transferFixture(count = 4) {
         events.push(event)
         listener(event)
       },
-    )
+    ]
+    args[16] = fullPreviewProcessor?.()
+    return new PhotoLibrary(...args)
+  }
   let library = create()
   await library.open()
   for (let index = 0; index < count; index++) {

@@ -1,8 +1,13 @@
 import { maskCanonicalPoint, type MaskGeometry } from './mask-geometry'
-import type { ResolvedMask } from './masks'
+import {
+  validateMaskId,
+  validateMaskName,
+  type MaskCombineOperator,
+  type ResolvedMask,
+} from './masks'
 
 export const objectSelectionCapabilities = {
-  version: 1,
+  version: 2,
   model: 'sam2.1-hiera-tiny',
   backend: 'native-webgpu',
   prompts: ['box', 'positive-point', 'negative-point'],
@@ -37,8 +42,53 @@ export interface ObjectSelectionRequest {
   prompts: ObjectSelectionPrompts
   /** Replacing this base preserves every existing manual correction and control. */
   maskId?: string
+  /** Frozen at generation; acceptance cannot choose a different destination. */
+  target?: ObjectSelectionTarget
+}
+export type ObjectSelectionTarget =
+  | { kind: 'new-mask' }
+  | {
+      kind: 'new-component'
+      maskId: string
+      parentId?: string
+      componentId: string
+      name: string
+      operator: MaskCombineOperator
+    }
+  | { kind: 'replace-component'; maskId: string; componentId?: string; replacePrimary?: true }
+
+export function objectSelectionTarget(request: ObjectSelectionRequest): ObjectSelectionTarget {
+  return (
+    request.target ??
+    (request.maskId ? { kind: 'replace-component', maskId: request.maskId } : { kind: 'new-mask' })
+  )
+}
+
+function validateObjectSelectionTarget(value: unknown): asserts value is ObjectSelectionTarget {
+  if (!record(value)) throw new Error('Invalid object-selection destination.')
+  if (value.kind === 'new-mask' && Object.keys(value).length === 1) return
+  if (value.kind !== 'new-component' && value.kind !== 'replace-component')
+    throw new Error('Invalid object-selection destination.')
+  const allowed =
+    value.kind === 'new-component'
+      ? ['kind', 'maskId', 'parentId', 'componentId', 'name', 'operator']
+      : ['kind', 'maskId', 'componentId', 'replacePrimary']
+  if (Object.keys(value).some((key) => !allowed.includes(key)))
+    throw new Error('Invalid object-selection destination.')
+  if (value.replacePrimary !== undefined && value.replacePrimary !== true)
+    throw new Error('Invalid starting coverage replacement.')
+  validateMaskId(value.maskId)
+  if (value.componentId !== undefined) validateMaskId(value.componentId)
+  if (value.kind === 'new-component') {
+    validateMaskId(value.componentId)
+    validateMaskName(value.name)
+    if (value.parentId !== undefined) validateMaskId(value.parentId)
+    if (!['add', 'subtract', 'intersect'].includes(String(value.operator)))
+      throw new Error('Invalid object-selection combination operator.')
+  }
 }
 export interface ObjectSelectionProposal {
+  target?: ObjectSelectionTarget
   id: string
   photoId: string
   revision: number
@@ -101,7 +151,10 @@ export function validateObjectSelectionRequest(value: unknown): ObjectSelectionR
   if (
     !record(value) ||
     Object.keys(value).some(
-      (key) => !['photoId', 'expectedRevision', 'gridIdentity', 'prompts', 'maskId'].includes(key),
+      (key) =>
+        !['photoId', 'expectedRevision', 'gridIdentity', 'prompts', 'maskId', 'target'].includes(
+          key,
+        ),
     ) ||
     typeof value.gridIdentity !== 'string' ||
     !hash.test(value.gridIdentity) ||
@@ -109,8 +162,12 @@ export function validateObjectSelectionRequest(value: unknown): ObjectSelectionR
   )
     throw new Error('Invalid object-selection request. Refresh the photograph context.')
   validateSelectionTarget(value.photoId, value.expectedRevision)
+  if (value.target !== undefined) {
+    validateObjectSelectionTarget(value.target)
+    if (value.maskId !== undefined) throw new Error('Use one explicit selection destination.')
+  }
   return {
-    ...(value as unknown as ObjectSelectionRequest),
+    ...structuredClone(value as unknown as ObjectSelectionRequest),
     prompts: validateObjectSelectionPrompts(value.prompts),
   }
 }

@@ -168,8 +168,11 @@ export function GradientOverlay({
     }
     if (Math.hypot(p.x - v.origin.x, p.y - v.origin.y) > 1e-12) v.moved = true
     if (v.handle && v.gradient) preview(moveGradientHandle(v.gradient, v.handle, v.origin, p, w, h))
-    else if (masks.creatingGradient)
-      setCreation(gradientFromDrag(masks.creatingGradient, v.origin, p))
+    else if (masks.creatingGradient) {
+      const next = gradientFromDrag(masks.creatingGradient, v.origin, p)
+      setCreation(next)
+      masks.previewCreatedGradient(next)
+    }
   }
   const finish = (event: PointerEvent<HTMLElement>) => {
     const v = gesture.current

@@ -27,7 +27,7 @@ function ErrorRow({
     return () => observer.disconnect()
   }, [index, onMeasure])
   return (
-    <li ref={element} style={{ top }}>
+    <li ref={element} style={{ top }} data-selectable-text tabIndex={0}>
       <strong>{entry.filename}</strong>
       <span>{entry.message}</span>
     </li>

@@ -78,6 +78,55 @@ const maskGradient = {
     }),
   ],
 }
+const maskComponentId = { type: 'string', format: 'uuid' }
+const maskName = { type: 'string', minLength: 1, maxLength: 100 }
+const maskOperator = { enum: ['add', 'subtract', 'intersect'] }
+const maskEdge = schema(
+  {
+    featherPx: { type: 'number', minimum: 0, maximum: 64, multipleOf: 0.5 },
+    shiftPx: { type: 'integer', minimum: -16, maximum: 16 },
+  },
+  [],
+)
+const maskStroke = schema({
+  mode: { enum: ['add', 'subtract'] },
+  radius: { type: 'number', exclusiveMinimum: 0, maximum: 0.5 },
+  feather: { type: 'number', minimum: 0, maximum: 1 },
+  points: {
+    type: 'array',
+    minItems: 1,
+    maxItems: 4096,
+    items: schema({
+      x: { type: 'number', minimum: 0, maximum: 1 },
+      y: { type: 'number', minimum: 0, maximum: 1 },
+    }),
+  },
+})
+const selectionTarget = {
+  oneOf: [
+    schema({ kind: { const: 'new-mask' } }),
+    schema(
+      {
+        kind: { const: 'new-component' },
+        maskId: maskComponentId,
+        parentId: maskComponentId,
+        componentId: maskComponentId,
+        name: maskName,
+        operator: maskOperator,
+      },
+      ['kind', 'maskId', 'componentId', 'name', 'operator'],
+    ),
+    schema(
+      {
+        kind: { const: 'replace-component' },
+        maskId: maskComponentId,
+        componentId: maskComponentId,
+        replacePrimary: { const: true },
+      },
+      ['kind', 'maskId'],
+    ),
+  ],
+}
 const colorAmount = { type: 'integer', minimum: -100, maximum: 100 }
 const curveChannel = { enum: ['master', 'red', 'green', 'blue'] }
 const curvePoints = {
@@ -657,13 +706,14 @@ let tools = [
   {
     name: 'irodori_create_object_selection',
     description:
-      'Generate a SAM 2 object proposal using the confirmed canonical grid and box/positive/negative points. Returns a native canonical black/white coverage image separately from metadata. Does not edit history. Optional maskId preserves its manual strokes and controls. Six slots maximum; box uses two. Inspect before explicit acceptance; Paint/Erase repairs approximate edges.',
+      'Generate a SAM 2 object proposal using the confirmed canonical grid and box/positive/negative points. Returns a native canonical black/white coverage image separately from metadata. Does not edit history. Optional maskId refines the legacy root. selectionTarget freezes a new-mask, new-component (maskId, componentId, optional parentId, name, operator), or replace-component destination. Existing corrections and controls are retained; acceptance cannot retarget it. replacePrimary:true on replace-component explicitly replaces a gradient starting source atomically on acceptance; ordinary refinement refuses gradients. Six slots maximum; box uses two. Inspect before explicit acceptance; Paint/Erase repairs approximate edges.',
     inputSchema: schema(
       {
         photoId,
         expectedRevision,
         gridIdentity: { type: 'string', pattern: '^[a-f0-9]{64}$' },
         maskId: { type: 'string', format: 'uuid' },
+        selectionTarget,
         prompts: schema(
           {
             box: {
@@ -718,7 +768,7 @@ let tools = [
   {
     name: 'irodori_mutate_masks',
     description:
-      'Commit bounded mask operations as one photo-wide Undo step. Top-first list order applies bottom-to-top. Partial color updates accept relative temperature, tint and saturation, each integer -100 to +100 with 0 neutral. Positive temperature warms and positive tint adds magenta; these are relative units, not Kelvin or camera white balance. Each mask applies color balance, Light, then saturation and blends coverage once. Global white balance is unchanged. Geometry is normalized to the oriented uncorrected source, radius is a fraction of its shorter dimension. Whole-mask edge updates accept featherPx (0–64 in half-pixel steps) and shiftPx (-16–16 integer canonical source pixels); positive shift grows the affected region after inversion. Coverage order is gradient or object base, ordered Paint/Erase, inversion, shift, then feather. These controls do not recover missing fine detail. Read current masks and revision with irodori_get_edits. Use the separate object-selection tools for AI proposals; range masks remain unavailable. Optional gradient on create atomically creates a neutral linear/radial mask; gradient on update replaces its entire geometry. One gradient per mask, mutually exclusive with generated object bases. Linear coverage fades from full-strength start to zero-strength end; radial selects inside. Coordinates and radii use normalized oriented source axes; rotations use degrees, Feather integer percent. Endpoint separation and both semiaxes require at least one source pixel.',
+      "Commit bounded mask operations as one photo-wide Undo step. Top-first list order applies bottom-to-top. Partial color updates accept relative temperature, tint and saturation, each integer -100 to +100 with 0 neutral. Positive temperature warms and positive tint adds magenta; these are relative units, not Kelvin or camera white balance. Each mask applies color balance, Light, then saturation and blends coverage once. Global white balance is unchanged. Geometry is normalized to the oriented uncorrected source, radius is a fraction of its shorter dimension. Whole-mask edge updates accept featherPx (0–64 in half-pixel steps) and shiftPx (-16–16 integer canonical source pixels); positive shift grows the affected region after inversion. Coverage order at every node is primary base/gradient and primary strokes, ordered child operands, result corrections, inversion, shift, then feather. Add uses max(A,B), Subtract A*(1-B), Intersect A*B. Disabled operands are skipped. component-add/copy/update/duplicate/remove/reorder manage owned editable groups, preserving the fixed starting coverage. Copies share immutable content without live dependencies or source Light/Color. Limits include disabled parts: 32 nodes per root, 256 per photograph, depth 8. Untargeted strokes address the root result; componentId and strokeTarget explicitly target primary or result corrections. These controls do not recover missing fine detail. Read current masks and revision with irodori_get_edits. Use the separate object-selection tools for AI proposals; range masks remain unavailable. Optional gradient on create atomically creates a neutral linear/radial mask; gradient on update replaces its entire geometry. One gradient per coverage node, mutually exclusive with that node's generated object base. Linear coverage fades from full-strength start to zero-strength end; radial selects inside. Coordinates and radii use normalized oriented source axes; rotations use degrees, Feather integer percent. Endpoint separation and both semiaxes require at least one source pixel.",
     inputSchema: schema({
       photoId,
       expectedRevision,
@@ -742,6 +792,7 @@ let tools = [
               schema(
                 {
                   kind: { const: 'update' },
+                  componentId: maskComponentId,
                   id: { type: 'string', format: 'uuid' },
                   name: { type: 'string', minLength: 1, maxLength: 100 },
                   enabled: { type: 'boolean' },
@@ -792,24 +843,78 @@ let tools = [
                   items: { type: 'string', format: 'uuid' },
                 },
               }),
+              schema(
+                {
+                  kind: { const: 'stroke' },
+                  id: maskComponentId,
+                  componentId: maskComponentId,
+                  strokeTarget: { enum: ['primary', 'result'] },
+                  stroke: maskStroke,
+                },
+                ['kind', 'id', 'stroke'],
+              ),
+              schema(
+                {
+                  kind: { const: 'component-add' },
+                  id: maskComponentId,
+                  componentId: maskComponentId,
+                  parentId: maskComponentId,
+                  name: maskName,
+                  operator: maskOperator,
+                  gradient: maskGradient,
+                  stroke: maskStroke,
+                },
+                ['kind', 'id', 'componentId', 'name', 'operator'],
+              ),
+              schema(
+                {
+                  kind: { const: 'component-copy' },
+                  id: maskComponentId,
+                  componentId: maskComponentId,
+                  parentId: maskComponentId,
+                  name: maskName,
+                  operator: maskOperator,
+                  sourceMaskId: maskComponentId,
+                  sourceComponentId: maskComponentId,
+                },
+                ['kind', 'id', 'componentId', 'name', 'operator', 'sourceMaskId'],
+              ),
+              schema(
+                {
+                  kind: { const: 'component-update' },
+                  id: maskComponentId,
+                  componentId: maskComponentId,
+                  name: maskName,
+                  enabled: { type: 'boolean' },
+                  inverted: { type: 'boolean' },
+                  operator: maskOperator,
+                  edge: maskEdge,
+                  gradient: maskGradient,
+                  clearPrimary: { const: true },
+                },
+                ['kind', 'id', 'componentId'],
+              ),
               schema({
-                kind: { const: 'stroke' },
-                id: { type: 'string', format: 'uuid' },
-                stroke: schema({
-                  mode: { enum: ['add', 'subtract'] },
-                  radius: { type: 'number', exclusiveMinimum: 0, maximum: 0.5 },
-                  feather: { type: 'number', minimum: 0, maximum: 1 },
-                  points: {
-                    type: 'array',
-                    minItems: 1,
-                    maxItems: 4096,
-                    items: schema({
-                      x: { type: 'number', minimum: 0, maximum: 1 },
-                      y: { type: 'number', minimum: 0, maximum: 1 },
-                    }),
-                  },
-                }),
+                kind: { const: 'component-duplicate' },
+                id: maskComponentId,
+                componentId: maskComponentId,
+                newId: maskComponentId,
+                name: maskName,
               }),
+              schema({
+                kind: { const: 'component-remove' },
+                id: maskComponentId,
+                componentId: maskComponentId,
+              }),
+              schema(
+                {
+                  kind: { const: 'component-reorder' },
+                  id: maskComponentId,
+                  parentId: maskComponentId,
+                  ids: { type: 'array', maxItems: 31, uniqueItems: true, items: maskComponentId },
+                },
+                ['kind', 'id', 'ids'],
+              ),
             ],
           },
         },

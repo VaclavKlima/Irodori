@@ -194,7 +194,11 @@ export function ExportDialog({
           <div className={styles.destination}>
             <div>
               <span>Destination</span>
-              <p title={destination?.label}>
+              <p
+                title={destination?.label}
+                data-selectable-text
+                tabIndex={destination ? 0 : undefined}
+              >
                 {destination?.label ?? 'Choose a folder on first export'}
               </p>
             </div>

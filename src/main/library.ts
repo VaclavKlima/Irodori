@@ -5,7 +5,6 @@ import type { ObjectSelectionRequest, AcceptObjectSelection } from '../shared/ob
 import { MaskContentStore, prepareMaskMutation } from './mask-store'
 import {
   resolveMasks,
-  hasMaskAdjustments,
   validateMaskMutation,
   type MaskDescriptor,
   type MaskMutation,
@@ -487,7 +486,7 @@ export class PhotoLibrary {
       !this.db.prepare("SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' LIMIT 1").get()
     if (
       !fresh &&
-      ![17, 18, 19, 20, 21, 22, 23, 24, 25, 26, CATALOG_VERSION].includes(version.user_version)
+      ![17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, CATALOG_VERSION].includes(version.user_version)
     )
       throw new Error(
         version.user_version > CATALOG_VERSION
@@ -561,7 +560,7 @@ export class PhotoLibrary {
         this.workspace.initialize()
         new ExportReadStore(this.db).initialize()
       } else {
-        if ([17, 18, 19, 20, 21, 22, 23, 24, 25, 26].includes(version.user_version))
+        if ([17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27].includes(version.user_version))
           migrateEditingHistory(this.db)
         this.cameraRecognition.prepare()
       }
@@ -575,7 +574,7 @@ export class PhotoLibrary {
         const data = JSON.parse(row.data) as ProcessingOptions
         bootstrap.seedEdits(row.id, data, new Date().toISOString())
       }
-      if (fresh || [17, 18, 19, 20, 21, 22, 23, 24, 25, 26].includes(version.user_version))
+      if (fresh || [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27].includes(version.user_version))
         this.db.exec(`PRAGMA user_version = ${CATALOG_VERSION}`)
       this.db.exec('COMMIT')
     } catch (error) {
@@ -721,7 +720,16 @@ export class PhotoLibrary {
           metadata: source.processing.metadata,
         }
       },
-      masks: (state) => this.resolvedMasks(state.photoId, state.settings.maskStack),
+      masks: (state, mutation?: MaskMutation) => {
+        if (!mutation) return this.resolvedMasks(state.photoId, state.settings.maskStack)
+        const { stack, chunks } = prepareMaskMutation(state.settings.maskStack, mutation)
+        // Preview-only geometry uses owned immutable content without publishing it.
+        return resolveMasks(
+          stack,
+          [...this.maskContent(state.photoId, state.settings.maskStack), ...chunks],
+          this.maskBases(state.photoId, stack),
+        )
+      },
       admission: (signal) => {
         if (!this.cropAdmission) throw new Error('Mask edge resource admission is unavailable.')
         return this.cropAdmission(signal)
@@ -1236,26 +1244,16 @@ export class PhotoLibrary {
         [...this.maskContent(id, history.settings.maskStack), ...chunks],
         this.maskBases(id, stack),
       )
-      if (
-        chunks.length ||
-        mutation.operations.some(
-          (op) =>
-            ((op.kind === 'create' || op.kind === 'update') && op.gradient !== undefined) ||
-            (op.kind === 'duplicate' &&
-              resolved.some((mask) => mask.id === op.newId && mask.gradient)),
-        ) ||
-        mutation.operations.some((op) => op.kind === 'update' && op.edge !== undefined) ||
-        (resolved.some((mask) => mask.enabled && hasMaskAdjustments(mask)) &&
-          mutation.operations.some(
-            (op) =>
-              op.kind === 'duplicate' ||
-              (op.kind === 'update' &&
-                (op.light !== undefined || op.color !== undefined || op.enabled === true)),
-          ))
-      )
-        await this.fullPreviews.validateMaskEdit(id, expectedRevision, resolved)
       if (JSON.stringify(stack) === JSON.stringify(history.settings.maskStack))
         return this.editState(history)
+      // Labels have no processing cost. All other edits admit the complete tree,
+      // including operator/order/enabled changes without new immutable content.
+      const labelsOnly = mutation.operations.every(
+        (op) =>
+          (op.kind === 'update' || op.kind === 'component-update') &&
+          Object.keys(op).every((key) => ['kind', 'id', 'componentId', 'name'].includes(key)),
+      )
+      if (!labelsOnly) await this.fullPreviews.validateMaskEdit(id, expectedRevision, resolved)
       history.settings = { ...history.settings, maskStack: stack }
       history.snapshots = history.snapshots.slice(0, history.cursor + 1)
       history.snapshots.push({ settings: history.settings, createdAt: new Date().toISOString() })

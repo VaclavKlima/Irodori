@@ -7,12 +7,17 @@ export function referenceMaskEdges(
   width: number,
   height: number,
   base?: Uint8Array,
+  completeCoverage?: (x: number, y: number) => number,
 ) {
   const sample = (data: Float64Array, x: number, y: number) =>
     data[Math.max(0, Math.min(height - 1, y)) * width + Math.max(0, Math.min(width - 1, x))]
   const composed = new Float64Array(width * height)
   for (let y = 0; y < height; y++)
     for (let x = 0; x < width; x++) {
+      if (completeCoverage) {
+        composed[y * width + x] = completeCoverage((x + 0.5) / width, (y + 0.5) / height)
+        continue
+      }
       let value = base
         ? base[y * width + x] / 255
         : referenceCoverage(

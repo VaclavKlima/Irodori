@@ -19,6 +19,10 @@ Reuse `src/renderer/src/tokens.css`, `components/ui/Controls.tsx`,
 controller. Read the relevant input, menu or scrolling guide when changing its
 behavior. Extend existing components before adding another presentation pattern.
 
+For shortcuts and selectable/copyable text, use the repository
+[Irodori input skill](../irodori-input/SKILL.md) and its authoritative input guide.
+Preserve native field and Console input while keeping app chrome unselectable.
+
 Native selects in the main application document automatically inherit the shared
 Wayland picker guard; add no per-control refresh workaround. Follow the
 [dropdown and focus contract](../../../docs/input-design.md#dropdowns-and-native-picker-stability)

@@ -122,7 +122,14 @@ import {
 import { rawDecoderDefinitions } from './processing/formats'
 import { CROP_POLICY, LENS_RENDER_VERSION } from './processing/lens-correction'
 import { croppedMaskGeometry, identityMaskGeometry } from '../shared/mask-geometry'
-import { hasLocalMasks, packLocalMasks, maskBaseAtlasPlan } from '../shared/masks-gpu'
+import {
+  hasLocalMasks,
+  packLocalMasks,
+  maskBaseAtlasPlan,
+  mapMaskCoverage,
+  maskCoverageNodes,
+  maskTreeHasEdges,
+} from '../shared/masks-gpu'
 import type { ResolvedMask } from '../shared/masks'
 import { maskHasEdges, maskCapabilities } from '../shared/masks'
 import { maskEdgeMemoryPlan, maskEdgePixelIdentity } from '../shared/mask-edges'
@@ -895,13 +902,15 @@ export class FullPreviews {
     masks: ResolvedMask[],
   ): Promise<void> {
     if (!masks.length) return
-    const prepared = await this.nativeCropSource(id, expectedRevision)
+    const prepared = await this.nativeCropSource(id, expectedRevision, undefined, true)
     const crop = cropGeometry(prepared.source, prepared.options.crop ?? identityCrop)
-    const unfiltered = masks.map((mask) => ({
-      ...mask,
-      edge: { featherPx: 0, shiftPx: 0 },
-      preparedCoverage: undefined,
-    }))
+    const unfiltered = masks.map((mask) =>
+      mapMaskCoverage(mask, (node) => ({
+        ...node,
+        edge: { featherPx: 0, shiftPx: 0 },
+        preparedCoverage: undefined,
+      })),
+    )
     const packed = packLocalMasks(
       { localMasks: unfiltered, maskGeometry: croppedMaskGeometry(prepared.maskGeometry, crop) },
       crop,
@@ -909,12 +918,14 @@ export class FullPreviews {
     const atlas = maskBaseAtlasPlan({ localMasks: unfiltered })
     const { canonicalWidth: width, canonicalHeight: height } = prepared.maskGeometry
     const layers = new Set(
-      masks.flatMap((mask) =>
-        maskHasEdges(mask)
-          ? [`edge:${maskEdgePixelIdentity(mask)}`]
-          : mask.base
-            ? [mask.base.hash]
-            : [],
+      masks.flatMap((root) =>
+        maskCoverageNodes(root).flatMap((mask) =>
+          maskHasEdges(mask)
+            ? [`edge:${maskEdgePixelIdentity(mask)}`]
+            : mask.base
+              ? [mask.base.hash]
+              : [],
+        ),
       ),
     ).size
     const atlasBytes = width * height * layers
@@ -922,7 +933,7 @@ export class FullPreviews {
       throw new Error(
         'Mask coverage exceeds the 256 MiB native atlas limit. Reset Mask edges or remove a generated mask.',
       )
-    if (masks.some(maskHasEdges)) {
+    if (masks.some(maskTreeHasEdges)) {
       if (!this.cropAdmission) throw new Error('Mask edge resource admission is unavailable.')
       const memory = maskEdgeMemoryPlan(
         width,

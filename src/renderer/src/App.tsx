@@ -278,8 +278,12 @@ export function App() {
     confirmation: edits.state ?? undefined,
     enabled: workspace === 'editor' && !!photo && edits.confirmed,
     parameters: masks.adjustments,
-    selectedId: masks.selectedId,
+    selectedId:
+      masks.workspace.overlayScope === 'selected-part'
+        ? (masks.selectedComponentId ?? masks.selectedId)
+        : masks.selectedId,
     overlayVisible: masks.overlayVisible,
+    mutation: masks.coverageMutation,
   })
   const startCrop = async () => {
     if (!crop.supported || crop.pending) return
@@ -350,7 +354,13 @@ export function App() {
           ...maskWorkspace,
           photoId: proposal.photoId,
           selectedId: proposal.mask.id,
-          detailTab: 'adjustments',
+          selectedComponentId:
+            proposal.target?.kind === 'new-component'
+              ? proposal.target.componentId
+              : proposal.target?.kind === 'replace-component'
+                ? (proposal.target.componentId ?? proposal.mask.id)
+                : proposal.mask.id,
+          detailTab: proposal.target?.kind === 'new-component' ? 'coverage' : 'adjustments',
           brush: false,
           overlay: true,
         })

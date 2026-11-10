@@ -11,6 +11,7 @@ import {
   neutralMaskLight,
   neutralMaskEdge,
   type ResolvedMask,
+  type ResolvedMaskOperand,
 } from '../src/shared/masks'
 import { maskEdgeMemoryPlan } from '../src/shared/mask-edges'
 import { identityMaskGeometry } from '../src/shared/mask-geometry'
@@ -40,11 +41,13 @@ async function fixture() {
     light: { ...neutralMaskLight },
     strokes: [],
   }
+  const inputs: ResolvedMask[] = []
   let gate: ((signal: AbortSignal) => Promise<void>) | undefined
   let admission = cropAdmission()
   const runtime: Pick<MaskEdgeProcess, 'prepare' | 'close'> = {
     prepare: async (_mask, width, height, key, path, signal) => {
       calls++
+      inputs.push(structuredClone(_mask))
       cachePath = path
       await gate?.(signal)
       signal.throwIfAborted()
@@ -106,6 +109,14 @@ async function fixture() {
     service,
     request: () => ({ photoId, revision, maskIds: [maskId] }),
     calls: () => calls,
+    inputs: () => inputs,
+    mask: () => structuredClone(mask),
+    vramBudget: (effectiveBytes: number) => {
+      admission = {
+        ...admission,
+        policy: { ...admission.policy, vram: { ...admission.policy.vram, effectiveBytes } },
+      }
+    },
     reserved: () => reserved,
     closed: () => closed,
     cachePath: () => cachePath,
@@ -304,6 +315,116 @@ test('damaged disposable coverage releases its cache reservation and explicit re
     expect(f.calls()).toBe(2)
     await f.service.beginRemoval(photoId)
     expect(f.reserved()).toBe(0)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+const compoundIds = {
+  child: '22222222-2222-4222-8222-222222222222',
+  nested: '33333333-3333-4333-8333-333333333333',
+  sibling: '44444444-4444-4444-8444-444444444444',
+}
+function compoundParts(): ResolvedMaskOperand[] {
+  const part = (id: string, name: string): ResolvedMaskOperand => ({
+    id,
+    name,
+    operator: 'subtract',
+    enabled: true,
+    inverted: false,
+    head: null,
+    resultHead: null,
+    strokes: [],
+    resultStrokes: [],
+    edge: { featherPx: 2, shiftPx: 0 },
+    operands: [],
+    gradient: {
+      kind: 'linear',
+      start: {
+        x: id === compoundIds.nested ? 0.3 : id === compoundIds.sibling ? 0.4 : 0.2,
+        y: 0.1,
+      },
+      end: { x: 0.8, y: 0.9 },
+    },
+  })
+  return [
+    { ...part(compoundIds.child, 'Bird'), operands: [part(compoundIds.nested, 'Feathers')] },
+    part(compoundIds.sibling, 'Reflection'),
+  ]
+}
+
+test('nested edge preparation passes completed children to parents and reuses unchanged subtrees after sibling edits', async () => {
+  const f = await fixture()
+  try {
+    f.setMask({ operands: compoundParts() })
+    const first = await f.service.prepare(f.request())
+    const inputs = f.inputs(),
+      ids = inputs.map((node) => node.id)
+    expect(ids.indexOf(compoundIds.nested)).toBeLessThan(ids.indexOf(compoundIds.child))
+    expect(ids.indexOf(compoundIds.child)).toBeLessThan(ids.indexOf(maskId))
+    expect(ids.indexOf(compoundIds.sibling)).toBeLessThan(ids.indexOf(maskId))
+    expect(
+      inputs.find((node) => node.id === compoundIds.child)!.operands![0].preparedCoverage,
+    ).toEqual(first.coverages[compoundIds.nested])
+    const root = inputs.find((node) => node.id === maskId)!
+    expect(root.operands![0].preparedCoverage).toEqual(first.coverages[compoundIds.child])
+    expect(root.operands![1].preparedCoverage).toEqual(first.coverages[compoundIds.sibling])
+    expect(f.calls()).toBe(4)
+    f.setMask({ name: 'Renamed water', light: { ...neutralMaskLight, exposureEv: -1 } })
+    f.revise()
+    expect((await f.service.prepare(f.request())).coverages).toEqual(first.coverages)
+    expect(f.calls()).toBe(4)
+    const operands = compoundParts()
+    operands[1].inverted = true
+    f.setMask({ operands })
+    f.revise()
+    const changed = await f.service.prepare(f.request())
+    expect(f.calls()).toBe(6)
+    expect(changed.coverages[compoundIds.child]).toEqual(first.coverages[compoundIds.child])
+    expect(changed.coverages[compoundIds.nested]).toEqual(first.coverages[compoundIds.nested])
+    expect(changed.coverages[compoundIds.sibling].key).not.toBe(
+      first.coverages[compoundIds.sibling].key,
+    )
+    expect(changed.coverages[maskId].key).not.toBe(first.coverages[maskId].key)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('the complete compound workload is admitted before any runtime call and disabled subtrees allocate no edge stage', async () => {
+  const f = await fixture()
+  try {
+    const single = maskEdgeMemoryPlan(32, 24, [f.mask()], cropAdmission()),
+      operands = compoundParts()
+    f.setMask({ operands })
+    const complete = maskEdgeMemoryPlan(32, 24, [f.mask()], cropAdmission())
+    expect(complete.vramBytes).toBeGreaterThan(single.vramBytes)
+    f.vramBudget(Math.floor((single.vramBytes + complete.vramBytes) / 2))
+    await expect(f.service.prepare(f.request())).rejects.toThrow(/budget/)
+    expect(f.calls()).toBe(0)
+    expect(f.reserved()).toBe(0)
+    f.setMask({ operands: operands.map((part) => ({ ...part, enabled: false })) })
+    const result = await f.service.prepare(f.request())
+    expect(Object.keys(result.coverages)).toEqual([maskId])
+    expect(f.calls()).toBe(1)
+    expect(f.inputs()[0].operands!.every((part) => !part.preparedCoverage)).toBe(true)
+  } finally {
+    await f.cleanup()
+  }
+})
+
+test('explicit inspection prepares a disabled operand without enabling it in the parent result', async () => {
+  const f = await fixture()
+  try {
+    const operands = compoundParts()
+    operands[0].enabled = false
+    f.setMask({ operands })
+    const result = await f.service.prepare({ ...f.request(), maskIds: [compoundIds.child] })
+    expect(Object.keys(result.coverages).sort()).toEqual(
+      [compoundIds.child, compoundIds.nested].sort(),
+    )
+    expect(f.inputs().map((mask) => mask.id)).toEqual([compoundIds.nested, compoundIds.child])
+    expect(f.mask().operands![0].enabled).toBe(false)
   } finally {
     await f.cleanup()
   }

@@ -78,7 +78,8 @@ import type { ObjectSelectionController } from '../hooks/useObjectSelection'
 import { ObjectSelectionOverlay } from './ObjectSelection'
 import { inspectionGeometryMatches } from '../preview/inspection-geometry'
 import { selectionScreenPoint } from '../preview/object-selection-geometry'
-import { maskHasEdges } from '../../../shared/masks'
+import { neutralMaskColor, neutralMaskLight } from '../../../shared/masks'
+import { maskCoverageNodes, maskTreeHasEdges } from '../../../shared/masks-gpu'
 
 interface Model {
   loaded: boolean
@@ -1583,10 +1584,48 @@ export function PhotoPreview({
           geometry.view,
           {
             ...adjustments,
-            ...(proposal ? { localMasks: [{ ...proposal.mask, enabled: true }] } : {}),
+            ...(proposal
+              ? { localMasks: [{ ...proposal.mask, enabled: true }] }
+              : masks?.overlayMask
+                ? {
+                    localMasks: [
+                      (() => {
+                        const root = adjustments.localMasks?.find(
+                          (mask) => mask.id === masks.selectedId,
+                        )
+                        if (!root) return masks.overlayMask!
+                        if (
+                          masks.workspace.overlayScope !== 'selected-part' ||
+                          masks.selectedComponentId === null
+                        )
+                          return root
+                        if (masks.selectedComponentId === root.id)
+                          return {
+                            ...root,
+                            operands: [],
+                            resultStrokes: [],
+                            inverted: false,
+                            edge: { featherPx: 0, shiftPx: 0 },
+                            preparedCoverage: undefined,
+                          }
+                        const node = maskCoverageNodes(root, true).find(
+                          (node) => node.id === masks.selectedComponentId,
+                        )
+                        return node
+                          ? {
+                              ...node,
+                              enabled: true,
+                              light: { ...neutralMaskLight },
+                              color: { ...neutralMaskColor },
+                            }
+                          : root
+                      })(),
+                    ],
+                  }
+                : {}),
             maskGeometry: geometry.maskGeometry,
           },
-          proposal?.mask.id ?? masks!.selectedId!,
+          proposal?.mask.id ?? masks!.overlayMask?.id ?? masks!.selectedId!,
           proposal?.id,
         )
       } catch (error) {
@@ -2076,7 +2115,7 @@ export function PhotoPreview({
                 )}
               {masks?.strokeDraft &&
                 masks.selected &&
-                maskHasEdges(masks.selected) &&
+                maskTreeHasEdges(masks.selected) &&
                 maskPresentation && (
                   <svg
                     className={styles.overlay}

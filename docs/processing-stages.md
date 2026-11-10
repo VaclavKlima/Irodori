@@ -258,3 +258,15 @@ sensor-byte checks. The existing LibRaw/Rust source owner, arithmetic, eight-thr
 ceiling, one-thread publication gate, resource budgets and actual-close/source-pin
 barriers remain. Failure diagnostics retain bounded privileged stderr and actual
 exit status. This correction does not adopt a decoder-consolidation backend.
+
+## Compound coverage — November 10, 2026
+
+[Compound masks #85](https://github.com/VaclavKlima/Irodori/issues/85) extend the
+existing common WGSL/GLSL coverage stage with bounded postfix programs. Analytic
+primary coverage, ordered Add/Subtract/Intersect, result corrections and inversion
+share those programs. Edge-enabled nodes use the existing native Dawn edge stage
+in postorder; their prepared result replaces the entire subtree. Source and
+prepared atlas/workload admission precedes processing. No equivalent production
+CPU composition backend or GPU-failure fallback is added. The
+[implementation brief](features/mask-compounds.md) records focused evidence and
+[other-device gaps](https://github.com/VaclavKlima/Irodori/issues/99).

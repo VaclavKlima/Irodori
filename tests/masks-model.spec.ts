@@ -85,7 +85,7 @@ test('partial Color updates, duplication and reset retain independent Light and 
   const first = prepareMaskMutation([], {
     operations: [
       { kind: 'create', id, name: 'Skin' },
-      { kind: 'stroke', id, stroke },
+      { kind: 'stroke', id, strokeTarget: 'primary', stroke },
       { kind: 'update', id, light: { exposureEv: 0.3 }, color: { temperature: 12, tint: 4 } },
       { kind: 'update', id, color: { saturation: -15 } },
       { kind: 'duplicate', id, newId: copy, name: 'Foliage' },
@@ -114,7 +114,7 @@ test('compound mask creation, independent Light, copy-on-write duplication and e
   const first = prepareMaskMutation([], {
     operations: [
       { kind: 'create', id: a, name: 'Trunk' },
-      { kind: 'stroke', id: a, stroke },
+      { kind: 'stroke', id: a, strokeTarget: 'primary', stroke },
       { kind: 'update', id: a, light: { exposureEv: 0.7, shadows: 20 } },
       { kind: 'duplicate', id: a, newId: b, name: 'Reflection' },
       { kind: 'update', id: b, light: { exposureEv: -1, blacks: -15 }, inverted: true },
@@ -126,7 +126,7 @@ test('compound mask creation, independent Light, copy-on-write duplication and e
   expect(first.stack[2].light).toEqual({ ...neutralMaskLight, exposureEv: 0.7, shadows: 20 })
   const refined = prepareMaskMutation(first.stack, {
     operations: [
-      { kind: 'stroke', id: b, stroke: { ...stroke, mode: 'subtract' } },
+      { kind: 'stroke', id: b, strokeTarget: 'primary', stroke: { ...stroke, mode: 'subtract' } },
       { kind: 'reorder', ids: [a, c, b] },
     ],
   })

@@ -43,6 +43,8 @@ test('whole-mask edge inputs commit once, reset atomically and retain manual cor
   await expect.poll(history).toMatchObject({ revision: 2 })
   const head = (await history()).settings.maskStack[0].head
   expect(head).toMatch(/^[a-f0-9]{64}$/)
+  await expect(canvas).toHaveAttribute('data-editing', 'ready')
+  await expect(canvas).toHaveAttribute('data-frame-geometry-revision', '2')
   await maskDetailTab(page, 'Adjustments')
   const exposure = page.getByRole('spinbutton', { name: 'Local Exposure value', exact: true })
   await exposure.fill('0.75')
@@ -174,6 +176,8 @@ test(
     await page.getByTestId('mask-details-scroll').evaluate((element) => {
       element.scrollTop = 0
     })
+    await page.getByRole('button', { name: 'Mask edges', exact: true }).scrollIntoViewIfNeeded()
+    await feather.scrollIntoViewIfNeeded()
     await expect(page.getByRole('button', { name: 'Mask edges', exact: true })).toBeInViewport({
       ratio: 1,
     })

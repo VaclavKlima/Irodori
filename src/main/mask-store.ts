@@ -1,8 +1,12 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import { crc32 } from 'node:zlib'
 import {
   neutralMaskEdge,
+  coverageNodes,
+  findMaskComponent,
+  type MaskCoverageNode,
+  type MaskOperand,
   maskCapabilities,
   maskChunkBytes,
   maskHash,
@@ -24,13 +28,15 @@ export function prepareMaskBaseReplacement(
   current: readonly MaskDescriptor[],
   id: string,
   base: MaskBaseContent,
+  componentId?: string,
 ) {
   verifiedMaskBaseBytes(base)
   const stack = structuredClone(current) as MaskDescriptor[],
     mask = stack.find((entry) => entry.id === id)
   if (!mask) throw new Error('This mask is unavailable. Refresh the confirmed masks.')
-  if (mask.gradient) throw new Error('Gradient masks cannot have an object-selection base.')
-  mask.base = maskBaseReference(base)
+  const target = findMaskComponent(mask, componentId)
+  if (target.gradient) throw new Error('Gradient masks cannot have an object-selection base.')
+  target.base = maskBaseReference(base)
   validateMaskStack(stack)
   return stack
 }
@@ -69,12 +75,53 @@ export function verifiedMaskBaseBytes(base: MaskBaseContent): Buffer {
 
 export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation: MaskMutation) {
   validateMaskMutation(mutation)
+  validateMaskStack(current)
   const stack = structuredClone(current) as MaskDescriptor[],
     chunks: MaskStrokeChunk[] = []
   const find = (id: string) => {
     const mask = stack.find((mask) => mask.id === id)
     if (!mask) throw new Error('This mask is unavailable. Refresh the confirmed masks.')
     return mask
+  }
+  const allIds = () =>
+    new Set(stack.flatMap((root) => [...coverageNodes(root)].map((node) => node.id)))
+  const fresh = (source: MaskCoverageNode, id: string, name: string): MaskCoverageNode => ({
+    id,
+    name,
+    enabled: source.enabled,
+    inverted: source.inverted,
+    head: source.head,
+    edge: structuredClone(source.edge),
+    resultHead: source.resultHead ?? null,
+    ...(source.base ? { base: structuredClone(source.base) } : {}),
+    ...(source.gradient ? { gradient: structuredClone(source.gradient) } : {}),
+    operands: (source.operands ?? []).map((child) => ({
+      ...fresh(child, randomUUID(), child.name),
+      operator: child.operator,
+    })),
+  })
+  const locate = (
+    root: MaskDescriptor,
+    componentId: string,
+  ): { parent: MaskCoverageNode; index: number; node: MaskOperand } => {
+    for (const parent of coverageNodes(root)) {
+      const index = (parent.operands ?? []).findIndex((child) => child.id === componentId)
+      if (index >= 0) return { parent, index, node: parent.operands![index] }
+    }
+    throw new Error(
+      'This operand is unavailable. Starting coverage cannot be removed or reordered.',
+    )
+  }
+  const appendStroke = (
+    node: MaskCoverageNode,
+    stroke: import('../shared/masks').MaskStroke,
+    primary: boolean,
+  ) => {
+    const parent = primary ? node.head : (node.resultHead ?? null),
+      hash = createHash('sha256').update(maskChunkBytes(parent, stroke)).digest('hex')
+    chunks.push({ hash, parent, stroke: structuredClone(stroke) })
+    if (primary) node.head = hash
+    else node.resultHead = hash
   }
   for (const op of mutation.operations) {
     switch (op.kind) {
@@ -86,6 +133,8 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
           enabled: true,
           inverted: false,
           head: null,
+          resultHead: null,
+          operands: [],
           light: { ...neutralMaskLight },
           color: { ...neutralMaskColor },
           edge: { ...neutralMaskEdge },
@@ -93,12 +142,15 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
         })
         break
       case 'update': {
-        const mask = find(op.id)
+        const root = find(op.id),
+          mask = findMaskComponent(root, op.componentId)
+        if (op.componentId && op.componentId !== root.id && (op.light || op.color))
+          throw new Error('Light and Color belong to the destination mask.')
         if (op.name !== undefined) mask.name = op.name
         if (op.enabled !== undefined) mask.enabled = op.enabled
         if (op.inverted !== undefined) mask.inverted = op.inverted
-        if (op.light) mask.light = { ...mask.light, ...op.light }
-        if (op.color) mask.color = { ...mask.color, ...op.color }
+        if (op.light) root.light = { ...root.light, ...op.light }
+        if (op.color) root.color = { ...root.color, ...op.color }
         if (op.edge) mask.edge = { ...mask.edge, ...op.edge }
         if (op.gradient) {
           if (mask.base)
@@ -114,9 +166,9 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
         if (stack.some((mask) => mask.id === op.newId))
           throw new Error('This mask ID already exists.')
         stack.splice(stack.indexOf(source), 0, {
-          ...structuredClone(source),
-          id: op.newId,
-          name: op.name,
+          ...fresh(source, op.newId, op.name),
+          light: structuredClone(source.light),
+          color: structuredClone(source.color),
         })
         break
       }
@@ -134,11 +186,92 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
         break
       }
       case 'stroke': {
-        const mask = find(op.id),
-          parent = mask.head,
-          hash = createHash('sha256').update(maskChunkBytes(parent, op.stroke)).digest('hex')
-        chunks.push({ hash, parent, stroke: structuredClone(op.stroke) })
-        mask.head = hash
+        appendStroke(
+          findMaskComponent(find(op.id), op.componentId),
+          op.stroke,
+          op.strokeTarget === 'primary',
+        )
+        break
+      }
+      case 'component-add': {
+        if (allIds().has(op.componentId)) throw new Error('This mask component ID already exists.')
+        const parent = findMaskComponent(find(op.id), op.parentId),
+          node: MaskOperand = {
+            id: op.componentId,
+            name: op.name,
+            operator: op.operator,
+            enabled: true,
+            inverted: false,
+            head: null,
+            resultHead: null,
+            operands: [],
+            edge: { ...neutralMaskEdge },
+            ...(op.gradient ? { gradient: structuredClone(op.gradient) } : {}),
+          }
+        if (op.stroke) appendStroke(node, op.stroke, true)
+        ;(parent.operands ??= []).push(node)
+        break
+      }
+      case 'component-copy': {
+        if (allIds().has(op.componentId)) throw new Error('This mask component ID already exists.')
+        const source = findMaskComponent(find(op.sourceMaskId), op.sourceComponentId),
+          // Visibility of the source mask is not coverage. A copied operand starts active;
+          // disabled operations inside its owned subtree keep their original state.
+          copy = {
+            ...fresh(source, op.componentId, op.name),
+            enabled: true,
+            operator: op.operator,
+          },
+          parent = findMaskComponent(find(op.id), op.parentId)
+        ;(parent.operands ??= []).push(copy)
+        break
+      }
+      case 'component-update': {
+        const root = find(op.id),
+          node = findMaskComponent(root, op.componentId)
+        if (op.name !== undefined) node.name = op.name
+        if (op.enabled !== undefined) node.enabled = op.enabled
+        if (op.inverted !== undefined) node.inverted = op.inverted
+        if (op.edge) node.edge = { ...node.edge, ...op.edge }
+        if (op.operator !== undefined) {
+          if (node === root) throw new Error('Starting coverage has no combination operator.')
+          ;(node as MaskOperand).operator = op.operator
+        }
+        if (op.clearPrimary) {
+          delete node.base
+          delete node.gradient
+          node.head = null
+        }
+        if (op.gradient) {
+          if (node.base)
+            throw new Error('A gradient and generated object base are mutually exclusive.')
+          node.gradient = structuredClone(op.gradient)
+        }
+        break
+      }
+      case 'component-duplicate': {
+        if (allIds().has(op.newId)) throw new Error('This mask component ID already exists.')
+        const { parent, index, node } = locate(find(op.id), op.componentId)
+        parent.operands!.splice(index + 1, 0, {
+          ...fresh(node, op.newId, op.name),
+          operator: node.operator,
+        })
+        break
+      }
+      case 'component-remove': {
+        const { parent, index } = locate(find(op.id), op.componentId)
+        parent.operands!.splice(index, 1)
+        break
+      }
+      case 'component-reorder': {
+        const parent = findMaskComponent(find(op.id), op.parentId),
+          children = parent.operands ?? []
+        if (
+          op.ids.length !== children.length ||
+          op.ids.some((id) => !children.some((node) => node.id === id))
+        )
+          throw new Error('Reordering requires every operand within its parent exactly once.')
+        parent.operands = op.ids.map((id) => children.find((node) => node.id === id)!)
         break
       }
     }
@@ -191,7 +324,7 @@ export class MaskContentStore {
         'SELECT width, height, png FROM mask_base_content WHERE photo_id = ? AND hash = ?',
       )
     let bytes = 0
-    for (const mask of stack) {
+    for (const mask of stack.flatMap((root) => [...coverageNodes(root)])) {
       if (!mask.base || bases.has(mask.base.hash)) continue
       const row = read.get(photoId, mask.base.hash) as
         { width: number; height: number; png: Uint8Array } | undefined
@@ -215,12 +348,15 @@ export class MaskContentStore {
   }
   content(photoId: string, stack: readonly MaskDescriptor[]): MaskStrokeChunk[] {
     validateMaskStack(stack)
-    if (!stack.some((mask) => mask.head)) {
+    const nodes = stack.flatMap((root) => [...coverageNodes(root)])
+    if (!nodes.some((node) => node.head || node.resultHead)) {
       resolveMasks(stack, [], this.bases(photoId, stack))
       return []
     }
     const content = new Map<string, MaskStrokeChunk>(),
-      pending = stack.flatMap((mask) => (mask.head ? [mask.head] : []))
+      pending = nodes.flatMap((node) =>
+        [node.head, node.resultHead].filter((head): head is string => Boolean(head)),
+      )
     let points = 0
     const read = this.db.prepare('SELECT data FROM mask_content WHERE photo_id = ? AND hash = ?')
     while (pending.length) {

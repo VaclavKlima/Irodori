@@ -1,0 +1,118 @@
+.section {
+  border-bottom: 1px solid var(--line-subtle);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+.heading > button {
+  font-size: 11px;
+  padding-inline: 5px;
+}
+.heading .disclosure {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  padding: 3px 0;
+}
+.parts {
+  max-height: 160px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  margin-top: 4px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  gap: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+.row > button {
+  flex: none;
+  width: 21px;
+  min-height: 24px;
+  padding: 2px;
+  border-color: transparent;
+  background: transparent;
+}
+.row .pick {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  text-align: left;
+  font-size: 11px;
+}
+.pick > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row .handle {
+  width: 13px;
+  cursor: grab;
+  touch-action: none;
+  color: var(--quiet);
+}
+.fixed {
+  width: 8px;
+  flex: none;
+}
+.operator {
+  color: var(--accent);
+  width: 10px;
+  flex: none;
+  text-align: center;
+}
+.selected {
+  border-color: var(--accent);
+  background: var(--surface-raised);
+}
+.row.selected {
+  border-color: var(--accent);
+}
+.result {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  font-size: 11px;
+  min-height: 28px;
+  padding: 4px;
+  margin-bottom: 2px;
+  background: transparent;
+}
+.result span {
+  color: var(--muted);
+  font-size: 10px;
+}
+.name {
+  min-width: 0;
+  width: 100%;
+  background: var(--canvas);
+  color: var(--text);
+  border: 1px solid var(--line);
+  font: inherit;
+  font-size: 11px;
+}
+.hint {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.dropTarget {
+  border-bottom: 2px solid var(--accent);
+}

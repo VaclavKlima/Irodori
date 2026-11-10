@@ -4,6 +4,7 @@ import type {
   ObjectSelectionPrompts,
   ObjectSelectionProposal,
   ObjectSelectionRequest,
+  ObjectSelectionTarget,
 } from '../../../shared/object-selection'
 import type { SelectionPoint, SelectionRectangle } from '../preview/object-selection-geometry'
 
@@ -28,6 +29,7 @@ interface Session {
   photoId: string
   context?: ObjectSelectionContext
   maskId?: string
+  target: ObjectSelectionTarget
   mode: ObjectSelectionMode
   rectangle?: SelectionRectangle
   box?: [number, number, number, number]
@@ -113,14 +115,19 @@ export function useObjectSelection(dependencies: Dependencies) {
     return () => window.removeEventListener('keydown', escape)
   }, [hasSession, close])
   const start = useCallback(
-    async (maskId?: string) => {
+    async (destination?: string | ObjectSelectionTarget) => {
+      const target: ObjectSelectionTarget =
+        typeof destination === 'string'
+          ? { kind: 'replace-component', maskId: destination }
+          : structuredClone(destination ?? { kind: 'new-mask' })
+      const maskId = target.kind === 'new-mask' ? undefined : target.maskId
       const value = current.current
       if (!value.enabled || !value.photoId) return
       const token = ++epoch.current
       const photoId = value.photoId
       const previous = sessionRef.current?.photoId
       value.onActivate()
-      publish({ photoId, maskId, mode: 'box', points: [], status: 'preparing', error: '' })
+      publish({ photoId, maskId, target, mode: 'box', points: [], status: 'preparing', error: '' })
       try {
         if (previous) await value.cancel(previous)
         if (token !== epoch.current) return
@@ -128,12 +135,22 @@ export function useObjectSelection(dependencies: Dependencies) {
         if (token !== epoch.current || current.current.photoId !== photoId) return
         if (context.photoId !== photoId)
           throw new Error('The photograph changed. Start selection again.')
-        publish({ photoId, maskId, context, mode: 'box', points: [], status: 'idle', error: '' })
+        publish({
+          photoId,
+          maskId,
+          target,
+          context,
+          mode: 'box',
+          points: [],
+          status: 'idle',
+          error: '',
+        })
       } catch (error) {
         if (token === epoch.current)
           publish({
             photoId,
             maskId,
+            target,
             mode: 'box',
             points: [],
             status: 'idle',
@@ -165,7 +182,7 @@ export function useObjectSelection(dependencies: Dependencies) {
         expectedRevision: value.context.revision,
         gridIdentity: value.context.gridIdentity,
         prompts,
-        ...(value.maskId ? { maskId: value.maskId } : {}),
+        target: value.target,
       })
       if (token !== epoch.current || current.current.photoId !== value.photoId) return
       if (
@@ -220,6 +237,7 @@ export function useObjectSelection(dependencies: Dependencies) {
     points: value?.points ?? [],
     prompts,
     maskId: value?.maskId,
+    target: value?.target,
     proposal: value?.proposal,
     dirty,
     error: value?.error ?? '',

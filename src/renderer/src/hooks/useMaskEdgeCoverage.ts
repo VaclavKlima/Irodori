@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AdjustmentParameters } from '../../../shared/adjustments'
 import { maskEdgePixelIdentity } from '../../../shared/mask-edges'
+import { maskCoverageNodes, mapMaskCoverage } from '../../../shared/masks-gpu'
 import {
   hasMaskAdjustments,
   maskHasEdges,
   validatePreparedMaskCoverage,
   type PreparedMaskCoverage,
+  type MaskMutation,
 } from '../../../shared/masks'
 
 interface Options {
@@ -17,6 +19,7 @@ interface Options {
   parameters: AdjustmentParameters
   selectedId: string | null
   overlayVisible: boolean
+  mutation?: MaskMutation
 }
 interface Completed {
   identity: string
@@ -24,7 +27,7 @@ interface Completed {
   coverages: Record<string, PreparedMaskCoverage>
 }
 
-/** The main owner prepares committed native coverage; renderer drafts never start spatial work. */
+/** Main prepares committed coverage and validated geometry drafts without publishing draft history. */
 export function useMaskEdgeCoverage({
   photoId,
   revision,
@@ -33,21 +36,31 @@ export function useMaskEdgeCoverage({
   parameters,
   selectedId,
   overlayVisible,
+  mutation,
 }: Options) {
-  const required = (parameters.localMasks ?? []).filter(
-    (mask) =>
-      maskHasEdges(mask) &&
-      ((mask.enabled && hasMaskAdjustments(mask)) || (overlayVisible && mask.id === selectedId)),
-  )
+  const requiredById = new Map<string, import('../../../shared/masks').ResolvedMask>()
+  for (const root of parameters.localMasks ?? []) {
+    if (root.enabled && hasMaskAdjustments(root))
+      for (const node of maskCoverageNodes(root))
+        if (maskHasEdges(node)) requiredById.set(node.id, node)
+    if (overlayVisible && selectedId) {
+      const selected = maskCoverageNodes(root, true).find((node) => node.id === selectedId)
+      if (selected)
+        for (const node of maskCoverageNodes(selected))
+          if (maskHasEdges(node)) requiredById.set(node.id, node)
+    }
+  }
+  const required = [...requiredById.values()]
   const identity = JSON.stringify([
     photoId,
     revision,
+    mutation,
     required.map((mask) => [mask.id, maskEdgePixelIdentity(mask)]).sort(),
   ])
   const requiredIds = required.map((mask) => mask.id)
-  const request = useRef({ identity, requiredIds, photoId, revision, confirmation })
+  const request = useRef({ identity, requiredIds, photoId, revision, confirmation, mutation })
   useLayoutEffect(() => {
-    request.current = { identity, requiredIds, photoId, revision, confirmation }
+    request.current = { identity, requiredIds, photoId, revision, confirmation, mutation }
   })
   const [completed, setCompleted] = useState<Completed | null>(null)
   const [failure, setFailure] = useState<{
@@ -72,14 +85,12 @@ export function useMaskEdgeCoverage({
         revision,
         maskIds: current.requiredIds,
         requestId,
+        ...(current.mutation ? { mutation: current.mutation } : {}),
       })
       if (!active) return
       if (response.photoId !== photoId || response.revision !== revision)
         throw new Error('Prepared mask edges belong to an older photograph or revision.')
-      if (
-        Object.keys(response.coverages).length !== current.requiredIds.length ||
-        current.requiredIds.some((id) => !Object.hasOwn(response.coverages, id))
-      )
+      if (current.requiredIds.some((id) => !Object.hasOwn(response.coverages, id)))
         throw new Error('Prepared mask edges are incomplete. Retry GPU.')
       for (const coverage of Object.values(response.coverages))
         validatePreparedMaskCoverage(coverage)
@@ -107,17 +118,23 @@ export function useMaskEdgeCoverage({
     if (!masks?.length) return masks
     if (
       (!ready || !completed || completed.identity !== identity) &&
-      !masks.some((mask) => mask.preparedCoverage)
+      !masks.some((mask) => maskCoverageNodes(mask, true).some((node) => node.preparedCoverage))
     )
       return masks
-    if (!requiredIds.length && !masks.some((mask) => mask.preparedCoverage)) return masks
-    return masks.map((mask) => {
-      const current = { ...mask }
-      delete current.preparedCoverage
-      const coverage =
-        ready && completed?.identity === identity ? completed.coverages[mask.id] : undefined
-      return coverage && maskHasEdges(mask) ? { ...current, preparedCoverage: coverage } : current
-    })
+    if (
+      !requiredIds.length &&
+      !masks.some((mask) => maskCoverageNodes(mask, true).some((node) => node.preparedCoverage))
+    )
+      return masks
+    return masks.map((root) =>
+      mapMaskCoverage(root, (mask) => {
+        const current = { ...mask }
+        delete current.preparedCoverage
+        const coverage =
+          ready && completed?.identity === identity ? completed.coverages[mask.id] : undefined
+        return coverage && maskHasEdges(mask) ? { ...current, preparedCoverage: coverage } : current
+      }),
+    )
   }, [parameters.localMasks, completed, identity, ready, requiredIds.length])
   const prepared: AdjustmentParameters = { ...parameters, localMasks }
   const retry = useCallback(() => {
