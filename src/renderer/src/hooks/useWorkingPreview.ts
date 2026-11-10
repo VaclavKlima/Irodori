@@ -85,7 +85,11 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
             if (!direct) requested = true
             const result = direct
               ? preview
-              : await window.irodori.requestEditingPreview(preview.photoId, token)
+              : await window.irodori.requestEditingPreview(
+                  preview.photoId,
+                  token,
+                  preview.requestId,
+                )
             if (cancelled) return
             if (
               result.photoId !== preview.photoId ||

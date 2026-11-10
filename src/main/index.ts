@@ -1114,9 +1114,14 @@ app
         (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
       )
     })
-    handleLibraryRequest('preview:editing', (event, id, token) => {
+    handleLibraryRequest('preview:editing', (event, id, token, parentRequestId) => {
       trusted(event)
-      return library!.fullPreviews.requestEditing(id, token).then(
+      if (
+        typeof parentRequestId !== 'string' ||
+        !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(parentRequestId)
+      )
+        throw new Error('Invalid editing preview parent request token.')
+      return library!.fullPreviews.requestEditing(id, token, parentRequestId).then(
         (preview) => ({ preview }),
         (error: unknown) => ({ error: String(error) }),
       )

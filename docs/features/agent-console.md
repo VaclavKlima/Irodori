@@ -157,6 +157,10 @@ and older workspace documents. Native terminal focus/paste and compositor
 captures explicitly require foreground mode. Test profiles and photographic
 imports are isolated from user libraries.
 
+The [raster preview recovery record](console-preview-recovery.md) documents #101:
+auxiliary editing demand is bound to its primary source so an older retained
+preview cannot cancel a newer full-resolution request or leave Crop unavailable.
+
 The authenticated live edit/Undo/Redo and missing editing/communication capability
 exercises use a dedicated sign-in and are recorded separately from the
 stand-in CLI transport/lifecycle tests. macOS and Windows verification are

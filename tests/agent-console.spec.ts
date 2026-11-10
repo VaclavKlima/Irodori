@@ -82,7 +82,7 @@ test('one terminal survives close and workspace changes; restart waits for Resum
 
 test('managed MCP attaches to this instance, freezes targets, shares Undo/Redo and denies repeated conflicts and unrelated tools', async ({
   irodori,
-}) => {
+}, info) => {
   test.setTimeout(90000)
   const { page } = irodori
   await importPhotos(irodori.app, page, undefined, true, 'keyboard')
@@ -207,8 +207,73 @@ test('managed MCP attaches to this instance, freezes targets, shares Undo/Redo a
       body: JSON.stringify({ operation: 'irodori_get_edits', photoId: a.id }),
     })
     expect(wrongToken.status).toBe(403)
-    await openPreviewOptions(page)
-    await activateButton(page.getByRole('button', { name: 'Crop photo', exact: true }))
+    try {
+      await expect
+        .poll(
+          async () => {
+            const source = await page.evaluate(() => window.irodori.getPreviewDiagnostics())
+            return {
+              photoId: source.photoId,
+              revision: source.revision,
+              sourceStage: source.loadingStage,
+              presentedPhotoId: source.presentation?.photoId,
+              presentedRevision: source.presentation?.revision,
+              presentationStage: source.presentation?.stage,
+            }
+          },
+          { timeout: 10000, message: 'The final confirmed edit must remain available to Crop.' },
+        )
+        .toEqual({
+          photoId: a.id,
+          revision: 5,
+          sourceStage: 'prepared',
+          presentedPhotoId: a.id,
+          presentedRevision: 5,
+          presentationStage: 'presented',
+        })
+      const canvas = page.getByTestId('main-preview')
+      await expect(canvas).toHaveAttribute('aria-label', a.filename)
+      await expect(canvas).toHaveAttribute('data-editing', 'ready')
+      await expect(canvas).toBeVisible()
+      await expect(page.getByTestId('preview-resolution')).toContainText('Full resolution')
+      await expect(
+        page.getByTestId('preview-resolution').getByRole('button', { name: 'Retry', exact: true }),
+      ).toHaveCount(0)
+      await openPreviewOptions(page)
+      await activateButton(page.getByRole('button', { name: 'Crop photo', exact: true }))
+    } catch (error) {
+      const availability = await page.evaluate(async (photoId) => {
+        const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]'),
+          resolution = document.querySelector('[data-testid="preview-resolution"]'),
+          crop = document.querySelector<HTMLButtonElement>('[aria-label="Crop photo"]'),
+          edits = await window.irodori.getEdits(photoId)
+        return {
+          expected: { photoId, revision: 5 },
+          confirmed: { photoId: edits.photoId, revision: edits.revision },
+          canvas: canvas
+            ? {
+                label: canvas.getAttribute('aria-label'),
+                width: canvas.width,
+                height: canvas.height,
+                visibility: getComputedStyle(canvas).visibility,
+                dataset: { ...canvas.dataset },
+              }
+            : null,
+          availability: {
+            text: resolution?.textContent,
+            title: resolution?.getAttribute('title'),
+            description: resolution?.getAttribute('aria-description'),
+            cropDisabled: crop?.disabled,
+          },
+          diagnostics: await window.irodori.getPreviewDiagnostics(),
+        }
+      }, a.id)
+      await info.attach('preview-availability-before-crop', {
+        body: JSON.stringify(availability, null, 2),
+        contentType: 'application/json',
+      })
+      throw error
+    }
     await expect(
       runAgentHook(env, {
         hook_event_name: 'UserPromptSubmit',

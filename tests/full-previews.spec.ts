@@ -859,6 +859,188 @@ test('bounds disk use with LRU eviction while protecting active previews and ope
   }
 })
 
+test('editing children cannot cancel a newer primary and retain their parent through retry and child release', async () => {
+  const entered = cpuLeaseGate(),
+    resume = cpuLeaseGate(),
+    parent = randomUUID(),
+    newerParent = randomUUID()
+  let options: ProcessingOptions = {
+      metadata: { version: 1, lensProfile: unavailableProfile },
+      settings: { ...automaticLensSettings },
+      revision: 0,
+      adjustments: { ...neutralAdjustments },
+    },
+    held = false,
+    failLinear = false,
+    renders = 0,
+    heldSignal: AbortSignal | undefined
+  const cache = new FullPreviews(
+    test.info().outputPath('editing-parent'),
+    original,
+    {
+      renderFull: async (_path, output, signal, request) => {
+        renders++
+        if (held) {
+          held = false
+          heldSignal = signal
+          entered.resolve()
+          await resume.promise
+          signal.throwIfAborted()
+        }
+        if (request?.prepareLinear && failLinear) {
+          failLinear = false
+          throw new Error('Deliberate working-source failure.')
+        }
+        const result = await writeFrame(output)
+        if (request?.prepareLinear) {
+          const bytes = Buffer.from(new Float32Array(result.byteLength).fill(0.25).buffer)
+          await writeFile(join(output, 'linear.f32'), bytes)
+          result.linear = {
+            byteLength: bytes.length,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+            transform: srgbTransform,
+          }
+        }
+        return result
+      },
+      close: async () => {},
+    },
+    1,
+    async () => structuredClone(options),
+  )
+  try {
+    await cache.open()
+    await cache.request(ids[0], parent)
+    options = { ...options, revision: 1, adjustments: { ...neutralAdjustments, exposureEv: 1 } }
+    cache.settingsChanged(ids[0])
+    held = true
+    const primary = cache.request(ids[0], newerParent)
+    await entered.promise
+    await expect(cache.requestEditing(ids[0], randomUUID(), parent)).rejects.toThrow('cancelled')
+    await expect(cache.requestEditing(ids[1], randomUUID(), newerParent)).rejects.toThrow(
+      'cancelled',
+    )
+    await expect(cache.requestEditing(ids[0], randomUUID(), 'malformed')).rejects.toThrow(
+      'Invalid editing preview parent request token',
+    )
+    expect(heldSignal?.aborted).toBe(false)
+    expect(renders).toBe(2)
+    resume.resolve()
+    expect(await primary).toMatchObject({ requestId: newerParent, settingsRevision: 1 })
+
+    failLinear = true
+    const failedChild = randomUUID()
+    await expect(cache.requestEditing(ids[0], failedChild, newerParent)).rejects.toThrow(
+      'Deliberate working-source failure',
+    )
+    await cache.release(failedChild)
+    const firstChild = randomUUID(),
+      working = await cache.requestEditing(ids[0], firstChild, newerParent),
+      secondChild = randomUUID()
+    expect(working.linear?.url).toBeTruthy()
+    expect(await cache.requestEditing(ids[0], secondChild, newerParent)).toMatchObject({
+      requestId: secondChild,
+      linear: working.linear,
+    })
+    await cache.release(firstChild)
+    const pinned = cache.acquire(new URL(working.linear!.url!))!
+    expect(await readFile(pinned.path)).toHaveLength(12 * 8 * 16)
+    pinned.release()
+    await cache.release(secondChild)
+    expect(cache.acquire(new URL(working.linear!.url!))).toBeUndefined()
+
+    const thirdChild = randomUUID(),
+      retried = await cache.requestEditing(ids[0], thirdChild, newerParent)
+    await cache.release(newerParent)
+    await expect(cache.requestEditing(ids[0], randomUUID(), newerParent)).rejects.toThrow(
+      'cancelled',
+    )
+    const retained = cache.acquire(new URL(retried.linear!.url!))!
+    expect(await readFile(retained.path)).toHaveLength(12 * 8 * 16)
+    retained.release()
+    await cache.release(thirdChild)
+    expect(cache.acquire(new URL(retried.linear!.url!))).toBeUndefined()
+  } finally {
+    resume.resolve()
+    await cache.close()
+  }
+})
+
+test('primary failure, revision changes, removal and shutdown revoke editing-parent authority', async () => {
+  const entered = cpuLeaseGate(),
+    resume = cpuLeaseGate()
+  let failure: 'immediate' | 'held' | false = 'immediate'
+  const processor: FullPreviewProcessor = {
+    renderFull: async (_path, output, _signal, request) => {
+      if (failure === 'immediate') throw new Error('Deliberate primary failure.')
+      if (failure === 'held') {
+        entered.resolve()
+        await resume.promise
+        throw new Error('Deliberate superseded primary failure.')
+      }
+      const result = await writeFrame(output)
+      if (request?.prepareLinear) {
+        const bytes = Buffer.from(new Float32Array(result.byteLength).fill(0.25).buffer)
+        await writeFile(join(output, 'linear.f32'), bytes)
+        result.linear = {
+          byteLength: bytes.length,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+          transform: srgbTransform,
+        }
+      }
+      return result
+    },
+    close: async () => {},
+  }
+  const cache = new FullPreviews(
+    test.info().outputPath('editing-parent-revocation'),
+    original,
+    processor,
+    undefined,
+    async () => ({
+      metadata: { version: 1, lensProfile: unavailableProfile },
+      settings: { ...automaticLensSettings },
+      revision: 0,
+      adjustments: { ...neutralAdjustments },
+    }),
+  )
+  try {
+    await cache.open()
+    const failedParent = randomUUID()
+    await expect(cache.request(ids[0], failedParent)).rejects.toThrow('Deliberate primary failure')
+    await expect(cache.requestEditing(ids[0], randomUUID(), failedParent)).rejects.toThrow(
+      'cancelled',
+    )
+    failure = 'held'
+    const oldParent = randomUUID(),
+      oldPrimary = cache.request(ids[0], oldParent).catch((error: Error) => error)
+    await entered.promise
+    failure = false
+    const newerParent = randomUUID(),
+      newerPrimary = cache.request(ids[1], newerParent)
+    await cache.release(oldParent)
+    resume.resolve()
+    expect(await oldPrimary).toBeInstanceOf(Error)
+    expect(await newerPrimary).toMatchObject({ photoId: ids[1], requestId: newerParent })
+    expect(await cache.requestEditing(ids[1], randomUUID(), newerParent)).toMatchObject({
+      photoId: ids[1],
+    })
+    for (const revoke of ['revision', 'removal', 'shutdown']) {
+      const parent = randomUUID()
+      await cache.request(ids[0], parent)
+      if (revoke === 'revision') cache.settingsChanged(ids[0])
+      else if (revoke === 'removal') {
+        await cache.beginRemoval(ids[0])
+        cache.endRemoval(ids[0], false)
+      } else await cache.close()
+      await expect(cache.requestEditing(ids[0], randomUUID(), parent)).rejects.toThrow('cancelled')
+    }
+  } finally {
+    resume.resolve()
+    await cache.close()
+  }
+})
+
 test('supersedes obsolete work, ignores old releases, and cancels before removal and shutdown', async () => {
   const info = test.info()
   let entered!: () => void

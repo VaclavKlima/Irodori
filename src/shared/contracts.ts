@@ -259,7 +259,11 @@ export interface IrodoriApi extends NativeHdrMaskBridge, AgentApi {
     listener: (offer: import('./hdr-first-surface').HdrFirstSurfaceOffer) => void,
   ): () => void
   releaseHdrFirstSurface(requestId: string, surfaceId: string): Promise<void>
-  requestEditingPreview(photoId: string, requestId: string): Promise<FullPreview>
+  requestEditingPreview(
+    photoId: string,
+    requestId: string,
+    parentRequestId: string,
+  ): Promise<FullPreview>
   requestComparisonPreview(
     after: import('./prepared-comparison').PreparedPreviewSourceRef,
     requestId: string,

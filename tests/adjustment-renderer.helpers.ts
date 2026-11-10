@@ -2,13 +2,16 @@ import { openPreviewOptions } from './preview-options.helpers'
 import { build } from 'esbuild'
 import sharp from 'sharp'
 import { writeFile } from 'node:fs/promises'
+import type { JSHandle } from '@playwright/test'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { HDR_CACHE_MAX_TILES } from '../src/renderer/src/preview/hdr-render-cache'
+import { observeNativeCpuReplies } from './retired-presentation.helpers'
+import { observeAdjustmentHalfReadback } from './adjustment-half-readback.helpers'
 
 export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | 'raw')[]) {
   for (const fixture of fixtures)
-    test(`${fixture} ${fixture === 'raw' ? 'WebGPU' : 'WebGL'} combined adjustments match CPU, reuses the working texture and coalesces fallback changes`, async ({
+    test(`${fixture} ${fixture === 'raw' ? 'WebGPU' : 'WebGL'} combined adjustments match CPU, reuses the working texture and coalesces edits after GPU retry`, async ({
       irodori,
     }, info) => {
       test.setTimeout(fixture === 'raw' ? 240000 : 120000)
@@ -27,6 +30,7 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
           .png()
           .toFile(source)
       }
+      const halfReadback = fixture === 'raw' ? await observeAdjustmentHalfReadback(page) : null
       await importPhotos(irodori.app, page, [source])
       const preview = page.getByTestId('main-preview')
       await expect(preview).toHaveAttribute('data-editing', 'ready', { timeout: 40000 })
@@ -49,7 +53,15 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
       })
       await page.evaluate(compiled.outputFiles[0].text)
       await page.evaluate(async (id) => {
-        const result = await window.irodori.requestEditingPreview(id, crypto.randomUUID())
+        const parentRequestId = document.querySelector<HTMLCanvasElement>(
+          '[data-testid="main-preview"]',
+        )?.dataset.previewRequestId
+        if (!parentRequestId) throw new Error('The presented source request is unavailable.')
+        const result = await window.irodori.requestEditingPreview(
+          id,
+          crypto.randomUUID(),
+          parentRequestId,
+        )
         const bytes = await (await fetch(result.linear!.url!)).arrayBuffer()
         const target = window as unknown as { highlightsTest: unknown }
         const state = {
@@ -135,7 +147,7 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
       }, id)
       await page.getByRole('combobox', { name: 'Preview zoom' }).selectOption('1')
       const compare = () =>
-        page.evaluate(async () => {
+        page.evaluate(async (halfReadback) => {
           const test = window as unknown as {
             highlightsTest: {
               data: Float32Array
@@ -218,16 +230,34 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
             const actual = new Uint8Array(4)
             if (gl) gl.readPixels(x, canvas.height - 1 - y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, actual)
             else if (canvas.dataset.backend === 'webgpu-hdr') {
-              const readback = test.highlightsTest.readback
+              const readback = halfReadback?.readback() ?? test.highlightsTest.readback
               if (
                 !readback ||
                 readback.serial !== canvas.dataset.presentationSerial ||
                 readback.width !== canvas.width ||
                 readback.height !== canvas.height
               )
-                return { max: Infinity, uploads: test.highlightsTest.uploads }
+                return {
+                  max: Infinity,
+                  uploads: test.highlightsTest.uploads,
+                  halfReadback: halfReadback?.state(),
+                }
               const at = (y * canvas.width + x) * 4
-              actual.set(readback.data.subarray(at, at + 4))
+              if ('format' in readback && readback.format === 'rgba16float') {
+                if (!readback.sourceIdentity.endsWith(`:${frame.linear!.hdr!.sha256}`))
+                  throw new Error('The actual half-plane does not match the reference source.')
+                // The GPU surface already contains display-encoded target primaries.
+                // Apply only 8-bit quantization; expected pixels encodeHdr exactly once above.
+                actual.set(
+                  Array.from({ length: 4 }, (_, channel) => {
+                    const value = readback.data[at + channel]
+                    if (!Number.isFinite(value) || (channel === 3 && value !== 1))
+                      throw new Error('The actual opaque half-plane pixel is invalid.')
+                    return Math.max(0, Math.min(255, Math.round(value * 255)))
+                  }),
+                )
+              } else
+                actual.set(Array.from({ length: 4 }, (_, channel) => readback.data[at + channel]))
             } else actual.set(canvas.getContext('2d')!.getImageData(x, y, 1, 1).data)
             samples.push({
               x,
@@ -278,7 +308,7 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
               frame: { width: frame.width, height: frame.height },
             },
           }
-        })
+        }, halfReadback)
       const agree = async (limit: number, timeout?: number) => {
         try {
           await expect
@@ -425,33 +455,71 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
       await preview.press('y')
       const uploadEvidence = await compare()
       expect(uploadEvidence.uploads, JSON.stringify(uploadEvidence.uploadStacks)).toBe(0)
+      const sourceBeforeLoss = await preview.getAttribute('data-src'),
+        native = await observeNativeCpuReplies(irodori.app),
+        retiredWorkers: string[] = []
+      expect(sourceBeforeLoss).toBeTruthy()
+      page.on('worker', (worker) => {
+        if (/\/(?:hdr-)?presentation-worker-/.test(worker.url())) retiredWorkers.push(worker.url())
+      })
+      let gpuOverride: JSHandle<{ restore: () => void }> | undefined
       if (fixture === 'raw') {
         await expect(preview).toHaveAttribute('data-source-uploads', '1')
         const cachedTiles = Number(await preview.getAttribute('data-cached-tiles'))
         expect(cachedTiles).toBeGreaterThan(0)
         expect(cachedTiles).toBeLessThanOrEqual(HDR_CACHE_MAX_TILES)
-        await preview.evaluate((element) => {
-          const device = (element as HTMLCanvasElement).getContext('webgpu')!.getConfiguration()!
-            .device
+        gpuOverride = await page.evaluateHandle(() => {
+          const element = document.querySelector<HTMLCanvasElement>(
+              '[data-testid="main-preview"]',
+            )!,
+            device = element.getContext('webgpu')!.getConfiguration()!.device,
+            descriptor = Object.getOwnPropertyDescriptor(navigator, 'gpu')
           Object.defineProperty(navigator, 'gpu', {
             value: { requestAdapter: async () => null },
             configurable: true,
           })
           device.destroy()
+          return {
+            restore: () => {
+              if (descriptor) Object.defineProperty(navigator, 'gpu', descriptor)
+              else Reflect.deleteProperty(navigator, 'gpu')
+            },
+          }
         })
-      } else
-        await preview.evaluate((element) =>
-          (element as HTMLCanvasElement)
+      } else {
+        const supported = await preview.evaluate((element) => {
+          const extension = (element as HTMLCanvasElement)
             .getContext('webgl2')!
-            .getExtension('WEBGL_lose_context')!
-            .loseContext(),
-        )
+            .getExtension('WEBGL_lose_context')
+          extension?.loseContext()
+          return !!extension
+        })
+        expect(supported, 'The real context-loss extension is required for this proof.').toBe(true)
+      }
+      const error = page.getByTestId('preview-gpu-error')
+      await expect(error).toHaveAttribute('role', 'alert')
+      await expect(error).toContainText('GPU preview unavailable')
+      await expect(preview).toHaveAttribute('data-presentation-error', /.+/)
+      await expect(preview).toHaveAttribute('data-editing', 'unavailable')
+      await expect(preview).toBeHidden()
+      expect(retiredWorkers).toEqual([])
+      expect((await native.evaluate((control) => control.state())).requests).toEqual([])
+      if (gpuOverride) {
+        await gpuOverride.evaluate((control) => control.restore())
+        await gpuOverride.dispose()
+      }
+      await error.getByRole('button', { name: 'Retry GPU', exact: true }).click()
+      await expect(error).toHaveCount(0)
       await expect(preview).toHaveAttribute(
         'data-backend',
-        fixture === 'raw' ? 'canvas2d-hdr-sdr' : 'canvas2d',
+        fixture === 'raw' ? 'webgpu-hdr' : 'webgl2',
       )
       await expect(preview).toHaveAttribute('data-editing', 'ready', { timeout: 60000 })
-      // Deliberately queue updates without waiting for the CPU worker's previous bitmap.
+      await expect(preview).toBeVisible()
+      await expect(preview).toHaveAttribute('data-src', sourceBeforeLoss!)
+      if (fixture === 'raw') await expect(preview).toHaveAttribute('data-quality', 'normal')
+      await agree(1)
+      // Deliberately queue updates without waiting for the GPU's previous frame.
       await page.evaluate(async (id) => {
         for (const highlights of [-100, 100, -50, 80, 25]) {
           const state = await window.irodori.getEdits(id)
@@ -475,13 +543,14 @@ export function rendererAgreement(fixtures: readonly ('synthetic' | 'raster' | '
       await expect(preview).toHaveAttribute('data-whites', '25')
       await expect(preview).toHaveAttribute('data-blacks', '-25')
       if (fixture === 'raw')
-        // The HDR CPU worker publishes a 1024-pixel draft before its native-size refinement.
-        // Native source-pixel agreement requires the completed full-resolution bitmap.
         await expect(preview).toHaveAttribute('data-quality', 'normal', { timeout: 180000 })
       await agree(2, 30000)
       await preview.focus()
       await preview.press('y')
       await expect(preview).toHaveAttribute('data-comparison', 'split')
       await agree(2, 30000)
+      expect(retiredWorkers).toEqual([])
+      expect((await native.evaluate((control) => control.close())).requests).toEqual([])
+      await native.dispose()
     })
 }

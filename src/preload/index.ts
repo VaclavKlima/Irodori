@@ -297,8 +297,8 @@ const api: IrodoriApi = {
     if (result.error) throw new Error(result.error)
     return result.preview
   },
-  requestEditingPreview: async (id, token) => {
-    const result = await ipcRenderer.invoke('preview:editing', id, token)
+  requestEditingPreview: async (id, token, parentRequestId) => {
+    const result = await ipcRenderer.invoke('preview:editing', id, token, parentRequestId)
     if (result.error) throw new Error(result.error)
     return result.preview
   },

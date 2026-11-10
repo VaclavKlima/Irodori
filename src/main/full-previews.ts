@@ -272,6 +272,7 @@ export class FullPreviews {
   private analyses = new Map<AbortController, string>()
   private whiteBalancePicking = false
   private active?: Request
+  private editingParent?: { id: string; token: string }
   private cpu?: NativeMaskController
   private firstConfiguration?: FirstSurfaceConfiguration
   private cropAdmission?: (signal: AbortSignal) => Promise<CropAdmission>
@@ -665,8 +666,34 @@ export class FullPreviews {
     })
   }
 
-  requestEditing(id: string, token: string): Promise<FullPreview> {
-    return this.prepare(id, token, false, false, true).then((preview) => {
+  requestEditing(id: string, token: string, parentRequestId?: string): Promise<FullPreview> {
+    if (parentRequestId !== undefined) {
+      if (typeof parentRequestId !== 'string' || !tokenPattern.test(parentRequestId))
+        return Promise.reject(new Error('Invalid editing preview parent request token.'))
+      // Admit the child synchronously before prepare can replace the foreground owner.
+      if (this.editingParent?.id !== id || this.editingParent.token !== parentRequestId)
+        return Promise.reject(
+          new Error('Working preview request cancelled: its parent source is no longer current.'),
+        )
+    }
+    return this.prepare(
+      id,
+      token,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      false,
+      undefined,
+      false,
+      parentRequestId,
+    ).then((preview) => {
       if (!preview?.linear || preview.format !== 'rgba8-srgb')
         throw new Error('A floating-point preview is unavailable.')
       return preview
@@ -1055,6 +1082,7 @@ export class FullPreviews {
     unfiltered = false,
     comparison?: ComparisonContext,
     geometryRead = false,
+    editingParentRequestId?: string,
   ): Promise<DisplayPreview | null> {
     if (
       this.closed ||
@@ -1067,6 +1095,7 @@ export class FullPreviews {
       return Promise.reject(new Error('Invalid preview request.'))
     if (this.blocked.has(id) || !this.original(id))
       return Promise.reject(new Error('This photo is unavailable.'))
+    if (!background && editingParentRequestId === undefined) this.editingParent = { id, token }
     if (!background) {
       if (this.retainedPhoto && this.retainedPhoto !== id) this.processor.releaseFrame?.()
       this.retainedPhoto = id
@@ -1543,6 +1572,13 @@ export class FullPreviews {
               url: `irodori-photo://library/${id}/${workingOnly ? 'linear' : 'full'}/${PREVIEW_VERSION}/${entry.revision}`,
             } as DisplayPreview
           } catch (error) {
+            if (
+              !background &&
+              editingParentRequestId === undefined &&
+              this.editingParent?.id === id &&
+              this.editingParent?.token === token
+            )
+              this.editingParent = undefined
             if (this.active === request) {
               this.diagnostics.loadingStage = 'failed'
               this.detach(false)
@@ -2123,6 +2159,7 @@ export class FullPreviews {
   }
 
   settingsChanged(id: string): void {
+    if (this.editingParent?.id === id) this.editingParent = undefined
     for (const [token, owner] of this.comparisons)
       if (owner.id === id) this.retireComparison(token, 'Comparison settings revision changed.')
     for (const [job, photo] of this.analyses)
@@ -2660,6 +2697,7 @@ export class FullPreviews {
   }
 
   async release(token?: string): Promise<void> {
+    if (token === undefined || this.editingParent?.token === token) this.editingParent = undefined
     const firstDrained = this.retireFirstSurfaces(token)
     const comparisons = (token === undefined ? [...this.comparisons.keys()] : [token])
       .map((key) => this.retireComparison(key, 'Comparison source released.'))
@@ -2833,6 +2871,7 @@ export class FullPreviews {
 
   async beginRemoval(id: string): Promise<void> {
     this.blocked.add(id)
+    if (this.editingParent?.id === id) this.editingParent = undefined
     const comparisons = [...this.comparisons]
       .filter(([, owner]) => owner.id === id)
       .map(([token]) => this.retireComparison(token, 'Photo removed.'))
@@ -2913,6 +2952,7 @@ export class FullPreviews {
   }
 
   async close(): Promise<void> {
+    this.editingParent = undefined
     for (const job of this.analyses.keys()) job.abort(new Error('Preview service closed.'))
     this.closed = true
     for (const token of this.comparisons.keys())
