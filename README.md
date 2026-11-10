@@ -39,7 +39,7 @@ Undo/Redo, restart and frozen SDR/HDR exports. **Select object** creates
 [editable SAM 2 point/box proposals](docs/features/object-selection.md), with separate
 Paint/Erase corrections retained when AI coverage is refined. The same implementation has focused
 [Bazzite masking checks](docs/features/masking-bazzite-acceptance.md) on both Radeon
-adapters; that record retains the separate RAW-startup and platform limitations.
+adapters; that record links the separate RAW startup correction and platform limits.
 **Coverage → Mask edges** adds whole-mask [Feather and Expand/Contract](docs/features/mask-edges.md),
 including manual corrections, with shared Undo/Redo, Console and frozen exports.
 Gradients, sky/background automation, color/luminance ranges and additional local

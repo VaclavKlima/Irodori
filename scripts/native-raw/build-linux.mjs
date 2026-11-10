@@ -56,6 +56,7 @@ const sourceNames = [
   'rows-abi.h',
   'src/main.rs',
   'src/parent_guard.rs',
+  'src/retirement.rs',
   'src/rows.rs',
   'licenses/COPYRIGHT',
   'licenses/LICENSE.CDDL',

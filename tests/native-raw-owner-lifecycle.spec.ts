@@ -41,6 +41,14 @@ closeSync(1)
 writeFileSync(join(root,'native-eof.txt'),'eof')
 if(mode==='held-exit')while(!existsSync(join(root,'release.txt')))
  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,5)
+if(mode==='failed-exit'||mode==='failed-signal'){
+ const stderr=Buffer.from('discarded-prefix\\n'+'é💥'.repeat(3000)+'\\nretained-native-tail\\n')
+ let sent=0
+ while(sent<stderr.length)sent+=writeSync(2,stderr,sent,stderr.length-sent)
+ if(mode==='failed-signal')process.kill(process.pid,'SIGTERM')
+ else process.exit(7)
+}
+if(mode==='success-stderr')writeSync(2,'success-only native stderr\\n')
 `
 }
 function workerSource(mode: string) {
@@ -98,7 +106,10 @@ process.on('message',(message,handle)=>{
   const wrong=(job.nativeRaw.nonce[0]==='0'?'1':'0')+job.nativeRaw.nonce.slice(1)
   send({type:'raw-source-reader-ready',nonce:mode==='wrong-ready'?wrong:job.nativeRaw.nonce});return
  }
- if(message.type==='raw-source-exit'){exit=message;finish();return}
+ if(message.type==='raw-source-exit'){
+  writeFileSync(join(root,'native-exit.json'),JSON.stringify(message))
+  exit=message;finish();return
+ }
  throw Error('unexpected fixture control')
  }catch(error){send({type:'error',error:String(error)})}
 })
@@ -246,6 +257,62 @@ test('native EOF cannot settle a full request or release its source before actua
     await work.outcome
   }
 })
+
+for (const mode of ['failed-exit', 'failed-signal', 'success-stderr'] as const)
+  test(`actual ${mode} retains bounded failure-only native diagnostics and drains the original`, async () => {
+    const f = await fixture(mode),
+      abort = new AbortController(),
+      warnings: unknown[][] = [],
+      originalWarn = console.warn,
+      output = await f.output('diagnostics')
+    console.warn = (...args) => warnings.push(args)
+    const work = observed(
+      f.preview.renderFull(f.original, output, abort.signal, undefined, undefined, preparation()),
+    )
+    try {
+      const result = await work.outcome
+      const receipt = JSON.parse(await f.marker('native-exit.json')) as {
+        code: number | null
+        signal: string | null
+        stderr?: string
+      }
+      const native = Number(await f.marker('native-pid.txt'))
+      expect(native).toBeGreaterThan(0)
+      expect(alive(native)).toBe(false)
+      expect(await sourcePinned(f.original)).toBe(false)
+      const failures = warnings.filter((entry) => entry[0] === 'Native RAW decoder failed:')
+      if (mode === 'success-stderr') {
+        expect(result.ok).toBe(true)
+        expect(receipt).toMatchObject({ code: 0, signal: null })
+        expect(receipt).not.toHaveProperty('stderr')
+        expect(failures).toEqual([])
+      } else {
+        expect(result.ok).toBe(false)
+        expect(receipt).toMatchObject(
+          mode === 'failed-exit' ? { code: 7, signal: null } : { code: null, signal: 'SIGTERM' },
+        )
+        expect(receipt.stderr).toBeDefined()
+        expect(Buffer.byteLength(receipt.stderr!)).toBeLessThanOrEqual(8192)
+        expect(Buffer.byteLength(receipt.stderr!)).toBeGreaterThan(8000)
+        expect(receipt.stderr).not.toContain('discarded-prefix')
+        expect(receipt.stderr!.endsWith('\nretained-native-tail\n')).toBe(true)
+        expect(failures).toHaveLength(1)
+        expect(failures[0][1]).toMatchObject({
+          code: receipt.code,
+          signal: receipt.signal,
+          stderr: receipt.stderr,
+        })
+      }
+    } finally {
+      try {
+        abort.abort()
+        await f.preview.close(true)
+        await work.outcome
+      } finally {
+        console.warn = originalWarn
+      }
+    }
+  })
 
 test('a real killed receiver drains its stubborn direct helper before original release and reuse', async () => {
   const f = await fixture('held-stream'),

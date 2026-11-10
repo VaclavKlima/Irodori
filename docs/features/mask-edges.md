@@ -7,7 +7,7 @@ nondestructive shaping to existing brush and indicated-object masks. Image-guide
 Refine Edge/matting, recovered hair/fur/feather detail, gradients and additional
 local operators remain separate work. [Bazzite qualification](masking-bazzite-acceptance.md)
 records focused checks on both Radeon adapters and retains the separate RAW
-startup limitation. Original Mac acceptance is recorded below.
+startup investigation. Original Mac acceptance is recorded below.
 
 The original Mac activation followed the focused checks below. Its development app was restarted;
 read-only before/after checks confirm the same active photo, revision 78, four
@@ -152,6 +152,6 @@ photographic quality limitations remain in the [selection brief](object-selectio
 
 [Bazzite issues #87/#88](masking-bazzite-acceptance.md) retain the later focused
 checks on both Radeon adapters and native Wayland behavior, including exact
-reruns and the independent unresolved RAW startup issue. Windows, real merged-photograph edge-quality review,
+reruns and the separate RAW startup investigation. Windows, real merged-photograph edge-quality review,
 image-guided matting and physical HDR measurements remain unverified. Edge
 softening/shifting does not recover missing fine detail or prove physical alpha.

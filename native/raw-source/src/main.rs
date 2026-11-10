@@ -2,10 +2,11 @@
 compile_error!("The RAW sensor prototype currently targets Linux x86_64 only.");
 mod rows;
 mod parent_guard;
+mod retirement;
 
 use std::env;
 use std::ffi::{c_char, c_int, c_void, CStr};
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::{self, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::ptr::NonNull;
@@ -135,17 +136,6 @@ fn frame(
     Ok(())
 }
 
-fn threads() -> Result<u64, Box<dyn std::error::Error>> {
-    let status = fs::read_to_string("/proc/self/status")?;
-    let count = status
-        .lines()
-        .find_map(|line| line.strip_prefix("Threads:"))
-        .ok_or("Missing thread count.")?
-        .trim()
-        .parse()?;
-    Ok(count)
-}
-
 fn decimal(value: &str) -> Result<u64, Box<dyn std::error::Error>> {
     if value.is_empty() || value.len() > 20 || !value.bytes().all(|v| v.is_ascii_digit())
         || (value.len() > 1 && value.starts_with('0')) {
@@ -254,9 +244,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Invalid live packed sensor rows.".into());
     }
     let prepare_ms = prepare_started.elapsed().as_secs_f64() * 1000.0;
-    if threads()? != 1 {
-        return Err("The native RAW decoder retained row tasks after its join barrier.".into());
-    }
+    retirement::wait_for_single_thread()?;
     let header = format!(
         "{{\"contract\":\"{CONTRACT}\",\"protocol\":\"u16le-live-rows-v2\",\"rowKernel\":{row_kernel},\"opened\":{opened},\"unpacked\":{unpacked},\"packedBytes\":{byte_length},\"sourceLayout\":{{\"rowSamples\":{width},\"rowCount\":{height},\"strideSamples\":{stride}}}}}"
     );
@@ -285,10 +273,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // SAFETY: all borrowed slices and blocking writes ended before this release.
     decoder.check(unsafe { irodori_raw_release_rows(decoder.0.as_ptr()) })?;
     let recycle_ms = recycle_started.elapsed().as_secs_f64() * 1000.0;
-    let thread_count = threads()?;
-    if thread_count != 1 {
-        return Err("The native RAW decoder retained row tasks after its join barrier.".into());
-    }
+    let thread_count = retirement::wait_for_single_thread()?;
     // SAFETY: getrusage wrapper returns observed self peak RSS in Linux bytes, or zero on error.
     let peak_rss = unsafe { irodori_raw_peak_rss_bytes() };
     if peak_rss == 0 {

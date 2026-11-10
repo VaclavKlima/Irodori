@@ -7,9 +7,9 @@ The first implementation portion of [TODO 54](README.md#task-54) enables local S
 The [November 10 Bazzite qualification](masking-bazzite-acceptance.md) records
 local masking acceptance on RX 7900 XTX and Radeon 610M, exact provider/device
 evidence, native interaction and packaged-worker checks. Publication remains
-separate. The intermittent initial packaged RAW decoder failure is retained in
-[issue #94](https://github.com/VaclavKlima/Irodori/issues/94); a passing rerun does
-not resolve that source/startup defect.
+separate. The initial packaged RAW decoder failure is retained in
+[issue #94](https://github.com/VaclavKlima/Irodori/issues/94); its later reproduction,
+correction and focused receipts are in the [native startup record](../native-raw-startup.md).
 
 ## Editing workflow
 

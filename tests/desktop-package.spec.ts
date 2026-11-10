@@ -47,12 +47,17 @@ test(
     )
     const profile = await mkdtemp(join(tmpdir(), 'irodori-package-test-'))
     let session: Awaited<ReturnType<typeof launchPackagedTestElectron>> | undefined
+    let nativeStderr: Buffer = Buffer.alloc(0)
+    const retainStderr = (part: Buffer) => {
+      nativeStderr = Buffer.concat([nativeStderr, part.subarray(-65536)]).subarray(-65536)
+    }
     try {
       session = await launchPackagedTestElectron({
         executablePath: executable,
         userDataDir: profile,
         artifacts: info.outputPath('startup'),
       })
+      session.child.stderr?.on('data', retainStderr)
       const { app } = session,
         page = await app.firstWindow()
       await expect(page.getByTestId('workspace')).toBeVisible()
@@ -317,6 +322,7 @@ test(
         userDataDir: profile,
         artifacts: info.outputPath('restart'),
       })
+      session.child.stderr?.on('data', retainStderr)
       const restarted = await session.app.firstWindow()
       await expect(restarted.getByTestId('preview-filename')).toHaveText(photo.filename)
       await expect(restarted.getByTestId('console-panel')).toBeVisible()
@@ -326,18 +332,25 @@ test(
       ).toMatchObject(savedHistory)
       expect((await readdir(join(runtime.root, 'node_modules'))).includes('@electron')).toBe(false)
     } finally {
-      if (session) {
-        await session.app.close().catch(() => undefined)
-        await assertTestWindowPolicy(session.evidenceFile)
-        if (session.child.exitCode === null) session.child.kill('SIGKILL')
+      try {
+        if (session) {
+          await session.app.close().catch(() => undefined)
+          await assertTestWindowPolicy(session.evidenceFile)
+          if (session.child.exitCode === null) session.child.kill('SIGKILL')
+        }
+        await rm(profile, { recursive: true, force: true })
+        expect(
+          await access(profile).then(
+            () => true,
+            () => false,
+          ),
+        ).toBe(false)
+      } finally {
+        await info.attach('packaged-main-stderr', {
+          body: nativeStderr,
+          contentType: 'text/plain',
+        })
       }
-      await rm(profile, { recursive: true, force: true })
-      expect(
-        await access(profile).then(
-          () => true,
-          () => false,
-        ),
-      ).toBe(false)
     }
   },
 )

@@ -153,12 +153,17 @@ function protocolFixture(fallback = false, wrongLibrary = false) {
     ]),
   }
 }
-function mainExit(code: number | null = 0): NativeRawMainMessage {
+function mainExit(
+  code: number | null = 0,
+  signal: string | null = null,
+  stderr?: string,
+): NativeRawMainMessage {
   return {
     type: 'raw-source-exit',
     nonce,
     code,
-    signal: null,
+    signal,
+    ...(stderr === undefined ? {} : { stderr }),
     diagnostics: {
       validationMs: 0,
       sourceBytes: 2112,
@@ -354,6 +359,29 @@ for (const defect of ['negative-exit', 'truncated', 'excess'] as const)
             ? /Truncated native RAW pipe/
             : /Excess native RAW stdout/,
       )
+      expect(pair.reader.destroyed).toBe(true)
+    } finally {
+      target.client.close()
+      await pair.close()
+    }
+  })
+
+for (const exit of [
+  { code: 7, signal: null, summary: 'exit code 7, signal none' },
+  { code: null, signal: 'SIGABRT', summary: 'exit code null, signal SIGABRT' },
+] as const)
+  test(`failed native close retains ${exit.summary} without exposing privileged stderr`, async () => {
+    const pair = await socketPair(),
+      target = receiver()
+    try {
+      target.client.accept({ type: 'raw-source-stream', nonce }, pair.reader)
+      await writeAndObserve(pair, protocolFixture().packet)
+      target.client.accept(mainExit(exit.code, exit.signal, 'private native failure details'))
+      const result = await target.result
+      expect(result.ok).toBe(false)
+      if (result.ok) throw new Error('A failed native close published a source.')
+      expect(result.error).toContain(exit.summary)
+      expect(result.error).not.toContain('private native failure details')
       expect(pair.reader.destroyed).toBe(true)
     } finally {
       target.client.close()

@@ -478,6 +478,7 @@ const definitions: Suite[] = [
   { file: 'native-raw-source', group: 'service', scopes: ['preview'] },
   { file: 'native-raw-preparation', group: 'service', scopes: ['preview'] },
   { file: 'native-raw-owner-lifecycle', group: 'service', scopes: ['preview'], exclusive: true },
+  { file: 'native-raw-retirement', group: 'service', scopes: [], explicitOnly: true },
   {
     file: 'resource-settings-ui',
     group: 'electron',

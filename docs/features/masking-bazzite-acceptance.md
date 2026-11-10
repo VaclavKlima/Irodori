@@ -13,10 +13,12 @@ not counts of GPU-only cases. The [structured reconciliation](../../artifacts/ma
 retains the case-level mapping.
 
 An intermittent packaged RAW decoder-close failure occurred before object
-selection and remains unresolved in [issue #94](https://github.com/VaclavKlima/Irodori/issues/94).
-The exact packaged rerun passed, but the failed invocation and general packaged
-RAW startup reliability are not accepted or declared fixed. GitHub issues #87 and #88
-own delivery and completion state; this ledger preserves the scoped evidence.
+selection and was tracked separately in [issue #94](https://github.com/VaclavKlima/Irodori/issues/94).
+The later [native startup investigation](../native-raw-startup.md) reproduces and
+corrects its joined-thread accounting race. The original failed invocation
+remains failed; the masking rerun alone did not establish that correction or
+general startup reliability. GitHub owns delivery and completion state; this
+ledger preserves the original masking evidence.
 
 The implementation retains one common production backend per stage: pinned
 native ONNX Runtime WebGPU SAM 2.1 Tiny inference, Dawn preprocessing and native
@@ -99,7 +101,8 @@ proposal and explicit acceptance, nonneutral mask edges and local Light,
 prepared coverage, export, and exact history recovery after restart. This scoped
 workflow has passing receipts on both adapters. The integrated adapter's earlier
 failure at initial RAW preview import precedes the new SAM step; the successful
-exact rerun does not resolve that separate intermittent source failure in #94.
+exact rerun alone did not resolve that separate source failure; the later
+[native startup record](../native-raw-startup.md) owns its correction.
 
 ## Focused target mapping
 
@@ -128,7 +131,7 @@ is implied by this selection.
 | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [RX 7900 XTX focused run](../../artifacts/verification/2026-11-10T08-33-10.108Z-check-jauVi0/summary.md)                                                  | 1017 passed, 1 native menu/input failure, 229.22 s. Foreground; original invocation remains failed.                                                                           |
 | [Corrected exact native rerun](../../artifacts/verification/playwright-1794300174680-ddb7621d-ca2f-489d-9851-8f179c282683/playwright/summary.json)        | 1 case passed, 6.5 s invocation. Actionability and trusted event receipts address the native helper failure.                                                                  |
-| [Radeon 610M focused run](../../artifacts/verification/2026-11-10T08-43-33.916Z-check-T9lhlB/summary.md)                                                  | 1016 passed, 1 packaged initial-RAW-preview failure, 213.68 s. Foreground; original invocation remains failed and #94 remains unresolved.                                     |
+| [Radeon 610M focused run](../../artifacts/verification/2026-11-10T08-43-33.916Z-check-T9lhlB/summary.md)                                                  | 1016 passed, 1 packaged initial-RAW-preview failure, 213.68 s. Foreground; original invocation remains failed; the later #94 correction is separately recorded.               |
 | [Exact packaged rerun on Radeon 610M](../../artifacts/verification/playwright-1794300490043-81fecce8-ba1a-4e25-9692-8d685b705bee/playwright/summary.json) | 1 case passed, 34.2 s invocation. Demonstrates the scoped packaged workflow on that run; does not establish a fix for the earlier RAW failure or general startup reliability. |
 | [Earlier failed scoped run](../../artifacts/verification/2026-11-10T08-19-38.031Z-check-3NxKrE/summary.md)                                                | 1003 passed, 8 failed, 416.37 s. Later focused UI receipts resolve those cases; this invocation remains failed.                                                               |
 | [Initial sandboxed batch](../../artifacts/verification/2026-11-10T08-11-33.005Z-check-x8EbE8/summary.md)                                                  | Retained sandbox/subprocess failure evidence; no product acceptance is inferred.                                                                                              |
@@ -185,6 +188,6 @@ luminance and Windows acceptance remain separate work. Digital HDR output and
 histogram checks do not certify physical display brightness. The retained Mac
 receipts keep their original scope; this Bazzite delivery does not establish
 new macOS or Windows acceptance. Live signed-in model interpretation remains
-unverified. The unrelated intermittent packaged RAW startup failure in #94
-remains open; neither the passing exact rerun nor the masking aggregate certifies
-that failure as fixed.
+unverified. The passing masking rerun and aggregate did not certify the separate
+RAW startup defect as fixed; the subsequent reproduction, correction and focused
+receipts are retained in the [native startup record](../native-raw-startup.md).

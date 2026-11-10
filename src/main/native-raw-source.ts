@@ -139,7 +139,9 @@ export class NativeRawSourceClient {
         if (handle || pending.exit) throw new Error('Duplicate native RAW completion.')
         pending.exit = message
         if (message.code !== 0 || message.signal !== null)
-          throw new Error('Native RAW decoder did not close successfully.')
+          throw new Error(
+            `Native RAW decoder did not close successfully (exit code ${message.code ?? 'null'}, signal ${message.signal ?? 'none'}).`,
+          )
         if (!pending.socket) throw new Error('Native RAW closed without a reader.')
         this.finish(pending)
       }

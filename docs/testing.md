@@ -66,6 +66,18 @@ actual SDR export, restart and absence of retired presentation assets. Package
 only the selected native mask/codec hosts and current workers; independent scalar
 references, experiment code and toolchains stay outside production bundles.
 
+## Native RAW startup and retirement
+
+For [issue #94](https://github.com/VaclavKlima/Irodori/issues/94), select
+`native-raw-retirement`, `native-raw-source`, `native-raw-owner-lifecycle`,
+`native-raw-pipe`, `native-raw-executable`, `native-raw-preparation` and
+`desktop-package --foreground`. The explicit-only retirement target compiles
+seven deterministic Rust unit cases without LibRaw or GPU work; it requires
+`rustc` and stays outside default fast selections. Build the matching Linux
+native RAW host and host-native package before the packaged case. The
+[startup record](native-raw-startup.md) retains the original failure, source and
+binary hashes, byte-exact sensor comparison and current-device acceptance.
+
 ## Choose verification
 
 For native picker/crop stability (#10), select `wayland-display`, `crop-editor-ui`,

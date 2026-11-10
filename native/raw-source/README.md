@@ -31,6 +31,16 @@ guardrails; whole-application RAM/VRAM admission remains in the main request own
 Normal error unwinding drops decoder storage before its read-only input mapping.
 Process-fatal cancellation is owned by main and does not claim cooperative joins.
 
+After the row workers join, the host separately observes Linux task retirement.
+The kernel can wake a pthread join before `/proc/self/status` reflects the final
+single-thread count. Both existing publication gates retain an exact count of
+one, allowing observations from one through eight for at most one second with
+one-millisecond polling. Invalid counts, observation errors and an expired
+deadline remain explicit failures. The decoder and row computation run once.
+Main retains bounded exit/signal/stderr diagnostics; renderer errors include the
+exit status without native stderr. See the [startup investigation](../../docs/native-raw-startup.md)
+for the reproduced failure, focused checks and retained evidence.
+
 From the repository root, an explicit pinned archive is required:
 
 ```sh

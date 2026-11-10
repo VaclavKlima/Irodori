@@ -19,6 +19,7 @@ const SENSOR_RECEIVER_LIMIT = 128 * MIB
 // Bounded framing, native curve/storage metadata and pipe/receiver transfer allowance.
 // Runtime heaps, thread stacks and driver allocations are not process hard caps.
 const TRANSFER_ALLOWANCE = 8 * MIB
+const STDERR_LIMIT_BYTES = 8 * 1024
 export type NativeRawExecutableResolver = typeof prepareNativeRawExecutable
 
 function bytes(value: number) {
@@ -119,7 +120,7 @@ export class NativeRawOwner {
   private nativeClosed = false
   private sender?: Socket
   private escalation?: ReturnType<typeof setTimeout>
-  private stderr = ''
+  private stderr: Buffer = Buffer.alloc(0)
 
   constructor(private readonly options: OwnerOptions) {
     if (!isAbsolute(options.path)) throw new Error('Expected a trusted absolute RAW original path.')
@@ -132,6 +133,13 @@ export class NativeRawOwner {
   }
   private nonce(value: unknown) {
     if (value !== this.context.nonce) throw new Error('Native RAW request identity mismatch.')
+  }
+
+  private stderrText() {
+    const encoded = Buffer.from(this.stderr.toString('utf8'))
+    let start = Math.max(0, encoded.byteLength - STDERR_LIMIT_BYTES)
+    while (start < encoded.byteLength && (encoded[start] & 0xc0) === 0x80) start++
+    return encoded.toString('utf8', start)
   }
 
   request(nonce: unknown) {
@@ -267,6 +275,18 @@ export class NativeRawOwner {
         child.once('close', (code, signal) => {
           this.nativeClosed = true
           clearTimeout(this.escalation)
+          if (
+            (code !== 0 || signal !== null) &&
+            !this.retiring &&
+            !this.options.signal.aborted &&
+            this.options.current()
+          )
+            console.warn('Native RAW decoder failed:', {
+              nonce: this.context.nonce,
+              code,
+              signal,
+              stderr: this.stderrText(),
+            })
           resolve({ code, signal })
         })
       })
@@ -279,9 +299,9 @@ export class NativeRawOwner {
       child.stdout?.on('error', failed)
       child.stderr?.on('error', failed)
       child.stderr?.on('data', (part: Buffer) => {
-        this.stderr = (
-          this.stderr + part.subarray(Math.max(0, part.length - 8192)).toString()
-        ).slice(-8192)
+        this.stderr = Buffer.concat([this.stderr, part.subarray(-STDERR_LIMIT_BYTES)]).subarray(
+          -STDERR_LIMIT_BYTES,
+        )
       })
       const readyPipe = child.stdio[4]
       if (!readyPipe || !('readable' in readyPipe))
@@ -289,7 +309,7 @@ export class NativeRawOwner {
       const ready = await readiness(readyPipe as NodeJS.ReadableStream)
       this.check()
       if (ready !== `ARMED ${this.context.nonce}\n`)
-        throw new Error(`Invalid native RAW readiness: ${this.stderr}`)
+        throw new Error('Invalid native RAW readiness.')
       const armedMs = performance.now() - childStarted
       this.armed = true
       if (!(child.stdout instanceof Socket) || child.stdout.readableLength !== 0)
@@ -326,6 +346,7 @@ export class NativeRawOwner {
         nonce: this.context.nonce,
         code: exit.code,
         signal: exit.signal,
+        ...(exit.code !== 0 || exit.signal !== null ? { stderr: this.stderrText() } : {}),
         diagnostics,
       })
       succeeded = true

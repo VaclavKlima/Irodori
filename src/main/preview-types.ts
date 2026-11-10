@@ -75,6 +75,8 @@ export type NativeRawMainMessage =
       readonly nonce: string
       readonly code: number | null
       readonly signal: string | null
+      /** Failure-only privileged diagnostics; never include native stderr in renderer errors. */
+      readonly stderr?: string
       readonly diagnostics: NativeRawDiagnostics
     }
   | {
