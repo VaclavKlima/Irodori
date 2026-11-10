@@ -618,6 +618,13 @@ const definitions: Suite[] = [
     group: 'raw-gpu',
     scopes: ['ui', 'preview', 'adjustments'],
   },
+  { file: 'confirmed-adjustments', group: 'node', scopes: ['preview', 'adjustments'] },
+  {
+    file: 'masked-preview-confirmation-ui',
+    group: 'raw-gpu',
+    scopes: ['adjustments', 'preview', 'ui'],
+    exclusive: true,
+  },
   { file: 'hdr-presentation-cache', group: 'node', scopes: ['preview'] },
   { file: 'hdr-source-cache', group: 'node', scopes: ['preview'] },
   { file: 'hdr-sample', group: 'node', scopes: ['preview', 'adjustments'] },

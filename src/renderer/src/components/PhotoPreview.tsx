@@ -64,6 +64,7 @@ import {
   type View,
 } from '../preview/geometry'
 import { HdrPresenter } from '../preview/hdr-presenter'
+import { confirmedAdjustments, confirmedGestureCommit } from '../preview/confirmed-adjustments'
 import type { ReserveNativeMask } from '../preview/native-mask-relay'
 import { maskPixelTarget } from '../preview/native-mask-reservation'
 import { PreviewPresenter } from '../preview/presenter'
@@ -176,9 +177,6 @@ export function PhotoPreview({
   maskEdgeCoverage,
 }: Props) {
   const cropping = !!crop?.active
-  const presentationState = previewPolicy.presentationCache ? confirmedEdits : null
-  const gestureCommit = previewPolicy.interactivePrecision === 'f32' ? localGestureCommit : null
-  const gestureConfirmation = confirmedEdits
   const recoveryView = useRef(initialView)
   const currentTarget = useRef(displayTarget)
   useLayoutEffect(() => {
@@ -449,6 +447,25 @@ export function PhotoPreview({
       maskGeometry: full.preview?.maskGeometry,
     }),
     [providedAdjustments, full.preview?.maskGeometry],
+  )
+  const confirmedParameters = useMemo(
+    () => confirmedAdjustments(confirmedEdits, photo?.id, full.preview ?? undefined),
+    [confirmedEdits, photo?.id, full.preview],
+  )
+  const gestureConfirmation = useMemo(
+    () =>
+      confirmedEdits && confirmedParameters
+        ? { revision: confirmedEdits.revision, settings: confirmedParameters }
+        : null,
+    [confirmedEdits, confirmedParameters],
+  )
+  const presentationState = previewPolicy.presentationCache ? gestureConfirmation : null
+  const gestureCommit = useMemo(
+    () =>
+      previewPolicy.interactivePrecision === 'f32'
+        ? confirmedGestureCommit(localGestureCommit, photo?.id, full.preview ?? undefined)
+        : null,
+    [previewPolicy.interactivePrecision, localGestureCommit, photo?.id, full.preview],
   )
   const { isFirstSurfaceCurrent } = full
   const { begin: beginActivity, pulse: pulseActivity } = useForegroundActivity(

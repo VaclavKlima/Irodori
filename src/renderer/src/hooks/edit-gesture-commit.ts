@@ -1,5 +1,6 @@
 import { sameAdjustments, type AdjustmentParameters } from '../../../shared/adjustments'
 import type { EditSettings, EditState } from '../../../shared/edits'
+import { resolveMasks } from '../../../shared/masks'
 import { correctionKinds } from '../../../shared/lens'
 import type { EditGestureCommit } from '../preview/edit-gesture'
 import { creativeColorIdentity } from '../../../shared/creative-color'
@@ -13,6 +14,14 @@ export interface EditGestureScope {
 export interface EditGestureCommitSnapshot {
   readonly scope: EditGestureScope
   readonly commit: EditGestureCommit
+}
+
+function freezeCoverage<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    Object.values(value).forEach(freezeCoverage)
+    Object.freeze(value)
+  }
+  return value
 }
 
 function parametersSnapshot(parameters: AdjustmentParameters): AdjustmentParameters {
@@ -57,6 +66,9 @@ function parametersSnapshot(parameters: AdjustmentParameters): AdjustmentParamet
     vibrance: parameters.vibrance,
     ...(colorMixer === undefined ? {} : { colorMixer }),
     ...(colorGrading === undefined ? {} : { colorGrading }),
+    ...(parameters.localMasks
+      ? { localMasks: freezeCoverage(structuredClone(parameters.localMasks)) }
+      : {}),
   })
 }
 function settingsKey(settings: EditSettings) {
@@ -65,6 +77,7 @@ function settingsKey(settings: EditSettings) {
   return JSON.stringify([
     settings.version,
     settings.processing,
+    settings.maskStack,
     settings.curves ?? identityToneCurves,
     spatialControlsKey(settings),
     ...correctionKinds.map((kind) => settings.lens[kind]),
@@ -147,7 +160,12 @@ export class EditGestureCommits {
       photoId: base.photoId,
       fromEpoch,
       baseRevision: base.revision,
-      parameters: parametersSnapshot(parameters),
+      parameters: parametersSnapshot({
+        ...parameters,
+        localMasks: base.settings.maskStack.length
+          ? resolveMasks(base.settings.maskStack, base.maskContent ?? [], base.maskBases ?? [])
+          : undefined,
+      }),
       phase: 'pending',
       revision: null,
     })

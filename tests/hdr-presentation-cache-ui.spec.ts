@@ -38,6 +38,7 @@ async function setup(app: ElectronApplication, page: Page) {
   )
   await openPreviewOptions(page)
   await page.getByLabel('Preview display mode').selectOption('sdr')
+  await page.getByRole('button', { name: 'Toggle hover', exact: true }).click()
   await page.getByRole('button', { name: 'Select sony-zv1.ARW', exact: true }).click()
   const canvas = page.getByTestId('main-preview')
   await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr', { timeout: 60000 })
@@ -264,6 +265,14 @@ async function observePaints(page: Page, count = 8) {
 }
 
 async function capture(app: ElectronApplication, page: Page) {
+  // Keep dynamic status/navigation controls outside the photo-only pixel witness.
+  // Their loading/confirmation states are asserted separately at each capture.
+  await page.mouse.move(0, 0)
+  await page
+    .getByRole('navigation', { name: 'Workspaces' })
+    .getByRole('button', { name: 'Editor', exact: true })
+    .focus()
+  await expect(page.getByTestId('preview-footer')).toHaveCSS('opacity', '0')
   // Queue/map completion and DOM readiness precede the compositor's next paint.
   // Give every baseline and comparison capture the same real rendering boundary.
   await page.evaluate(async () => {
@@ -463,7 +472,7 @@ test(
       expect(diagnostics.presentation!.timings.nativeEditingReadyMs).toBeUndefined()
       const restored = await capture(app, page)
       expect(restored.size).toEqual(before.size)
-      expect(restored.pixels).toEqual(before.pixels)
+      await assertExactConfirmedCapture(app, page, info, before, restored)
       expect(restored.pixels.some((value, index) => index % 4 !== 3 && value > 0)).toBe(true)
       expect(
         Number(await canvas.getAttribute('data-retained-presentation-bytes')),
@@ -943,7 +952,9 @@ test(
     })
     const undo = await holdReply(app, 'edits:undo', raw.id)
     try {
-      await page.getByRole('button', { name: 'Undo', exact: true }).click()
+      const undoButton = page.getByRole('button', { name: 'Undo', exact: true })
+      await undoButton.focus()
+      await undoButton.click()
       await expect.poll(() => undo.evaluate((value) => value.held)).toBe(1)
       await selectRaster(page)
       const beforeState = await settledRaster(page, raster.id),
@@ -1239,7 +1250,16 @@ async function holdCurrentNormalRecovery(page: Page) {
         copies = queues.get(this)
       queues.delete(this)
       if (copies) {
-        for (const copy of copies) copy.fenceLinked = true
+        for (const copy of copies) {
+          // The requested serial can advance while an older normal frame is
+          // rendering. The submit publishes its actual serial before this fence.
+          if (copy.canvasBlit) {
+            copy.serial = Number(copy.canvas.dataset.normalCanvasSubmittedSerial)
+            if (!Number.isSafeInteger(copy.serial) || copy.serial < 1)
+              errors.push('Normal readback did not bind its actual submitted serial.')
+          }
+          copy.fenceLinked = true
+        }
         track(
           work.then(() => {
             for (const copy of copies) copy.fenced = true

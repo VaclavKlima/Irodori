@@ -1,4 +1,8 @@
 import { expect, test } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
+import { prepareMaskMutation } from '../src/main/mask-store'
+import { resolveMasks } from '../src/shared/masks'
+import { identityMaskGeometry } from '../src/shared/mask-geometry'
 import { initialSettings, type EditState } from '../src/shared/edits'
 import { neutralAdjustments, type AdjustmentParameters } from '../src/shared/adjustments'
 import {
@@ -334,4 +338,94 @@ test('a rejected target write fails its flush and is retired before the next bar
   await flushes.flush({ kind: 'photos', photoIds: ['exported'] }, 'other', async () => {
     throw new Error('An unrelated draft must remain untouched.')
   })
+})
+
+test('global edit tokens own the immutable confirmed mask coverage captured at their base revision', () => {
+  const { commits, scope, base, parameters, next } = fixture()
+  const id = randomUUID()
+  const authored = prepareMaskMutation([], {
+    operations: [
+      {
+        kind: 'create',
+        id,
+        name: 'Captured coverage',
+        gradient: { kind: 'linear', start: { x: 0, y: 0 }, end: { x: 1, y: 0 } },
+      },
+      { kind: 'update', id, light: { exposureEv: 0.5 } },
+      {
+        kind: 'stroke',
+        id,
+        stroke: { mode: 'subtract', radius: 0.1, feather: 0.5, points: [{ x: 0.5, y: 0.5 }] },
+      },
+    ],
+  })
+  base.settings.maskStack = authored.stack
+  base.maskContent = authored.chunks
+  next.settings.maskStack = structuredClone(authored.stack)
+  next.maskContent = structuredClone(authored.chunks)
+  const commit = commits.begin(scope, base, 12, parameters)!
+  const coverage = commit.parameters.localMasks!
+  expect(coverage).toHaveLength(1)
+  expect(coverage[0].resultStrokes).toHaveLength(1)
+  expect(coverage[0].light.exposureEv).toBe(0.5)
+  expect(Object.isFrozen(coverage)).toBe(true)
+  expect(Object.isFrozen(coverage[0].gradient)).toBe(true)
+  expect(Object.isFrozen(coverage[0].resultStrokes![0].points[0])).toBe(true)
+  authored.stack[0].light.exposureEv = -1
+  authored.chunks[0].stroke.points[0].x = 0.8
+  expect(coverage[0].light.exposureEv).toBe(0.5)
+  expect(coverage[0].resultStrokes![0].points[0].x).toBe(0.5)
+  commits.succeeded(scope, commit.id, next)
+  expect(commits.snapshot?.commit.phase).toBe('accepted')
+  expect(commits.snapshot?.commit.parameters.localMasks).toEqual(coverage)
+})
+
+test('a concurrent mask geometry edit invalidates a pending global token even when global values match', () => {
+  const { commits, scope, base, parameters, next } = fixture()
+  const authored = prepareMaskMutation([], {
+    operations: [
+      {
+        kind: 'create',
+        id: randomUUID(),
+        name: 'Original coverage',
+        gradient: { kind: 'linear', start: { x: 0, y: 0 }, end: { x: 1, y: 0 } },
+      },
+    ],
+  })
+  base.settings.maskStack = authored.stack
+  next.settings.maskStack = structuredClone(authored.stack)
+  const commit = commits.begin(scope, base, 12, parameters)!
+  const conflicting = structuredClone(next)
+  conflicting.settings.maskStack[0].gradient = {
+    kind: 'linear',
+    start: { x: 0, y: 0 },
+    end: { x: 0.5, y: 1 },
+  }
+  commits.observe(conflicting)
+  expect(commits.snapshot).toBeNull()
+  commits.succeeded(scope, commit.id, next)
+  expect(commits.snapshot).toBeNull()
+})
+
+test('an empty authoritative mask stack cannot inherit caller-supplied draft coverage or geometry', () => {
+  const { commits, scope, base, parameters } = fixture()
+  const draft = prepareMaskMutation([], {
+    operations: [
+      {
+        kind: 'create',
+        id: randomUUID(),
+        name: 'Unaccepted mask',
+        gradient: { kind: 'linear', start: { x: 0, y: 0 }, end: { x: 1, y: 0 } },
+      },
+    ],
+  })
+  draft.stack[0].light.exposureEv = 1
+  const commit = commits.begin(scope, base, 12, {
+    ...parameters,
+    localMasks: resolveMasks(draft.stack, draft.chunks),
+    maskGeometry: identityMaskGeometry(8, 6),
+  })!
+  expect(commit.parameters.localMasks).toBeUndefined()
+  expect(commit.parameters.maskGeometry).toBeUndefined()
+  expect(base.settings.maskStack).toEqual([])
 })
