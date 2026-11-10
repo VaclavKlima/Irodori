@@ -5,14 +5,17 @@ import {
   maskHasEdges,
   neutralMaskColor,
   neutralMaskEdge,
+  validateMaskGradient,
   type MaskColor,
   type MaskEdgeSettings,
   type MaskLight,
+  type MaskGradient,
   type MaskOperation,
   type MaskPoint,
   type MaskStroke,
   type ResolvedMask,
 } from '../../../shared/masks'
+import type { MaskGeometry } from '../../../shared/mask-geometry'
 import type { MaskDetailTab, MaskWorkspace } from '../../../shared/workspace'
 import type { EditController } from './useEdits'
 
@@ -25,6 +28,9 @@ type Draft = {
   edge?: MaskEdgeSettings
   stroke?: MaskStroke
   order?: string[]
+  gradient?: MaskGradient
+  /** Numeric fields flush on navigation; unfinished handle gestures cancel. */
+  gradientInput?: boolean
 }
 
 export function moveMask(ids: readonly string[], id: string, target: number): string[] {
@@ -48,10 +54,21 @@ export function useMasks(
   const scope = useMemo(() => ({ photoId, enabled }), [photoId, enabled])
   const [draft, setDraft] = useState<Draft | null>(null)
   const draftRef = useRef<Draft | null>(null)
+  const [armedGradient, setArmedGradient] = useState<{
+    scope: object
+    revision: number
+    kind: MaskGradient['kind']
+  } | null>(null)
+  const [gradientGeometry, setGradientGeometry] = useState<{
+    photoId: string
+    revision: number
+    width: number
+    height: number
+  } | null>(null)
   const [pending, setPending] = useState(false)
   const [committingAdjustments, setCommittingAdjustments] = useState<Pick<
     Draft,
-    'photoId' | 'revision' | 'maskId' | 'edge' | 'color'
+    'photoId' | 'revision' | 'maskId' | 'edge' | 'color' | 'gradient'
   > | null>(null)
   const pendingCommit = useRef<Promise<void> | null>(null)
   const [brushDraft, setBrushDraft] = useState<{
@@ -64,6 +81,7 @@ export function useMasks(
   const error = failure?.scope === scope ? failure.message : ''
   const setError = useCallback((message: string) => setFailure({ scope, message }), [scope])
   const [epoch, setEpoch] = useState(0)
+  const [gradientRejected, setGradientRejected] = useState(0)
   const publish = useCallback((value: Draft | null) => {
     draftRef.current = value
     setDraft(value)
@@ -71,6 +89,7 @@ export function useMasks(
   }, [])
   const cancel = useCallback(() => {
     publish(null)
+    setArmedGradient(null)
   }, [publish])
   const state = edits.state
   const confirmed = useMemo(
@@ -82,6 +101,16 @@ export function useMasks(
       ? workspace.selectedId
       : (confirmed[0]?.id ?? null)
   const selected = confirmed.find((m) => m.id === selectedId) ?? null
+  const creatingGradient =
+    armedGradient?.scope === scope && armedGradient.revision === state?.revision
+      ? armedGradient.kind
+      : null
+  const gradientDimensions =
+    gradientGeometry &&
+    gradientGeometry.photoId === photoId &&
+    gradientGeometry.revision === state?.revision
+      ? { width: gradientGeometry.width, height: gradientGeometry.height }
+      : undefined
   const current = useRef({ edits, photoId, enabled, workspace, selectedId, onWorkspace })
   useLayoutEffect(() => {
     current.current = { edits, photoId, enabled, workspace, selectedId, onWorkspace }
@@ -90,7 +119,36 @@ export function useMasks(
     brushDraft?.scope === scope && brushDraft.selectedId === selectedId ? brushDraft.values : null
   const supported = enabled && previewReady && edits.confirmed && !!state && !!photoId
   const available = supported && !pending && !edits.saving
-  const active = supported && workspace.brush && workspace.detailTab === 'coverage' && !!selected
+  const active =
+    supported &&
+    !creatingGradient &&
+    workspace.brush &&
+    workspace.detailTab === 'coverage' &&
+    !!selected
+  const editingGradient =
+    supported &&
+    !creatingGradient &&
+    !!selected?.gradient &&
+    workspace.detailTab === 'coverage' &&
+    !workspace.brush
+  const registerGradientGeometry = useCallback((geometry?: MaskGeometry) => {
+    const value = current.current
+    const revision = value.edits.state?.revision
+    if (!geometry || !value.photoId || revision === undefined) {
+      setGradientGeometry(null)
+      return
+    }
+    const { canonicalWidth: width, canonicalHeight: height } = geometry
+    setGradientGeometry((previous) =>
+      previous &&
+      previous.photoId === value.photoId &&
+      previous.revision === revision &&
+      previous.width === width &&
+      previous.height === height
+        ? previous
+        : { photoId: value.photoId!, revision, width, height },
+    )
+  }, [])
   const changeWorkspace = (patch: Partial<MaskWorkspace>) => {
     const value = current.current
     const next = {
@@ -121,14 +179,23 @@ export function useMasks(
   }
   const flush = useCallback(async () => {
     const value = draftRef.current
-    if (!value?.light && !value?.edge && !value?.color) return pendingCommit.current ?? undefined
-    if (value.edge || value.color)
+    if (
+      !value?.light &&
+      !value?.edge &&
+      !value?.color &&
+      !(value?.gradient && value.gradientInput)
+    ) {
+      if (value?.gradient) publish(null)
+      return pendingCommit.current ?? undefined
+    }
+    if (value.edge || value.color || value.gradient)
       setCommittingAdjustments({
         photoId: value.photoId,
         revision: value.revision,
         maskId: value.maskId,
         edge: value.edge,
         color: value.color,
+        gradient: value.gradient,
       })
     publish(null)
     if (
@@ -148,6 +215,7 @@ export function useMasks(
           ...(value.light ? { light: value.light } : {}),
           ...(value.color ? { color: value.color } : {}),
           ...(value.edge ? { edge: value.edge } : {}),
+          ...(value.gradient ? { gradient: value.gradient } : {}),
         },
       ],
       value.revision,
@@ -174,11 +242,12 @@ export function useMasks(
       publish(null)
   }, [enabled, photoId, state?.revision, publish])
   useEffect(() => {
-    if (!active && !draft) return
+    if (!active && !draft && !creatingGradient) return
     const off = window.irodori.onWindowBlur(cancel)
     const focus = (event: FocusEvent) => {
       if (
-        draftRef.current?.stroke &&
+        (draftRef.current?.stroke ||
+          (draftRef.current?.gradient && !draftRef.current.gradientInput)) &&
         !(event.target as HTMLElement).closest('[data-testid="main-preview"]')
       )
         cancel()
@@ -198,7 +267,7 @@ export function useMasks(
       if (
         (event.ctrlKey || event.metaKey) &&
         ['z', 'y'].includes(event.key.toLowerCase()) &&
-        draftRef.current?.stroke
+        (draftRef.current?.stroke || draftRef.current?.gradient)
       ) {
         event.preventDefault()
         cancel()
@@ -210,7 +279,7 @@ export function useMasks(
       window.removeEventListener('keydown', key, true)
       document.removeEventListener('focusin', focus)
     }
-  }, [active, draft, cancel])
+  }, [active, draft, cancel, creatingGradient])
   const resolved = useMemo<ResolvedMask[]>(() => {
     if (!draft || draft.photoId !== photoId || draft.revision !== state?.revision) return confirmed
     let result = confirmed.map((mask) =>
@@ -220,6 +289,7 @@ export function useMasks(
             ...mask,
             light: draft.light ?? mask.light,
             color: draft.color ?? mask.color,
+            gradient: !maskHasEdges(mask) ? (draft.gradient ?? mask.gradient) : mask.gradient,
             strokes:
               draft.stroke && !maskHasEdges(mask) ? [...mask.strokes, draft.stroke] : mask.strokes,
           },
@@ -272,6 +342,59 @@ export function useMasks(
       return
     await mutate([{ kind: 'stroke', id: value.maskId, stroke: value.stroke }], value.revision)
   }
+  const previewGradient = (gradient: MaskGradient, gradientInput = false) => {
+    if (busy.current || !available || !state || !selected?.gradient || !photoId) return false
+    try {
+      validateMaskGradient(gradient, gradientDimensions?.width, gradientDimensions?.height)
+    } catch (error) {
+      if (gradientInput) {
+        publish(null)
+        setError(String(error))
+        setGradientRejected((value) => value + 1)
+      }
+      return false
+    }
+    if (gradientInput) setError('')
+    publish({
+      photoId,
+      revision: state.revision,
+      maskId: selected.id,
+      gradient,
+      gradientInput,
+    })
+    return true
+  }
+  const finishGradient = async () => {
+    const value = draftRef.current
+    publish(null)
+    if (
+      busy.current ||
+      !value?.gradient ||
+      !current.current.enabled ||
+      value.photoId !== current.current.photoId ||
+      value.revision !== current.current.edits.state?.revision
+    )
+      return
+    const confirmed = current.current.edits.state.settings.maskStack.find(
+      (mask) => mask.id === value.maskId,
+    )
+    if (!confirmed || JSON.stringify(confirmed.gradient) === JSON.stringify(value.gradient)) return
+    await mutate([{ kind: 'update', id: value.maskId, gradient: value.gradient }], value.revision)
+  }
+  const gradientValues =
+    draft &&
+    draft.photoId === photoId &&
+    draft.revision === state?.revision &&
+    draft.maskId === selectedId &&
+    draft.gradient
+      ? draft.gradient
+      : committingAdjustments &&
+          committingAdjustments.photoId === photoId &&
+          committingAdjustments.revision === state?.revision &&
+          committingAdjustments.maskId === selectedId &&
+          committingAdjustments.gradient
+        ? committingAdjustments.gradient
+        : selected?.gradient
   return {
     photoId,
     scope,
@@ -283,6 +406,60 @@ export function useMasks(
     available,
     supported,
     active,
+    creatingGradient,
+    editingGradient,
+    gradientValues,
+    gradientDraft:
+      draft && draft.photoId === photoId && draft.revision === state?.revision
+        ? draft.gradient
+        : undefined,
+    gradientDimensions,
+    setGradientGeometry: registerGradientGeometry,
+    previewGradient: (gradient: MaskGradient) => previewGradient(gradient),
+    changeGradient: (gradient: MaskGradient) => {
+      previewGradient(gradient, true)
+    },
+    commitGradient: () => safely(flush()),
+    finishGradient: () => safely(finishGradient()),
+    armGradient: (kind: MaskGradient['kind']) =>
+      safely(
+        (async () => {
+          if (!available || busy.current || confirmed.length >= maskCapabilities.maxMasks) return
+          await edits.flush()
+          if (
+            current.current.photoId !== photoId ||
+            !current.current.enabled ||
+            !current.current.edits.state
+          )
+            return
+          cancel()
+          changeWorkspace({ detailTab: 'coverage', brush: false })
+          setArmedGradient({ scope, revision: current.current.edits.state.revision, kind })
+        })(),
+      ),
+    createGradient: async (gradient: MaskGradient) => {
+      if (!available || busy.current || !photoId || !state) return
+      validateMaskGradient(gradient, gradientDimensions?.width, gradientDimensions?.height)
+      await edits.flush()
+      if (current.current.photoId !== photoId || !current.current.enabled) return
+      const revision = current.current.edits.state?.revision
+      if (revision === undefined) return
+      cancel()
+      const id = crypto.randomUUID()
+      await mutate(
+        [
+          {
+            kind: 'create',
+            id,
+            name: `${gradient.kind === 'linear' ? 'Linear' : 'Radial'} gradient ${confirmed.length + 1}`,
+            gradient,
+          },
+        ],
+        revision,
+      )
+      if (current.current.photoId !== photoId || !current.current.enabled) return
+      changeWorkspace({ selectedId: id, detailTab: 'adjustments', brush: false, overlay: true })
+    },
     overlayVisible: enabled && workspace.overlay,
     busy: pending || edits.saving,
     error,
@@ -298,7 +475,7 @@ export function useMasks(
     epoch,
     cancel,
     flush,
-    resetKey: `${photoId}:${state?.revision}:${selectedId}`,
+    resetKey: `${photoId}:${state?.revision}:${selectedId}:${gradientRejected}`,
     select: async (id: string) => {
       await edits.flush()
       if (current.current.photoId !== photoId || !current.current.enabled) return

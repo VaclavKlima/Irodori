@@ -290,3 +290,35 @@ configuration and preserved hook trust, PTY lifecycle, managed tools, and native
 terminal focus/paste/resize at minimum size. Static checks and the production build
 pass. This is Bazzite evidence; a signed-in 0.167.0 model conversation and other
 operating systems were not exercised.
+
+## Linear and radial mask gradients — issue #84
+
+The shared mask mutation tool accepts an optional complete `gradient` on atomic
+`create` and `update` operations. Linear geometry is
+`{kind:"linear", start:{x,y}, end:{x,y}}`; coverage fades from full strength at
+start to zero at end. Radial geometry is
+`{kind:"radial", center:{x,y}, radiusX, radiusY, rotation, feather}` and initially
+selects the inside. Radii are normalized independently to the full oriented
+source width/height, rotation is in degrees (-180–180), and Feather is an integer
+percent (0–100, UI default 50). Endpoint/center coordinates are -1–2, radii are
+at most 2, and endpoint separation and both radial semiaxes require at least one
+actual source pixel. Updates replace the entire gradient geometry. Duplicates
+retain geometry and manual corrections.
+
+`irodori_get_mask_context` keeps ordinary brush mapping at 0–1. The optional
+`allowOutsidePhoto:true` admits -1–2 output positions for gradient handles, then
+applies the exact crop/lens/flip mapping. Unsupported canonical coordinates are
+refused instead of clamped. Returned width/height describe the cropped output;
+canonical dimensions describe the full oriented source. Never reuse extended
+points as brush strokes, whose validation remains 0–1.
+
+Each mask has one analytic gradient or one generated object base. Object
+refinement refuses gradient masks before source decoding or inference. Coverage
+composition is gradient/base, ordered Paint/Erase corrections, inversion,
+Expand/Contract, then whole-mask Feather. Local Light and Color consume this
+coverage once. Mutations retain the Console's frozen targets and expected photo
+revision; neutral gradient creation still receives source-geometry admission.
+Settings 17/catalog 27 preserve settings-16 Color/edge values, history snapshots,
+immutable content, older presets and accepted frozen jobs. See the
+[gradient implementation brief](mask-gradients.md) for interaction and current
+device acceptance.

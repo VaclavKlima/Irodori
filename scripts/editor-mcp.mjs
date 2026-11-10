@@ -61,6 +61,23 @@ const browseQuery = schema({
   search: { type: 'string', maxLength: 500 },
   grouping: { enum: ['date', 'month', 'year'] },
 })
+const gradientPoint = schema({
+  x: { type: 'number', minimum: -1, maximum: 2 },
+  y: { type: 'number', minimum: -1, maximum: 2 },
+})
+const maskGradient = {
+  oneOf: [
+    schema({ kind: { const: 'linear' }, start: gradientPoint, end: gradientPoint }),
+    schema({
+      kind: { const: 'radial' },
+      center: gradientPoint,
+      radiusX: { type: 'number', exclusiveMinimum: 0, maximum: 2 },
+      radiusY: { type: 'number', exclusiveMinimum: 0, maximum: 2 },
+      rotation: { type: 'number', minimum: -180, maximum: 180 },
+      feather: { type: 'integer', minimum: 0, maximum: 100 },
+    }),
+  ],
+}
 const colorAmount = { type: 'integer', minimum: -100, maximum: 100 }
 const curveChannel = { enum: ['master', 'red', 'green', 'blue'] }
 const curvePoints = {
@@ -593,17 +610,18 @@ let tools = [
   {
     name: 'irodori_get_mask_context',
     description:
-      'Read revision-bound canonical/current cropped-output dimensions and map up to 128 normalized compact-preview positions to canonical source coordinates for brush strokes. Main applies the exact crop/lens/flip pull mapping; the response omits full geometry. Reuse prepared source data; no photo edit.',
+      'Read revision-bound canonical/current cropped-output dimensions and map up to 128 normalized compact-preview positions to canonical source coordinates for brush strokes or gradients. allowOutsidePhoto defaults false (0–1); true permits -1–2 gradient positions, subject to mapped source bounds. Main applies the exact crop/lens/flip pull mapping; the response omits full geometry. Reuse prepared source data; no photo edit.',
     inputSchema: schema(
       {
         photoId,
         expectedRevision,
+        allowOutsidePhoto: { type: 'boolean', default: false },
         points: {
           type: 'array',
           maxItems: 128,
           items: schema({
-            x: { type: 'number', minimum: 0, maximum: 1 },
-            y: { type: 'number', minimum: 0, maximum: 1 },
+            x: { type: 'number', minimum: -1, maximum: 2 },
+            y: { type: 'number', minimum: -1, maximum: 2 },
           }),
         },
       },
@@ -700,7 +718,7 @@ let tools = [
   {
     name: 'irodori_mutate_masks',
     description:
-      'Commit bounded mask operations as one photo-wide Undo step. Top-first list order applies bottom-to-top. Partial color updates accept relative temperature, tint and saturation, each integer -100 to +100 with 0 neutral. Positive temperature warms and positive tint adds magenta; these are relative units, not Kelvin or camera white balance. Each mask applies color balance, Light, then saturation and blends coverage once. Global white balance is unchanged. Geometry is normalized to the oriented uncorrected source, radius is a fraction of its shorter dimension. Whole-mask edge updates accept featherPx (0–64 in half-pixel steps) and shiftPx (-16–16 integer canonical source pixels); positive shift grows the affected region after inversion. Coverage order is base plus Paint/Erase, inversion, shift, then feather. These controls do not recover missing fine detail. Read current masks and revision with irodori_get_edits. Use the separate object-selection tools for AI proposals; gradients and range masks remain unavailable.',
+      'Commit bounded mask operations as one photo-wide Undo step. Top-first list order applies bottom-to-top. Partial color updates accept relative temperature, tint and saturation, each integer -100 to +100 with 0 neutral. Positive temperature warms and positive tint adds magenta; these are relative units, not Kelvin or camera white balance. Each mask applies color balance, Light, then saturation and blends coverage once. Global white balance is unchanged. Geometry is normalized to the oriented uncorrected source, radius is a fraction of its shorter dimension. Whole-mask edge updates accept featherPx (0–64 in half-pixel steps) and shiftPx (-16–16 integer canonical source pixels); positive shift grows the affected region after inversion. Coverage order is gradient or object base, ordered Paint/Erase, inversion, shift, then feather. These controls do not recover missing fine detail. Read current masks and revision with irodori_get_edits. Use the separate object-selection tools for AI proposals; range masks remain unavailable. Optional gradient on create atomically creates a neutral linear/radial mask; gradient on update replaces its entire geometry. One gradient per mask, mutually exclusive with generated object bases. Linear coverage fades from full-strength start to zero-strength end; radial selects inside. Coordinates and radii use normalized oriented source axes; rotations use degrees, Feather integer percent. Endpoint separation and both semiaxes require at least one source pixel.',
     inputSchema: schema({
       photoId,
       expectedRevision,
@@ -712,11 +730,15 @@ let tools = [
           items: {
             type: 'object',
             oneOf: [
-              schema({
-                kind: { const: 'create' },
-                id: { type: 'string', format: 'uuid' },
-                name: { type: 'string', minLength: 1, maxLength: 100 },
-              }),
+              schema(
+                {
+                  kind: { const: 'create' },
+                  id: { type: 'string', format: 'uuid' },
+                  name: { type: 'string', minLength: 1, maxLength: 100 },
+                  gradient: maskGradient,
+                },
+                ['kind', 'id', 'name'],
+              ),
               schema(
                 {
                   kind: { const: 'update' },
@@ -724,6 +746,7 @@ let tools = [
                   name: { type: 'string', minLength: 1, maxLength: 100 },
                   enabled: { type: 'boolean' },
                   inverted: { type: 'boolean' },
+                  gradient: maskGradient,
                   color: schema(
                     {
                       temperature: colorAmount,
@@ -1007,7 +1030,7 @@ const presetSource = {
       mode: { type: 'string', enum: ['photo', 'explicit'] },
       photoId,
       groups: presetGroups,
-      settingsVersion: { type: 'integer', enum: [12, 13, 14, 15, 16] },
+      settingsVersion: { type: 'integer', enum: [12, 13, 14, 15, 16, 17] },
       values: {
         ...schema(presetFields, []),
         description:
@@ -1018,7 +1041,7 @@ const presetSource = {
     ['mode', 'groups'],
   ),
   description:
-    'Photo capture: {mode:"photo",photoId,groups}. Explicit look: {mode:"explicit",settingsVersion:16,groups,values}; referencePhotoId is required for white-balance/lens. No photo is changed. All included groups must be complete.',
+    'Photo capture: {mode:"photo",photoId,groups}. Explicit look: {mode:"explicit",settingsVersion:17,groups,values}; referencePhotoId is required for white-balance/lens. No photo is changed. All included groups must be complete.',
   allOf: [
     {
       if: { properties: { mode: { const: 'photo' } } },
@@ -1076,7 +1099,7 @@ tools.push(
   {
     name: 'irodori_create_preset',
     description:
-      'Save a unique trimmed name from confirmed photo edits or a complete explicit look. Use source.mode="photo" with photoId/groups, or source.mode="explicit" with settingsVersion:16, groups and values. For example, groups:["color"] needs values:{saturation:5,vibrance:22}. Choose appearance:{icon,color} to match the requested intent when creating a look, such as sunset/amber for Golden Hour. No photo or clipboard changes. Camera-dependent explicit groups require a verified referencePhotoId. Store no calibration tables or paths.',
+      'Save a unique trimmed name from confirmed photo edits or a complete explicit look. Use source.mode="photo" with photoId/groups, or source.mode="explicit" with settingsVersion:17, groups and values. For example, groups:["color"] needs values:{saturation:5,vibrance:22}. Choose appearance:{icon,color} to match the requested intent when creating a look, such as sunset/amber for Golden Hour. No photo or clipboard changes. Camera-dependent explicit groups require a verified referencePhotoId. Store no calibration tables or paths.',
     inputSchema: schema({
       presetRequest: schema(
         {
@@ -1091,7 +1114,7 @@ tools.push(
   {
     name: 'irodori_update_preset',
     description:
-      'Edit a preset name, appearance or definition at expectedPresetRevision. Appearance accepts a partial {icon,color}; omitted fields retain their current values. Preserve the marker unless the user asks to change it. Replacement source uses mode="photo" with photoId/groups or mode="explicit" with settingsVersion:16, groups and complete values. Preset revisions are independent of photo-edit revisions. No photo/history changes; accepted jobs keep the old frozen definition.',
+      'Edit a preset name, appearance or definition at expectedPresetRevision. Appearance accepts a partial {icon,color}; omitted fields retain their current values. Preserve the marker unless the user asks to change it. Replacement source uses mode="photo" with photoId/groups or mode="explicit" with settingsVersion:17, groups and complete values. Preset revisions are independent of photo-edit revisions. No photo/history changes; accepted jobs keep the old frozen definition.',
     inputSchema: schema({
       presetRequest: schema(
         {

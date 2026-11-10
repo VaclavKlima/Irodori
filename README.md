@@ -29,11 +29,11 @@ Custom export and Console offer Off/Low/Standard/High [output sharpening](docs/f
 
 The [masking core](docs/features/local-adjustments.md) adds multiple named brush
 masks with independent Exposure, Contrast, Highlights, Shadows, Whites and Blacks.
-Open **Masks** in the inspector and use **Create mask** to choose Brush or
-Select object. The mask list keeps named rows and visibility controls; each row's
+Open **Masks** in the inspector and use **Create mask** to choose Brush,
+Select object, Linear gradient or Radial gradient. The mask list keeps named rows and visibility controls; each row's
 **⋯** menu contains rename, duplicate, invert, Move up/down and delete. Dragging
 also reorders masks; the top mask applies last. **Coverage** contains selection
-and Paint/Erase tools, while **Adjustments** contains local Light controls.
+and Paint/Erase tools, while **Adjustments** contains local Light and Color controls.
 **Show overlay** remains available above both tabs. Mask edits share the photo's
 Undo/Redo, restart and frozen SDR/HDR exports. **Select object** creates
 [editable SAM 2 point/box proposals](docs/features/object-selection.md), with separate
@@ -42,8 +42,9 @@ Paint/Erase corrections retained when AI coverage is refined. The same implement
 adapters; that record links the separate RAW startup correction and platform limits.
 **Coverage → Mask edges** adds whole-mask [Feather and Expand/Contract](docs/features/mask-edges.md),
 including manual corrections, with shared Undo/Redo, Console and frozen exports.
-Gradients, sky/background automation, color/luminance ranges and additional local
-operators remain planned.
+[Linear/radial gradients](docs/features/mask-gradients.md) support drawing, centered
+keyboard creation and editable photo-registered geometry. Sky/background automation,
+color/luminance ranges and additional local operators remain planned.
 GPU histograms include active local edits. Exact clipping overlays and full HDR
 statistics/pixel analysis retain their explicit limitations; the brief records
 verification scope and limits.

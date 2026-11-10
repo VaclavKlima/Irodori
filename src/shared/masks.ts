@@ -3,6 +3,17 @@ export interface MaskPoint {
   x: number
   y: number
 }
+/** One analytic base in normalized, oriented source coordinates; angles use source pixels. */
+export type MaskGradient =
+  | { kind: 'linear'; start: MaskPoint; end: MaskPoint }
+  | {
+      kind: 'radial'
+      center: MaskPoint
+      radiusX: number
+      radiusY: number
+      rotation: number
+      feather: number
+    }
 export interface MaskStroke {
   mode: 'add' | 'subtract'
   radius: number
@@ -48,6 +59,7 @@ export interface MaskDescriptor {
   inverted: boolean
   head: string | null
   base?: MaskBaseReference
+  gradient?: MaskGradient
   light: MaskLight
   color: MaskColor
   edge: MaskEdgeSettings
@@ -63,7 +75,7 @@ export interface ResolvedMask extends MaskDescriptor {
   strokes: MaskStroke[]
 }
 export type MaskOperation =
-  | { kind: 'create'; id: string; name: string }
+  | { kind: 'create'; id: string; name: string; gradient?: MaskGradient }
   | {
       kind: 'update'
       id: string
@@ -73,6 +85,7 @@ export type MaskOperation =
       light?: Partial<MaskLight>
       color?: Partial<MaskColor>
       edge?: Partial<MaskEdgeSettings>
+      gradient?: MaskGradient
     }
   | { kind: 'duplicate'; id: string; newId: string; name: string }
   | { kind: 'delete'; id: string }
@@ -82,9 +95,19 @@ export interface MaskMutation {
   operations: MaskOperation[]
 }
 export const maskCapabilities = {
-  version: 3,
+  version: 4,
   order: 'top-last',
-  types: ['brush'],
+  types: ['brush', 'linear', 'radial'],
+  gradient: {
+    coordinates: 'normalized-oriented-source',
+    pointMin: -1,
+    pointMax: 2,
+    radialRadiusMax: 2,
+    minimumSourcePixels: 1,
+    rotation: { min: -180, max: 180, unit: 'degrees' },
+    feather: { min: 0, max: 100, step: 1, default: 50 },
+    order: 'gradient-brush-invert-shift-feather',
+  },
   controls: [
     'exposureEv',
     'contrast',
@@ -108,7 +131,7 @@ export const maskCapabilities = {
   edge: {
     controls: ['featherPx', 'shiftPx'],
     coordinates: 'canonical-oriented-source-pixels',
-    order: 'base-brush-invert-shift-feather',
+    order: 'base-or-gradient-brush-invert-shift-feather',
     featherPx: { min: 0, max: 64, step: 0.5, default: 0 },
     shiftPx: { min: -16, max: 16, step: 1, default: 0 },
     automaticMatting: false,
@@ -286,6 +309,60 @@ export function validateMaskColor(value: unknown, partial = false): asserts valu
     if (typeof number !== 'number' || !Number.isInteger(number) || Math.abs(number) > 100)
       throw new Error('Local Temperature, Tint and Saturation require integers from -100 to 100.')
 }
+/** Source dimensions are required at geometry admission to enforce the one-pixel minimum. */
+export function validateMaskGradient(
+  value: unknown,
+  width?: number,
+  height?: number,
+): asserts value is MaskGradient {
+  const point = (point: unknown) =>
+    fields(point, ['x', 'y']) &&
+    [point.x, point.y].every(
+      (number) =>
+        typeof number === 'number' && Number.isFinite(number) && number >= -1 && number <= 2,
+    )
+  const dimensions = width !== undefined && height !== undefined
+  if (dimensions && ![width, height].every((n) => Number.isSafeInteger(n) && n! > 0))
+    throw new Error('Invalid source dimensions for gradient geometry.')
+  if (fields(value, ['kind', 'start', 'end']) && value.kind === 'linear') {
+    if (!point(value.start) || !point(value.end))
+      throw new Error('Gradient points must use normalized source coordinates from -1 to 2.')
+    const start = value.start as MaskPoint,
+      end = value.end as MaskPoint
+    const separation = Math.hypot(
+      (end.x - start.x) * (width ?? 1),
+      (end.y - start.y) * (height ?? 1),
+    )
+    if (!Number.isFinite(separation) || separation < (dimensions ? 1 : Number.MIN_VALUE))
+      throw new Error('A linear gradient requires at least one source pixel between its endpoints.')
+    return
+  }
+  if (
+    fields(value, ['kind', 'center', 'radiusX', 'radiusY', 'rotation', 'feather']) &&
+    value.kind === 'radial' &&
+    point(value.center) &&
+    [value.radiusX, value.radiusY].every(
+      (n) => typeof n === 'number' && Number.isFinite(n) && n > 0 && n <= 2,
+    ) &&
+    typeof value.rotation === 'number' &&
+    Number.isFinite(value.rotation) &&
+    Math.abs(value.rotation) <= 180 &&
+    typeof value.feather === 'number' &&
+    Number.isInteger(value.feather) &&
+    value.feather >= 0 &&
+    value.feather <= 100
+  ) {
+    if (
+      dimensions &&
+      ((value.radiusX as number) * width! < 1 || (value.radiusY as number) * height! < 1)
+    )
+      throw new Error('Each radial gradient semiaxis requires at least one source pixel.')
+    return
+  }
+  throw new Error(
+    'Invalid gradient geometry. Use bounded linear endpoints or a radial ellipse with Feather from 0 to 100.',
+  )
+}
 export function validateMaskStroke(value: unknown): asserts value is MaskStroke {
   if (
     !fields(value, ['mode', 'radius', 'feather', 'points']) ||
@@ -327,7 +404,7 @@ export function validateMaskStack(value: unknown): asserts value is MaskDescript
       !fields(
         mask,
         ['id', 'name', 'enabled', 'inverted', 'head', 'light', 'color', 'edge'],
-        ['base'],
+        ['base', 'gradient'],
       )
     )
       throw new Error('Invalid mask descriptor.')
@@ -337,6 +414,10 @@ export function validateMaskStack(value: unknown): asserts value is MaskDescript
     validateMaskColor(mask.color)
     validateMaskEdge(mask.edge)
     if (mask.base !== undefined) validateMaskBaseReference(mask.base)
+    if (mask.gradient !== undefined) {
+      validateMaskGradient(mask.gradient)
+      if (mask.base) throw new Error('A gradient and generated object base are mutually exclusive.')
+    }
     if (
       ids.has(mask.id) ||
       typeof mask.enabled !== 'boolean' ||
@@ -360,7 +441,9 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
       throw new Error('Invalid mask operation.')
     switch (op.kind) {
       case 'create':
-        if (!fields(op, ['kind', 'id', 'name'])) throw new Error('Invalid mask creation.')
+        if (!fields(op, ['kind', 'id', 'name'], ['gradient']))
+          throw new Error('Invalid mask creation.')
+        if (op.gradient !== undefined) validateMaskGradient(op.gradient)
         validateMaskId(op.id)
         validateMaskName(op.name)
         break
@@ -372,13 +455,20 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
         validateMaskName(op.name)
         break
       case 'update':
-        if (!fields(op, ['kind', 'id'], ['name', 'enabled', 'inverted', 'light', 'color', 'edge']))
+        if (
+          !fields(
+            op,
+            ['kind', 'id'],
+            ['name', 'enabled', 'inverted', 'light', 'color', 'edge', 'gradient'],
+          )
+        )
           throw new Error('Invalid mask update.')
         validateMaskId(op.id)
         if (op.name !== undefined) validateMaskName(op.name)
         if (op.light !== undefined) validateMaskLight(op.light, true)
         if (op.color !== undefined) validateMaskColor(op.color, true)
         if (op.edge !== undefined) validateMaskEdge(op.edge, true)
+        if (op.gradient !== undefined) validateMaskGradient(op.gradient)
         for (const key of ['enabled', 'inverted'])
           if (op[key] !== undefined && typeof op[key] !== 'boolean')
             throw new Error('Invalid mask state.')
@@ -485,6 +575,7 @@ export function resolveMasks(
       light: mask.light,
       color: mask.color,
       edge: mask.edge,
+      ...(mask.gradient ? { gradient: mask.gradient } : {}),
     }
     return { ...descriptor, ...(base ? { base } : {}), strokes: strokes.reverse() }
   })
@@ -499,7 +590,7 @@ export function validateResolvedMasks(value: unknown): asserts value is Resolved
       !fields(
         mask,
         ['id', 'name', 'enabled', 'inverted', 'head', 'light', 'color', 'edge', 'strokes'],
-        ['base', 'preparedCoverage'],
+        ['base', 'preparedCoverage', 'gradient'],
       ) ||
       !Array.isArray(mask.strokes)
     )

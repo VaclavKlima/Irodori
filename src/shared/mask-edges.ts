@@ -47,6 +47,7 @@ export function maskEdgePixelIdentity(mask: ResolvedMask) {
   return JSON.stringify([
     MASK_EDGE_ALGORITHM_VERSION,
     mask.base?.hash ?? null,
+    mask.gradient ?? null,
     mask.head,
     mask.strokes,
     mask.inverted,

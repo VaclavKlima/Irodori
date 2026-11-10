@@ -56,25 +56,26 @@ function preset(d = definition()): EditingPreset {
   }
 }
 
-test('accepted settings-15 presets remain compatible after local Color schema migration', () => {
-  const value = { ...definition(), settingsVersion: 15 as const }
-  expect(() => validatePresetDefinition(value)).not.toThrow()
-  const destination = initialSettings()
-  destination.maskStack = [
-    {
-      id: randomUUID(),
-      name: 'Existing local color',
-      head: null,
-      enabled: true,
-      inverted: false,
-      light: { exposureEv: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0 },
-      color: { temperature: 20, tint: -3, saturation: -15 },
-      edge: { featherPx: 6, shiftPx: -2 },
-    },
-  ]
-  const result = transferredSettings(destination, preset(value), value.groups)
-  expect(result.maskStack).toEqual(destination.maskStack)
-})
+for (const settingsVersion of [15, 16] as const)
+  test(`accepted settings-${settingsVersion} presets retain destination local Color and edges after gradient migration`, () => {
+    const value = { ...definition(), settingsVersion }
+    expect(() => validatePresetDefinition(value)).not.toThrow()
+    const destination = initialSettings()
+    destination.maskStack = [
+      {
+        id: randomUUID(),
+        name: 'Existing local color',
+        head: null,
+        enabled: true,
+        inverted: false,
+        light: { exposureEv: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0 },
+        color: { temperature: 20, tint: -3, saturation: -15 },
+        edge: { featherPx: 6, shiftPx: -2 },
+      },
+    ]
+    const result = transferredSettings(destination, preset(value), value.groups)
+    expect(result.maskStack).toEqual(destination.maskStack)
+  })
 
 test('preset groups replace complete values and preserve excluded settings and processing identity', () => {
   const p = preset(),

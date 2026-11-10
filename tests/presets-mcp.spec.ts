@@ -53,7 +53,10 @@ test('agent-facing preset schemas expose concrete complete groups and save a cre
     expect(source.type).toBe('object')
     expect(source.oneOf).toBeUndefined()
     expect(properties(source).mode).toMatchObject({ type: 'string', enum: ['photo', 'explicit'] })
-    expect(properties(source).settingsVersion).toMatchObject({ type: 'integer', const: 12 })
+    expect(properties(source).settingsVersion).toMatchObject({
+      type: 'integer',
+      enum: [12, 13, 14, 15, 16, 17],
+    })
     expect(properties(properties(update.inputSchema).presetRequest).source).toEqual(source)
     const appearance = properties(properties(create.inputSchema).presetRequest).appearance
     expect(appearance.type).toBe('object')

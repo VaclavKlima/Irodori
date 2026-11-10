@@ -146,6 +146,7 @@ function storedHistory(history: EditHistory, catalogVersion: number): EditHistor
       for (const mask of legacy.maskStack as Record<string, unknown>[]) {
         if (catalogVersion < 25) delete mask.edge
         if (catalogVersion < 26) delete mask.color
+        if (catalogVersion < 27) delete mask.gradient
       }
     }
     if (catalogVersion < 22) delete legacy.curves
@@ -532,7 +533,7 @@ test('creative color preflight rejects malformed current and redo groups before 
   }
 })
 
-for (const previousVersion of [24, 25])
+for (const previousVersion of [24, 25, 26])
   test(`catalog ${previousVersion} upgrades local controls neutrally across current, undo and redo snapshots without rewriting immutable content`, async () => {
     const f = await fixture()
     try {
@@ -553,7 +554,7 @@ for (const previousVersion of [24, 25])
             },
           ],
         })
-        if (previousVersion === 25) created.stack[0].edge = { featherPx: 12.5, shiftPx: -3 }
+        if (previousVersion >= 25) created.stack[0].edge = { featherPx: 12.5, shiftPx: -3 }
         created.stack[0].base = {
           version: 1,
           hash: base.hash,
@@ -577,7 +578,10 @@ for (const previousVersion of [24, 25])
               id,
               inverted: true,
               light: { exposureEv: 0.75 },
-              ...(previousVersion === 25 ? { edge: { featherPx: 7, shiftPx: 4 } } : {}),
+              ...(previousVersion >= 25 ? { edge: { featherPx: 7, shiftPx: 4 } } : {}),
+              ...(previousVersion === 26
+                ? { color: { temperature: 17, tint: -8, saturation: -25 } }
+                : {}),
             },
           ],
         })
@@ -629,7 +633,7 @@ for (const previousVersion of [24, 25])
             (mask) =>
               JSON.stringify(mask.edge) ===
               JSON.stringify(
-                previousVersion === 25 ? { featherPx: 12.5, shiftPx: -3 } : neutralMaskEdge,
+                previousVersion >= 25 ? { featherPx: 12.5, shiftPx: -3 } : neutralMaskEdge,
               ),
           ),
         ).toBe(true)

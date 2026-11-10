@@ -17,7 +17,7 @@ import {
   validateDetailSharpening,
 } from '../../shared/spatial-detail'
 
-export const CATALOG_VERSION = 26
+export const CATALOG_VERSION = 27
 
 /** Validate the entire library before startup permits any migration or recovery write. */
 export function supportsEditingSettings(
@@ -36,7 +36,7 @@ export function supportsEditingSettings(
   if ((settings.version as number) < 10 && ('colorMixer' in settings || 'colorGrading' in settings))
     return false
   const legacy = settings.version === 7
-  if (![7, 8, 9, 10, 11, 12, 13, 14, 15, SETTINGS_VERSION].includes(settings.version as number))
+  if (![7, 8, 9, 10, 11, 12, 13, 14, 15, 16, SETTINGS_VERSION].includes(settings.version as number))
     return false
   if (
     catalogVersion !== undefined &&
@@ -52,7 +52,8 @@ export function supportsEditingSettings(
           23: 13,
           24: 14,
           25: 15,
-          26: SETTINGS_VERSION,
+          26: 16,
+          27: SETTINGS_VERSION,
         } as Record<number, number>
       )[catalogVersion]
   )
@@ -74,7 +75,8 @@ export function supportsEditingSettings(
             !mask ||
             typeof mask !== 'object' ||
             (version < 15 && Object.hasOwn(mask, 'edge')) ||
-            (version < 16 && Object.hasOwn(mask, 'color')),
+            (version < 16 && Object.hasOwn(mask, 'color')) ||
+            (version < 17 && Object.hasOwn(mask, 'gradient')),
         )
       )
         return false
@@ -167,7 +169,7 @@ export function migrateEditingHistory(db: DatabaseSync): void {
             ? (settings.maskStack as MaskDescriptor[]).map((mask) => ({
                 ...mask,
                 ...((settings.version as number) < 15 ? { edge: { ...neutralMaskEdge } } : {}),
-                color: { ...neutralMaskColor },
+                ...((settings.version as number) < 16 ? { color: { ...neutralMaskColor } } : {}),
               }))
             : [],
       }

@@ -158,7 +158,7 @@ test('settings 14 history gains neutral edges without changing revisions, cursor
     const actual = JSON.parse((db.prepare('SELECT data FROM edits').get() as { data: string }).data)
     expect(actual).toEqual(expected)
     expect(actual.settings.version).toBe(SETTINGS_VERSION)
-    expect(supportsEditingSettings(actual.settings, 26)).toBe(true)
+    expect(supportsEditingSettings(actual.settings, 27)).toBe(true)
     expect(supportsEditingSettings(actual.settings, 24)).toBe(false)
   } finally {
     db.close()
@@ -229,7 +229,7 @@ test('settings 15 adds neutral Color to all history while preserving authored ed
     const actual = JSON.parse((db.prepare('SELECT data FROM edits').get() as { data: string }).data)
     expect(actual).toEqual(expected)
     expect(actual.settings.maskStack[0].color).toEqual(neutralMaskColor)
-    expect(supportsEditingSettings(actual.settings, 26)).toBe(true)
+    expect(supportsEditingSettings(actual.settings, 27)).toBe(true)
     const before = db.prepare('SELECT data FROM edits').get()
     catalogTransaction(db, () => migrateEditingHistory(db))
     expect(db.prepare('SELECT data FROM edits').get()).toEqual(before)

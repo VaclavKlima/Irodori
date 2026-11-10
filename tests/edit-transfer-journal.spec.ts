@@ -502,3 +502,33 @@ test('startup rejects an inconsistent persisted journal before recovery or schem
     await t.close()
   }
 })
+
+test('settings-16 frozen copied jobs retain authored local Color, edges and every stored byte', () => {
+  const f = fixture()
+  try {
+    const mask = {
+      id: randomUUID(),
+      name: 'Preserved local color',
+      enabled: true,
+      inverted: true,
+      head: null,
+      light: { exposureEv: 0.5, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0 },
+      color: { temperature: 17, tint: -4, saturation: -25 },
+      edge: { featherPx: 6.5, shiftPx: -3 },
+    }
+    f.manifest((manifest) => {
+      const source = record(manifest.source),
+        settings = record(source.settings)
+      settings.version = 16
+      settings.maskStack = [mask]
+    })
+    const before = f.snapshot()
+    expect(() => f.store.validateExisting()).not.toThrow()
+    expect(f.snapshot()).toEqual(before)
+    expect(f.store.job(f.id).manifest.source).toMatchObject({
+      settings: { version: 16, maskStack: [mask] },
+    })
+  } finally {
+    f.close()
+  }
+})

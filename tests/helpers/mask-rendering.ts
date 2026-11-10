@@ -12,6 +12,7 @@ import { defaultExportOptions } from '../../src/shared/export'
 import { proofFixture } from '../export-proof.helpers'
 import { cropAdmission } from '../crop-frame.helpers'
 import { sha } from '../export.helpers'
+import { readGainJpeg, srgbLinear, to2020, reconstruct } from '../export-reference'
 
 export async function sourceFor(path: string, raw = false): Promise<ExportSource> {
   const worker = new PreviewProcess(resolve('out/main/preview-worker.js'))
@@ -49,7 +50,7 @@ export async function sourceFor(path: string, raw = false): Promise<ExportSource
   }
 }
 
-export async function compare(source: ExportSource, root: string) {
+export async function compare(source: ExportSource, root: string, hdrSamples = false) {
   const fixture = await proofFixture({ source, real: true })
   try {
     const options = {
@@ -99,6 +100,39 @@ export async function compare(source: ExportSource, root: string) {
     for (let i = 0; i < primary.length; i++)
       maximum = Math.max(maximum, Math.abs(primary[i] - decoded.data[i]))
     expect(maximum).toBeLessThanOrEqual(2)
+    let maximumHdr: number | null = null
+    if (hdrSamples) {
+      expect(proof.output).toBe('hdr')
+      expect(proof.linear?.url).toBeTruthy()
+      const lease = fixture.proofs.acquire(new URL(proof.linear!.url!))!
+      let bytes: Buffer
+      try {
+        bytes = await readFile(lease.path)
+      } finally {
+        lease.release()
+      }
+      const linear = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4),
+        parsed = readGainJpeg(await readFile(result.path)),
+        rgb = await sharp(parsed.primary).removeAlpha().raw().toBuffer(),
+        gain = await sharp(parsed.gain, { ignoreIcc: true }).removeAlpha().raw().toBuffer()
+      expect(gain.length).toBe(proof.width * proof.height * 3)
+      maximumHdr = 0
+      for (const fy of [0.25, 0.5, 0.75])
+        for (const fx of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+          const index = Math.floor(proof.height * fy) * proof.width + Math.floor(proof.width * fx),
+            expected = reconstruct(
+              to2020([0, 1, 2].map((c) => srgbLinear(rgb[index * 3 + c] / 255))),
+              [0, 1, 2].map((c) => gain[index * 3 + c] / 255),
+              parsed.metadata,
+              100,
+            )
+          for (let c = 0; c < 3; c++)
+            maximumHdr = Math.max(maximumHdr, Math.abs(linear[index * 4 + c] - expected[c]))
+          expect(linear[index * 4 + 3]).toBe(1)
+        }
+      // The established independent ISO gain-map reconstruction gate, unchanged.
+      expect(maximumHdr).toBeLessThan(0.02)
+    }
     await test.info().attach('mask-proof-export', {
       contentType: 'application/json',
       body: JSON.stringify({
@@ -106,6 +140,7 @@ export async function compare(source: ExportSource, root: string) {
         height: proof.height,
         output: proof.output,
         maximumCodeDifference: maximum,
+        maximumHdrLinearDifference: maximumHdr,
         adapter: result.diagnostics?.adapter,
       }),
     })

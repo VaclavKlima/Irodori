@@ -119,6 +119,31 @@ test('managed MCP maps bounded points, freezes targets and shares mask operation
     expect(tools.map((tool) => tool.name).sort()).toEqual([...agentTools].sort())
     for (const name of ['irodori_get_mask_context', 'irodori_mutate_masks'])
       expect(tools.find((tool) => tool.name === name)?.inputSchema.required).toContain('requestId')
+    const mutationSchema = tools.find((tool) => tool.name === 'irodori_mutate_masks')!
+      .inputSchema as unknown as {
+      properties: {
+        maskMutation: {
+          properties: {
+            operations: {
+              items: {
+                oneOf: {
+                  properties: Record<string, { const?: string }>
+                  required: string[]
+                  additionalProperties: boolean
+                }[]
+              }
+            }
+          }
+        }
+      }
+    }
+    const duplicateSchema =
+      mutationSchema.properties.maskMutation.properties.operations.items.oneOf.find(
+        (operation) => operation.properties.kind.const === 'duplicate',
+      )!
+    expect(duplicateSchema.required).toEqual(['kind', 'id', 'newId', 'name'])
+    expect(Object.keys(duplicateSchema.properties)).toEqual(['kind', 'id', 'newId', 'name'])
+    expect(duplicateSchema.additionalProperties).toBe(false)
     f.snapshot.activePhotoId = otherId
     const frozen = await f.call<{ active: { photoId: string } }>('irodori_get_editor_context')
     expect(frozen.active.photoId).toBe(photoId)
@@ -370,6 +395,89 @@ test('mask MCP enforces point bounds, exact-instance credentials and one-refresh
     expect(preserved.revision).toBe(4)
     expect(preserved.settings.maskStack[0]).toMatchObject({ id, light: { exposureEv: 0.4 } })
     expect((await f.t.library.getEditHistory(photoId)).snapshots).toHaveLength(5)
+  } finally {
+    await f.close()
+  }
+})
+
+test('managed MCP maps extended gradient points explicitly and commits complete gradient geometry atomically', async () => {
+  const f = await fixture(),
+    photoId = f.t.ids[0],
+    id = randomUUID()
+  try {
+    const tools = (await f.client.listTools()).tools
+    const contextSchema = tools.find(
+      (tool) => tool.name === 'irodori_get_mask_context',
+    )!.inputSchema
+    expect(contextSchema.properties).toHaveProperty('allowOutsidePhoto')
+    const args = {
+      photoId,
+      expectedRevision: 0,
+      points: [
+        { x: -1, y: 0.2 },
+        { x: 2, y: 0.8 },
+      ],
+    }
+    expect((await f.raw('irodori_get_mask_context', args)).isError).toBe(true)
+    const context = await f.call<MappedContext>('irodori_get_mask_context', {
+      ...args,
+      allowOutsidePhoto: true,
+    })
+    expect(context.points).toEqual([
+      { x: expect.closeTo(-0.25, 12), y: expect.closeTo(0.2, 12) },
+      { x: expect.closeTo(1.25, 12), y: expect.closeTo(0.8, 12) },
+    ])
+    expect(
+      (await f.raw('irodori_get_mask_context', { ...args, allowOutsidePhoto: 'true' })).isError,
+    ).toBe(true)
+    const gradient = { kind: 'linear', start: context.points[0], end: context.points[1] }
+    const created = await f.call<EditState>('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: 0,
+      maskMutation: { operations: [{ kind: 'create', id, name: 'Sky gradient', gradient }] },
+    })
+    expect(created.revision).toBe(1)
+    expect(created.settings.maskStack[0].gradient).toEqual(gradient)
+    expect((await f.t.library.getEditHistory(photoId)).snapshots).toHaveLength(2)
+    const next = {
+      kind: 'radial',
+      center: { x: 0.5, y: 0.5 },
+      radiusX: 0.4,
+      radiusY: 0.4,
+      rotation: 30,
+      feather: 50,
+    }
+    const changed = await f.call<EditState>('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: 1,
+      maskMutation: { operations: [{ kind: 'update', id, gradient: next }] },
+    })
+    expect(changed.settings.maskStack[0].gradient).toEqual(next)
+    const partial = await f.raw('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: 2,
+      maskMutation: {
+        operations: [{ kind: 'update', id, gradient: { kind: 'radial', feather: 10 } }],
+      },
+    })
+    expect(partial.isError).toBe(true)
+    const brush = await f.raw('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: 2,
+      maskMutation: {
+        operations: [
+          {
+            kind: 'stroke',
+            id,
+            stroke: { mode: 'add', radius: 0.1, feather: 0.5, points: [context.points[0]] },
+          },
+        ],
+      },
+    })
+    expect(brush.isError).toBe(true)
+    expect((await f.t.library.getEdits(photoId)).revision).toBe(2)
+    const undone = await f.call<EditState>('irodori_undo_edit', { photoId, expectedRevision: 2 })
+    expect(undone.settings.maskStack[0].gradient).toEqual(gradient)
   } finally {
     await f.close()
   }

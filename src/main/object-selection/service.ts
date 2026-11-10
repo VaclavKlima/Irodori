@@ -154,6 +154,15 @@ export class ObjectSelectionService {
     })
   }
   private async validate(request: ObjectSelectionRequest) {
+    if (request.maskId) {
+      const state = await this.owner.edits(request.photoId)
+      const target = state.settings.maskStack.find((mask) => mask.id === request.maskId)
+      if (!target) throw new Error('The mask to refine is unavailable.')
+      if (target.gradient)
+        throw new Error(
+          'Object selection cannot refine a gradient mask. Create a separate object mask.',
+        )
+    }
     const context = await this.context(request.photoId, request.expectedRevision)
     if (context.gridIdentity !== request.gridIdentity)
       throw new Error('The photograph geometry changed. Indicate the object again.')

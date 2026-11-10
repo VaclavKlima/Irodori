@@ -10,6 +10,29 @@ export function referenceCoverage(
 ) {
   const scale = Math.min(width, height)
   let coverage = 0
+  const gradient = mask.gradient
+  if (gradient) {
+    let transition: number
+    if (gradient.kind === 'linear') {
+      const dx = (gradient.end.x - gradient.start.x) * width,
+        dy = (gradient.end.y - gradient.start.y) * height
+      transition =
+        ((x - gradient.start.x) * width * dx + (y - gradient.start.y) * height * dy) /
+        (dx * dx + dy * dy)
+    } else {
+      const angle = (-gradient.rotation * Math.PI) / 180,
+        dx = (x - gradient.center.x) * width,
+        dy = (y - gradient.center.y) * height,
+        horizontal = (dx * Math.cos(angle) - dy * Math.sin(angle)) / (gradient.radiusX * width),
+        vertical = (dx * Math.sin(angle) + dy * Math.cos(angle)) / (gradient.radiusY * height),
+        distance = Math.hypot(horizontal, vertical)
+      transition = gradient.feather
+        ? (distance - 1 + gradient.feather / 100) / (gradient.feather / 100)
+        : Number(distance > 1)
+    }
+    const t = Math.max(0, Math.min(1, transition))
+    coverage = 1 - 3 * t * t + 2 * t * t * t
+  }
   for (const stroke of mask.strokes) {
     let distance = Infinity
     for (let i = 0; i < Math.max(1, stroke.points.length - 1); i++) {

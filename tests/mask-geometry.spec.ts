@@ -4,6 +4,7 @@ import {
   identityMaskGeometry,
   maskCanonicalPoint,
   maskOutputSize,
+  maskOutputPoint,
   validateMaskGeometry,
   type MaskGeometry,
 } from '../src/shared/mask-geometry'
@@ -84,4 +85,63 @@ test('mask geometry refuses invalid source identities and non-finite mappings', 
       crop: { ...crop, outputToSource: [NaN, 0, 0, 1, 0, 0] },
     }),
   ).toThrow('crop geometry')
+})
+
+test('inverse guide projection retains crop, lens, flips, rotation and extended source positions', () => {
+  for (let flip = 0; flip < 8; flip++) {
+    const sourceWidth = 100,
+      sourceHeight = 80
+    const canonicalWidth = flip & 4 ? sourceHeight : sourceWidth
+    const canonicalHeight = flip & 4 ? sourceWidth : sourceHeight
+    const correction = {
+      width: 90,
+      height: 72,
+      left: 5,
+      top: 4,
+      distortion: Array.from({ length: 4096 }, (_, i) => 0.85 + (0.1 * i) / 4095),
+    }
+    for (const quarterTurns of [0, 1, 2, 3] as const) {
+      const crop = cropGeometry(
+        { width: flip & 4 ? 72 : 90, height: flip & 4 ? 90 : 72 },
+        { ...identityCrop, width: 0.6, height: 0.6, angle: 5, quarterTurns },
+      )
+      const geometry: MaskGeometry = {
+        version: 1,
+        sourceWidth,
+        sourceHeight,
+        canonicalWidth,
+        canonicalHeight,
+        flip,
+        correction,
+        crop,
+      }
+      for (const point of [
+        { x: -0.5, y: 0.4 },
+        { x: 0.1, y: 0.2 },
+        { x: 0.5, y: 0.5 },
+        { x: 1.5, y: 1.2 },
+      ]) {
+        const output = maskOutputPoint(point, geometry)
+        expect(output).not.toBeNull()
+        const actual = maskCanonicalPoint(output!, geometry)
+        expect(actual.x).toBeCloseTo(point.x, 9)
+        expect(actual.y).toBeCloseTo(point.y, 9)
+      }
+    }
+  }
+})
+
+test('guide projection refuses folded lens geometry, singular crops and unsupported source coordinates', () => {
+  const base = identityMaskGeometry(100, 80)
+  expect(maskOutputPoint({ x: 2.1, y: 0.5 }, base)).toBeNull()
+  const correction = { width: 100, height: 80, left: 0, top: 0, distortion: Array(4096).fill(1) }
+  correction.distortion[2048] = 0.1
+  expect(maskOutputPoint({ x: 0.5, y: 0.5 }, { ...base, correction })).toBeNull()
+  const crop = cropGeometry({ width: 100, height: 80 }, identityCrop)
+  expect(
+    maskOutputPoint(
+      { x: 0.5, y: 0.5 },
+      { ...base, crop: { ...crop, outputToSource: [0, 0, 0, 0, 0, 0] } },
+    ),
+  ).toBeNull()
 })

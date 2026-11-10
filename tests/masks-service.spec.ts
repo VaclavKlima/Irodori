@@ -9,6 +9,8 @@ import { processingMetadata } from '../src/main/processing/metadata'
 import { MaskContentStore, prepareMaskMutation } from '../src/main/mask-store'
 import { catalogTransaction } from '../src/main/catalog/transaction'
 import { initialSettings, type EditHistory } from '../src/shared/edits'
+import { transferFixture } from './edit-transfer.helpers'
+import { neutralMaskColor, type MaskGradient } from '../src/shared/masks'
 import { migrateEditingHistory } from '../src/main/catalog/editing-migration'
 
 const processor = {
@@ -202,5 +204,68 @@ test('v12 migration preserves authored curves, redo snapshots, revision and time
     expect(migrated).toEqual(history)
   } finally {
     db.close()
+  }
+})
+
+test('atomic neutral gradients request geometry admission, duplicate corrections and preserve geometry through restart and Undo/Redo', async () => {
+  const f = await transferFixture(1),
+    photoId = f.ids[0],
+    id = randomUUID(),
+    duplicate = randomUUID()
+  const admitted: unknown[] = []
+  f.library.fullPreviews.validateMaskEdit = async (_id, _revision, masks) => {
+    admitted.push(structuredClone(masks))
+  }
+  try {
+    const gradient: MaskGradient = {
+      kind: 'linear',
+      start: { x: -0.25, y: 0.1 },
+      end: { x: 1.25, y: 0.9 },
+    }
+    const created = await f.library.mutateMasks(photoId, 0, {
+      operations: [{ kind: 'create', id, name: 'Sky gradient', gradient }],
+    })
+    expect(created.settings.maskStack[0]).toMatchObject({ gradient, color: neutralMaskColor })
+    expect(admitted).toHaveLength(1)
+    expect((await f.library.getEditHistory(photoId)).snapshots).toHaveLength(2)
+    const corrected = await f.library.mutateMasks(photoId, 1, {
+      operations: [
+        {
+          kind: 'stroke',
+          id,
+          stroke: { mode: 'subtract', radius: 0.1, feather: 0.5, points: [{ x: 0.4, y: 0.5 }] },
+        },
+      ],
+    })
+    const next: MaskGradient = {
+      kind: 'radial',
+      center: { x: 0.6, y: 0.4 },
+      radiusX: 0.4,
+      radiusY: 0.5,
+      rotation: -25,
+      feather: 50,
+    }
+    const changed = await f.library.mutateMasks(photoId, 2, {
+      operations: [
+        { kind: 'update', id, gradient: next },
+        { kind: 'duplicate', id, newId: duplicate, name: 'Copy' },
+      ],
+    })
+    expect(admitted).toHaveLength(3)
+    expect(changed.settings.maskStack.map((mask) => mask.gradient)).toEqual([next, next])
+    expect(changed.maskContent).toEqual(corrected.maskContent)
+    expect(changed.settings.maskStack.map((mask) => mask.head)).toEqual([
+      corrected.settings.maskStack[0].head,
+      corrected.settings.maskStack[0].head,
+    ])
+    await f.library.undoEdit(photoId, 3)
+    await f.restart()
+    const state = await f.library.getEdits(photoId)
+    expect(state.settings.maskStack[0].gradient).toEqual(gradient)
+    const redone = await f.library.redoEdit(photoId, state.revision)
+    expect(redone.settings.maskStack).toEqual(changed.settings.maskStack)
+    expect(redone.maskContent).toEqual(corrected.maskContent)
+  } finally {
+    await f.close()
   }
 })

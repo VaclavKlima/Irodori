@@ -121,3 +121,83 @@ export function maskCanonicalPoint(
 export function croppedMaskGeometry(geometry: MaskGeometry, crop: CropGeometry): MaskGeometry {
   return { ...geometry, crop }
 }
+
+/**
+ * Inverse pull mapping for photo-registered guides, in cropped-output pixel edges.
+ * Refuse folds or singular transforms rather than displaying a misplaced handle.
+ */
+export function maskOutputPoint(
+  point: { x: number; y: number },
+  geometry: MaskGeometry,
+): { x: number; y: number } | null {
+  if (![point.x, point.y].every((n) => Number.isFinite(n) && n >= -1 && n <= 2)) return null
+  let x = point.x * geometry.canonicalWidth,
+    y = point.y * geometry.canonicalHeight
+  if (geometry.flip & 4) [x, y] = [y, x]
+  if (geometry.flip & 1) x = geometry.sourceWidth - x
+  if (geometry.flip & 2) y = geometry.sourceHeight - y
+  const c = geometry.correction
+  const width = c?.width ?? geometry.sourceWidth,
+    height = c?.height ?? geometry.sourceHeight
+  if (c) {
+    const cx = (geometry.sourceWidth - 1) / 2,
+      cy = (geometry.sourceHeight - 1) / 2,
+      radius = Math.hypot(cx, cy),
+      qx = x - 0.5 - cx,
+      qy = y - 0.5 - cy,
+      target = Math.hypot(qx, qy)
+    if (c.distortion.length !== 4096 || radius <= 0) return null
+    // The radial function is piecewise quadratic. Check its derivative at both
+    // ends of each segment: a positive table alone does not exclude a lens fold.
+    for (let i = 0; i < 4095; i++) {
+      const a = c.distortion[i],
+        b = c.distortion[i + 1],
+        delta = b - a
+      if (![a, b].every(Number.isFinite) || Math.min(a + i * delta, b + (i + 1) * delta) <= 1e-6)
+        return null
+    }
+    const scaleAt = (distance: number) => {
+      const position = Math.min(4095, (distance / radius) * 4095),
+        i = Math.min(4094, Math.floor(position)),
+        fraction = position - i
+      return c.distortion[i] * (1 - fraction) + c.distortion[i + 1] * fraction
+    }
+    let low = 0,
+      high = Math.max(radius, target / c.distortion[4095]),
+      distance = 0
+    if (
+      !Number.isFinite(high) ||
+      high > 8 * Math.hypot(geometry.sourceWidth, geometry.sourceHeight)
+    )
+      return null
+    for (let step = 0; step < 48; step++) {
+      distance = (low + high) / 2
+      if (distance * scaleAt(distance) < target) low = distance
+      else high = distance
+    }
+    const factor = target ? distance / target : 0
+    x = cx + qx * factor + 0.5 - c.left
+    y = cy + qy * factor + 0.5 - c.top
+  }
+  if (geometry.flip & 1) x = width - x
+  if (geometry.flip & 2) y = height - y
+  if (geometry.flip & 4) [x, y] = [y, x]
+  if (geometry.crop) {
+    const m = geometry.crop.outputToSource,
+      determinant = m[0] * m[3] - m[1] * m[2],
+      px = x - m[4],
+      py = y - m[5]
+    if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-10) return null
+    ;[x, y] = [(m[3] * px - m[1] * py) / determinant, (m[0] * py - m[2] * px) / determinant]
+  }
+  if (![x, y].every(Number.isFinite)) return null
+  const check = maskCanonicalPoint({ x, y }, geometry)
+  if (
+    Math.hypot(
+      (check.x - point.x) * geometry.canonicalWidth,
+      (check.y - point.y) * geometry.canonicalHeight,
+    ) > 1e-4
+  )
+    return null
+  return { x, y }
+}

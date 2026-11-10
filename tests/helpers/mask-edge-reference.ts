@@ -13,10 +13,24 @@ export function referenceMaskEdges(
   const composed = new Float64Array(width * height)
   for (let y = 0; y < height; y++)
     for (let x = 0; x < width; x++) {
-      let value = base ? base[y * width + x] / 255 : 0
+      let value = base
+        ? base[y * width + x] / 255
+        : referenceCoverage(
+            { ...mask, strokes: [], inverted: false },
+            (x + 0.5) / width,
+            (y + 0.5) / height,
+            width,
+            height,
+          )
       for (const stroke of mask.strokes) {
         const amount = referenceCoverage(
-          { ...mask, inverted: false, base: undefined, strokes: [{ ...stroke, mode: 'add' }] },
+          {
+            ...mask,
+            inverted: false,
+            base: undefined,
+            gradient: undefined,
+            strokes: [{ ...stroke, mode: 'add' }],
+          },
           (x + 0.5) / width,
           (y + 0.5) / height,
           width,

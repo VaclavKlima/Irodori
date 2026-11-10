@@ -9,9 +9,11 @@ import {
 } from 'react'
 import {
   ArrowDown,
+  ArrowDownToLine,
   ArrowUp,
   Brush,
   ChevronDown,
+  Circle,
   Copy,
   Eye,
   EyeOff,
@@ -40,6 +42,7 @@ import { InspectorSection } from './InspectorSection'
 import type { MasksController } from '../hooks/useMasks'
 import type { ObjectSelectionController } from '../hooks/useObjectSelection'
 import { ObjectSelectionControls } from './ObjectSelection'
+import { GradientShape } from './GradientShape'
 import { maskCreationActions, startMaskCreation, type MaskToolId } from './mask-tools'
 import styles from './Masks.module.css'
 
@@ -274,6 +277,7 @@ export function Masks({
       maskCount: masks.masks.length,
       busy: providedMasks.busy,
       createBrush: providedMasks.create,
+      createGradient: providedMasks.armGradient,
     })
   }
   const targetMask = masks.masks.find((mask) => mask.id === activeMenu?.maskId)
@@ -374,9 +378,24 @@ export function Masks({
         data-testid="masks-list"
       >
         {masks.masks.map((mask) => {
-          const Icon = mask.base ? ScanSearch : Brush
+          const Icon = mask.gradient
+            ? mask.gradient.kind === 'linear'
+              ? ArrowDownToLine
+              : Circle
+            : mask.base
+              ? ScanSearch
+              : Brush
           const rename = renaming?.scope === masks.scope && renaming?.id === mask.id
-          const metadata = `${mask.base ? (mask.head ? 'Object + Brush' : 'Object') : mask.head ? 'Brush' : 'Empty'}${mask.inverted ? ' · Inverted' : ''}${!mask.enabled ? ' · Disabled' : ''}`
+          const type = mask.gradient
+            ? `${mask.gradient.kind === 'linear' ? 'Linear' : 'Radial'} gradient${mask.head ? ' + Brush' : ''}`
+            : mask.base
+              ? mask.head
+                ? 'Object + Brush'
+                : 'Object'
+              : mask.head
+                ? 'Brush'
+                : 'Empty'
+          const metadata = `${type}${mask.inverted ? ' · Inverted' : ''}${!mask.enabled ? ' · Disabled' : ''}`
           return (
             <li
               key={mask.id}
@@ -521,6 +540,7 @@ export function Masks({
               {objectSelection && <ObjectSelectionControls selection={objectSelection} />}
               {selected && !selecting && (
                 <>
+                  {selected.gradient && <GradientShape masks={masks} />}
                   <InspectorSection
                     id="mask-edge-controls"
                     title="Mask edges"

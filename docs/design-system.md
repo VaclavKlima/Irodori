@@ -117,6 +117,11 @@ Console arrangement and date/month/year browser.
   content height and four in taller windows. Keep the creation header, overlay
   preference and tabs visible. Future mask methods join the chooser and future
   adjustment groups join the disclosure area; see [local masks](features/local-adjustments.md).
+  The November 10 gradient extension adds Linear/Radial gradient to that chooser
+  and Gradient shape in Coverage, with Edit gradient, radial Feather and collapsed
+  pixel Geometry. Handles belong to Coverage independently of Show overlay. The
+  [gradient study](design/mask-gradients.html) and native 1100 × 700 Console-open
+  acceptance preserve the existing layout and independent scrolling.
 - **Light:** Light title and reset; Tonal adjustments disclosure; implemented
   tonal controls; an expandable Curves section with labelled channel selectors,
   square signed-log graph, Standard/HDR/Fit points views, Input/Output fields,

@@ -19,11 +19,12 @@ import {
   type MaskBaseContent,
   maskHasEdges,
   validatePreparedMaskCoverage,
+  validateMaskGradient,
 } from './masks'
 
 export const MASK_RENDERING_VERSION =
-  'ordered-light-color-brush-generated-edge-green-native-v4-' + MASK_COLOR_VERSION
-export const MASK_DESCRIPTOR_VEC4S = 9
+  'ordered-light-color-gradient-brush-generated-edge-native-v5-' + MASK_COLOR_VERSION
+export const MASK_DESCRIPTOR_VEC4S = 11
 export const MASK_GPU_TEXTURE_WIDTH = 256
 export const MAX_MASK_BASE_ATLAS_BYTES = maskCapabilities.maxBaseAtlasBytes
 const TILE_EDGE = 256
@@ -31,9 +32,13 @@ export const MAX_MASK_GPU_BYTES = maskCapabilities.maxRetainedBytes
 
 /** An empty or erase-only uninverted mask cannot affect any photograph pixel. */
 export function maskHasCoverage(
-  mask: Pick<ResolvedMask, 'inverted' | 'strokes' | 'base'>,
+  mask: Pick<ResolvedMask, 'inverted' | 'strokes' | 'base' | 'gradient'>,
 ): boolean {
-  return Boolean(mask.base) || mask.inverted || mask.strokes.some((stroke) => stroke.mode === 'add')
+  return (
+    Boolean(mask.base || mask.gradient) ||
+    mask.inverted ||
+    mask.strokes.some((stroke) => stroke.mode === 'add')
+  )
 }
 
 /** One native R8 atlas shares a binding across every distinct generated base. */
@@ -42,7 +47,7 @@ function renderMask(mask: ResolvedMask, coverageOnly = false): ResolvedMask {
   if (!mask.preparedCoverage) {
     if (coverageOnly || (mask.enabled && hasMaskAdjustments(mask)))
       throw new Error('Mask edge coverage is not ready. Retry GPU after preparation completes.')
-    return { ...mask, base: undefined, strokes: [], inverted: false }
+    return { ...mask, base: undefined, gradient: undefined, strokes: [], inverted: false }
   }
   validatePreparedMaskCoverage(mask.preparedCoverage)
   const base = {
@@ -52,7 +57,7 @@ function renderMask(mask: ResolvedMask, coverageOnly = false): ResolvedMask {
     height: mask.preparedCoverage.height,
     pngBase64: mask.preparedCoverage.pngBase64,
   }
-  return { ...mask, base, strokes: [], inverted: false }
+  return { ...mask, base, gradient: undefined, strokes: [], inverted: false }
 }
 export function maskBaseAtlasPlan(
   parameters: Pick<AdjustmentParameters, 'localMasks'>,
@@ -115,7 +120,16 @@ export function localMaskAllocationBytes(
     masks.flatMap((mask) => {
       if (maskHasEdges(mask))
         return mask.enabled && hasMaskAdjustments(mask)
-          ? [JSON.stringify([mask.base?.hash, mask.head, mask.strokes, mask.inverted, mask.edge])]
+          ? [
+              JSON.stringify([
+                mask.base?.hash,
+                mask.gradient,
+                mask.head,
+                mask.strokes,
+                mask.inverted,
+                mask.edge,
+              ]),
+            ]
           : []
       return mask.base ? [mask.base.hash] : []
     }),
@@ -140,6 +154,7 @@ export function localMaskPixelData(parameters: Pick<AdjustmentParameters, 'local
         strokes: mask.strokes,
         edge: mask.edge,
         ...(mask.base ? { base: maskBaseReference(mask.base) } : {}),
+        ...(mask.gradient ? { gradient: mask.gradient } : {}),
       })) ?? []
   )
 }
@@ -225,6 +240,34 @@ export function packLocalMasks(
   for (let ordinal = 0; ordinal < masks.length; ordinal++) {
     const mask = masks[ordinal]
     validateMaskLight(mask.light)
+    if (mask.gradient) {
+      validateMaskGradient(mask.gradient, width, height)
+      if (mask.base) throw new Error('A gradient and generated object base are mutually exclusive.')
+    }
+    const gradient = mask.gradient
+    const packedGradient = !gradient
+      ? new Array(8).fill(0)
+      : gradient.kind === 'linear'
+        ? [
+            1,
+            gradient.start.x * width,
+            gradient.start.y * height,
+            0,
+            gradient.end.x * width,
+            gradient.end.y * height,
+            0,
+            0,
+          ]
+        : [
+            2,
+            gradient.center.x * width,
+            gradient.center.y * height,
+            (gradient.rotation * Math.PI) / 180,
+            gradient.radiusX * width,
+            gradient.radiusY * height,
+            gradient.feather / 100,
+            0,
+          ]
     const balance = maskColorBalanceMatrices(mask.color)
     const packedBalance = [
       balance?.srgb ?? identityMatrix,
@@ -285,6 +328,7 @@ export function packLocalMasks(
       mask.color.saturation,
       Number(balance !== null),
       ...packedBalance,
+      ...packedGradient,
     )
   }
   if (c) {
@@ -347,13 +391,28 @@ fn maskCanonical(pixel:vec2f)->vec2f {
  if((flip&4u)!=0u){p=p.yx;}
  return p/maskData[0].yz;
 }
+fn maskGradientCoverage(index:u32,point:vec2f)->f32 {
+ let offset=6u+index*${MASK_DESCRIPTOR_VEC4S}u;let shape=maskData[offset+9u];let extent=maskData[offset+10u];
+ if(shape.x==1.){
+  let delta=extent.xy-shape.yz;let t=dot(point-shape.yz,delta)/dot(delta,delta);
+  return 1.-smoothstep(0.,1.,t);
+ }
+ if(shape.x==2.){
+  let delta=point-shape.yz;let cosine=cos(shape.w);let sine=sin(shape.w);
+  let local=vec2f(cosine*delta.x+sine*delta.y,-sine*delta.x+cosine*delta.y);
+  let distance=length(local/extent.xy);
+  if(extent.z==0.){return select(0.,1.,distance<=1.);}
+  return 1.-smoothstep(1.-extent.z,1.,distance);
+ }
+ return 0.;
+}
 fn maskCoverage(index:u32,canonical:vec2f)->f32 {
  let mask=maskData[6u+index*${MASK_DESCRIPTOR_VEC4S}u]; let size=maskData[0].yz; let short=maskData[0].w;
  let dimensions=vec2u(maskData[4].zw);
  let tile=clamp(vec2i(floor(canonical*size/maskData[5].w)),vec2i(0),vec2i(dimensions)-1);
  let bin=maskData[u32(mask.x)+u32(tile.y)*dimensions.x+u32(tile.x)];
  let point=canonical*size/short;
- var coverage=${baseBinding === undefined ? '0.' : 'select(0.,maskBaseCoverage(i32(mask.w)-1,canonical),mask.w>0.)'}; var brush=0.; var last=-1; var subtract=false;
+ var coverage=${baseBinding === undefined ? '0.' : 'select(0.,maskBaseCoverage(i32(mask.w)-1,canonical),mask.w>0.)'}; coverage=max(coverage,maskGradientCoverage(index,canonical*size));var brush=0.; var last=-1; var subtract=false;
  for(var i=0u;i<u32(bin.y);i++){
   let entry=maskData[u32(bin.x)+i]; let stroke=i32(entry.y);
   if(stroke!=last){
@@ -457,11 +516,22 @@ vec2 maskCanonical(vec2 pixel){
  if((flip&1)!=0)p.x=base.x-p.x;if((flip&2)!=0)p.y=base.y-p.y;if((flip&4)!=0)p=p.yx;
  return p/maskDataAt(0).yz;
 }
+float maskGradientCoverage(int index,vec2 point){
+ int offset=6+index*${MASK_DESCRIPTOR_VEC4S};vec4 shape=maskDataAt(offset+9),extent=maskDataAt(offset+10);
+ if(shape.x==1.){vec2 delta=extent.xy-shape.yz;float t=dot(point-shape.yz,delta)/dot(delta,delta);return 1.-smoothstep(0.,1.,t);}
+ if(shape.x==2.){
+  vec2 delta=point-shape.yz;float cosine=cos(shape.w),sine=sin(shape.w);
+  vec2 local=vec2(cosine*delta.x+sine*delta.y,-sine*delta.x+cosine*delta.y);
+  float distance=length(local/extent.xy);if(extent.z==0.)return distance<=1.?1.:0.;
+  return 1.-smoothstep(1.-extent.z,1.,distance);
+ }
+ return 0.;
+}
 float maskCoverage(int index,vec2 canonical){
  vec4 mask=maskDataAt(6+index*${MASK_DESCRIPTOR_VEC4S});vec2 size=maskDataAt(0).yz;float shortSide=maskDataAt(0).w;
  ivec2 dimensions=ivec2(maskDataAt(4).zw),tile=clamp(ivec2(floor(canonical*size/maskDataAt(5).w)),ivec2(0),dimensions-1);
  vec4 bin=maskDataAt(int(mask.x)+tile.y*dimensions.x+tile.x);vec2 point=canonical*size/shortSide;
- float coverage=${bases ? 'mask.w>0.?maskBaseCoverage(int(mask.w)-1,canonical):0.' : '0.'},brush=0.;int last=-1;bool subtract=false;
+ float coverage=${bases ? 'mask.w>0.?maskBaseCoverage(int(mask.w)-1,canonical):0.' : '0.'},brush=0.;coverage=max(coverage,maskGradientCoverage(index,canonical*size));int last=-1;bool subtract=false;
  for(int i=0;i<int(bin.y);i++){
   vec4 entry=maskDataAt(int(bin.x)+i);int stroke=int(entry.y);
   if(stroke!=last){if(last>=0){coverage=subtract?coverage*(1.-brush):max(coverage,brush);}brush=0.;last=stroke;subtract=maskDataAt(stroke).z!=0.;}

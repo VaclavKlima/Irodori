@@ -1,4 +1,4 @@
-import { Brush, ScanSearch } from 'lucide-react'
+import { ArrowDownToLine, Brush, Circle, ScanSearch } from 'lucide-react'
 import { maskCapabilities } from '../../../shared/masks'
 import type { CommandMenuAction } from './ui/CommandMenu'
 
@@ -8,7 +8,10 @@ type CreationContext = {
   maskCount: number
   busy: boolean
 }
-type InvocationContext = CreationContext & { createBrush: () => void }
+type InvocationContext = CreationContext & {
+  createBrush: () => void
+  createGradient: (kind: 'linear' | 'radial') => void
+}
 
 // Only implemented tools enter the chooser; future tools share this invocation path.
 const tools = [
@@ -23,6 +26,18 @@ const tools = [
     label: 'Brush',
     icon: Brush,
     start: (context: InvocationContext) => context.createBrush(),
+  },
+  {
+    id: 'linear',
+    label: 'Linear gradient',
+    icon: ArrowDownToLine,
+    start: (context: InvocationContext) => context.createGradient('linear'),
+  },
+  {
+    id: 'radial',
+    label: 'Radial gradient',
+    icon: Circle,
+    start: (context: InvocationContext) => context.createGradient('radial'),
   },
 ] as const
 export type MaskToolId = (typeof tools)[number]['id']

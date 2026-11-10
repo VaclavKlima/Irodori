@@ -17,6 +17,21 @@ interface Suite {
   explicitOnly?: boolean
 }
 const definitions: Suite[] = [
+  { file: 'mask-gradients-model', group: 'node', scopes: ['adjustments', 'preview'] },
+  {
+    file: 'mask-gradients-gpu',
+    group: 'raw-gpu',
+    scopes: ['adjustments', 'preview'],
+    exclusive: true,
+  },
+  {
+    file: 'mask-gradients-webgl',
+    group: 'raw-gpu',
+    scopes: ['adjustments', 'preview'],
+    exclusive: true,
+  },
+  { file: 'mask-gradient-ui', group: 'electron', scopes: ['adjustments', 'ui'], exclusive: true },
+  { file: 'gradient-geometry', group: 'node', scopes: ['adjustments', 'ui', 'preview'] },
   { file: 'mask-color', group: 'node', scopes: ['adjustments', 'preview'] },
   { file: 'mask-color-gpu', group: 'raw-gpu', scopes: ['adjustments', 'preview'], exclusive: true },
   {

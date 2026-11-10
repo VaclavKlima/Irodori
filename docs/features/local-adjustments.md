@@ -2,7 +2,7 @@
 
 ## Status
 
-**Implemented for #56 with focused macOS acceptance, November 7, 2026.** The first delivery establishes multiple independent brush masks, real processing order and six local Light controls. Linear/radial gradients (#58), automatic subjects (#54), sky/background/object selection (#66), range masks (#67), and optional depth research (#65) remain separate. The subsequent [masked Color implementation](#masked-color--issue-64) extends this core for [GitHub #64](https://github.com/VaclavKlima/Irodori/issues/64). [Shared requirements](README.md#shared-implementation-requirements) apply.
+**Implemented for #56 with focused macOS acceptance, November 7, 2026.** The first delivery establishes multiple independent brush masks, real processing order and six local Light controls. The subsequent [linear/radial gradients](mask-gradients.md) are scoped to GitHub #84. Automatic subjects (#54), sky/background/object selection (#66), range masks (#67), and optional depth research (#65) remain separate. The subsequent [masked Color implementation](#masked-color--issue-64) extends this core for [GitHub #64](https://github.com/VaclavKlima/Irodori/issues/64). [Shared requirements](README.md#shared-implementation-requirements) apply.
 
 The [November 8 object-selection extension](object-selection.md) enables SAM 2 point/box proposals on Mac, with immutable generated R8 bases underneath separate Paint/Erase corrections. Settings 14/catalog 24 preserve the delivered brush history while adding these references and shared GPU coverage. Bazzite verification is [TODO 69](README.md#task-69); fine-edge matting, automatic sky/background and additional local operators remain separate. The [research record](object-selection-research.md) retains original measurements and known quality failures.
 
@@ -128,7 +128,7 @@ Each completed stroke, parameter gesture, reorder or management action is one ph
 
 ## Controls
 
-Use one **Create mask** command menu rather than adding a header button for every mask type. The renderer-owned tool registry currently offers Brush and Select object; future implemented gradients, automatic selections and ranges join the same menu. Unimplemented tools are hidden. Temporarily blocked tools retain a readable reason.
+Use one **Create mask** command menu rather than adding a header button for every mask type. The renderer-owned tool registry offers Brush, Select object, Linear gradient and Radial gradient; future automatic selections and ranges join the same menu. Unimplemented tools are hidden. Temporarily blocked tools retain a readable reason.
 
 The mask list shows each name, type/status, visibility toggle, drag handle and **⋯** menu. Names use 12px text and metadata 11px; long names retain accessible full text. The list is bounded to two visible rows at content heights of 760px or less and four above that, with its own scrolling. Header controls and detail tabs remain visible while the selected-mask details scroll independently. **Show overlay** is available above both tabs.
 

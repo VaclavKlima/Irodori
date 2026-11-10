@@ -260,7 +260,7 @@ test('managed MCP exposes edge settings, refuses stale/invalid edits and preserv
       masks: { edge: { order: string; featherPx: { max: number }; automaticMatting: boolean } }
     }>('irodori_get_edit_capabilities')
     expect(capabilities.masks.edge).toMatchObject({
-      order: 'base-brush-invert-shift-feather',
+      order: 'base-or-gradient-brush-invert-shift-feather',
       featherPx: { max: 64 },
       automaticMatting: false,
     })

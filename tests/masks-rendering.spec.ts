@@ -10,6 +10,76 @@ import { neutralMaskEdge, neutralMaskLight, type ResolvedMask } from '../src/sha
 import { hdrJpegFixture } from './hdr-jpeg.helpers'
 import { syntheticMerge } from './merge.helpers'
 import { sourceFor, compare } from './helpers/mask-rendering'
+import { gradientMask } from './helpers/mask-gradients'
+
+test('linear/radial gradients with local Light/Color and corrections share frozen real SDR/HDR proof/export', async ({}, info) => {
+  test.setTimeout(180000)
+  const raster = await sourceFor(resolve('tests/fixtures/photos/forest-light.jpg')),
+    baseline = await compare(raster, info.outputPath('gradient-baseline')),
+    linear = gradientMask({ kind: 'linear', start: { x: 0.5, y: 0.2 }, end: { x: 0.5, y: 0.7 } }),
+    radial = gradientMask({
+      kind: 'radial',
+      center: { x: 0.6, y: 0.55 },
+      radiusX: 0.25,
+      radiusY: 0.18,
+      rotation: 37,
+      feather: 50,
+    })
+  radial.id = crypto.randomUUID()
+  linear.color = { temperature: 18, tint: 7, saturation: -12 }
+  linear.light = { ...neutralMaskLight, exposureEv: 0.35, highlights: -10 }
+  radial.color = { temperature: -16, tint: -3, saturation: 18 }
+  radial.light = { ...neutralMaskLight, exposureEv: -0.5, shadows: 12 }
+  radial.strokes = [
+    { mode: 'subtract', radius: 0.04, feather: 0.7, points: [{ x: 0.6, y: 0.55 }] },
+    { mode: 'add', radius: 0.02, feather: 0.4, points: [{ x: 0.7, y: 0.5 }] },
+  ]
+  linear.edge = { featherPx: 2.5, shiftPx: 1 }
+  radial.edge = { featherPx: 1.5, shiftPx: -1 }
+  raster.processing.adjustments = { ...neutralAdjustments, localMasks: [linear, radial] }
+  const edited = await compare(raster, info.outputPath('gradient-forest'))
+  expect(edited.info).toMatchObject({ width: baseline.info.width, height: baseline.info.height })
+  let maximum = 0
+  for (let i = 0; i < edited.data.length; i++)
+    maximum = Math.max(maximum, Math.abs(edited.data[i] - baseline.data[i]))
+  expect(maximum).toBeGreaterThan(5)
+  await sharp(edited.data, { raw: edited.info })
+    .resize({ width: 800, withoutEnlargement: true })
+    .png()
+    .toFile(info.outputPath('gradient-forest-fit.png'))
+
+  const raw = await sourceFor(resolve('tests/fixtures/sony-zv1.ARW'), true)
+  raw.processing.crop = { ...identityCrop, quarterTurns: 1, width: 0.05, height: 0.05, angle: 1.25 }
+  linear.edge = { ...neutralMaskEdge }
+  radial.edge = { ...neutralMaskEdge }
+  linear.gradient = { kind: 'linear', start: { x: 0.48, y: 0.49 }, end: { x: 0.52, y: 0.51 } }
+  radial.gradient = {
+    kind: 'radial',
+    center: { x: 0.5, y: 0.5 },
+    radiusX: 0.025,
+    radiusY: 0.025,
+    rotation: 37,
+    feather: 50,
+  }
+  radial.strokes = [
+    { mode: 'subtract', radius: 0.004, feather: 0.6, points: [{ x: 0.5, y: 0.5 }] },
+    { mode: 'add', radius: 0.003, feather: 0.2, points: [{ x: 0.515, y: 0.5 }] },
+  ]
+  raw.processing.adjustments = { ...neutralAdjustments, localMasks: [linear, radial] }
+  await compare(raw, info.outputPath('gradient-sony-hdr'), true)
+  await info.attach('gradient-photographic-scope', {
+    contentType: 'application/json',
+    body: JSON.stringify({
+      fixtures: ['tests/fixtures/photos/forest-light.jpg', 'tests/fixtures/sony-zv1.ARW'],
+      raster:
+        'Linear/radial local Light/Color, ordered brush corrections and non-neutral whole-mask edges.',
+      raw: 'Cropped/quarter-turned/straightened Sony RAW with lens geometry and independent HDR gain-map reconstruction samples.',
+      maximumSdrChange: maximum,
+      proofExportMaximumCodeDifference: 2,
+      hdrLinearGate: 0.02,
+    }),
+  })
+})
 
 function masks(): ResolvedMask[] {
   return [

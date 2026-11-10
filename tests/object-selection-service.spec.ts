@@ -180,6 +180,7 @@ async function fixture() {
           light: { ...mask.light },
           color: { ...mask.color },
           edge: { ...mask.edge },
+          ...(mask.gradient ? { gradient: structuredClone(mask.gradient) } : {}),
           ...(base
             ? { base: { version: 1, hash: base.hash, width: base.width, height: base.height } }
             : {}),
@@ -740,6 +741,31 @@ test('edge-aware AI refinement retires its model heap and revalidates revision a
       edge: mask.edge,
       base: { hash: mask.base!.hash },
     })
+  } finally {
+    await f.close()
+  }
+})
+
+test('gradient refinement refuses before canonical decoding or object inference', async () => {
+  const f = await fixture()
+  try {
+    const id = randomUUID()
+    f.setMask({
+      id,
+      name: 'Linear gradient',
+      enabled: true,
+      inverted: false,
+      head: null,
+      light: { ...neutralMaskLight },
+      color: { ...neutralMaskColor },
+      edge: { featherPx: 0, shiftPx: 0 },
+      strokes: [],
+      gradient: { kind: 'linear', start: { x: 0, y: 0 }, end: { x: 1, y: 1 } },
+    })
+    await expect(f.service.create(await f.request({ maskId: id }))).rejects.toThrow(
+      'cannot refine a gradient',
+    )
+    expect(f.calls).toMatchObject({ decode: 0, run: 0, commits: 0, coverage: 0 })
   } finally {
     await f.close()
   }

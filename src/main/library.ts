@@ -487,7 +487,7 @@ export class PhotoLibrary {
       !this.db.prepare("SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' LIMIT 1").get()
     if (
       !fresh &&
-      ![17, 18, 19, 20, 21, 22, 23, 24, 25, CATALOG_VERSION].includes(version.user_version)
+      ![17, 18, 19, 20, 21, 22, 23, 24, 25, 26, CATALOG_VERSION].includes(version.user_version)
     )
       throw new Error(
         version.user_version > CATALOG_VERSION
@@ -561,7 +561,7 @@ export class PhotoLibrary {
         this.workspace.initialize()
         new ExportReadStore(this.db).initialize()
       } else {
-        if ([17, 18, 19, 20, 21, 22, 23, 24, 25].includes(version.user_version))
+        if ([17, 18, 19, 20, 21, 22, 23, 24, 25, 26].includes(version.user_version))
           migrateEditingHistory(this.db)
         this.cameraRecognition.prepare()
       }
@@ -575,7 +575,7 @@ export class PhotoLibrary {
         const data = JSON.parse(row.data) as ProcessingOptions
         bootstrap.seedEdits(row.id, data, new Date().toISOString())
       }
-      if (fresh || [17, 18, 19, 20, 21, 22, 23, 24, 25].includes(version.user_version))
+      if (fresh || [17, 18, 19, 20, 21, 22, 23, 24, 25, 26].includes(version.user_version))
         this.db.exec(`PRAGMA user_version = ${CATALOG_VERSION}`)
       this.db.exec('COMMIT')
     } catch (error) {
@@ -1238,6 +1238,12 @@ export class PhotoLibrary {
       )
       if (
         chunks.length ||
+        mutation.operations.some(
+          (op) =>
+            ((op.kind === 'create' || op.kind === 'update') && op.gradient !== undefined) ||
+            (op.kind === 'duplicate' &&
+              resolved.some((mask) => mask.id === op.newId && mask.gradient)),
+        ) ||
         mutation.operations.some((op) => op.kind === 'update' && op.edge !== undefined) ||
         (resolved.some((mask) => mask.enabled && hasMaskAdjustments(mask)) &&
           mutation.operations.some(

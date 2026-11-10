@@ -50,7 +50,7 @@ test('color-only masks activate packing and pixel identities while coverage is r
     parameters = { localMasks: [mask], maskGeometry: identityMaskGeometry(1, 1) },
     image = { width: 1, height: 1 }
   expect(hasLocalMasks(parameters)).toBe(true)
-  expect(MASK_DESCRIPTOR_VEC4S).toBe(9)
+  expect(MASK_DESCRIPTOR_VEC4S).toBe(11)
   const packed = packLocalMasks(parameters, image),
     matrices = maskColorBalanceMatrices(mask.color)!,
     pixels = structuredClone(localMaskPixelData(parameters)),

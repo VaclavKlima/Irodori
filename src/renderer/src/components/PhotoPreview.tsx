@@ -68,6 +68,7 @@ import type { ReserveNativeMask } from '../preview/native-mask-relay'
 import { maskPixelTarget } from '../preview/native-mask-reservation'
 import { PreviewPresenter } from '../preview/presenter'
 import { CropOverlay } from './CropOverlay'
+import { GradientOverlay } from './GradientOverlay'
 import styles from './PhotoPreview.module.css'
 import { ProgressSpinner } from './ProgressSpinner'
 import { IconButton } from './ui/Controls'
@@ -224,6 +225,10 @@ export function PhotoPreview({
     const geometry = maskPresentationRef.current
     return geometry && presenter.current?.presentedGeometry === geometry ? geometry : undefined
   }, [])
+  const registerGradientGeometry = masks?.setGradientGeometry
+  useEffect(() => {
+    registerGradientGeometry?.(maskPresentation?.maskGeometry)
+  }, [registerGradientGeometry, maskPresentation?.maskGeometry, masks?.resetKey])
   const hdrRetirement = useRef<Promise<void>>(Promise.resolve())
   const failPresentation = useRef<((reason: string) => void) | undefined>(undefined)
   const firstSurfacePolicyOwner = useRef<HdrPresenter | null>(null)
@@ -1848,7 +1853,7 @@ export function PhotoPreview({
       <div className={layout.previewArea}>
         <div
           ref={viewport}
-          className={`${styles.viewport} ${ready && (panX || panY) ? styles.pannable : ''} ${dragging ? styles.dragging : ''} ${whiteBalancePicker?.active || toneCurves?.active || masks?.active || objectSelection?.active ? styles.picking : ''}`}
+          className={`${styles.viewport} ${ready && (panX || panY) ? styles.pannable : ''} ${dragging ? styles.dragging : ''} ${whiteBalancePicker?.active || toneCurves?.active || masks?.active || masks?.editingGradient || masks?.creatingGradient || objectSelection?.active ? styles.picking : ''}`}
           data-testid="preview-viewport"
           data-mode={view.fit ? 'fit' : 'manual'}
           data-scale={view.scale}
@@ -1933,6 +1938,8 @@ export function PhotoPreview({
               toneCurves?.active ||
               masks?.active ||
               objectSelection?.active ||
+              masks?.editingGradient ||
+              masks?.creatingGradient ||
               cropping
             )
               return
@@ -2052,6 +2059,21 @@ export function PhotoPreview({
                       : 'hidden',
                 }}
               />
+              {masks &&
+                ready &&
+                maskPresentation?.maskGeometry &&
+                !cropping &&
+                !objectSelection?.active &&
+                !inspection?.active &&
+                !suspended &&
+                mode !== 'before' && (
+                  <GradientOverlay
+                    masks={masks}
+                    geometry={maskPresentation}
+                    viewport={model.viewport}
+                    readGeometry={readMaskPresentation}
+                  />
+                )}
               {masks?.strokeDraft &&
                 masks.selected &&
                 maskHasEdges(masks.selected) &&

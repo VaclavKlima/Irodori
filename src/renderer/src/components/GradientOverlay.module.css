@@ -1,0 +1,59 @@
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+.drawing {
+  pointer-events: auto;
+  cursor: crosshair;
+  touch-action: none;
+}
+.guides {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.guide {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 1px 1px #161616);
+}
+.handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  padding: 0;
+  border: 2px solid var(--canvas);
+  background: var(--text);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+}
+.handle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.toolbar {
+  position: absolute;
+  left: 8px;
+  bottom: 40px;
+  max-width: calc(100% - 16px);
+  padding: 6px;
+  background: var(--surface-overlay);
+  border: 1px solid var(--line-subtle);
+  border-radius: 4px;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+}

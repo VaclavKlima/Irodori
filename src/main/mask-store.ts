@@ -29,6 +29,7 @@ export function prepareMaskBaseReplacement(
   const stack = structuredClone(current) as MaskDescriptor[],
     mask = stack.find((entry) => entry.id === id)
   if (!mask) throw new Error('This mask is unavailable. Refresh the confirmed masks.')
+  if (mask.gradient) throw new Error('Gradient masks cannot have an object-selection base.')
   mask.base = maskBaseReference(base)
   validateMaskStack(stack)
   return stack
@@ -88,6 +89,7 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
           light: { ...neutralMaskLight },
           color: { ...neutralMaskColor },
           edge: { ...neutralMaskEdge },
+          ...(op.gradient ? { gradient: structuredClone(op.gradient) } : {}),
         })
         break
       case 'update': {
@@ -98,6 +100,13 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
         if (op.light) mask.light = { ...mask.light, ...op.light }
         if (op.color) mask.color = { ...mask.color, ...op.color }
         if (op.edge) mask.edge = { ...mask.edge, ...op.edge }
+        if (op.gradient) {
+          if (mask.base)
+            throw new Error(
+              'Generated object masks cannot have a gradient. Create a separate gradient mask.',
+            )
+          mask.gradient = structuredClone(op.gradient)
+        }
         break
       }
       case 'duplicate': {

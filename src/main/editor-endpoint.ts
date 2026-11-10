@@ -99,6 +99,7 @@ export async function startEditorEndpoint(
         presetQuery,
         maskMutation,
         points,
+        allowOutsidePhoto,
       } = args as {
         domain?: import('../shared/hdr-statistics').HdrAnalysisDomain
         target?: 'sdr' | 'current'
@@ -137,6 +138,7 @@ export async function startEditorEndpoint(
           | import('../shared/presets').CreatePresetRequest
           | import('../shared/presets').UpdatePresetRequest
         presetApplication: import('../shared/presets').PresetApplicationRequest
+        allowOutsidePhoto?: boolean
         points?: import('../shared/masks').MaskPoint[]
         maskMutation: import('../shared/masks').MaskMutation
         presetQuery?: import('../shared/presets').PresetQuery
@@ -566,6 +568,10 @@ export async function startEditorEndpoint(
             result = { cancelled: true }
             break
           case 'irodori_get_mask_context': {
+            if (allowOutsidePhoto !== undefined && typeof allowOutsidePhoto !== 'boolean')
+              throw new Error('allowOutsidePhoto must be a boolean.')
+            const minimum = allowOutsidePhoto ? -1 : 0,
+              maximum = allowOutsidePhoto ? 2 : 1
             if (
               points !== undefined &&
               (!Array.isArray(points) ||
@@ -578,13 +584,27 @@ export async function startEditorEndpoint(
                       (key) =>
                         typeof point[key as keyof typeof point] === 'number' &&
                         Number.isFinite(point[key as keyof typeof point]) &&
-                        point[key as keyof typeof point] >= 0 &&
-                        point[key as keyof typeof point] <= 1,
+                        point[key as keyof typeof point] >= minimum &&
+                        point[key as keyof typeof point] <= maximum,
                     ),
                 ))
             )
               throw new Error('Supply at most 128 normalized output points.')
             const context = await library.getMaskContext(photoId, expectedRevision)
+            const mapped = (points ?? []).map((point) =>
+              maskCanonicalPoint(
+                { x: point.x * context.width, y: point.y * context.height },
+                context.geometry,
+              ),
+            )
+            if (
+              mapped.some((point) =>
+                [point.x, point.y].some((n) => !Number.isFinite(n) || n < minimum || n > maximum),
+              )
+            )
+              throw new Error(
+                'Mapped points are outside the supported canonical source bounds. Choose another position.',
+              )
             result = {
               photoId: context.photoId,
               revision: context.revision,
@@ -592,15 +612,10 @@ export async function startEditorEndpoint(
               height: context.height,
               canonicalWidth: context.geometry.canonicalWidth,
               canonicalHeight: context.geometry.canonicalHeight,
-              points: (points ?? []).map((point) =>
-                maskCanonicalPoint(
-                  { x: point.x * context.width, y: point.y * context.height },
-                  context.geometry,
-                ),
-              ),
+              points: mapped,
               renderingIdentity: context.renderingIdentity,
               coordinates:
-                'Input points are normalized cropped-output pixel-edge positions; returned points are normalized oriented uncorrected source coordinates for brush strokes.',
+                'Input points are normalized cropped-output pixel-edge positions; returned points are normalized oriented uncorrected source coordinates for brush strokes (0–1), or gradient geometry (-1–2) when allowOutsidePhoto is true. Unsupported mapped coordinates are refused.',
             }
             break
           }

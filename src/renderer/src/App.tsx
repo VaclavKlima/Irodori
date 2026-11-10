@@ -358,6 +358,7 @@ export function App() {
     cancel: (id) => window.irodori.cancelObjectSelection(id),
     onActivate: () => {
       inspection.close()
+      masks.cancel()
       whiteBalancePicker.cancel()
       toneCurves.cancelTarget()
       changeMaskWorkspace({ ...maskWorkspace, detailTab: 'coverage', brush: false })
@@ -367,9 +368,22 @@ export function App() {
   const closeObjectSelection = objectSelection.close
   const closeInspection = inspection.close
   useEffect(() => {
-    if (crop.active || whiteBalancePicker.active || toneCurves.active || masks.active)
+    if (
+      crop.active ||
+      whiteBalancePicker.active ||
+      toneCurves.active ||
+      masks.active ||
+      masks.creatingGradient
+    )
       closeInspection()
-  }, [crop.active, whiteBalancePicker.active, toneCurves.active, masks.active, closeInspection])
+  }, [
+    crop.active,
+    whiteBalancePicker.active,
+    toneCurves.active,
+    masks.active,
+    masks.creatingGradient,
+    closeInspection,
+  ])
   const startInspection = async () => {
     objectSelection.close()
     whiteBalancePicker.cancel()
@@ -380,13 +394,20 @@ export function App() {
     await inspection.start()
   }
   useEffect(() => {
-    if (crop.active || whiteBalancePicker.active || toneCurves.active || masks.active)
+    if (
+      crop.active ||
+      whiteBalancePicker.active ||
+      toneCurves.active ||
+      masks.active ||
+      masks.creatingGradient
+    )
       closeObjectSelection()
   }, [
     crop.active,
     whiteBalancePicker.active,
     toneCurves.active,
     masks.active,
+    masks.creatingGradient,
     closeObjectSelection,
   ])
   const agentContextRef = useRef({

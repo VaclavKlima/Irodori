@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><title>Irodori — Gradient mask study</title
+  ><style>
+    @font-face {
+      font-family: Lato;
+      src: url('../../assets/app/fonts/lato/Lato-Regular.ttf');
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background: #161616;
+      color: #f2f2f2;
+      font:
+        12px Lato,
+        system-ui;
+    }
+    button {
+      font: inherit;
+      color: inherit;
+      background: #303030;
+      border: 1px solid #606060;
+      border-radius: 3px;
+      padding: 5px 9px;
+      cursor: pointer;
+    }
+    button:focus-visible {
+      outline: 2px solid #e7c75c;
+    }
+    header {
+      height: 48px;
+      padding: 12px 18px;
+      border-bottom: 1px solid #3d3d3d;
+      display: flex;
+      gap: 24px;
+      align-items: center;
+    }
+    main {
+      height: 625px;
+      padding: 8px;
+      display: grid;
+      grid-template-columns: 224px 1fr 344px;
+      grid-template-rows: 429px 180px;
+      gap: 8px;
+    }
+    .photos {
+      grid-row: span 2;
+    }
+    .panel {
+      background: #202020;
+      border: 1px solid #3d3d3d;
+      border-radius: 4px;
+      padding: 10px;
+    }
+    .row {
+      height: 44px;
+      padding: 7px;
+      background: #303030;
+      border-left: 2px solid #e7c75c;
+      margin: 10px 0;
+    }
+    .muted {
+      color: #acacac;
+      font-size: 11px;
+    }
+    h3 {
+      font-size: 12px;
+      margin: 12px 0 8px;
+    }
+    label {
+      display: flex;
+      justify-content: space-between;
+      margin: 10px 0;
+    }
+    input {
+      width: 54px;
+      background: #161616;
+      color: #f2f2f2;
+      border: 1px solid #606060;
+    }
+    input[type='range'] {
+      width: 100%;
+      accent-color: #e7c75c;
+    }
+    summary {
+      cursor: pointer;
+      padding: 8px 0;
+    }
+    .accent {
+      color: #e7c75c;
+      border-color: #e7c75c;
+    }
+    .stage {
+      position: relative;
+      overflow: hidden;
+      padding: 12px;
+      display: grid;
+      place-items: center;
+    }
+    .photo {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .guide {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .console {
+      grid-column: 2/4;
+      background: #161616;
+    }
+    .bar {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .details {
+      height: 249px;
+      overflow: auto;
+      padding-right: 6px;
+    }
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin: 8px 0;
+    }
+    .tabs button {
+      flex: 1;
+    }
+    .creation {
+      display: none;
+      background: #202020;
+      border: 1px solid #606060;
+      padding: 8px;
+      position: absolute;
+      z-index: 4;
+      right: 8px;
+      top: 48px;
+    }
+    .creation button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      margin: 3px 0;
+    }
+    .footer {
+      height: 27px;
+      border-top: 1px solid #3d3d3d;
+      padding: 5px 10px;
+    }
+    .hint {
+      position: absolute;
+      bottom: 18px;
+      background: #202020eb;
+      padding: 8px;
+      border-radius: 4px;
+    }
+  </style>
+  <header>
+    <strong style="font-size: 18px">Irodori</strong> Editor
+    <span class="muted">Gradient mask interaction study · 1100 × 700 · Console open</span>
+  </header>
+  <main>
+    <aside class="panel photos">
+      <strong>Photos</strong>
+      <div class="row">forest-light.jpg<br /><span class="muted">Current</span></div>
+    </aside>
+    <section class="panel stage">
+      <img
+        class="photo"
+        src="../../tests/fixtures/photos/forest-light.jpg"
+        alt="Committed forest photograph"
+      /><svg class="guide" viewBox="0 0 500 429">
+        <defs>
+          <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+            <stop stop-color="#e7c75c" stop-opacity=".35" />
+            <stop offset="1" stop-color="#e7c75c" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+        <rect x="13" y="55" width="474" height="316" fill="url(#fade)" />
+        <g fill="white" stroke="#161616" stroke-width="2">
+          <path d="M80 135H420M80 290H420M250 135V290" fill="none" stroke="white" />
+          <circle cx="250" cy="135" r="6" />
+          <circle cx="250" cy="212" r="6" />
+          <circle cx="250" cy="290" r="6" />
+        </g>
+      </svg>
+      <div class="hint">
+        Drag an endpoint or center · Arrow: 1 px · Shift: 10 px · Escape cancels
+      </div>
+    </section>
+    <aside class="panel" style="position: relative">
+      <div class="bar">
+        <strong>Masks</strong
+        ><button onclick="document.querySelector('.creation').style.display = 'block'">
+          ＋ Create mask ⌄
+        </button>
+      </div>
+      <div class="creation">
+        <button>Select object…</button><button>Brush</button
+        ><button onclick="choose('Linear')">Linear gradient</button
+        ><button onclick="choose('Radial')">Radial gradient</button>
+      </div>
+      <div class="row">
+        <strong id="name">Linear gradient 1</strong><br /><span class="muted"
+          >Gradient · Enabled</span
+        >
+      </div>
+      <label style="justify-content: flex-start; gap: 6px"
+        ><input type="checkbox" checked style="width: auto" /> Show overlay</label
+      >
+      <div class="tabs">
+        <button class="accent" onclick="tab(false)">Coverage</button
+        ><button onclick="tab(true)">Adjustments</button>
+      </div>
+      <div class="details" id="coverage">
+        <h3>Gradient shape</h3>
+        <button class="accent">Edit gradient</button
+        ><button
+          onclick="
+            choose(
+              document.querySelector('#name').textContent.startsWith('Radial')
+                ? 'Radial'
+                : 'Linear',
+            )
+          "
+        >
+          Place centered
+        </button>
+        <div id="feather" hidden>
+          <label>Radial Feather <span>50 %</span></label
+          ><input type="range" value="50" />
+        </div>
+        <details>
+          <summary>Geometry</summary>
+          <label>Start X <input value="1200" /></label><label>Start Y <input value="800" /></label
+          ><label>End X <input value="1200" /></label><label>End Y <input value="2400" /></label
+          ><span class="muted">Full-photo pixels; rotation in degrees.</span>
+        </details>
+        <h3>Manual correction</h3>
+        <button>Paint</button> <button>Erase</button>
+        <details>
+          <summary>Mask edges</summary>
+          Feather · Expand/Contract
+        </details>
+      </div>
+      <div class="details" id="adjustments" hidden>
+        <details open>
+          <summary>Light</summary>
+          <label>Local Exposure <span>0 EV</span></label
+          ><input type="range" value="50" /><label>Local Contrast <span>0</span></label
+          ><input type="range" value="50" />
+        </details>
+        <details>
+          <summary>Color</summary>
+          Temperature · Tint · Saturation
+        </details>
+      </div>
+    </aside>
+    <section class="panel console">
+      <strong>Console</strong>
+      <p class="muted">Disconnected</p>
+    </section>
+  </main>
+  <div class="footer">Console · Gradient shape study — no library or processing access</div>
+  <script>
+    function choose(kind) {
+      document.querySelector('#name').textContent = kind + ' gradient 1'
+      document.querySelector('#feather').hidden = kind !== 'Radial'
+      document.querySelector('.creation').style.display = 'none'
+      tab(false)
+    }
+    function tab(adjustments) {
+      document.querySelector('#coverage').hidden = adjustments
+      document.querySelector('#adjustments').hidden = !adjustments
+    }
+  </script>
+</html>
