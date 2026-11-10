@@ -17,7 +17,7 @@ export interface PresetCompatibility {
 }
 export interface PresetDefinition {
   version: 1
-  settingsVersion: 12 | 13 | 14 | typeof SETTINGS_VERSION
+  settingsVersion: 12 | 13 | 14 | 15 | typeof SETTINGS_VERSION
   groups: EditTransferGroup[]
   values: EditPatch
   compatibility: PresetCompatibility
@@ -53,7 +53,7 @@ export type PresetInput =
   | { mode: 'photo'; photoId: string; groups: EditTransferGroup[] }
   | {
       mode: 'explicit'
-      settingsVersion: 12 | 13 | 14 | typeof SETTINGS_VERSION
+      settingsVersion: 12 | 13 | 14 | 15 | typeof SETTINGS_VERSION
       groups: EditTransferGroup[]
       values: EditPatch
       referencePhotoId?: string
@@ -130,7 +130,7 @@ export function validatePresetDefinition(value: unknown): asserts value is Prese
   const d = value as PresetDefinition
   if (
     d.version !== PRESET_DEFINITION_VERSION ||
-    ![12, 13, 14, SETTINGS_VERSION].includes(d.settingsVersion)
+    ![12, 13, 14, 15, SETTINGS_VERSION].includes(d.settingsVersion)
   )
     throw new Error('This preset settings format is unsupported.')
   validatePresetGroups(d.groups)

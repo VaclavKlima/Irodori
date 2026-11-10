@@ -1,4 +1,9 @@
-import { neutralMaskEdge, validateMaskStack, type MaskDescriptor } from '../../shared/masks'
+import {
+  neutralMaskColor,
+  neutralMaskEdge,
+  validateMaskStack,
+  type MaskDescriptor,
+} from '../../shared/masks'
 import type { DatabaseSync } from 'node:sqlite'
 import { identityToneCurves, validateToneCurves } from '../../shared/tone-curves'
 import { SETTINGS_VERSION, validatePatch } from '../../shared/edits'
@@ -12,7 +17,7 @@ import {
   validateDetailSharpening,
 } from '../../shared/spatial-detail'
 
-export const CATALOG_VERSION = 25
+export const CATALOG_VERSION = 26
 
 /** Validate the entire library before startup permits any migration or recovery write. */
 export function supportsEditingSettings(
@@ -31,7 +36,7 @@ export function supportsEditingSettings(
   if ((settings.version as number) < 10 && ('colorMixer' in settings || 'colorGrading' in settings))
     return false
   const legacy = settings.version === 7
-  if (![7, 8, 9, 10, 11, 12, 13, 14, SETTINGS_VERSION].includes(settings.version as number))
+  if (![7, 8, 9, 10, 11, 12, 13, 14, 15, SETTINGS_VERSION].includes(settings.version as number))
     return false
   if (
     catalogVersion !== undefined &&
@@ -46,7 +51,8 @@ export function supportsEditingSettings(
           22: 12,
           23: 13,
           24: 14,
-          25: SETTINGS_VERSION,
+          25: 15,
+          26: SETTINGS_VERSION,
         } as Record<number, number>
       )[catalogVersion]
   )
@@ -60,18 +66,25 @@ export function supportsEditingSettings(
   try {
     if ((settings.version as number) >= 12) validateToneCurves(settings.curves)
     if ((settings.version as number) >= 13) {
-      if ((settings.version as number) < 15) {
-        if (
-          !Array.isArray(settings.maskStack) ||
-          settings.maskStack.some(
-            (mask) => !mask || typeof mask !== 'object' || Object.hasOwn(mask, 'edge'),
-          )
+      if (!Array.isArray(settings.maskStack)) return false
+      const version = settings.version as number
+      if (
+        settings.maskStack.some(
+          (mask) =>
+            !mask ||
+            typeof mask !== 'object' ||
+            (version < 15 && Object.hasOwn(mask, 'edge')) ||
+            (version < 16 && Object.hasOwn(mask, 'color')),
         )
-          return false
-        validateMaskStack(
-          settings.maskStack.map((mask) => ({ ...mask, edge: { ...neutralMaskEdge } })),
-        )
-      } else validateMaskStack(settings.maskStack)
+      )
+        return false
+      validateMaskStack(
+        settings.maskStack.map((mask) => ({
+          ...mask,
+          ...(version < 15 ? { edge: { ...neutralMaskEdge } } : {}),
+          ...(version < 16 ? { color: { ...neutralMaskColor } } : {}),
+        })),
+      )
       if (
         (settings.version as number) < 14 &&
         (settings.maskStack as import('../../shared/masks').MaskDescriptor[]).some(
@@ -151,9 +164,10 @@ export function migrateEditingHistory(db: DatabaseSync): void {
             : structuredClone(identityToneCurves),
         maskStack:
           (settings.version as number) >= 13
-            ? (settings.maskStack as Omit<MaskDescriptor, 'edge'>[]).map((mask) => ({
+            ? (settings.maskStack as MaskDescriptor[]).map((mask) => ({
                 ...mask,
-                edge: { ...neutralMaskEdge },
+                ...((settings.version as number) < 15 ? { edge: { ...neutralMaskEdge } } : {}),
+                color: { ...neutralMaskColor },
               }))
             : [],
       }

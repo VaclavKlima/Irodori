@@ -57,7 +57,7 @@ export function hdrCacheKernel(
         : acesPreviewWgsl
   const shader = `
 ${hdrRenderingShader(creative, curves).replace(acesWgsl, math)}
-${masks ? localMasksWgsl(16, bases ? 18 : undefined) : ''}
+${masks ? localMasksWgsl(16, bases ? 18 : undefined, 'acesPow') : ''}
 ${masks ? '@group(0) @binding(17) var<storage,read_write> localMaskStatus:atomic<u32>;' : ''}
 @group(0) @binding(3) var cached: texture_storage_2d_array<rgba32float,write>;
 @group(0) @binding(5) var<storage,read> jobs:array<vec4u>;

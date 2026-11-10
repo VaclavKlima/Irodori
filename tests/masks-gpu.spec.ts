@@ -4,7 +4,12 @@ import { createPointGpu } from '../src/main/gpu/point-renderer'
 import { localMasksWgsl, packLocalMasks } from '../src/shared/masks-gpu'
 import { identityMaskGeometry } from '../src/shared/mask-geometry'
 import { neutralAdjustments } from '../src/shared/adjustments'
-import { neutralMaskEdge, neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
+import {
+  neutralMaskColor,
+  neutralMaskEdge,
+  neutralMaskLight,
+  type ResolvedMask,
+} from '../src/shared/masks'
 import { brush, referenceCoverage, referenceStack } from './helpers/mask-reference'
 import {
   hdrHistogramShaderFor,
@@ -24,6 +29,7 @@ const mask = (ordinal: number): ResolvedMask => ({
   head: null,
   edge: { ...neutralMaskEdge },
   light: { ...neutralMaskLight },
+  color: { ...neutralMaskColor },
   strokes: [],
 })
 const cases = () => {
@@ -167,6 +173,7 @@ test('production point renderer preserves mask locations across strip boundaries
     height = 130,
     local = mask(1)
   local.light.exposureEv = 1
+  local.color = { temperature: 28, tint: -12, saturation: 18 }
   local.strokes = [brush('add', 0.45, 0.5, [[0.5, 0.86]])]
   const adjustments = {
       ...neutralAdjustments,

@@ -2753,7 +2753,7 @@ export class HdrPresenter {
         if (new Uint32Array(this.localMaskStatusReadback!.getMappedRange())[0]) {
           this.cache!.reset()
           throw new Error(
-            'Local Light processing produced non-finite pixels. Reduce the local adjustments.',
+            'Local adjustment processing produced non-finite pixels. Reduce the local adjustments.',
           )
         }
       } finally {

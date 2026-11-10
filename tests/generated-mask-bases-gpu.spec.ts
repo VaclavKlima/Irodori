@@ -2,7 +2,12 @@ import { expect, test } from '@playwright/test'
 import { generatedMask } from './helpers/generated-mask'
 import { createPointGpu } from '../src/main/gpu/point-renderer'
 import { neutralAdjustments } from '../src/shared/adjustments'
-import { neutralMaskEdge, neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
+import {
+  neutralMaskEdge,
+  neutralMaskColor,
+  neutralMaskLight,
+  type ResolvedMask,
+} from '../src/shared/masks'
 import { identityMaskGeometry } from '../src/shared/mask-geometry'
 import { referenceCoverage } from './helpers/mask-reference'
 
@@ -18,6 +23,7 @@ test('native point rendering decodes R8 PNG, then evaluates ordered Paint/Erase 
       inverted: false,
       base,
       edge: { ...neutralMaskEdge },
+      color: { ...neutralMaskColor },
       light: { ...neutralMaskLight, exposureEv: 1 },
       strokes: [
         { mode: 'subtract', radius: 0.2, feather: 0.7, points: [{ x: 0.4, y: 0.5 }] },

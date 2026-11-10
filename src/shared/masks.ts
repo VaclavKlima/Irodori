@@ -17,6 +17,12 @@ export interface MaskLight {
   whites: number
   blacks: number
 }
+/** Relative, zero-centered local balance and saturation. Temperature is not Kelvin. */
+export interface MaskColor {
+  temperature: number
+  tint: number
+  saturation: number
+}
 /** Whole-mask edge distances in canonical oriented source pixels. */
 export interface MaskEdgeSettings {
   featherPx: number
@@ -43,6 +49,7 @@ export interface MaskDescriptor {
   head: string | null
   base?: MaskBaseReference
   light: MaskLight
+  color: MaskColor
   edge: MaskEdgeSettings
 }
 export interface MaskStrokeChunk {
@@ -64,6 +71,7 @@ export type MaskOperation =
       enabled?: boolean
       inverted?: boolean
       light?: Partial<MaskLight>
+      color?: Partial<MaskColor>
       edge?: Partial<MaskEdgeSettings>
     }
   | { kind: 'duplicate'; id: string; newId: string; name: string }
@@ -74,10 +82,29 @@ export interface MaskMutation {
   operations: MaskOperation[]
 }
 export const maskCapabilities = {
-  version: 2,
+  version: 3,
   order: 'top-last',
   types: ['brush'],
-  controls: ['exposureEv', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'],
+  controls: [
+    'exposureEv',
+    'contrast',
+    'highlights',
+    'shadows',
+    'whites',
+    'blacks',
+    'temperature',
+    'tint',
+    'saturation',
+  ],
+  color: {
+    controls: ['temperature', 'tint', 'saturation'],
+    min: -100,
+    max: 100,
+    step: 1,
+    default: 0,
+    balance: 'relative-d65-bradford-half-mired-ucs-lab-v1',
+    order: 'balance-light-saturation-coverage',
+  },
   edge: {
     controls: ['featherPx', 'shiftPx'],
     coordinates: 'canonical-oriented-source-pixels',
@@ -105,6 +132,13 @@ export const neutralMaskLight: Readonly<MaskLight> = {
   blacks: 0,
 }
 export const neutralMaskEdge: Readonly<MaskEdgeSettings> = { featherPx: 0, shiftPx: 0 }
+export const neutralMaskColor: Readonly<MaskColor> = { temperature: 0, tint: 0, saturation: 0 }
+export function hasMaskAdjustments(mask: Pick<MaskDescriptor, 'light' | 'color'>): boolean {
+  return (
+    Object.values(mask.light).some((value) => value !== 0) ||
+    Object.values(mask.color).some((value) => value !== 0)
+  )
+}
 export function maskHasEdges(mask: Pick<MaskDescriptor, 'edge'>): boolean {
   return mask.edge.featherPx !== 0 || mask.edge.shiftPx !== 0
 }
@@ -244,6 +278,14 @@ export function validateMaskEdge(
       )
   }
 }
+export function validateMaskColor(value: unknown, partial = false): asserts value is MaskColor {
+  const keys = Object.keys(neutralMaskColor)
+  if (!fields(value, partial ? [] : keys, partial ? keys : []))
+    throw new Error('Invalid local Color controls.')
+  for (const number of Object.values(value))
+    if (typeof number !== 'number' || !Number.isInteger(number) || Math.abs(number) > 100)
+      throw new Error('Local Temperature, Tint and Saturation require integers from -100 to 100.')
+}
 export function validateMaskStroke(value: unknown): asserts value is MaskStroke {
   if (
     !fields(value, ['mode', 'radius', 'feather', 'points']) ||
@@ -281,11 +323,18 @@ export function validateMaskStack(value: unknown): asserts value is MaskDescript
     throw new Error('Too many local masks.')
   const ids = new Set<string>()
   for (const mask of value) {
-    if (!fields(mask, ['id', 'name', 'enabled', 'inverted', 'head', 'light', 'edge'], ['base']))
+    if (
+      !fields(
+        mask,
+        ['id', 'name', 'enabled', 'inverted', 'head', 'light', 'color', 'edge'],
+        ['base'],
+      )
+    )
       throw new Error('Invalid mask descriptor.')
     validateMaskId(mask.id)
     validateMaskName(mask.name)
     validateMaskLight(mask.light)
+    validateMaskColor(mask.color)
     validateMaskEdge(mask.edge)
     if (mask.base !== undefined) validateMaskBaseReference(mask.base)
     if (
@@ -323,11 +372,12 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
         validateMaskName(op.name)
         break
       case 'update':
-        if (!fields(op, ['kind', 'id'], ['name', 'enabled', 'inverted', 'light', 'edge']))
+        if (!fields(op, ['kind', 'id'], ['name', 'enabled', 'inverted', 'light', 'color', 'edge']))
           throw new Error('Invalid mask update.')
         validateMaskId(op.id)
         if (op.name !== undefined) validateMaskName(op.name)
         if (op.light !== undefined) validateMaskLight(op.light, true)
+        if (op.color !== undefined) validateMaskColor(op.color, true)
         if (op.edge !== undefined) validateMaskEdge(op.edge, true)
         for (const key of ['enabled', 'inverted'])
           if (op[key] !== undefined && typeof op[key] !== 'boolean')
@@ -433,6 +483,7 @@ export function resolveMasks(
       inverted: mask.inverted,
       head: mask.head,
       light: mask.light,
+      color: mask.color,
       edge: mask.edge,
     }
     return { ...descriptor, ...(base ? { base } : {}), strokes: strokes.reverse() }
@@ -447,7 +498,7 @@ export function validateResolvedMasks(value: unknown): asserts value is Resolved
     if (
       !fields(
         mask,
-        ['id', 'name', 'enabled', 'inverted', 'head', 'light', 'edge', 'strokes'],
+        ['id', 'name', 'enabled', 'inverted', 'head', 'light', 'color', 'edge', 'strokes'],
         ['base', 'preparedCoverage'],
       ) ||
       !Array.isArray(mask.strokes)

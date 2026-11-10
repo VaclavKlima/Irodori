@@ -100,6 +100,7 @@ test('base hash changes rendering identity; duplicate masks share one native atl
     {
       inverted: false,
       light: masks[0].light,
+      color: masks[0].color,
       edge: masks[0].edge,
       strokes: [],
       base: maskBaseReference(a),

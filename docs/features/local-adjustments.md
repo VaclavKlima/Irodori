@@ -2,7 +2,7 @@
 
 ## Status
 
-**Implemented for #56 with focused macOS acceptance, November 7, 2026.** The first delivery establishes multiple independent brush masks, real processing order and six local Light controls. Linear/radial gradients (#58), automatic subjects (#54), sky/background/object selection (#66), range masks (#67), [masked color adjustments](README.md#task-68) and optional depth research (#65) remain separate. [Shared requirements](README.md#shared-implementation-requirements) apply.
+**Implemented for #56 with focused macOS acceptance, November 7, 2026.** The first delivery establishes multiple independent brush masks, real processing order and six local Light controls. Linear/radial gradients (#58), automatic subjects (#54), sky/background/object selection (#66), range masks (#67), and optional depth research (#65) remain separate. The subsequent [masked Color implementation](#masked-color--issue-64) extends this core for [GitHub #64](https://github.com/VaclavKlima/Irodori/issues/64). [Shared requirements](README.md#shared-implementation-requirements) apply.
 
 The [November 8 object-selection extension](object-selection.md) enables SAM 2 point/box proposals on Mac, with immutable generated R8 bases underneath separate Paint/Erase corrections. Settings 14/catalog 24 preserve the delivered brush history while adding these references and shared GPU coverage. Bazzite verification is [TODO 69](README.md#task-69); fine-edge matting, automatic sky/background and additional local operators remain separate. The [research record](object-selection-research.md) retains original measurements and known quality failures.
 
@@ -11,6 +11,110 @@ The subsequent [whole-mask edge implementation](mask-edges.md) adds settings
 integration checks pass; their exact scope is recorded in the edge brief,
 separately from the earlier brush/selection passes below. Image-guided matting and
 recovered fine hair/fur/feather coverage remain separate research.
+
+## Masked Color — issue #64
+
+Each mask has a separate Color group below Light in **Masks → Adjustments**.
+Color starts collapsed and retains its disclosure choice while the workspace is
+mounted. Local Temperature, Tint and Saturation use integer relative units from
+−100 to +100, with zero neutral. Positive Temperature warms; positive Tint adds
+magenta. Temperature is not Kelvin, an illuminant measurement or a replacement
+for camera-aware global white balance. Reset mask Color resets all three values
+in one photo-wide history action; Light and coverage remain independently owned.
+
+The common GLSL/WGSL point stage applies **relative balance → local Light → local
+Saturation → one coverage blend**, in the existing bottom-to-top mask order after
+global point edits and before tone mapping/output conversion. Each neutral
+operator bypasses exactly, including the authored Light substage's nonnegative
+domain conversion. Color-only masks therefore retain signed working channels.
+Saturation reuses the existing CIE Lab/D65 operator with Vibrance zero, preserving
+its hue/luminance semantics. Balance can change colored-pixel luminance.
+
+Relative balance is frozen as `relative-d65-bradford-half-mired-ucs-lab-v1`.
+For Temperature `t`, the internal locus coordinate is
+`K = 1e6 / (1e6 / 6500 + 0.5 * t)`. In CIE 1960 uv, the target is
+`uv(D65) + locusUv(K) - locusUv(6500) - whiteBalanceNormal(K) * tint * 0.0001`.
+The normal is the existing Kang-2002 locus normal toward green; subtraction makes
+positive Tint magenta. Anchoring the relative locus displacement to actual D65
+avoids a neutral daylight/black-body offset. A bounded CPU coefficient operation
+prepares linear Bradford D65-to-target matrices in linear sRGB and Rec.2020;
+all image samples execute through the existing GPU owners. This creative relative
+transform does not infer the photographed illuminant or alter camera gains.
+
+RAW and merge sources apply the operators in scene-linear Rec.2020. Raster
+sources use their authored linear sRGB domain. Authored HDR and its independent
+SDR primary apply the same frozen mask settings in their respective primaries,
+retaining each rendition's white normalization and existing output handling.
+Balance adds no clipping, gamut mapping or alpha change. Local gestures reuse the
+prepared source rather than decoding RAW again. Pixel identities include Color
+and its operator version, while prepared coverage remains independent of Color.
+GPU/resource/nonfinite failures remain explicit and never restart equivalent CPU
+pixel processing. Mask-aware histograms include Color; exact masked clipping and
+full HDR statistics retain their separate availability limits.
+
+Settings 16/catalog 26 add neutral `color: { temperature, tint, saturation }` to
+all existing masks in current settings and every history snapshot, preserving
+settings-15 Feather/Expand values, IDs, immutable assets, revisions, cursors,
+branches and timestamps. Typed UI/API/MCP mutations accept partial Color groups;
+duplication and object refinement retain Color. Accepted older preset and frozen
+application settings remain readable. Global presets and copy/paste preserve the
+destination masks rather than transferring spatial masks between photographs.
+
+The user selected a stationary warm-colored pot beside foliage instead of a
+handheld human-skin capture, to avoid holding a hand in place during remote
+operation. Existing anonymous skin and the bird/water/reflected-leg fixtures
+qualify their own photographic cases separately. The attempted new pot capture
+returned no original and remains uncertain; no automatic shutter retry was made,
+and camera settings were restored. The first plant-only private-room frame stays
+outside Git and acceptance. Same-frame skin/foliage and new pot/foliage evidence
+therefore remain unverified and are owned by
+[combined-scene photographic follow-up #96](https://github.com/VaclavKlima/Irodori/issues/96).
+
+Focused Bazzite acceptance reconciles **1059 distinct passing cases** (991 Node,
+36 service, 17 Electron and 15 RAW/GPU) across the selected targets and exact
+corrective reruns. The [bounded summary](../../artifacts/mask-color/2026-11-10-acceptance/summary.md)
+and [details](../../artifacts/mask-color/2026-11-10-acceptance/details.md) preserve
+original failed receipts, current passing cases and reuse provenance; this is not
+one comprehensive checkpoint or performance benchmark. Selected latest case
+runtimes total 187.825 s, which is not a single-run workflow time.
+
+The RX 7900 XTX / Navi31 passes WGSL/GLSL references, overflow/histogram recovery,
+manual/MCP edits, migration/history/restart, real source frozen output, native
+keyboard and 1100 × 700 Console-open layout. The common GPU tests use 50
+independent Decimal80 coefficient matrices and 351 pipeline reference vectors,
+retaining existing tolerances. Fit and native bird/skin comparisons show no new
+ringing or color halos in those bounded authored-SDR examples. Manual masks have
+a protection margin and do not qualify automatic selection or physical alpha.
+
+Four focused WGSL/reference/export cases also pass on Radeon 610M / RADV
+RAPHAEL_MENDOCINO, Mesa 26.2.6. Actual adapter receipts identify the executing
+hardware; both attempted Mesa GL selectors still produced a Navi31 WebGL
+context. Integrated-GPU WebGL presentation, macOS, Windows, live signed-in
+Console and physical true-HDR appearance/luminance remain unverified, with
+[other-device follow-up #95](https://github.com/VaclavKlima/Irodori/issues/95).
+
+The renderer integration checks exposed implicit low-precision photograph
+samplers in the GLSL presenter. Photograph and Before samplers now explicitly
+request high precision, including the comparison shader's replacement anchor.
+The [ESSL 3.00 specification](https://registry.khronos.org/OpenGL/specs/es/3.0/GLSL_ES_Specification_3.00.pdf)
+sections 4.5.4 and 8 define the default sampler precision and texture return
+precision. Correct Float32 input/coefficient uploads were recorded before the
+fix; all four original overflow/histogram cases pass without changing their
+assertions or numeric gates. Existing ACES and global color algorithms are
+unchanged. Diagnostic text identifies Local adjustment failures so Color errors
+are not incorrectly attributed only to Light.
+
+The recorded checks qualify the bounded current-device implementation. Remaining
+combined-scene photographic acceptance is owned by
+[follow-up #96](https://github.com/VaclavKlima/Irodori/issues/96); other-device
+verification is owned by #95. GitHub records publication and completion separately
+from these retained acceptance limits.
+
+Camera captures and downloaded fixtures undergo full image/embedded-preview/metadata
+review and retain original bytes, hashes and permission/credit notices. Fixture
+intake alone does not establish a photographic quality pass or true HDR visual
+acceptance. Texture, Clarity, local Vibrance/mixer/grading and masked clipping
+remain separately scoped.
 
 ## Goal
 
@@ -28,7 +132,7 @@ Use one **Create mask** command menu rather than adding a header button for ever
 
 The mask list shows each name, type/status, visibility toggle, drag handle and **⋯** menu. Names use 12px text and metadata 11px; long names retain accessible full text. The list is bounded to two visible rows at content heights of 760px or less and four above that, with its own scrolling. Header controls and detail tabs remain visible while the selected-mask details scroll independently. **Show overlay** is available above both tabs.
 
-**Coverage** contains the selected mask's object-refinement action and Paint/Erase tools. Brush size and feather appear while Paint or Erase is active and remain fixed for a stroke; pressure/flow accumulation is deferred. Object guides, processing, errors and proposals remain inside Coverage until explicit Use mask or Cancel selection. **Adjustments** groups the six local tonal controls in a Light disclosure; future implemented operators use the same group structure. Hidden tab/disclosure bodies remain mounted. Numeric adjustments use `AdjustmentInput`.
+**Coverage** contains the selected mask's object-refinement action and Paint/Erase tools. Brush size and feather appear while Paint or Erase is active and remain fixed for a stroke; pressure/flow accumulation is deferred. Object guides, processing, errors and proposals remain inside Coverage until explicit Use mask or Cancel selection. **Adjustments** groups the six local tonal controls in Light and the three local color controls in Color disclosures; later implemented operators use the same group structure. Hidden tab/disclosure bodies remain mounted. Numeric adjustments use `AdjustmentInput`.
 
 **Coverage → Mask edges** shapes the completed selected coverage, including
 Paint/Erase and inversion. Feather is 0–64 canonical native pixels in 0.5-pixel
@@ -47,7 +151,7 @@ Store brush polylines in normalized, oriented, uncorrected native source coordin
 
 Evaluate fixed-radius polyline distance with smoothstep feathering, independently of event rate and zoom. Paint combines coverage with `max`; Erase multiplies existing coverage by `1 - strokeCoverage`. Apply inversion after the complete stroke sequence. Preserve zero and full coverage exactly. GPU geometry candidate indexing bounds work to relevant image regions; TypeScript owns validation, indexing and orchestration rather than per-pixel processing.
 
-Evaluate enabled masks bottom-to-top, after the existing global point adjustments and before output/display conversion. Each mask applies only its six Light operators to the previous result, in the existing operator order, then blends `previous + coverage * (local - previous)`. Do not repeat global white balance, curves or creative color. Retain existing scene-linear Rec.2020 versus authored-image semantics and alpha. Apply the same frozen geometry/order independently to authored HDR and its SDR primary. A geometry or local-control edit must not decode RAW again.
+Evaluate enabled masks bottom-to-top, after the existing global point adjustments and before output/display conversion. Each mask applies its relative balance, six Light operators and local Saturation to the previous result, in that order, then blends `previous + coverage * (local - previous)`. Do not repeat global white balance, curves or creative color. Retain existing scene-linear Rec.2020 versus authored-image semantics and alpha. Apply the same frozen geometry/order independently to authored HDR and its SDR primary. A geometry or local-control edit must not decode RAW again.
 
 Use shared GPU numeric modules in the existing GLSL/WGSL frontends and native point renderer on both platforms. Include geometry/index buffers in admission, retain cancellation and explicit GPU retry, and never restart equivalent CPU image work on failure. Analysis that cannot include active local edits reports an explicit unavailable reason rather than pre-mask values.
 

@@ -15,6 +15,16 @@ const snapshot = (): EditorContextSnapshot => ({
   transient: { crop: false, saving: false },
 })
 
+test('managed assistant describes relative mask color without changing global white balance', () => {
+  const instructions = agentInstructions(false)
+  expect(instructions).toContain('color:{temperature,tint,saturation}')
+  expect(instructions).toContain('integers -100 to +100, neutral 0')
+  expect(instructions).toContain('Positive temperature warms; positive tint adds magenta')
+  expect(instructions).toContain('not Kelvin or camera white balance')
+  expect(instructions).toContain('Global white balance is unchanged')
+  expect(instructions).not.toContain('local color/clarity/dehaze remain unavailable')
+})
+
 test('managed assistant routes requested export sharpening through existing tools and keeps native evidence limits', () => {
   const instructions = agentInstructions(false)
   expect(agentTools).toEqual(

@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { ObjectSelectionService, selectedMaskStack } from '../src/main/object-selection/service'
 import { initialSettings, SETTINGS_VERSION, type EditState } from '../src/shared/edits'
 import { identityMaskGeometry, type MaskGeometry } from '../src/shared/mask-geometry'
-import { neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
+import { neutralMaskColor, neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
 import type { ObjectSelectionRequest } from '../src/shared/object-selection'
 import { cropAdmission } from './crop-frame.helpers'
 import { syntheticExportSource } from './export.helpers'
@@ -178,6 +178,7 @@ async function fixture() {
           inverted: mask.inverted,
           head: mask.head,
           light: { ...mask.light },
+          color: { ...mask.color },
           edge: { ...mask.edge },
           ...(base
             ? { base: { version: 1, hash: base.hash, width: base.width, height: base.height } }
@@ -245,6 +246,7 @@ test('same-grid base replacement preserves the existing name, controls, history 
       enabled: false,
       inverted: true,
       head: 'c'.repeat(64),
+      color: { temperature: 12, tint: -3, saturation: -15 },
       light: { ...neutralMaskLight, exposureEv: 1.2, shadows: 12 },
       edge: { featherPx: 12.5, shiftPx: -3 },
       base: generatedMask(16, 16, () => 0),
@@ -263,6 +265,7 @@ test('same-grid base replacement preserves the existing name, controls, history 
       inverted: true,
       head: mask.head,
       light: mask.light,
+      color: mask.color,
       edge: mask.edge,
       strokes: mask.strokes,
     })
@@ -278,6 +281,7 @@ test('same-grid base replacement preserves the existing name, controls, history 
     expect(result.settings.maskStack[0]).toMatchObject({
       head: mask.head,
       light: mask.light,
+      color: mask.color,
       edge: mask.edge,
       enabled: false,
       inverted: true,
@@ -606,7 +610,10 @@ test('catalog 23 / settings 13 migration preserves every brush-history branch, h
       ...legacy.snapshots.map((snapshot: { settings: unknown }) => snapshot.settings),
     ]) {
       value.version = 13
-      for (const mask of value.maskStack) delete mask.edge
+      for (const mask of value.maskStack) {
+        delete mask.edge
+        delete mask.color
+      }
     }
     expect(supportsEditingSettings(legacy.settings, 23)).toBe(true)
     db.prepare('INSERT INTO edits VALUES (?, ?)').run(photoId, JSON.stringify(legacy))
@@ -716,6 +723,7 @@ test('edge-aware AI refinement retires its model heap and revalidates revision a
       enabled: true,
       inverted: false,
       head: null,
+      color: { ...neutralMaskColor },
       light: { ...neutralMaskLight },
       edge: { featherPx: 4, shiftPx: -1 },
       base: generatedMask(16, 16, () => 0),

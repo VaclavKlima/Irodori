@@ -1,9 +1,169 @@
 import { test, expect } from './electron.fixture'
 import { localMasksGlsl, packLocalMasks, MASK_GPU_TEXTURE_WIDTH } from '../src/shared/masks-gpu'
 import { identityMaskGeometry } from '../src/shared/mask-geometry'
-import { neutralMaskEdge, neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
+import {
+  neutralMaskColor,
+  neutralMaskEdge,
+  neutralMaskLight,
+  type ResolvedMask,
+} from '../src/shared/masks'
 import { brush, referenceCoverage, referenceStack } from './helpers/mask-reference'
 import { build } from 'esbuild'
+import colorReference from '../assets/tests/references/mask-color/reference.json' with { type: 'json' }
+import { maskColorReferenceMasks, maskColorReferencePoint } from './helpers/mask-color'
+
+test('raster GLSL local color retains independent signed values, Light order, one blend and neutral bypass', async ({
+  irodori,
+}) => {
+  const cases = colorReference.cases.map((entry) => ({
+      id: entry.id,
+      packed: [
+        ...packLocalMasks(
+          {
+            localMasks: maskColorReferenceMasks(entry.id),
+            maskGeometry: identityMaskGeometry(1, 1),
+          },
+          { width: 1, height: 1 },
+        ),
+      ],
+      vectors: colorReference.vectors.filter((v) => v.case === entry.id && v.primaries === 'srgb'),
+    })),
+    results = await irodori.page.evaluate(
+      ({ cases, shader, textureWidth, point }) => {
+        const canvas = new OffscreenCanvas(18, 1),
+          gl = canvas.getContext('webgl2', { antialias: false })
+        if (!gl || !gl.getExtension('EXT_color_buffer_float'))
+          throw new Error('Float WebGL is unavailable.')
+        const program = gl.createProgram()!,
+          framebuffer = gl.createFramebuffer()!,
+          textures: WebGLTexture[] = [],
+          shaders: WebGLShader[] = []
+        try {
+          for (const [kind, code] of [
+            [
+              gl.VERTEX_SHADER,
+              '#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.-1.,0.,1.);}',
+            ],
+            [
+              gl.FRAGMENT_SHADER,
+              `#version 300 es\nprecision highp float;precision highp int;\n${shader}
+uniform highp sampler2D referenceInput;out vec4 result;
+void main(){int at=int(gl_FragCoord.x);vec4 pixel=texelFetch(referenceInput,ivec2(at,0),0);float white=texelFetch(referenceInput,ivec2(at,1),0).r;
+result=vec4(applyLocalMasks(pixel.rgb,vec2(${point.join(',')}),white),pixel.a);}`,
+            ],
+          ] as const) {
+            const item = gl.createShader(kind)!
+            shaders.push(item)
+            gl.shaderSource(item, code)
+            gl.compileShader(item)
+            if (!gl.getShaderParameter(item, gl.COMPILE_STATUS))
+              throw new Error(gl.getShaderInfoLog(item) || 'Mask color compile failed.')
+            gl.attachShader(program, item)
+          }
+          gl.linkProgram(program)
+          if (!gl.getProgramParameter(program, gl.LINK_STATUS))
+            throw new Error(gl.getProgramInfoLog(program) || 'Mask color link failed.')
+          gl.useProgram(program)
+          gl.disable(gl.DITHER)
+          gl.disable(gl.BLEND)
+          const texture = (unit: number) => {
+              gl.activeTexture(gl.TEXTURE0 + unit)
+              const item = gl.createTexture()!
+              textures.push(item)
+              gl.bindTexture(gl.TEXTURE_2D, item)
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+              return item
+            },
+            output = texture(2)
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 18, 1, 0, gl.RGBA, gl.FLOAT, null)
+          gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+          gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, output, 0)
+          texture(0)
+          texture(1)
+          gl.uniform1i(gl.getUniformLocation(program, 'localMaskData'), 0)
+          gl.uniform1i(gl.getUniformLocation(program, 'referenceInput'), 1)
+          const values = cases.map((entry) => {
+            const height = Math.ceil(entry.packed.length / 4 / textureWidth),
+              packed = new Float32Array(height * textureWidth * 4),
+              pixels = new Float32Array(entry.vectors.length * 8)
+            packed.set(entry.packed)
+            entry.vectors.forEach((v, index) => {
+              pixels.set([...v.input, (index % 4) / 3], index * 4)
+              pixels[(entry.vectors.length + index) * 4] = v.white
+            })
+            gl.activeTexture(gl.TEXTURE0)
+            gl.texImage2D(
+              gl.TEXTURE_2D,
+              0,
+              gl.RGBA32F,
+              textureWidth,
+              height,
+              0,
+              gl.RGBA,
+              gl.FLOAT,
+              packed,
+            )
+            gl.activeTexture(gl.TEXTURE1)
+            gl.texImage2D(
+              gl.TEXTURE_2D,
+              0,
+              gl.RGBA32F,
+              entry.vectors.length,
+              2,
+              0,
+              gl.RGBA,
+              gl.FLOAT,
+              pixels,
+            )
+            gl.viewport(0, 0, entry.vectors.length, 1)
+            gl.drawArrays(gl.TRIANGLES, 0, 3)
+            const values = new Float32Array(entry.vectors.length * 4)
+            gl.readPixels(0, 0, entry.vectors.length, 1, gl.RGBA, gl.FLOAT, values)
+            if (gl.getError() !== gl.NO_ERROR) throw new Error('Mask color GPU readback failed.')
+            return [...values]
+          })
+          const debug = gl.getExtension('WEBGL_debug_renderer_info')
+          return {
+            values,
+            renderer: debug
+              ? String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL))
+              : `WEBGL_debug_renderer_info unavailable; GL_RENDERER=${String(gl.getParameter(gl.RENDERER))}`,
+          }
+        } finally {
+          textures.forEach((item) => gl.deleteTexture(item))
+          shaders.forEach((item) => gl.deleteShader(item))
+          gl.deleteFramebuffer(framebuffer)
+          gl.deleteProgram(program)
+        }
+      },
+      {
+        cases,
+        shader: localMasksGlsl,
+        textureWidth: MASK_GPU_TEXTURE_WIDTH,
+        point: maskColorReferencePoint,
+      },
+    )
+  test.info().annotations.push({ type: 'webgl-renderer', description: results.renderer })
+  let maximumRatio = 0,
+    worst: unknown
+  for (const [ordinal, entry] of cases.entries())
+    for (const [index, vector] of entry.vectors.entries()) {
+      expect(results.values[ordinal][index * 4 + 3]).toBe(Math.fround((index % 4) / 3))
+      for (const [channel, expected] of vector.output.entries()) {
+        const actual = results.values[ordinal][index * 4 + channel]
+        expect(Number.isFinite(actual)).toBe(true)
+        if (['neutral', 'zero-coverage', 'disabled'].includes(entry.id))
+          expect(actual).toBe(vector.input[channel])
+        const ratio = Math.abs(actual - expected) / (2e-6 + 2e-5 * Math.abs(expected))
+        if (ratio > maximumRatio) {
+          maximumRatio = ratio
+          worst = { vector, channel, actual, expected }
+        }
+      }
+    }
+  expect(maximumRatio, JSON.stringify(worst)).toBeLessThanOrEqual(1)
+})
 
 test('GLSL brush coverage and ordered local Light match independent native-grid references', async ({
   irodori,
@@ -16,6 +176,7 @@ test('GLSL brush coverage and ordered local Light match independent native-grid 
         inverted: true,
         head: null,
         edge: { ...neutralMaskEdge },
+        color: { ...neutralMaskColor },
         light: {
           exposureEv: -0.27,
           contrast: 32,
@@ -39,6 +200,7 @@ test('GLSL brush coverage and ordered local Light match independent native-grid 
         inverted: false,
         head: null,
         edge: { ...neutralMaskEdge },
+        color: { ...neutralMaskColor },
         light: { ...neutralMaskLight, exposureEv: 0.5, contrast: -40 },
         strokes: [brush('add', 0.5, 0, [[0.5, 0.5]])],
       },
@@ -151,20 +313,42 @@ test('actual raster presenter reports local overflow before a clamped image can 
 import {PreviewPresenter} from './src/renderer/src/preview/presenter';
 import {neutralAdjustments,srgbTransform} from './src/shared/adjustments';
 import {identityMaskGeometry} from './src/shared/mask-geometry';
-import {neutralMaskLight,neutralMaskEdge} from './src/shared/masks';
+import {neutralMaskLight,neutralMaskEdge,neutralMaskColor} from './src/shared/masks';
 window.runMaskOverflow=async()=>{
  const canvas=document.createElement('canvas');document.body.append(canvas);let reason='';
  const presenter=new PreviewPresenter(canvas,false,value=>{reason=value});
+ const gl=presenter.gl,shaders=[],uploads=[],queries=[];
+ if(!gl)throw new Error('WebGL unavailable.');
+ const shaderSource=gl.shaderSource.bind(gl),texImage2D=gl.texImage2D.bind(gl),getQueryParameter=gl.getQueryParameter.bind(gl);
+ gl.shaderSource=(shader,source)=>{shaders.push(source);return shaderSource(shader,source)};
+ gl.texImage2D=(...args)=>{
+  const data=args[args.length-1];
+  if(data instanceof Float32Array)uploads.push({width:args[3],height:args[4],values:[...data.slice(0,72)],
+   elements:data.length,nonfinite:data.reduce((count,value)=>count+Number(!Number.isFinite(value)),0),
+   minimum:data.reduce((value,next)=>Math.min(value,next),Infinity),maximum:data.reduce((value,next)=>Math.max(value,next),-Infinity)});
+  return texImage2D(...args);
+ };
+ gl.getQueryParameter=(query,parameter)=>{
+  const value=getQueryParameter(query,parameter);
+  if(parameter===gl.QUERY_RESULT)queries.push({kind:query===presenter.histogramQuery?'histogram':query===presenter.localMaskQuery?'photograph':'other',invalid:Boolean(value)});
+  return value;
+ };
  try {
   presenter.setWorking({width:1,height:1,data:new Float32Array([3e38,3e38,3e38,1]),transform:srgbTransform});
   presenter.draw({width:1,height:1},{width:64,height:64},{fit:false,scale:64,x:0,y:0},
    {...neutralAdjustments,maskGeometry:identityMaskGeometry(1,1),localMasks:[{
     id:'00000000-0000-0000-0000-000000000001',name:'Brighten',head:null,enabled:true,inverted:false,
     edge: { ...neutralMaskEdge },
+    color: { ...neutralMaskColor },
     light:{...neutralMaskLight,exposureEv:5},strokes:[{mode:'add',radius:.5,feather:0,points:[{x:.5,y:.5}]}]}]});
   const until=performance.now()+6000;while(!reason&&performance.now()<until)await new Promise(resolve=>setTimeout(resolve,10));
-  return reason;
- } finally {presenter.dispose();await presenter.whenDisposed;canvas.remove();}
+  const program=presenter.creativeProgram,
+   uniform=name=>{const location=program&&gl.getUniformLocation(program,name);return location?gl.getUniform(program,location):null},
+   encoded=new Uint8Array(4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.readPixels(32,32,1,1,gl.RGBA,gl.UNSIGNED_BYTE,encoded);
+  return {reason,shaders,diagnostics:{uploads,queries,encodedCenter:[...encoded],glError:gl.getError(),dataset:{...canvas.dataset},
+   uniforms:Object.fromEntries(['working','localMasksActive','maskValidation','histogramPass','localMaskData','localMaskBaseAtlas','pixels','transform','imageSize','scale','comparison'].map(name=>[name,uniform(name)]))}};
+ } finally {gl.shaderSource=shaderSource;gl.texImage2D=texImage2D;gl.getQueryParameter=getQueryParameter;presenter.dispose();await presenter.whenDisposed;canvas.remove();}
 };`,
     },
     bundle: true,
@@ -181,10 +365,29 @@ window.runMaskOverflow=async()=>{
     .find((item) => item.parentFrame() === irodori.page.mainFrame())!
   try {
     await frame.evaluate(bundle.outputFiles[0].text)
-    const reason = await frame.evaluate(() =>
-      (window as unknown as { runMaskOverflow: () => Promise<string> }).runMaskOverflow(),
+    const result = await frame.evaluate(() =>
+      (
+        window as unknown as {
+          runMaskOverflow: () => Promise<{
+            reason: string
+            shaders: string[]
+            diagnostics: unknown
+          }>
+        }
+      ).runMaskOverflow(),
     )
-    expect(reason).toMatch(/non-finite pixels/)
+    if (!result.reason) {
+      await test.info().attach('mask-overflow-diagnostics', {
+        contentType: 'application/json',
+        body: JSON.stringify(result.diagnostics),
+      })
+      for (const [index, shader] of result.shaders.entries())
+        await test.info().attach(`mask-overflow-shader-${index}`, {
+          contentType: 'text/plain',
+          body: shader,
+        })
+    }
+    expect(result.reason).toMatch(/non-finite pixels/)
   } finally {
     await irodori.page.evaluate(() =>
       document.querySelector('iframe[title="Mask numeric validation"]')?.remove(),
@@ -211,6 +414,7 @@ test('actual raster histogram evaluates ordered masks across the full native ima
         inverted: false,
         head: null,
         edge: { ...neutralMaskEdge },
+        color: { ...neutralMaskColor },
         light: { ...neutralMaskLight, exposureEv: 0.65, contrast: 27, shadows: 18 },
         strokes: [
           brush('add', 0.3, 0.55, [
@@ -226,6 +430,7 @@ test('actual raster histogram evaluates ordered masks across the full native ima
         inverted: true,
         head: null,
         edge: { ...neutralMaskEdge },
+        color: { ...neutralMaskColor },
         light: { ...neutralMaskLight, exposureEv: -0.4, highlights: -20, whites: 13, blacks: 7 },
         strokes: [brush('add', 0.22, 0.4, [[0.6, 0.4]])],
       },
@@ -350,7 +555,7 @@ test('raster histogram refuses non-finite masked samples outside the visible vie
 import {PreviewPresenter} from './src/renderer/src/preview/presenter';
 import {neutralAdjustments,srgbTransform} from './src/shared/adjustments';
 import {identityMaskGeometry} from './src/shared/mask-geometry';
-import {neutralMaskLight,neutralMaskEdge} from './src/shared/masks';
+import {neutralMaskLight,neutralMaskEdge,neutralMaskColor} from './src/shared/masks';
 window.runOffviewHistogramOverflow=async()=>{
  const canvas=document.createElement('canvas');document.body.append(canvas);
  let photographError='',histogramError='',publications=0;
@@ -362,6 +567,7 @@ window.runOffviewHistogramOverflow=async()=>{
    {...neutralAdjustments,maskGeometry:identityMaskGeometry(4,1),localMasks:[{
     id:'00000000-0000-0000-0000-000000000013',name:'Off-view overflow',head:null,enabled:true,inverted:false,
     edge: { ...neutralMaskEdge },
+    color: { ...neutralMaskColor },
     light:{...neutralMaskLight,exposureEv:5},strokes:[{mode:'add',radius:.5,feather:0,points:[{x:.875,y:.5}]}]}]});
   const until=performance.now()+6000;
   while(!histogramError&&!photographError&&performance.now()<until)await new Promise(resolve=>setTimeout(resolve,10));
@@ -415,7 +621,7 @@ import {PreviewPresenter} from './src/renderer/src/preview/presenter';
 import {neutralAdjustments,srgbTransform,renderAdjustments} from './src/shared/adjustments';
 import {imageStatistics} from './src/shared/statistics';
 import {identityMaskGeometry} from './src/shared/mask-geometry';
-import {neutralMaskLight,neutralMaskEdge} from './src/shared/masks';
+import {neutralMaskLight,neutralMaskEdge,neutralMaskColor} from './src/shared/masks';
 window.runStaleHistogramFailure=async()=>{
  const canvas=document.createElement('canvas');document.body.append(canvas);
  let photographError='',histogramError='',statistics,hold=true,invalidReadback=false;
@@ -437,6 +643,7 @@ window.runStaleHistogramFailure=async()=>{
   presenter.draw(image,viewport,view,{...neutralAdjustments,maskGeometry:identityMaskGeometry(4,1),localMasks:[{
    id:'00000000-0000-0000-0000-000000000014',name:'Off-view overflow',head:null,enabled:true,inverted:false,
    edge: { ...neutralMaskEdge },
+   color: { ...neutralMaskColor },
    light:{...neutralMaskLight,exposureEv:5},strokes:[{mode:'add',radius:.5,feather:0,points:[{x:.875,y:.5}]}]}]});
   const until=performance.now()+6000;
   while(!presenter.histogramBusy&&!photographError&&performance.now()<until)await new Promise(resolve=>setTimeout(resolve,10));

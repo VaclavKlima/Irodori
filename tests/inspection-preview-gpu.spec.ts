@@ -191,7 +191,8 @@ test('merge source regions retain mask coordinates, curves and denoise/sharpenin
   const { cropAdmission } = await import('./crop-frame.helpers')
   const { WorkScheduler } = await import('../src/main/work-scheduler')
   const { ExportProcess } = await import('../src/main/export/process')
-  const { neutralMaskEdge, neutralMaskLight } = await import('../src/shared/masks')
+  const { neutralMaskEdge, neutralMaskColor, neutralMaskLight } =
+    await import('../src/shared/masks')
   const { identityMaskGeometry } = await import('../src/shared/mask-geometry')
   const root = await mkdtemp(join(tmpdir(), 'irodori-inspection-merge-'))
   const source = await syntheticExportSource(root, 128, 96, (x, y) => [
@@ -258,6 +259,7 @@ test('merge source regions retain mask coordinates, curves and denoise/sharpenin
         inverted: false,
         head: null,
         edge: { ...neutralMaskEdge },
+        color: { ...neutralMaskColor },
         light: { ...neutralMaskLight, exposureEv: 1 },
         strokes: [{ mode: 'add', radius: 0.25, feather: 0.5, points: [{ x: 0.4, y: 0.6 }] }],
       },

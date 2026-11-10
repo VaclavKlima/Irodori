@@ -8,6 +8,7 @@ import {
   maskHash,
   maskBaseReference,
   neutralMaskLight,
+  neutralMaskColor,
   resolveMasks,
   validateMaskMutation,
   validateMaskStack,
@@ -85,6 +86,7 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
           inverted: false,
           head: null,
           light: { ...neutralMaskLight },
+          color: { ...neutralMaskColor },
           edge: { ...neutralMaskEdge },
         })
         break
@@ -94,6 +96,7 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
         if (op.enabled !== undefined) mask.enabled = op.enabled
         if (op.inverted !== undefined) mask.inverted = op.inverted
         if (op.light) mask.light = { ...mask.light, ...op.light }
+        if (op.color) mask.color = { ...mask.color, ...op.color }
         if (op.edge) mask.edge = { ...mask.edge, ...op.edge }
         break
       }

@@ -13,7 +13,7 @@ export function hdrHistogramShaderFor(
 ): string {
   return `${hdrRenderingShader(creative, curves)}
 ${hdrPresentationWgsl}
-${masks ? localMasksWgsl(16, bases ? 18 : undefined) : ''}
+${masks ? localMasksWgsl(16, bases ? 18 : undefined, 'acesPow') : ''}
 @group(0) @binding(6) var<storage,read_write> histogram:array<atomic<u32>>;
 @compute @workgroup_size(64) fn sampleHistogram(@builtin(global_invocation_id) p:vec3u) {
   let count=u32(u.values[9].x);

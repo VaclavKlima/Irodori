@@ -29,6 +29,18 @@ readable data; keeping them does not keep their retired executors available.
 | Whole-mask edge preparation                 | Common native Dawn/WGSL in a bundled-Node worker; native Sharp PNG codec                                                                                      | Complete base/ordered brush/inverted coverage, exact disk ±16 px, Gaussian radius ≤64 px, native 128-row strips and full halos, disposable revision/source-bound R8, unchanged memory ceilings | [Implementation and focused Mac acceptance](features/mask-edges.md); [focused Bazzite qualification and limits](features/masking-bazzite-acceptance.md). Zero/zero preserves the existing path. No per-renderer filter forks, CPU filter fallback, model rerun or full-image TypeScript pixel math.                                                                                                                                                                                                              |
 | Object selection and generated coverage     | Common ONNX Runtime Node native WebGPU SAM 2.1 Tiny in a bundled-Node worker; common Dawn preprocessing/reconstruction; shared WGSL/GLSL R8 coverage sampling | Pinned portable graph hashes, one source/embedding, explicit GPU failure/cancel/retry; 32 MP/8192 source bound, compact bounded atlas, immutable PNG base plus ordered corrections             | [Mac delivery and device evidence](features/object-selection.md); [focused Bazzite qualification and RAW startup evidence](features/masking-bazzite-acceptance.md). Native codecs remain outside Electron. No heavy CPU inference fallback or full-image TypeScript reconstruction.                                                                                                                                                                                                                              |
 
+## Masked Color — November 10, 2026
+
+Relative local Temperature/Tint and CIE Lab saturation extend the common ordered
+mask point stage, fused into existing WGSL scene/authored renderers and GLSL
+raster presentation. CPU work prepares bounded Bradford 3×3 coefficients only;
+there is no new full-image CPU color backend. Independent authored SDR/HDR
+renditions select their existing primaries and white normalization. Mask buffers
+account for both matrices, coverage preparation remains reusable across color
+changes, and nonfinite/resource failures retain explicit refusal and GPU retry.
+The [masked Color contract](features/local-adjustments.md#masked-color--issue-64)
+records versioned semantics, neutral migration and focused acceptance limits.
+
 ## Output sharpening — November 7, 2026
 
 Export and output proofs share the existing bounded Dawn spatial-detail owner

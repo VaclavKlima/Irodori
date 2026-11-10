@@ -6,7 +6,12 @@ import { createHash } from 'node:crypto'
 import sharp from 'sharp'
 import { MaskEdgeService } from '../src/main/mask-edges/service'
 import type { MaskEdgeProcess } from '../src/main/mask-edges/process'
-import { neutralMaskLight, neutralMaskEdge, type ResolvedMask } from '../src/shared/masks'
+import {
+  neutralMaskColor,
+  neutralMaskLight,
+  neutralMaskEdge,
+  type ResolvedMask,
+} from '../src/shared/masks'
 import { maskEdgeMemoryPlan } from '../src/shared/mask-edges'
 import { identityMaskGeometry } from '../src/shared/mask-geometry'
 import type { EditState } from '../src/shared/edits'
@@ -31,6 +36,7 @@ async function fixture() {
     inverted: false,
     head: null,
     edge: { ...neutralMaskEdge, featherPx: 2 },
+    color: { ...neutralMaskColor },
     light: { ...neutralMaskLight },
     strokes: [],
   }

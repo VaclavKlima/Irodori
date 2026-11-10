@@ -7,8 +7,11 @@ import { prepareMaskMutation } from '../src/main/mask-store'
 import { hasLocalMasks, localMaskPixelData } from '../src/shared/masks-gpu'
 import {
   neutralMaskLight,
+  neutralMaskColor,
   neutralMaskEdge,
+  hasMaskAdjustments,
   resolveMasks,
+  validateMaskColor,
   validateMaskMutation,
   type MaskStroke,
   type ResolvedMask,
@@ -32,6 +35,7 @@ test('empty and erase-only masks preserve analysis until their coverage can affe
     inverted: false,
     head: null,
     light: { ...neutralMaskLight, exposureEv: 1.83 },
+    color: { ...neutralMaskColor },
     edge: { ...neutralMaskEdge },
     strokes: [],
   }
@@ -46,6 +50,61 @@ test('empty and erase-only masks preserve analysis until their coverage can affe
   expect(hasLocalMasks({ localMasks: [mask] })).toBe(true)
   mask.enabled = false
   expect(hasLocalMasks({ localMasks: [mask] })).toBe(false)
+})
+
+test('local Color validates bounded relative integers independently from Light', () => {
+  const id = randomUUID()
+  for (const color of [neutralMaskColor, { temperature: -100, tint: 100, saturation: -100 }])
+    expect(() => validateMaskColor(color)).not.toThrow()
+  for (const color of [{ temperature: 1 }, { tint: -12 }, { saturation: 100 }, {}])
+    expect(() =>
+      validateMaskMutation({ operations: [{ kind: 'update', id, color }] }),
+    ).not.toThrow()
+  for (const color of [
+    { temperature: 101 },
+    { tint: -101 },
+    { saturation: 0.5 },
+    { tint: NaN },
+    { temperature: Infinity },
+    { saturation: '10' },
+    { kelvin: 5500 },
+    { vibrance: 10 },
+  ])
+    expect(() => validateMaskMutation({ operations: [{ kind: 'update', id, color }] })).toThrow()
+  expect(() => validateMaskColor({ temperature: 0, tint: 0 })).toThrow()
+  expect(hasMaskAdjustments({ light: neutralMaskLight, color: neutralMaskColor })).toBe(false)
+  for (const color of [{ temperature: 1 }, { tint: -1 }, { saturation: 1 }])
+    expect(
+      hasMaskAdjustments({ light: neutralMaskLight, color: { ...neutralMaskColor, ...color } }),
+    ).toBe(true)
+})
+
+test('partial Color updates, duplication and reset retain independent Light and immutable geometry', () => {
+  const id = randomUUID(),
+    copy = randomUUID()
+  const first = prepareMaskMutation([], {
+    operations: [
+      { kind: 'create', id, name: 'Skin' },
+      { kind: 'stroke', id, stroke },
+      { kind: 'update', id, light: { exposureEv: 0.3 }, color: { temperature: 12, tint: 4 } },
+      { kind: 'update', id, color: { saturation: -15 } },
+      { kind: 'duplicate', id, newId: copy, name: 'Foliage' },
+      { kind: 'update', id: copy, color: { temperature: -8 } },
+    ],
+  })
+  expect(first.stack.map((mask) => mask.color)).toEqual([
+    { temperature: -8, tint: 4, saturation: -15 },
+    { temperature: 12, tint: 4, saturation: -15 },
+  ])
+  expect(first.stack[0].head).toBe(first.stack[1].head)
+  expect(resolveMasks(first.stack, first.chunks)[0].color).toEqual(first.stack[0].color)
+  const reset = prepareMaskMutation(first.stack, {
+    operations: [{ kind: 'update', id, color: { ...neutralMaskColor } }],
+  })
+  expect(reset.chunks).toEqual([])
+  expect(reset.stack[0]).toEqual(first.stack[0])
+  expect(reset.stack[1]).toEqual({ ...first.stack[1], color: neutralMaskColor })
+  expect(first.stack[1].color.temperature).toBe(12)
 })
 
 test('compound mask creation, independent Light, copy-on-write duplication and exact top-first order', () => {
@@ -108,6 +167,7 @@ test('mask commands reject unbounded, nonfinite, out-of-source and unsupported d
           inverted: false,
           head: 'a'.repeat(64),
           light: { ...neutralMaskLight },
+          color: { ...neutralMaskColor },
           edge: { ...neutralMaskEdge },
         },
       ],

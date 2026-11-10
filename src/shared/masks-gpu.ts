@@ -4,12 +4,16 @@ import { highlightsModule } from './highlights'
 import { shadowsModule } from './shadows'
 import { whitesModule } from './whites'
 import { blacksModule } from './blacks'
+import { colorIntensityGlslFor, colorIntensityWgsl } from './color-intensity'
+import { maskColorBalanceGain, maskColorBalanceMatrices, MASK_COLOR_VERSION } from './mask-color'
+import { identityMatrix } from './white-balance'
 import { identityMaskGeometry, validateMaskGeometry } from './mask-geometry'
 import {
   maskCapabilities,
   maskBaseReference,
   validateMaskBaseContent,
   validateMaskLight,
+  hasMaskAdjustments,
   validateMaskStroke,
   type ResolvedMask,
   type MaskBaseContent,
@@ -17,7 +21,9 @@ import {
   validatePreparedMaskCoverage,
 } from './masks'
 
-export const MASK_RENDERING_VERSION = 'ordered-six-light-brush-generated-edge-green-native-v3'
+export const MASK_RENDERING_VERSION =
+  'ordered-light-color-brush-generated-edge-green-native-v4-' + MASK_COLOR_VERSION
+export const MASK_DESCRIPTOR_VEC4S = 9
 export const MASK_GPU_TEXTURE_WIDTH = 256
 export const MAX_MASK_BASE_ATLAS_BYTES = maskCapabilities.maxBaseAtlasBytes
 const TILE_EDGE = 256
@@ -34,7 +40,7 @@ export function maskHasCoverage(
 function renderMask(mask: ResolvedMask, coverageOnly = false): ResolvedMask {
   if (!maskHasEdges(mask)) return mask
   if (!mask.preparedCoverage) {
-    if (coverageOnly || (mask.enabled && Object.values(mask.light).some((value) => value !== 0)))
+    if (coverageOnly || (mask.enabled && hasMaskAdjustments(mask)))
       throw new Error('Mask edge coverage is not ready. Retry GPU after preparation completes.')
     return { ...mask, base: undefined, strokes: [], inverted: false }
   }
@@ -87,10 +93,7 @@ export function maskBaseAtlasPlan(
 export function hasLocalMasks(parameters: Pick<AdjustmentParameters, 'localMasks'>): boolean {
   return Boolean(
     parameters.localMasks?.some(
-      (mask) =>
-        mask.enabled &&
-        maskHasCoverage(mask) &&
-        Object.values(mask.light).some((value) => value !== 0),
+      (mask) => mask.enabled && maskHasCoverage(mask) && hasMaskAdjustments(mask),
     ),
   )
 }
@@ -111,7 +114,7 @@ export function localMaskAllocationBytes(
   const layers = new Set(
     masks.flatMap((mask) => {
       if (maskHasEdges(mask))
-        return mask.enabled && Object.values(mask.light).some((value) => value !== 0)
+        return mask.enabled && hasMaskAdjustments(mask)
           ? [JSON.stringify([mask.base?.hash, mask.head, mask.strokes, mask.inverted, mask.edge])]
           : []
       return mask.base ? [mask.base.hash] : []
@@ -129,15 +132,11 @@ export function localMaskAllocationBytes(
 export function localMaskPixelData(parameters: Pick<AdjustmentParameters, 'localMasks'>) {
   return (
     parameters.localMasks
-      ?.filter(
-        (mask) =>
-          mask.enabled &&
-          maskHasCoverage(mask) &&
-          Object.values(mask.light).some((value) => value !== 0),
-      )
+      ?.filter((mask) => mask.enabled && maskHasCoverage(mask) && hasMaskAdjustments(mask))
       .map((mask) => ({
         inverted: mask.inverted,
         light: mask.light,
+        color: mask.color,
         strokes: mask.strokes,
         edge: mask.edge,
         ...(mask.base ? { base: maskBaseReference(mask.base) } : {}),
@@ -145,11 +144,12 @@ export function localMaskPixelData(parameters: Pick<AdjustmentParameters, 'local
   )
 }
 
-/** Refuse a stack whose conservative unit-input gain already exceeds Float32. */
+/** Retain the unit-input Light/matrix range guard; nonlinear color also checks GPU output. */
 export function validateLocalMaskGain(parameters: Pick<AdjustmentParameters, 'localMasks'>): void {
   let bound = 1
   for (const mask of [...(parameters.localMasks ?? [])].reverse()) {
     if (!mask.enabled || !maskHasCoverage(mask)) continue
+    bound *= maskColorBalanceGain(mask.color)
     const light = mask.light
     bound *= 2 ** Math.max(0, light.exposureEv)
     if (light.contrast) bound = Math.max(bound, 20)
@@ -159,7 +159,7 @@ export function validateLocalMaskGain(parameters: Pick<AdjustmentParameters, 'lo
     bound += (0.04 * Math.max(0, light.blacks)) / 100
     if (!Number.isFinite(bound) || bound > 3.4028234663852886e38)
       throw new Error(
-        'The combined local Light stack exceeds the Float32 numerical range. Reduce its adjustments.',
+        'The combined local adjustment stack exceeds the Float32 numerical range. Reduce its adjustments.',
       )
   }
 }
@@ -187,7 +187,7 @@ export function packLocalMasks(
     rows = Math.ceil(height / TILE_EDGE),
     cells = cols * rows,
     c = geometry.correction,
-    values: number[] = new Array((6 + masks.length * 3) * 4).fill(0)
+    values: number[] = new Array((6 + masks.length * MASK_DESCRIPTOR_VEC4S) * 4).fill(0)
   const add = (...items: number[]) => {
     if ((values.length + items.length) * 4 > MAX_MASK_GPU_BYTES)
       throw new Error('Local mask GPU geometry exceeds its bounded allocation.')
@@ -225,6 +225,11 @@ export function packLocalMasks(
   for (let ordinal = 0; ordinal < masks.length; ordinal++) {
     const mask = masks[ordinal]
     validateMaskLight(mask.light)
+    const balance = maskColorBalanceMatrices(mask.color)
+    const packedBalance = [
+      balance?.srgb ?? identityMatrix,
+      balance?.rec2020 ?? identityMatrix,
+    ].flatMap((matrix) => [0, 1, 2].flatMap((row) => [...matrix.slice(row * 3, row * 3 + 3), 0]))
     const bins: Array<Array<[number, number]>> = Array.from({ length: cells }, () => [])
     for (const stroke of mask.strokes) {
       validateMaskStroke(stroke)
@@ -265,8 +270,8 @@ export function packLocalMasks(
       for (const [segment, metadata] of bins[i]) add(segment, metadata, 0, 0)
     }
     values.splice(
-      (6 + ordinal * 3) * 4,
-      12,
+      (6 + ordinal * MASK_DESCRIPTOR_VEC4S) * 4,
+      MASK_DESCRIPTOR_VEC4S * 4,
       table,
       Number(mask.inverted),
       Number(mask.enabled),
@@ -277,8 +282,9 @@ export function packLocalMasks(
       mask.light.shadows,
       mask.light.whites,
       mask.light.blacks,
-      0,
-      0,
+      mask.color.saturation,
+      Number(balance !== null),
+      ...packedBalance,
     )
   }
   if (c) {
@@ -292,7 +298,16 @@ const modules = [contrastModule, highlightsModule, shadowsModule, whitesModule, 
 const lightShader = (language: 'wgsl' | 'glsl') =>
   modules.map((module) => module[language].replaceAll('apply', 'maskApply')).join('\n')
 
-export function localMasksWgsl(binding = 16, baseBinding?: number) {
+const colorShader = (language: 'wgsl' | 'glsl', primaries: 'srgb' | 'rec2020', power: string) => {
+  let shader =
+    language === 'wgsl' ? colorIntensityWgsl(primaries, power) : colorIntensityGlslFor(primaries)
+  const prefix = primaries === 'srgb' ? 'maskSrgb_' : 'maskRec2020_'
+  for (const name of ['colorLabF', 'colorLabInverse', 'colorLabDelta', 'applyColorIntensity'])
+    shader = shader.replaceAll(new RegExp('\\b' + name + '\\b', 'g'), prefix + name)
+  return shader
+}
+
+export function localMasksWgsl(binding = 16, baseBinding?: number, power = 'pow') {
   return `
 @group(0) @binding(${binding}) var<storage,read> maskData:array<vec4f>;
 ${
@@ -307,6 +322,8 @@ fn maskBaseCoverage(layer:i32,point:vec2f)->f32 {
 }`
 }
 ${lightShader('wgsl')}
+${colorShader('wgsl', 'srgb', power)}
+${colorShader('wgsl', 'rec2020', power)}
 fn localMaskFinite(rgb:vec3f)->bool {
  return all((bitcast<vec3u>(rgb)&vec3u(0x7f800000u))!=vec3u(0x7f800000u));
 }
@@ -331,7 +348,7 @@ fn maskCanonical(pixel:vec2f)->vec2f {
  return p/maskData[0].yz;
 }
 fn maskCoverage(index:u32,canonical:vec2f)->f32 {
- let mask=maskData[6u+index*3u]; let size=maskData[0].yz; let short=maskData[0].w;
+ let mask=maskData[6u+index*${MASK_DESCRIPTOR_VEC4S}u]; let size=maskData[0].yz; let short=maskData[0].w;
  let dimensions=vec2u(maskData[4].zw);
  let tile=clamp(vec2i(floor(canonical*size/maskData[5].w)),vec2i(0),vec2i(dimensions)-1);
  let bin=maskData[u32(mask.x)+u32(tile.y)*dimensions.x+u32(tile.x)];
@@ -355,6 +372,7 @@ fn maskCoverage(index:u32,canonical:vec2f)->f32 {
  return select(coverage,1.-coverage,mask.y!=0.);
 }
 fn maskLight(input:vec3f,light:vec4f,endpoints:vec2f,white:f32,scene:bool)->vec3f {
+ if(all(light==vec4f(0.)) && all(endpoints==vec2f(0.))){return input;}
  var rgb=input*exp2(light.x);
  if(!scene){
   rgb=max(rgb,vec3f(0.)); rgb=maskApplyContrast(rgb,light.y,white);
@@ -377,15 +395,30 @@ fn maskLight(input:vec3f,light:vec4f,endpoints:vec2f,white:f32,scene:bool)->vec3
  if(b!=0. && y>=0.){let d=.04*b*pow(max(1.-y/.18,0.),3.);if(b>0.){rgb+=vec3f(d);}else if(y>0.){rgb*=max(0.,y+d)/y;}}
  return rgb;
 }
+fn maskBalance(input:vec3f,offset:u32,scene:bool)->vec3f {
+ let start=offset+select(3u,6u,scene);
+ return vec3f(dot(maskData[start].xyz,input),dot(maskData[start+1u].xyz,input),dot(maskData[start+2u].xyz,input));
+}
+fn maskSaturation(input:vec3f,saturation:f32,scene:bool)->vec3f {
+ if(scene){return maskRec2020_applyColorIntensity(input,vec2f(saturation,0.));}
+ return maskSrgb_applyColorIntensity(input,vec2f(saturation,0.));
+}
 fn applyLocalMasks(input:vec3f,pixel:vec2f,white:f32,scene:bool)->vec3f {
  let point=maskCanonical(pixel); var rgb=input;
  // Descriptors are stored top first. The top mask consumes every lower result.
  for(var remaining=u32(maskData[0].x);remaining>0u;remaining--){
-  let index=remaining-1u;let offset=6u+index*3u;let descriptor=maskData[offset];
-  let light=maskData[offset+1u];let endpoints=maskData[offset+2u].xy;
-  if(descriptor.z==0. || (all(light==vec4f(0.)) && all(endpoints==vec2f(0.)))){continue;}
+  let index=remaining-1u;let offset=6u+index*${MASK_DESCRIPTOR_VEC4S}u;let descriptor=maskData[offset];
+  let light=maskData[offset+1u];let config=maskData[offset+2u];let endpoints=config.xy;let color=config.zw;
+  if(descriptor.z==0. || (all(light==vec4f(0.)) && all(config==vec4f(0.)))){continue;}
   let coverage=maskCoverage(index,point);
-  if(coverage>0.){rgb=mix(rgb,maskLight(rgb,light,endpoints,white,scene),coverage);}
+  if(coverage>0.){
+   var changed=rgb;
+   if(color.y!=0.){changed=maskBalance(changed,offset,scene);}
+   changed=maskLight(changed,light,endpoints,white,scene);
+   if(color.x!=0.){changed=maskSaturation(changed/white,color.x,scene)*white;}
+   if(!localMaskFinite(changed)){return changed;}
+   rgb=mix(rgb,changed,coverage);
+  }
   if(!localMaskFinite(rgb)){return rgb;}
  }
  return rgb;
@@ -412,6 +445,7 @@ float maskBaseCoverage(int layer,vec2 point){
 vec4 maskDataAt(int index){return texelFetch(localMaskData,ivec2(index%${MASK_GPU_TEXTURE_WIDTH},index/${MASK_GPU_TEXTURE_WIDTH}),0);}
 bool localMaskFinite(vec3 rgb){return all(notEqual(floatBitsToUint(rgb)&uvec3(0x7f800000u),uvec3(0x7f800000u)));}
 ${lightShader('glsl')}
+${colorShader('glsl', 'srgb', 'pow')}
 vec2 maskCanonical(vec2 pixel){
  vec4 base=maskDataAt(1),crop=maskDataAt(3),tail=maskDataAt(4),corrected=maskDataAt(2);
  vec2 p=vec2(dot(crop.xy,pixel),dot(crop.zw,pixel))+tail.xy;int flip=int(base.z);
@@ -424,7 +458,7 @@ vec2 maskCanonical(vec2 pixel){
  return p/maskDataAt(0).yz;
 }
 float maskCoverage(int index,vec2 canonical){
- vec4 mask=maskDataAt(6+index*3);vec2 size=maskDataAt(0).yz;float shortSide=maskDataAt(0).w;
+ vec4 mask=maskDataAt(6+index*${MASK_DESCRIPTOR_VEC4S});vec2 size=maskDataAt(0).yz;float shortSide=maskDataAt(0).w;
  ivec2 dimensions=ivec2(maskDataAt(4).zw),tile=clamp(ivec2(floor(canonical*size/maskDataAt(5).w)),ivec2(0),dimensions-1);
  vec4 bin=maskDataAt(int(mask.x)+tile.y*dimensions.x+tile.x);vec2 point=canonical*size/shortSide;
  float coverage=${bases ? 'mask.w>0.?maskBaseCoverage(int(mask.w)-1,canonical):0.' : '0.'},brush=0.;int last=-1;bool subtract=false;
@@ -442,12 +476,19 @@ float maskCoverage(int index,vec2 canonical){
 vec3 applyLocalMasks(vec3 inputRgb,vec2 pixel,float white){
  vec2 point=maskCanonical(pixel);vec3 rgb=inputRgb;
  for(int remaining=int(maskDataAt(0).x);remaining>0;remaining--){
-  int index=remaining-1,offset=6+index*3;vec4 descriptor=maskDataAt(offset),light=maskDataAt(offset+1);vec2 endpoints=maskDataAt(offset+2).xy;
-  if(descriptor.z==0. || (all(equal(light,vec4(0.))) && all(equal(endpoints,vec2(0.)))))continue;
+  int index=remaining-1,offset=6+index*${MASK_DESCRIPTOR_VEC4S};vec4 descriptor=maskDataAt(offset),light=maskDataAt(offset+1),config=maskDataAt(offset+2);vec2 endpoints=config.xy,color=config.zw;
+  if(descriptor.z==0. || (all(equal(light,vec4(0.))) && all(equal(config,vec4(0.)))))continue;
   float coverage=maskCoverage(index,point);if(coverage<=0.)continue;
-  vec3 changed=max(rgb*exp2(light.x),vec3(0.));changed=maskApplyContrast(changed,light.y,white);
-  changed=maskApplyHighlights(changed,light.z,white);changed=maskApplyShadows(changed,light.w,white);
-  changed=maskApplyWhites(changed,endpoints.x,white);changed=maskApplyBlacks(changed,endpoints.y,white);rgb=mix(rgb,changed,coverage);
+  vec3 changed=rgb;
+  if(color.y!=0.){changed=vec3(dot(maskDataAt(offset+3).xyz,changed),dot(maskDataAt(offset+4).xyz,changed),dot(maskDataAt(offset+5).xyz,changed));}
+  if(any(notEqual(light,vec4(0.))) || any(notEqual(endpoints,vec2(0.)))){
+   changed=max(changed*exp2(light.x),vec3(0.));changed=maskApplyContrast(changed,light.y,white);
+   changed=maskApplyHighlights(changed,light.z,white);changed=maskApplyShadows(changed,light.w,white);
+   changed=maskApplyWhites(changed,endpoints.x,white);changed=maskApplyBlacks(changed,endpoints.y,white);
+  }
+  if(color.x!=0.){changed=maskSrgb_applyColorIntensity(changed/white,vec2(color.x,0.))*white;}
+  if(!localMaskFinite(changed))return changed;
+  rgb=mix(rgb,changed,coverage);
   if(!localMaskFinite(rgb))return rgb;
  }
  return rgb;

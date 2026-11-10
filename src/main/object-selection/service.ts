@@ -7,6 +7,7 @@ import { noLensSettings } from '../../shared/lens'
 import {
   neutralMaskEdge,
   neutralMaskLight,
+  neutralMaskColor,
   maskHasEdges,
   maskBaseReference,
   validatePreparedMaskCoverage,
@@ -270,6 +271,7 @@ export class ObjectSelectionService {
             inverted: false,
             head: null,
             light: { ...neutralMaskLight },
+            color: { ...neutralMaskColor },
             edge: { ...neutralMaskEdge },
             strokes: [],
           }),
@@ -395,6 +397,7 @@ export function selectedMaskStack(
       head: null,
       base: reference,
       light: { ...neutralMaskLight },
+      color: { ...neutralMaskColor },
       edge: { ...neutralMaskEdge },
     },
     ...current,

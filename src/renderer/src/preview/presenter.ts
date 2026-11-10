@@ -34,7 +34,7 @@ void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2
 const fragment = `#version 300 es
 precision highp float;
 ${rasterAdjustmentShader('glsl')}
-uniform sampler2D pixels;
+uniform highp sampler2D pixels;
 uniform vec2 viewport, imageSize, pan;
 uniform float scale, dpr, exposureEv, contrast, highlights, shadows, whites, blacks;
 uniform vec2 colorIntensity;
@@ -69,8 +69,8 @@ void main() {
 function comparisonFragment(source: string) {
   return source
     .replace(
-      'uniform sampler2D pixels;',
-      'uniform sampler2D pixels;\nuniform sampler2D beforePixels;',
+      'uniform highp sampler2D pixels;',
+      'uniform highp sampler2D pixels;\nuniform highp sampler2D beforePixels;',
     )
     .replace(
       'void main() {\n  vec2 css',
@@ -738,7 +738,7 @@ export class PreviewPresenter {
       gl.drawArrays(gl.TRIANGLES, 0, 3)
       if (masks && creative && !this.localMaskQuery) {
         const query = gl.createQuery()
-        if (!query) throw new Error('Local Light validation query allocation failed.')
+        if (!query) throw new Error('Local adjustment validation query allocation failed.')
         const validationKey = JSON.stringify([
             adjustmentPixelKey(parameters),
             image,
@@ -775,7 +775,7 @@ export class PreviewPresenter {
               ])
           if (this.working === validatedSource && currentKey === validationKey && invalid)
             this.lost(
-              'Local Light processing produced non-finite pixels. Reduce the local adjustments.',
+              'Local adjustment processing produced non-finite pixels. Reduce the local adjustments.',
             )
           else if (latest && (this.working !== validatedSource || currentKey !== validationKey))
             this.draw(latest.image, latest.viewport, latest.view, latest.parameters)
@@ -946,7 +946,7 @@ export class PreviewPresenter {
         if (this.disposed || gl.isContextLost()) return
         if (gl.getQueryParameter(query, gl.QUERY_RESULT))
           throw new Error(
-            'Local Light processing produced non-finite histogram samples. Reduce the local adjustments.',
+            'Local adjustment processing produced non-finite histogram samples. Reduce the local adjustments.',
           )
         const data = new Uint8Array(bytes)
         gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.histogramReadback!)

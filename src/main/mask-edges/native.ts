@@ -11,6 +11,7 @@ import {
   maskBaseReference,
   maskCapabilities,
   maskHasEdges,
+  hasMaskAdjustments,
   validateMaskEdge,
   validatePreparedMaskCoverage,
   type PreparedMaskCoverage,
@@ -24,12 +25,11 @@ export interface NativeMaskEdgeOptions {
   readonly edgeAdmission?: CropAdmission
 }
 
-/** Only local Light masks participate in the native photograph point pass. */
+/** Enabled local adjustments share prepared coverage in the native photograph point pass. */
 export function activeNativeMaskEdges(adjustments: Pick<AdjustmentParameters, 'localMasks'>) {
   for (const mask of adjustments.localMasks ?? []) validateMaskEdge(mask.edge)
   return (adjustments.localMasks ?? []).filter(
-    (mask) =>
-      mask.enabled && maskHasEdges(mask) && Object.values(mask.light).some((value) => value !== 0),
+    (mask) => mask.enabled && maskHasEdges(mask) && hasMaskAdjustments(mask),
   )
 }
 

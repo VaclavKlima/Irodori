@@ -13,6 +13,10 @@ import {
   type Chromaticities,
   type ODTParams,
 } from './aces-core'
+import {
+  BRADFORD_ROW as bradford,
+  INVERSE_BRADFORD_ROW as inverseBradford,
+} from './chromatic-adaptation'
 
 export const DISPLAY_RENDERING_VERSION = 'aces2-069b0bc3-v3'
 export const RENDERING_REFERENCE = 100
@@ -46,16 +50,6 @@ const mul = (v: readonly number[], m: readonly number[][]): RenderingRGB =>
   [0, 1, 2].map((c) => v[0] * m[0][c] + v[1] * m[1][c] + v[2] * m[2][c]) as RenderingRGB
 const product = (a: number[][], b: number[][]) => a.map((row) => mul(row, b))
 // Von Kries Bradford D65 -> ACES D60, using the official CTL row-vector convention.
-const bradford = [
-  [0.8951, -0.7502, 0.0389],
-  [0.2664, 1.7135, -0.0685],
-  [-0.1614, 0.0367, 1.0296],
-]
-const inverseBradford = [
-  [0.9869929054667123, 0.4323052697233945, -0.008528664575177328],
-  [-0.14705425642099013, 0.5183602715367776, 0.04004282165408487],
-  [0.15996265166373125, 0.0492912282128556, 0.96848669578755],
-]
 const xyzWhite = ([x, y]: number[]) => [x / y, 1, (1 - x - y) / y]
 const sourceCone = mul(xyzWhite(D65), bradford)
 const destCone = mul(xyzWhite(AP0.white), bradford)

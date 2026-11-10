@@ -8,7 +8,7 @@ import sharp from 'sharp'
 import { RawGpuRenderer } from '../src/main/gpu/raw-renderer'
 import { prepareMaskEdgeCoverage } from '../src/main/mask-edges/gpu'
 import { MaskEdgeProcess } from '../src/main/mask-edges/process'
-import { neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
+import { neutralMaskColor, neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
 import { generatedMask } from './helpers/generated-mask'
 import { referenceMaskEdges } from './helpers/mask-edge-reference'
 
@@ -19,6 +19,7 @@ const mask = (): ResolvedMask => ({
   inverted: false,
   head: null,
   light: { ...neutralMaskLight },
+  color: { ...neutralMaskColor },
   edge: { featherPx: 0, shiftPx: 0 },
   strokes: [],
 })

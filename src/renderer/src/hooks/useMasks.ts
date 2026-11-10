@@ -3,7 +3,9 @@ import type { AdjustmentParameters } from '../../../shared/adjustments'
 import {
   maskCapabilities,
   maskHasEdges,
+  neutralMaskColor,
   neutralMaskEdge,
+  type MaskColor,
   type MaskEdgeSettings,
   type MaskLight,
   type MaskOperation,
@@ -19,6 +21,7 @@ type Draft = {
   revision: number
   maskId: string
   light?: MaskLight
+  color?: MaskColor
   edge?: MaskEdgeSettings
   stroke?: MaskStroke
   order?: string[]
@@ -46,9 +49,9 @@ export function useMasks(
   const [draft, setDraft] = useState<Draft | null>(null)
   const draftRef = useRef<Draft | null>(null)
   const [pending, setPending] = useState(false)
-  const [committingEdge, setCommittingEdge] = useState<Pick<
+  const [committingAdjustments, setCommittingAdjustments] = useState<Pick<
     Draft,
-    'photoId' | 'maskId' | 'edge'
+    'photoId' | 'revision' | 'maskId' | 'edge' | 'color'
   > | null>(null)
   const pendingCommit = useRef<Promise<void> | null>(null)
   const [brushDraft, setBrushDraft] = useState<{
@@ -118,15 +121,21 @@ export function useMasks(
   }
   const flush = useCallback(async () => {
     const value = draftRef.current
-    if (!value?.light && !value?.edge) return pendingCommit.current ?? undefined
-    if (value.edge)
-      setCommittingEdge({ photoId: value.photoId, maskId: value.maskId, edge: value.edge })
+    if (!value?.light && !value?.edge && !value?.color) return pendingCommit.current ?? undefined
+    if (value.edge || value.color)
+      setCommittingAdjustments({
+        photoId: value.photoId,
+        revision: value.revision,
+        maskId: value.maskId,
+        edge: value.edge,
+        color: value.color,
+      })
     publish(null)
     if (
       value.photoId !== current.current.photoId ||
       value.revision !== current.current.edits.state?.revision
     ) {
-      setCommittingEdge(null)
+      setCommittingAdjustments(null)
       throw new Error('Edits changed. The local adjustment draft was cancelled.')
     }
     busy.current = true
@@ -137,6 +146,7 @@ export function useMasks(
           kind: 'update',
           id: value.maskId,
           ...(value.light ? { light: value.light } : {}),
+          ...(value.color ? { color: value.color } : {}),
           ...(value.edge ? { edge: value.edge } : {}),
         },
       ],
@@ -152,7 +162,7 @@ export function useMasks(
     } finally {
       busy.current = false
       setPending(false)
-      setCommittingEdge(null)
+      setCommittingAdjustments(null)
       if (pendingCommit.current === work) pendingCommit.current = null
     }
   }, [publish, setError])
@@ -209,6 +219,7 @@ export function useMasks(
         : {
             ...mask,
             light: draft.light ?? mask.light,
+            color: draft.color ?? mask.color,
             strokes:
               draft.stroke && !maskHasEdges(mask) ? [...mask.strokes, draft.stroke] : mask.strokes,
           },
@@ -224,12 +235,27 @@ export function useMasks(
     draft.maskId === selectedId &&
     draft.edge
       ? draft.edge
-      : committingEdge &&
-          committingEdge.photoId === photoId &&
-          committingEdge.maskId === selectedId &&
-          committingEdge.edge
-        ? committingEdge.edge
+      : committingAdjustments &&
+          committingAdjustments.photoId === photoId &&
+          committingAdjustments.revision === state?.revision &&
+          committingAdjustments.maskId === selectedId &&
+          committingAdjustments.edge
+        ? committingAdjustments.edge
         : (selected?.edge ?? neutralMaskEdge)
+  const colorValues =
+    draft &&
+    draft.photoId === photoId &&
+    draft.revision === state?.revision &&
+    draft.maskId === selectedId &&
+    draft.color
+      ? draft.color
+      : committingAdjustments &&
+          committingAdjustments.photoId === photoId &&
+          committingAdjustments.revision === state?.revision &&
+          committingAdjustments.maskId === selectedId &&
+          committingAdjustments.color
+        ? committingAdjustments.color
+        : (selected?.color ?? neutralMaskColor)
   const safely = (work: Promise<unknown>) => {
     void work.catch(() => undefined)
   }
@@ -253,6 +279,7 @@ export function useMasks(
     selectedId,
     selected: resolved.find((m) => m.id === selectedId) ?? null,
     edgeValues,
+    colorValues,
     available,
     supported,
     active,
@@ -337,29 +364,62 @@ export function useMasks(
       ),
     changeLight: (key: keyof MaskLight, value: number) => {
       if (!available || !selected || !state || !photoId) return
-      const prior = draftRef.current
+      const previous = draftRef.current
+      const prior =
+        previous?.maskId === selected.id &&
+        previous.photoId === photoId &&
+        previous.revision === state.revision
+          ? previous
+          : null
       publish({
-        ...(prior?.maskId === selected.id && prior.edge ? { edge: prior.edge } : {}),
+        ...(prior?.edge ? { edge: prior.edge } : {}),
+        ...(prior?.color ? { color: prior.color } : {}),
         photoId,
         revision: state.revision,
         maskId: selected.id,
         light: {
-          ...((prior?.maskId === selected.id ? prior.light : null) ?? selected.light),
+          ...(prior?.light ?? selected.light),
           [key]: value,
         },
       })
     },
     commitLight: () => safely(flush()),
+    changeColor: (key: keyof MaskColor, value: number) => {
+      if (!available || !selected || !state || !photoId) return
+      const previous = draftRef.current
+      const prior =
+        previous?.maskId === selected.id &&
+        previous.photoId === photoId &&
+        previous.revision === state.revision
+          ? previous
+          : null
+      publish({
+        ...(prior?.light ? { light: prior.light } : {}),
+        ...(prior?.edge ? { edge: prior.edge } : {}),
+        photoId,
+        revision: state.revision,
+        maskId: selected.id,
+        color: { ...(prior?.color ?? selected.color), [key]: value },
+      })
+    },
+    commitColor: () => safely(flush()),
     changeEdge: (key: keyof MaskEdgeSettings, value: number) => {
       if (!available || !selected || !state || !photoId) return
-      const prior = draftRef.current
+      const previous = draftRef.current
+      const prior =
+        previous?.maskId === selected.id &&
+        previous.photoId === photoId &&
+        previous.revision === state.revision
+          ? previous
+          : null
       publish({
-        ...(prior?.maskId === selected.id && prior.light ? { light: prior.light } : {}),
+        ...(prior?.light ? { light: prior.light } : {}),
+        ...(prior?.color ? { color: prior.color } : {}),
         photoId,
         revision: state.revision,
         maskId: selected.id,
         edge: {
-          ...((prior?.maskId === selected.id ? prior.edge : null) ?? selected.edge),
+          ...(prior?.edge ?? selected.edge),
           [key]: value,
         },
       })

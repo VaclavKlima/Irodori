@@ -175,6 +175,7 @@ test('managed MCP maps bounded points, freezes targets and shares mask operation
               whites: 2,
               blacks: -3,
             },
+            color: { temperature: 14, tint: 3, saturation: -8 },
           },
           { kind: 'create', id: b, name: 'Reflection' },
           {
@@ -182,13 +183,23 @@ test('managed MCP maps bounded points, freezes targets and shares mask operation
             id: b,
             stroke: { mode: 'add', radius: 0.1, feather: 0.5, points: [context.points[0]] },
           },
-          { kind: 'update', id: b, light: { exposureEv: -0.4 } },
+          { kind: 'update', id: b, color: { temperature: -12, saturation: -15 } },
         ],
       },
     })
     expect(first.revision).toBe(1)
     expect(first.maskContent).toBeUndefined()
     expect(first.settings.maskStack.map((mask) => mask.id)).toEqual([b, a])
+    expect(first.settings.maskStack[0].color).toEqual({
+      temperature: -12,
+      tint: 0,
+      saturation: -15,
+    })
+    expect(first.settings.maskStack[1].color).toEqual({
+      temperature: 14,
+      tint: 3,
+      saturation: -8,
+    })
     const uiState = await f.t.library.getEdits(photoId)
     expect(uiState.settings).toEqual(first.settings)
     expect(uiState.maskContent).toHaveLength(2)
@@ -222,6 +233,70 @@ test('managed MCP maps bounded points, freezes targets and shares mask operation
     expect(read.settings).toEqual((await f.t.library.getEdits(photoId)).settings)
     expect(JSON.stringify(read)).not.toContain('"points"')
     expect((await f.t.library.getEdits(otherId)).revision).toBe(0)
+    await f.t.originalsUnchanged()
+  } finally {
+    await f.close()
+  }
+})
+
+test('local Color partial updates, validation and reset share manual history without changing global white balance', async () => {
+  const f = await fixture(),
+    photoId = f.t.ids[0],
+    id = randomUUID()
+  try {
+    const before = await f.t.library.getEdits(photoId)
+    const created = await f.call<EditState>('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: before.revision,
+      maskMutation: { operations: [{ kind: 'create', id, name: 'Foliage' }] },
+    })
+    for (const color of [{ temperature: 101 }, { tint: 0.5 }, { kelvin: 5500 }]) {
+      const refused = await f.raw('irodori_mutate_masks', {
+        photoId,
+        expectedRevision: created.revision,
+        maskMutation: { operations: [{ kind: 'update', id, color }] },
+      })
+      expect(refused.isError).toBe(true)
+      expect((await f.t.library.getEdits(photoId)).revision).toBe(created.revision)
+    }
+    const colored = await f.call<EditState>('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: created.revision,
+      maskMutation: {
+        operations: [{ kind: 'update', id, color: { temperature: -20, saturation: -12 } }],
+      },
+    })
+    const manual = await f.t.library.mutateMasks(photoId, colored.revision, {
+      operations: [{ kind: 'update', id, color: { tint: 4 } }],
+    })
+    expect(manual.settings.maskStack[0].color).toEqual({
+      temperature: -20,
+      tint: 4,
+      saturation: -12,
+    })
+    expect(manual.settings.whiteBalance).toEqual(before.settings.whiteBalance)
+    const refreshed = await f.call<EditState>('irodori_get_edits', { photoId })
+    expect(refreshed.settings).toEqual(manual.settings)
+    const reset = await f.call<EditState>('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: manual.revision,
+      maskMutation: {
+        operations: [{ kind: 'update', id, color: { temperature: 0, tint: 0, saturation: 0 } }],
+      },
+    })
+    expect(reset.revision).toBe(manual.revision + 1)
+    expect(reset.settings.maskStack[0].color).toEqual({ temperature: 0, tint: 0, saturation: 0 })
+    const undone = await f.call<EditState>('irodori_undo_edit', {
+      photoId,
+      expectedRevision: reset.revision,
+    })
+    expect(undone.settings).toEqual(manual.settings)
+    const redone = await f.call<EditState>('irodori_redo_edit', {
+      photoId,
+      expectedRevision: undone.revision,
+    })
+    expect(redone.settings).toEqual(reset.settings)
+    expect((await f.t.library.getEditHistory(photoId)).snapshots).toHaveLength(5)
     await f.t.originalsUnchanged()
   } finally {
     await f.close()

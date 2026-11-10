@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "fixtureSet": "wikimedia-flamingo-water-reflection-v1",
+  "files": [
+    {
+      "name": "Flamant_rose_Salines_de_Thyna.jpg",
+      "path": "originals/Flamant_rose_Salines_de_Thyna.jpg",
+      "sha256": "3b87780172e91a6986610d6632babda98bf6ab24ab6e03cdff50bd70e33db5c6",
+      "bytes": 3540698,
+      "format": "JPEG",
+      "width": 2344,
+      "height": 2708,
+      "source": {
+        "title": "Flamant rose Salines de Thyna.jpg",
+        "author": "Elgollimoh",
+        "credit": "Elgollimoh, Flamant rose Salines de Thyna.jpg, Wikimedia Commons, CC BY-SA 3.0.",
+        "authorshipDeclaration": "Own work; explicit photographer-issued CC BY-SA 3.0 grant on the cited primary source.",
+        "page": "https://commons.wikimedia.org/wiki/File:Flamant_rose_Salines_de_Thyna.jpg",
+        "pageRevision": "https://commons.wikimedia.org/w/index.php?title=File:Flamant_rose_Salines_de_Thyna.jpg&oldid=1279790151",
+        "download": "https://upload.wikimedia.org/wikipedia/commons/a/a9/Flamant_rose_Salines_de_Thyna.jpg",
+        "downloadedOn": "2026-11-10",
+        "unchangedDownload": true,
+        "upstreamProcessing": "Published, cropped/retouched Pentax K-5 JPEG; embedded development settings are marked already applied.",
+        "license": {
+          "identifier": "CC-BY-SA-3.0",
+          "url": "https://creativecommons.org/licenses/by-sa/3.0/",
+          "legalCode": "https://creativecommons.org/licenses/by-sa/3.0/legalcode",
+          "notice": "LICENSE.md",
+          "checkedOn": "2026-11-10",
+          "permittedUse": "Testing, benchmarking, repository redistribution and adaptations subject to attribution and ShareAlike.",
+          "distributedAdaptations": "Retain Elgollimoh credit, title, source and license links; describe changes and retain applicable CC BY-SA 3.0 terms."
+        }
+      },
+      "technicalMetadata": {
+        "componentDepthBits": 8,
+        "encoding": "Baseline DCT, Huffman coding",
+        "chromaSubsampling": "4:4:4",
+        "embeddedIccProfile": "sRGB IEC61966-2.1",
+        "colorInterpretation": "Authored sRGB SDR; no measured color calibration claimed."
+      },
+      "intendedCoverage": [
+        "Independent local color treatment of coral plumage and surrounding water",
+        "Independent restrained treatment of visibly separated reflected legs",
+        "Fit and native-resolution inspection of feathered local-color boundaries"
+      ],
+      "limitations": [
+        "Reflected legs are visible; the photograph does not contain a full mirrored bird body.",
+        "No human skin or foliage coverage.",
+        "Published processed JPEG, not camera-original RAW, radiometric truth or true HDR reference.",
+        "Input inclusion and privacy review alone do not establish processing-quality acceptance.",
+        "Generated proof crops and comparisons stay outside Git; distributed adaptations retain the photographic license."
+      ]
+    }
+  ],
+  "privacyReview": {
+    "reviewedOn": "2026-11-10",
+    "completeOriginalViewed": true,
+    "completeOriginalDimensions": { "width": 2344, "height": 2708 },
+    "visualFinding": "Bird and water only; no identifiable people, private interiors, documents, screens, addresses or other personal information observed.",
+    "metadataTool": "Bundled ExifTool, read-only",
+    "metadataOptions": [
+      "-json",
+      "-G1",
+      "-a",
+      "-u",
+      "-U",
+      "-ee3",
+      "-api",
+      "RequestAll=3",
+      "-all:all"
+    ],
+    "fullMetadataTagsReviewed": 278,
+    "metadataFinding": "No GPS, camera/lens serial, owner or personal contact identifiers found; no MakerNotes returned.",
+    "binaryPreviewTags": ["PhotoshopThumbnail", "ThumbnailImage"],
+    "allEmbeddedPreviewsViewed": true,
+    "originalPreserved": true,
+    "pixelsOrMetadataRewritten": false,
+    "privateHostMetadataIncluded": false
+  },
+  "distribution": {
+    "productionBundle": false,
+    "automaticDemoImport": false,
+    "photographLicense": "CC-BY-SA-3.0",
+    "projectApacheDefaultDoesNotRelicensePhotograph": true
+  }
+}

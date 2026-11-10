@@ -5,6 +5,7 @@ import type { ObjectSelectionRequest, AcceptObjectSelection } from '../shared/ob
 import { MaskContentStore, prepareMaskMutation } from './mask-store'
 import {
   resolveMasks,
+  hasMaskAdjustments,
   validateMaskMutation,
   type MaskDescriptor,
   type MaskMutation,
@@ -484,7 +485,10 @@ export class PhotoLibrary {
     const fresh =
       version.user_version === 0 &&
       !this.db.prepare("SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' LIMIT 1").get()
-    if (!fresh && ![17, 18, 19, 20, 21, 22, 23, 24, CATALOG_VERSION].includes(version.user_version))
+    if (
+      !fresh &&
+      ![17, 18, 19, 20, 21, 22, 23, 24, 25, CATALOG_VERSION].includes(version.user_version)
+    )
       throw new Error(
         version.user_version > CATALOG_VERSION
           ? 'This library requires a newer version of Irodori.'
@@ -557,7 +561,7 @@ export class PhotoLibrary {
         this.workspace.initialize()
         new ExportReadStore(this.db).initialize()
       } else {
-        if ([17, 18, 19, 20, 21, 22, 23, 24].includes(version.user_version))
+        if ([17, 18, 19, 20, 21, 22, 23, 24, 25].includes(version.user_version))
           migrateEditingHistory(this.db)
         this.cameraRecognition.prepare()
       }
@@ -571,7 +575,7 @@ export class PhotoLibrary {
         const data = JSON.parse(row.data) as ProcessingOptions
         bootstrap.seedEdits(row.id, data, new Date().toISOString())
       }
-      if (fresh || [17, 18, 19, 20, 21, 22, 23, 24].includes(version.user_version))
+      if (fresh || [17, 18, 19, 20, 21, 22, 23, 24, 25].includes(version.user_version))
         this.db.exec(`PRAGMA user_version = ${CATALOG_VERSION}`)
       this.db.exec('COMMIT')
     } catch (error) {
@@ -1235,13 +1239,12 @@ export class PhotoLibrary {
       if (
         chunks.length ||
         mutation.operations.some((op) => op.kind === 'update' && op.edge !== undefined) ||
-        (resolved.some(
-          (mask) => mask.enabled && Object.values(mask.light).some((value) => value !== 0),
-        ) &&
+        (resolved.some((mask) => mask.enabled && hasMaskAdjustments(mask)) &&
           mutation.operations.some(
             (op) =>
               op.kind === 'duplicate' ||
-              (op.kind === 'update' && (op.light !== undefined || op.enabled === true)),
+              (op.kind === 'update' &&
+                (op.light !== undefined || op.color !== undefined || op.enabled === true)),
           ))
       )
         await this.fullPreviews.validateMaskEdit(id, expectedRevision, resolved)

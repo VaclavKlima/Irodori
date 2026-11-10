@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { AdjustmentParameters } from '../../../shared/adjustments'
 import { maskEdgePixelIdentity } from '../../../shared/mask-edges'
 import {
+  hasMaskAdjustments,
   maskHasEdges,
   validatePreparedMaskCoverage,
   type PreparedMaskCoverage,
@@ -36,8 +37,7 @@ export function useMaskEdgeCoverage({
   const required = (parameters.localMasks ?? []).filter(
     (mask) =>
       maskHasEdges(mask) &&
-      ((mask.enabled && Object.values(mask.light).some((value) => value !== 0)) ||
-        (overlayVisible && mask.id === selectedId)),
+      ((mask.enabled && hasMaskAdjustments(mask)) || (overlayVisible && mask.id === selectedId)),
   )
   const identity = JSON.stringify([
     photoId,

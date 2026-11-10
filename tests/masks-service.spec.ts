@@ -56,6 +56,7 @@ test('shared mask service persists compact references, one-step compound history
           stroke: { mode: 'add', radius: 0.1, feather: 0.5, points: [{ x: 0.2, y: 0.3 }] },
         },
         { kind: 'update', id, light: { shadows: 15 } },
+        { kind: 'update', id, color: { temperature: 12, tint: -4, saturation: -15 } },
       ],
     })
     expect(first.revision).toBe(1)
@@ -94,11 +95,16 @@ test('shared mask service persists compact references, one-step compound history
       operations: [
         { kind: 'duplicate', id, newId: duplicate, name: 'Reflection' },
         { kind: 'update', id: duplicate, light: { exposureEv: -0.5 } },
+        { kind: 'update', id: duplicate, color: { temperature: -20 } },
         { kind: 'reorder', ids: [id, duplicate] },
       ],
     })
     expect(changed.revision).toBe(2)
     expect(changed.maskContent).toHaveLength(1)
+    expect(changed.settings.maskStack.map((mask) => mask.color)).toEqual([
+      { temperature: 12, tint: -4, saturation: -15 },
+      { temperature: -20, tint: -4, saturation: -15 },
+    ])
     await expect(
       library.mutateMasks(photoId, 1, { operations: [{ kind: 'delete', id }] }),
     ).rejects.toThrow('conflict')

@@ -26,8 +26,10 @@ import {
 } from 'lucide-react'
 import {
   maskCapabilities,
+  neutralMaskColor,
   neutralMaskEdge,
   neutralMaskLight,
+  type MaskColor,
   type MaskLight,
 } from '../../../shared/masks'
 import type { MaskDetailTab } from '../../../shared/workspace'
@@ -48,6 +50,11 @@ const controls: readonly { key: keyof MaskLight; label: string }[] = [
   { key: 'shadows', label: 'Shadows' },
   { key: 'whites', label: 'Whites' },
   { key: 'blacks', label: 'Blacks' },
+]
+const colorControls: readonly { key: keyof MaskColor; label: string }[] = [
+  { key: 'temperature', label: 'Temperature' },
+  { key: 'tint', label: 'Tint' },
+  { key: 'saturation', label: 'Saturation' },
 ]
 type MaskAction = 'rename' | 'duplicate' | 'invert' | 'up' | 'down' | 'delete'
 type OpenMenu = {
@@ -115,6 +122,7 @@ export function Masks({
   const [menu, setMenu] = useState<OpenMenu | null>(null)
   const [renaming, setRenaming] = useState<{ scope: object; id: string } | null>(null)
   const [lightExpanded, setLightExpanded] = useState(true)
+  const [colorExpanded, setColorExpanded] = useState(false)
   const [edgesExpanded, setEdgesExpanded] = useState(true)
   const list = useRef<HTMLOListElement>(null)
   const details = useRef<HTMLDivElement>(null)
@@ -642,47 +650,90 @@ export function Masks({
             </TabPanel>
             <TabPanel id="adjustments" active={detailTab === 'adjustments'}>
               {selected && (
-                <InspectorSection
-                  id="mask-light-controls"
-                  title="Light"
-                  expanded={lightExpanded}
-                  onToggle={() => setLightExpanded((value) => !value)}
-                  headerActions={
-                    <IconButton
-                      icon={RotateCcw}
-                      label="Reset mask Light"
-                      disabled={!masks.available}
-                      onClick={() =>
-                        masks.update({
-                          kind: 'update',
-                          id: selected.id,
-                          light: { ...neutralMaskLight },
-                        })
-                      }
-                    />
-                  }
-                >
-                  <div role="group" aria-label="Mask Light controls">
-                    {controls.map(({ key, label }) => (
-                      <AdjustmentInput
-                        key={key}
-                        label={`Local ${label}`}
-                        value={selected.light[key]}
-                        min={key === 'exposureEv' ? -5 : -100}
-                        max={key === 'exposureEv' ? 5 : 100}
-                        step={key === 'exposureEv' ? 0.01 : 1}
-                        precision={key === 'exposureEv' ? 2 : 0}
-                        unit={key === 'exposureEv' ? 'EV' : undefined}
-                        resetKey={masks.resetKey}
-                        disabled={!masks.supported}
-                        busy={masks.busy}
-                        onChange={(value) => masks.changeLight(key, value)}
-                        onCommit={masks.commitLight}
-                        onCancel={masks.cancel}
+                <>
+                  <InspectorSection
+                    id="mask-light-controls"
+                    title="Light"
+                    expanded={lightExpanded}
+                    onToggle={() => setLightExpanded((value) => !value)}
+                    headerActions={
+                      <IconButton
+                        icon={RotateCcw}
+                        label="Reset mask Light"
+                        disabled={!masks.available}
+                        onClick={() =>
+                          masks.update({
+                            kind: 'update',
+                            id: selected.id,
+                            light: { ...neutralMaskLight },
+                          })
+                        }
                       />
-                    ))}
-                  </div>
-                </InspectorSection>
+                    }
+                  >
+                    <div role="group" aria-label="Mask Light controls">
+                      {controls.map(({ key, label }) => (
+                        <AdjustmentInput
+                          key={key}
+                          label={`Local ${label}`}
+                          value={selected.light[key]}
+                          min={key === 'exposureEv' ? -5 : -100}
+                          max={key === 'exposureEv' ? 5 : 100}
+                          step={key === 'exposureEv' ? 0.01 : 1}
+                          precision={key === 'exposureEv' ? 2 : 0}
+                          unit={key === 'exposureEv' ? 'EV' : undefined}
+                          resetKey={masks.resetKey}
+                          disabled={!masks.supported}
+                          busy={masks.busy}
+                          onChange={(value) => masks.changeLight(key, value)}
+                          onCommit={masks.commitLight}
+                          onCancel={masks.cancel}
+                        />
+                      ))}
+                    </div>
+                  </InspectorSection>
+                  <InspectorSection
+                    id="mask-color-controls"
+                    title="Color"
+                    expanded={colorExpanded}
+                    onToggle={() => setColorExpanded((value) => !value)}
+                    headerActions={
+                      <IconButton
+                        icon={RotateCcw}
+                        label="Reset mask Color"
+                        disabled={!masks.available}
+                        onClick={() =>
+                          masks.update({
+                            kind: 'update',
+                            id: selected.id,
+                            color: { ...neutralMaskColor },
+                          })
+                        }
+                      />
+                    }
+                  >
+                    <div role="group" aria-label="Mask Color controls">
+                      {colorControls.map(({ key, label }) => (
+                        <AdjustmentInput
+                          key={key}
+                          label={`Local ${label}`}
+                          value={masks.colorValues[key]}
+                          min={-100}
+                          max={100}
+                          step={1}
+                          precision={0}
+                          resetKey={masks.resetKey}
+                          disabled={!masks.supported}
+                          busy={masks.busy}
+                          onChange={(value) => masks.changeColor(key, value)}
+                          onCommit={masks.commitColor}
+                          onCancel={masks.cancel}
+                        />
+                      ))}
+                    </div>
+                    <p className={styles.hint}>Relative balance; 0 preserves current color.</p>
+                  </InspectorSection>
+                </>
               )}
             </TabPanel>
           </div>

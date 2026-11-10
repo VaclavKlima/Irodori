@@ -191,6 +191,41 @@ test(
     await expect(canvas).toHaveAttribute('data-frame-geometry-revision', String(edgeRevision + 1))
     expect(await page.locator('[data-hover-controls]').boundingBox()).toEqual(stageBefore)
     expect(await page.getByTestId('inspector-pinned').boundingBox()).toEqual(histogramBefore)
+    await click(page.getByRole('tab', { name: 'Adjustments', exact: true }))
+    const panel = page.getByTestId('masks-panel'),
+      light = panel.getByRole('button', { name: 'Light', exact: true }),
+      color = panel.getByRole('button', { name: 'Color', exact: true })
+    await expect(color).toHaveAttribute('aria-expanded', 'false')
+    await click(light)
+    await click(color)
+    const temperature = page.getByRole('spinbutton', {
+        name: 'Local Temperature value',
+        exact: true,
+      }),
+      tint = page.getByRole('spinbutton', { name: 'Local Tint value', exact: true })
+    await click(temperature)
+    await temperature.fill('19')
+    await key('Enter')
+    const colorRevision = edgeRevision + 2
+    await expect.poll(history).toMatchObject({ revision: colorRevision })
+    await expect(temperature).toHaveValue('19')
+    await expect(temperature).toBeFocused()
+    await expect(canvas).toHaveAttribute('data-editing', 'ready')
+    await expect(canvas).toHaveAttribute('data-frame-geometry-revision', String(colorRevision))
+    await click(tint)
+    await tint.fill('-6')
+    await key('Escape')
+    await expect(tint).toHaveValue('0')
+    await expect(tint).toBeFocused()
+    expect((await history()).revision).toBe(colorRevision)
+    const colorMask = (await history()).settings.maskStack.find((mask) => mask.id === first)!
+    expect(colorMask).toMatchObject({
+      head,
+      color: { temperature: 19, tint: 0, saturation: 0 },
+      light: { exposureEv: 0.75 },
+    })
+    expect(await page.locator('[data-hover-controls]').boundingBox()).toEqual(stageBefore)
+    expect(await page.getByTestId('inspector-pinned').boundingBox()).toEqual(histogramBefore)
     await page.screenshot({ path: info.outputPath('masks-minimum-console.png'), scale: 'css' })
     await writeFile(
       info.outputPath('masks-native.json'),
@@ -206,6 +241,11 @@ test(
             committed: edgeMask.edge,
             cancelledShiftPx: -3,
             undoneRevision: edgeRevision + 1,
+          },
+          maskColor: {
+            committedRevision: colorRevision,
+            committed: colorMask.color,
+            cancelledTint: -6,
           },
           focus: await native.evaluate((window) => ({
             window: window.isFocused(),

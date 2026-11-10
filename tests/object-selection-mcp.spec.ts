@@ -66,7 +66,10 @@ test('actual catalog 23 startup upgrades all brush history to 24 and rejects dis
         ...stored.snapshots.map((snapshot: { settings: unknown }) => snapshot.settings),
       ]) {
         settings.version = 13
-        for (const mask of settings.maskStack) delete mask.edge
+        for (const mask of settings.maskStack) {
+          delete mask.edge
+          delete mask.color
+        }
       }
       db.prepare('UPDATE edits SET data=? WHERE id=?').run(JSON.stringify(stored), photoId)
       db.exec('DROP TABLE mask_base_content; PRAGMA user_version=23')
@@ -93,7 +96,10 @@ test('actual catalog 23 startup upgrades all brush history to 24 and rejects dis
         ...future.snapshots.map((snapshot: { settings: unknown }) => snapshot.settings),
       ]) {
         settings.version = 13
-        for (const mask of settings.maskStack) delete mask.edge
+        for (const mask of settings.maskStack) {
+          delete mask.edge
+          delete mask.color
+        }
       }
       future.settings.maskStack[0].base = { version: 1, hash: 'e'.repeat(64), width: 8, height: 6 }
       db.prepare('UPDATE edits SET data=? WHERE id=?').run(JSON.stringify(future), photoId)

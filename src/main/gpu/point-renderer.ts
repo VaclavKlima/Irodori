@@ -75,7 +75,7 @@ struct Result { peak:atomic<u32>, values:array<u32> }
 @group(0) @binding(2) var<storage,read_write> result:Result;
 ${deferred ? '@group(0) @binding(5) var<storage,read_write> working:array<f32>;' : ''}
 ${hdrAdjustmentShader(creative, 12, 'acesPow', curves)}
-${masks ? localMasksWgsl(16, bases ? 18 : undefined) : ''}
+${masks ? localMasksWgsl(16, bases ? 18 : undefined, 'acesPow') : ''}
 ${hdr && packed ? `var<workgroup> peaks:array<f32,${workgroup}>;` : ''}
 fn exportTarget(jmh:vec3f,linear:f32)->vec3f {
  let toned=Y_to_J(tonescale_fwd(linear,aces_ts()),aces_input_params());
@@ -452,7 +452,7 @@ export async function createPointGpu(
         if (!Number.isFinite(headroom) || headroom > 65504)
           throw new Error(
             masks
-              ? 'Local Light processing produced non-finite pixels. Reduce the local adjustments.'
+              ? 'Local adjustment processing produced non-finite pixels. Reduce the local adjustments.'
               : 'Invalid GPU output pixels.',
           )
         return { data, headroom }
