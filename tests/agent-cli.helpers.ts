@@ -2,7 +2,11 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 /** Deterministic CLI stand-in for PTY/lifecycle tests; it never calls a model or reads credentials. */
-export async function agentCliFixture(directory: string, version = '0.166.0') {
+export async function agentCliFixture(
+  directory: string,
+  version = '0.166.0',
+  configOverrides: Record<string, unknown> = {},
+) {
   const path = join(directory, 'codex-fixture')
   await writeFile(
     path,
@@ -24,7 +28,13 @@ if (process.argv.includes('app-server')) {
         const entries = text.split('[features]')[1].split('[')[0];
         const setting = key => JSON.parse(text.split('\\n').find(line => line.startsWith(key + ' = ')).slice(key.length + 3));
         const features = Object.fromEntries([...entries.matchAll(/(\\w+) = (true|false)/g)].map(m => [m[1], m[2] === 'true']));
-        console.log(JSON.stringify({ id: 2, result: { config: { features, sandbox_mode: 'read-only', approval_policy: 'never', web_search: 'disabled', agents: { enabled: false }, model_instructions_file: setting('model_instructions_file'), mcp_servers: { irodori: { command: setting('command'), args: setting('args'), required: setting('required'), enabled_tools: setting('enabled_tools'), default_tools_approval_mode: setting('default_tools_approval_mode') } }, skills: { bundled: { enabled: false }, include_instructions: false } } } }));
+        const config = { features, sandbox_mode: 'read-only', approval_policy: 'never', web_search: 'disabled', agents: { enabled: false }, model_instructions_file: setting('model_instructions_file'), mcp_servers: { irodori: { command: setting('command'), args: setting('args'), required: setting('required'), enabled_tools: setting('enabled_tools'), default_tools_approval_mode: setting('default_tools_approval_mode') } }, skills: { bundled: { enabled: false }, include_instructions: false } };
+        for (const [path, value] of Object.entries(${JSON.stringify(configOverrides)})) {
+          const keys = path.split('.'), key = keys.pop();
+          const target = keys.reduce((object, key) => object[key], config);
+          target[key] = value;
+        }
+        console.log(JSON.stringify({ id: 2, result: { config } }));
       }
     }
   });

@@ -10,11 +10,13 @@ import type { PreviewProcess } from '../src/main/preview-process'
 import { FullPreviews } from '../src/main/full-previews'
 import type { ExportSource } from '../src/main/export/types'
 import { processingMetadata } from '../src/main/processing/metadata'
+import { renderHdr } from '../src/main/processing/hdr-processing'
 import { initialSettings, type EditState } from '../src/shared/edits'
 import { neutralAdjustments, srgbTransform } from '../src/shared/adjustments'
 import { automaticLensSettings } from '../src/shared/lens'
 import { identityMaskGeometry } from '../src/shared/mask-geometry'
 import { defaultLuminanceMaskRange } from '../src/shared/mask-ranges'
+import { MERGE_VERSION, type MergeRecipe } from '../src/shared/merge'
 import {
   neutralMaskColor,
   neutralMaskEdge,
@@ -26,15 +28,18 @@ import { workingAsset } from './export.helpers'
 
 const hash = (data: Uint8Array) => createHash('sha256').update(data).digest('hex')
 
-async function fixture(hdr = false) {
+async function fixture(hdr = false, merged = false) {
   const root = await mkdtemp(join(tmpdir(), 'irodori-range-service-'))
-  const originalPath = join(root, 'original.dat'),
-    original = Buffer.from('unchanged-range-original')
+  const width = 8,
+    height = 6,
+    pixels = new Float32Array(width * height * 4)
+  for (let i = 0; i < pixels.length; i += 4)
+    pixels.set([hdr ? 4 : 0.5, hdr ? 4 : 0.5, hdr ? 4 : 0.5, 1], i)
+  const originalPath = join(root, merged ? 'master.f32' : 'original.dat'),
+    original = merged ? Buffer.from(pixels.buffer) : Buffer.from('unchanged-range-original')
   await writeFile(originalPath, original)
   const stat = await lstat(originalPath)
-  const photoId = hash(original),
-    width = 8,
-    height = 6
+  const photoId = hash(original)
   const source: ExportSource = {
     hdr,
     path: originalPath,
@@ -65,9 +70,24 @@ async function fixture(hdr = false) {
       adjustments: { ...structuredClone(neutralAdjustments), exposureEv: 2 },
     },
   }
-  const pixels = new Float32Array(width * height * 4)
-  for (let i = 0; i < pixels.length; i += 4)
-    pixels.set([hdr ? 4 : 0.5, hdr ? 4 : 0.5, hdr ? 4 : 0.5, 1], i)
+  if (merged) {
+    const asset = workingAsset(original, width, height)
+    asset.source.composite = { kind: 'hdr', sourceCount: 3 }
+    // Only the accepted header is consumed here; no merge computation is exercised.
+    source.processing.metadata.mergeMaster = {
+      asset,
+      recipe: { version: MERGE_VERSION } as MergeRecipe,
+    }
+    source.processing.workingAsset = {
+      path: originalPath,
+      width,
+      height,
+      byteLength: original.byteLength,
+      sha256: asset.sha256,
+      transform: srgbTransform,
+      hdr: asset,
+    }
+  }
   let revision = 0,
     reserved = 0,
     decode = 0,
@@ -96,6 +116,26 @@ async function fixture(hdr = false) {
       signal.throwIfAborted()
       await mkdir(output, { recursive: true })
       linearPath = join(output, 'linear.f32')
+      if (merged)
+        return renderHdr(
+          _path,
+          output,
+          config!,
+          {
+            render: async () => {
+              throw new Error('A merged range source must not decode RAW pixels.')
+            },
+            releaseFrame() {},
+            mergeDevice() {
+              throw new Error('A merged range source must not render a display proof.')
+            },
+          },
+          'gpu',
+          undefined,
+          async () => {
+            throw new Error('A merged range source must not open a RAW host.')
+          },
+        )
       const bytes = Buffer.from(pixels.buffer)
       await writeFile(linearPath, bytes)
       return {
@@ -165,13 +205,24 @@ async function fixture(hdr = false) {
       admission: async () => admission,
       reserve: async (bytes) => {
         reserved += bytes
-        let released = false
-        return () => {
-          if (!released) {
-            released = true
-            reserved -= bytes
-          }
-        }
+        let released = false,
+          held = bytes
+        return Object.assign(
+          () => {
+            if (!released) {
+              released = true
+              reserved -= held
+            }
+          },
+          {
+            shrink(next: number) {
+              if (released || !Number.isSafeInteger(next) || next < 0 || next > held)
+                throw new Error('Invalid fixture reservation shrink.')
+              reserved -= held - next
+              held = next
+            },
+          },
+        )
       },
     },
     { decoder, runtime },
@@ -269,6 +320,42 @@ test('range sampling consumes neutral Float32 source without SDR double decoding
     } finally {
       await f.close()
     }
+  }
+})
+
+test('merged HDR range sampling and coverage retain the permanent master without RAW decoding or highlight clipping', async () => {
+  const f = await fixture(true, true)
+  try {
+    const master = structuredClone(f.source.processing.workingAsset),
+      metadata = structuredClone(f.source.processing.metadata.mergeMaster)
+    const first = await f.service.sample(f.request())
+    expect(first.luminance).toBeCloseTo(400, 9)
+    expect(await readFile(f.linearPath())).toEqual(Buffer.from(f.pixels.buffer))
+    expect(f.options[0]).toMatchObject({
+      workingAsset: master,
+      adjustments: neutralAdjustments,
+      prepareLinear: true,
+      workingOnly: true,
+    })
+    const masks = await f.service.prepareMasks(f.source, [f.mask])
+    expect(masks[0].preparedRangeBase).toMatchObject({ width: 8, height: 6 })
+    expect(f.inputs[0][6]?.source).toMatchObject({
+      primaries: 'rec2020',
+      sha256: master!.sha256,
+      width: 8,
+      height: 6,
+    })
+    f.revise()
+    const after = await f.service.sample(f.request())
+    expect(after.sourceIdentity).toBe(first.sourceIdentity)
+    expect(after.luminance).toBe(first.luminance)
+    const repeated = await f.service.prepareMasks(f.source, [f.mask])
+    expect(repeated[0].preparedRangeBase).toEqual(masks[0].preparedRangeBase)
+    expect(f.counts()).toMatchObject({ decode: 1, gpu: 1 })
+    expect(f.source.processing.workingAsset).toEqual(master)
+    expect(f.source.processing.metadata.mergeMaster).toEqual(metadata)
+  } finally {
+    await f.close()
   }
 })
 
@@ -447,5 +534,206 @@ test('range coverage disk reservation completes inside the preview queue and ret
   } finally {
     await cache.close()
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+async function rangePreviewBudgetFixture(options?: ConstructorParameters<typeof FullPreviews>[4]) {
+  const root = await mkdtemp(join(tmpdir(), 'irodori-range-preview-reclaim-')),
+    original = Buffer.from('unchanged-preview-budget-source'),
+    originalPath = join(root, 'original.dat'),
+    ids = ['a'.repeat(64), 'b'.repeat(64)]
+  await writeFile(originalPath, original)
+  const pixels = Buffer.alloc(2 * 2 * 4, 127)
+  let renders = 0
+  const cache = new FullPreviews(
+    root,
+    (id) => (ids.includes(id) ? originalPath : undefined),
+    {
+      renderFull: async (_path, output) => {
+        renders++
+        await writeFile(join(output, 'full.rgba'), pixels)
+        await writeFile(join(output, 'placeholder.png'), Buffer.alloc(0))
+        return {
+          width: 2,
+          height: 2,
+          format: 'rgba8-srgb',
+          byteLength: pixels.byteLength,
+          sha256: hash(pixels),
+          renderId: 'synthetic-range-budget-preview',
+          placeholderBytes: 0,
+        }
+      },
+      close: async () => {},
+    },
+    100,
+    options,
+  )
+  await cache.open()
+  return {
+    cache,
+    ids,
+    pixels,
+    renders: () => renders,
+    async close() {
+      await cache.close()
+      expect(await readFile(originalPath)).toEqual(original)
+      await rm(root, { recursive: true, force: true })
+    },
+  }
+}
+
+test('range storage reservation shrink retains its remaining bytes until release', async () => {
+  const f = await rangePreviewBudgetFixture()
+  const releases: (() => void)[] = []
+  try {
+    const retained = await f.cache.reserveRangeCoverageBytes(100)
+    releases.push(retained)
+    retained.shrink(60)
+    retained.shrink(60)
+    for (const invalid of [-1, 60.5, 61, NaN, Infinity])
+      expect(() => retained.shrink(invalid)).toThrow()
+    await expect(f.cache.reserveRangeCoverageBytes(41)).rejects.toThrow(/storage limit/i)
+    releases.push(await f.cache.reserveRangeCoverageBytes(40))
+    await expect(f.cache.reserveRangeCoverageBytes(1)).rejects.toThrow(/storage limit/i)
+    retained()
+    retained()
+    expect(() => retained.shrink(0)).toThrow()
+    const replacement = await f.cache.reserveRangeCoverageBytes(60)
+    releases.push(replacement)
+    await expect(f.cache.reserveRangeCoverageBytes(1)).rejects.toThrow(/storage limit/i)
+    replacement.shrink(0)
+    releases.push(await f.cache.reserveRangeCoverageBytes(60))
+  } finally {
+    for (const release of releases) release()
+    await f.close()
+  }
+})
+
+test('range storage reclaims unused previews while protecting the active photo and open streams', async () => {
+  const f = await rangePreviewBudgetFixture()
+  let stream: ReturnType<FullPreviews['acquire']>, release: (() => void) | undefined
+  try {
+    const old = await f.cache.request(f.ids[0], randomUUID())
+    stream = f.cache.acquire(new URL(old.url))!
+    const current = await f.cache.request(f.ids[1], randomUUID())
+    const refused = f.cache.reserveRangeCoverageBytes(80)
+    await expect(refused).rejects.toThrow(/storage limit/i)
+    expect(await readFile(stream.path)).toEqual(f.pixels)
+    const oldPath = stream.path
+    stream.release()
+    stream = undefined
+    const serialized = f.cache as unknown as {
+      enqueue<T>(run: () => Promise<T>): Promise<T>
+    }
+    release = await serialized.enqueue(() => f.cache.reserveRangeCoverageBytes(80))
+    await expect(refused).rejects.toThrow(/requested/i)
+    await expect(refused).rejects.toThrow(/budget/i)
+    await expect(refused).rejects.toThrow(/protected/i)
+    expect(f.cache.acquire(new URL(old.url))).toBeUndefined()
+    await expect(readFile(oldPath)).rejects.toMatchObject({ code: 'ENOENT' })
+    const active = f.cache.acquire(new URL(current.url))!
+    try {
+      expect(await readFile(active.path)).toEqual(f.pixels)
+      expect(f.cache.getDiagnostics().photoId).toBe(current.photoId)
+    } finally {
+      active.release()
+    }
+    release()
+    release()
+  } finally {
+    stream?.release()
+    release?.()
+    await f.close()
+  }
+})
+
+test('range reclamation protects a cached photo while its preview lookup awaits current settings', async () => {
+  let block = false,
+    entered!: () => void,
+    unblock!: () => void
+  const started = new Promise<void>((done) => {
+      entered = done
+    }),
+    gate = new Promise<void>((done) => {
+      unblock = done
+    })
+  const f = await rangePreviewBudgetFixture(async () => {
+    if (block) {
+      entered()
+      await gate
+    }
+    return {
+      metadata: processingMetadata({}, []),
+      settings: { ...automaticLensSettings },
+      revision: 0,
+    }
+  })
+  let pending: ReturnType<FullPreviews['request']> | undefined, release: (() => void) | undefined
+  try {
+    const first = await f.cache.request(f.ids[0], randomUUID())
+    await f.cache.request(f.ids[1], randomUUID())
+    block = true
+    pending = f.cache.request(f.ids[0], randomUUID())
+    await started
+    release = await f.cache.reserveRangeCoverageBytes(80)
+    unblock()
+    const resumed = await pending
+    expect(resumed.url).toBe(first.url)
+    expect(f.renders()).toBe(2)
+    const active = f.cache.acquire(new URL(resumed.url))!
+    try {
+      expect(await readFile(active.path)).toEqual(f.pixels)
+    } finally {
+      active.release()
+    }
+  } finally {
+    unblock()
+    await pending?.catch(() => undefined)
+    release?.()
+    await f.close()
+  }
+})
+
+test('concurrent range and output-proof reservations cannot overcommit protected preview storage', async () => {
+  const f = await rangePreviewBudgetFixture()
+  const releases: (() => void)[] = []
+  try {
+    await f.cache.request(f.ids[0], randomUUID())
+    const current = await f.cache.request(f.ids[1], randomUUID())
+    for (const second of ['range', 'proof'] as const) {
+      const outcomes = await Promise.allSettled([
+        f.cache.reserveRangeCoverageBytes(48),
+        second === 'range'
+          ? f.cache.reserveRangeCoverageBytes(48)
+          : f.cache.reserveOutputProofBytes(48),
+      ])
+      const accepted = outcomes.filter((outcome) => outcome.status === 'fulfilled')
+      expect(accepted).toHaveLength(1)
+      expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1)
+      for (const outcome of accepted) {
+        releases.push(outcome.value)
+        outcome.value()
+      }
+    }
+    releases.push(await f.cache.reserveRangeCoverageBytes(48))
+    await expect(f.cache.reserveOutputProofBytes(37)).rejects.toThrow(/storage limit/i)
+    const proofRelease = await f.cache.reserveOutputProofBytes(36)
+    releases.push(proofRelease)
+    await expect(f.cache.reserveRangeCoverageBytes(1)).rejects.toThrow(/storage limit/i)
+    const active = f.cache.acquire(new URL(current.url))!
+    try {
+      expect(await readFile(active.path)).toEqual(f.pixels)
+    } finally {
+      active.release()
+    }
+    for (const release of releases) {
+      release()
+      release()
+    }
+    const retryRelease = await f.cache.reserveRangeCoverageBytes(84)
+    releases.push(retryRelease)
+  } finally {
+    for (const release of releases) release()
+    await f.close()
   }
 })

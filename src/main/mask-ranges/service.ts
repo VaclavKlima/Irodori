@@ -22,6 +22,7 @@ import {
 } from '../../shared/masks'
 import type { ExportSource, FileIdentity } from '../export/types'
 import { PreviewProcess } from '../preview-process'
+import type { PreviewDiskReservation } from '../preview-types'
 import { MaskEdgeProcess } from '../mask-edges/process'
 import { verifiedMaskBaseBytes } from '../mask-store'
 import type { MaskRangeSource } from './types'
@@ -32,7 +33,7 @@ interface Owner {
   context(id: string, revision: number): Promise<PhotoMaskContext>
   edits(id: string): Promise<EditState>
   admission(signal: AbortSignal): Promise<CropAdmission>
-  reserve(bytes: number): Promise<() => void>
+  reserve(bytes: number): Promise<PreviewDiskReservation>
 }
 interface CachedBase {
   photoId: string
@@ -210,7 +211,7 @@ export class MaskRangeService {
         let entry = this.cache.get(key)
         if (!entry) {
           await this.prune(maskCapabilities.maxBaseEncodedBytes)
-          let release = await this.owner.reserve(maskCapabilities.maxBaseEncodedBytes)
+          const release = await this.owner.reserve(maskCapabilities.maxBaseEncodedBytes)
           const directory = join(this.root, 'cache', 'mask-ranges', 'coverage', randomUUID()),
             path = join(directory, 'coverage.png')
           try {
@@ -245,9 +246,7 @@ export class MaskRangeService {
             })
             if (bytes.byteLength !== result.encodedBytes)
               throw new Error('Prepared range coverage bytes changed.')
-            release()
-            release = () => undefined
-            release = await this.owner.reserve(bytes.byteLength)
+            release.shrink(bytes.byteLength)
             entry = { photoId: source.photo.id, path, asset, bytes: bytes.byteLength, release }
             this.cache.set(key, entry)
           } catch (error) {
@@ -382,13 +381,18 @@ export class MaskRangeService {
     )
     // The temporary raster rendition and its bounded thumbnail share this lease
     // until only the canonical Float32 source remains in the owned directory.
-    let release = await this.owner.reserve(
+    const release = await this.owner.reserve(
       source.photo.width * source.photo.height * 20 + 64 * 1024,
     )
     let decoderClosed = false
     try {
       await mkdir(directory, { recursive: true })
+      const master = source.processing.metadata.mergeMaster
+      const canonicalMaster = master ? source.processing.workingAsset : undefined
+      if (master && (!canonicalMaster?.hdr || canonicalMaster.path !== source.path))
+        throw new Error('The canonical merged HDR source is unavailable. Reopen the photograph.')
       const raw =
+        Boolean(master) ||
         source.processing.processing === 'hdr-v1' ||
         Boolean(source.processing.metadata.hdrJpeg?.state === 'supported')
       const options = {
@@ -396,7 +400,7 @@ export class MaskRangeService {
         processing: raw ? ('hdr-v1' as const) : source.processing.processing,
         settings: { ...noLensSettings },
         adjustments: structuredClone(neutralAdjustments),
-        workingAsset: undefined,
+        workingAsset: canonicalMaster,
         crop: undefined,
         noiseReduction: undefined,
         detailSharpening: undefined,
@@ -435,9 +439,7 @@ export class MaskRangeService {
       for (const entry of await readdir(directory))
         if (entry !== 'linear.f32')
           await rm(join(directory, entry), { recursive: true, force: true })
-      release()
-      release = () => undefined
-      release = await this.owner.reserve(info.size)
+      release.shrink(info.size)
       const canonical: MaskRangeSource = {
         path,
         width,
@@ -462,7 +464,6 @@ export class MaskRangeService {
         fileIdentity,
         release,
       }
-      release = () => undefined
       await this.validateCanonicalSource(canonical)
       return canonical
     } catch (error) {

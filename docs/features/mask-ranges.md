@@ -26,6 +26,12 @@ second time. RAW/merge and authored HDR use Float32 linear Rec.2020 with fixed
 reference white already incorporated. An authored HDR photograph keeps that source
 when its independently authored SDR primary is presented.
 
+Merged HDR photographs retain the permanent verified Float32 master descriptor
+when preparing the canonical source; the existing HDR owner copies that master
+unchanged instead of attempting camera-RAW decoding. Ordinary edited preview
+assets remain excluded. This routing correction is included in
+[issue #110](https://github.com/VaclavKlima/Irodori/issues/110).
+
 Color range uses one to five samples with shared Range and Softness. Magnitude-normalized
 RGB is converted through the existing signed D65 Oklab coefficients. The relative
 chroma pair `(a/L, b/L)` ignores positive brightness scaling. This versioned Irodori
@@ -88,6 +94,45 @@ Source/algorithm/parameter identities allow reuse across unrelated edits. Curren
 revision and source checks still gate publication. Admission includes neutral
 source preparation, strip buffers, derived coverage, encoded transfer and downstream
 atlas/edge lifetimes. Existing limits and actual GPU/worker drainage remain in force.
+
+### Preview storage admission — issue #110
+
+[Issue #110](https://github.com/VaclavKlima/Irodori/issues/110) corrects false
+storage refusals when the shared 2 GiB preview disk cache contains unused entries.
+Range preparation reclaims eligible LRU previews before refusing its existing
+reservation. Pinned streams, active previews and the photograph currently being
+prepared remain protected. RAM/VRAM admission, GPU algorithms and storage limits
+are unchanged.
+
+Range and output-proof admission share a separate serialized storage owner; it
+never waits on preview processing, which can itself request range coverage.
+Pruning and reservation grants share that owner so concurrent callers cannot
+claim the same capacity. After temporary decode files are removed, reservations
+shrink atomically to the retained canonical source or PNG without a release and
+reacquisition gap. Removal, failure and shutdown retain idempotent release.
+
+A genuine storage refusal reports requested capacity, the disk budget, protected
+previews, other range/proof assets and remaining cached previews. It recommends
+closing unused comparisons/output previews or waiting for processing before
+retrying; increasing the RAM/VRAM setting is not presented as a disk-cache fix.
+
+Focused Bazzite acceptance has **1,080 distinct passing cases**, including **42
+cases** across `mask-ranges-service`, `full-previews` and `export-proof-service`.
+The final source-routing/static/build/range-service run passes 11 cases in
+35.62 seconds; the preceding three-service continuation passes 41 in 2.80 seconds.
+Applicable Node evidence is reused with the failed subprocess cases recovered
+outside the sandbox; original failed reports remain failed. The consolidated
+receipt records deduplicated cases and all constituent reports:
+`artifacts/verification/2026-11-12-range-mask-resource-acceptance/summary.md`.
+
+The reported 5438 × 3621 HDR master passes the actual application sampler and
+temporary luminance coverage (Lower 35, unbounded Upper, Softness 35) after a fresh
+development launch. Revision 0, settings and original Float32 SHA-256 remain
+unchanged; diagnostic coverage is not published as a mask or history entry.
+The application is left open with its previous Console conversation resumable.
+This records Bazzite acceptance for #110; other-device qualification remains
+in #105. No authenticated model retry or physical HDR
+presentation claim is added.
 
 Focused targets are `mask-ranges-model`, `mask-ranges-service`, `mask-ranges-gpu`,
 `mask-ranges-ui` and `mask-ranges-output`, plus affected model/migration,

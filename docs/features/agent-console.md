@@ -8,8 +8,10 @@ extends the shared preview tools. This feature makes no photo-settings or catalo
 
 Open Console and choose **Connect Codex**. Irodori discovers an installed Codex
 executable; **Choose Codex executable** offers a native file picker when setup
-fails. Reviewed CLI versions are **0.166.0** and **0.167.0**. Other versions are refused
-until their configuration and tool defaults have been reviewed and tested.
+fails. Stable patch releases in the reviewed **0.166.x** and **0.167.x** families
+are accepted automatically when the strict startup configuration check passes.
+Other minor or major versions, prereleases and malformed version strings are
+refused until their configuration and tool defaults have been reviewed and tested.
 
 Sign in through Codex inside this console. When it emits its authentication
 hyperlink, **Open sign-in** opens that exact link in the system browser and
@@ -294,6 +296,33 @@ configuration and preserved hook trust, PTY lifecycle, managed tools, and native
 terminal focus/paste/resize at minimum size. Static checks and the production build
 pass. This is Bazzite evidence; a signed-in 0.167.0 model conversation and other
 operating systems were not exercised.
+
+## Codex patch compatibility — November 12, 2026
+
+[Issue #108](https://github.com/VaclavKlima/Irodori/issues/108) replaces the exact
+patch-version allowlist with the stable **0.166.x** and **0.167.x** families.
+Routine patch updates within those families no longer require another allowlist
+entry. Every connection still requires strict configuration parsing and the
+effective photo-tool restrictions; a failed check refuses startup. Dedicated
+sign-in, normal hook trust, frozen request targets and the restricted tool set
+remain required.
+
+This acceptance is bounded to the reviewed release families. Configuration
+validation does not establish compatibility with newly introduced tools or a new
+minor or major release. It runs without sign-in or a model request, so signed-in
+model behavior and other operating systems require separate verification.
+
+Bazzite/Linux x64 acceptance passes with installed **codex-cli 0.167.2**, Node
+26.13.1 and the existing isolated-profile fixture. The `agent-session` and
+`agent-policy` selection passes **1,044 cases in 57.33 seconds**, with no skipped
+or incomplete cases; type checking, lint, formatting and the production build
+also pass. Tests cover compatible patches, unsupported/malformed releases,
+unsafe effective restrictions, refusal before terminal startup, ordinary PTY
+lifecycle and preservation of normal hook-trust configuration. Local receipt:
+`artifacts/verification/2026-11-12T13-47-57.229Z-check-piFXix/summary.md`.
+This is configuration/lifecycle acceptance without an authenticated model turn.
+[Issue #109](https://github.com/VaclavKlima/Irodori/issues/109) retains macOS and
+Windows qualification. Delivery is tracked in #108.
 
 ## Linear and radial mask gradients — issue #84
 

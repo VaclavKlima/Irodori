@@ -1,5 +1,12 @@
 import type { ImageStatistics } from '../shared/statistics'
 import type { CurveTone, CurveToneRequest } from '../shared/curve-tone'
+
+/** Callable release with an atomic reduction after temporary preview files are removed. */
+export interface PreviewDiskReservation {
+  (): void
+  shrink(bytes: number): void
+}
+
 export interface CurveToneJob {
   width: number
   height: number

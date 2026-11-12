@@ -209,7 +209,7 @@ export async function prepareAgentConfig(
   )
 }
 
-const verifiedCodexVersions = ['0.166.0', '0.167.0'] as const
+const verifiedCodexReleaseFamilies = ['0.166', '0.167'] as const
 
 /** Strict parsing and the effective config are checked without signing in or starting a model turn. */
 export async function verifyAgentConfig(
@@ -223,11 +223,16 @@ export async function verifyAgentConfig(
     timeout: 10_000,
     maxBuffer: 64 * 1024,
   })
-  // A new CLI needs an explicit compatibility review, particularly for default tool additions.
+  // Stable patches share a reviewed release family, but must still pass the strict preflight.
+  // New release families need review, particularly for default tool additions.
   const reportedVersion = stdout.trim()
-  if (!verifiedCodexVersions.some((version) => reportedVersion === `codex-cli ${version}`))
+  const version = reportedVersion.match(/^codex-cli (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/)
+  if (
+    !version ||
+    !verifiedCodexReleaseFamilies.some((family) => family === `${version[1]}.${version[2]}`)
+  )
     throw new Error(
-      `This Codex version has not been verified for the restricted photo console. Detected: ${JSON.stringify(reportedVersion.slice(0, 120))}. Supported: ${verifiedCodexVersions.join(', ')}.`,
+      `This Codex release has not been verified for the restricted photo console. Detected: ${JSON.stringify(reportedVersion.slice(0, 120))}. Supported stable releases: ${verifiedCodexReleaseFamilies.map((family) => `${family}.x`).join(', ')}.`,
     )
   // Strict preflight and the terminal use the identical generated policy overrides.
   const args = [

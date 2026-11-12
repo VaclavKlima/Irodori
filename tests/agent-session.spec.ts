@@ -14,7 +14,7 @@ import { AGENT_OUTPUT_LIMIT, type AgentOutput } from '../src/shared/agent'
 import { agentCliFixture } from './agent-cli.helpers'
 
 // Native PTYs and CLI configuration are isolated from Electron and from the user's Codex profile.
-test('reviewed CLI versions still require the effective photo-tool restrictions', async () => {
+test('stable patches in reviewed CLI release families pass configuration validation', async () => {
   const root = await mkdtemp(join(tmpdir(), 'irodori-agent-versions-'))
   try {
     const home = join(root, 'codex'),
@@ -24,28 +24,46 @@ test('reviewed CLI versions still require the effective photo-tool restrictions'
       workspace,
       JSON.stringify({ port: 1, token: 'a'.repeat(64) }),
     )
-    for (const version of ['0.166.0', '0.167.0']) {
-      await prepareAgentConfig(home, workspace, true, resolve('out/main'))
+    await prepareAgentConfig(home, workspace, true, resolve('out/main'))
+    for (const version of ['0.166.0', '0.166.7', '0.167.0', '0.167.2', '0.167.999']) {
       const executable = await agentCliFixture(root, version)
       await verifyAgentConfig(executable, workspace, env, resolve('out/main'))
-      const policy = join(home, 'irodori-policy.toml')
-      const original = await readFile(policy, 'utf8')
-      for (const [before, after] of [
-        ['shell_tool = false', 'shell_tool = true'],
-        ['hooks = true', 'hooks = false'],
-      ]) {
-        await writeFile(policy, original.replace(before, after))
-        await expect(
-          verifyAgentConfig(executable, workspace, env, resolve('out/main')),
-        ).rejects.toThrow('restrictions')
-      }
     }
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
 
-test('unreviewed and prerelease CLI builds are refused with the detected version', async () => {
+test('stable CLI patches still require the effective photo-tool restrictions', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'irodori-agent-restrictions-'))
+  try {
+    const home = join(root, 'codex'),
+      workspace = join(root, 'workspace')
+    await prepareAgentConfig(home, workspace, true, resolve('out/main'))
+    const env = agentEnvironment(
+      home,
+      workspace,
+      JSON.stringify({ port: 1, token: 'a'.repeat(64) }),
+    )
+    for (const configOverrides of [
+      { 'features.shell_tool': true },
+      { 'features.hooks': false },
+      { sandbox_mode: 'danger-full-access' },
+      { approval_policy: 'on-request' },
+      { 'mcp_servers.irodori.enabled_tools': ['exec_command'] },
+      { 'skills.bundled.enabled': true },
+    ]) {
+      const executable = await agentCliFixture(root, '0.167.2', configOverrides)
+      await expect(
+        verifyAgentConfig(executable, workspace, env, resolve('out/main')),
+      ).rejects.toThrow('restrictions')
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('unreviewed, prerelease and malformed CLI versions are refused with the detected version', async () => {
   const root = await mkdtemp(join(tmpdir(), 'irodori-agent-unreviewed-'))
   try {
     const home = join(root, 'codex'),
@@ -56,11 +74,24 @@ test('unreviewed and prerelease CLI builds are refused with the detected version
       workspace,
       JSON.stringify({ port: 1, token: 'a'.repeat(64) }),
     )
-    for (const version of ['0.165.0', '0.168.0', '0.167.0-alpha.1', '0.167.0 extra']) {
+    for (const version of [
+      '0.165.0',
+      '0.168.0',
+      '1.167.0',
+      '0.167.2-alpha.1',
+      '0.167.2+build.1',
+      '0.167',
+      '0.167.2 extra',
+      '00.167.2',
+      '0.0167.2',
+      '0.167.02',
+    ]) {
       const executable = await agentCliFixture(root, version)
       await expect(
         verifyAgentConfig(executable, workspace, env, resolve('out/main')),
-      ).rejects.toThrow(`Detected: "codex-cli ${version}". Supported: 0.166.0, 0.167.0.`)
+      ).rejects.toThrow(
+        `Detected: "codex-cli ${version}". Supported stable releases: 0.166.x, 0.167.x.`,
+      )
     }
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -97,6 +128,44 @@ test('installed Codex accepts the strict photo configuration without sign-in or 
     ).rejects.toThrow('restrictions')
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('failed stable-patch restriction validation does not launch the terminal', async () => {
+  const profile = await mkdtemp(join(tmpdir(), 'irodori-agent-refused-'))
+  let sessions: AgentSessions | undefined
+  let gateStarts = 0
+  const outputs: AgentOutput[] = []
+  try {
+    const executable = await agentCliFixture(profile, '0.167.2', {
+      'features.shell_tool': true,
+    })
+    sessions = new AgentSessions({
+      profile,
+      development: false,
+      runtimeDirectory: resolve('out/main'),
+      connection: (token: string) => ({ port: 1, token }),
+      gate: () => {
+        gateStarts++
+        throw new Error('A refused CLI must not create a request gate.')
+      },
+      onState: () => {},
+      onOutput: (output) => outputs.push(output),
+    })
+    await sessions.open()
+    await sessions.selectExecutable(executable)
+    expect(await sessions.connect('new')).toMatchObject({
+      status: 'error',
+      message: 'The required Codex restrictions could not be applied. Startup was refused.',
+    })
+    expect(gateStarts).toBe(0)
+    expect(outputs).toEqual([])
+    await expect(
+      stat(join(profile, 'agent/workspace/fixture-connection.json')),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally {
+    await sessions?.close()
+    await rm(profile, { recursive: true, force: true })
   }
 })
 

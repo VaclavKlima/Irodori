@@ -112,6 +112,7 @@ import type {
   HdrFirstSurfaceProgress,
   HdrStatisticsJob,
   PreviewWarmResult,
+  PreviewDiskReservation,
 } from './preview-types'
 import { cameraProfile, cameraProfiles } from './processing/cameras'
 import {
@@ -2958,68 +2959,99 @@ export class FullPreviews {
   }
 
   private externalDiskBytes = 0
-  /** Range preparation may run inside this service's queue. Reserve synchronously
-   * without waiting on that same queue or evicting pinned/active entries. */
-  reserveRangeCoverageBytes(bytes: number): Promise<() => void> {
-    if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > this.budget || this.closed)
-      return Promise.reject(new Error('Range coverage exceeds the preview storage limit.'))
-    const retained = [...this.entries.values()].reduce((sum, entry) => sum + entry.bytes, 0)
-    if (retained + this.externalDiskBytes + bytes > this.budget)
-      return Promise.reject(
-        new Error(
-          'Range coverage exceeds the preview storage limit while other assets are in use.',
-        ),
-      )
-    this.externalDiskBytes += bytes
-    let released = false
-    return Promise.resolve(() => {
-      if (released) return
-      released = true
-      this.externalDiskBytes -= bytes
-    })
+  private diskTail: Promise<unknown> = Promise.resolve()
+  private diskOperation<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.diskTail.then(work)
+    this.diskTail = result.catch(() => undefined)
+    return result
+  }
+  private retainedPreviewBytes(): number {
+    return [...this.entries.values()].reduce((sum, entry) => sum + entry.bytes, 0)
+  }
+  private storageLimitError(label: string, requested: number): Error {
+    const protectedBytes = [...this.entries.values()]
+      .filter((entry) => entry.pins || entry.id === this.running?.id)
+      .reduce((sum, entry) => sum + entry.bytes, 0)
+    const size = (bytes: number) => `${(bytes / 1024 ** 2).toFixed(1)} MiB`
+    return new Error(
+      `${label} exceeds the preview storage limit. Requested: ${size(requested)}; budget: ${size(this.budget)}; protected previews: ${size(protectedBytes)}; other range/proof assets: ${size(this.externalDiskBytes)}; remaining cached previews: ${size(this.retainedPreviewBytes() - protectedBytes)}. Close unused comparisons or output previews, wait for other processing to finish, then retry.`,
+    )
+  }
+  /** Never waits on preview processing: range preparation can already own that queue. */
+  reserveRangeCoverageBytes(bytes: number): Promise<PreviewDiskReservation> {
+    return this.reservePreviewDiskBytes(bytes, 'Range coverage')
   }
   /** Temporary output proofs share the existing disk budget and pinned-entry protections. */
   reserveOutputProofBytes(bytes: number): Promise<() => void> {
-    return this.enqueue(async () => {
-      if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > this.budget || this.closed)
-        throw new Error('Output preview exceeds the preview storage limit.')
-      await this.prune(bytes)
-      const retained = [...this.entries.values()].reduce((sum, entry) => sum + entry.bytes, 0)
-      if (retained + this.externalDiskBytes + bytes > this.budget)
-        throw new Error(
-          'Output preview exceeds the preview storage limit while other assets are in use.',
-        )
+    return this.enqueue(() => this.reservePreviewDiskBytes(bytes, 'Output preview'))
+  }
+  private reservePreviewDiskBytes(bytes: number, label: string): Promise<PreviewDiskReservation> {
+    return this.diskOperation(async () => {
+      if (!Number.isSafeInteger(bytes) || bytes < 0 || this.closed)
+        throw new Error(`${label} exceeds the preview storage limit (invalid or closed request).`)
+      if (bytes > this.budget) throw this.storageLimitError(label, bytes)
       this.externalDiskBytes += bytes
-      let released = false
-      return () => {
-        if (!released) {
-          released = true
-          this.externalDiskBytes -= bytes
+      let released = false,
+        reservedBytes = bytes
+      const release: PreviewDiskReservation = Object.assign(
+        () => {
+          if (!released) {
+            released = true
+            this.externalDiskBytes -= reservedBytes
+          }
+        },
+        {
+          shrink: (next: number) => {
+            if (released || !Number.isSafeInteger(next) || next < 0 || next > reservedBytes)
+              throw new Error('Invalid preview storage reservation reduction.')
+            this.externalDiskBytes -= reservedBytes - next
+            reservedBytes = next
+          },
+        },
+      )
+      try {
+        await this.pruneNow(0, true)
+        if (this.closed) throw new Error(`${label} is unavailable because previews are closing.`)
+        // A running preview may publish another entry while disk cleanup is awaiting I/O.
+        if (this.retainedPreviewBytes() + this.externalDiskBytes > this.budget) {
+          release()
+          throw this.storageLimitError(label, bytes)
         }
+        return release
+      } catch (error) {
+        release()
+        throw error
       }
     })
   }
 
-  private async prune(reservedBytes = 0): Promise<void> {
-    let bytes =
-      reservedBytes +
-      this.externalDiskBytes +
-      [...this.entries.values()].reduce((sum, entry) => sum + entry.bytes, 0)
+  private prune(reservedBytes = 0): Promise<void> {
+    return this.diskOperation(() => this.pruneNow(reservedBytes))
+  }
+  private async pruneNow(reservedBytes = 0, protectRunning = false): Promise<void> {
+    let bytes = reservedBytes + this.externalDiskBytes + this.retainedPreviewBytes()
     const entries = [...this.entries.entries()].sort(
       ([, a], [, b]) => Number(b.invalid) - Number(a.invalid) || a.usedAt - b.usedAt,
     )
     for (const [key, entry] of entries) {
-      if (entry.pins || (!entry.invalid && bytes <= this.budget)) continue
+      // Preparation validates cached candidates before pinning them. Keep its photo
+      // protected while an independent range admission is reclaiming other entries.
+      if (
+        entry.pins ||
+        (protectRunning && entry.id === this.running?.id) ||
+        (!entry.invalid && bytes <= this.budget)
+      )
+        continue
       // Cache cleanup must never turn a successful Trash operation into a reported failure.
       // Remove from lookup before awaiting unlink: a protocol request can arrive during disk I/O.
       this.entries.delete(key)
       try {
         await rm(entry.path, { recursive: true, force: true })
-        bytes -= entry.bytes
       } catch {
         entry.invalid = true
         this.entries.set(key, entry)
       }
+      bytes = reservedBytes + this.externalDiskBytes + this.retainedPreviewBytes()
     }
   }
 
