@@ -8,10 +8,11 @@ import { resolve } from 'node:path'
 import { startEditorEndpoint } from '../src/main/editor-endpoint'
 import { AgentRequestGate } from '../src/main/agent/request-gate'
 import { agentInstructions, agentTools } from '../src/main/agent/policy'
+import { getEditingGuidance } from '../src/shared/agent-guidance'
 import type { EditingPreset } from '../src/shared/presets'
 import type { PresetApplicationPreparation } from '../src/shared/edit-transfer'
 import { transferFixture } from './edit-transfer.helpers'
-import { initialSettings } from '../src/shared/edits'
+import { initialSettings, SETTINGS_VERSION } from '../src/shared/edits'
 import { presetGroupKeys } from '../src/shared/presets'
 import { presetColors, presetIcons } from '../src/shared/preset-appearance'
 
@@ -55,7 +56,7 @@ test('agent-facing preset schemas expose concrete complete groups and save a cre
     expect(properties(source).mode).toMatchObject({ type: 'string', enum: ['photo', 'explicit'] })
     expect(properties(source).settingsVersion).toMatchObject({
       type: 'integer',
-      enum: [12, 13, 14, 15, 16, 17],
+      enum: [12, 13, 14, 15, 16, 17, 18, SETTINGS_VERSION],
     })
     expect(properties(properties(update.inputSchema).presetRequest).source).toEqual(source)
     const appearance = properties(properties(create.inputSchema).presetRequest).appearance
@@ -64,8 +65,9 @@ test('agent-facing preset schemas expose concrete complete groups and save a cre
     expect(properties(appearance).icon.enum).toEqual(presetIcons.map((icon) => icon.id))
     expect(properties(appearance).color.enum).toEqual(presetColors.map((color) => color.id))
     expect(properties(properties(update.inputSchema).presetRequest).appearance).toEqual(appearance)
-    expect(agentInstructions(false)).toContain('sunset/amber for Golden Hour')
-    expect(agentInstructions(false)).toContain('Preserve existing appearance during updates')
+    const guidance = getEditingGuidance({ topic: 'presets' }).workflow.join('\n')
+    expect(guidance).toContain('sunset/amber for Golden Hour')
+    expect(guidance).toContain('Preserve appearance during updates')
     const values = properties(source).values
     expect(properties(values).colorGrading.required).toEqual([
       'version',
@@ -300,7 +302,7 @@ test('authenticated managed preset tools share storage/history and enforce sourc
     expect(deletion).toContain('wait for agreement')
     expect(deletion).toContain('no deletion permission')
     expect(agentInstructions(false)).toContain(
-      'An explicit user instruction to delete that preset authorizes',
+      'Deleting an identified preset is authorized only by an explicit user deletion request',
     )
     const source = { mode: 'photo', photoId: t.ids[2], groups: ['light'] }
     expect(

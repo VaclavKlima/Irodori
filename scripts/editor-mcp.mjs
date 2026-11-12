@@ -233,6 +233,56 @@ let tools = [
     inputSchema: schema({ offset: { type: 'integer', minimum: 0 } }, []),
   },
   {
+    name: 'irodori_get_editing_guidance',
+    description:
+      'Read on-demand Irodori operator guidance for one editing topic, including coordinate conventions, limitations and valid tool examples. Use when the chosen photographic goal needs unfamiliar controls. Static guidance does not inspect or edit a photograph.',
+    inputSchema: schema({
+      topic: {
+        enum: [
+          'tone',
+          'color',
+          'white-balance',
+          'crop',
+          'mask-brush',
+          'mask-object',
+          'mask-range',
+          'mask-compound',
+          'detail',
+          'inspection',
+          'export',
+          'presets',
+        ],
+      },
+    }),
+  },
+  {
+    name: 'irodori_get_photo_presentation_context',
+    description:
+      'Read the live workspace display target and the last reported application frame only when it belongs to this photo, revision and display-target generation. A target HDR mode does not establish a presented HDR frame. Other or stale frames return not-current. No source decoding, display preference changes or physical-output certification; image delivery HDR qualification remains separate.',
+    inputSchema: schema({ photoId, expectedRevision }),
+  },
+  {
+    name: 'irodori_get_mask_preview',
+    description:
+      'Inspect an existing root mask as grayscale coverage, SDR orange overlay or a matched pair. Read confirmed edits for maskId and preview context for grid-bound regions. Uses saved shape, current crop/lens/flip and shared GPU mask processing, including inversion, compounds, ranges and edges. Disabled or neutral root shapes remain inspectable; metadata distinguishes their actual effect. PNG only, default 1024 fit without enlargement, 100 percent photo-native, 8 MiB/image and 16 MiB/pair. Oversized requests fail without silent reduction. No edits, history entries, drafts or workspace selection changes.',
+    inputSchema: schema(
+      {
+        photoId,
+        expectedRevision,
+        maskId: { type: 'string', format: 'uuid' },
+        view: { enum: ['coverage', 'overlay', 'pair'], default: 'pair' },
+        inspection: schema(
+          {
+            region: inspection.properties.region,
+            resolutionPercent: inspection.properties.resolutionPercent,
+          },
+          [],
+        ),
+      },
+      ['photoId', 'expectedRevision', 'maskId'],
+    ),
+  },
+  {
     name: 'irodori_get_preview_context',
     description:
       'Read authoritative oriented, lens-corrected, cropped photo dimensions and grid identity, inspection formats, payload limits and HDR availability. Coordinates are independent of screen zoom/pan. Read before requesting a region.',
@@ -1183,7 +1233,7 @@ const presetSource = {
       mode: { type: 'string', enum: ['photo', 'explicit'] },
       photoId,
       groups: presetGroups,
-      settingsVersion: { type: 'integer', enum: [12, 13, 14, 15, 16, 17] },
+      settingsVersion: { type: 'integer', enum: [12, 13, 14, 15, 16, 17, 18, 19] },
       values: {
         ...schema(presetFields, []),
         description:
@@ -1194,7 +1244,7 @@ const presetSource = {
     ['mode', 'groups'],
   ),
   description:
-    'Photo capture: {mode:"photo",photoId,groups}. Explicit look: {mode:"explicit",settingsVersion:17,groups,values}; referencePhotoId is required for white-balance/lens. No photo is changed. All included groups must be complete.',
+    'Photo capture: {mode:"photo",photoId,groups}. Explicit look: {mode:"explicit",settingsVersion:19,groups,values}; referencePhotoId is required for white-balance/lens. No photo is changed. All included groups must be complete.',
   allOf: [
     {
       if: { properties: { mode: { const: 'photo' } } },
@@ -1252,7 +1302,7 @@ tools.push(
   {
     name: 'irodori_create_preset',
     description:
-      'Save a unique trimmed name from confirmed photo edits or a complete explicit look. Use source.mode="photo" with photoId/groups, or source.mode="explicit" with settingsVersion:17, groups and values. For example, groups:["color"] needs values:{saturation:5,vibrance:22}. Choose appearance:{icon,color} to match the requested intent when creating a look, such as sunset/amber for Golden Hour. No photo or clipboard changes. Camera-dependent explicit groups require a verified referencePhotoId. Store no calibration tables or paths.',
+      'Save a unique trimmed name from confirmed photo edits or a complete explicit look. Use source.mode="photo" with photoId/groups, or source.mode="explicit" with settingsVersion:19, groups and values. For example, groups:["color"] needs values:{saturation:5,vibrance:22}. Choose appearance:{icon,color} to match the requested intent when creating a look, such as sunset/amber for Golden Hour. No photo or clipboard changes. Camera-dependent explicit groups require a verified referencePhotoId. Store no calibration tables or paths.',
     inputSchema: schema({
       presetRequest: schema(
         {
@@ -1267,7 +1317,7 @@ tools.push(
   {
     name: 'irodori_update_preset',
     description:
-      'Edit a preset name, appearance or definition at expectedPresetRevision. Appearance accepts a partial {icon,color}; omitted fields retain their current values. Preserve the marker unless the user asks to change it. Replacement source uses mode="photo" with photoId/groups or mode="explicit" with settingsVersion:17, groups and complete values. Preset revisions are independent of photo-edit revisions. No photo/history changes; accepted jobs keep the old frozen definition.',
+      'Edit a preset name, appearance or definition at expectedPresetRevision. Appearance accepts a partial {icon,color}; omitted fields retain their current values. Preserve the marker unless the user asks to change it. Replacement source uses mode="photo" with photoId/groups or mode="explicit" with settingsVersion:19, groups and complete values. Preset revisions are independent of photo-edit revisions. No photo/history changes; accepted jobs keep the old frozen definition.',
     inputSchema: schema({
       presetRequest: schema(
         {
@@ -1386,7 +1436,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         structuredContent: metadata,
       }
     }
-    if (['irodori_get_photo_preview', 'irodori_get_output_proof'].includes(request.params.name)) {
+    if (
+      [
+        'irodori_get_photo_preview',
+        'irodori_get_output_proof',
+        'irodori_get_mask_preview',
+      ].includes(request.params.name)
+    ) {
       if (Array.isArray(result.result.members)) {
         const { members, ...metadata } = result.result
         if (members.length < 1 || members.length > 2) throw new Error('Invalid inspection members.')
@@ -1401,6 +1457,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             !['image/jpeg', 'image/png'].includes(member.mimeType)
           )
             throw new Error('Invalid inspection image payload.')
+          if (
+            request.params.name === 'irodori_get_mask_preview' &&
+            (member.mimeType !== 'image/png' || !['coverage', 'overlay'].includes(member.label))
+          )
+            throw new Error('Invalid mask inspection image.')
           const bytes = Buffer.from(data, 'base64').byteLength
           if (bytes > 8 * 1024 * 1024 || bytes !== member.byteLength)
             throw new Error('Invalid inspection image length.')
@@ -1414,6 +1475,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (total > 16 * 1024 * 1024) throw new Error('Inspection pair exceeds 16 MiB.')
         return { content, structuredContent: { ...metadata, members: labelled } }
       }
+      if (request.params.name === 'irodori_get_mask_preview')
+        throw new Error('Mask inspection members are missing.')
       const { data, ...metadata } = result.result
       if (
         typeof data !== 'string' ||

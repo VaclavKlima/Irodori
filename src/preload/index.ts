@@ -230,6 +230,17 @@ const api: IrodoriApi = {
   },
   getEdits: (id) => ipcRenderer.invoke('edits:get', id),
   getEditCapabilities: () => ipcRenderer.invoke('edits:capabilities'),
+  getEditingGuidance: (request) => ipcRenderer.invoke('agent:guidance', request),
+  getPhotoPresentationContext: async (request) => {
+    const reply = await ipcRenderer.invoke('agent:presentation', request)
+    if (reply.error) throw new Error(reply.error)
+    return reply.result
+  },
+  getMaskPreview: async (request) => {
+    const reply = await ipcRenderer.invoke('masks:preview', request)
+    if (reply.error) throw new Error(reply.error)
+    return reply.result
+  },
   sampleCurveTone: async (id, revision, sample) => {
     const result = await ipcRenderer.invoke('curves:sample', id, revision, sample)
     if (result.error) throw new Error(result.error)

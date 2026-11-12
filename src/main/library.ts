@@ -127,6 +127,12 @@ import { verifyExportEncoder } from './export/encoder'
 import { identity } from './export/files'
 import { ExportJobs } from './export/jobs'
 import { AgentPhotoPreviews } from './agent/photo-previews'
+import { MaskPreviews } from './agent/mask-previews'
+import { readAgentPresentationContext } from './agent/presentation-context'
+import type { AgentPresentationRequest } from '../shared/agent-presentation'
+import type { MaskPreviewRequest } from '../shared/mask-preview'
+import { getEditingGuidance } from '../shared/agent-guidance'
+import { inspectionHdrCapability } from '../shared/inspection'
 import { OutputProofs } from './export/proofs'
 import type { ExportSource } from './export/types'
 import { ExportProcess } from './export/process'
@@ -256,6 +262,7 @@ export class PhotoLibrary {
   editTransfers!: EditTransfers
   private presets!: Presets
   agentPreviews!: AgentPhotoPreviews
+  maskPreviews!: MaskPreviews
   outputProofs!: OutputProofs
   exports!: ExportJobs
   private db!: DatabaseSync
@@ -775,6 +782,21 @@ export class PhotoLibrary {
       },
       reserve: (bytes) => this.fullPreviews.reserveOutputProofBytes(bytes),
     })
+    await rm(join(this.root, 'cache', 'mask-previews'), { recursive: true, force: true })
+    this.maskPreviews = new MaskPreviews(this.root, {
+      source: (id) => this.exportSource(id),
+      edits: (id) => this.getEdits(id),
+      masks: (state) => this.resolvedMasks(state.photoId, state.settings.maskStack),
+      context: (id, revision, signal) => this.agentPreviews.context(id, revision, signal),
+      prepareCoverage: (request, signal) => this.maskEdges.prepare(request, signal),
+      photo: (id, revision, inspection, signal) =>
+        this.agentPreviews.inspect(id, revision, inspection, signal),
+      admission: (signal) => {
+        if (!this.cropAdmission) throw new Error('Mask preview resource admission is unavailable.')
+        return this.cropAdmission(signal)
+      },
+      reserve: (bytes) => this.fullPreviews.reserveOutputProofBytes(bytes),
+    })
     this.objectSelections = new ObjectSelectionService(this.root, {
       source: (id) => this.exportSource(id),
       context: (id, revision) => this.getMaskContext(id, revision),
@@ -1215,6 +1237,23 @@ export class PhotoLibrary {
 
   getMaskContext(id: string, expectedRevision: number) {
     return this.fullPreviews.getMaskContext(id, expectedRevision)
+  }
+
+  getEditingGuidance(request: unknown) {
+    return getEditingGuidance(request)
+  }
+
+  getPhotoPresentationContext(request: AgentPresentationRequest) {
+    return readAgentPresentationContext(request, {
+      currentRevision: async (id) => (await this.getEdits(id)).revision,
+      readDisplayTarget: () => this.displayTarget?.(),
+      readPreviewDiagnostics: () => this.fullPreviews.getDiagnostics(),
+      inspectionHdr: inspectionHdrCapability,
+    })
+  }
+
+  getMaskPreview(request: MaskPreviewRequest, signal?: AbortSignal) {
+    return this.admission.run(() => this.maskPreviews.get(request, signal))
   }
 
   sampleMaskRange(request: MaskRangeSampleRequest, signal?: AbortSignal) {
@@ -1773,6 +1812,7 @@ export class PhotoLibrary {
     task.work = Promise.all(
       photos.flatMap((photo) => [
         this.objectSelections.beginRemoval(photo.id),
+        this.maskPreviews.beginRemoval(photo.id),
         this.maskEdges.beginRemoval(photo.id),
         this.maskRanges.beginRemoval(photo.id),
       ]),
@@ -1869,6 +1909,7 @@ export class PhotoLibrary {
       .finally(() => {
         for (const photo of photos) {
           this.objectSelections.endRemoval(photo.id)
+          this.maskPreviews.endRemoval(photo.id)
           this.maskEdges.endRemoval(photo.id)
           this.maskRanges.endRemoval(photo.id)
         }
@@ -3529,6 +3570,7 @@ export class PhotoLibrary {
     if (this.notification) clearTimeout(this.notification)
     try {
       await closeServices([
+        () => this.maskPreviews?.close(),
         () => this.maskEdges?.close(),
         () => this.objectSelections?.close(),
         () => this.outputProofs?.close(),

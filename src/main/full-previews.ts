@@ -2982,7 +2982,7 @@ export class FullPreviews {
     return this.reservePreviewDiskBytes(bytes, 'Range coverage')
   }
   /** Temporary output proofs share the existing disk budget and pinned-entry protections. */
-  reserveOutputProofBytes(bytes: number): Promise<() => void> {
+  reserveOutputProofBytes(bytes: number): Promise<PreviewDiskReservation> {
     return this.enqueue(() => this.reservePreviewDiskBytes(bytes, 'Output preview'))
   }
   private reservePreviewDiskBytes(bytes: number, label: string): Promise<PreviewDiskReservation> {

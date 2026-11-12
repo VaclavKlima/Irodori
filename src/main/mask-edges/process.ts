@@ -3,7 +3,12 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { rm } from 'node:fs/promises'
 import type { ResolvedMask } from '../../shared/masks'
-import type { MaskEdgeResult, MaskEdgeWorkerReply, MaskEdgeWorkerRequest } from './types'
+import type {
+  MaskEdgeResult,
+  MaskEdgeWorkerReply,
+  MaskEdgeWorkerRequest,
+  MaskPreviewWorkerResult,
+} from './types'
 import type { MaskRange } from '../../shared/mask-ranges'
 import type { MaskRangeSource } from '../mask-ranges/types'
 
@@ -77,13 +82,36 @@ export class MaskEdgeProcess {
     signal: AbortSignal,
     range?: { source: MaskRangeSource; parameters: MaskRange },
   ): Promise<MaskEdgeResult> {
+    const reply = await this.execute(
+      { mask, width, height, key, outputPath, ...(range ? { range } : {}) },
+      signal,
+    )
+    if (!reply.result) throw new Error('Mask edge worker returned no result.')
+    return reply.result
+  }
+
+  async preview(
+    request: Omit<MaskEdgeWorkerRequest, 'id'> & {
+      inspection: NonNullable<MaskEdgeWorkerRequest['inspection']>
+    },
+    signal: AbortSignal,
+  ): Promise<MaskPreviewWorkerResult> {
+    const reply = await this.execute(request, signal)
+    if (!reply.preview) throw new Error('Mask preview worker returned no result.')
+    return reply.preview
+  }
+
+  private async execute(
+    request: Omit<MaskEdgeWorkerRequest, 'id'>,
+    signal: AbortSignal,
+  ): Promise<MaskEdgeWorkerReply> {
     signal.throwIfAborted()
     if (this.busy) throw new Error('Mask edge processing is already running.')
     this.busy = true
     const id = ++this.serial
     try {
       const owned = this.start()
-      return await new Promise<MaskEdgeResult>((resolve, reject) => {
+      return await new Promise<MaskEdgeWorkerReply>((resolve, reject) => {
         let failure: Error | undefined
         const cleanup = () => {
           clearTimeout(timer)
@@ -113,7 +141,7 @@ export class MaskEdgeProcess {
           if (failure || signal.aborted)
             reject(failure ?? new Error('Mask edge processing cancelled.'))
           else if (reply.error) reject(new Error(reply.error))
-          else if (reply.result) resolve(reply.result)
+          else if (reply.result || reply.preview) resolve(reply)
           else reject(new Error('Mask edge worker returned no result.'))
         }
         const timer = setTimeout(() => {
@@ -133,12 +161,7 @@ export class MaskEdgeProcess {
         owned.child.send(
           {
             id,
-            mask: structuredClone(mask),
-            width,
-            height,
-            key,
-            outputPath,
-            ...(range ? { range } : {}),
+            ...structuredClone(request),
           } satisfies MaskEdgeWorkerRequest,
           (error) => {
             if (error) failed(error)
@@ -148,8 +171,18 @@ export class MaskEdgeProcess {
     } catch (error) {
       await this.close()
       await Promise.allSettled([
-        rm(outputPath, { force: true }),
-        rm(`${outputPath}.tmp`, { force: true }),
+        ...[
+          request.outputPath,
+          `${request.outputPath}.tmp`,
+          ...(request.inspection
+            ? [
+                `${request.outputPath}.coverage.png`,
+                `${request.outputPath}.coverage.png.tmp`,
+                `${request.outputPath}.overlay.png`,
+                `${request.outputPath}.overlay.png.tmp`,
+              ]
+            : []),
+        ].map((path) => rm(path, { force: true })),
       ])
       throw error
     } finally {

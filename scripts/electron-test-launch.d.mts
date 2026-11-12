@@ -11,6 +11,7 @@ export function prepareTestElectron(options: {
   userDataDir: string
   artifacts: string
   entry?: 'index' | 'hdr-diagnostic'
+  compiledRoot?: string
   env?: NodeJS.ProcessEnv
 }): Promise<{
   profile: string
@@ -23,6 +24,7 @@ export function launchTestElectron(options: {
   userDataDir: string
   artifacts: string
   entry?: 'index' | 'hdr-diagnostic'
+  compiledRoot?: string
   args?: string[]
   env?: NodeJS.ProcessEnv
   offline?: boolean

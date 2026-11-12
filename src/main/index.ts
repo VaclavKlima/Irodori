@@ -989,6 +989,24 @@ app
       trusted(event)
       return library!.getEditCapabilities()
     })
+    handleLibraryRequest('agent:guidance', (event, request) => {
+      trusted(event)
+      return library!.getEditingGuidance(request)
+    })
+    handleLibraryRequest('agent:presentation', (event, request) => {
+      trusted(event)
+      return library!.getPhotoPresentationContext(request).then(
+        (result) => ({ result }),
+        (error) => ({ error: String(error) }),
+      )
+    })
+    handleLibraryRequest('masks:preview', (event, request) => {
+      trusted(event)
+      return library!.getMaskPreview(request).then(
+        (result) => ({ result }),
+        (error) => ({ error: String(error) }),
+      )
+    })
     handleLibraryRequest('white-balance:propose', (event, id, revision, sample) => {
       trusted(event)
       return library!.proposeWhiteBalance(id, revision, sample).then(

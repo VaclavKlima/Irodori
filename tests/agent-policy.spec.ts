@@ -15,54 +15,82 @@ const snapshot = (): EditorContextSnapshot => ({
   transient: { crop: false, saving: false },
 })
 
-test('managed assistant describes relative mask color without changing global white balance', () => {
+test('managed assistant chooses a coherent fresh edit and asks before replacing an existing look', () => {
   const instructions = agentInstructions(false)
-  expect(instructions).toContain('color:{temperature,tint,saturation}')
-  expect(instructions).toContain('integers -100 to +100, neutral 0')
-  expect(instructions).toContain('Positive temperature warms; positive tint adds magenta')
-  expect(instructions).toContain('not Kelvin or camera white balance')
-  expect(instructions).toContain('Global white balance is unchanged')
-  expect(instructions).not.toContain('local color/clarity/dehaze remain unavailable')
-})
-
-test('managed assistant describes source-stable range sampling and explicit source replacement', () => {
-  const instructions = agentInstructions(false)
-  expect(agentTools).toContain('irodori_sample_mask_range')
-  expect(instructions).toContain('neutral canonical source before creative edits')
-  expect(instructions).toContain('normalized current-output point')
-  expect(instructions).toContain('brightness-normalized Oklab a/L,b/L')
-  expect(instructions).toContain('one to five samples form a union')
-  expect(instructions).toContain('upper:null means all brighter values')
-  expect(instructions).toContain('replacePrimary:true')
+  expect(instructions).toContain('choose and apply a coherent natural or expressive direction')
+  expect(instructions).toContain('strong artistic changes are welcome')
+  expect(instructions).toContain('ask whether to refine the current look or create a new one')
   expect(instructions).toContain(
-    'Depth masks, local Vibrance, mixer, grading, clarity and dehaze remain unavailable',
+    'An explicit style change or precise follow-up already gives direction',
   )
+  expect(instructions).toContain('Preserve unrelated settings and existing work')
 })
 
-test('managed assistant routes requested export sharpening through existing tools and keeps native evidence limits', () => {
+test('managed assistant uses discoverable operator guidance and confirmed visual evidence', () => {
   const instructions = agentInstructions(false)
   expect(agentTools).toEqual(
     expect.arrayContaining([
-      'irodori_get_export_capabilities',
-      'irodori_get_export_preferences',
-      'irodori_prepare_export',
-      'irodori_get_output_proof',
-      'irodori_start_export',
-      'irodori_get_export_results',
+      'irodori_get_editing_guidance',
+      'irodori_get_photo_presentation_context',
+      'irodori_get_mask_preview',
     ]),
   )
-  expect(instructions).toContain('use Standard as the starting point')
-  expect(instructions).toContain('absent sharpening remains Off')
-  expect(instructions).toContain('must not change detailSharpening or other photo edits')
+  expect(new Set(agentTools).size).toBe(agentTools.length)
+  expect(instructions).toContain('Live capabilities and complete typed schemas are authoritative')
+  expect(instructions).toContain('do not guess successive payload shapes')
+  expect(instructions).toContain('coherent partial patches or mask-operation batches')
+  expect(instructions).toContain('compare it with that captured starting image')
+  expect(instructions).toContain('not a historical revision')
   expect(instructions).toContain(
-    'same explicit strength and other pixel options between proof and export',
+    'native regions when judging noise, texture, sharpness, mask edges',
   )
-  expect(instructions).toContain('effective strength and operator version')
+  expect(instructions).toContain('never silently replace a stale region with the whole image')
+})
+
+test('managed assistant reviews subject readability, preserves lighting and justifies local edits and crops', () => {
+  const instructions = agentInstructions(false)
+  expect(instructions).toContain('At the intended viewing size, check important faces')
+  expect(instructions).toContain('readable detail and subject separation')
+  expect(instructions).toContain('Preserve the lighting mood and natural darkness')
   expect(instructions).toContain(
-    'cannot establish native sharpness, halos, noise or true HDR appearance',
+    'For an observed regional problem, prefer a justified local adjustment',
   )
-  expect(instructions).toContain("Custom export's Output preview at 100%")
-  expect(instructions).toContain('existing application destination and authorization')
+  expect(instructions).toContain('Crop only for a clear compositional benefit')
+  expect(instructions).toContain(
+    'Before calling the edit finished, compare the confirmed result with the captured starting image',
+  )
+  expect(instructions).toContain('verify that the intended improvement is visible')
+})
+
+test('managed assistant respects actual SDR proofing, missing capabilities and production feature requests', () => {
+  const instructions = agentInstructions(false)
+  expect(instructions).toContain('An explicit SDR deliverable takes precedence')
+  expect(instructions).toContain('use an actual SDR output proof')
+  expect(instructions).toContain('preserving the HDR master and workspace preference')
+  expect(instructions).toContain('SDR images of an HDR source remain SDR evidence')
+  expect(instructions).toContain('Complete independent supported parts')
+  expect(instructions).toContain('Make one concrete relevant feature request in this conversation')
+  expect(instructions).toContain('including normal production use')
+  expect(instructions).toContain('Do not substitute global changes for a requested spatial edit')
+  expect(instructions).not.toContain('This is development mode')
+  expect(agentInstructions(true)).toContain('This is development mode')
+})
+
+test('managed assistant keeps ownership, conflict, deletion and restricted-tool rules in standing instructions', () => {
+  const instructions = agentInstructions(false)
+  expect(instructions).toContain('fresh requestId and frozen editor context')
+  expect(instructions).toContain('Pass that exact requestId to EVERY tool')
+  expect(instructions).toContain("review and trust Irodori's hooks in /hooks")
+  expect(instructions).toContain('refresh and retry at most once')
+  expect(instructions).toContain('A second conflict requires pausing for the user')
+  expect(instructions).toContain('Never change a crop while a transient crop session is open')
+  expect(instructions).toContain('explicit user deletion request or a later in-Console agreement')
+  expect(instructions).toContain('otherwise name it, ask and wait')
+  expect(instructions).toContain(
+    'Shell execution, file editing, web/browser/computer control, unrelated MCP servers, plugins and delegation are unavailable',
+  )
+  expect(instructions).toContain('never invent paths')
+  expect(Buffer.byteLength(instructions, 'utf8')).toBeLessThan(8 * 1024)
 })
 
 test('sign-in opens the exact OSC hyperlink and rejects reconstructed, duplicated and unrelated URLs', () => {

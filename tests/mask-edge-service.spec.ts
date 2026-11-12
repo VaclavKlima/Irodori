@@ -26,7 +26,8 @@ async function fixture() {
     source = 1,
     calls = 0,
     reserved = 0,
-    closed = 0
+    closed = 0,
+    reservations = 0
   let cachePath = '',
     sourceReads = 0
   let finalRead: (() => Promise<void>) | undefined
@@ -92,14 +93,26 @@ async function fixture() {
       masks: () => [mask],
       admission: async () => admission,
       reserve: async (bytes) => {
+        reservations++
         reserved += bytes
-        let released = false
-        return () => {
-          if (!released) {
-            released = true
-            reserved -= bytes
-          }
-        }
+        let released = false,
+          held = bytes
+        return Object.assign(
+          () => {
+            if (!released) {
+              released = true
+              reserved -= held
+            }
+          },
+          {
+            shrink(next: number) {
+              if (released || !Number.isSafeInteger(next) || next < 0 || next > held)
+                throw new Error('Invalid reservation shrink.')
+              reserved -= held - next
+              held = next
+            },
+          },
+        )
       },
     },
     runtime,
@@ -118,6 +131,7 @@ async function fixture() {
       }
     },
     reserved: () => reserved,
+    reservations: () => reservations,
     closed: () => closed,
     cachePath: () => cachePath,
     finalRead: (read: typeof finalRead) => {
@@ -160,6 +174,8 @@ test('derived coverage is cached independently of Light/name, bound to source an
       first.coverages[maskId].key,
     )
     expect(f.calls()).toBe(2)
+    // Atomic shrinking keeps one disk claim per published cache entry.
+    expect(f.reservations()).toBe(2)
     expect(f.reserved()).toBeGreaterThan(0)
     await f.service.close()
     expect(f.reserved()).toBe(0)
@@ -243,6 +259,42 @@ test('request-scoped cancellation cannot interrupt an independent queued read of
     expect((await current).coverages[maskId]).toBeDefined()
     expect(f.calls()).toBe(2)
   } finally {
+    await f.cleanup()
+  }
+})
+
+test('UI cancellation does not own an externally cancelled mask inspection', async () => {
+  const f = await fixture()
+  let release!: () => void, entered!: () => void
+  const started = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  const completion = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let aborted = false
+  try {
+    f.gate(async (signal) => {
+      signal.addEventListener(
+        'abort',
+        () => {
+          aborted = true
+        },
+        { once: true },
+      )
+      entered()
+      await completion
+    })
+    const controller = new AbortController()
+    const work = f.service.prepare(f.request(), controller.signal)
+    await started
+    const cancellation = f.service.cancel(photoId)
+    release()
+    await cancellation
+    expect(aborted).toBe(false)
+    expect((await work).coverages[maskId]).toBeDefined()
+  } finally {
+    release()
     await f.cleanup()
   }
 })

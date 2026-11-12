@@ -178,6 +178,40 @@ export async function startEditorEndpoint(
       const execute = async () => {
         let result: unknown
         switch (operation) {
+          case 'irodori_get_editing_guidance': {
+            const { operation: transportOperation, requestId, ...request } = args
+            void transportOperation
+            void requestId
+            result = library.getEditingGuidance(request)
+            break
+          }
+          case 'irodori_get_photo_presentation_context': {
+            const { operation: transportOperation, requestId, ...request } = args
+            void transportOperation
+            void requestId
+            result = await library.getPhotoPresentationContext(request)
+            break
+          }
+          case 'irodori_get_mask_preview': {
+            const { operation: transportOperation, requestId, ...request } = args
+            void transportOperation
+            void requestId
+            const lifetime = new AbortController()
+            const gone = () => {
+              if (!response.writableFinished)
+                lifetime.abort(new Error('Mask inspection client disconnected.'))
+            }
+            response.once('close', gone)
+            try {
+              result = await library.getMaskPreview(
+                request,
+                gate ? AbortSignal.any([gate.signal, lifetime.signal]) : lifetime.signal,
+              )
+            } finally {
+              response.removeListener('close', gone)
+            }
+            break
+          }
           case 'irodori_get_editor_context':
             if (!gate && (offset === undefined || offset === 0))
               await contextGate.begin('00000000-0000-0000-0000-000000000000', 'external-context')

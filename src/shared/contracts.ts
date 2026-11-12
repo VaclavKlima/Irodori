@@ -149,6 +149,15 @@ export interface IrodoriApi extends NativeHdrMaskBridge, AgentApi {
   ): Promise<HdrPhotoStatistics>
   getEdits(photoId: string): Promise<EditState>
   getEditCapabilities(): Promise<import('./edits').EditCapabilities>
+  getEditingGuidance(
+    request: import('./agent-guidance').EditingGuidanceRequest,
+  ): Promise<import('./agent-guidance').EditingGuidance>
+  getPhotoPresentationContext(
+    request: import('./agent-presentation').AgentPresentationRequest,
+  ): Promise<import('./agent-presentation').AgentPresentationContext>
+  getMaskPreview(
+    request: import('./mask-preview').MaskPreviewRequest,
+  ): Promise<import('./mask-preview').MaskPreviewResult>
   sampleCurveTone(
     photoId: string,
     expectedRevision: number,

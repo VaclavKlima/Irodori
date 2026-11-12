@@ -49,11 +49,12 @@ Undo/Redo. The console is a photo assistant, with no general command runner.
 Selecting terminal text copies it to the clipboard when the mouse is released.
 Ctrl+C copies selected text; with no selection it interrupts the running turn.
 Copy/paste uses bounded, session-specific main-process operations.
-Unsupported editing and communication requests must
-explain the missing capability and end the turn. Development launches also
-request one concrete Irodori feature suggestion in the conversation. They do
-not create files, tickets, messages or workaround jobs. Production omits those
-development suggestions.
+Unsupported requests explain the missing capability. Independent, authorized
+editing can continue; a failed local edit must not silently become a global
+substitute. The agent makes a concrete relevant feature suggestion in the
+conversation, including production use. It does not create files, tickets,
+messages or workaround jobs. The [editing workflow](agent-editing-workflow.md)
+records the photographic strategy, on-demand guidance and evaluation status.
 
 ## Instance, request and tool ownership
 

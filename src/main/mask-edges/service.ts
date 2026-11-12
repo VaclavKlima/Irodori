@@ -22,6 +22,7 @@ import type { EditState } from '../../shared/edits'
 import { verifiedMaskBaseBytes } from '../mask-store'
 import { maskCoverageNodes, mapMaskCoverage } from '../../shared/masks-gpu'
 import { MaskEdgeProcess } from './process'
+import type { PreviewDiskReservation } from '../preview-types'
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const coverageSource = (source: unknown) => {
@@ -37,7 +38,7 @@ interface Owner {
   source(id: string): Promise<unknown>
   masks(state: EditState, mutation?: MaskMutation): ResolvedMask[]
   admission(signal: AbortSignal): Promise<CropAdmission>
-  reserve(bytes: number): Promise<() => void>
+  reserve(bytes: number): Promise<PreviewDiskReservation>
   prepareRanges?(
     source: unknown,
     masks: ResolvedMask[],
@@ -54,7 +55,7 @@ interface Cached {
 interface Job {
   requestId: string
   photoId: string
-  kind: 'ui' | 'proposal'
+  kind: 'ui' | 'proposal' | 'inspection'
   abort: AbortController
   work: Promise<MaskCoverageResult>
 }
@@ -73,7 +74,7 @@ export class MaskEdgeService {
   ) {
     this.runtime = runtime ?? new MaskEdgeProcess()
   }
-  prepare(value: MaskCoverageRequest): Promise<MaskCoverageResult> {
+  prepare(value: MaskCoverageRequest, external?: AbortSignal): Promise<MaskCoverageResult> {
     const request = validateMaskCoverageRequest(value)
     if (this.closed || this.removing.has(request.photoId))
       return Promise.reject(
@@ -83,11 +84,12 @@ export class MaskEdgeService {
     const job: Job = {
       photoId: request.photoId,
       requestId: request.requestId ?? randomUUID(),
-      kind: 'ui',
+      kind: external ? 'inspection' : 'ui',
       abort,
       work: Promise.resolve(undefined as never),
     }
-    job.work = this.tail.then(() => this.run(request, abort.signal))
+    const signal = external ? AbortSignal.any([external, abort.signal]) : abort.signal
+    job.work = this.tail.then(() => this.run(request, signal))
     this.jobs.add(job)
     this.tail = job.work.catch(() => undefined)
     return job.work.finally(() => this.jobs.delete(job))
@@ -189,7 +191,7 @@ export class MaskEdgeService {
       let entry = this.cache.get(key)
       if (!entry) {
         await this.prune(maskCapabilities.maxBaseEncodedBytes)
-        let release = await this.owner.reserve(maskCapabilities.maxBaseEncodedBytes)
+        const release = await this.owner.reserve(maskCapabilities.maxBaseEncodedBytes)
         const directory = join(this.root, 'cache', 'mask-edges', randomUUID()),
           path = join(directory, 'coverage.png')
         try {
@@ -216,9 +218,7 @@ export class MaskEdgeService {
           })
           if (bytes.byteLength !== result.encodedBytes)
             throw new Error('Prepared mask coverage byte count changed.')
-          release()
-          release = () => undefined
-          release = await this.owner.reserve(bytes.byteLength)
+          release.shrink(bytes.byteLength)
           entry = { photoId: request.photoId, path, asset, bytes: bytes.byteLength, release }
           this.cache.set(key, entry)
         } catch (error) {

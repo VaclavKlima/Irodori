@@ -12,10 +12,12 @@ export async function prepareTestElectron({
   userDataDir,
   artifacts,
   entry = 'index',
+  compiledRoot = join(root, 'out'),
   env = process.env,
 }) {
   if (!['index', 'hdr-diagnostic'].includes(entry)) throw new Error('Unknown Electron test entry.')
   const profile = await realpath(userDataDir)
+  const compiled = await realpath(compiledRoot)
   const directory = resolve(artifacts)
   await mkdir(directory, { recursive: true })
   const mode = testUiMode(env)
@@ -30,7 +32,7 @@ export async function prepareTestElectron({
   await writeFile(
     join(packageDirectory, 'entry.cjs'),
     `require(${JSON.stringify(bootstrap)}).start(${JSON.stringify({
-      entry: join(root, 'out/main', `${entry}.js`),
+      entry: join(compiled, 'main', `${entry}.js`),
       profile,
       evidenceFile,
       mode,

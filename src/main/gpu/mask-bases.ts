@@ -5,10 +5,11 @@ import { maskBaseAtlasPlan } from '../../shared/masks-gpu'
 export async function createMaskBaseAtlas(
   device: GPUDevice,
   parameters: Pick<AdjustmentParameters, 'localMasks'>,
+  coverageOnly = false,
 ): Promise<GPUTexture> {
   if (process.versions.electron)
     throw new Error('Generated mask decoding requires the isolated Node worker.')
-  const plan = maskBaseAtlasPlan(parameters)
+  const plan = maskBaseAtlasPlan(parameters, coverageOnly)
   if (
     plan.width > device.limits.maxTextureDimension2D ||
     plan.height > device.limits.maxTextureDimension2D ||

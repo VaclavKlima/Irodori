@@ -29,6 +29,25 @@ readable data; keeping them does not keep their retired executors available.
 | Whole-mask edge preparation                 | Common native Dawn/WGSL in a bundled-Node worker; native Sharp PNG codec                                                                                      | Complete base/ordered brush/inverted coverage, exact disk ±16 px, Gaussian radius ≤64 px, native 128-row strips and full halos, disposable revision/source-bound R8, unchanged memory ceilings | [Implementation and focused Mac acceptance](features/mask-edges.md); [focused Bazzite qualification and limits](features/masking-bazzite-acceptance.md). Zero/zero preserves the existing path. No per-renderer filter forks, CPU filter fallback, model rerun or full-image TypeScript pixel math.                                                                                                                                                                                                              |
 | Object selection and generated coverage     | Common ONNX Runtime Node native WebGPU SAM 2.1 Tiny in a bundled-Node worker; common Dawn preprocessing/reconstruction; shared WGSL/GLSL R8 coverage sampling | Pinned portable graph hashes, one source/embedding, explicit GPU failure/cancel/retry; 32 MP/8192 source bound, compact bounded atlas, immutable PNG base plus ordered corrections             | [Mac delivery and device evidence](features/object-selection.md); [focused Bazzite qualification and RAW startup evidence](features/masking-bazzite-acceptance.md). Native codecs remain outside Electron. No heavy CPU inference fallback or full-image TypeScript reconstruction.                                                                                                                                                                                                                              |
 
+## Agent mask inspection — issue #113
+
+[Existing-root mask inspection](features/agent-editing-workflow.md) uses the
+existing bundled-Node mask-edge worker and common Dawn/WGSL mask program, with
+native Sharp PNG encoding. Current crop/lens/flip geometry is sampled directly;
+analytic masks are not rebaked to R8 merely for inspection. Prepared range/edge
+coverage retains its existing full-source context. Disabled or neutral root
+shapes can be inspected while ordinary operand enablement stays intact.
+
+The read-only coordinator owns revision/source checks, GPU and disk admission,
+bounded strips, PNG/pair delivery limits, cancellation and temporary cleanup.
+Overlay photos come from the shared SDR inspection owner. GPU failure reports
+its actual reason without an equivalent CPU replay. Focused Bazzite numerical,
+worker and real raster/RAW/merged-HDR checks pass on RX 7900 XTX; small shader and
+worker checks also pass with an actual integrated RADV Raphael-Mendocino witness.
+Signed-in client delivery preserves exact history/settings. Other-device,
+integrated Electron presentation and physical-HDR acceptance are not implied;
+see the linked brief and follow-up #114.
+
 ## Color and luminance range coverage — issue #63
 
 [Range masks](features/mask-ranges.md) use the existing isolated Dawn preparation
