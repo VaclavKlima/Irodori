@@ -14,7 +14,7 @@ import { identityMaskGeometry } from './mask-geometry'
 import { validateManagedImageBytes, RESOURCE_POLICY_VERSION } from './resource-policy'
 
 export const MASK_EDGE_ALGORITHM_VERSION =
-  'canonical-compound-postorder-disk16-gaussian-radius64-strips128-r8-v2'
+  'canonical-compound-range-postorder-disk16-gaussian-radius64-strips128-r8-v3'
 export interface MaskCoverageRequest {
   requestId?: string
   photoId: string
@@ -28,6 +28,7 @@ export interface MaskCoverageResult {
   revision: number
   sourceIdentity: string
   coverages: Record<string, PreparedMaskCoverage>
+  rangeBases?: Record<string, PreparedMaskCoverage>
 }
 export function validateMaskCoverageRequest(value: MaskCoverageRequest) {
   if (
@@ -89,6 +90,9 @@ export function maskEdgeOwnBytes(
               ...node,
               edge: { featherPx: 0, shiftPx: 0 },
               preparedCoverage: undefined,
+              range: undefined,
+              preparedRangeBase: undefined,
+              inverted: node.range ? true : node.inverted,
             })),
           ],
           maskGeometry: identityMaskGeometry(width, height),
@@ -100,8 +104,13 @@ export function maskEdgeOwnBytes(
   const bases = new Map(
     nodes.filter((node) => node.base).map((node) => [node.base!.hash, node.base!]),
   )
+  const rangeNodes = nodes.filter((node) => node.range)
   for (const base of bases.values()) encoded += Math.ceil((base.pngBase64.length * 3) / 4)
-  const preparedCount = new Set(active.map(maskEdgePixelIdentity)).size
+  for (const node of rangeNodes)
+    if (node.preparedRangeBase)
+      encoded += Math.ceil((node.preparedRangeBase.pngBase64.length * 3) / 4)
+  const rangeCount = new Set(rangeNodes.map((node) => JSON.stringify(node.range))).size
+  const preparedCount = new Set(active.map(maskEdgePixelIdentity)).size + rangeCount
   const preparedBytes = pixels * preparedCount
   const sourceAtlasBytes = [...bases.values()].reduce(
     (sum, base) => sum + base.width * base.height,
@@ -111,15 +120,17 @@ export function maskEdgeOwnBytes(
   if (retainedAtlasBytes > maskCapabilities.maxBaseAtlasBytes)
     throw new Error('Compound mask preparation exceeds the 256 MiB native coverage atlas limit.')
   const strip = width * Math.min(128, height) + 256
-  const ownGpu = active.length
-    ? scratch + geometry + retainedAtlasBytes + pixels + 2 * strip + 4096
-    : 0
-  const ownRam = active.length
-    ? pixels * (6 + preparedCount) +
-      geometry +
-      encoded * 3 +
-      maskCapabilities.maxLiveBaseEncodedBytes * 4
-    : 0
+  const ownGpu =
+    active.length || rangeCount
+      ? scratch + geometry + retainedAtlasBytes + pixels + 2 * strip + 4096
+      : 0
+  const ownRam =
+    active.length || rangeCount
+      ? pixels * (6 + preparedCount) +
+        geometry +
+        encoded * 3 +
+        maskCapabilities.maxLiveBaseEncodedBytes * 4
+      : 0
   return { ownGpu, ownRam, scratch }
 }
 export function maskEdgeMemoryPlan(

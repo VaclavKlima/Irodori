@@ -27,7 +27,7 @@ import {
 } from './masks'
 
 export const MASK_RENDERING_VERSION =
-  'ordered-light-color-compound-postfix-native-v6-' + MASK_COLOR_VERSION
+  'ordered-light-color-compound-range-postfix-native-v7-' + MASK_COLOR_VERSION
 export const MASK_DESCRIPTOR_VEC4S = 12
 export const MASK_GPU_TEXTURE_WIDTH = 256
 export const MAX_MASK_BASE_ATLAS_BYTES = maskCapabilities.maxBaseAtlasBytes
@@ -49,7 +49,7 @@ export function maskCoverageNodes(mask: ResolvedMask, includeDisabled = false): 
   return nodes
 }
 export function maskTreeHasEdges(mask: ResolvedMask): boolean {
-  return maskCoverageNodes(mask).some(maskHasEdges)
+  return maskCoverageNodes(mask).some((node) => maskHasEdges(node) || Boolean(node.range))
 }
 function coverageFields(node: ResolvedMask): ResolvedMaskCoverage {
   const coverage = { ...node }
@@ -69,6 +69,15 @@ export function mapMaskCoverage(
   })
   return map({ ...mask, ...(operands ? { operands } : {}) })
 }
+/** Admission and persisted identities use authored coverage, never a supplied derived plane. */
+export function unpreparedMaskCoverage(mask: ResolvedMask): ResolvedMask {
+  return mapMaskCoverage(mask, (node) => {
+    const authored = { ...node }
+    delete authored.preparedCoverage
+    delete authored.preparedRangeBase
+    return authored
+  })
+}
 /** Pixel identities deliberately omit labels, IDs and shared immutable chain hashes. */
 export function coveragePixelData(mask: ResolvedMask): unknown {
   return {
@@ -78,6 +87,7 @@ export function coveragePixelData(mask: ResolvedMask): unknown {
     resultStrokes: mask.resultStrokes ?? [],
     ...(mask.base ? { base: maskBaseReference(mask.base) } : {}),
     ...(mask.gradient ? { gradient: mask.gradient } : {}),
+    ...(mask.range ? { range: mask.range } : {}),
     operands: (mask.operands ?? [])
       .filter((node) => node.enabled)
       .map((node) => ({
@@ -90,12 +100,13 @@ export function coveragePixelData(mask: ResolvedMask): unknown {
 export function maskHasCoverage(
   mask: Pick<
     ResolvedMask,
-    'inverted' | 'strokes' | 'base' | 'gradient' | 'operands' | 'resultStrokes'
+    'inverted' | 'strokes' | 'base' | 'gradient' | 'range' | 'operands' | 'resultStrokes'
   >,
 ): boolean {
   return Boolean(
     mask.base ||
     mask.gradient ||
+    mask.range ||
     mask.inverted ||
     mask.strokes.some((stroke) => stroke.mode === 'add') ||
     mask.resultStrokes?.some((stroke) => stroke.mode === 'add') ||
@@ -115,10 +126,40 @@ function renderMask(mask: ResolvedMask, coverageOnly = false): ResolvedMask {
       ...mask,
       base,
       gradient: undefined,
+      range: undefined,
+      preparedRangeBase: undefined,
       strokes: [],
       operands: [],
       resultStrokes: [],
       inverted: false,
+    }
+  }
+  if (mask.range) {
+    if (mask.preparedRangeBase) {
+      validatePreparedMaskCoverage(mask.preparedRangeBase)
+      mask = {
+        ...mask,
+        base: {
+          ...maskBaseReference(mask.preparedRangeBase),
+          pngBase64: mask.preparedRangeBase.pngBase64,
+        },
+        range: undefined,
+        preparedRangeBase: undefined,
+      }
+    } else {
+      if (coverageOnly || (mask.enabled && hasMaskAdjustments(mask)))
+        throw new Error('Range coverage is not ready. Retry GPU after preparation completes.')
+      return {
+        ...mask,
+        range: undefined,
+        preparedRangeBase: undefined,
+        base: undefined,
+        gradient: undefined,
+        strokes: [],
+        operands: [],
+        resultStrokes: [],
+        inverted: false,
+      }
     }
   }
   if (maskHasEdges(mask)) {
@@ -205,6 +246,9 @@ export function localMaskAllocationBytes(
       ...node,
       edge: neutralMaskEdge,
       preparedCoverage: undefined,
+      range: undefined,
+      preparedRangeBase: undefined,
+      inverted: node.range ? true : node.inverted,
     })),
   )
   const geometryBytes = packLocalMasks({ ...parameters, localMasks: unfiltered }, image).byteLength
@@ -213,9 +257,11 @@ export function localMaskAllocationBytes(
       maskCoverageNodes(root).flatMap((mask) =>
         maskHasEdges(mask)
           ? ['edge:' + JSON.stringify(coveragePixelData(mask))]
-          : mask.base
-            ? [mask.base.hash]
-            : [],
+          : mask.range
+            ? ['range:' + JSON.stringify(mask.range)]
+            : mask.base
+              ? [mask.base.hash]
+              : [],
       ),
     ),
   ).size

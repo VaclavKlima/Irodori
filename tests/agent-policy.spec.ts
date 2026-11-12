@@ -25,6 +25,20 @@ test('managed assistant describes relative mask color without changing global wh
   expect(instructions).not.toContain('local color/clarity/dehaze remain unavailable')
 })
 
+test('managed assistant describes source-stable range sampling and explicit source replacement', () => {
+  const instructions = agentInstructions(false)
+  expect(agentTools).toContain('irodori_sample_mask_range')
+  expect(instructions).toContain('neutral canonical source before creative edits')
+  expect(instructions).toContain('normalized current-output point')
+  expect(instructions).toContain('brightness-normalized Oklab a/L,b/L')
+  expect(instructions).toContain('one to five samples form a union')
+  expect(instructions).toContain('upper:null means all brighter values')
+  expect(instructions).toContain('replacePrimary:true')
+  expect(instructions).toContain(
+    'Depth masks, local Vibrance, mixer, grading, clarity and dehaze remain unavailable',
+  )
+})
+
 test('managed assistant routes requested export sharpening through existing tools and keeps native evidence limits', () => {
   const instructions = agentInstructions(false)
   expect(agentTools).toEqual(

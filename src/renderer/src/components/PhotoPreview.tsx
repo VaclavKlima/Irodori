@@ -609,6 +609,14 @@ export function PhotoPreview({
   const { generation } = live
   const working = live.working
   const { mode, split, hdrRanges, analyze, update } = tools
+  const cancelRangeMask = masks?.cancel
+  const rangeTransient = masks?.rangePicking || masks?.rangeCreating
+  const rangeAfterSeen = useRef(false)
+  useEffect(() => {
+    if (!rangeTransient) rangeAfterSeen.current = false
+    else if (mode === 'after') rangeAfterSeen.current = true
+    else if (rangeAfterSeen.current) cancelRangeMask?.()
+  }, [mode, rangeTransient, cancelRangeMask])
   const comparisonRequired =
     !!full.preview?.requiresUnfilteredComparison && mode !== 'after' && !cropping
   const comparison = useComparisonPreview(
@@ -1555,9 +1563,15 @@ export function PhotoPreview({
             : undefined
       if (!canvas) return
       maskOverlayFailure.current = (message) =>
-        objectSelection?.active ? objectSelection.setError(message) : masks?.setError(message)
+        objectSelection?.active
+          ? objectSelection.setError(message)
+          : (() => {
+              masks?.setRangePreviewReady(null)
+              masks?.setError(message)
+            })()
       maskOverlayReady.current = () => {
         if (proposal) objectSelection?.setProposalReady(proposal.id)
+        if (masks?.rangePreviewKey) masks.setRangePreviewReady(masks.rangePreviewKey)
       }
       const cursor = brushCursorElement.current
       if (cursor && geometry && brushCursor && masks) {
@@ -1824,6 +1838,26 @@ export function PhotoPreview({
       if (panX || panY) pan.start(event.nativeEvent)
       return
     }
+    if (masks?.rangePicking) {
+      stopDrag()
+      const box = event.currentTarget.getBoundingClientRect()
+      const geometry = readMaskPresentation()
+      const point =
+        geometry &&
+        normalizedSourcePoint(
+          {
+            x: ((event.clientX - box.left) * geometry.viewport.width) / box.width,
+            y: ((event.clientY - box.top) * geometry.viewport.height) / box.height,
+          },
+          geometry.image,
+          geometry.viewport,
+          geometry.view,
+        )
+      if (point && geometry?.maskGeometry)
+        masks.sampleRangeAt(point, undefined, geometry.maskGeometry)
+      else masks.setError('Choose a visible point inside the photograph.')
+      return
+    }
     if (masks?.active) {
       stopDrag()
       keyboardStroke.current = false
@@ -1906,7 +1940,7 @@ export function PhotoPreview({
       <div className={layout.previewArea}>
         <div
           ref={viewport}
-          className={`${styles.viewport} ${ready && (panX || panY) ? styles.pannable : ''} ${dragging ? styles.dragging : ''} ${whiteBalancePicker?.active || toneCurves?.active || masks?.active || masks?.editingGradient || masks?.creatingGradient || objectSelection?.active ? styles.picking : ''}`}
+          className={`${styles.viewport} ${ready && (panX || panY) ? styles.pannable : ''} ${dragging ? styles.dragging : ''} ${whiteBalancePicker?.active || toneCurves?.active || masks?.active || masks?.editingGradient || masks?.creatingGradient || masks?.rangePicking || objectSelection?.active ? styles.picking : ''}`}
           data-testid="preview-viewport"
           data-mode={view.fit ? 'fit' : 'manual'}
           data-scale={view.scale}
@@ -1930,6 +1964,7 @@ export function PhotoPreview({
           data-image-height={model.image.height}
           data-dragging={dragging}
           data-mask-brush={masks?.active || undefined}
+          data-range-picking={masks?.rangePicking || undefined}
           data-object-selection={objectSelection?.active || undefined}
           onPointerDownCapture={(event) => {
             if (event.button === 1) {
@@ -1990,6 +2025,8 @@ export function PhotoPreview({
               whiteBalancePicker?.active ||
               toneCurves?.active ||
               masks?.active ||
+              masks?.rangePicking ||
+              masks?.rangeCreating ||
               objectSelection?.active ||
               masks?.editingGradient ||
               masks?.creatingGradient ||
@@ -2186,6 +2223,8 @@ export function PhotoPreview({
                 ready &&
                 !cropping &&
                 !masks?.active &&
+                !masks?.rangePicking &&
+                !masks?.rangeCreating &&
                 !objectSelection?.active &&
                 !whiteBalancePicker?.active &&
                 !toneCurves?.active && (
@@ -2211,6 +2250,8 @@ export function PhotoPreview({
                 ready &&
                 !cropping &&
                 !masks?.active &&
+                !masks?.rangePicking &&
+                !masks?.rangeCreating &&
                 !whiteBalancePicker?.active &&
                 !toneCurves?.active &&
                 !inspection?.active && (

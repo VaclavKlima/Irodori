@@ -29,6 +29,19 @@ readable data; keeping them does not keep their retired executors available.
 | Whole-mask edge preparation                 | Common native Dawn/WGSL in a bundled-Node worker; native Sharp PNG codec                                                                                      | Complete base/ordered brush/inverted coverage, exact disk ±16 px, Gaussian radius ≤64 px, native 128-row strips and full halos, disposable revision/source-bound R8, unchanged memory ceilings | [Implementation and focused Mac acceptance](features/mask-edges.md); [focused Bazzite qualification and limits](features/masking-bazzite-acceptance.md). Zero/zero preserves the existing path. No per-renderer filter forks, CPU filter fallback, model rerun or full-image TypeScript pixel math.                                                                                                                                                                                                              |
 | Object selection and generated coverage     | Common ONNX Runtime Node native WebGPU SAM 2.1 Tiny in a bundled-Node worker; common Dawn preprocessing/reconstruction; shared WGSL/GLSL R8 coverage sampling | Pinned portable graph hashes, one source/embedding, explicit GPU failure/cancel/retry; 32 MP/8192 source bound, compact bounded atlas, immutable PNG base plus ordered corrections             | [Mac delivery and device evidence](features/object-selection.md); [focused Bazzite qualification and RAW startup evidence](features/masking-bazzite-acceptance.md). Native codecs remain outside Electron. No heavy CPU inference fallback or full-image TypeScript reconstruction.                                                                                                                                                                                                                              |
 
+## Color and luminance range coverage — issue #63
+
+[Range masks](features/mask-ranges.md) use the existing isolated Dawn preparation
+owner to classify a verified neutral canonical Float32 source into bounded native
+R8 bases. Linear sRGB and Rec.2020 retain their declared domains and above-white
+values. Those bases enter the existing brush/compound/inversion/edge program;
+presentation, exact clipping and frozen output share that coverage. Sampling is a
+bounded 7 × 7 linear query. No full-image TypeScript or equivalent CPU classifier
+is added. Focused Bazzite acceptance passes with actual discrete/integrated Dawn
+witnesses; other-device and integrated browser qualification remains
+[#105](https://github.com/VaclavKlima/Irodori/issues/105). The linked brief records
+the exact scopes and retained failures, separately from publication.
+
 ## Masked clipping — issue #93
 
 The [whole-photo masked-clipping extension](features/masked-clipping.md) retains

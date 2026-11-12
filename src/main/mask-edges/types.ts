@@ -1,4 +1,6 @@
 import type { ResolvedMask } from '../../shared/masks'
+import type { MaskRange } from '../../shared/mask-ranges'
+import type { MaskRangeSource } from '../mask-ranges/types'
 
 /** Internal managed-worker contract; paths never enter the renderer bridge. */
 export interface MaskEdgeResult {
@@ -16,6 +18,7 @@ export interface MaskEdgeWorkerRequest {
   height: number
   key: string
   outputPath: string
+  range?: { source: MaskRangeSource; parameters: MaskRange }
 }
 export interface MaskEdgeWorkerReply {
   id: number

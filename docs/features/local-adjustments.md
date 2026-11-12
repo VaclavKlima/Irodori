@@ -130,7 +130,7 @@ Each completed stroke, parameter gesture, reorder or management action is one ph
 
 ## Controls
 
-Use one **Create mask** command menu rather than adding a header button for every mask type. The renderer-owned tool registry offers Brush, Select object, Linear gradient and Radial gradient; future automatic selections and ranges join the same menu. Unimplemented tools are hidden. Temporarily blocked tools retain a readable reason.
+Use one **Create mask** command menu rather than adding a header button for every mask type. The renderer-owned tool registry offers Brush, Select object, Linear gradient, Radial gradient, Color range and Luminance range; future automatic selections join the same menu. Unimplemented tools are hidden. Temporarily blocked tools retain a readable reason.
 
 The mask list shows each name, type/status, visibility toggle, drag handle and **⋯** menu. Names use 12px text and metadata 11px; long names retain accessible full text. The list is bounded to two visible rows at content heights of 760px or less and four above that, with its own scrolling. Header controls and detail tabs remain visible while the selected-mask details scroll independently. **Show overlay** is available above both tabs.
 
@@ -388,3 +388,12 @@ result corrections. [Issue #85](https://github.com/VaclavKlima/Irodori/issues/85
 owns implementation and acceptance; [#99](https://github.com/VaclavKlima/Irodori/issues/99)
 tracks other-device verification. This tree order supersedes the earlier single
 source/brush coverage description above; root Light/Color still apply once.
+
+## Color and luminance range masks — issue #63
+
+[Range masks](mask-ranges.md) add a stable canonical source primitive to the existing
+coverage tree, including compound Add/Subtract/Intersect and source replacement.
+Color samples ignore brightness scaling; luminance uses source-white percentages
+and preserves HDR values above 100%. The linked brief records the reviewed controls,
+shared GPU preparation, settings19/catalog29 migration and current verification status.
+Other-device acceptance remains in [#105](https://github.com/VaclavKlima/Irodori/issues/105).

@@ -31,12 +31,12 @@ export const XYZ_TO_RGB: Readonly<Record<ColorPrimaries, Matrix>> = {
     [792561 / 44930125, -1921689 / 44930125, 42328811 / 44930125],
   ],
 }
-const xyzToLms: Matrix = [
+export const XYZ_TO_OKLAB_LMS: Matrix = [
   [0.819022437996703, 0.3619062600528904, -0.1288737815209879],
   [0.0329836539323885, 0.9292868615863434, 0.0361446663506424],
   [0.0481771893596242, 0.2642395317527308, 0.6335478284694309],
 ]
-const lmsToLab: Matrix = [
+export const OKLAB_LMS_TO_LAB: Matrix = [
   [0.210454268309314, 0.7936177747023054, -0.0040720430116193],
   [1.9779985324311684, -2.4285922420485799, 0.450593709617411],
   [0.0259040424655478, 0.7827717124575296, -0.8086757549230774],
@@ -60,8 +60,8 @@ function transform(matrix: Matrix, value: ColorTriple): [number, number, number]
 }
 
 export function workingToOklab(rgb: ColorTriple, primaries: ColorPrimaries): ColorTriple {
-  const lms = transform(xyzToLms, workingToXyz(rgb, primaries))
-  return transform(lmsToLab, [Math.cbrt(lms[0]), Math.cbrt(lms[1]), Math.cbrt(lms[2])])
+  const lms = transform(XYZ_TO_OKLAB_LMS, workingToXyz(rgb, primaries))
+  return transform(OKLAB_LMS_TO_LAB, [Math.cbrt(lms[0]), Math.cbrt(lms[1]), Math.cbrt(lms[2])])
 }
 
 export function oklabToWorking(lab: ColorTriple, primaries: ColorPrimaries): ColorTriple {

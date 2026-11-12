@@ -289,6 +289,7 @@ export function App() {
     if (!crop.supported || crop.pending) return
     objectSelection.close()
     inspection.close()
+    masks.cancel()
     whiteBalancePicker.cancel()
     toneCurves.cancelTarget()
     previewTools.update({ mode: 'after' })
@@ -383,7 +384,9 @@ export function App() {
       whiteBalancePicker.active ||
       toneCurves.active ||
       masks.active ||
-      masks.creatingGradient
+      masks.creatingGradient ||
+      masks.rangePicking ||
+      masks.rangeCreating
     )
       closeInspection()
   }, [
@@ -392,8 +395,14 @@ export function App() {
     toneCurves.active,
     masks.active,
     masks.creatingGradient,
+    masks.rangePicking,
+    masks.rangeCreating,
     closeInspection,
   ])
+  const updateRangeComparison = previewTools.update
+  useEffect(() => {
+    if (masks.rangePicking || masks.rangeCreating) updateRangeComparison({ mode: 'after' })
+  }, [masks.rangePicking, masks.rangeCreating, updateRangeComparison])
   const startInspection = async () => {
     objectSelection.close()
     whiteBalancePicker.cancel()
@@ -409,7 +418,9 @@ export function App() {
       whiteBalancePicker.active ||
       toneCurves.active ||
       masks.active ||
-      masks.creatingGradient
+      masks.creatingGradient ||
+      masks.rangePicking ||
+      masks.rangeCreating
     )
       closeObjectSelection()
   }, [
@@ -418,6 +429,8 @@ export function App() {
     toneCurves.active,
     masks.active,
     masks.creatingGradient,
+    masks.rangePicking,
+    masks.rangeCreating,
     closeObjectSelection,
   ])
   const agentContextRef = useRef({

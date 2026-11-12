@@ -24,6 +24,13 @@ import { maskCoverageNodes, mapMaskCoverage } from '../../shared/masks-gpu'
 import { MaskEdgeProcess } from './process'
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
+const coverageSource = (source: unknown) => {
+  if (source && typeof source === 'object' && 'identity' in source && 'processing' in source) {
+    const processing = source.processing as { processing?: unknown; metadata?: unknown }
+    return [source.identity, processing.processing, processing.metadata]
+  }
+  return source
+}
 interface Owner {
   context(id: string, revision: number): Promise<PhotoMaskContext>
   edits(id: string): Promise<EditState>
@@ -31,6 +38,11 @@ interface Owner {
   masks(state: EditState, mutation?: MaskMutation): ResolvedMask[]
   admission(signal: AbortSignal): Promise<CropAdmission>
   reserve(bytes: number): Promise<() => void>
+  prepareRanges?(
+    source: unknown,
+    masks: ResolvedMask[],
+    signal: AbortSignal,
+  ): Promise<ResolvedMask[]>
 }
 interface Cached {
   photoId: string
@@ -122,11 +134,16 @@ export class MaskEdgeService {
       throw new Error('Edits changed. Refresh mask coverage.')
     const masks = proposal ? [proposal] : this.owner.masks(state, request.mutation)
     const allNodes = masks.flatMap((mask) => maskCoverageNodes(mask, true))
-    const selected = request.maskIds.map((id) => {
+    let selected = request.maskIds.map((id) => {
       const mask = allNodes.find((mask) => mask.id === id)
       if (!mask) throw new Error('The selected mask component is unavailable.')
       return mask
     })
+    if (selected.some((mask) => maskCoverageNodes(mask).some((node) => node.range))) {
+      if (!this.owner.prepareRanges)
+        throw new Error('Range coverage preparation is unavailable. Retry GPU.')
+      selected = await this.owner.prepareRanges(source, selected, signal)
+    }
     // Shared subtrees are prepared once, children before the parent that consumes them.
     const chosen: ResolvedMask[] = []
     const seen = new Set<string>()
@@ -137,7 +154,7 @@ export class MaskEdgeService {
           chosen.push(node)
         }
     const { canonicalWidth: width, canonicalHeight: height } = context.geometry
-    const sourceIdentity = digest([request.photoId, source, width, height])
+    const sourceIdentity = digest([request.photoId, coverageSource(source), width, height])
     const memory = maskEdgeMemoryPlan(
       width,
       height,
@@ -150,10 +167,25 @@ export class MaskEdgeService {
         'Mask edges exceed the current image-memory budget. Reset Mask edges, close other processing or increase the resource budget, then retry GPU.',
       )
     const coverages: Record<string, PreparedMaskCoverage> = {}
-    let encoded = 0
+    const rangeBases: Record<string, PreparedMaskCoverage> = {}
+    for (const mask of selected)
+      for (const node of maskCoverageNodes(mask))
+        if (node.preparedRangeBase) rangeBases[node.id] = node.preparedRangeBase
+    let encoded = Object.values(rangeBases).reduce(
+      (sum, base) => sum + Math.ceil((base.pngBase64.length * 3) / 4),
+      0,
+    )
+    if (encoded > maskCapabilities.maxLiveBaseEncodedBytes)
+      throw new Error('Prepared ranges exceed the 32 MiB live coverage transfer limit.')
     for (const mask of chosen) {
       signal.throwIfAborted()
-      const key = digest([sourceIdentity, width, height, maskEdgePixelIdentity(mask)])
+      const key = digest([
+        sourceIdentity,
+        width,
+        height,
+        maskEdgePixelIdentity(mask),
+        maskCoverageNodes(mask).map((node) => node.preparedRangeBase?.key ?? null),
+      ])
       let entry = this.cache.get(key)
       if (!entry) {
         await this.prune(maskCapabilities.maxBaseEncodedBytes)
@@ -228,7 +260,13 @@ export class MaskEdgeService {
       digest(sourceAfter) !== digest(source)
     )
       throw new Error('The photograph changed while preparing mask coverage.')
-    return { photoId: request.photoId, revision: request.revision, sourceIdentity, coverages }
+    return {
+      photoId: request.photoId,
+      revision: request.revision,
+      sourceIdentity,
+      coverages,
+      rangeBases,
+    }
   }
   private async prune(incoming = 0) {
     let bytes = [...this.cache.values()].reduce((sum, entry) => sum + entry.bytes, 0)

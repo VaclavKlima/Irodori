@@ -21,6 +21,8 @@ import {
   GripVertical,
   MoreHorizontal,
   Pencil,
+  Palette,
+  Sun,
   Plus,
   RotateCcw,
   ScanSearch,
@@ -43,6 +45,7 @@ import type { MasksController } from '../hooks/useMasks'
 import type { ObjectSelectionController } from '../hooks/useObjectSelection'
 import { ObjectSelectionControls } from './ObjectSelection'
 import { MaskParts } from './MaskParts'
+import { MaskRangeControls } from './MaskRangeControls'
 import { GradientShape } from './GradientShape'
 import { maskCreationActions, startMaskCreation, type MaskToolId } from './mask-tools'
 import styles from './Masks.module.css'
@@ -235,7 +238,8 @@ export function Masks({
       button.focus({ preventScroll: true })
     }
   })
-  const detailTab: MaskDetailTab = selecting ? 'coverage' : masks.workspace.detailTab
+  const detailTab: MaskDetailTab =
+    selecting || masks.rangeCreating ? 'coverage' : masks.workspace.detailTab
   useEffect(() => {
     if (details.current) details.current.scrollTop = 0
   }, [detailTab, selected?.id])
@@ -279,6 +283,7 @@ export function Masks({
       busy: providedMasks.busy,
       createBrush: providedMasks.create,
       createGradient: providedMasks.armGradient,
+      createRange: providedMasks.startRange,
     })
   }
   const targetMask = masks.masks.find((mask) => mask.id === activeMenu?.maskId)
@@ -373,7 +378,7 @@ export function Masks({
           <ChevronDown size={12} aria-hidden="true" />
         </Button>
       </div>
-      {!masks.masks.length && !selecting && (
+      {!masks.masks.length && !selecting && !masks.rangeCreating && (
         <p className={styles.empty}>Create a mask to adjust part of this photograph.</p>
       )}
       <ol
@@ -384,23 +389,29 @@ export function Masks({
         data-testid="masks-list"
       >
         {masks.masks.map((mask) => {
-          const Icon = mask.gradient
-            ? mask.gradient.kind === 'linear'
-              ? ArrowDownToLine
-              : Circle
-            : mask.base
-              ? ScanSearch
-              : Brush
+          const Icon = mask.range
+            ? mask.range.kind === 'color'
+              ? Palette
+              : Sun
+            : mask.gradient
+              ? mask.gradient.kind === 'linear'
+                ? ArrowDownToLine
+                : Circle
+              : mask.base
+                ? ScanSearch
+                : Brush
           const rename = renaming?.scope === masks.scope && renaming?.id === mask.id
-          const type = mask.gradient
-            ? `${mask.gradient.kind === 'linear' ? 'Linear' : 'Radial'} gradient${mask.head || mask.resultHead ? ' + Brush' : ''}`
-            : mask.base
-              ? mask.head || mask.resultHead
-                ? 'Object + Brush'
-                : 'Object'
-              : mask.head || mask.resultHead
-                ? 'Brush'
-                : 'Empty'
+          const type = mask.range
+            ? `${mask.range.kind === 'color' ? 'Color' : 'Luminance'} range`
+            : mask.gradient
+              ? `${mask.gradient.kind === 'linear' ? 'Linear' : 'Radial'} gradient${mask.head || mask.resultHead ? ' + Brush' : ''}`
+              : mask.base
+                ? mask.head || mask.resultHead
+                  ? 'Object + Brush'
+                  : 'Object'
+                : mask.head || mask.resultHead
+                  ? 'Brush'
+                  : 'Empty'
           const metadata = `${mask.operands?.length ? 'Combined' : type}${mask.inverted ? ' · Inverted' : ''}${!mask.enabled ? ' · Disabled' : ''}`
           return (
             <li
@@ -503,14 +514,14 @@ export function Masks({
           )
         })}
       </ol>
-      {(selected || selecting) && (
+      {(selected || selecting || masks.rangeCreating) && (
         <>
           <div className={styles.overlayRow}>
             <label className={styles.overlayToggle}>
               <input
                 type="checkbox"
-                checked={selecting || masks.workspace.overlay}
-                disabled={!providedMasks.supported || selecting}
+                checked={selecting || masks.rangeCreating || masks.workspace.overlay}
+                disabled={!providedMasks.supported || selecting || masks.rangeCreating}
                 onChange={(event) => masks.preference({ overlay: event.target.checked })}
               />
               Show overlay
@@ -518,7 +529,7 @@ export function Masks({
             <select
               aria-label="Coverage inspection"
               value={masks.workspace.overlayScope ?? 'result'}
-              disabled={selecting}
+              disabled={selecting || masks.rangeCreating}
               onChange={(event) =>
                 masks.preference({ overlayScope: event.target.value as 'result' | 'selected-part' })
               }
@@ -539,13 +550,15 @@ export function Masks({
                 {
                   id: 'adjustments',
                   label: 'Adjustments',
-                  disabledReason: selecting
-                    ? 'Use or cancel this selection before editing adjustments.'
-                    : undefined,
+                  disabledReason:
+                    selecting || masks.rangeCreating
+                      ? 'Use or cancel this selection before editing adjustments.'
+                      : undefined,
                 },
               ]}
               onChange={(tab) => {
-                if (!selecting) void masks.showDetailTab(tab).catch(() => undefined)
+                if (!selecting && !masks.rangeCreating)
+                  void masks.showDetailTab(tab).catch(() => undefined)
               }}
             />
           </div>
@@ -557,9 +570,18 @@ export function Masks({
                 </p>
               )}
               {objectSelection && <ObjectSelectionControls selection={objectSelection} />}
-              {selected && !selecting && (
+              {masks.rangeCreating && (
+                <MaskRangeControls key={`range-create:${masks.selectedId}`} masks={providedMasks} />
+              )}
+              {selected && !selecting && !masks.rangeCreating && (
                 <>
                   <MaskParts masks={masks} objectSelection={objectSelection} />
+                  {masks.rangeKind && (
+                    <MaskRangeControls
+                      key={`range-edit:${masks.selectedId}:${masks.selectedComponentId}`}
+                      masks={providedMasks}
+                    />
+                  )}
                   {masks.selectedPart?.gradient && <GradientShape masks={masks} />}
                   {masks.selectedComponentId === null && (
                     <p className={styles.hint}>

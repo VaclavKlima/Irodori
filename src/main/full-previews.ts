@@ -474,6 +474,9 @@ export class FullPreviews {
         throw new Error('Native mask history is not confirmed for this exact source.')
       const parameters = request.comparison === 'before' ? neutralAdjustments : options.adjustments
       if (!parameters) throw new Error('Native mask confirmed adjustments are unavailable.')
+      const masks = parameters.localMasks?.length
+        ? await this.rangeMasks(request.source.photoId, options, [...parameters.localMasks], signal)
+        : parameters.localMasks
       if (!frozenPolicy && !this.firstConfiguration)
         throw new Error('Native mask resource policy is unavailable.')
       const policy = structuredClone(frozenPolicy ?? (await this.firstConfiguration!.policy()))
@@ -485,6 +488,7 @@ export class FullPreviews {
         release,
         parameters: {
           ...structuredClone(parameters),
+          localMasks: masks,
           ...(parameters.localMasks?.length
             ? {
                 maskGeometry: structuredClone(
@@ -509,6 +513,30 @@ export class FullPreviews {
   private closed = false
   private retainedPhoto?: string
   private directory: string
+  private prepareRanges?: (
+    id: string,
+    options: ProcessingOptions,
+    masks: ResolvedMask[],
+    signal: AbortSignal,
+    force?: boolean,
+  ) => Promise<ResolvedMask[]>
+
+  configureMaskRanges(prepare: NonNullable<FullPreviews['prepareRanges']>): void {
+    this.prepareRanges = prepare
+  }
+
+  private async rangeMasks(
+    id: string,
+    options: ProcessingOptions,
+    masks: ResolvedMask[],
+    signal: AbortSignal,
+    force = false,
+  ) {
+    if (!masks.some((mask) => maskCoverageNodes(mask, true).some((node) => node.range)))
+      return masks
+    if (!this.prepareRanges) throw new Error('Range mask GPU preparation is unavailable.')
+    return this.prepareRanges(id, options, masks, signal, force)
+  }
 
   constructor(
     private root: string,
@@ -940,6 +968,7 @@ export class FullPreviews {
   ): Promise<void> {
     if (!masks.length) return
     const prepared = await this.nativeCropSource(id, expectedRevision, undefined, true)
+    masks = await this.rangeMasks(id, prepared.options, masks, new AbortController().signal, true)
     const crop = cropGeometry(prepared.source, prepared.options.crop ?? identityCrop)
     const unfiltered = masks.map((mask) =>
       mapMaskCoverage(mask, (node) => ({
@@ -959,9 +988,11 @@ export class FullPreviews {
         maskCoverageNodes(root).flatMap((mask) =>
           maskHasEdges(mask)
             ? [`edge:${maskEdgePixelIdentity(mask)}`]
-            : mask.base
-              ? [mask.base.hash]
-              : [],
+            : mask.preparedRangeBase
+              ? [mask.preparedRangeBase.hash]
+              : mask.base
+                ? [mask.base.hash]
+                : [],
         ),
       ),
     ).size
@@ -1179,6 +1210,17 @@ export class FullPreviews {
                     settings: sourceLens ? { ...sourceLens } : resolved.settings,
                   }
                 : undefined
+            if (!workingOnly && options?.adjustments?.localMasks?.length) {
+              options.adjustments = {
+                ...options.adjustments,
+                localMasks: await this.rangeMasks(
+                  id,
+                  options,
+                  [...options.adjustments.localMasks],
+                  request.abort.signal,
+                ),
+              }
+            }
             if (workingOnly && options?.processing !== 'hdr-v1') return null
             if (workingOnly && preferPrimary && options?.metadata.hdrJpeg) return null
             if (
@@ -2916,6 +2958,26 @@ export class FullPreviews {
   }
 
   private externalDiskBytes = 0
+  /** Range preparation may run inside this service's queue. Reserve synchronously
+   * without waiting on that same queue or evicting pinned/active entries. */
+  reserveRangeCoverageBytes(bytes: number): Promise<() => void> {
+    if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > this.budget || this.closed)
+      return Promise.reject(new Error('Range coverage exceeds the preview storage limit.'))
+    const retained = [...this.entries.values()].reduce((sum, entry) => sum + entry.bytes, 0)
+    if (retained + this.externalDiskBytes + bytes > this.budget)
+      return Promise.reject(
+        new Error(
+          'Range coverage exceeds the preview storage limit while other assets are in use.',
+        ),
+      )
+    this.externalDiskBytes += bytes
+    let released = false
+    return Promise.resolve(() => {
+      if (released) return
+      released = true
+      this.externalDiskBytes -= bytes
+    })
+  }
   /** Temporary output proofs share the existing disk budget and pinned-entry protections. */
   reserveOutputProofBytes(bytes: number): Promise<() => void> {
     return this.enqueue(async () => {

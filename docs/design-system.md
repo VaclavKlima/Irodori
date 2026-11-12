@@ -122,6 +122,13 @@ Console arrangement and date/month/year browser.
   pixel Geometry. Handles belong to Coverage independently of Show overlay. The
   [gradient study](design/mask-gradients.html) and native 1100 × 700 Console-open
   acceptance preserve the existing layout and independent scrolling.
+  The November 12 [range-mask panels](design/mask-ranges.html) add Color/Luminance
+  range to the same chooser and compound methods. Coverage uses up to five sample
+  swatches, Range/Softness and optional hexadecimal entry, or numeric Lower/Upper
+  source-white percentages with an unbounded Upper option. New masks/parts preview
+  until explicit Create/Add/Replace; the overlay inspection selector stays locked
+  during creation. Native 1100 × 700 Console-open and Sunflower checks pass; see
+  [range acceptance and limits](features/mask-ranges.md).
 - **Light:** Light title and reset; Tonal adjustments disclosure; implemented
   tonal controls; an expandable Curves section with labelled channel selectors,
   square signed-log graph, Standard/HDR/Fit points views, Input/Output fields,

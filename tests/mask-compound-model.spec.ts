@@ -295,7 +295,7 @@ test('legacy brush chains resolve as primary coverage without relocation or chan
 })
 
 test('settings 17 migration preserves brush/object/gradient histories, revision/cursor/timestamps and immutable bytes', async () => {
-  const { initialSettings } = await import('../src/shared/edits')
+  const { initialSettings, SETTINGS_VERSION } = await import('../src/shared/edits')
   const { migrateEditingHistory, supportsEditingSettings } =
     await import('../src/main/catalog/editing-migration')
   const { generatedMask } = await import('./helpers/generated-mask')
@@ -355,14 +355,14 @@ test('settings 17 migration preserves brush/object/gradient histories, revision/
       ...history,
       settings: {
         ...settings,
-        version: 18,
+        version: SETTINGS_VERSION,
         maskStack: settings.maskStack.map((mask) => ({ ...mask, operands: [], resultHead: null })),
       },
       snapshots: history.snapshots.map((snapshot) => ({
         ...snapshot,
         settings: {
           ...snapshot.settings,
-          version: 18,
+          version: SETTINGS_VERSION,
           maskStack: snapshot.settings.maskStack.map((mask) => ({
             ...mask,
             operands: [],

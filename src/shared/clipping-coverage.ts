@@ -4,7 +4,7 @@ import { maskOutputSize, validateMaskGeometry } from './mask-geometry'
 import { hasMaskAdjustments, maskCapabilities, type ResolvedMask } from './masks'
 import {
   localMaskAllocationBytes,
-  mapMaskCoverage,
+  unpreparedMaskCoverage,
   maskCoverageNodes,
   maskHasCoverage,
 } from './masks-gpu'
@@ -34,9 +34,7 @@ export function clippingCoverageMemory(
     throw new Error('Unsupported clipping coverage source geometry.')
   // Prepared pixels belong to their renderer/source owner and cannot change
   // the request's admission. Main independently prepares the authored coverage.
-  const masks = clippingCoverageMasks(parameters).map((root) =>
-    mapMaskCoverage(root, (node) => ({ ...node, preparedCoverage: undefined })),
-  )
+  const masks = clippingCoverageMasks(parameters).map(unpreparedMaskCoverage)
   const maskCount = masks.length
   if (!maskCount) return { ramBytes: 0, vramBytes: 0, maskCount, stripBytes: 0, byteLength: 0 }
   if (parameters.maskGeometry) {

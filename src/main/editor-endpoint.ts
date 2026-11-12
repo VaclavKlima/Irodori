@@ -100,6 +100,7 @@ export async function startEditorEndpoint(
         presetApplication,
         presetQuery,
         maskMutation,
+        rangeSample,
         points,
         allowOutsidePhoto,
       } = args as {
@@ -143,6 +144,10 @@ export async function startEditorEndpoint(
         allowOutsidePhoto?: boolean
         points?: import('../shared/masks').MaskPoint[]
         maskMutation: import('../shared/masks').MaskMutation
+        rangeSample: Omit<
+          import('../shared/mask-range-sampling').MaskRangeSampleRequest,
+          'photoId' | 'expectedRevision'
+        >
         presetQuery?: import('../shared/presets').PresetQuery
       }
       if (
@@ -676,6 +681,29 @@ export async function startEditorEndpoint(
               renderingIdentity: context.renderingIdentity,
               coordinates:
                 'Input points are normalized cropped-output pixel-edge positions; returned points are normalized oriented uncorrected source coordinates for brush strokes (0–1), or gradient geometry (-1–2) when allowOutsidePhoto is true. Unsupported mapped coordinates are refused.',
+            }
+            break
+          }
+          case 'irodori_sample_mask_range': {
+            if (
+              !rangeSample ||
+              typeof rangeSample !== 'object' ||
+              Object.keys(rangeSample).some((key) => !['renderingIdentity', 'point'].includes(key))
+            )
+              throw new Error('Supply the confirmed rendering identity and range sample point.')
+            const lifetime = new AbortController()
+            const disconnected = () => {
+              if (!response.writableFinished)
+                lifetime.abort(new Error('Range sampling client disconnected.'))
+            }
+            response.once('close', disconnected)
+            try {
+              result = await library.sampleMaskRange(
+                { ...rangeSample, photoId, expectedRevision },
+                gate ? AbortSignal.any([gate.signal, lifetime.signal]) : lifetime.signal,
+              )
+            } finally {
+              response.removeListener('close', disconnected)
             }
             break
           }

@@ -1,5 +1,6 @@
 import { objectSelectionMemoryPlan } from '../src/shared/object-selection-resources'
 import { expect, test } from '@playwright/test'
+import { defaultLuminanceMaskRange } from '../src/shared/mask-ranges'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -765,28 +766,33 @@ test('edge-aware AI refinement retires its model heap and revalidates revision a
   }
 })
 
-test('gradient refinement refuses before canonical decoding or object inference', async () => {
-  const f = await fixture()
-  try {
-    const id = randomUUID()
-    f.setMask({
-      id,
-      name: 'Linear gradient',
-      enabled: true,
-      inverted: false,
-      head: null,
-      light: { ...neutralMaskLight },
-      color: { ...neutralMaskColor },
-      edge: { featherPx: 0, shiftPx: 0 },
-      strokes: [],
-      gradient: { kind: 'linear', start: { x: 0, y: 0 }, end: { x: 1, y: 1 } },
-    })
-    await expect(f.service.create(await f.request({ maskId: id }))).rejects.toThrow(
-      'cannot refine a gradient',
-    )
-    expect(f.calls).toMatchObject({ decode: 0, run: 0, commits: 0, coverage: 0 })
-  } finally {
-    await f.close()
+test('gradient and range refinement refuse before canonical decoding or object inference', async () => {
+  for (const primary of [
+    { gradient: { kind: 'linear' as const, start: { x: 0, y: 0 }, end: { x: 1, y: 1 } } },
+    { range: defaultLuminanceMaskRange },
+  ]) {
+    const f = await fixture()
+    try {
+      const id = randomUUID()
+      f.setMask({
+        id,
+        name: 'Linear gradient',
+        enabled: true,
+        inverted: false,
+        head: null,
+        light: { ...neutralMaskLight },
+        color: { ...neutralMaskColor },
+        edge: { featherPx: 0, shiftPx: 0 },
+        strokes: [],
+        ...primary,
+      })
+      await expect(f.service.create(await f.request({ maskId: id }))).rejects.toThrow(
+        'cannot refine a',
+      )
+      expect(f.calls).toMatchObject({ decode: 0, run: 0, commits: 0, coverage: 0 })
+    } finally {
+      await f.close()
+    }
   }
 })
 
@@ -943,51 +949,61 @@ test('nested object replacement retains both correction chains, grouping and des
 })
 
 test('explicit object starting-source replacement remains a proposal until acceptance and preserves corrections', async () => {
-  const f = await fixture()
-  try {
-    const id = randomUUID()
-    const gradient = { kind: 'linear' as const, start: { x: 0.2, y: 0.3 }, end: { x: 0.8, y: 0.7 } }
-    const stroke = { mode: 'add' as const, radius: 0.1, feather: 0, points: [{ x: 0.3, y: 0.3 }] }
-    const mask: ResolvedMask = {
-      id,
-      name: 'Starting gradient',
-      enabled: true,
-      inverted: true,
-      head: 'b'.repeat(64),
-      resultHead: 'c'.repeat(64),
-      gradient,
-      light: { ...neutralMaskLight, exposureEv: -1 },
-      color: { ...neutralMaskColor },
-      edge: { featherPx: 0, shiftPx: 0 },
-      strokes: [stroke],
-      resultStrokes: [stroke],
-      operands: [],
+  for (const primaryKind of ['gradient', 'range']) {
+    const f = await fixture()
+    try {
+      const id = randomUUID()
+      const gradient = {
+        kind: 'linear' as const,
+        start: { x: 0.2, y: 0.3 },
+        end: { x: 0.8, y: 0.7 },
+      }
+      const stroke = { mode: 'add' as const, radius: 0.1, feather: 0, points: [{ x: 0.3, y: 0.3 }] }
+      const mask: ResolvedMask = {
+        id,
+        name: 'Starting gradient',
+        enabled: true,
+        inverted: true,
+        head: 'b'.repeat(64),
+        resultHead: 'c'.repeat(64),
+        ...(primaryKind === 'gradient' ? { gradient } : { range: defaultLuminanceMaskRange }),
+        light: { ...neutralMaskLight, exposureEv: -1 },
+        color: { ...neutralMaskColor },
+        edge: { featherPx: 0, shiftPx: 0 },
+        strokes: [stroke],
+        resultStrokes: [stroke],
+        operands: [],
+      }
+      f.setMask(mask)
+      const request = await f.request({
+        target: { kind: 'replace-component', maskId: id, replacePrimary: true },
+      })
+      const proposal = await f.service.create(request)
+      expect(f.state().settings.maskStack[0][primaryKind as 'gradient' | 'range']).toEqual(
+        primaryKind === 'gradient' ? gradient : defaultLuminanceMaskRange,
+      )
+      expect(proposal.mask.gradient).toBeUndefined()
+      expect(proposal.mask.range).toBeUndefined()
+      expect(proposal.mask).toMatchObject({
+        head: mask.head,
+        resultHead: mask.resultHead,
+        light: mask.light,
+        inverted: true,
+        strokes: [stroke],
+        resultStrokes: [stroke],
+      })
+      const accepted = await f.service.accept({
+        photoId: request.photoId,
+        expectedRevision: 4,
+        proposalId: proposal.id,
+      })
+      expect(accepted.settings.maskStack[0].gradient).toBeUndefined()
+      expect(accepted.settings.maskStack[0].range).toBeUndefined()
+      expect(accepted.settings.maskStack[0].base?.hash).toBe(proposal.mask.base?.hash)
+      expect(accepted.settings.maskStack[0].head).toBe(mask.head)
+      expect(f.calls.commits).toBe(1)
+    } finally {
+      await f.close()
     }
-    f.setMask(mask)
-    const request = await f.request({
-      target: { kind: 'replace-component', maskId: id, replacePrimary: true },
-    })
-    const proposal = await f.service.create(request)
-    expect(f.state().settings.maskStack[0].gradient).toEqual(gradient)
-    expect(proposal.mask.gradient).toBeUndefined()
-    expect(proposal.mask).toMatchObject({
-      head: mask.head,
-      resultHead: mask.resultHead,
-      light: mask.light,
-      inverted: true,
-      strokes: [stroke],
-      resultStrokes: [stroke],
-    })
-    const accepted = await f.service.accept({
-      photoId: request.photoId,
-      expectedRevision: 4,
-      proposalId: proposal.id,
-    })
-    expect(accepted.settings.maskStack[0].gradient).toBeUndefined()
-    expect(accepted.settings.maskStack[0].base?.hash).toBe(proposal.mask.base?.hash)
-    expect(accepted.settings.maskStack[0].head).toBe(mask.head)
-    expect(f.calls.commits).toBe(1)
-  } finally {
-    await f.close()
   }
 })

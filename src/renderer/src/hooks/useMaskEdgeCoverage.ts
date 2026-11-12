@@ -25,6 +25,7 @@ interface Completed {
   identity: string
   confirmation: object | undefined
   coverages: Record<string, PreparedMaskCoverage>
+  rangeBases: Record<string, PreparedMaskCoverage>
 }
 
 /** Main prepares committed coverage and validated geometry drafts without publishing draft history. */
@@ -42,12 +43,12 @@ export function useMaskEdgeCoverage({
   for (const root of parameters.localMasks ?? []) {
     if (root.enabled && hasMaskAdjustments(root))
       for (const node of maskCoverageNodes(root))
-        if (maskHasEdges(node)) requiredById.set(node.id, node)
+        if (maskHasEdges(node) || node.range) requiredById.set(node.id, node)
     if (overlayVisible && selectedId) {
       const selected = maskCoverageNodes(root, true).find((node) => node.id === selectedId)
       if (selected)
         for (const node of maskCoverageNodes(selected))
-          if (maskHasEdges(node)) requiredById.set(node.id, node)
+          if (maskHasEdges(node) || node.range) requiredById.set(node.id, node)
     }
   }
   const required = [...requiredById.values()]
@@ -90,11 +91,23 @@ export function useMaskEdgeCoverage({
       if (!active) return
       if (response.photoId !== photoId || response.revision !== revision)
         throw new Error('Prepared mask edges belong to an older photograph or revision.')
-      if (current.requiredIds.some((id) => !Object.hasOwn(response.coverages, id)))
+      if (
+        current.requiredIds.some(
+          (id) =>
+            !Object.hasOwn(response.coverages, id) && !Object.hasOwn(response.rangeBases ?? {}, id),
+        )
+      )
         throw new Error('Prepared mask edges are incomplete. Retry GPU.')
       for (const coverage of Object.values(response.coverages))
         validatePreparedMaskCoverage(coverage)
-      setCompleted({ identity, confirmation, coverages: response.coverages })
+      for (const coverage of Object.values(response.rangeBases ?? {}))
+        validatePreparedMaskCoverage(coverage)
+      setCompleted({
+        identity,
+        confirmation,
+        coverages: response.coverages,
+        rangeBases: response.rangeBases ?? {},
+      })
     }
     void work().catch((error) => {
       if (active) setFailure({ identity, confirmation, message: String(error) })
@@ -118,20 +131,32 @@ export function useMaskEdgeCoverage({
     if (!masks?.length) return masks
     if (
       (!ready || !completed || completed.identity !== identity) &&
-      !masks.some((mask) => maskCoverageNodes(mask, true).some((node) => node.preparedCoverage))
+      !masks.some((mask) =>
+        maskCoverageNodes(mask, true).some(
+          (node) => node.preparedCoverage || node.preparedRangeBase,
+        ),
+      )
     )
       return masks
     if (
       !requiredIds.length &&
-      !masks.some((mask) => maskCoverageNodes(mask, true).some((node) => node.preparedCoverage))
+      !masks.some((mask) =>
+        maskCoverageNodes(mask, true).some(
+          (node) => node.preparedCoverage || node.preparedRangeBase,
+        ),
+      )
     )
       return masks
     return masks.map((root) =>
       mapMaskCoverage(root, (mask) => {
         const current = { ...mask }
         delete current.preparedCoverage
+        delete current.preparedRangeBase
         const coverage =
           ready && completed?.identity === identity ? completed.coverages[mask.id] : undefined
+        const rangeBase =
+          ready && completed?.identity === identity ? completed.rangeBases[mask.id] : undefined
+        if (rangeBase && mask.range) current.preparedRangeBase = rangeBase
         return coverage && maskHasEdges(mask) ? { ...current, preparedCoverage: coverage } : current
       }),
     )

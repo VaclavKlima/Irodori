@@ -60,7 +60,7 @@ import {
   detailCapabilities,
 } from './detail-controls'
 
-export const SETTINGS_VERSION = 18
+export const SETTINGS_VERSION = 19
 export const editCapabilities = {
   settingsVersion: SETTINGS_VERSION,
   objectSelection: objectSelectionCapabilities,

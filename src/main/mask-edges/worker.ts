@@ -5,6 +5,7 @@ import sharp from 'sharp'
 import { maskCapabilities } from '../../shared/masks'
 import { RawGpuRenderer } from '../gpu/raw-renderer'
 import { prepareMaskEdgeCoverage } from './gpu'
+import { prepareMaskRangeBase } from '../mask-ranges/gpu'
 import type { MaskEdgeResult, MaskEdgeWorkerReply, MaskEdgeWorkerRequest } from './types'
 
 let owner: RawGpuRenderer | undefined
@@ -16,13 +17,20 @@ async function prepare(request: MaskEdgeWorkerRequest): Promise<MaskEdgeResult> 
     throw new Error('Mask edges require a frozen coverage identity.')
   owner ??= new RawGpuRenderer()
   const { device } = await owner.mergeDevice()
-  const coverage = await prepareMaskEdgeCoverage(
-    device,
-    request.mask,
-    request.width,
-    request.height,
-    new AbortController().signal,
-  )
+  const coverage = request.range
+    ? await prepareMaskRangeBase(
+        device,
+        request.range.source,
+        request.range.parameters,
+        new AbortController().signal,
+      )
+    : await prepareMaskEdgeCoverage(
+        device,
+        request.mask,
+        request.width,
+        request.height,
+        new AbortController().signal,
+      )
   if (owner.failure) throw new Error(owner.failure)
   const temporary = `${request.outputPath}.tmp`
   try {

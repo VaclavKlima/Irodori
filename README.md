@@ -46,8 +46,10 @@ including manual corrections, with shared Undo/Redo, Console and frozen exports.
 keyboard creation and editable photo-registered geometry. [Compound coverage](docs/features/mask-compounds.md) adds ordered Add, Subtract and
 Intersect parts, independent editable copies and nested groups. Coverage keeps
 starting coverage fixed and separates part editing from result corrections;
-Light/Color applies once to the destination result. Sky/background automation,
-color/luminance ranges and additional local operators remain planned.
+Light/Color applies once to the destination result. [Color and luminance range masks](docs/features/mask-ranges.md)
+select stable source colors or brightness before creative edits, with up to five
+color samples, soft boundaries and editable compound intersections. Sky/background
+automation and additional local operators remain planned.
 GPU histograms include active local edits. [Whole-photo clipping](docs/features/masked-clipping.md)
 also follows supported local masks, with focused Bazzite acceptance. Active curves,
 full HDR service statistics/pixel analysis and other-device qualification retain

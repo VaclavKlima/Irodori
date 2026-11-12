@@ -102,6 +102,22 @@ Mouse panning retains pointer lock, capture fallback and interruption cleanup.
 Verify button ownership with `pan-drag` and native interaction with
 `middle-pan --foreground`, using the isolated test launcher.
 
+## Range-mask sampling
+
+Color/Luminance range sampling owns primary clicks only while its explicit picker
+is active. Middle-button pan retains precedence. The same confirmed crop/lens/flip
+mapping handles pointer positions and keyboard Sample position fields; old geometry
+cannot sample a newer view. Crop, brush/gradient, object selection, white-balance,
+curve targeting and region inspection retain mutual tool ownership.
+
+New masks and parts remain local previews until Create/Add/Replace. Escape,
+Cancel, native window blur, photo/revision changes and navigation retire unfinished
+sampling without publishing history. Cancel restores the previous confirmed mask
+selection and originating control focus. Creation locks overlay inspection and
+counts as a preview gesture, so confirmed HDR clipping cannot analyze temporary
+coverage. Existing range inputs retain the shared numeric commit/cancel contract.
+See [range controls and verification](features/mask-ranges.md).
+
 ## Numeric slider adjustments
 
 Use `AdjustmentInput` for new numeric slider controls. It presents a label and borderless editable value above a full-width slider, with an optional unit. Number steppers are hidden; clicking or tabbing into the value allows direct entry. Preserve its shared CSS Module styling instead of adding per-adjustment field styling or inline sizes.

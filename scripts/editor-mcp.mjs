@@ -79,6 +79,32 @@ const maskGradient = {
   ],
 }
 const maskComponentId = { type: 'string', format: 'uuid' }
+const maskRange = {
+  oneOf: [
+    schema({
+      version: { const: 1 },
+      kind: { const: 'color' },
+      samples: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 5,
+        items: schema({
+          a: { type: 'number', minimum: -1e7, maximum: 1e7 },
+          b: { type: 'number', minimum: -1e7, maximum: 1e7 },
+        }),
+      },
+      range: { type: 'integer', minimum: 0, maximum: 100 },
+      softness: { type: 'integer', minimum: 0, maximum: 100 },
+    }),
+    schema({
+      version: { const: 1 },
+      kind: { const: 'luminance' },
+      lower: { type: 'number', minimum: 0 },
+      upper: { anyOf: [{ type: 'number', minimum: 0 }, { type: 'null' }] },
+      softness: { type: 'integer', minimum: 0, maximum: 100 },
+    }),
+  ],
+}
 const maskName = { type: 'string', minLength: 1, maxLength: 100 }
 const maskOperator = { enum: ['add', 'subtract', 'intersect'] }
 const maskEdge = schema(
@@ -678,6 +704,22 @@ let tools = [
     ),
   },
   {
+    name: 'irodori_sample_mask_range',
+    description:
+      'Read a fixed 7 by 7 native source neighborhood without editing. First get irodori_get_mask_context for this revision and its renderingIdentity. The point is normalized CURRENT CROPPED OUTPUT, not canonical stroke coordinates; main applies crop/lens/flip mapping. Sampling uses the canonical neutral source before creative edits, independent of SDR/HDR display. color contains brightness-normalized Oklab a/L,b/L for Color range samples, or null when color is undefined; luminance is source-white percent (100 = white; HDR may exceed 100). Fully transparent neighborhoods fail explicitly. Use returned values in range mask mutations.',
+    inputSchema: schema({
+      photoId,
+      expectedRevision,
+      rangeSample: schema({
+        renderingIdentity: { type: 'string', minLength: 1, maxLength: 1024 },
+        point: schema({
+          x: { type: 'number', minimum: 0, maximum: 1 },
+          y: { type: 'number', minimum: 0, maximum: 1 },
+        }),
+      }),
+    }),
+  },
+  {
     name: 'irodori_get_object_selection_context',
     description:
       'Read object-selection capabilities and the frozen photograph/revision/grid. Optionally map a normalized current-photo box and points into canonical source coordinates. Use returned canonical box/points for selection prompts; no edit or inference.',
@@ -768,7 +810,7 @@ let tools = [
   {
     name: 'irodori_mutate_masks',
     description:
-      "Commit bounded mask operations as one photo-wide Undo step. Top-first list order applies bottom-to-top. Partial color updates accept relative temperature, tint and saturation, each integer -100 to +100 with 0 neutral. Positive temperature warms and positive tint adds magenta; these are relative units, not Kelvin or camera white balance. Each mask applies color balance, Light, then saturation and blends coverage once. Global white balance is unchanged. Geometry is normalized to the oriented uncorrected source, radius is a fraction of its shorter dimension. Whole-mask edge updates accept featherPx (0–64 in half-pixel steps) and shiftPx (-16–16 integer canonical source pixels); positive shift grows the affected region after inversion. Coverage order at every node is primary base/gradient and primary strokes, ordered child operands, result corrections, inversion, shift, then feather. Add uses max(A,B), Subtract A*(1-B), Intersect A*B. Disabled operands are skipped. component-add/copy/update/duplicate/remove/reorder manage owned editable groups, preserving the fixed starting coverage. Copies share immutable content without live dependencies or source Light/Color. Limits include disabled parts: 32 nodes per root, 256 per photograph, depth 8. Untargeted strokes address the root result; componentId and strokeTarget explicitly target primary or result corrections. These controls do not recover missing fine detail. Read current masks and revision with irodori_get_edits. Use the separate object-selection tools for AI proposals; range masks remain unavailable. Optional gradient on create atomically creates a neutral linear/radial mask; gradient on update replaces its entire geometry. One gradient per coverage node, mutually exclusive with that node's generated object base. Linear coverage fades from full-strength start to zero-strength end; radial selects inside. Coordinates and radii use normalized oriented source axes; rotations use degrees, Feather integer percent. Endpoint separation and both semiaxes require at least one source pixel.",
+      "Commit bounded mask operations as one photo-wide Undo step. Top-first list order applies bottom-to-top. Partial color updates accept relative temperature, tint and saturation, each integer -100 to +100 with 0 neutral. Positive temperature warms and positive tint adds magenta; these are relative units, not Kelvin or camera white balance. Each mask applies color balance, Light, then saturation and blends coverage once. Global white balance is unchanged. Geometry is normalized to the oriented uncorrected source, radius is a fraction of its shorter dimension. Whole-mask edge updates accept featherPx (0–64 in half-pixel steps) and shiftPx (-16–16 integer canonical source pixels); positive shift grows the affected region after inversion. Coverage order at every node is primary base/gradient and primary strokes, ordered child operands, result corrections, inversion, shift, then feather. Add uses max(A,B), Subtract A*(1-B), Intersect A*B. Disabled operands are skipped. component-add/copy/update/duplicate/remove/reorder manage owned editable groups, preserving the fixed starting coverage. Copies share immutable content without live dependencies or source Light/Color. Limits include disabled parts: 32 nodes per root, 256 per photograph, depth 8. Untargeted strokes address the root result; componentId and strokeTarget explicitly target primary or result corrections. These controls do not recover missing fine detail. Read current masks and revision with irodori_get_edits. Use the separate object-selection tools for AI proposals. Color/luminance range sources use range:{version:1,kind:color,samples:[{a,b}],range,softness} or range:{version:1,kind:luminance,lower,upper,softness}; kind values are strings. Color samples are brightness-normalized Oklab a/L,b/L returned by irodori_sample_mask_range, not RGB or ordinary Oklab. One to five samples form a union; Range/Softness are integer 0–100. Luminance bounds use source-white percent, 100=white and upper:null means all brighter values. Selection stays tied to the neutral source before edits, independently of display mode. Range replaces the whole source record; changing an existing source kind requires replacePrimary:true, preserving manual corrections, operands and adjustments. Only one generated, gradient or range source may occupy each node. Optional gradient on create atomically creates a neutral linear/radial mask; gradient on update replaces its entire geometry. One gradient per coverage node, mutually exclusive with that node's generated object base. Linear coverage fades from full-strength start to zero-strength end; radial selects inside. Coordinates and radii use normalized oriented source axes; rotations use degrees, Feather integer percent. Endpoint separation and both semiaxes require at least one source pixel.",
     inputSchema: schema({
       photoId,
       expectedRevision,
@@ -786,6 +828,7 @@ let tools = [
                   id: { type: 'string', format: 'uuid' },
                   name: { type: 'string', minLength: 1, maxLength: 100 },
                   gradient: maskGradient,
+                  range: maskRange,
                 },
                 ['kind', 'id', 'name'],
               ),
@@ -798,6 +841,8 @@ let tools = [
                   enabled: { type: 'boolean' },
                   inverted: { type: 'boolean' },
                   gradient: maskGradient,
+                  range: maskRange,
+                  replacePrimary: { const: true },
                   color: schema(
                     {
                       temperature: colorAmount,
@@ -862,6 +907,7 @@ let tools = [
                   name: maskName,
                   operator: maskOperator,
                   gradient: maskGradient,
+                  range: maskRange,
                   stroke: maskStroke,
                 },
                 ['kind', 'id', 'componentId', 'name', 'operator'],
@@ -890,6 +936,8 @@ let tools = [
                   operator: maskOperator,
                   edge: maskEdge,
                   gradient: maskGradient,
+                  range: maskRange,
+                  replacePrimary: { const: true },
                   clearPrimary: { const: true },
                 },
                 ['kind', 'id', 'componentId'],

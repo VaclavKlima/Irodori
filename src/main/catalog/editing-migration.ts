@@ -3,6 +3,7 @@ import {
   neutralMaskEdge,
   validateMaskStack,
   type MaskDescriptor,
+  coverageNodes,
 } from '../../shared/masks'
 import type { DatabaseSync } from 'node:sqlite'
 import { identityToneCurves, validateToneCurves } from '../../shared/tone-curves'
@@ -17,7 +18,7 @@ import {
   validateDetailSharpening,
 } from '../../shared/spatial-detail'
 
-export const CATALOG_VERSION = 28
+export const CATALOG_VERSION = 29
 
 /** Validate the entire library before startup permits any migration or recovery write. */
 export function supportsEditingSettings(
@@ -37,7 +38,7 @@ export function supportsEditingSettings(
     return false
   const legacy = settings.version === 7
   if (
-    ![7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, SETTINGS_VERSION].includes(
+    ![7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, SETTINGS_VERSION].includes(
       settings.version as number,
     )
   )
@@ -58,7 +59,8 @@ export function supportsEditingSettings(
           25: 15,
           26: 16,
           27: 17,
-          28: SETTINGS_VERSION,
+          28: 18,
+          29: SETTINGS_VERSION,
         } as Record<number, number>
       )[catalogVersion]
   )
@@ -74,6 +76,13 @@ export function supportsEditingSettings(
     if ((settings.version as number) >= 13) {
       if (!Array.isArray(settings.maskStack)) return false
       const version = settings.version as number
+      if (
+        version < 19 &&
+        settings.maskStack.some((mask) =>
+          coverageNodes(mask).some((node) => Object.hasOwn(node, 'range')),
+        )
+      )
+        return false
       if (
         settings.maskStack.some(
           (mask) =>

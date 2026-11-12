@@ -1,5 +1,7 @@
 import { ObjectSelectionService, selectedMaskStack } from './object-selection/service'
 import { MaskEdgeService } from './mask-edges/service'
+import { MaskRangeService } from './mask-ranges/service'
+import type { MaskRangeSampleRequest } from '../shared/mask-range-sampling'
 import type { MaskCoverageRequest } from '../shared/mask-edges'
 import type { ObjectSelectionRequest, AcceptObjectSelection } from '../shared/object-selection'
 import { MaskContentStore, prepareMaskMutation } from './mask-store'
@@ -10,6 +12,7 @@ import {
   type MaskMutation,
   type MaskStrokeChunk,
   type MaskBaseContent,
+  coverageNodes,
 } from '../shared/masks'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, type Stats } from 'node:fs'
@@ -126,7 +129,7 @@ import { ExportJobs } from './export/jobs'
 import { AgentPhotoPreviews } from './agent/photo-previews'
 import { OutputProofs } from './export/proofs'
 import type { ExportSource } from './export/types'
-import type { ExportProcess } from './export/process'
+import { ExportProcess } from './export/process'
 import { ExportReadStore, ExportStore } from './export/store'
 import { ForegroundActivities } from './foreground-activity'
 import { FullPreviews } from './full-previews'
@@ -346,6 +349,25 @@ export class PhotoLibrary {
       undefined,
       this.scheduler,
     )
+    this.fullPreviews.configureMaskRanges(async (id, options, masks, signal, force) => {
+      const source = await this.exportSource(id)
+      return this.maskRanges.prepareMasks({ ...source, processing: options }, masks, signal, force)
+    })
+    const renderer = this.exportRenderer ?? new ExportProcess()
+    this.exportRenderer = {
+      render: async (job, signal, onProgress) => {
+        const masks = job.source.processing.adjustments?.localMasks
+        if (!masks?.some((root) => coverageNodes(root).some((node) => node.range)))
+          return renderer.render(job, signal, onProgress)
+        const frozen = structuredClone(job)
+        frozen.source.processing.adjustments!.localMasks = await this.maskRanges.prepareMasks(
+          frozen.source,
+          masks,
+          signal,
+        )
+        return renderer.render(frozen, signal, onProgress)
+      },
+    }
     this.scheduler.onChange(() => {
       this.merges.worker.pause(this.scheduler.interactiveRequestPending)
       let changed = false
@@ -486,7 +508,9 @@ export class PhotoLibrary {
       !this.db.prepare("SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' LIMIT 1").get()
     if (
       !fresh &&
-      ![17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, CATALOG_VERSION].includes(version.user_version)
+      ![17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, CATALOG_VERSION].includes(
+        version.user_version,
+      )
     )
       throw new Error(
         version.user_version > CATALOG_VERSION
@@ -560,7 +584,7 @@ export class PhotoLibrary {
         this.workspace.initialize()
         new ExportReadStore(this.db).initialize()
       } else {
-        if ([17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27].includes(version.user_version))
+        if ([17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28].includes(version.user_version))
           migrateEditingHistory(this.db)
         this.cameraRecognition.prepare()
       }
@@ -574,7 +598,7 @@ export class PhotoLibrary {
         const data = JSON.parse(row.data) as ProcessingOptions
         bootstrap.seedEdits(row.id, data, new Date().toISOString())
       }
-      if (fresh || [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27].includes(version.user_version))
+      if (fresh || [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28].includes(version.user_version))
         this.db.exec(`PRAGMA user_version = ${CATALOG_VERSION}`)
       this.db.exec('COMMIT')
     } catch (error) {
@@ -705,21 +729,36 @@ export class PhotoLibrary {
         return this.cropAdmission(signal)
       },
       this.scheduler,
+      this.exportRenderer,
     )
     await rm(join(this.root, 'cache', 'agent-previews'), { recursive: true, force: true })
     await rm(join(this.root, 'cache', 'object-selection'), { recursive: true, force: true })
     await rm(join(this.root, 'cache', 'mask-edges'), { recursive: true, force: true })
+    await rm(join(this.root, 'cache', 'mask-ranges'), { recursive: true, force: true })
+    this.maskRanges = new MaskRangeService(this.root, {
+      source: (id) => this.exportSource(id),
+      context: (id, revision) => this.getMaskContext(id, revision),
+      edits: (id) => this.getEdits(id),
+      admission: (signal) => {
+        if (!this.cropAdmission) throw new Error('Range mask resource admission is unavailable.')
+        return this.cropAdmission(signal)
+      },
+      reserve: (bytes) => this.fullPreviews.reserveRangeCoverageBytes(bytes),
+    })
     this.maskEdges = new MaskEdgeService(this.root, {
       context: (id, revision) => this.getMaskContext(id, revision),
       edits: (id) => this.getEdits(id),
       source: async (id) => {
         const source = await this.exportSource(id)
-        return {
-          identity: source.identity,
-          processing: source.processing.processing,
-          metadata: source.processing.metadata,
-        }
+        return source
       },
+      prepareRanges: (source, masks, signal) =>
+        this.maskRanges.prepareMasks(
+          source as import('./export/types').ExportSource,
+          masks,
+          signal,
+          true,
+        ),
       masks: (state, mutation?: MaskMutation) => {
         if (!mutation) return this.resolvedMasks(state.photoId, state.settings.maskStack)
         const { stack, chunks } = prepareMaskMutation(state.settings.maskStack, mutation)
@@ -1050,6 +1089,7 @@ export class PhotoLibrary {
 
   objectSelections!: ObjectSelectionService
   maskEdges!: MaskEdgeService
+  maskRanges!: MaskRangeService
 
   async getEdits(id: string): Promise<EditState> {
     return this.editState(await this.getEditHistory(id))
@@ -1175,6 +1215,10 @@ export class PhotoLibrary {
 
   getMaskContext(id: string, expectedRevision: number) {
     return this.fullPreviews.getMaskContext(id, expectedRevision)
+  }
+
+  sampleMaskRange(request: MaskRangeSampleRequest, signal?: AbortSignal) {
+    return this.admission.run(() => this.maskRanges.sample(request, signal))
   }
 
   getObjectSelectionContext(id: string, expectedRevision: number) {
@@ -1730,6 +1774,7 @@ export class PhotoLibrary {
       photos.flatMap((photo) => [
         this.objectSelections.beginRemoval(photo.id),
         this.maskEdges.beginRemoval(photo.id),
+        this.maskRanges.beginRemoval(photo.id),
       ]),
     )
       .then(() =>
@@ -1825,6 +1870,7 @@ export class PhotoLibrary {
         for (const photo of photos) {
           this.objectSelections.endRemoval(photo.id)
           this.maskEdges.endRemoval(photo.id)
+          this.maskRanges.endRemoval(photo.id)
         }
       })
     return id
@@ -3520,6 +3566,7 @@ export class PhotoLibrary {
       () => this.directoryVisibility.close(),
       () => this.agentPreviews?.close(),
       () => this.fullPreviews.close(),
+      () => this.maskRanges?.close(),
       () => this.merges.close(),
       () => this.scheduler.close(),
       () => this.processor.close(),

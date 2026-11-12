@@ -1,3 +1,5 @@
+import { maskRangeCapabilities, validateMaskRange, type MaskRange } from './mask-ranges'
+
 /** Immutable brush geometry in normalized, oriented source coordinates. */
 export interface MaskPoint {
   x: number
@@ -62,6 +64,7 @@ export interface MaskCoverageNode {
   head: string | null
   base?: MaskBaseReference
   gradient?: MaskGradient
+  range?: MaskRange
   edge: MaskEdgeSettings
   /** Ordered operands; the primary source always starts the calculation. */
   operands?: MaskOperand[]
@@ -83,6 +86,8 @@ export interface MaskStrokeChunk {
 export interface ResolvedMaskCoverage extends Omit<MaskCoverageNode, 'base' | 'operands'> {
   base?: MaskBaseContent
   preparedCoverage?: PreparedMaskCoverage
+  /** Main-prepared range primitive; primary corrections and composition still follow it. */
+  preparedRangeBase?: PreparedMaskCoverage
   strokes: MaskStroke[]
   resultStrokes?: MaskStroke[]
   operands?: ResolvedMaskOperand[]
@@ -95,7 +100,7 @@ export interface ResolvedMask extends ResolvedMaskCoverage {
   color: MaskColor
 }
 export type MaskOperation =
-  | { kind: 'create'; id: string; name: string; gradient?: MaskGradient }
+  | { kind: 'create'; id: string; name: string; gradient?: MaskGradient; range?: MaskRange }
   | {
       kind: 'update'
       id: string
@@ -107,6 +112,8 @@ export type MaskOperation =
       color?: Partial<MaskColor>
       edge?: Partial<MaskEdgeSettings>
       gradient?: MaskGradient
+      range?: MaskRange
+      replacePrimary?: true
     }
   | { kind: 'duplicate'; id: string; newId: string; name: string }
   | { kind: 'delete'; id: string }
@@ -126,6 +133,7 @@ export type MaskOperation =
       name: string
       operator: MaskOperator
       gradient?: MaskGradient
+      range?: MaskRange
       stroke?: MaskStroke
     }
   | {
@@ -147,6 +155,8 @@ export type MaskOperation =
       inverted?: boolean
       edge?: Partial<MaskEdgeSettings>
       gradient?: MaskGradient
+      range?: MaskRange
+      replacePrimary?: true
       operator?: MaskOperator
       clearPrimary?: true
     }
@@ -157,9 +167,10 @@ export interface MaskMutation {
   operations: MaskOperation[]
 }
 export const maskCapabilities = {
-  version: 5,
+  version: 6,
   order: 'top-last',
-  types: ['brush', 'linear', 'radial'],
+  types: ['brush', 'linear', 'radial', 'color-range', 'luminance-range'],
+  range: maskRangeCapabilities,
   gradient: {
     coordinates: 'normalized-oriented-source',
     pointMin: -1,
@@ -529,7 +540,7 @@ export function validateMaskStack(value: unknown): asserts value is MaskDescript
             'edge',
             ...(root ? ['light', 'color'] : ['operator']),
           ],
-          ['base', 'gradient', 'operands', 'resultHead'],
+          ['base', 'gradient', 'range', 'operands', 'resultHead'],
         )
       )
         throw new Error('Invalid mask descriptor.')
@@ -543,9 +554,12 @@ export function validateMaskStack(value: unknown): asserts value is MaskDescript
       if (node.base !== undefined) validateMaskBaseReference(node.base)
       if (node.gradient !== undefined) {
         validateMaskGradient(node.gradient)
-        if (node.base)
-          throw new Error('A gradient and generated object base are mutually exclusive.')
       }
+      if (node.range !== undefined) validateMaskRange(node.range)
+      if (
+        [node.base, node.gradient, node.range].filter((source) => source !== undefined).length > 1
+      )
+        throw new Error('A gradient, range and generated object base are mutually exclusive.')
       const validHead = (head: unknown) =>
         head === null || (typeof head === 'string' && maskHash.test(head))
       if (
@@ -578,9 +592,12 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
       throw new Error('Invalid mask operation.')
     switch (op.kind) {
       case 'create':
-        if (!fields(op, ['kind', 'id', 'name'], ['gradient']))
+        if (!fields(op, ['kind', 'id', 'name'], ['gradient', 'range']))
           throw new Error('Invalid mask creation.')
         if (op.gradient !== undefined) validateMaskGradient(op.gradient)
+        if (op.range !== undefined) validateMaskRange(op.range)
+        if (op.gradient !== undefined && op.range !== undefined)
+          throw new Error('A gradient and range are mutually exclusive.')
         validateMaskId(op.id)
         validateMaskName(op.name)
         break
@@ -596,7 +613,18 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
           !fields(
             op,
             ['kind', 'id'],
-            ['componentId', 'name', 'enabled', 'inverted', 'light', 'color', 'edge', 'gradient'],
+            [
+              'componentId',
+              'name',
+              'enabled',
+              'inverted',
+              'light',
+              'color',
+              'edge',
+              'gradient',
+              'range',
+              'replacePrimary',
+            ],
           )
         )
           throw new Error('Invalid mask update.')
@@ -607,6 +635,14 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
         if (op.color !== undefined) validateMaskColor(op.color, true)
         if (op.edge !== undefined) validateMaskEdge(op.edge, true)
         if (op.gradient !== undefined) validateMaskGradient(op.gradient)
+        if (op.range !== undefined) validateMaskRange(op.range)
+        if (op.gradient !== undefined && op.range !== undefined)
+          throw new Error('A gradient and range are mutually exclusive.')
+        if (
+          op.replacePrimary !== undefined &&
+          (op.replacePrimary !== true || (op.range === undefined && op.gradient === undefined))
+        )
+          throw new Error('Primary replacement requires a complete range or gradient.')
         for (const key of ['enabled', 'inverted'])
           if (op[key] !== undefined && typeof op[key] !== 'boolean')
             throw new Error('Invalid mask state.')
@@ -646,7 +682,7 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
         const schemas: Record<string, [string[], string[]]> = {
           'component-add': [
             ['componentId', 'name', 'operator'],
-            ['parentId', 'gradient', 'stroke'],
+            ['parentId', 'gradient', 'range', 'stroke'],
           ],
           'component-copy': [
             ['componentId', 'name', 'operator', 'sourceMaskId'],
@@ -654,7 +690,17 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
           ],
           'component-update': [
             ['componentId'],
-            ['name', 'enabled', 'inverted', 'edge', 'gradient', 'operator', 'clearPrimary'],
+            [
+              'name',
+              'enabled',
+              'inverted',
+              'edge',
+              'gradient',
+              'range',
+              'operator',
+              'clearPrimary',
+              'replacePrimary',
+            ],
           ],
           'component-duplicate': [['componentId', 'newId', 'name'], []],
           'component-remove': [['componentId'], []],
@@ -669,6 +715,9 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
         if (op.name !== undefined) validateMaskName(op.name)
         if (op.operator !== undefined) validateMaskOperator(op.operator)
         if (op.gradient !== undefined) validateMaskGradient(op.gradient)
+        if (op.range !== undefined) validateMaskRange(op.range)
+        if (op.gradient !== undefined && op.range !== undefined)
+          throw new Error('A gradient and range are mutually exclusive.')
         if (op.stroke !== undefined) validateMaskStroke(op.stroke)
         if (op.edge !== undefined) validateMaskEdge(op.edge, true)
         for (const key of ['enabled', 'inverted'])
@@ -676,6 +725,16 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
             throw new Error('Invalid mask component state.')
         if (op.clearPrimary !== undefined && op.clearPrimary !== true)
           throw new Error('Invalid primary replacement.')
+        if (
+          op.clearPrimary &&
+          (op.range !== undefined || op.gradient !== undefined || op.replacePrimary)
+        )
+          throw new Error('Clear starting coverage separately from replacing its source.')
+        if (
+          op.replacePrimary !== undefined &&
+          (op.replacePrimary !== true || (op.range === undefined && op.gradient === undefined))
+        )
+          throw new Error('Primary replacement requires a complete range or gradient.')
         if (op.ids !== undefined) {
           if (
             !Array.isArray(op.ids) ||
@@ -772,6 +831,7 @@ export function resolveMasks(
       head: mask.head,
       edge: mask.edge,
       ...(mask.gradient ? { gradient: mask.gradient } : {}),
+      ...(mask.range ? { range: mask.range } : {}),
     }
     return {
       ...descriptor,
@@ -809,7 +869,16 @@ export function validateResolvedMasks(value: unknown): asserts value is Resolved
           'strokes',
           ...(root ? ['light', 'color'] : ['operator']),
         ],
-        ['base', 'preparedCoverage', 'gradient', 'operands', 'resultHead', 'resultStrokes'],
+        [
+          'base',
+          'preparedCoverage',
+          'preparedRangeBase',
+          'gradient',
+          'range',
+          'operands',
+          'resultHead',
+          'resultStrokes',
+        ],
       ) ||
       !Array.isArray(mask.strokes) ||
       (mask.resultStrokes !== undefined && !Array.isArray(mask.resultStrokes))
@@ -823,13 +892,25 @@ export function validateResolvedMasks(value: unknown): asserts value is Resolved
     }
     if (mask.base !== undefined) validateMaskBaseContent(mask.base)
     if (mask.preparedCoverage !== undefined) validatePreparedMaskCoverage(mask.preparedCoverage)
+    if (mask.preparedRangeBase !== undefined) {
+      validatePreparedMaskCoverage(mask.preparedRangeBase)
+      if (mask.range === undefined)
+        throw new Error('Prepared range coverage requires an authored range.')
+    }
     if (mask.operands !== undefined && !Array.isArray(mask.operands))
       throw new Error('Invalid mask operands.')
     return {
       ...Object.fromEntries(
         Object.entries(mask).filter(
           ([key]) =>
-            !['strokes', 'resultStrokes', 'base', 'preparedCoverage', 'operands'].includes(key),
+            ![
+              'strokes',
+              'resultStrokes',
+              'base',
+              'preparedCoverage',
+              'preparedRangeBase',
+              'operands',
+            ].includes(key),
         ),
       ),
       ...(mask.base ? { base: maskBaseReference(mask.base as MaskBaseContent) } : {}),

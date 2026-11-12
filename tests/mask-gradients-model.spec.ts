@@ -30,7 +30,7 @@ test('linear and radial contracts admit extended source geometry and refuse dege
       rotation: -180,
       feather: 100,
     }
-  expect(maskCapabilities.version).toBe(5)
+  expect(maskCapabilities.version).toBe(6)
   for (const gradient of [linear, radial, { ...radial, feather: 0 }, { ...radial, rotation: 180 }])
     expect(() => validateMaskGradient(gradient, 100, 80)).not.toThrow()
   for (const gradient of [

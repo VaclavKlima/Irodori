@@ -35,7 +35,10 @@ export function prepareMaskBaseReplacement(
     mask = stack.find((entry) => entry.id === id)
   if (!mask) throw new Error('This mask is unavailable. Refresh the confirmed masks.')
   const target = findMaskComponent(mask, componentId)
-  if (target.gradient) throw new Error('Gradient masks cannot have an object-selection base.')
+  if (target.gradient || target.range)
+    throw new Error(
+      'Gradient and range masks cannot have an object-selection base without explicit source replacement.',
+    )
   target.base = maskBaseReference(base)
   validateMaskStack(stack)
   return stack
@@ -95,6 +98,7 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
     resultHead: source.resultHead ?? null,
     ...(source.base ? { base: structuredClone(source.base) } : {}),
     ...(source.gradient ? { gradient: structuredClone(source.gradient) } : {}),
+    ...(source.range ? { range: structuredClone(source.range) } : {}),
     operands: (source.operands ?? []).map((child) => ({
       ...fresh(child, randomUUID(), child.name),
       operator: child.operator,
@@ -123,6 +127,35 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
     if (primary) node.head = hash
     else node.resultHead = hash
   }
+  const replaceSource = (
+    node: MaskCoverageNode,
+    op: {
+      gradient?: import('../shared/masks').MaskGradient
+      range?: import('../shared/mask-ranges').MaskRange
+      replacePrimary?: true
+    },
+  ) => {
+    if (!op.gradient && !op.range) return
+    if (op.replacePrimary) {
+      delete node.base
+      delete node.gradient
+      delete node.range
+    }
+    if (op.gradient) {
+      if (node.base || node.range)
+        throw new Error(
+          'A gradient, range and generated object base are mutually exclusive. Replace starting coverage explicitly.',
+        )
+      node.gradient = structuredClone(op.gradient)
+    }
+    if (op.range) {
+      if (node.base || node.gradient)
+        throw new Error(
+          'A gradient, range and generated object base are mutually exclusive. Replace starting coverage explicitly.',
+        )
+      node.range = structuredClone(op.range)
+    }
+  }
   for (const op of mutation.operations) {
     switch (op.kind) {
       case 'create':
@@ -139,6 +172,7 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
           color: { ...neutralMaskColor },
           edge: { ...neutralMaskEdge },
           ...(op.gradient ? { gradient: structuredClone(op.gradient) } : {}),
+          ...(op.range ? { range: structuredClone(op.range) } : {}),
         })
         break
       case 'update': {
@@ -152,13 +186,7 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
         if (op.light) root.light = { ...root.light, ...op.light }
         if (op.color) root.color = { ...root.color, ...op.color }
         if (op.edge) mask.edge = { ...mask.edge, ...op.edge }
-        if (op.gradient) {
-          if (mask.base)
-            throw new Error(
-              'Generated object masks cannot have a gradient. Create a separate gradient mask.',
-            )
-          mask.gradient = structuredClone(op.gradient)
-        }
+        replaceSource(mask, op)
         break
       }
       case 'duplicate': {
@@ -207,6 +235,7 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
             operands: [],
             edge: { ...neutralMaskEdge },
             ...(op.gradient ? { gradient: structuredClone(op.gradient) } : {}),
+            ...(op.range ? { range: structuredClone(op.range) } : {}),
           }
         if (op.stroke) appendStroke(node, op.stroke, true)
         ;(parent.operands ??= []).push(node)
@@ -240,13 +269,10 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
         if (op.clearPrimary) {
           delete node.base
           delete node.gradient
+          delete node.range
           node.head = null
         }
-        if (op.gradient) {
-          if (node.base)
-            throw new Error('A gradient and generated object base are mutually exclusive.')
-          node.gradient = structuredClone(op.gradient)
-        }
+        replaceSource(node, op)
         break
       }
       case 'component-duplicate': {

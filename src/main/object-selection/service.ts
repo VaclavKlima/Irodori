@@ -418,7 +418,10 @@ export function selectedMaskStack(
     const root = stack.find((mask) => mask.id === destination.maskId)!
     if (destination.kind === 'replace-component') {
       const component = findMaskComponent(root, destination.componentId)
-      if (destination.replacePrimary) delete component.gradient
+      if (destination.replacePrimary) {
+        delete component.gradient
+        delete component.range
+      }
       component.base = reference
     } else {
       const parent = findMaskComponent(root, destination.parentId)
@@ -458,6 +461,10 @@ function validateSelectionDestination(
   )
   if (target.kind === 'replace-component' && component.gradient && !target.replacePrimary)
     throw new Error('Object selection cannot refine a gradient. Choose an object or brush part.')
+  if (target.kind === 'replace-component' && component.range && !target.replacePrimary)
+    throw new Error(
+      'Object selection cannot refine a range. Replace its starting coverage explicitly.',
+    )
   if (target.kind === 'new-component') {
     if (current.some((mask) => coverageNodes(mask).some((node) => node.id === target.componentId)))
       throw new Error('This coverage component ID already exists.')

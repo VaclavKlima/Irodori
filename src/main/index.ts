@@ -1030,6 +1030,13 @@ app
       trusted(event)
       return library!.getMaskContext(id, revision)
     })
+    handleLibraryRequest('masks:range-sample', (event, request) => {
+      trusted(event)
+      return library!.sampleMaskRange(request).then(
+        (result) => ({ result }),
+        (error) => ({ error: String(error) }),
+      )
+    })
     handleLibraryRequest('masks:coverage', (event, request) => {
       trusted(event)
       return library!.prepareMaskCoverage(request).then(

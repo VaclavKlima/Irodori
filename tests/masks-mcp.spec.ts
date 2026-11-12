@@ -9,8 +9,18 @@ import { agentTools } from '../src/main/agent/policy'
 import type { EditState } from '../src/shared/edits'
 import type { EditorContextSnapshot } from '../src/shared/agent'
 import { cropGeometry, identityCrop } from '../src/shared/crop'
-import { identityMaskGeometry } from '../src/shared/mask-geometry'
+import { identityMaskGeometry, maskCanonicalPoint } from '../src/shared/mask-geometry'
 import type { MaskPoint } from '../src/shared/masks'
+import {
+  validateMaskRangeSampleRequest,
+  type MaskRangeSampleRequest,
+  type MaskRangeSampleResult,
+} from '../src/shared/mask-range-sampling'
+import {
+  defaultColorMaskRange,
+  defaultLuminanceMaskRange,
+  maskRangeColorFromHex,
+} from '../src/shared/mask-ranges'
 import { transferFixture } from './edit-transfer.helpers'
 
 const session = '00000000-0000-0000-0000-000000000001'
@@ -68,6 +78,29 @@ async function fixture() {
     if ((await t.library.getEdits(id)).revision !== revision)
       throw new Error('Mask context revision conflict.')
   }
+  const rangeRequests: MaskRangeSampleRequest[] = []
+  t.library.maskRanges.sample = async (value) => {
+    const request = validateMaskRangeSampleRequest(value)
+    const context = await t.library.fullPreviews.getMaskContext(
+      request.photoId,
+      request.expectedRevision,
+    )
+    if (request.renderingIdentity !== context.renderingIdentity)
+      throw new Error('Range sample rendering identity changed.')
+    rangeRequests.push(request)
+    return {
+      photoId: request.photoId,
+      revision: request.expectedRevision,
+      sourceIdentity: 'canonical-neutral-range-fixture',
+      canonicalPoint: maskCanonicalPoint(
+        { x: request.point.x * context.width, y: request.point.y * context.height },
+        context.geometry,
+      ),
+      color: maskRangeColorFromHex('#19854A'),
+      luminance: 200,
+      validPixels: 49,
+    }
+  }
   const endpoint = await startEditorEndpoint(t.root, t.library, undefined, {
       agentGate: (supplied) => (supplied === token ? gate : undefined),
     }),
@@ -96,6 +129,7 @@ async function fixture() {
     endpoint,
     token,
     context,
+    rangeRequests,
     client,
     raw,
     call,
@@ -117,7 +151,11 @@ test('managed MCP maps bounded points, freezes targets and shares mask operation
   try {
     const tools = (await f.client.listTools()).tools
     expect(tools.map((tool) => tool.name).sort()).toEqual([...agentTools].sort())
-    for (const name of ['irodori_get_mask_context', 'irodori_mutate_masks'])
+    for (const name of [
+      'irodori_get_mask_context',
+      'irodori_sample_mask_range',
+      'irodori_mutate_masks',
+    ])
       expect(tools.find((tool) => tool.name === name)?.inputSchema.required).toContain('requestId')
     const mutationSchema = tools.find((tool) => tool.name === 'irodori_mutate_masks')!
       .inputSchema as unknown as {
@@ -258,6 +296,179 @@ test('managed MCP maps bounded points, freezes targets and shares mask operation
     expect(read.settings).toEqual((await f.t.library.getEdits(photoId)).settings)
     expect(JSON.stringify(read)).not.toContain('"points"')
     expect((await f.t.library.getEdits(otherId)).revision).toBe(0)
+    await f.t.originalsUnchanged()
+  } finally {
+    await f.close()
+  }
+})
+
+test('range sampling MCP requires frozen request ownership and forwards only confirmed geometry and bounded points', async () => {
+  const f = await fixture(),
+    [photoId, otherId] = f.t.ids
+  try {
+    const tools = (await f.client.listTools()).tools
+    const tool = tools.find((candidate) => candidate.name === 'irodori_sample_mask_range')!
+    expect(tool.inputSchema.required).toEqual(
+      expect.arrayContaining(['photoId', 'expectedRevision', 'rangeSample', 'requestId']),
+    )
+    expect(tool.inputSchema.additionalProperties).toBe(false)
+    const context = await f.call<MappedContext>('irodori_get_mask_context', {
+      photoId,
+      expectedRevision: 0,
+    })
+    const rangeSample = { renderingIdentity: context.renderingIdentity, point: { x: 0.2, y: 0.75 } }
+    f.snapshot.activePhotoId = otherId
+    const sampled = await f.call<MaskRangeSampleResult>('irodori_sample_mask_range', {
+      photoId,
+      expectedRevision: 0,
+      rangeSample,
+    })
+    expect(sampled).toMatchObject({
+      photoId,
+      revision: 0,
+      canonicalPoint: { x: 0.35, y: 0.75 },
+      luminance: 200,
+      validPixels: 49,
+    })
+    expect(sampled.color).toEqual(maskRangeColorFromHex('#19854A'))
+    expect(f.rangeRequests).toEqual([{ photoId, expectedRevision: 0, ...rangeSample }])
+    for (const key of ['path', 'geometry', 'distortion', 'correction', 'pixels'])
+      expect(JSON.stringify(sampled)).not.toContain(`"${key}"`)
+    expect((await f.t.library.getEditHistory(photoId)).snapshots).toHaveLength(1)
+    for (const args of [
+      { photoId: otherId, expectedRevision: 0, rangeSample },
+      { photoId, expectedRevision: 0, rangeSample, requestId: randomUUID() },
+      {
+        photoId,
+        expectedRevision: 0,
+        rangeSample: { ...rangeSample, path: '/not-an-application-path' },
+      },
+      { photoId, expectedRevision: 0, rangeSample: { ...rangeSample, point: { x: 1.01, y: 0.5 } } },
+      {
+        photoId,
+        expectedRevision: 0,
+        rangeSample: { ...rangeSample, point: { ...rangeSample.point, canonical: true } },
+      },
+      {
+        photoId,
+        expectedRevision: 0,
+        rangeSample: { ...rangeSample, renderingIdentity: 'stale-grid' },
+      },
+    ])
+      expect((await f.raw('irodori_sample_mask_range', args)).isError).toBe(true)
+    expect(f.rangeRequests).toHaveLength(1)
+    const changed = await f.t.library.updateEdits(photoId, { exposureEv: 1 }, 0)
+    expect(
+      (await f.raw('irodori_sample_mask_range', { photoId, expectedRevision: 0, rangeSample }))
+        .isError,
+    ).toBe(true)
+    const read = await f.call<EditState>('irodori_get_edits', { photoId })
+    const after = await f.call<MaskRangeSampleResult>('irodori_sample_mask_range', {
+      photoId,
+      expectedRevision: read.revision,
+      rangeSample,
+    })
+    expect(after.sourceIdentity).toBe(sampled.sourceIdentity)
+    expect(after.color).toEqual(sampled.color)
+    expect(after.revision).toBe(changed.revision)
+    expect((await f.t.library.getEditHistory(photoId)).snapshots).toHaveLength(2)
+    await f.t.originalsUnchanged()
+  } finally {
+    await f.close()
+  }
+})
+
+test('range MCP creates standalone and intersecting sources atomically and preserves existing masks through shared Undo', async () => {
+  const f = await fixture(),
+    photoId = f.t.ids[0],
+    existing = randomUUID(),
+    rangeId = randomUUID(),
+    partId = randomUUID()
+  try {
+    const before = await f.call<EditState>('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: 0,
+      maskMutation: {
+        operations: [
+          {
+            kind: 'create',
+            id: existing,
+            name: 'Existing spatial mask',
+            gradient: { kind: 'linear', start: { x: 0, y: 0 }, end: { x: 1, y: 1 } },
+          },
+        ],
+      },
+    })
+    const color = defaultColorMaskRange(maskRangeColorFromHex('#19854A'))
+    const created = await f.call<EditState>('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: before.revision,
+      maskMutation: {
+        operations: [
+          { kind: 'create', id: rangeId, name: 'Source greens', range: color },
+          {
+            kind: 'component-add',
+            id: existing,
+            componentId: partId,
+            name: 'Bright only',
+            operator: 'intersect',
+            range: { ...defaultLuminanceMaskRange, lower: 100, upper: null },
+          },
+          { kind: 'update', id: rangeId, light: { exposureEv: 0.5 } },
+        ],
+      },
+    })
+    expect(created.revision).toBe(before.revision + 1)
+    expect(created.settings.maskStack[0]).toMatchObject({
+      id: rangeId,
+      range: color,
+      light: { exposureEv: 0.5 },
+    })
+    const spatial = created.settings.maskStack[1]
+    expect(spatial.gradient).toEqual(before.settings.maskStack[0].gradient)
+    expect(spatial.operands![0]).toMatchObject({
+      id: partId,
+      operator: 'intersect',
+      range: { kind: 'luminance', lower: 100, upper: null },
+    })
+    expect((await f.t.library.getEditHistory(photoId)).snapshots).toHaveLength(3)
+    const undone = await f.call<EditState>('irodori_undo_edit', {
+      photoId,
+      expectedRevision: created.revision,
+    })
+    expect(undone.settings).toEqual(before.settings)
+    const redone = await f.call<EditState>('irodori_redo_edit', {
+      photoId,
+      expectedRevision: undone.revision,
+    })
+    expect(redone.settings).toEqual(created.settings)
+    const replaced = await f.call<EditState>('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: redone.revision,
+      maskMutation: {
+        operations: [
+          {
+            kind: 'component-update',
+            id: existing,
+            componentId: existing,
+            range: color,
+            replacePrimary: true,
+          },
+        ],
+      },
+    })
+    expect(replaced.settings.maskStack[1].gradient).toBeUndefined()
+    expect(replaced.settings.maskStack[1].range).toEqual(color)
+    expect(replaced.settings.maskStack[1].operands).toEqual(spatial.operands)
+    const invalid = await f.raw('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: replaced.revision,
+      maskMutation: {
+        operations: [{ kind: 'update', id: rangeId, range: { ...color, samples: [] } }],
+      },
+    })
+    expect(invalid.isError).toBe(true)
+    expect((await f.t.library.getEdits(photoId)).revision).toBe(replaced.revision)
     await f.t.originalsUnchanged()
   } finally {
     await f.close()

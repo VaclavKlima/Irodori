@@ -214,6 +214,9 @@ export interface IrodoriApi extends NativeHdrMaskBridge, AgentApi {
     photoId: string,
     expectedRevision: number,
   ): Promise<import('./mask-geometry').PhotoMaskContext>
+  sampleMaskRange(
+    request: import('./mask-range-sampling').MaskRangeSampleRequest,
+  ): Promise<import('./mask-range-sampling').MaskRangeSampleResult>
   mutateMasks(
     photoId: string,
     expectedRevision: number,

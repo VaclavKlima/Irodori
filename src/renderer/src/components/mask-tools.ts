@@ -1,4 +1,4 @@
-import { ArrowDownToLine, Brush, Circle, ScanSearch } from 'lucide-react'
+import { ArrowDownToLine, Brush, Circle, Palette, Sun, ScanSearch } from 'lucide-react'
 import { maskCapabilities } from '../../../shared/masks'
 import type { CommandMenuAction } from './ui/CommandMenu'
 
@@ -11,6 +11,7 @@ type CreationContext = {
 type InvocationContext = CreationContext & {
   createBrush: () => void
   createGradient: (kind: 'linear' | 'radial') => void
+  createRange: (kind: 'color' | 'luminance') => void
 }
 
 // Only implemented tools enter the chooser; future tools share this invocation path.
@@ -32,6 +33,18 @@ const tools = [
     label: 'Linear gradient',
     icon: ArrowDownToLine,
     start: (context: InvocationContext) => context.createGradient('linear'),
+  },
+  {
+    id: 'color-range',
+    label: 'Color range…',
+    icon: Palette,
+    start: (context: InvocationContext) => context.createRange('color'),
+  },
+  {
+    id: 'luminance-range',
+    label: 'Luminance range…',
+    icon: Sun,
+    start: (context: InvocationContext) => context.createRange('luminance'),
   },
   {
     id: 'radial',

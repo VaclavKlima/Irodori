@@ -205,6 +205,16 @@ export function MaskParts({
               label: 'Radial gradient',
               disabledReason: blocked ?? (selectedMenu.stage === 'replace' ? undefined : full),
             },
+            {
+              id: 'color-range',
+              label: 'Color range…',
+              disabledReason: blocked ?? (selectedMenu.stage === 'replace' ? undefined : full),
+            },
+            {
+              id: 'luminance-range',
+              label: 'Luminance range…',
+              disabledReason: blocked ?? (selectedMenu.stage === 'replace' ? undefined : full),
+            },
             ...(selectedMenu.stage === 'replace'
               ? []
               : [
@@ -298,7 +308,13 @@ export function MaskParts({
         return
       }
       close(true)
-      if (id === 'object') startObject(target.operator!, target.parentId)
+      if (id === 'color-range' || id === 'luminance-range')
+        masks.addRangePart(
+          id === 'color-range' ? 'color' : 'luminance',
+          target.operator!,
+          target.parentId,
+        )
+      else if (id === 'object') startObject(target.operator!, target.parentId)
       else strokeOrGradient(id as 'brush' | 'linear' | 'radial', target.operator!, target.parentId)
       return
     }
@@ -317,7 +333,9 @@ export function MaskParts({
     }
     if (target.stage === 'replace') {
       close(true)
-      if (id === 'object')
+      if (id === 'color-range' || id === 'luminance-range')
+        masks.replaceRangePart(id === 'color-range' ? 'color' : 'luminance', target.nodeId!)
+      else if (id === 'object')
         void objectSelection?.start({
           kind: 'replace-component',
           maskId: root.id,
@@ -520,6 +538,7 @@ export function MaskParts({
               className={styles.pick}
               aria-pressed={masks.selectedComponentId === node.id}
               title={fixed ? 'Starting coverage' : node.name}
+              disabled={!masks.canNavigate}
               onClick={() => void masks.selectComponent(node.id)}
             >
               <span className={styles.operator}>

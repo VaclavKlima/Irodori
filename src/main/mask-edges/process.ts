@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path'
 import { rm } from 'node:fs/promises'
 import type { ResolvedMask } from '../../shared/masks'
 import type { MaskEdgeResult, MaskEdgeWorkerReply, MaskEdgeWorkerRequest } from './types'
+import type { MaskRange } from '../../shared/mask-ranges'
+import type { MaskRangeSource } from '../mask-ranges/types'
 
 interface OwnedChild {
   child: ChildProcess
@@ -73,6 +75,7 @@ export class MaskEdgeProcess {
     key: string,
     outputPath: string,
     signal: AbortSignal,
+    range?: { source: MaskRangeSource; parameters: MaskRange },
   ): Promise<MaskEdgeResult> {
     signal.throwIfAborted()
     if (this.busy) throw new Error('Mask edge processing is already running.')
@@ -135,6 +138,7 @@ export class MaskEdgeProcess {
             height,
             key,
             outputPath,
+            ...(range ? { range } : {}),
           } satisfies MaskEdgeWorkerRequest,
           (error) => {
             if (error) failed(error)
