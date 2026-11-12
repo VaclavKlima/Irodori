@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "purpose": "User-reported weak single-image denoising; GitHub issue #41",
+  "issue": "https://github.com/VaclavKlima/Irodori/issues/41",
+  "permission": {
+    "date": "2026-11-12",
+    "basis": "User explicitly requested attaching the exact RAW open in Irodori to issue #41 as evidence of weak denoising.",
+    "scope": "Publication in the Irodori repository as reproducible evidence for this denoising task; no general open-content or unrelated-reuse license is granted."
+  },
+  "files": [
+    {
+      "path": "originals/DSC02154.ARW",
+      "bytes": 20751360,
+      "sha256": "130b212c1f449ae7cd1d9b8c466894b4dc7825bc67eec6129cd510bf97478478",
+      "camera": {
+        "make": "SONY",
+        "model": "ZV-1A"
+      },
+      "iso": 3200,
+      "aperture": 2.8,
+      "exposureSeconds": "1/60",
+      "focalLengthMm": 19.6,
+      "storedDimensions": {
+        "width": 5504,
+        "height": 3672
+      },
+      "privacyDecodeDimensions": {
+        "width": 5496,
+        "height": 3672
+      }
+    }
+  ],
+  "privacyReview": {
+    "date": "2026-11-12",
+    "status": "passed",
+    "inspected": [
+      "complete native 5496 x 3672 LibRaw sensor decode",
+      "additional building/river detail view",
+      "embedded PreviewImage 1616 x 1080",
+      "embedded ThumbnailImage",
+      "ExifTool EXIF/XMP/IPTC and Sony maker notes, including unknown tags",
+      "original filename and public provenance notice"
+    ],
+    "findings": "Distant night city, buildings, river and sky; no identifiable people, readable personal documents/screens/addresses/vehicle plates or private interior detail observed. No GPS, camera/lens/internal serial, private owner/name/contact metadata found; descriptive fields are empty. Sony FocusLocation is focus-point data, not geographic coordinates.",
+    "originalUnchanged": true
+  },
+  "limits": [
+    "One unpaired real noisy RAW; no clean target, calibrated noise model or proof of recoverable focus.",
+    "No denoising candidate or quality/performance acceptance is established by publication.",
+    "Privacy decode images, metadata dumps, screenshots and generated comparisons are private ignored artifacts, not committed fixtures."
+  ]
+}

@@ -1,0 +1,486 @@
+{
+  "format": "irodori-denoising-reproduction-v1",
+  "sourceSha256": "130b212c1f449ae7cd1d9b8c466894b4dc7825bc67eec6129cd510bf97478478",
+  "capturedEditRevision": 2,
+  "capturedSettingsVersion": 19,
+  "photoGrid": {
+    "width": 5482,
+    "height": 2741,
+    "coordinateSpace": "oriented-lens-corrected-cropped-photo"
+  },
+  "passes": [
+    {
+      "name": "neutral-import",
+      "historySnapshotIndex": 0,
+      "settings": {
+        "version": 19,
+        "maskStack": [],
+        "curves": {
+          "version": 1,
+          "master": [
+            {
+              "input": 0,
+              "output": 0
+            },
+            {
+              "input": 1,
+              "output": 1
+            }
+          ],
+          "red": [
+            {
+              "input": 0,
+              "output": 0
+            },
+            {
+              "input": 1,
+              "output": 1
+            }
+          ],
+          "green": [
+            {
+              "input": 0,
+              "output": 0
+            },
+            {
+              "input": 1,
+              "output": 1
+            }
+          ],
+          "blue": [
+            {
+              "input": 0,
+              "output": 0
+            },
+            {
+              "input": 1,
+              "output": 1
+            }
+          ]
+        },
+        "crop": {
+          "version": 1,
+          "quarterTurns": 0,
+          "angle": 0,
+          "centerX": 0.5,
+          "centerY": 0.5,
+          "width": 1,
+          "height": 1,
+          "aspectRatio": null
+        },
+        "noiseReduction": {
+          "version": 1,
+          "luminance": 0,
+          "chroma": 0
+        },
+        "detailSharpening": {
+          "version": 1,
+          "amount": 0,
+          "radius": 1,
+          "threshold": 50
+        },
+        "processing": "hdr-v1",
+        "whiteBalance": {
+          "mode": "as-shot"
+        },
+        "exposureEv": 0,
+        "contrast": 0,
+        "highlights": 0,
+        "shadows": 0,
+        "whites": 0,
+        "blacks": 0,
+        "saturation": 0,
+        "vibrance": 0,
+        "colorMixer": {
+          "version": 1,
+          "ranges": {
+            "red": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "orange": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "yellow": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "green": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "aqua": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "blue": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "purple": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "magenta": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            }
+          }
+        },
+        "colorGrading": {
+          "version": 1,
+          "tones": {
+            "shadows": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "midtones": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "highlights": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            }
+          },
+          "blending": 50,
+          "balance": 0
+        },
+        "lens": {
+          "distortion": true,
+          "vignetting": true,
+          "chromaticAberration": true
+        }
+      }
+    },
+    {
+      "name": "first-pass",
+      "historySnapshotIndex": 1,
+      "settings": {
+        "version": 19,
+        "maskStack": [],
+        "curves": {
+          "version": 1,
+          "master": [
+            {
+              "input": 0,
+              "output": 0
+            },
+            {
+              "input": 1,
+              "output": 1
+            }
+          ],
+          "red": [
+            {
+              "input": 0,
+              "output": 0
+            },
+            {
+              "input": 1,
+              "output": 1
+            }
+          ],
+          "green": [
+            {
+              "input": 0,
+              "output": 0
+            },
+            {
+              "input": 1,
+              "output": 1
+            }
+          ],
+          "blue": [
+            {
+              "input": 0,
+              "output": 0
+            },
+            {
+              "input": 1,
+              "output": 1
+            }
+          ]
+        },
+        "crop": {
+          "version": 1,
+          "quarterTurns": 0,
+          "angle": 0,
+          "centerX": 0.5,
+          "centerY": 0.6257509557618788,
+          "width": 1,
+          "height": 0.7484980884762424,
+          "aspectRatio": null
+        },
+        "noiseReduction": {
+          "version": 1,
+          "luminance": 22,
+          "chroma": 35
+        },
+        "detailSharpening": {
+          "version": 1,
+          "amount": 15,
+          "radius": 0.7,
+          "threshold": 65
+        },
+        "processing": "hdr-v1",
+        "whiteBalance": {
+          "mode": "as-shot"
+        },
+        "exposureEv": 0.9,
+        "contrast": 0,
+        "highlights": -8,
+        "shadows": 20,
+        "whites": 0,
+        "blacks": -3,
+        "saturation": 0,
+        "vibrance": 0,
+        "colorMixer": {
+          "version": 1,
+          "ranges": {
+            "red": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "orange": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "yellow": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "green": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "aqua": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "blue": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "purple": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "magenta": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            }
+          }
+        },
+        "colorGrading": {
+          "version": 1,
+          "tones": {
+            "shadows": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "midtones": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "highlights": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            }
+          },
+          "blending": 50,
+          "balance": 0
+        },
+        "lens": {
+          "distortion": true,
+          "vignetting": true,
+          "chromaticAberration": true
+        }
+      }
+    },
+    {
+      "name": "second-pass",
+      "historySnapshotIndex": 2,
+      "settings": {
+        "version": 19,
+        "maskStack": [],
+        "curves": {
+          "version": 1,
+          "master": [
+            {
+              "input": 0,
+              "output": 0
+            },
+            {
+              "input": 1,
+              "output": 1
+            }
+          ],
+          "red": [
+            {
+              "input": 0,
+              "output": 0
+            },
+            {
+              "input": 1,
+              "output": 1
+            }
+          ],
+          "green": [
+            {
+              "input": 0,
+              "output": 0
+            },
+            {
+              "input": 1,
+              "output": 1
+            }
+          ],
+          "blue": [
+            {
+              "input": 0,
+              "output": 0
+            },
+            {
+              "input": 1,
+              "output": 1
+            }
+          ]
+        },
+        "crop": {
+          "version": 1,
+          "quarterTurns": 0,
+          "angle": 0,
+          "centerX": 0.5,
+          "centerY": 0.6257509557618788,
+          "width": 1,
+          "height": 0.7484980884762424,
+          "aspectRatio": null
+        },
+        "noiseReduction": {
+          "version": 1,
+          "luminance": 38,
+          "chroma": 60
+        },
+        "detailSharpening": {
+          "version": 1,
+          "amount": 5,
+          "radius": 0.7,
+          "threshold": 65
+        },
+        "processing": "hdr-v1",
+        "whiteBalance": {
+          "mode": "as-shot"
+        },
+        "exposureEv": 0.9,
+        "contrast": 0,
+        "highlights": -8,
+        "shadows": 20,
+        "whites": 0,
+        "blacks": -3,
+        "saturation": 0,
+        "vibrance": 0,
+        "colorMixer": {
+          "version": 1,
+          "ranges": {
+            "red": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "orange": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "yellow": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "green": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "aqua": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "blue": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "purple": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "magenta": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            }
+          }
+        },
+        "colorGrading": {
+          "version": 1,
+          "tones": {
+            "shadows": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "midtones": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            },
+            "highlights": {
+              "hue": 0,
+              "saturation": 0,
+              "luminance": 0
+            }
+          },
+          "blending": 50,
+          "balance": 0
+        },
+        "lens": {
+          "distortion": true,
+          "vignetting": true,
+          "chromaticAberration": true
+        }
+      }
+    }
+  ],
+  "notes": [
+    "Captured read-only from the running development app on 2026-11-12.",
+    "Local revision numbers and settings schema versions are evidence, not revision IDs to reuse in another library. Reapply supported editable fields through normal UI/API with that library's current expected revision.",
+    "No neutral or edited JPEG is asserted to be a clean reference."
+  ]
+}
