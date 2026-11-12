@@ -93,7 +93,8 @@ export function Histogram({
         if (plot) plot.setAttribute('data-animating', 'false')
       }
     }
-    frame.current = requestAnimationFrame(animate)
+    // Publish a usable first curve even when a hidden surface has no idle paint.
+    animate(performance.now())
   }, [channels, bins, open, hdr?.editSerial])
   const label = tools.mode === 'before' ? 'Before' : 'After'
   const percent = (count: number) =>
@@ -154,6 +155,7 @@ export function Histogram({
                   <button
                     key={kind}
                     disabled={!ready}
+                    aria-describedby={tools.clippingError ? clippingStatusId : undefined}
                     aria-pressed={tools[kind]}
                     aria-label={`${kind === 'shadows' ? 'Shadow' : 'Highlight'} clipping`}
                     title={`${count} sampled pixels (${percent(count)} approximately). SDR display endpoints; not proof of lost RAW sensor data.`}
@@ -314,7 +316,7 @@ export function Histogram({
             </details>
           )}
 
-          {tools.hdr && tools.clippingError && (
+          {tools.clippingError && (
             <span
               id={clippingStatusId}
               className={styles.clippingStatus}

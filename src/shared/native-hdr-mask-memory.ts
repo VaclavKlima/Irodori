@@ -1,3 +1,5 @@
+import type { AdjustmentParameters } from './adjustments'
+import { clippingCoverageMemory } from './clipping-coverage'
 import type { ManagedImageBytes, ResourcePolicySnapshot } from './resource-policy'
 import { validateManagedImageBytes } from './resource-policy'
 
@@ -8,6 +10,7 @@ export function nativeHdrMaskMemory(
   existing: ManagedImageBytes,
   policy: Readonly<ResourcePolicySnapshot>,
   replacesDrainedJsScan = false,
+  parameters: Pick<AdjustmentParameters, 'localMasks' | 'maskGeometry'> = {},
 ) {
   validateManagedImageBytes(existing)
   if (
@@ -21,6 +24,7 @@ export function nativeHdrMaskMemory(
   // The existing planner's two R8 pyramids remain charged. Credit two existing
   // source strips only after the corresponding JS scan has actually drained.
   const credit = replacesDrainedJsScan ? sourceStrip * 2 : 0
+  const coverage = clippingCoverageMemory(width, height, parameters)
   const additional = Object.freeze({
     ramBytes:
       sourceStrip * 2 -
@@ -30,12 +34,13 @@ export function nativeHdrMaskMemory(
       1024 ** 2 +
       7 * 512 * 1024 +
       6 * 64 * 1024 +
-      4096,
-    vramBytes: 0,
+      4096 +
+      coverage.ramBytes,
+    vramBytes: coverage.vramBytes,
   })
   const peak = Object.freeze({
     ramBytes: existing.ramBytes + additional.ramBytes,
-    vramBytes: existing.vramBytes,
+    vramBytes: existing.vramBytes + additional.vramBytes,
   })
   if (![peak.ramBytes, peak.vramBytes].every((value) => Number.isSafeInteger(value) && value >= 0))
     throw new Error('Invalid native mask managed reservation.')

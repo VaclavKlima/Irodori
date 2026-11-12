@@ -71,6 +71,7 @@ export default defineConfig(({ command }) => {
             'agent-worker': 'src/main/agent/worker.ts',
             'object-selection-worker': 'src/main/object-selection/worker.ts',
             'mask-edge-worker': 'src/main/mask-edges/worker.ts',
+            'clipping-coverage-worker': 'src/main/clipping-coverage/worker.ts',
             'editor-mcp': 'scripts/editor-mcp.mjs',
             'catalog-worker': 'src/main/catalog-worker.ts',
             'export-worker': 'src/main/export/worker.ts',

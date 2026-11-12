@@ -140,6 +140,7 @@ const definitions: Suite[] = [
   { file: 'mask-geometry', group: 'node', scopes: ['adjustments', 'preview'] },
   { file: 'masks-model', group: 'node', scopes: ['adjustments'] },
   { file: 'hdr-histogram-lifecycle', group: 'node', scopes: ['adjustments', 'preview'] },
+  { file: 'clipping-overlay', group: 'node', scopes: ['adjustments', 'preview'] },
   { file: 'masks-service', group: 'service', scopes: ['adjustments', 'library', 'mcp'] },
   { file: 'masks-crop', group: 'service', scopes: ['adjustments', 'preview'] },
   { file: 'masks-mcp', group: 'service', scopes: ['adjustments', 'mcp'] },
@@ -154,6 +155,18 @@ const definitions: Suite[] = [
     file: 'masks-hdr-ui',
     group: 'raw-gpu',
     scopes: ['adjustments', 'preview', 'ui'],
+    exclusive: true,
+  },
+  {
+    file: 'masks-clipping-ui',
+    group: 'raw-gpu',
+    scopes: ['adjustments', 'preview', 'ui'],
+    exclusive: true,
+  },
+  {
+    file: 'masks-clipping-coverage',
+    group: 'raw-gpu',
+    scopes: ['adjustments', 'preview'],
     exclusive: true,
   },
   {

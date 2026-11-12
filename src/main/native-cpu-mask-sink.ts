@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { FileHandle } from 'node:fs/promises'
-import { NATIVE_MASK_REQUEST_BYTES } from '../shared/native-color-protocol'
+import { nativeMaskRequestLength } from '../shared/native-local-mask-protocol'
 
 /** Bounded reader follows native-cpu-pair-sink; source copy stays independent
  * until adoption can factor the shared byte reader without changing framing. */
@@ -51,12 +51,7 @@ export async function writeNativeCpuMask(options: {
   signal: AbortSignal
 }) {
   const { expectedRequest: request, threads, signal } = options
-  if (
-    request.length !== NATIVE_MASK_REQUEST_BYTES ||
-    request.subarray(0, 8).toString() !== 'MASKCPU3' ||
-    request.readUInt32LE(8) !== 3
-  )
-    throw new Error('Invalid admitted mask request.')
+  const requestBytes = nativeMaskRequestLength(request)
   const width = request.readUInt32LE(16),
     height = request.readUInt32LE(20),
     expectedBytes = width * height
@@ -67,12 +62,12 @@ export async function writeNativeCpuMask(options: {
       (error) => ({ ok: false as const, error }),
     ),
     reader = new Reader(options.stdout, signal),
-    header = await reader.take(NATIVE_MASK_REQUEST_BYTES + 16)
+    header = await reader.take(requestBytes + 16)
   if (
     header.subarray(0, 8).toString() !== 'MASKOUT1' ||
-    header.readUInt32LE(8) !== NATIVE_MASK_REQUEST_BYTES ||
-    !header.subarray(12, NATIVE_MASK_REQUEST_BYTES + 12).equals(request) ||
-    header.readUInt32LE(NATIVE_MASK_REQUEST_BYTES + 12) !== threads
+    header.readUInt32LE(8) !== requestBytes ||
+    !header.subarray(12, requestBytes + 12).equals(request) ||
+    header.readUInt32LE(requestBytes + 12) !== threads
   )
     throw new Error('Native mask response identity mismatch.')
   const digest = createHash('sha256')

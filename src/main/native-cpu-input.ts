@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { FileHandle } from 'node:fs/promises'
 import type { Writable } from 'node:stream'
+import type { ClippingCoverageResult } from './clipping-coverage/types'
 import type { HdrWorkingAsset } from '../shared/hdr'
 
 function writeOwned(target: Writable, bytes: Uint8Array, signal: AbortSignal) {
@@ -48,6 +49,7 @@ async function attestAndFeed(
   asset: HdrWorkingAsset,
   input: Writable,
   signal: AbortSignal,
+  coverage?: ClippingCoverageResult & { file: FileHandle },
 ) {
   const opened = await file.stat()
   signal.throwIfAborted()
@@ -58,6 +60,19 @@ async function attestAndFeed(
     asset.strips.length !== Math.ceil(asset.height / 64)
   )
     throw new Error('The leased CPU working source has incorrect dimensions.')
+  const coverageOpened = await coverage?.file.stat()
+  if (
+    coverage &&
+    (!coverageOpened?.isFile() ||
+      coverageOpened.size !== coverage.byteLength ||
+      coverage.byteLength !== asset.width * asset.height * coverage.maskCount * 4 ||
+      coverage.stripSha256.length !== asset.strips.length)
+  )
+    throw new Error('Invalid confirmed clipping coverage storage.')
+  const coverageStorage = coverage
+    ? Buffer.alloc(asset.width * Math.min(asset.height, 64) * coverage.maskCount * 4)
+    : undefined
+  const coverageDigest = createHash('sha256')
   const started = performance.now(),
     digest = createHash('sha256')
   const storage = Buffer.alloc(asset.width * Math.min(asset.height, 64) * 16)
@@ -86,6 +101,26 @@ async function attestAndFeed(
       throw new Error('Damaged CPU working strip.')
     digest.update(bytes)
     await writeOwned(input, bytes, signal)
+    if (coverage && coverageStorage) {
+      const length = asset.width * Math.min(64, asset.height - row) * coverage.maskCount * 4
+      const values = coverageStorage.subarray(0, length)
+      let received = 0
+      while (received < length) {
+        const read = await coverage.file.read(
+          values,
+          received,
+          length - received,
+          row * asset.width * coverage.maskCount * 4 + received,
+        )
+        signal.throwIfAborted()
+        if (!read.bytesRead) throw new Error('Incomplete clipping coverage strip.')
+        received += read.bytesRead
+      }
+      if (createHash('sha256').update(values).digest('hex') !== coverage.stripSha256[index])
+        throw new Error('Damaged clipping coverage strip.')
+      coverageDigest.update(values)
+      await writeOwned(input, values, signal)
+    }
   }
   signal.throwIfAborted()
   const final = await file.stat()
@@ -96,6 +131,16 @@ async function attestAndFeed(
     final.size !== opened.size
   )
     throw new Error('The CPU working source changed or its whole-file hash does not match.')
+  if (coverage && coverageOpened) {
+    const finalCoverage = await coverage.file.stat()
+    if (
+      coverageDigest.digest('hex') !== coverage.sha256 ||
+      finalCoverage.dev !== coverageOpened.dev ||
+      finalCoverage.ino !== coverageOpened.ino ||
+      finalCoverage.size !== coverageOpened.size
+    )
+      throw new Error('Clipping coverage changed before native scan completion.')
+  }
   // FullPreviews touches mtime for LRU usage, including unrelated HDR/statistics
   // requests. Content identity is the verified bytes, not that usage timestamp.
   // Only now give the child EOF. Its own exact-read/finite validation and EOF
@@ -140,6 +185,7 @@ export function attestAndFeedCpuMaskSource(
   asset: HdrWorkingAsset,
   input: Writable,
   signal: AbortSignal,
+  coverage?: ClippingCoverageResult & { file: FileHandle },
 ) {
-  return attestAndFeed(file, asset, input, signal)
+  return attestAndFeed(file, asset, input, signal, coverage)
 }

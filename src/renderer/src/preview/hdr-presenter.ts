@@ -464,6 +464,7 @@ export class HdrPresenter {
     frame: WorkingFrame,
     cancel: () => void,
     drained: Promise<void>,
+    parameters?: AdjustmentParameters,
   ): NativeMaskReservation | undefined {
     const headroom = this.presentationHeadroom,
       policy = this.resourcePolicy,
@@ -501,6 +502,7 @@ export class HdrPresenter {
       policy,
       cancel,
       drained,
+      parameters,
     )
   }
   setFirstSurfacePolicy(policy: ResourcePolicySnapshot) {

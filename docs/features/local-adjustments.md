@@ -49,8 +49,10 @@ Balance adds no clipping, gamut mapping or alpha change. Local gestures reuse th
 prepared source rather than decoding RAW again. Pixel identities include Color
 and its operator version, while prepared coverage remains independent of Color.
 GPU/resource/nonfinite failures remain explicit and never restart equivalent CPU
-pixel processing. Mask-aware histograms include Color; exact masked clipping and
-full HDR statistics retain their separate availability limits.
+pixel processing. Mask-aware histograms include Color; the
+[masked-clipping implementation and acceptance record](masked-clipping.md) tracks
+whole-photo overlays for #93. Full HDR statistics retain their separate
+availability limits.
 
 Settings 16/catalog 26 add neutral `color: { temperature, tint, saturation }` to
 all existing masks in current settings and every history snapshot, preserving
@@ -222,8 +224,11 @@ remain failed in their own receipts.
 The unadopted HDR first-surface optimization explicitly declines active local
 masks; settled GPU presentation reuses the prepared source. The initial delivery
 reported masked histograms unavailable; the follow-up below replaces that
-limitation with mask-aware GPU histograms. Exact clipping overlays and full HDR
-statistics/pixel analysis still report unavailable instead of unmasked results.
+limitation with mask-aware GPU histograms. At that checkpoint, exact clipping
+overlays and full HDR statistics/pixel analysis reported unavailable instead of
+unmasked results. The [#93 follow-up](masked-clipping.md) records the subsequent
+whole-photo clipping implementation and its current acceptance status; full HDR
+statistics/pixel analysis remains separately scoped.
 
 Bazzite/Windows acceptance, physical HDR luminance, sustained masking performance,
 cross-photo mask transfer, advanced brush dynamics and automatic/range/gradient
@@ -250,9 +255,12 @@ rejected and non-finite mask output produces an explicit analysis error.
 Empty or erase-only uninverted masks have provably zero coverage and no longer
 activate pixel processing or suppress analysis, even with nonzero Light values.
 Statistics ownership is explicit: inactive SDR/CPU hooks do not clear a histogram
-owned by GPU presentation. Clipping overlays, exact full HDR statistics and HDR
-pixel sampling with active masks remain unavailable. Regional/mask-only analysis
-remains #61; the normal histogram still describes the entire photograph.
+owned by GPU presentation. At this histogram checkpoint, clipping overlays, exact
+full HDR statistics and HDR pixel sampling with active masks remained unavailable.
+[Masked clipping #93](masked-clipping.md) owns the subsequent whole-photo overlay
+extension. Exact full HDR statistics and HDR pixel sampling remain separate;
+regional/mask-only analysis is [#59](https://github.com/VaclavKlima/Irodori/issues/59).
+The normal histogram still describes the entire photograph.
 
 Histogram errors follow the same source and pixel-key ownership as successful
 results. A superseded invalid readback cannot disable newer healthy HDR editing

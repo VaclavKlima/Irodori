@@ -1,3 +1,8 @@
+import { constants } from 'node:fs'
+import { ClippingCoverageProcess } from './clipping-coverage/process'
+import type { ClippingCoverageResult } from './clipping-coverage/types'
+import { nativeLocalMaskValues } from '../shared/native-local-mask-protocol'
+import { clippingCoverageMemory } from '../shared/clipping-coverage'
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import {
@@ -15,8 +20,8 @@ import { join } from 'node:path'
 import { sameAdjustments, type AdjustmentParameters } from '../shared/adjustments'
 import { REC2020_TO_ACES } from '../shared/display-rendering'
 import { validateProcessingPatch } from '../shared/edits'
+import { validateLocalMaskGain } from '../shared/masks-gpu'
 import { preparedToneCurves } from '../shared/tone-curves'
-import { hasLocalMasks } from '../shared/masks-gpu'
 import {
   hdrAdjustmentMatrix,
   REC2020_TO_P3,
@@ -172,8 +177,7 @@ function validateMask(value: NativeHdrMaskRequest) {
   )
     throw new Error('Native mask requires complete confirmed Light parameters.')
   validateProcessingPatch(value.parameters)
-  if (hasLocalMasks(value.parameters))
-    throw new Error('Clipping overlays with local masks require a qualified GPU analysis path.')
+  validateLocalMaskGain(value.parameters)
   if (!preparedToneCurves(value.parameters.curves).identity)
     throw new Error(
       'Clipping overlays with active curves require a qualified GPU mask path. The photograph and histogram remain available.',
@@ -306,8 +310,10 @@ export class NativeMaskController {
     const lease = await configuration.acquireSource(request, signal)
     let directory: string | undefined,
       output: FileHandle | undefined,
+      coverageFile: FileHandle | undefined,
       keep = false,
       published: MaskOutput | undefined
+    const coverageProcess = new ClippingCoverageProcess()
     const perform = async () => {
       await lease.check(request.expectedSettingsRevision, signal)
       configuration.checkTarget(request)
@@ -339,6 +345,7 @@ export class NativeMaskController {
         request.existingOwners,
         policy,
         lease.replacesDrainedJsScan === true,
+        lease.parameters,
       )
       if (!plan.accepted) return decline('memory-limit')
       const available = availableParallelism(),
@@ -350,11 +357,46 @@ export class NativeMaskController {
       directory = await mkdtemp(join(this.options.root, 'cpu-mask-'))
       if (!sha.test(configuration.arithmeticSha256))
         throw new Error('Invalid trusted mask arithmetic manifest hash.')
+      let coverage: ClippingCoverageResult | undefined
+      const coveragePlan = clippingCoverageMemory(
+        lease.asset.width,
+        lease.asset.height,
+        lease.parameters,
+      )
+      if (coveragePlan.maskCount) {
+        const coverageKey = hash(
+          JSON.stringify([request.source, request.expectedSettingsRevision, lease.parameters]),
+        )
+        const coveragePath = join(directory, 'coverage.f32')
+        coverage = await coverageProcess.prepare(
+          lease.parameters,
+          lease.asset.width,
+          lease.asset.height,
+          coverageKey,
+          coveragePath,
+          signal,
+        )
+        await coverageProcess.close()
+        signal.throwIfAborted()
+        if (
+          coverage.path !== coveragePath ||
+          coverage.key !== coverageKey ||
+          coverage.byteLength !== coveragePlan.byteLength ||
+          coverage.maskCount !== coveragePlan.maskCount ||
+          coverage.width !== lease.asset.width ||
+          coverage.height !== lease.asset.height
+        )
+          throw new Error('Clipping coverage differs from the confirmed source grid.')
+        coverageFile = await open(coverage.path, constants.O_RDONLY | constants.O_NOFOLLOW)
+        await lease.check(request.expectedSettingsRevision, signal)
+        configuration.checkTarget(request)
+      }
       const encoded = this.encodeMask(
           request,
           lease.asset,
           lease.parameters,
           configuration.arithmeticSha256,
+          coverage?.sha256,
         ),
         requestPath = join(directory, 'request.bin')
       await writeFile(requestPath, encoded, { flag: 'wx', mode: 0o600 })
@@ -367,6 +409,7 @@ export class NativeMaskController {
         output,
         threads,
         abort,
+        coverageFile && coverage ? { file: coverageFile, ...coverage } : undefined,
       )
       await output.close()
       output = undefined
@@ -428,6 +471,14 @@ export class NativeMaskController {
     } catch (error) {
       failures.push(error)
     }
+    for (const cleanup of [() => coverageProcess.close(), () => coverageFile?.close()]) {
+      try {
+        await cleanup()
+      } catch (error) {
+        failures.push(error)
+        keep = false
+      }
+    }
     try {
       await output?.close()
     } catch (error) {
@@ -468,25 +519,29 @@ export class NativeMaskController {
     asset: HdrWorkingAsset,
     parameters: AdjustmentParameters,
     arithmeticSha256: string,
+    coverageSha256?: string,
   ) {
-    const data = Buffer.alloc(NATIVE_MASK_REQUEST_BYTES),
+    const local = nativeLocalMaskValues(parameters)
+    const maskCount = local.length / 16
+    const data = Buffer.alloc(NATIVE_MASK_REQUEST_BYTES + local.byteLength),
       wb = hdrAdjustmentMatrix(parameters, asset.whiteBalance),
       flags =
         Number(Boolean(wb)) |
         (Number(Boolean(asset.source.display)) << 1) |
         (Number(request.target.headroom !== null) << 4)
-    data.write('MASKCPU3')
-    data.writeUInt32LE(3, 8)
+    data.write(maskCount ? 'MASKCPU4' : 'MASKCPU3')
+    data.writeUInt32LE(maskCount ? 4 : 3, 8)
+    data.writeUInt32LE(maskCount, 28)
     data.writeUInt32LE(flags, 12)
     data.writeUInt32LE(asset.width, 16)
     data.writeUInt32LE(asset.height, 20)
     data.writeUInt32LE(64, 24)
     data.writeBigUInt64LE(BigInt(asset.byteLength), 32)
     Buffer.from(asset.sha256, 'hex').copy(data, 40)
-    Buffer.from(hash(JSON.stringify({ request, parameters, asset, arithmeticSha256 })), 'hex').copy(
-      data,
-      72,
-    )
+    Buffer.from(
+      hash(JSON.stringify({ request, parameters, asset, arithmeticSha256, coverageSha256 })),
+      'hex',
+    ).copy(data, 72)
     ;[
       parameters.exposureEv,
       parameters.contrast,
@@ -510,6 +565,9 @@ export class NativeMaskController {
     nativeColorValues(parameters).forEach((value, index) =>
       data.writeDoubleLE(value, NATIVE_MASK_COLOR_OFFSET + index * 8),
     )
+    local.forEach((value, index) =>
+      data.writeDoubleLE(value, NATIVE_MASK_REQUEST_BYTES + index * 8),
+    )
     return data
   }
   private async maskChild(
@@ -520,6 +578,7 @@ export class NativeMaskController {
     file: FileHandle,
     threads: 1 | 4 | 8,
     abort: AbortController,
+    coverage?: ClippingCoverageResult & { file: FileHandle },
   ) {
     abort.signal.throwIfAborted()
     const env = { ...process.env }
@@ -571,7 +630,13 @@ export class NativeMaskController {
     })
     const timeout = setTimeout(() => fail(new Error('Native mask timed out.')), 10 * 60_000)
     abort.signal.addEventListener('abort', stop, { once: true })
-    const input = attestAndFeedCpuMaskSource(lease.file, lease.asset, child.stdin, abort.signal),
+    const input = attestAndFeedCpuMaskSource(
+        lease.file,
+        lease.asset,
+        child.stdin,
+        abort.signal,
+        coverage,
+      ),
       output = writeNativeCpuMask({
         stdout: child.stdout,
         expectedRequest: encoded,

@@ -8,8 +8,10 @@ import type { EditState } from '../../../shared/edits'
 import { hasLocalMasks } from '../../../shared/masks-gpu'
 import { SDR_TARGET, type DisplayTarget } from '../../../shared/hdr'
 import type { HdrAnalysisDomain, HdrStatistics } from '../../../shared/hdr-statistics'
+import { preparedToneCurves } from '../../../shared/tone-curves'
 import { NATIVE_HDR_MASK_VERSION } from '../../../shared/native-hdr-mask'
 import type { PreparedHdrSourceRef } from '../../../shared/prepared-source'
+import { confirmedAdjustments } from '../preview/confirmed-adjustments'
 import { observeHdrSample, reuseHdrContent } from '../preview/hdr-sample'
 import {
   NativeMaskRelay,
@@ -38,6 +40,7 @@ export function useHdrAnalysis(
   nativeContext?: NativeMaskContext,
 ) {
   const masked = hasLocalMasks(parameters)
+  const curvesUnsupported = !preparedToneCurves(parameters.curves).identity
   const [failure, setFailure] = useState<{
     identity: string
     message: string
@@ -88,13 +91,26 @@ export function useHdrAnalysis(
   const reserveNativeMask = nativeContext?.reserve
   const comparison = nativeContext?.comparison
   const comparisonOf = nativeContext?.comparisonOf
+  const sourcePhotoId = frame?.sourceRef?.photoId
+  const confirmedGeometry = parameters.maskGeometry
+  // Encoded generated masks must not be cloned again for view-only renders.
+  const acceptedParameters = useMemo(
+    () =>
+      confirmedAdjustments(
+        confirmed ?? null,
+        sourcePhotoId,
+        sourcePhotoId ? { photoId: sourcePhotoId, maskGeometry: confirmedGeometry } : undefined,
+      ),
+    [confirmed, sourcePhotoId, confirmedGeometry],
+  )
   const nativeEligible = !!(
     frame?.sourceRef &&
     frame.hdr &&
     confirmed &&
     confirmed.photoId === frame.sourceRef.photoId &&
     frame.sourceRef.workingSha256 === frame.hdr.sha256 &&
-    (nativeContext?.comparison === 'before' || sameAdjustments(confirmed.settings, parameters))
+    (nativeContext?.comparison === 'before' ||
+      (!!acceptedParameters && sameAdjustments(acceptedParameters, parameters)))
   )
   const identity = JSON.stringify([
     frame?.identity,
@@ -138,11 +154,7 @@ export function useHdrAnalysis(
     }
   }, [])
   useEffect(() => {
-    if (masked) {
-      if (sampleStatistics) statistics(undefined)
-      mask(undefined)
-      return
-    }
+    if (masked && sampleStatistics) statistics(undefined)
     if (!frame?.hdr || !backend) return
     const instance = new Worker(new URL('../preview/hdr-analysis-worker.ts', import.meta.url), {
       type: 'module',
@@ -231,11 +243,11 @@ export function useHdrAnalysis(
     }
   }, [frame, statistics, mask, sampleStatistics, domain, backend, reserveNativeMask, masked])
   useEffect(() => {
-    if (masked || !frame?.hdr || !backend || !worker.current) return
+    if (!frame?.hdr || !backend || !worker.current) return
     const current = ++generation.current
     requestIdentity.current = identity
     mask(undefined)
-    if (!sampleStatistics && !masks) {
+    if (!sampleStatistics && (!masks || curvesUnsupported)) {
       worker.current?.postMessage({ cancel: { generation: current } })
       return
     }
@@ -263,11 +275,12 @@ export function useHdrAnalysis(
         domain,
         // Supported Linux never falls through to the slow JS full scan while
         // history confirmation or presenter admission is unavailable.
-        masks: masks && (backend !== 'native' || (!!nativeMask && !gesturing)),
+        masks:
+          masks && !curvesUnsupported && (backend !== 'native' || (!!nativeMask && !gesturing)),
         nativeMask,
         generation: current,
         sampleCount: gesturing ? 8192 : 65536,
-        sampleStatistics,
+        sampleStatistics: sampleStatistics && !masked,
       },
     })
   }, [
@@ -288,6 +301,7 @@ export function useHdrAnalysis(
     comparison,
     comparisonOf,
     masked,
+    curvesUnsupported,
   ])
   const workerFailure = unavailable?.frame === frame ? unavailable : undefined
   const currentFailure =
@@ -299,10 +313,11 @@ export function useHdrAnalysis(
         : !masked && currentFailure?.kind === 'statistics'
           ? currentFailure.message
           : undefined,
-    maskError: masked
-      ? 'Clipping overlays with local masks are unavailable.'
-      : masks && currentFailure?.kind === 'mask'
-        ? currentFailure.message
-        : undefined,
+    maskError:
+      masks && curvesUnsupported
+        ? 'Clipping overlays with active curves require a qualified GPU mask path. The photograph and histogram remain available.'
+        : masks && currentFailure?.kind === 'mask'
+          ? currentFailure.message
+          : undefined,
   }
 }

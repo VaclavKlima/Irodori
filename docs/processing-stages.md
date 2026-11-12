@@ -29,6 +29,24 @@ readable data; keeping them does not keep their retired executors available.
 | Whole-mask edge preparation                 | Common native Dawn/WGSL in a bundled-Node worker; native Sharp PNG codec                                                                                      | Complete base/ordered brush/inverted coverage, exact disk ±16 px, Gaussian radius ≤64 px, native 128-row strips and full halos, disposable revision/source-bound R8, unchanged memory ceilings | [Implementation and focused Mac acceptance](features/mask-edges.md); [focused Bazzite qualification and limits](features/masking-bazzite-acceptance.md). Zero/zero preserves the existing path. No per-renderer filter forks, CPU filter fallback, model rerun or full-image TypeScript pixel math.                                                                                                                                                                                                              |
 | Object selection and generated coverage     | Common ONNX Runtime Node native WebGPU SAM 2.1 Tiny in a bundled-Node worker; common Dawn preprocessing/reconstruction; shared WGSL/GLSL R8 coverage sampling | Pinned portable graph hashes, one source/embedding, explicit GPU failure/cancel/retry; 32 MP/8192 source bound, compact bounded atlas, immutable PNG base plus ordered corrections             | [Mac delivery and device evidence](features/object-selection.md); [focused Bazzite qualification and RAW startup evidence](features/masking-bazzite-acceptance.md). Native codecs remain outside Electron. No heavy CPU inference fallback or full-image TypeScript reconstruction.                                                                                                                                                                                                                              |
 
+## Masked clipping — issue #93
+
+The [whole-photo masked-clipping extension](features/masked-clipping.md) retains
+the existing native Float64 exact clipping owner under the November 2 stage
+policy. A bounded isolated Dawn worker samples ordered Float32 coverage using the
+shared mask program and existing prepared edges. It adds no CPU brush, compound
+coverage or filtering implementation. The native classifier reuses its existing
+adjustment arithmetic for local edits before unchanged content/output predicates.
+The earlier failed Float32 classifier and its exact threshold gates remain
+preserved; active-curve combinations lacking qualification remain unavailable.
+
+Source/revision/target leases, hashed source and coverage strips, frozen admission,
+actual child close and receiver drainage bind the extension to confirmed pixels.
+Authored-SDR GPU byte-endpoint integration and focused Bazzite qualification pass.
+The linked brief records exact evidence and limits; macOS, Windows and integrated
+browser presentation remain incomplete in
+[#104](https://github.com/VaclavKlima/Irodori/issues/104).
+
 ## Masked Color — November 10, 2026
 
 Relative local Temperature/Tint and CIE Lab saturation extend the common ordered

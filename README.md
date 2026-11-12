@@ -48,9 +48,10 @@ Intersect parts, independent editable copies and nested groups. Coverage keeps
 starting coverage fixed and separates part editing from result corrections;
 Light/Color applies once to the destination result. Sky/background automation,
 color/luminance ranges and additional local operators remain planned.
-GPU histograms include active local edits. Exact clipping overlays and full HDR
-statistics/pixel analysis retain their explicit limitations; the brief records
-verification scope and limits.
+GPU histograms include active local edits. [Whole-photo clipping](docs/features/masked-clipping.md)
+also follows supported local masks, with focused Bazzite acceptance. Active curves,
+full HDR service statistics/pixel analysis and other-device qualification retain
+the explicit limits recorded in the briefs.
 
 The [GPU-first processing policy](docs/gpu-processing.md) selects one common
 production backend per stage across macOS and Bazzite. Suitable image operations

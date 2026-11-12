@@ -42,17 +42,17 @@ modifier. Define each new shortcut's owner, focus exclusions, modifier/repeat
 behavior, availability, pending-edit/cancellation behavior and matching menu or
 accessible hint. Prefer existing owners and handlers to a second global dispatcher.
 
-| Shortcut / gesture                          | Owner and behavior                                                                                                                            |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Primary+A                                   | Native text editor; focused copyable text selects that region. App chrome has no Select All text action. Console retains terminal behavior.   |
-| Primary+C/X/V and text Undo/Redo            | Focused text editor. Copyable text supports Copy. Console follows its own clipboard/interrupt contract below.                                 |
-| Primary+Z; Primary+Shift+Z / Primary+Y      | Active photograph's shared Undo/Redo when focus is outside text entry and Console, subject to existing edit guards.                           |
-| Delete / Backspace                          | Existing photo-deletion owner with its current platform rules, exclusions, frozen targets and Trash confirmation.                             |
-| Arrow, Home/End, Page Up/Down, Space, Enter | Focused collection/control owns navigation, selection or activation; preserve modifiers and range anchors.                                    |
-| Preview `+` / `=`, `-`, `0`, `1`, arrows    | Focused preview zooms in/out, fits, selects 100%, or pans; Shift pans farther. Forms, menus and active tools retain their guards.             |
-| Preview `\`, `Y`, `J`                       | Focused preview toggles Before, split comparison, or both clipping overlays when available. Active crop/picking tools retain their overrides. |
-| Escape                                      | The active transient tool, menu or dialog owns cancellation and focus restoration.                                                            |
-| Tab / Shift+Tab                             | Normal focus navigation; Console's Shift+Tab returns to its controls.                                                                         |
+| Shortcut / gesture                          | Owner and behavior                                                                                                                                                                |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Primary+A                                   | Native text editor; focused copyable text selects that region. App chrome has no Select All text action. Console retains terminal behavior.                                       |
+| Primary+C/X/V and text Undo/Redo            | Focused text editor. Copyable text supports Copy. Console follows its own clipboard/interrupt contract below.                                                                     |
+| Primary+Z; Primary+Shift+Z / Primary+Y      | Active photograph's shared Undo/Redo when focus is outside text entry and Console, subject to existing edit guards.                                                               |
+| Delete / Backspace                          | Existing photo-deletion owner with its current platform rules, exclusions, frozen targets and Trash confirmation.                                                                 |
+| Arrow, Home/End, Page Up/Down, Space, Enter | Focused collection/control owns navigation, selection or activation; preserve modifiers and range anchors.                                                                        |
+| Preview `+` / `=`, `-`, `0`, `1`, arrows    | Focused preview zooms in/out, fits, selects 100%, or pans; Shift pans farther. Forms, menus and active tools retain their guards.                                                 |
+| Preview `\`, `Y`, `J`                       | Focused preview toggles Before, split comparison, or clipping (both SDR endpoints; HDR canvas-channel clipping) when available. Active crop/picking tools retain their overrides. |
+| Escape                                      | The active transient tool, menu or dialog owns cancellation and focus restoration.                                                                                                |
+| Tab / Shift+Tab                             | Normal focus navigation; Console's Shift+Tab returns to its controls.                                                                                                             |
 
 Use the repository [Irodori input skill](../.agents/skills/irodori-input/SKILL.md)
 when adding or changing shortcuts or selectable text. Verify `desktop-input-ui`

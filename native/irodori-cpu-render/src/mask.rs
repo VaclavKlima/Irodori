@@ -17,6 +17,8 @@ use std::thread;
 use std::time::Instant;
 
 const REQUEST_BYTES: usize = 848;
+const LOCAL_BYTES: usize = 128;
+const MAX_LOCALS: usize = 32;
 const TERMINAL_BYTES: usize = 72;
 const SOURCE_LIMIT: u64 = 512 * 1024 * 1024;
 const STRIP_ROWS: u32 = 64;
@@ -78,6 +80,9 @@ unsafe extern "C" {
         parameters: *const Params,
         proof: *const f64,
         peak: f64,
+        locals: *const f64,
+        local_count: u32,
+        coverage: *const f32,
         mask: *mut u8,
     ) -> c_int;
 }
@@ -101,13 +106,13 @@ fn bridge_error() -> String {
         unsafe { CStr::from_ptr(pointer) }.to_string_lossy().into_owned()
     }
 }
-fn integer(raw: &[u8; REQUEST_BYTES], at: usize) -> u32 {
+fn integer(raw: &[u8], at: usize) -> u32 {
     u32::from_le_bytes(raw[at..at + 4].try_into().unwrap())
 }
-fn wide(raw: &[u8; REQUEST_BYTES], at: usize) -> u64 {
+fn wide(raw: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(raw[at..at + 8].try_into().unwrap())
 }
-fn number(raw: &[u8; REQUEST_BYTES], at: usize) -> f64 {
+fn number(raw: &[u8], at: usize) -> f64 {
     f64::from_le_bytes(raw[at..at + 8].try_into().unwrap())
 }
 fn same_file(a: &fs::Metadata, b: &fs::Metadata) -> bool {
@@ -117,7 +122,7 @@ fn same_file(a: &fs::Metadata, b: &fs::Metadata) -> bool {
 }
 
 struct Request {
-    raw: [u8; REQUEST_BYTES],
+    raw: Vec<u8>,
     width: u32,
     height: u32,
     source_bytes: u64,
@@ -125,6 +130,7 @@ struct Request {
     proof: [f64; 9],
     peak: f64,
     parameters: Params,
+    locals: Vec<f64>,
 }
 impl Request {
     fn open(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
@@ -135,10 +141,14 @@ impl Request {
         // without blocking on an untrusted FIFO before the regular-file check.
         let mut file = OpenOptions::new().read(true).custom_flags(INPUT_FLAGS).open(path)?;
         let initial = file.metadata()?;
-        if !initial.is_file() || initial.len() != REQUEST_BYTES as u64 {
-            return Err("Mask request must be a regular file of exactly 848 bytes.".into());
+        let length = initial.len() as usize;
+        if !initial.is_file() || length < REQUEST_BYTES
+            || length > REQUEST_BYTES + MAX_LOCALS * LOCAL_BYTES
+            || (length - REQUEST_BYTES) % LOCAL_BYTES != 0
+        {
+            return Err("Mask request must be a bounded regular base/ordered-local packet.".into());
         }
-        let mut raw = [0; REQUEST_BYTES];
+        let mut raw = vec![0; length];
         file.read_exact(&mut raw)?;
         let mut extra = [0];
         if file.read(&mut extra)? != 0 || !same_file(&initial, &file.metadata()?) {
@@ -159,9 +169,14 @@ impl Request {
         let source_bytes = u64::from(width).checked_mul(u64::from(height))
             .and_then(|pixels| pixels.checked_mul(16)).ok_or("Mask source geometry overflow.")?;
         let flags = integer(&raw, 12);
-        if &raw[..8] != b"MASKCPU3" || integer(&raw, 8) != 3 || flags & !KNOWN_FLAGS != 0
+        let local_count = integer(&raw, 28) as usize;
+        let legacy = local_count == 0 && &raw[..8] == b"MASKCPU3" && integer(&raw, 8) == 3;
+        let masked = local_count > 0 && local_count <= MAX_LOCALS
+            && &raw[..8] == b"MASKCPU4" && integer(&raw, 8) == 4;
+        if (!legacy && !masked) || length != REQUEST_BYTES + local_count * LOCAL_BYTES
+            || flags & !KNOWN_FLAGS != 0
             || width == 0 || height == 0 || width > 32768 || height > 32768
-            || integer(&raw, 24) != STRIP_ROWS || integer(&raw, 28) != 0
+            || integer(&raw, 24) != STRIP_ROWS
             || source_bytes > SOURCE_LIMIT || wide(&raw, 32) != source_bytes
             || raw[40..72].iter().all(|&value| value == 0)
             || raw[72..104].iter().all(|&value| value == 0)
@@ -192,30 +207,45 @@ impl Request {
             exposure: edits[0], contrast: edits[1], highlights: edits[2],
             shadows: edits[3], whites: edits[4], blacks: edits[5], saturation, vibrance, wb, headroom, flags, creative,
         };
-        Ok(Self { raw, width, height, source_bytes, aces, proof, peak, parameters })
+        let locals: Vec<f64> = (0..local_count * 16)
+            .map(|index| number(&raw, REQUEST_BYTES + index * 8)).collect();
+        for local in locals.chunks_exact(16) {
+            if local.iter().any(|value| !value.is_finite())
+                || local[..7].iter().enumerate().any(|(index, value)|
+                    value.abs() > if index == 0 { 5.0 } else { 100.0 }
+                    || if index == 0 { (value * 100.0 - (value * 100.0).round()).abs() > 1e-8 }
+                       else { value.fract() != 0.0 })
+                || local[7..].iter().any(|value| value.abs() > 1e6)
+            {
+                return Err("Invalid frozen local clipping parameters.".into());
+            }
+        }
+        Ok(Self { raw, width, height, source_bytes, aces, proof, peak, parameters, locals })
     }
 }
 
-fn render(context: &Context, request: &Request, input: &[f32], rows: u32, output: &mut [u8]) -> Result<(), String> {
+fn render(context: &Context, request: &Request, input: &[f32], coverage: &[f32], rows: u32, output: &mut [u8]) -> Result<(), String> {
     let pixels = request.width as usize * rows as usize;
-    if input.len() != pixels * 4 || output.len() != pixels || rows == 0 || rows > STRIP_ROWS {
+    if input.len() != pixels * 4 || coverage.len() != pixels * (request.locals.len() / 16)
+        || output.len() != pixels || rows == 0 || rows > STRIP_ROWS {
         return Err("The C++ mask call escaped its exact owned strip spans.".to_owned());
     }
     // SAFETY: input is aligned, immutable and fully validated; output is a tight
     // disjoint exclusive span. Context, parameters and matrices outlive this call.
     let result = unsafe { irodori_mask_render(
         context.0.as_ptr(), input.as_ptr(), request.width, rows, &request.parameters,
-        request.proof.as_ptr(), request.peak, output.as_mut_ptr(),
+        request.proof.as_ptr(), request.peak, request.locals.as_ptr(),
+        (request.locals.len() / 16) as u32, coverage.as_ptr(), output.as_mut_ptr(),
     ) };
     if result == 1 { Ok(()) } else { Err(bridge_error()) }
 }
 
 // THREADS counts total participants including this caller, never eight workers
 // plus a ninth coordinator. Every handle is explicitly joined on every outcome.
-fn render_strip(context: &Context, request: &Request, input: &[f32], rows: u32,
+fn render_strip(context: &Context, request: &Request, input: &[f32], coverage: &[f32], rows: u32,
     output: &mut [u8], threads: usize) -> Result<usize, String> {
     if threads == 1 || rows == 1 {
-        render(context, request, input, rows, output)?;
+        render(context, request, input, coverage, rows, output)?;
         return Ok(0);
     }
     let chunk_rows = (rows as usize).div_ceil(threads);
@@ -230,9 +260,12 @@ fn render_strip(context: &Context, request: &Request, input: &[f32], rows: u32,
             let count = mask.len() / request.width as usize;
             let first = row_start * request.width as usize * 4;
             let rgba = &input[first..first + count * request.width as usize * 4];
+            let local_count = request.locals.len() / 16;
+            let coverage_start = row_start * request.width as usize * local_count;
+            let local_coverage = &coverage[coverage_start..coverage_start + count * request.width as usize * local_count];
             let worker = thread::Builder::new().name(format!("mask-strip-{index}"))
                 .stack_size(WORKER_STACK_BYTES)
-                .spawn_scoped(scope, move || render(context, request, rgba, count as u32, mask));
+                .spawn_scoped(scope, move || render(context, request, rgba, local_coverage, count as u32, mask));
             match worker {
                 Ok(handle) => workers.push(handle),
                 Err(error) => { failure = Some(format!("Cannot spawn mask participant: {error}")); break; }
@@ -242,7 +275,8 @@ fn render_strip(context: &Context, request: &Request, input: &[f32], rows: u32,
         if failure.is_none() {
             let count = caller.len() / request.width as usize;
             let result = catch_unwind(AssertUnwindSafe(|| render(
-                context, request, &input[..count * request.width as usize * 4], count as u32, caller,
+                context, request, &input[..count * request.width as usize * 4],
+                &coverage[..count * request.width as usize * (request.locals.len() / 16)], count as u32, caller,
             )));
             match result {
                 Ok(Ok(())) => {}
@@ -285,6 +319,10 @@ pub fn run(arguments: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::E
     let mut input = Vec::new();
     input.try_reserve_exact(strip_pixels * 4)?;
     input.resize(strip_pixels * 4, 0.0f32);
+    let local_count = request.locals.len() / 16;
+    let mut coverage = Vec::new();
+    coverage.try_reserve_exact(strip_pixels * local_count)?;
+    coverage.resize(strip_pixels * local_count, 0.0f32);
     let mut mask = Vec::new();
     mask.try_reserve_exact(strip_pixels)?;
     mask.resize(strip_pixels, 0u8);
@@ -299,11 +337,12 @@ pub fn run(arguments: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::E
     let mut strips = 0u32;
     let mut pixels = 0u64;
     let mut peak_worker_stack = 0usize;
-    let base_owned = input.capacity() * 4 + mask.capacity() + output.capacity() + REQUEST_BYTES;
+    let base_owned = input.capacity() * 4 + coverage.capacity() * 4 + mask.capacity()
+        + output.capacity() + request.raw.capacity() + request.locals.capacity() * 8;
     let mut peak_owned = base_owned;
     let timer = Instant::now();
     output.write_all(b"MASKOUT1")?;
-    output.write_all(&(REQUEST_BYTES as u32).to_le_bytes())?;
+    output.write_all(&(request.raw.len() as u32).to_le_bytes())?;
     output.write_all(&request.raw)?;
     output.write_all(&(threads as u32).to_le_bytes())?;
     output.flush()?;
@@ -322,9 +361,17 @@ pub fn run(arguments: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::E
                 return Err("Invalid source RGBA, including RGB at alpha zero.".into());
             }
         }
+        let local_coverage = &mut coverage[..count * local_count];
+        // The parent attests shared GPU coverage independently of the source.
+        // No CPU brush, edge or composition evaluator is present here.
+        let bytes = unsafe { std::slice::from_raw_parts_mut(local_coverage.as_mut_ptr().cast::<u8>(), local_coverage.len() * 4) };
+        source.read_exact(bytes)?;
+        if local_coverage.iter().any(|value| !value.is_finite() || !(0.0..=1.0).contains(value)) {
+            return Err("Invalid GPU local clipping coverage.".into());
+        }
         read_ms += timer.elapsed().as_secs_f64() * 1000.0;
         let timer = Instant::now();
-        let spawned = render_strip(&context, &request, rgba, rows, &mut mask[..count], threads)?;
+        let spawned = render_strip(&context, &request, rgba, local_coverage, rows, &mut mask[..count], threads)?;
         if mask[..count].iter().any(|&bits| bits > 15) {
             return Err("The mask kernel emitted bits outside the four-bit contract.".into());
         }

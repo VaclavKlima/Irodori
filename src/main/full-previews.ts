@@ -483,7 +483,17 @@ export class FullPreviews {
         ...before,
         check,
         release,
-        parameters: structuredClone(parameters),
+        parameters: {
+          ...structuredClone(parameters),
+          ...(parameters.localMasks?.length
+            ? {
+                maskGeometry: structuredClone(
+                  before.asset.maskGeometry ??
+                    identityMaskGeometry(before.asset.width, before.asset.height),
+                ),
+              }
+            : {}),
+        },
         policy: Object.freeze(policy),
         // Enable strip credit only with the future real worker-drain handshake.
         replacesDrainedJsScan: false,

@@ -64,6 +64,7 @@ import {
   type View,
 } from '../preview/geometry'
 import { HdrPresenter } from '../preview/hdr-presenter'
+import { clippingOverlayPixels } from '../preview/clipping-overlay'
 import { confirmedAdjustments, confirmedGestureCommit } from '../preview/confirmed-adjustments'
 import type { ReserveNativeMask } from '../preview/native-mask-relay'
 import { maskPixelTarget } from '../preview/native-mask-reservation'
@@ -478,6 +479,10 @@ export function PhotoPreview({
   const [hdrReady, setHdrReady] = useState(false)
   const [analysisPresentationSerial, setAnalysisPresentationSerial] = useState(0)
   const [rasterHistogramError, setRasterHistogramError] = useState<string | undefined>()
+  const [rasterClippingFailure, setRasterClippingFailure] = useState<{
+    key: string
+    message: string
+  }>()
   const maskPublication = useRef<string | undefined>(undefined)
   const hdrLoaded = useCallback(() => {
     const presentedOwner = presenter.current
@@ -734,6 +739,12 @@ export function PhotoPreview({
     },
     [maskSourceKey],
   )
+  const rasterMaskKey = useRef(maskSourceKey)
+  useEffect(() => {
+    rasterMaskKey.current = maskSourceKey
+  }, [maskSourceKey])
+  const rasterClippingError =
+    rasterClippingFailure?.key === maskSourceKey ? rasterClippingFailure.message : undefined
   const mask = maskState?.key === maskSourceKey ? maskState.value : undefined
   const highlights = tools.highlights || tools.hover === 'highlights'
   const sdrAnalysisError = usePreviewAnalysis(
@@ -751,9 +762,11 @@ export function PhotoPreview({
     setMask,
     beginActivity,
   )
-  const reserveNativeMask = useCallback<ReserveNativeMask>((frame, cancel, drained) => {
+  const reserveNativeMask = useCallback<ReserveNativeMask>((frame, cancel, drained, parameters) => {
     const owner = presenter.current
-    return owner instanceof HdrPresenter ? owner.reserveMask(frame, cancel, drained) : undefined
+    return owner instanceof HdrPresenter
+      ? owner.reserveMask(frame, cancel, drained, parameters)
+      : undefined
   }, [])
   const nativeMaskContext = useMemo(
     () => ({
@@ -801,8 +814,12 @@ export function PhotoPreview({
     comparisonError ||
     (working?.hdr ? analysisError : rasterHistogramError || sdrAnalysisError)
   useEffect(
-    () => update({ analysisError: histogramError, clippingError: maskError }),
-    [histogramError, maskError, update],
+    () =>
+      update({
+        analysisError: histogramError,
+        clippingError: working?.hdr ? maskError : rasterClippingError,
+      }),
+    [histogramError, maskError, rasterClippingError, working?.hdr, update],
   )
   useEffect(() => update({ hdr: !!working?.hdr }), [working?.hdr, update])
   useEffect(() => {
@@ -923,6 +940,8 @@ export function PhotoPreview({
       presenter.current.setEditing(gesturing, editingEpoch, gestureCommit, gestureConfirmation)
     }
     if (previewPolicy.presentationCache && working?.hdr && !presentationState) return
+    if (presenter.current instanceof PreviewPresenter)
+      presenter.current.setClippingEnabled(shadows || highlights, maskSourceKey)
     presenter.current?.draw(
       model.image,
       model.viewport,
@@ -949,61 +968,23 @@ export function PhotoPreview({
     context.clearRect(0, 0, canvas.width, canvas.height)
     if (gpuError) return
     if (!comparisonReady || !analysisWorking || !mask || !working) return
-    const { image, viewport, view } = model
-    let levelIndex = 0
-    while (levelIndex + 1 < mask.levels.length && view.scale * 2 ** levelIndex < 1) levelIndex++
-    const level = mask.levels[levelIndex]
-    const left = (viewport.width - image.width * view.scale) / 2 + view.x,
-      top = (viewport.height - image.height * view.scale) / 2 + view.y
-    const pixelWidth = (image.width * view.scale) / level.width,
-      pixelHeight = (image.height * view.scale) / level.height
-    const sx = Math.max(0, Math.floor(-left / pixelWidth)),
-      sy = Math.max(0, Math.floor(-top / pixelHeight))
-    const width = Math.max(
-      0,
-      Math.min(level.width, Math.ceil((viewport.width - left) / pixelWidth)) - sx,
-    )
-    const height = Math.max(
-      0,
-      Math.min(level.height, Math.ceil((viewport.height - top) / pixelHeight)) - sy,
-    )
-    if (!width || !height) return
-    const compact = document.createElement('canvas')
-    compact.width = width
-    compact.height = height
-    const pixels = new Uint8ClampedArray(width * height * 4)
-    for (let y = 0; y < height; y++)
-      for (let x = 0; x < width; x++) {
-        const bits = level.data[(sy + y) * level.width + sx + x],
-          i = (y * width + x) * 4
-        if (working.hdr && bits & hdrOverlay) {
-          pixels[i] = 255
-          pixels[i + 1] = 160
-          pixels[i + 3] = (x + y) % 4 < 2 ? 220 : 140
-        } else if (!working.hdr && highlights && bits & 2) {
-          pixels[i] = 255
-          pixels[i + 3] = 180
-        } else if (!working.hdr && shadows && bits & 1) {
-          pixels[i + 2] = 255
-          pixels[i + 3] = 180
-        }
-      }
-    compact.getContext('2d')!.putImageData(new ImageData(pixels, width, height), 0, 0)
-    context.save()
-    if (mode === 'split') {
-      context.beginPath()
-      context.rect(canvas.width * split, 0, canvas.width, canvas.height)
-      context.clip()
-    }
-    context.imageSmoothingEnabled = false
-    context.drawImage(
-      compact,
-      left + sx * pixelWidth,
-      top + sy * pixelHeight,
-      width * pixelWidth,
-      height * pixelHeight,
-    )
-    context.restore()
+    const pixels = clippingOverlayPixels({
+      levels: mask.levels,
+      image: model.image,
+      viewport: model.viewport,
+      view: model.view,
+      hdr: !!working.hdr,
+      hdrOverlay,
+      highlights,
+      shadows,
+      split: mode === 'split' ? split : undefined,
+    })
+    if (pixels)
+      context.putImageData(
+        new ImageData(pixels.data, pixels.width, pixels.height),
+        pixels.left,
+        pixels.top,
+      )
   }
 
   const { schedule, cancel, flush } = usePreviewFrame(() => {
@@ -1279,6 +1260,18 @@ export function PhotoPreview({
             analysisPending,
             setRasterHistogramError,
             beginActivity,
+            (value, key) => {
+              if (!active || failed || !key || (value && key !== rasterMaskKey.current)) return
+              setMaskState((previous) =>
+                value ? { key, value } : previous?.key === key ? undefined : previous,
+              )
+            },
+            (message, key) => {
+              if (!active || failed || !key || (message && key !== rasterMaskKey.current)) return
+              setRasterClippingFailure((previous) =>
+                message ? { key, message } : previous?.key === key ? undefined : previous,
+              )
+            },
           )
           presenter.current = activePresenter
           setPresenterGeneration((value) => value + 1)
@@ -1790,10 +1783,14 @@ export function PhotoPreview({
     else if (working && event.key.toLowerCase() === 'y')
       update({ mode: mode === 'split' ? 'after' : 'split' })
     else if (working && event.key.toLowerCase() === 'j')
-      update({
-        shadows: !(tools.shadows && tools.highlights),
-        highlights: !(tools.shadows && tools.highlights),
-      })
+      update(
+        working.hdr
+          ? { hdrOverlay: tools.hdrOverlay & 1 ? tools.hdrOverlay & ~1 : tools.hdrOverlay | 1 }
+          : {
+              shadows: !(tools.shadows && tools.highlights),
+              highlights: !(tools.shadows && tools.highlights),
+            },
+      )
     else if (event.key === '+' || event.key === '=') step(1)
     else if (event.key === '-') step(-1)
     else if (event.key === '0') fit()

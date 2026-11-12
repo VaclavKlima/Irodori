@@ -27,6 +27,8 @@ import type { PresentedPreviewGeometry, Size, View } from './geometry'
 import { imageResourceOwners } from './image-resource-owners'
 import { drawPixelGrid, pixelGridGlsl } from './pixel-grid'
 import { imageStatistics, type ImageStatistics } from '../../../shared/statistics'
+import { reduceHdrMask } from '../../../shared/hdr-statistics'
+type ClippingMask = ReturnType<typeof reduceHdrMask>
 type ComparisonMode = 'after' | 'before' | 'split'
 
 const vertex = `#version 300 es
@@ -126,7 +128,8 @@ export class PreviewPresenter {
         this.creativeBytes * 3 +
         this.localMaskBytes * 3 +
         this.localMaskBaseReservation.ramBytes +
-        this.histogramBytes * 2,
+        this.histogramBytes * 2 +
+        this.clippingReservation.ramBytes,
       vramBytes:
         Math.ceil((working * 4) / 3) +
         bitmap * 2 +
@@ -135,6 +138,7 @@ export class PreviewPresenter {
         this.localMaskBytes +
         this.localMaskBaseReservation.vramBytes +
         this.histogramBytes +
+        this.clippingReservation.vramBytes +
         this.retiringBeforeBytes,
     }
   }
@@ -165,6 +169,18 @@ export class PreviewPresenter {
   private histogramQueued = false
   private histogramPublished = ''
   private histogramWork?: Promise<void>
+  private clippingTarget?: WebGLTexture
+  private clippingFramebuffer?: WebGLFramebuffer
+  private clippingReadback?: WebGLBuffer
+  private clippingQuery?: WebGLQuery
+  private clippingReservation = { ramBytes: 0, vramBytes: 0 }
+  private clippingEnabled = false
+  private clippingContext?: string
+  private clippingBusy = false
+  private clippingQueued = false
+  private clippingPublished = ''
+  private clippingRequested = ''
+  private clippingWork?: Promise<void>
   private uploadedCurves?: CompiledToneCurves
   private texture?: WebGLTexture
   private beforeTexture?: WebGLTexture
@@ -176,7 +192,13 @@ export class PreviewPresenter {
   private releaseBorrowedBitmap?: () => void
   private comparison: { mode: ComparisonMode; split: number } = { mode: 'after', split: 0.5 }
   private working?: WorkingFrame
-  private view?: { image: Size; viewport: Size; view: View; parameters: AdjustmentParameters }
+  private view?: {
+    image: Size
+    viewport: Size
+    view: View
+    parameters: AdjustmentParameters
+    clippingContext?: string
+  }
   private completedGeometry?: PresentedPreviewGeometry
   get presentedGeometry(): PresentedPreviewGeometry | undefined {
     return this.completedGeometry
@@ -192,6 +214,8 @@ export class PreviewPresenter {
     private statisticsPending: (pending: boolean) => void = () => {},
     private statisticsFailed: (reason?: string) => void = () => {},
     private activity?: () => () => void,
+    private clipping: (result?: ClippingMask, context?: string) => void = () => {},
+    private clippingFailed: (reason?: string, context?: string) => void = () => {},
   ) {
     try {
       if (!forceFallback)
@@ -294,7 +318,7 @@ export class PreviewPresenter {
         )
         .replace(
           'uniform vec2 colorIntensity;',
-          'uniform vec2 colorIntensity;uniform bool localMasksActive,maskValidation,histogramPass;uniform vec2 histogramSize;uniform float histogramCount;',
+          'uniform vec2 colorIntensity;uniform bool localMasksActive,maskValidation,histogramPass,clippingPass;uniform vec2 histogramSize;uniform float histogramCount;uniform uint clippingOffset;',
         )
         .replace(
           'void main() {\n  vec2 css',
@@ -315,9 +339,12 @@ export class PreviewPresenter {
     uint sampleIndex=uint(gl_FragCoord.y)*uint(histogramSize.x)+uint(gl_FragCoord.x);
     uint count=uint(histogramCount), imageWidth=uint(imageSize.x), total=imageWidth*uint(imageSize.y);
     if(sampleIndex>=count){if(maskValidation)discard;color=vec4(0.);return;}
-    uint quotient=total/count, remainder=total%count, product=sampleIndex*remainder;
-    uint pixelIndex=sampleIndex*quotient+quotient/2u+product/count+
-      (2u*(product%count)+(quotient%2u)*count+remainder)/(2u*count);
+    uint pixelIndex=clippingOffset+sampleIndex;
+    if(!clippingPass){
+      uint quotient=total/count, remainder=total%count, product=sampleIndex*remainder;
+      pixelIndex=sampleIndex*quotient+quotient/2u+product/count+
+        (2u*(product%count)+(quotient%2u)*count+remainder)/(2u*count);
+    }
     source=vec2(float(pixelIndex%imageWidth)+.5,float(pixelIndex/imageWidth)+.5);
   }`,
         )
@@ -366,8 +393,7 @@ export class PreviewPresenter {
         this.creativeProgram = program
         this.uploadedCurves = undefined
         this.canvas.dataset.colorProgram = 'ready'
-        if (redraw && this.view)
-          this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
+        if (redraw) this.redrawLatest()
       }
       poll(false)
     } catch (error) {
@@ -413,6 +439,7 @@ export class PreviewPresenter {
         this.localMaskBytes +
         this.localMaskBaseReservation.vramBytes +
         this.histogramBytes +
+        this.clippingReservation.vramBytes +
         this.retiringBeforeBytes >
         512 * 1024 ** 2
     )
@@ -424,6 +451,11 @@ export class PreviewPresenter {
     this.completedGeometry = undefined
     this.histogramPublished = ''
     if (this.histogramBusy) this.histogramQueued = true
+    this.clippingPublished = ''
+    this.clippingRequested = ''
+    delete this.canvas.dataset.clippingMaskSha256
+    delete this.canvas.dataset.clippingInputKey
+    if (this.clippingBusy) this.clippingQueued = true
     if (this.working) {
       if (this.beforeSource) {
         this.comparisonRequired = true
@@ -491,8 +523,7 @@ export class PreviewPresenter {
         throw error
       }
     }
-    if (this.view)
-      this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
+    this.redrawLatest()
   }
   private replaceComparisonSource(frame?: WorkingFrame) {
     const gl = this.gl
@@ -568,9 +599,30 @@ export class PreviewPresenter {
   setComparison(mode: ComparisonMode, split: number) {
     this.comparison = { mode, split }
   }
+  setClippingEnabled(enabled: boolean, context?: string) {
+    const changedContext = context !== this.clippingContext
+    if (enabled === this.clippingEnabled && !changedContext) return
+    const previousContext = this.clippingContext
+    this.clippingEnabled = enabled
+    this.clippingContext = context
+    this.clippingPublished = ''
+    this.clippingRequested = ''
+    delete this.canvas.dataset.clippingMaskSha256
+    delete this.canvas.dataset.clippingInputKey
+    this.clipping(undefined, previousContext)
+    this.clippingFailed(undefined, previousContext)
+    // A context change precedes the caller's matching draw. Repainting the
+    // retained view here would bind old pixels/settings to the new context.
+    if (enabled && !changedContext) this.redrawLatest()
+  }
+  private redrawLatest() {
+    const latest = this.view
+    if (latest && latest.clippingContext === this.clippingContext)
+      this.draw(latest.image, latest.viewport, latest.view, latest.parameters)
+  }
   draw(image: Size, viewport: Size, view: View, parameters: AdjustmentParameters) {
     if (this.disposed || !viewport.width || !viewport.height) return
-    this.view = { image, viewport, view, parameters }
+    this.view = { image, viewport, view, parameters, clippingContext: this.clippingContext }
     const waiting =
       this.comparison.mode !== 'after' &&
       (this.comparisonRequired || !!this.beforeSource) &&
@@ -597,6 +649,7 @@ export class PreviewPresenter {
         viewport: { ...viewport },
         view: { ...view },
         parameters: structuredClone(parameters),
+        clippingContext: this.clippingContext,
       }
       return
     }
@@ -615,7 +668,7 @@ export class PreviewPresenter {
           const latest = this.view
           if (latest && !this.disposed) {
             try {
-              this.draw(latest.image, latest.viewport, latest.view, latest.parameters)
+              this.redrawLatest()
             } catch (error) {
               this.lost(String(error))
             }
@@ -639,6 +692,7 @@ export class PreviewPresenter {
       const location = (name: string) => gl.getUniformLocation(program, name)
       if (creative) {
         gl.uniform1i(location('histogramPass'), 0)
+        gl.uniform1i(location('clippingPass'), 0)
         gl.uniform1i(location('localMasksActive'), Number(masks))
         gl.activeTexture(gl.TEXTURE3)
         gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.localMaskBaseAtlas!.texture!)
@@ -778,7 +832,7 @@ export class PreviewPresenter {
               'Local adjustment processing produced non-finite pixels. Reduce the local adjustments.',
             )
           else if (latest && (this.working !== validatedSource || currentKey !== validationKey))
-            this.draw(latest.image, latest.viewport, latest.view, latest.parameters)
+            this.redrawLatest()
         }
         this.localMaskQueryTimer = setTimeout(poll, 1)
       }
@@ -789,10 +843,30 @@ export class PreviewPresenter {
           this.statisticsPending(false)
           this.statisticsFailed(String(error))
         }
+        if (this.clippingEnabled) {
+          if (!curves.identity) {
+            this.clipping(undefined, this.clippingContext)
+            this.clippingFailed(
+              'Clipping overlays with active curves require a qualified GPU mask path. The photograph and histogram remain available.',
+              this.clippingContext,
+            )
+          } else {
+            try {
+              this.requestClipping(image, parameters, program)
+            } catch (error) {
+              this.clipping(undefined, this.clippingContext)
+              this.clippingFailed(String(error), this.clippingContext)
+            }
+          }
+        }
       } else {
         this.histogramQueued = false
         this.histogramPublished = ''
         this.statisticsFailed(undefined)
+        this.clippingQueued = false
+        this.clippingPublished = ''
+        this.clippingRequested = ''
+        this.clippingFailed(undefined, this.clippingContext)
       }
     } else if (this.context && this.bitmap) {
       const context = this.context
@@ -972,12 +1046,194 @@ export class PreviewPresenter {
         if (!this.disposed) {
           this.statisticsPending(false)
           this.canvas.dataset.analysisPending = 'false'
-          if (this.histogramQueued && this.view)
-            this.draw(this.view.image, this.view.viewport, this.view.view, this.view.parameters)
+          if (this.histogramQueued) this.redrawLatest()
         }
       }
     })()
     this.histogramWork = work
+  }
+  /** Evaluate every native pixel with the existing raster program, then classify
+   * only its encoded SDR bytes. OR reduction retains isolated events at Fit. */
+  private requestClipping(image: Size, parameters: AdjustmentParameters, program: WebGLProgram) {
+    const source = this.working,
+      gl = this.gl
+    if (!source || !gl || !this.clippingEnabled) return
+    const context = this.clippingContext,
+      key = JSON.stringify([context, this.histogramKey(image, parameters)])
+    const current = () => {
+      const latest = this.view
+      return (
+        !this.disposed &&
+        !gl.isContextLost() &&
+        this.clippingEnabled &&
+        this.clippingContext === context &&
+        this.working === source &&
+        this.creativeProgram === program &&
+        !!latest &&
+        this.comparison.mode !== 'before' &&
+        hasLocalMasks(latest.parameters) &&
+        preparedToneCurves(latest.parameters.curves).identity &&
+        key === JSON.stringify([context, this.histogramKey(latest.image, latest.parameters)])
+      )
+    }
+    if (key !== this.clippingRequested) {
+      this.clippingRequested = key
+      this.clipping(undefined, context)
+      this.clippingFailed(undefined, context)
+    }
+    if (key === this.clippingPublished) return
+    if (this.clippingBusy) {
+      this.clippingQueued = true
+      return
+    }
+    const pixels = image.width * image.height,
+      stripBytes = image.width * Math.min(64, image.height) * 4
+    const retained = this.clippingReservation
+    this.clippingReservation = {
+      ramBytes: Math.max(retained.ramBytes, pixels * 6 + stripBytes * 2),
+      vramBytes: Math.max(retained.vramBytes, stripBytes * 2),
+    }
+    try {
+      this.checkSize(image.width, image.height, ((16 * 4) / 3) * (this.beforeSource ? 2 : 1))
+    } catch (error) {
+      // A declined clipping allocation must not charge nonexistent buffers and
+      // prevent the independently admitted histogram from continuing.
+      this.clippingReservation = retained
+      throw error
+    }
+    this.clippingTarget ??= gl.createTexture() ?? undefined
+    this.clippingFramebuffer ??= gl.createFramebuffer() ?? undefined
+    this.clippingReadback ??= gl.createBuffer() ?? undefined
+    if (!this.clippingTarget || !this.clippingFramebuffer || !this.clippingReadback)
+      throw new Error('GPU clipping allocation failed.')
+    this.clippingBusy = true
+    this.clippingQueued = false
+    this.canvas.dataset.clippingPending = 'true'
+    const release = this.activity?.()
+    const work = (async () => {
+      try {
+        const mask = new Uint8Array(pixels),
+          data = new Uint8Array(stripBytes)
+        for (let row = 0; row < image.height; row += 64) {
+          if (!current()) return
+          const rows = Math.min(64, image.height - row),
+            count = image.width * rows,
+            bytes = count * 4,
+            dither = gl.isEnabled(gl.DITHER),
+            query = gl.createQuery()
+          if (!query) throw new Error('GPU clipping validation query allocation failed.')
+          this.clippingQuery = query
+          try {
+            gl.useProgram(program)
+            gl.activeTexture(gl.TEXTURE3)
+            gl.bindTexture(gl.TEXTURE_2D, this.clippingTarget!)
+            gl.texImage2D(
+              gl.TEXTURE_2D,
+              0,
+              gl.RGBA8,
+              image.width,
+              rows,
+              0,
+              gl.RGBA,
+              gl.UNSIGNED_BYTE,
+              null,
+            )
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+            gl.bindFramebuffer(gl.FRAMEBUFFER, this.clippingFramebuffer!)
+            gl.framebufferTexture2D(
+              gl.FRAMEBUFFER,
+              gl.COLOR_ATTACHMENT0,
+              gl.TEXTURE_2D,
+              this.clippingTarget!,
+              0,
+            )
+            if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE)
+              throw new Error('GPU clipping framebuffer is unavailable.')
+            gl.disable(gl.DITHER)
+            gl.viewport(0, 0, image.width, rows)
+            gl.uniform1i(gl.getUniformLocation(program, 'histogramPass'), 1)
+            gl.uniform1i(gl.getUniformLocation(program, 'clippingPass'), 1)
+            gl.uniform1ui(gl.getUniformLocation(program, 'clippingOffset'), row * image.width)
+            gl.uniform2f(gl.getUniformLocation(program, 'histogramSize'), image.width, rows)
+            gl.uniform1f(gl.getUniformLocation(program, 'histogramCount'), count)
+            gl.drawArrays(gl.TRIANGLES, 0, 3)
+            gl.uniform1i(gl.getUniformLocation(program, 'maskValidation'), 1)
+            gl.colorMask(false, false, false, false)
+            gl.beginQuery(gl.ANY_SAMPLES_PASSED, query)
+            gl.drawArrays(gl.TRIANGLES, 0, 3)
+            gl.endQuery(gl.ANY_SAMPLES_PASSED)
+            gl.colorMask(true, true, true, true)
+            gl.uniform1i(gl.getUniformLocation(program, 'maskValidation'), 0)
+            gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.clippingReadback!)
+            gl.bufferData(gl.PIXEL_PACK_BUFFER, bytes, gl.STREAM_READ)
+            gl.readPixels(0, 0, image.width, rows, gl.RGBA, gl.UNSIGNED_BYTE, 0)
+            if (gl.getError() !== gl.NO_ERROR) throw new Error('GPU clipping submission failed.')
+          } catch (error) {
+            gl.deleteQuery(query)
+            if (this.clippingQuery === query) this.clippingQuery = undefined
+            throw error
+          } finally {
+            gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null)
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+            gl.viewport(0, 0, this.canvas.width, this.canvas.height)
+            gl.uniform1i(gl.getUniformLocation(program, 'histogramPass'), 0)
+            gl.uniform1i(gl.getUniformLocation(program, 'clippingPass'), 0)
+            gl.uniform1i(gl.getUniformLocation(program, 'maskValidation'), 0)
+            gl.colorMask(true, true, true, true)
+            if (dither) gl.enable(gl.DITHER)
+            gl.activeTexture(gl.TEXTURE0)
+            gl.bindTexture(gl.TEXTURE_2D, this.texture!)
+          }
+          try {
+            await glCompletion(gl)
+            if (!current()) return
+            if (gl.getQueryParameter(query, gl.QUERY_RESULT))
+              throw new Error(
+                'Local adjustment processing produced non-finite clipping pixels. Reduce the local adjustments.',
+              )
+            gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.clippingReadback!)
+            gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, data.subarray(0, bytes))
+            gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null)
+            if (gl.getError() !== gl.NO_ERROR) throw new Error('GPU clipping readback failed.')
+            for (let pixel = 0; pixel < count; pixel++) {
+              const at = pixel * 4
+              if (!data[at + 3]) continue
+              mask[row * image.width + pixel] =
+                Number(data[at] === 0 && data[at + 1] === 0 && data[at + 2] === 0) |
+                (Number(data[at] === 255 || data[at + 1] === 255 || data[at + 2] === 255) << 1)
+            }
+          } finally {
+            gl.deleteQuery(query)
+            if (this.clippingQuery === query) this.clippingQuery = undefined
+          }
+        }
+        const digest = await crypto.subtle.digest('SHA-256', mask)
+        if (current()) {
+          this.clippingPublished = key
+          this.canvas.dataset.clippingMaskSha256 = Array.from(new Uint8Array(digest), (value) =>
+            value.toString(16).padStart(2, '0'),
+          ).join('')
+          this.canvas.dataset.clippingInputKey = key
+          this.clipping(reduceHdrMask(mask, image.width, image.height), context)
+          this.clippingFailed(undefined, context)
+          this.canvas.dataset.clippingPixels = String(pixels)
+        }
+      } catch (error) {
+        if (current()) {
+          this.clipping(undefined, context)
+          this.clippingFailed(String(error), context)
+        }
+      } finally {
+        release?.()
+        this.clippingBusy = false
+        if (!this.disposed) {
+          this.canvas.dataset.clippingPending = 'false'
+          if (this.clippingQueued) this.redrawLatest()
+        }
+      }
+    })()
+    this.clippingWork = work
   }
   dispose() {
     if (this.disposed) return
@@ -986,6 +1242,7 @@ export class PreviewPresenter {
       drained = Promise.all([
         gl ? glCompletion(gl) : Promise.resolve(),
         this.histogramWork ?? Promise.resolve(),
+        this.clippingWork ?? Promise.resolve(),
         this.localMaskBaseAtlas?.whenDisposed ?? Promise.resolve(),
       ]).then(() => undefined)
     this.whenDisposed = drained
@@ -1003,6 +1260,10 @@ export class PreviewPresenter {
     if (this.histogramFramebuffer) this.gl?.deleteFramebuffer(this.histogramFramebuffer)
     if (this.histogramReadback) this.gl?.deleteBuffer(this.histogramReadback)
     if (this.histogramQuery) this.gl?.deleteQuery(this.histogramQuery)
+    if (this.clippingTarget) this.gl?.deleteTexture(this.clippingTarget)
+    if (this.clippingFramebuffer) this.gl?.deleteFramebuffer(this.clippingFramebuffer)
+    if (this.clippingReadback) this.gl?.deleteBuffer(this.clippingReadback)
+    if (this.clippingQuery) this.gl?.deleteQuery(this.clippingQuery)
     if (this.spatialProgram) this.gl?.deleteProgram(this.spatialProgram)
     if (this.program) this.gl?.deleteProgram(this.program)
     if (this.creativeProgram) this.gl?.deleteProgram(this.creativeProgram)

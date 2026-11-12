@@ -1,4 +1,4 @@
-import type { WorkingFrame } from '../../../shared/adjustments'
+import type { AdjustmentParameters, WorkingFrame } from '../../../shared/adjustments'
 import {
   type NativeHdrMaskBridge,
   type NativeHdrMaskOutcome,
@@ -12,6 +12,7 @@ export type ReserveNativeMask = (
   frame: WorkingFrame,
   cancel: () => void,
   drained: Promise<void>,
+  parameters?: AdjustmentParameters,
 ) => NativeMaskReservation | undefined
 interface Flight {
   request: NativeHdrMaskRequest
@@ -77,7 +78,7 @@ export class NativeMaskRelay {
       })
       if (flight.current) this.cancel(flight.current.request.generation)
     }
-    const scope = this.reserve(this.frame, cancel, done)
+    const scope = this.reserve(this.frame, cancel, done, draft.parameters)
     if (!scope) {
       finish()
       this.worker.postMessage({
@@ -113,12 +114,16 @@ export class NativeMaskRelay {
             this.frame.height,
             scope.existingOwners,
             result.policy,
+            false,
+            draft.parameters,
           )
           const localPlan = nativeHdrMaskMemory(
             this.frame.width,
             this.frame.height,
             scope.existingOwners,
             scope.policy,
+            false,
+            draft.parameters,
           )
           if (
             !mainPlan.accepted ||
