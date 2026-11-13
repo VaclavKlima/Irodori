@@ -16,6 +16,8 @@ tar -xzf source.tar.gz
 tar -xzf jpeg.tar.gz
 # Explicitly single-threaded, including hosts that report multiple logical cores.
 python3 -c 'from pathlib import Path; p=Path("libultrahdr-2.0.2/lib/src/jpegr.cpp"); s=p.read_text(); old="return (std::max)(1u, std::thread::hardware_concurrency());"; assert s.count(old)==1; p.write_text(s.replace(old,"return 1u;"))'
+# Exact decoder math prevents coarse LUT errors on wide-range ISO gain maps.
+python3 "$IRODORI_EXPORT_ROOT/scripts/ultrahdr/exact-decoder.py" libultrahdr-2.0.2/lib/src/jpegr.cpp
 # Probe the exact pinned JPEG library supplied below instead of downloading a
 # different Emscripten port solely for CMake's availability test.
 python3 - <<'PY'

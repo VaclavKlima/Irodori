@@ -2,7 +2,10 @@ import type { Page } from '@playwright/test'
 import { expect } from '@playwright/test'
 import { activateButton } from './button.helpers'
 
-export async function createMask(page: Page, tool: 'Brush' | 'Select object…' = 'Brush') {
+export async function createMask(
+  page: Page,
+  tool: 'Brush' | 'Select object…' | 'Select Sky' | 'Select Background' = 'Brush',
+) {
   await expect(page.getByTestId('masks-panel')).toHaveAttribute('data-ready', 'true')
   const rows = page.getByTestId('masks-list').locator('[data-mask-id]')
   const previousIds =

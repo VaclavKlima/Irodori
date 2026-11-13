@@ -226,7 +226,8 @@ export const maskCapabilities = {
   maxRetainedBytes: 32 * 1024 * 1024,
   maxMutationBytes: 256 * 1024,
   maxBasePixels: 32 * 1024 * 1024,
-  maxBaseEncodedBytes: 8 * 1024 * 1024,
+  // Native guided R8 coverage can exceed binary-mask sizes; the combined photo cap stays fixed.
+  maxBaseEncodedBytes: 16 * 1024 * 1024,
   maxLiveBaseEncodedBytes: 32 * 1024 * 1024,
   maxBaseAtlasBytes: 256 * 1024 * 1024,
 } as const

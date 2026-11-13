@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type {
+  AutomaticSelectionKind,
   ObjectSelectionContext,
   ObjectSelectionPrompts,
   ObjectSelectionProposal,
@@ -26,6 +27,7 @@ interface Dependencies {
   onActivate: () => void
 }
 interface Session {
+  selection?: AutomaticSelectionKind
   photoId: string
   context?: ObjectSelectionContext
   maskId?: string
@@ -114,63 +116,12 @@ export function useObjectSelection(dependencies: Dependencies) {
     window.addEventListener('keydown', escape)
     return () => window.removeEventListener('keydown', escape)
   }, [hasSession, close])
-  const start = useCallback(
-    async (destination?: string | ObjectSelectionTarget) => {
-      const target: ObjectSelectionTarget =
-        typeof destination === 'string'
-          ? { kind: 'replace-component', maskId: destination }
-          : structuredClone(destination ?? { kind: 'new-mask' })
-      const maskId = target.kind === 'new-mask' ? undefined : target.maskId
-      const value = current.current
-      if (!value.enabled || !value.photoId) return
-      const token = ++epoch.current
-      const photoId = value.photoId
-      const previous = sessionRef.current?.photoId
-      value.onActivate()
-      publish({ photoId, maskId, target, mode: 'box', points: [], status: 'preparing', error: '' })
-      try {
-        if (previous) await value.cancel(previous)
-        if (token !== epoch.current) return
-        const context = await value.prepare()
-        if (token !== epoch.current || current.current.photoId !== photoId) return
-        if (context.photoId !== photoId)
-          throw new Error('The photograph changed. Start selection again.')
-        publish({
-          photoId,
-          maskId,
-          target,
-          context,
-          mode: 'box',
-          points: [],
-          status: 'idle',
-          error: '',
-        })
-      } catch (error) {
-        if (token === epoch.current)
-          publish({
-            photoId,
-            maskId,
-            target,
-            mode: 'box',
-            points: [],
-            status: 'idle',
-            error: String(error),
-          })
-      }
-    },
-    [publish],
-  )
-  const change = (update: (value: Session) => Session) => {
-    const value = sessionRef.current
-    if (!value?.context || value.status !== 'idle') return
-    publish(update(value))
-  }
   const generate = useCallback(async () => {
     const value = sessionRef.current
     if (
       !value?.context ||
       value.status !== 'idle' ||
-      (!value.box && !value.points.some((point) => point.mode === 'add'))
+      (!value.selection && !value.box && !value.points.some((point) => point.mode === 'add'))
     )
       return
     const token = ++epoch.current
@@ -182,6 +133,7 @@ export function useObjectSelection(dependencies: Dependencies) {
         expectedRevision: value.context.revision,
         gridIdentity: value.context.gridIdentity,
         prompts,
+        selection: value.selection,
         target: value.target,
       })
       if (token !== epoch.current || current.current.photoId !== value.photoId) return
@@ -203,6 +155,69 @@ export function useObjectSelection(dependencies: Dependencies) {
       if (token === epoch.current) publish({ ...value, status: 'idle', error: String(error) })
     }
   }, [publish])
+  const start = useCallback(
+    async (destination?: string | ObjectSelectionTarget, selection?: AutomaticSelectionKind) => {
+      const target: ObjectSelectionTarget =
+        typeof destination === 'string'
+          ? { kind: 'replace-component', maskId: destination }
+          : structuredClone(destination ?? { kind: 'new-mask' })
+      const maskId = target.kind === 'new-mask' ? undefined : target.maskId
+      const value = current.current
+      if (!value.enabled || !value.photoId) return
+      const token = ++epoch.current
+      const photoId = value.photoId
+      const previous = sessionRef.current?.photoId
+      value.onActivate()
+      publish({
+        photoId,
+        maskId,
+        target,
+        selection,
+        mode: 'box',
+        points: [],
+        status: 'preparing',
+        error: '',
+      })
+      try {
+        if (previous) await value.cancel(previous)
+        if (token !== epoch.current) return
+        const context = await value.prepare()
+        if (token !== epoch.current || current.current.photoId !== photoId) return
+        if (context.photoId !== photoId)
+          throw new Error('The photograph changed. Start selection again.')
+        publish({
+          photoId,
+          maskId,
+          selection,
+          target,
+          context,
+          mode: 'box',
+          points: [],
+          status: 'idle',
+          error: '',
+        })
+        if (selection) await generate()
+      } catch (error) {
+        if (token === epoch.current)
+          publish({
+            photoId,
+            maskId,
+            selection,
+            target,
+            mode: 'box',
+            points: [],
+            status: 'idle',
+            error: String(error),
+          })
+      }
+    },
+    [generate, publish],
+  )
+  const change = (update: (value: Session) => Session) => {
+    const value = sessionRef.current
+    if (!value?.context || value.status !== 'idle') return
+    publish(update(value))
+  }
   const accept = useCallback(async () => {
     const value = sessionRef.current
     if (
@@ -229,6 +244,7 @@ export function useObjectSelection(dependencies: Dependencies) {
   const dirty = !!value?.proposal && value.proposalPrompts !== JSON.stringify(prompts)
   return {
     active,
+    selection: value?.selection,
     busy,
     available: dependencies.enabled,
     context: value?.context,
@@ -245,7 +261,7 @@ export function useObjectSelection(dependencies: Dependencies) {
     canGenerate:
       !!value?.context &&
       !busy &&
-      (!!value.box || value.points.some((point) => point.mode === 'add')),
+      (!!value.selection || !!value.box || value.points.some((point) => point.mode === 'add')),
     canAccept: !!value?.proposal && !busy && !dirty && !!value.previewReady && !value.error,
     previewReady: !!value?.previewReady,
     start,

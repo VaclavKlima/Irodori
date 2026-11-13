@@ -1,0 +1,6 @@
+# Isolated diagnostic/reproduction environment; never an application dependency.
+numpy==2.5.4
+onnx==1.23.2
+onnxslim==0.1.99
+onnxruntime==1.31.1
+opencv-contrib-python-headless==5.0.0.93

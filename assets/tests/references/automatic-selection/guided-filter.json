@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "license": "CC0-1.0",
+  "generator": "scripts/research/sky-selection/generate-guided-reference.py",
+  "generatorSha256": "2185f50cb26dd7fe58475d231bf8ea5bbf2a453fe745a2acb392fb06c5cae715",
+  "reference": {
+    "library": "opencv-contrib-python-headless",
+    "version": "5.0.0",
+    "method": "ximgproc.guidedFilter RGB 0..255, radius 8, epsilon 0.001*255^2, full model grid; independently checked against float64 normalized RGB normal equations"
+  },
+  "edge": 128,
+  "rgbaGzipBase64": "H4sIAAAAAAACA+3RtxHCAAAEwSrwsbAlYCRMjfgW8QU8KS0gbXwzl2wxb2W2HmRa9TMpexmvuhktOxku2ika0HbXT7aXdzbnV9anZ6rjI+XhntX+1ohW8OfPnz9//vz58+fPnz9//vz58+fPnz9//vz58+fPnz9//vz58+fPnz9//vz58+fPnz9//vz58+fPnz9//vz58+fPn3+N/H+f/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/PnXzf+fG3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/Pnz58+fP3/+/P+nfQHUduf4AAABAA==",
+  "expectedGzipBase64": "H4sIAAAAAAACA+3NsREAIQwEMfvpv2OeY1wCuTbZUFWvdfdsrW+e5Px7Z35Onis+n8/n8/l8Pp/P5/P5fD6fz+fz+Xw+n8/n8/l8Pp/P5/P5fD6fz+fz+Xw+n8/n8/l8Pp/P5/P5ueD8//sAQAAA",
+  "rgbaSha256": "3d13a6a2e5053f9269e1a728d8ddc3b1fea738517b1f99cb1c45d4dc12e60daa",
+  "expectedSha256": "c199cfe87c1bd9b7841b7dfe1a582aef92715eb748c12139a751c9b8dccaa5b4",
+  "maxByteError": 1
+}

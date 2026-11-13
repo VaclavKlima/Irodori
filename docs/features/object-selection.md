@@ -25,7 +25,7 @@ proposal prepares its displayed coverage after retiring the inference worker.
 Focused Mac edge integration checks pass; the edge brief records their scope. These controls
 adjust coverage softness/extent and do not recover missing fine detail.
 
-This selects indicated animals, plants, vehicles and other visible objects. It does not supply text grounding, automatic subject discovery, sky classification, reflection correspondence or finished hair/fur/feather matting. A reflection should be indicated separately. The research found coarse edges, false holes, unwanted fragments and severe fence-gap failures. Transparent objects have semantic coverage, not measured physical alpha. These limits remain visible in the research evidence and TODO 54's remaining quality acceptance.
+This selects indicated animals, plants, vehicles and other visible objects. SAM does not supply text grounding, automatic subject discovery, sky classification, reflection correspondence or finished hair/fur/feather matting. The separate [Select Sky/Background modes](sky-background-selection.md) add dedicated semantic models through the same proposal service. A reflection should be indicated separately. The research found coarse edges, false holes, unwanted fragments and severe fence-gap failures. Transparent objects have semantic coverage, not measured physical alpha. These limits remain visible in the research evidence and TODO 54's remaining quality acceptance.
 
 The current export accepts six prompt slots: a box consumes two, while each positive/negative point consumes one. The Editor exposes four guide points so switching between a box and points never truncates input. Excess prompts are refused; manual brush corrections have the existing larger geometry limits. Sources are bounded to **32 MP and 8192 pixels per side**. Oversized sources keep normal manual masking available. Requested resolution and quality are never silently reduced to make inference fit.
 
@@ -56,7 +56,7 @@ original base/brush path remains exact when both edge values are zero. Edge
 processing ownership, resource admission and failure semantics are in the
 [edge brief](mask-edges.md#shared-gpu-stage).
 
-Limits include 8 MiB encoded per base, 32 MiB combined retained brush/base content per photo, the existing 32-mask and stroke limits, and a 256 MiB native coverage atlas bound. Exact atlas/strip/native-decode bytes enter resource admission. Raster presentation retains its existing 512 MiB cap; acceptance also preflights generated-base stacks. Excess work is refused before history publication. Names and selection do not affect pixels; base hashes, correction chains, enabled/invert/order and Light values do.
+Limits now include 16 MiB encoded per base, 32 MiB combined retained brush/base content per photo, the existing 32-mask and stroke limits, and a 256 MiB native coverage atlas bound. Issue #86 raises the former 8 MiB per-base transfer cap for detailed native R8 sky/background coverage under the user's higher-memory allowance; aggregate photo and atlas bounds stay unchanged. Exact atlas/strip/native-decode bytes enter resource admission. Raster presentation retains its existing 512 MiB cap; acceptance also preflights generated-base stacks. Excess work is refused before history publication. Names and selection do not affect pixels; base hashes, correction chains, enabled/invert/order and Light values do.
 
 ## Model delivery
 

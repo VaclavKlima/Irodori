@@ -786,7 +786,7 @@ let tools = [
   {
     name: 'irodori_create_object_selection',
     description:
-      'Generate a SAM 2 object proposal using the confirmed canonical grid and box/positive/negative points. Returns a native canonical black/white coverage image separately from metadata. Does not edit history. Optional maskId refines the legacy root. selectionTarget freezes a new-mask, new-component (maskId, componentId, optional parentId, name, operator), or replace-component destination. Existing corrections and controls are retained; acceptance cannot retarget it. replacePrimary:true on replace-component explicitly replaces a gradient starting source atomically on acceptance; ordinary refinement refuses gradients. Six slots maximum; box uses two. Inspect before explicit acceptance; Paint/Erase repairs approximate edges.',
+      'Generate an editable selection proposal on the confirmed canonical grid. Set selection:"sky" to automatically find visible sky and disconnected openings, or selection:"background" for the background around a salient foreground subject; omit prompts for these modes. With selection omitted, use SAM 2 box/positive/negative prompts for an indicated object. Returns native canonical coverage separately from metadata; no history edit until explicit acceptance. Inspect coverage and native boundaries before accepting; Paint/Erase repairs mistakes. Optional maskId refines the legacy root. selectionTarget freezes a new-mask, new-component (maskId, componentId, optional parentId, name, operator), or replace-component destination. Existing corrections and controls are retained; acceptance cannot retarget it. replacePrimary:true explicitly replaces another starting source on acceptance. Object guides have six slots maximum; box uses two.',
     inputSchema: schema(
       {
         photoId,
@@ -794,6 +794,7 @@ let tools = [
         gridIdentity: { type: 'string', pattern: '^[a-f0-9]{64}$' },
         maskId: { type: 'string', format: 'uuid' },
         selectionTarget,
+        selection: { type: 'string', enum: ['sky', 'background'] },
         prompts: schema(
           {
             box: {
@@ -826,7 +827,7 @@ let tools = [
           ['positivePoints', 'negativePoints'],
         ),
       },
-      ['photoId', 'expectedRevision', 'gridIdentity', 'prompts'],
+      ['photoId', 'expectedRevision', 'gridIdentity'],
     ),
   },
   {

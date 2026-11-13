@@ -564,6 +564,9 @@ export async function startEditorEndpoint(
                   photoId,
                   expectedRevision,
                   gridIdentity: args.gridIdentity as string,
+                  ...(args.selection === undefined
+                    ? {}
+                    : { selection: args.selection as 'sky' | 'background' }),
                   prompts:
                     args.prompts as import('../shared/object-selection').ObjectSelectionPrompts,
                   ...(args.maskId === undefined ? {} : { maskId: args.maskId as string }),

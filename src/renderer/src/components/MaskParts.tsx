@@ -160,16 +160,28 @@ export function MaskParts({
     operator: MaskOperator,
     parentId?: string,
   ) => masks.armComponent(operator, kind, parentId)
-  const startObject = (operator: MaskOperator, parentId?: string) => {
+  const startObject = (
+    operator: MaskOperator,
+    parentId?: string,
+    selection?: 'sky' | 'background',
+  ) => {
     if (!objectSelection?.available) return
-    void objectSelection.start({
-      kind: 'new-component',
-      maskId: root.id,
-      parentId,
-      componentId: crypto.randomUUID(),
-      name: 'Object part',
-      operator,
-    })
+    void objectSelection.start(
+      {
+        kind: 'new-component',
+        maskId: root.id,
+        parentId,
+        componentId: crypto.randomUUID(),
+        name:
+          selection === 'sky'
+            ? 'Sky part'
+            : selection === 'background'
+              ? 'Background part'
+              : 'Object part',
+        operator,
+      },
+      selection,
+    )
   }
   const actions: CommandMenuAction[] = !selectedMenu
     ? []
@@ -195,6 +207,14 @@ export function MaskParts({
                 (!objectSelection?.available ? 'Object selection is unavailable.' : undefined) ??
                 (selectedMenu.stage === 'replace' ? undefined : full),
             },
+            ...(['sky', 'background'] as const).map((id) => ({
+              id,
+              label: id === 'sky' ? 'Select Sky' : 'Select Background',
+              disabledReason:
+                blocked ??
+                (!objectSelection?.available ? 'Automatic selection is unavailable.' : undefined) ??
+                (selectedMenu.stage === 'replace' ? undefined : full),
+            })),
             {
               id: 'linear',
               label: 'Linear gradient',
@@ -314,7 +334,8 @@ export function MaskParts({
           target.operator!,
           target.parentId,
         )
-      else if (id === 'object') startObject(target.operator!, target.parentId)
+      else if (id === 'object' || id === 'sky' || id === 'background')
+        startObject(target.operator!, target.parentId, id === 'object' ? undefined : id)
       else strokeOrGradient(id as 'brush' | 'linear' | 'radial', target.operator!, target.parentId)
       return
     }
@@ -335,13 +356,16 @@ export function MaskParts({
       close(true)
       if (id === 'color-range' || id === 'luminance-range')
         masks.replaceRangePart(id === 'color-range' ? 'color' : 'luminance', target.nodeId!)
-      else if (id === 'object')
-        void objectSelection?.start({
-          kind: 'replace-component',
-          maskId: root.id,
-          componentId: target.nodeId,
-          replacePrimary: true,
-        })
+      else if (id === 'object' || id === 'sky' || id === 'background')
+        void objectSelection?.start(
+          {
+            kind: 'replace-component',
+            maskId: root.id,
+            componentId: target.nodeId,
+            replacePrimary: true,
+          },
+          id === 'object' ? undefined : id,
+        )
       else if (id === 'brush')
         mutate({
           kind: 'component-update',

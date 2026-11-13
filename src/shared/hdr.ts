@@ -14,12 +14,12 @@ import {
 
 export type ProcessingIdentity = 'display-referred-v1' | 'hdr-v1'
 export const HDR_SOURCE_VERSION = 'hdr-source-v2-capture-scale-1'
-export const HDR_JPEG_SOURCE_VERSION = 'hdr-jpeg-v1-relative-white'
+export const HDR_JPEG_SOURCE_VERSION = 'hdr-jpeg-v2-exact-gain-relative-white'
 export const SENSOR_BLEND_VERSION = 'sensor-blend-v1'
 export const HDR_RAW_SOURCE_VERSION = `${HDR_SOURCE_VERSION}-${SENSOR_BLEND_VERSION}`
 export const HDR_ADJUSTMENT_VERSION = `hdr-adjustments-v3-${CREATIVE_COLOR_VERSION}-${TONE_CURVE_VERSION}`
 export const HDR_OUTPUT_VERSION =
-  `hdr-output-v6-content-proof-${DISPLAY_RENDERING_VERSION}` as const
+  `hdr-output-v7-exact-alpha-content-proof-${DISPLAY_RENDERING_VERSION}` as const
 export const HDR_ANALYSIS_VERSION = `hdr-analysis-v4-content-${DISPLAY_RENDERING_VERSION}` as const
 export type RGB = [number, number, number]
 export const REC2020_LUMINANCE: RGB = [0.2627002120112671, 0.6779980715188708, 0.059301716469862]

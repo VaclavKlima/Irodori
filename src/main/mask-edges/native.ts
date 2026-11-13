@@ -75,7 +75,7 @@ async function encodedCoverage(
   signal.throwIfAborted()
   if (png.byteLength > maskCapabilities.maxBaseEncodedBytes)
     throw new Error(
-      'Prepared mask edges exceed the 8 MiB transfer limit. Reset Mask edges or use fewer corrected boundaries.',
+      'Prepared mask edges exceed the 16 MiB transfer limit. Reset Mask edges or use fewer corrected boundaries.',
     )
   const key = createHash('sha256')
     .update(JSON.stringify([width, height, maskEdgePixelIdentity(mask)]))

@@ -18,6 +18,7 @@ import { HDR_CONTENT_TARGET, prepareDisplayRendering } from '../src/shared/displ
 import {
   SDR_TARGET,
   HDR_SOURCE_VERSION,
+  HDR_JPEG_SOURCE_VERSION,
   adjustHdr,
   outputHdr,
   encodeHdr,
@@ -87,7 +88,7 @@ test('photo-wide GPU content bins stay fixed across headroom, gamut and SDR proo
       if (authored)
         asset.source = {
           ...asset.source,
-          version: 'hdr-jpeg-v1-relative-white',
+          version: HDR_JPEG_SOURCE_VERSION,
           display: { encoding: 'iso-21496-1-jpeg', headroom: 10, referenceWhiteNits: 203 },
           normalization: { referenceWhite: 1, sourceSaturation: null },
         } as HdrWorkingAsset['source']
@@ -282,6 +283,11 @@ test('streamed native GPU SDR proofs match CPU rendering with exact alpha and pr
     [0.18, 0.18, 0.18, 0.7],
     [64, 2, 1, 0.25],
     [0, 1, 0, 0],
+    [0.18, 0.18, 0.18, 0.00196],
+    [0.18, 0.18, 0.18, 0.003],
+    [0.18, 0.18, 0.18, 0.49999997],
+    [0.18, 0.18, 0.18, 0.50000006],
+    [0.18, 0.18, 0.18, 0.99999994],
   ]
   for (let i = 0; i < pixels.length; i += 4) pixels.set(patches[(i / 4) % patches.length], i)
   const bytes = Buffer.from(pixels.buffer),

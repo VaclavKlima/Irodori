@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "id": "sky-selection-2026-11-13",
+  "purpose": "Permitted photographic inputs for issue #86, excluded from production bundles.",
+  "files": [
+    {
+      "id": "blue-sky-needles",
+      "file": "originals/Treesky.jpg",
+      "bytes": 3824205,
+      "sha256": "ad72de9f2e35634d7a0882f89b85270bf94e5a2be8005fb70844f2ffc8ffb3c3",
+      "width": 2298,
+      "height": 3456,
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Treesky.jpg",
+      "sourceRevision": "https://commons.wikimedia.org/w/index.php?title=File:Treesky.jpg&oldid=1069570258",
+      "originalUrl": "https://upload.wikimedia.org/wikipedia/commons/2/2f/Treesky.jpg",
+      "photographer": "Psydeffects",
+      "license": "Public domain",
+      "licenseUrl": null,
+      "accessed": "2026-11-13",
+      "purpose": "Blue daylight sky, oak twigs/leaves and pine needles; disconnected fine openings.",
+      "changes": "None; unchanged published original bytes.",
+      "privacyReview": {
+        "date": "2026-11-13",
+        "pixels": "Complete once-oriented image and all embedded JPEG previews inspected; only natural outdoor scenery, no identifiable people or private readable content observed.",
+        "metadata": "Read-only ExifTool all-tag EXIF/XMP/IPTC/MakerNote inspection. No personal GPS coordinates, nonempty owner/contact names or device serial identifiers found. Sunset has an empty OwnerName and GPSVersionID only; these are not a location.",
+        "metadataTags": 106
+      },
+      "acceptance": "Input only; inclusion is not a model-quality or production acceptance pass."
+    },
+    {
+      "id": "sunset-branches",
+      "file": "originals/Sunset_through_branches_0528.jpg",
+      "bytes": 5348895,
+      "sha256": "9300812fd3045d7c2be00230082c70c7e7d74eb663abca2bdbcafa338b199f14",
+      "width": 5184,
+      "height": 3888,
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Sunset_through_branches_0528.jpg",
+      "sourceRevision": "https://commons.wikimedia.org/w/index.php?title=File:Sunset_through_branches_0528.jpg&oldid=1294404310",
+      "originalUrl": "https://upload.wikimedia.org/wikipedia/commons/e/e2/Sunset_through_branches_0528.jpg",
+      "photographer": "Victor Glassmov",
+      "license": "CC BY-SA 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+      "accessed": "2026-11-13",
+      "purpose": "Orange sunset, bright sun and dense silhouetted branches; difficult semantic and edge stress case.",
+      "changes": "None; unchanged published original bytes.",
+      "privacyReview": {
+        "date": "2026-11-13",
+        "pixels": "Complete once-oriented image and all embedded JPEG previews inspected; only natural outdoor scenery, no identifiable people or private readable content observed.",
+        "metadata": "Read-only ExifTool all-tag EXIF/XMP/IPTC/MakerNote inspection. No personal GPS coordinates, nonempty owner/contact names or device serial identifiers found. Sunset has an empty OwnerName and GPSVersionID only; these are not a location.",
+        "metadataTags": 1310
+      },
+      "acceptance": "Input only; inclusion is not a model-quality or production acceptance pass."
+    },
+    {
+      "id": "storm-field",
+      "file": "originals/Storm_clouds_over_a_field.jpg",
+      "bytes": 257029,
+      "sha256": "a9eac7d85bf0d60efc2a6294380c33076759f2e750652b8db2edca3f30a65316",
+      "width": 1280,
+      "height": 720,
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Storm_clouds_over_a_field.jpg",
+      "sourceRevision": "https://commons.wikimedia.org/w/index.php?title=File:Storm_clouds_over_a_field.jpg&oldid=1203826527",
+      "originalUrl": "https://upload.wikimedia.org/wikipedia/commons/4/46/Storm_clouds_over_a_field.jpg",
+      "photographer": "Casimir Kromkowski",
+      "license": "CC0",
+      "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+      "accessed": "2026-11-13",
+      "purpose": "Dark overcast storm clouds, tree silhouettes and an open horizon; modest native resolution.",
+      "changes": "None; unchanged published original bytes.",
+      "privacyReview": {
+        "date": "2026-11-13",
+        "pixels": "Complete once-oriented image and all embedded JPEG previews inspected; only natural outdoor scenery, no identifiable people or private readable content observed.",
+        "metadata": "Read-only ExifTool all-tag EXIF/XMP/IPTC/MakerNote inspection. No personal GPS coordinates, nonempty owner/contact names or device serial identifiers found. Sunset has an empty OwnerName and GPSVersionID only; these are not a location.",
+        "metadataTags": 58
+      },
+      "acceptance": "Input only; inclusion is not a model-quality or production acceptance pass."
+    },
+    {
+      "id": "architecture-blue-glass",
+      "file": "originals/Sky_bridge.jpg",
+      "bytes": 3367517,
+      "sha256": "e85f120ee2d4179dba0301f0668ded1f20d49cc5ebe96997a68da41b2ff3fcf0",
+      "width": 4608,
+      "height": 3456,
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Sky_bridge.jpg",
+      "sourceRevision": "https://commons.wikimedia.org/w/index.php?title=File:Sky_bridge.jpg&oldid=1300128486",
+      "originalUrl": "https://upload.wikimedia.org/wikipedia/commons/7/7b/Sky_bridge.jpg",
+      "photographer": "Arlo Barnes",
+      "license": "CC0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "accessed": "2026-11-13",
+      "purpose": "Building/bridge skyline, trees and blue bridge glazing: distinguish sky from similarly colored architectural surfaces. This scene does not qualify a dense open truss or an architectural sky-hole cohort.",
+      "changes": "None; unchanged published original bytes.",
+      "privacyReview": {
+        "date": "2026-11-13",
+        "pixels": "Complete original, embedded ThumbnailImage and native crops of the parked vehicles inspected. No identifiable people, readable plates, private interiors, documents/screens or other personal content observed.",
+        "metadata": "Read-only all-tag EXIF/XMP/IPTC/MakerNote inspection. OwnerName is empty; no location coordinates or serial/contact identifiers found.",
+        "metadataTags": 788
+      },
+      "acceptance": "Input only; inclusion is not a photographic or production acceptance pass."
+    }
+  ]
+}

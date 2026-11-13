@@ -243,8 +243,10 @@ const guidance: Record<EditingGuidanceTopic, Omit<EditingGuidance, 'version' | '
     ],
   },
   'mask-object': {
-    purpose: 'Create an inspected object-selection proposal with a frozen editable destination.',
+    purpose:
+      'Create an inspected object, sky or background proposal with a frozen editable destination.',
     workflow: [
+      'For automatic sky or background coverage, read the same frozen context, then call irodori_create_object_selection with selection:"sky" or selection:"background" and omit prompts. Sky finds disconnected openings; background separates a salient foreground subject. Inspect Fit and native edges before acceptance, and repair observed mistakes with Paint/Erase. No-sky or no-subject results preserve edits.',
       'Read irodori_get_object_selection_context for current photo/revision/grid and mapped canonical box/points, then request a point/box proposal with irodori_create_object_selection.',
       `The current model is ${objectSelectionCapabilities.model}; it supports ${objectSelectionCapabilities.maxPromptSlots} prompt slots and a box uses two. Freeze selectionTarget as new-mask, new-component or replace-component before inference.`,
       'Inspect the separate native canonical coverage image before irodori_accept_object_selection commits it. Destination Light/Color, primary/result corrections and other coverage parts keep their existing owners.',

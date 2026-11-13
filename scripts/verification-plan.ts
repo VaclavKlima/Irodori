@@ -102,6 +102,26 @@ const definitions: Suite[] = [
     exclusive: true,
   },
   { file: 'object-selection-model', group: 'node', scopes: [], explicitOnly: true },
+  { file: 'automatic-selection-model', group: 'node', scopes: [], explicitOnly: true },
+  {
+    file: 'automatic-selection-presentation-ui',
+    group: 'raw-gpu',
+    scopes: ['ui', 'adjustments'],
+    exclusive: true,
+  },
+  {
+    file: 'automatic-selection-raw-hdr',
+    group: 'raw-gpu',
+    scopes: ['adjustments', 'mcp'],
+    exclusive: true,
+  },
+  {
+    file: 'automatic-selection-ui',
+    group: 'electron',
+    scopes: ['adjustments', 'ui'],
+    exclusive: true,
+  },
+  { file: 'automatic-selection-gpu', group: 'raw-gpu', scopes: ['adjustments'], exclusive: true },
   {
     file: 'object-selection-worker-gpu',
     group: 'raw-gpu',

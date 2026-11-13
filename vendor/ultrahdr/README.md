@@ -19,6 +19,15 @@ Alternatively mount the repository at `/work` in `emscripten/emsdk:4.0.20` and r
 
 `scripts/ultrahdr/link.sh` rebuilds only the Irodori bridge and rewrites the runtime checksums after a complete source build. Compiler flags, exported functions, threading, memory and metadata choices are checked in. Keep source versions, executable artifacts, checksums and notices together when changing the bundle.
 
+Issue #86's real merged-HDR mask/export check exposed decoder lookup quantization:
+the existing 1024-entry sRGB inverse-transfer and gain tables exceeded the unchanged
+0.02 Float64 ISO error bound (0.04215 at display headroom 4.5144). The reproducible
+`exact-decoder.py` patch selects upstream's direct FP32 formulas **only inside
+`UltraHdr::applyGainMap`**. Encoding and the accepted native encoder stay unchanged.
+The same retained JPEG now has maximum error 0.00353, within the original bound.
+HDR JPEG working-source identity is v2 so old decoded caches are prepared again
+from unchanged originals. This is a precision correction, not a new backend.
+
 Retain `LICENSE` and all files in `licenses/`: Ultra HDR's MIT/Apache terms, the Adobe gain-map technology notice, and libjpeg-turbo's license/Independent JPEG Group notice. Test fixtures are excluded from the application bundle. Compatibility and reader limitations are documented in [the export brief](../../docs/features/export.md).
 
 Primary references: [pinned API](https://github.com/google/libultrahdr/blob/v2.0.2/ultrahdr_api.h), [encoder metadata constraints](https://github.com/google/libultrahdr/blob/v2.0.2/lib/src/jpegr.cpp), and [libjpeg-turbo 3.1.0](https://github.com/libjpeg-turbo/libjpeg-turbo/tree/3.1.0).

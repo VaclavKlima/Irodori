@@ -1947,7 +1947,7 @@ export function PhotoPreview({
       <div className={layout.previewArea}>
         <div
           ref={viewport}
-          className={`${styles.viewport} ${ready && (panX || panY) ? styles.pannable : ''} ${dragging ? styles.dragging : ''} ${whiteBalancePicker?.active || toneCurves?.active || masks?.active || masks?.editingGradient || masks?.creatingGradient || masks?.rangePicking || objectSelection?.active ? styles.picking : ''}`}
+          className={`${styles.viewport} ${ready && (panX || panY) ? styles.pannable : ''} ${dragging ? styles.dragging : ''} ${whiteBalancePicker?.active || toneCurves?.active || masks?.active || masks?.editingGradient || masks?.creatingGradient || masks?.rangePicking || (objectSelection?.active && !objectSelection.selection) ? styles.picking : ''}`}
           data-testid="preview-viewport"
           data-mode={view.fit ? 'fit' : 'manual'}
           data-scale={view.scale}
@@ -2034,7 +2034,7 @@ export function PhotoPreview({
               masks?.active ||
               masks?.rangePicking ||
               masks?.rangeCreating ||
-              objectSelection?.active ||
+              (objectSelection?.active && !objectSelection.selection) ||
               masks?.editingGradient ||
               masks?.creatingGradient ||
               cropping
@@ -2254,6 +2254,7 @@ export function PhotoPreview({
                   />
                 )}
               {objectSelection?.active &&
+                !objectSelection.selection &&
                 ready &&
                 !cropping &&
                 !masks?.active &&

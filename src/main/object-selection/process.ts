@@ -80,6 +80,10 @@ export class ObjectSelectionProcess {
       | Omit<
           Extract<ObjectSelectionWorkerRequest, { operation: 'refine' }>,
           'id' | 'modelDirectory'
+        >
+      | Omit<
+          Extract<ObjectSelectionWorkerRequest, { operation: 'automatic' }>,
+          'id' | 'modelDirectory'
         >,
     signal: AbortSignal,
   ): Promise<T> {
@@ -149,7 +153,7 @@ export class ObjectSelectionProcess {
       })
     } catch (error) {
       await this.close()
-      if (request.operation === 'refine')
+      if (request.operation !== 'prepare')
         await Promise.allSettled([
           rm(request.outputPath, { force: true }),
           rm(`${request.outputPath}.tmp`, { force: true }),
@@ -181,7 +185,10 @@ export class ObjectSelectionProcess {
     prompts: ObjectSelectionPrompts,
     outputPath: string,
     signal: AbortSignal,
+    selection?: 'sky' | 'background',
   ): Promise<ObjectSelectionResult> {
+    if (selection)
+      return this.request({ operation: 'automatic', selection, source, outputPath }, signal)
     await this.prepare(source, signal)
     return this.refine(prompts, outputPath, signal)
   }

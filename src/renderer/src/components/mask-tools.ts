@@ -1,10 +1,11 @@
 import { ArrowDownToLine, Brush, Circle, Palette, Sun, ScanSearch } from 'lucide-react'
 import { maskCapabilities } from '../../../shared/masks'
 import type { CommandMenuAction } from './ui/CommandMenu'
+import type { ObjectSelectionController } from '../hooks/useObjectSelection'
 
 type CreationContext = {
   available: boolean
-  objectSelection?: { available: boolean; active: boolean; start: () => Promise<void> }
+  objectSelection?: Pick<ObjectSelectionController, 'available' | 'active' | 'start'>
   maskCount: number
   busy: boolean
 }
@@ -16,6 +17,19 @@ type InvocationContext = CreationContext & {
 
 // Only implemented tools enter the chooser; future tools share this invocation path.
 const tools = [
+  {
+    id: 'sky',
+    label: 'Select Sky',
+    icon: Sun,
+    start: (context: InvocationContext) => void context.objectSelection?.start(undefined, 'sky'),
+  },
+  {
+    id: 'background',
+    label: 'Select Background',
+    icon: ScanSearch,
+    start: (context: InvocationContext) =>
+      void context.objectSelection?.start(undefined, 'background'),
+  },
   {
     id: 'object',
     label: 'Select object…',
@@ -64,8 +78,9 @@ export function maskCreationActions(context: CreationContext): CommandMenuAction
         ? 'Wait for the current edit to finish.'
         : undefined
   return tools.flatMap((tool) => {
-    if (tool.id === 'object' && !context.objectSelection) return []
-    const available = tool.id === 'object' ? context.objectSelection?.available : context.available
+    const selection = tool.id === 'object' || tool.id === 'sky' || tool.id === 'background'
+    if (selection && !context.objectSelection) return []
+    const available = selection ? context.objectSelection?.available : context.available
     const { id, label, icon } = tool
     return [
       {

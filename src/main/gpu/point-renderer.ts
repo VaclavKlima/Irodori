@@ -77,6 +77,26 @@ ${deferred ? '@group(0) @binding(5) var<storage,read_write> working:array<f32>;'
 ${hdrAdjustmentShader(creative, 12, 'acesPow', curves)}
 ${masks ? localMasksWgsl(16, bases ? 18 : undefined, 'acesPow') : ''}
 ${hdr && packed ? `var<workgroup> peaks:array<f32,${workgroup}>;` : ''}
+${
+  preserveAlpha && packed
+    ? `
+// Round the exact Float32 value to R8. Float32 multiplication can move a value
+// just below a half-byte boundary onto it (for example Float32(0.7) * 255).
+fn alphaByte(value:f32)->u32 {
+ if(!(value>0.)){return 0u;}
+ if(value>=1.){return 255u;}
+ let bits=bitcast<u32>(value);
+ let exponent=(bits>>23u)&255u;
+ if(exponent<118u){return 0u;}
+ let numerator=((bits&0x7fffffu)|0x800000u)*255u;
+ let shift=150u-exponent;
+ if(shift==32u){return select(0u,1u,numerator>=0x80000000u);}
+ let remainder=numerator&((1u<<shift)-1u);
+ return (numerator>>shift)+select(0u,1u,remainder>=(1u<<(shift-1u)));
+}
+`
+    : ''
+}
 fn exportTarget(jmh:vec3f,linear:f32)->vec3f {
  let toned=Y_to_J(tonescale_fwd(linear,aces_ts()),aces_input_params());
  return JMh_to_RGB(gamut_compress_fwd(chroma_compress_fwd(jmh,toned)),aces_limit_params());
@@ -115,7 +135,7 @@ fn exportTarget(jmh:vec3f,linear:f32)->vec3f {
  ${
    packed
      ? `let rgb=vec3u(floor(clamp(encodeDisplayRgb(sdr),vec3f(0.),vec3f(1.))*255.+.5));
- result.values[id.x*${hdr && !deferred ? 3 : 1}u]=rgb.r | (rgb.g<<8u) | (rgb.b<<16u)${preserveAlpha ? ' | (u32(floor(clamp(pixel.a,0.,1.)*255.+.5))<<24u)' : ''};
+ result.values[id.x*${hdr && !deferred ? 3 : 1}u]=rgb.r | (rgb.g<<8u) | (rgb.b<<16u)${preserveAlpha ? ' | (alphaByte(pixel.a)<<24u)' : ''};
  ${hdr && !deferred ? 'result.values[id.x*3u+1u]=pack2x16float(hdr.rg); result.values[id.x*3u+2u]=pack2x16float(vec2f(hdr.b,1.)); peaks[local]=max(hdr.r,max(hdr.g,hdr.b));' : ''}`
      : `result.values[id.x*${channels}u]=bitcast<u32>(sdr.r);
  result.values[id.x*${channels}u+1u]=bitcast<u32>(sdr.g);

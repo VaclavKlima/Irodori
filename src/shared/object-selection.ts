@@ -16,7 +16,11 @@ export const objectSelectionCapabilities = {
   maxDimension: 8192,
   manualCorrection: ['paint', 'erase', 'size', 'feather'],
   automaticMatting: false,
+  automaticSelections: ['sky', 'background'],
+  automaticModels: { sky: 'mask2former-swin-tiny-ade20k-fp32', background: 'birefnet-lite-fp32' },
 } as const
+
+export type AutomaticSelectionKind = 'sky' | 'background'
 
 export interface ObjectSelectionPrompts {
   /** Canonical oriented, uncorrected source coordinates, normalized to [0,1]. */
@@ -40,6 +44,8 @@ export interface ObjectSelectionRequest {
   expectedRevision: number
   gridIdentity: string
   prompts: ObjectSelectionPrompts
+  /** Omitted for the existing indicated-object workflow. Automatic modes use no guides. */
+  selection?: AutomaticSelectionKind
   /** Replacing this base preserves every existing manual correction and control. */
   maskId?: string
   /** Frozen at generation; acceptance cannot choose a different destination. */
@@ -152,9 +158,15 @@ export function validateObjectSelectionRequest(value: unknown): ObjectSelectionR
     !record(value) ||
     Object.keys(value).some(
       (key) =>
-        !['photoId', 'expectedRevision', 'gridIdentity', 'prompts', 'maskId', 'target'].includes(
-          key,
-        ),
+        ![
+          'photoId',
+          'expectedRevision',
+          'gridIdentity',
+          'prompts',
+          'maskId',
+          'target',
+          'selection',
+        ].includes(key),
     ) ||
     typeof value.gridIdentity !== 'string' ||
     !hash.test(value.gridIdentity) ||
@@ -162,13 +174,31 @@ export function validateObjectSelectionRequest(value: unknown): ObjectSelectionR
   )
     throw new Error('Invalid object-selection request. Refresh the photograph context.')
   validateSelectionTarget(value.photoId, value.expectedRevision)
+  if (value.selection !== undefined && !['sky', 'background'].includes(String(value.selection)))
+    throw new Error('Automatic selection must be sky or background.')
   if (value.target !== undefined) {
     validateObjectSelectionTarget(value.target)
     if (value.maskId !== undefined) throw new Error('Use one explicit selection destination.')
   }
+  const automatic = value.selection !== undefined
+  const prompts = automatic
+    ? (value.prompts ?? { positivePoints: [], negativePoints: [] })
+    : value.prompts
+  if (
+    automatic &&
+    (!record(prompts) ||
+      Object.keys(prompts).some((key) => !['positivePoints', 'negativePoints'].includes(key)) ||
+      !Array.isArray(prompts.positivePoints) ||
+      prompts.positivePoints.length !== 0 ||
+      !Array.isArray(prompts.negativePoints) ||
+      prompts.negativePoints.length !== 0)
+  )
+    throw new Error('Automatic sky/background selection does not take object guides.')
   return {
     ...structuredClone(value as unknown as ObjectSelectionRequest),
-    prompts: validateObjectSelectionPrompts(value.prompts),
+    prompts: automatic
+      ? { positivePoints: [], negativePoints: [] }
+      : validateObjectSelectionPrompts(prompts),
   }
 }
 export function validateAcceptObjectSelection(value: unknown): AcceptObjectSelection {

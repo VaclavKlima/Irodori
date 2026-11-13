@@ -92,7 +92,8 @@ export function validateObjectSelectionSize(width: number, height: number) {
 }
 
 /** Hardware compute only. Native codecs and byte transfers remain outside this owner. */
-export async function createObjectSelectionGpu() {
+export async function createObjectSelectionGpu(edge = 1024, normalize = false, monochrome = false) {
+  if (![128, 512, 1024].includes(edge)) throw new Error('Unsupported selection input size.')
   const owner = new RawGpuRenderer()
   try {
     const { device } = await owner.mergeDevice()
@@ -104,8 +105,20 @@ export async function createObjectSelectionGpu() {
       if (errors.length) throw new Error(errors.map((entry) => entry.message).join('\n'))
       return device.createComputePipelineAsync({ layout: 'auto', compute: { module, entryPoint } })
     }
-    const first = await make(preprocessing, 'first')
-    const second = await make(finishing, 'second')
+    const first = await make(preprocessing.replaceAll('1024', String(edge)), 'first')
+    const second = await make(
+      finishing
+        .replaceAll('1048576u', `${edge * edge}u`)
+        .replaceAll('2097152u', `${2 * edge * edge}u`)
+        .replaceAll('1024', String(edge))
+        .replace(
+          'value/=total;',
+          normalize
+            ? `value/=total;${monochrome ? 'value=vec4f(vec3f(dot(value.rgb,vec3f(.2126,.7152,.0722))),0.);' : ''}value=vec4f((value.rgb-vec3f(.485,.456,.406))/vec3f(.229,.224,.225),0.);`
+            : 'value/=total;',
+        ),
+      'second',
+    )
     const reconstruct = await make(reconstruction, 'reconstruct')
     const run = async (
       operation: 'preprocess' | 'reconstruct',
@@ -137,7 +150,7 @@ export async function createObjectSelectionGpu() {
         const source = buffer(input.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
         device.queue.writeBuffer(source, 0, input as GPUAllowSharedBufferSource)
         const outputBytes =
-          operation === 'preprocess' ? 3 * 1024 * 1024 * 4 : Math.ceil((width * height) / 4) * 4
+          operation === 'preprocess' ? 3 * edge * edge * 4 : Math.ceil((width * height) / 4) * 4
         const output = buffer(outputBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC)
         const readback = buffer(outputBytes, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST)
         const encoder = device.createCommandEncoder()
@@ -167,15 +180,15 @@ export async function createObjectSelectionGpu() {
         if (operation === 'preprocess') {
           if (input.byteLength !== width * height * 4)
             throw new Error('Object selection RGBA source byte count changed.')
-          const intermediate = buffer(1024 * Math.min(width, height) * 16, GPUBufferUsage.STORAGE)
+          const intermediate = buffer(edge * Math.min(width, height) * 16, GPUBufferUsage.STORAGE)
           dispatch(
             first,
             source,
             intermediate,
-            Math.ceil((horizontal ? 1024 : width) / 8),
-            Math.ceil((horizontal ? height : 1024) / 8),
+            Math.ceil((horizontal ? edge : width) / 8),
+            Math.ceil((horizontal ? height : edge) / 8),
           )
-          dispatch(second, intermediate, output, 128, 128)
+          dispatch(second, intermediate, output, Math.ceil(edge / 8), Math.ceil(edge / 8))
         } else {
           if (input.byteLength !== 256 * 256 * 4)
             throw new Error('Object selection logits dimensions changed.')
@@ -201,6 +214,10 @@ export async function createObjectSelectionGpu() {
       return result
     }
     return {
+      device,
+      get failure() {
+        return owner.failure
+      },
       async preprocess(rgba: Uint8Array, width: number, height: number): Promise<Float32Array> {
         const data = await run('preprocess', rgba, width, height)
         return new Float32Array(data.buffer, data.byteOffset, data.byteLength / 4)

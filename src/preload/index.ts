@@ -267,8 +267,9 @@ const api: IrodoriApi = {
     return result.pixel
   },
   getObjectSelectionContext: (id, revision) =>
-    ipcRenderer.invoke('selection:context', id, revision),
-  createObjectSelection: (request) => ipcRenderer.invoke('selection:create', request),
+    editTransferResult(ipcRenderer.invoke('selection:context', id, revision)),
+  createObjectSelection: (request) =>
+    editTransferResult(ipcRenderer.invoke('selection:create', request)),
   acceptObjectSelection: (request) => ipcRenderer.invoke('selection:accept', request),
   cancelObjectSelection: (id) => ipcRenderer.invoke('selection:cancel', id),
   prepareMaskCoverage: async (request) => {

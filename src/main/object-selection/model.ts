@@ -31,6 +31,16 @@ export function sha256(data: Uint8Array): string {
 
 /** Load only the pinned, losslessly packed model; no remote code or model paths from callers. */
 export async function loadObjectSelectionGraph(directory: string, name: keyof typeof graphs) {
+  return loadBundledSelectionGraph(directory, name, OBJECT_SELECTION_MODEL_ID, graphs[name], 4)
+}
+
+export async function loadBundledSelectionGraph(
+  directory: string,
+  name: string,
+  identity: string,
+  expected: { bytes: number; sha256: string },
+  maxParts = 8,
+) {
   const manifest = JSON.parse(await readFile(join(directory, 'manifest.json'), 'utf8')) as {
     version: number
     identity: string
@@ -45,11 +55,10 @@ export async function loadObjectSelectionGraph(directory: string, name: keyof ty
       parts: { file: string; bytes: number; sha256: string }[]
     }[]
   }
-  const expected = graphs[name]
   const component = manifest.components?.find((entry) => entry.name === name)
   if (
     manifest.version !== 1 ||
-    manifest.identity !== OBJECT_SELECTION_MODEL_ID ||
+    manifest.identity !== identity ||
     manifest.runtime !== 'onnxruntime-node@1.31.1' ||
     !component ||
     component.bytes !== expected.bytes ||
@@ -57,7 +66,7 @@ export async function loadObjectSelectionGraph(directory: string, name: keyof ty
     component.compression !== 'gzip' ||
     !Array.isArray(component.parts) ||
     component.parts.length < 1 ||
-    component.parts.length > 4 ||
+    component.parts.length > maxParts ||
     component.compressedBytes > expected.bytes + 1024 * 1024
   )
     throw new Error(

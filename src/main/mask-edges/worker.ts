@@ -128,7 +128,7 @@ async function prepare(request: MaskEdgeWorkerRequest): Promise<MaskEdgeResult> 
     const encoded = await readFile(temporary)
     if (encoded.byteLength > maskCapabilities.maxBaseEncodedBytes)
       throw new Error(
-        'Prepared mask coverage exceeds the 8 MiB encoded limit. Simplify the mask or reduce its edge settings.',
+        'Prepared mask coverage exceeds the 16 MiB encoded limit. Simplify the mask or reduce its edge settings.',
       )
     await rename(temporary, request.outputPath)
     return {

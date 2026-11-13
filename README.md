@@ -30,7 +30,7 @@ Custom export and Console offer Off/Low/Standard/High [output sharpening](docs/f
 The [masking core](docs/features/local-adjustments.md) adds multiple named brush
 masks with independent Exposure, Contrast, Highlights, Shadows, Whites and Blacks.
 Open **Masks** in the inspector and use **Create mask** to choose Brush,
-Select object, Linear gradient or Radial gradient. The mask list keeps named rows and visibility controls; each row's
+Select object, Select Sky, Select Background, Linear gradient or Radial gradient. The mask list keeps named rows and visibility controls; each row's
 **⋯** menu contains rename, duplicate, invert, Move up/down and delete. Dragging
 also reorders masks; the top mask applies last. **Coverage** contains selection
 and Paint/Erase tools, while **Adjustments** contains local Light and Color controls.
@@ -48,8 +48,11 @@ Intersect parts, independent editable copies and nested groups. Coverage keeps
 starting coverage fixed and separates part editing from result corrections;
 Light/Color applies once to the destination result. [Color and luminance range masks](docs/features/mask-ranges.md)
 select stable source colors or brightness before creative edits, with up to five
-color samples, soft boundaries and editable compound intersections. Sky/background
-automation and additional local operators remain planned.
+color samples, soft boundaries and editable compound intersections. Automatic
+[Select Sky and Select Background](docs/features/sky-background-selection.md) create
+editable proposals without guides, including disconnected sky regions. Inspect the
+overlay before accepting; difficult foliage, reflections and HDR qualification
+retain the explicit limits in the brief. Additional local operators remain planned.
 GPU histograms include active local edits. [Whole-photo clipping](docs/features/masked-clipping.md)
 also follows supported local masks, with focused Bazzite acceptance. Active curves,
 full HDR service statistics/pixel analysis and other-device qualification retain

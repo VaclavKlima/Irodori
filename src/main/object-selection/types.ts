@@ -37,6 +37,12 @@ export type ObjectSelectionWorkerRequest = {
 } & (
   | { operation: 'prepare'; source: ObjectSelectionSource }
   | { operation: 'refine'; prompts: ObjectSelectionPrompts; outputPath: string }
+  | {
+      operation: 'automatic'
+      selection: 'sky' | 'background'
+      source: ObjectSelectionSource
+      outputPath: string
+    }
 )
 
 export type ObjectSelectionWorkerReply = {

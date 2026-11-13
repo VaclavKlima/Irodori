@@ -1030,11 +1030,17 @@ app
     })
     handleLibraryRequest('selection:context', (event, id, revision) => {
       trusted(event)
-      return library!.getObjectSelectionContext(id, revision)
+      return library!.getObjectSelectionContext(id, revision).then(
+        (result) => ({ result }),
+        (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
+      )
     })
     handleLibraryRequest('selection:create', (event, request) => {
       trusted(event)
-      return library!.createObjectSelection(request)
+      return library!.createObjectSelection(request).then(
+        (result) => ({ result }),
+        (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
+      )
     })
     handleLibraryRequest('selection:accept', (event, request) => {
       trusted(event)

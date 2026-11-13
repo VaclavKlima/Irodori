@@ -1,0 +1,15 @@
+Mask2Former: Copyright (c) 2022 Meta, Inc. MIT License; see LICENSE-Mask2Former.txt.
+https://github.com/facebookresearch/Mask2Former
+ONNX source: ShaderError/perspectra-mask2former, revision
+fe51622c751dcb93f8778f0e80abe5a685ffe416 (MIT).
+Irodori modified graph operators for static native WebGPU compatibility; weights
+remain FP32. Source and modifications are recorded in manifest.json and the
+research recipe.
+
+BiRefNet: Copyright (c) 2024 ZhengPeng. MIT License; see LICENSE-BiRefNet.txt.
+https://github.com/ZhengPeng7/BiRefNet
+ONNX export: CoderViking/birefnet-lite-onnx, revision
+dc06453148f01ef4131f17e9b791345e32e8ee78 (MIT), bundled unchanged.
+
+These models and their licenses are separate from Irodori's Apache-2.0 license.
+Photographic test fixtures carry their own attribution and redistribution terms.

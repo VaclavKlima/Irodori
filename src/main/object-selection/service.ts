@@ -181,7 +181,7 @@ export class ObjectSelectionService {
     })
     const { canonicalWidth: width, canonicalHeight: height } = context.geometry
     const admission = await this.owner.admission(signal)
-    const memory = objectSelectionMemoryPlan(width, height, admission)
+    const memory = objectSelectionMemoryPlan(width, height, admission, request.selection)
     if (!memory.accepted)
       throw new Error(
         `Object selection exceeds the current image-memory budget (RAM ${Math.ceil(memory.ramBytes / 1024 ** 2)}/${Math.floor(admission.policy.ram.effectiveBytes / 1024 ** 2)} MiB; GPU ${Math.ceil(memory.vramBytes / 1024 ** 2)}/${Math.floor(admission.policy.vram.effectiveBytes / 1024 ** 2)} MiB). Close other processing or increase the resource budget, then retry GPU.`,
@@ -234,6 +234,7 @@ export class ObjectSelectionService {
         { key, ...request.prompts },
         output,
         signal,
+        request.selection,
       )
       signal.throwIfAborted()
       await this.validate(request)
@@ -403,7 +404,12 @@ export function selectedMaskStack(
   if (destination.kind === 'new-mask') {
     stack.unshift({
       id,
-      name: 'Object',
+      name:
+        request.selection === 'sky'
+          ? 'Sky'
+          : request.selection === 'background'
+            ? 'Background'
+            : 'Object',
       enabled: true,
       inverted: false,
       head: null,

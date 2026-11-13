@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
 import type { ObjectSelectionController } from '../hooks/useObjectSelection'
 import type { PresentedPreviewGeometry, Size } from '../preview/geometry'
 import { inspectionGeometryMatches } from '../preview/inspection-geometry'
@@ -14,31 +14,46 @@ import { Button } from './ui/Controls'
 import styles from './ObjectSelection.module.css'
 
 export function ObjectSelectionControls({ selection }: { selection: ObjectSelectionController }) {
+  const acceptance = useRef<HTMLButtonElement>(null)
+  useLayoutEffect(() => {
+    if (selection.selection && selection.previewReady)
+      acceptance.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [selection.selection, selection.proposal?.id, selection.previewReady])
   if (!selection.active) return null
   const retry = () =>
-    void (selection.context ? selection.generate() : selection.start(selection.maskId))
+    void (selection.context
+      ? selection.generate()
+      : selection.start(selection.target, selection.selection))
   return (
     <section
       className={styles.controls}
-      aria-label="Object selection"
+      aria-label={
+        selection.selection === 'sky'
+          ? 'Sky selection'
+          : selection.selection === 'background'
+            ? 'Background selection'
+            : 'Object selection'
+      }
       data-testid="object-selection-controls"
     >
-      <div className={styles.modes} role="group" aria-label="Selection guides">
-        {(['box', 'add', 'subtract'] as const).map((mode) => (
-          <Button
-            key={mode}
-            aria-pressed={selection.mode === mode}
-            disabled={selection.busy || !selection.context}
-            onClick={() => selection.pointMode(mode)}
-          >
-            {mode === 'box' ? 'Box' : mode === 'add' ? 'Include' : 'Exclude'}
-          </Button>
-        ))}
-      </div>
+      {!selection.selection && (
+        <div className={styles.modes} role="group" aria-label="Selection guides">
+          {(['box', 'add', 'subtract'] as const).map((mode) => (
+            <Button
+              key={mode}
+              aria-pressed={selection.mode === mode}
+              disabled={selection.busy || !selection.context}
+              onClick={() => selection.pointMode(mode)}
+            >
+              {mode === 'box' ? 'Box' : mode === 'add' ? 'Include' : 'Exclude'}
+            </Button>
+          ))}
+        </div>
+      )}
       <p className={styles.hint}>
         {selection.busy
           ? selection.status === 'preparing'
-            ? 'Preparing object selection…'
+            ? 'Preparing selection…'
             : selection.status === 'accepting'
               ? 'Applying mask…'
               : 'Creating selection…'
@@ -46,25 +61,29 @@ export function ObjectSelectionControls({ selection }: { selection: ObjectSelect
             ? 'Guides changed. Refine to update the proposal.'
             : selection.proposal
               ? 'Review the coverage before using this mask. Paint/Erase can correct it afterward.'
-              : 'Click the object or drag a box, then create a selection. The box guides selection; coverage can extend outside it.'}
+              : selection.selection
+                ? 'Create an automatic selection, then review its coverage before using the mask.'
+                : 'Click the object or drag a box, then create a selection. The box guides selection; coverage can extend outside it.'}
       </p>
-      <div className={styles.guideActions}>
-        <span>{selection.points.length}/4 points</span>
-        <Button
-          variant="quiet"
-          disabled={selection.busy || !selection.points.length}
-          onClick={selection.removeLast}
-        >
-          Remove last point
-        </Button>
-        <Button
-          variant="quiet"
-          disabled={selection.busy || (!selection.rectangle && !selection.points.length)}
-          onClick={selection.clear}
-        >
-          Clear
-        </Button>
-      </div>
+      {!selection.selection && (
+        <div className={styles.guideActions}>
+          <span>{selection.points.length}/4 points</span>
+          <Button
+            variant="quiet"
+            disabled={selection.busy || !selection.points.length}
+            onClick={selection.removeLast}
+          >
+            Remove last point
+          </Button>
+          <Button
+            variant="quiet"
+            disabled={selection.busy || (!selection.rectangle && !selection.points.length)}
+            onClick={selection.clear}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
       <div className={styles.actions}>
         {!selection.busy && (
           <Button
@@ -77,6 +96,7 @@ export function ObjectSelectionControls({ selection }: { selection: ObjectSelect
         )}
         {selection.proposal && (
           <Button
+            ref={acceptance}
             variant={!selection.dirty ? 'primary' : 'secondary'}
             disabled={!selection.canAccept}
             onClick={() => void selection.accept()}
@@ -104,10 +124,14 @@ export function ObjectSelectionControls({ selection }: { selection: ObjectSelect
         </div>
       )}
       {!selection.context && !selection.busy && !selection.error && (
-        <Button onClick={() => void selection.start(selection.maskId)}>Start again</Button>
+        <Button onClick={() => void selection.start(selection.target, selection.selection)}>
+          Start again
+        </Button>
       )}
       <p className={styles.hint}>
-        Fine hair, feathers and transparent edges may need manual correction.
+        {selection.selection === 'sky'
+          ? 'Check small sky openings, fine leaves and bright skyline edges at 100%.'
+          : 'Fine hair, feathers and transparent edges may need manual correction.'}
       </p>
     </section>
   )

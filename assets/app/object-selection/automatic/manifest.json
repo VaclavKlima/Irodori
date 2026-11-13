@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "identity": "mask2former-sky-birefnet-background-fp32-v1",
+  "runtime": "onnxruntime-node@1.31.1",
+  "components": [
+    {
+      "name": "sky",
+      "bytes": 287296604,
+      "sha256": "2035d1c38fff88ee792d32002b269fe29f5c561009e9256200bdd9e3fbfb515f",
+      "compression": "gzip",
+      "compressedBytes": 188727320,
+      "compressedSha256": "80ec5a43fa6891f26e4efe9158b1070d9efd44811ca35187db1ed1abe7945f6e",
+      "parts": [
+        {
+          "file": "sky.onnx.gz.00",
+          "bytes": 51380224,
+          "sha256": "9623d4030acbef0ee70575cae590896c8d345a6521fbc90d6743fbc5614f0809"
+        },
+        {
+          "file": "sky.onnx.gz.01",
+          "bytes": 51380224,
+          "sha256": "86ddb1a7e003e35626a983cf2917140ac9302c2c122fa6c107831e37a5b1a495"
+        },
+        {
+          "file": "sky.onnx.gz.02",
+          "bytes": 51380224,
+          "sha256": "d1c2965e563a88e53e1025bd05683438e8f050231d945dcd61ca0af0e42043be"
+        },
+        {
+          "file": "sky.onnx.gz.03",
+          "bytes": 34586648,
+          "sha256": "2e3de4539d4552328cbf22e793085012b084352d6504d9cae371a4eaad1d45eb"
+        }
+      ],
+      "sourceRepository": "https://huggingface.co/ShaderError/perspectra-mask2former",
+      "sourceRevision": "fe51622c751dcb93f8778f0e80abe5a685ffe416",
+      "license": "MIT",
+      "changes": "Sky graph: static shape simplification, FP32 sampling-coordinate arithmetic, exact FP32 boolean counts, exact GELU expansion and equivalent opset-18 bilinear GridSample. Background graph unchanged.",
+      "originalGraph": {
+        "file": "mask2former_swint_ade_512.onnx",
+        "bytes": 192910092,
+        "sha256": "eb59758c041fcba3a34097845e259eb7cd584f9b56fdc94df15f8c1c6066f682"
+      },
+      "officialCheckpoint": {
+        "repository": "facebook/mask2former-swin-tiny-ade-semantic",
+        "revision": "c8cf1b5e823aee214d937d0d001c1850ba44ef6a",
+        "file": "pytorch_model.bin",
+        "bytes": 190189605,
+        "sha256": "97bb47771b1f679d0d8b2de75f2d48ce8ad53a60ab56d489c792d48ccb044500"
+      }
+    },
+    {
+      "name": "background",
+      "bytes": 199681624,
+      "sha256": "50a57872cc739192446da2a934159f957c81af8b5a161dfda8e3daa51660ca67",
+      "compression": "gzip",
+      "compressedBytes": 165035461,
+      "compressedSha256": "77d802fc58a662daaaf07d5a78d4fff4d18a536d94957264fefc6c426c97bb70",
+      "parts": [
+        {
+          "file": "background.onnx.gz.00",
+          "bytes": 51380224,
+          "sha256": "8cce4e23de4a4a27bdab19278f2c0489c04cccb62dad80323975835b58bb1349"
+        },
+        {
+          "file": "background.onnx.gz.01",
+          "bytes": 51380224,
+          "sha256": "53b9d426f977ac2e9ffd1e9e32ee01be397df811260b31f6e0ddafbbb38613a5"
+        },
+        {
+          "file": "background.onnx.gz.02",
+          "bytes": 51380224,
+          "sha256": "d8c2e544b1808490109ae9f536f636a2b0d08de14ea963c76d9180af455c8e5f"
+        },
+        {
+          "file": "background.onnx.gz.03",
+          "bytes": 10894789,
+          "sha256": "f6e8733db9494580783967ffc7cc6e915121cae791463276c8127e21bfcb5bbb"
+        }
+      ],
+      "sourceRepository": "https://huggingface.co/CoderViking/birefnet-lite-onnx",
+      "sourceRevision": "dc06453148f01ef4131f17e9b791345e32e8ee78",
+      "license": "MIT",
+      "changes": "None; FP32 static 1024 export.",
+      "officialCheckpoint": {
+        "repository": "ZhengPeng7/BiRefNet_lite",
+        "revision": "7838f1c3472f827cd8ce13ab5ccc2ce48077360f",
+        "file": "model.safetensors",
+        "bytes": 177634392,
+        "sha256": "4417d89795250e698c3cb0ae8df15743810065f646f48a694fdfa7ca052d0815"
+      }
+    }
+  ]
+}

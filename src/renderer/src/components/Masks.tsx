@@ -700,7 +700,7 @@ export function Masks({
                   </div>
                   {objectSelection && masks.selectedPart?.base && (
                     <div className={styles.section}>
-                      <h3>Object selection</h3>
+                      <h3>Selection</h3>
                       <Button
                         leadingIcon={ScanSearch}
                         disabled={!objectSelection.available || !masks.available}
@@ -714,9 +714,28 @@ export function Masks({
                       >
                         Refine object selection…
                       </Button>
+                      <div className={styles.brush}>
+                        {(['sky', 'background'] as const).map((selection) => (
+                          <Button
+                            key={selection}
+                            disabled={!objectSelection.available || !masks.available}
+                            onClick={() =>
+                              void objectSelection.start(
+                                {
+                                  kind: 'replace-component',
+                                  maskId: selected.id,
+                                  componentId: masks.selectedComponentId ?? undefined,
+                                },
+                                selection,
+                              )
+                            }
+                          >
+                            {selection === 'sky' ? 'Select Sky' : 'Select Background'}
+                          </Button>
+                        ))}
+                      </div>
                       <p className={styles.hint}>
-                        Update the object selection while retaining manual corrections and
-                        adjustments.
+                        Update the selection while retaining manual corrections and adjustments.
                       </p>
                     </div>
                   )}

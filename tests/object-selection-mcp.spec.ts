@@ -434,6 +434,25 @@ test('actual managed MCP delivers a native proposal and preserves manual edits t
     expect(confirmed.settings.maskStack[0].base?.hash).toBe(refined.mask.base.hash)
     await call('irodori_cancel_object_selection', { photoId })
     expect((await library.getEdits(photoId)).settings).toEqual(confirmed.settings)
+    const skyContext = await call<Context>('irodori_get_object_selection_context', {
+      photoId,
+      expectedRevision: confirmed.revision,
+    })
+    const sky = await call<Proposal>('irodori_create_object_selection', {
+      photoId,
+      expectedRevision: confirmed.revision,
+      gridIdentity: skyContext.gridIdentity,
+      selection: 'sky',
+    })
+    expect(sky).toMatchObject({
+      photoId,
+      revision: confirmed.revision,
+      width: dimensions.width,
+      height: dimensions.height,
+      mimeType: 'image/png',
+    })
+    expect((await library.getEdits(photoId)).settings).toEqual(confirmed.settings)
+    await call('irodori_cancel_object_selection', { photoId })
     gate.stop()
     await gate.settled()
     await client.close()
@@ -457,7 +476,7 @@ test('actual managed MCP delivers a native proposal and preserves manual edits t
     const restarted = await library.getEdits(photoId)
     expect(restarted).toEqual(confirmed)
     expect(library.resolvedMasks(photoId, restarted.settings.maskStack)[0]).toEqual(after)
-    expect(inferenceCount).toBe(2)
+    expect(inferenceCount).toBe(3)
     const preparation = await library.exports.prepare([photoId])
     const sourceLease = library.exports.acquireProofSource(preparation.id, photoId)
     const frozen = sourceLease.source
@@ -507,7 +526,7 @@ test('actual managed MCP delivers a native proposal and preserves manual edits t
         maximum = Math.max(maximum, Math.abs(pixels[index] - reference[index]))
       expect(maximum).toBeLessThanOrEqual(2)
       expect(exported.diagnostics?.renderer).toBe('gpu')
-      expect(inferenceCount).toBe(2)
+      expect(inferenceCount).toBe(3)
       await proof.proofs.release('object-selection-mcp', decoded.id)
     } finally {
       await proof.close()
