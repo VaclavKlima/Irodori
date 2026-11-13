@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import { crc32 } from 'node:zlib'
+import { maskBrushValidationError } from '../shared/mask-brush'
 import {
   neutralMaskEdge,
   coverageNodes,
@@ -156,7 +157,28 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
       node.range = structuredClone(op.range)
     }
   }
-  for (const op of mutation.operations) {
+  for (const [index, op] of mutation.operations.entries()) {
+    const path = `maskMutation.operations[${index}]`
+    const brushRoot = () => {
+      const root = stack.find((mask) => 'id' in op && mask.id === op.id)
+      if (!root)
+        throw maskBrushValidationError(
+          `${path}.id`,
+          'This mask is unavailable. Refresh the confirmed masks with irodori_get_edits.',
+        )
+      return root
+    }
+    const brushNode = (componentId: string | undefined, field: string) => {
+      const root = brushRoot()
+      if (componentId === undefined) return root
+      const node = coverageNodes(root).find((node) => node.id === componentId)
+      if (!node)
+        throw maskBrushValidationError(
+          `${path}.${field}`,
+          'This component does not belong to the requested mask. Refresh the confirmed masks with irodori_get_edits.',
+        )
+      return node
+    }
     switch (op.kind) {
       case 'create':
         if (stack.some((mask) => mask.id === op.id)) throw new Error('This mask ID already exists.')
@@ -215,15 +237,24 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
       }
       case 'stroke': {
         appendStroke(
-          findMaskComponent(find(op.id), op.componentId),
+          brushNode(op.componentId, 'componentId'),
           op.stroke,
           op.strokeTarget === 'primary',
         )
         break
       }
       case 'component-add': {
-        if (allIds().has(op.componentId)) throw new Error('This mask component ID already exists.')
-        const parent = findMaskComponent(find(op.id), op.parentId),
+        if (allIds().has(op.componentId)) {
+          if (op.stroke)
+            throw maskBrushValidationError(
+              `${path}.componentId`,
+              'This component ID already exists; use a fresh UUID for component-add.',
+            )
+          throw new Error('This mask component ID already exists.')
+        }
+        const parent = op.stroke
+            ? brushNode(op.parentId, 'parentId')
+            : findMaskComponent(find(op.id), op.parentId),
           node: MaskOperand = {
             id: op.componentId,
             name: op.name,

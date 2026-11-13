@@ -1,4 +1,5 @@
 import { agentTools } from '../src/main/agent/policy.ts'
+import { maskBrushIdSchema, maskStrokeSchema } from '../src/shared/mask-brush.ts'
 import { presetGroupKeys } from '../src/shared/preset-controls.ts'
 import { presetIcons, presetColors } from '../src/shared/preset-appearance.ts'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
@@ -78,7 +79,7 @@ const maskGradient = {
     }),
   ],
 }
-const maskComponentId = { type: 'string', format: 'uuid' }
+const maskComponentId = maskBrushIdSchema
 const maskRange = {
   oneOf: [
     schema({
@@ -114,20 +115,7 @@ const maskEdge = schema(
   },
   [],
 )
-const maskStroke = schema({
-  mode: { enum: ['add', 'subtract'] },
-  radius: { type: 'number', exclusiveMinimum: 0, maximum: 0.5 },
-  feather: { type: 'number', minimum: 0, maximum: 1 },
-  points: {
-    type: 'array',
-    minItems: 1,
-    maxItems: 4096,
-    items: schema({
-      x: { type: 'number', minimum: 0, maximum: 1 },
-      y: { type: 'number', minimum: 0, maximum: 1 },
-    }),
-  },
-})
+const maskStroke = maskStrokeSchema
 const selectionTarget = {
   oneOf: [
     schema({ kind: { const: 'new-mask' } }),
@@ -735,7 +723,7 @@ let tools = [
   {
     name: 'irodori_get_mask_context',
     description:
-      'Read revision-bound canonical/current cropped-output dimensions and map up to 128 normalized compact-preview positions to canonical source coordinates for brush strokes or gradients. allowOutsidePhoto defaults false (0–1); true permits -1–2 gradient positions, subject to mapped source bounds. Main applies the exact crop/lens/flip pull mapping; the response omits full geometry. Reuse prepared source data; no photo edit.',
+      'Read revision-bound canonical/current cropped-output dimensions and map up to 128 normalized compact-preview positions to canonical source coordinates for brush strokes or gradients. With ordinary mapped points, brushExamples.paint/erase contain complete strokes using the first actual mapped point; choose radius/feather for the intended correction. allowOutsidePhoto defaults false (0–1); true permits -1–2 gradient positions, subject to mapped source bounds, without brush examples. Main applies the exact crop/lens/flip pull mapping; the response omits full geometry. Reuse prepared source data; no photo edit.',
     inputSchema: schema(
       {
         photoId,
@@ -943,7 +931,11 @@ let tools = [
                   kind: { const: 'stroke' },
                   id: maskComponentId,
                   componentId: maskComponentId,
-                  strokeTarget: { enum: ['primary', 'result'] },
+                  strokeTarget: {
+                    enum: ['primary', 'result'],
+                    description:
+                      'Default result: after operands, before inversion/edges. Primary: before operands. Omit componentId for the root; otherwise use a confirmed owned component UUID.',
+                  },
                   stroke: maskStroke,
                 },
                 ['kind', 'id', 'stroke'],

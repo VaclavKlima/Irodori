@@ -1,10 +1,15 @@
 import { maskRangeCapabilities, validateMaskRange, type MaskRange } from './mask-ranges'
+import {
+  maskBrushLimits,
+  maskBrushValidationError,
+  validateBrushFields,
+  validateBrushId,
+  validateMaskStroke,
+  type MaskPoint,
+  type MaskStroke,
+} from './mask-brush'
+export { validateMaskStroke, type MaskPoint, type MaskStroke } from './mask-brush'
 
-/** Immutable brush geometry in normalized, oriented source coordinates. */
-export interface MaskPoint {
-  x: number
-  y: number
-}
 /** One analytic base in normalized, oriented source coordinates; angles use source pixels. */
 export type MaskGradient =
   | { kind: 'linear'; start: MaskPoint; end: MaskPoint }
@@ -16,12 +21,6 @@ export type MaskGradient =
       rotation: number
       feather: number
     }
-export interface MaskStroke {
-  mode: 'add' | 'subtract'
-  radius: number
-  feather: number
-  points: MaskPoint[]
-}
 export interface MaskLight {
   exposureEv: number
   contrast: number
@@ -222,7 +221,7 @@ export const maskCapabilities = {
   maxNodesPerPhoto: 256,
   maxDepth: 8,
   maxMasks: 32,
-  maxStrokePoints: 4096,
+  maxStrokePoints: maskBrushLimits.maxPoints,
   maxLivePoints: 65536,
   maxRetainedBytes: 32 * 1024 * 1024,
   maxMutationBytes: 256 * 1024,
@@ -448,38 +447,6 @@ export function validateMaskGradient(
     'Invalid gradient geometry. Use bounded linear endpoints or a radial ellipse with Feather from 0 to 100.',
   )
 }
-export function validateMaskStroke(value: unknown): asserts value is MaskStroke {
-  if (
-    !fields(value, ['mode', 'radius', 'feather', 'points']) ||
-    !['add', 'subtract'].includes(String(value.mode)) ||
-    typeof value.radius !== 'number' ||
-    !Number.isFinite(value.radius) ||
-    !Number.isFinite(Math.fround(value.radius)) ||
-    Math.fround(value.radius) <= 0 ||
-    value.radius <= 0 ||
-    value.radius > 0.5 ||
-    typeof value.feather !== 'number' ||
-    !Number.isFinite(value.feather) ||
-    value.feather < 0 ||
-    value.feather > 1 ||
-    !Array.isArray(value.points) ||
-    !value.points.length ||
-    value.points.length > maskCapabilities.maxStrokePoints
-  )
-    throw new Error('Invalid or oversized brush stroke.')
-  for (const point of value.points)
-    if (
-      !fields(point, ['x', 'y']) ||
-      ['x', 'y'].some(
-        (key) =>
-          typeof point[key] !== 'number' ||
-          !Number.isFinite(point[key]) ||
-          (point[key] as number) < 0 ||
-          (point[key] as number) > 1,
-      )
-    )
-      throw new Error('Brush points must use normalized source coordinates.')
-}
 /** Traversal includes disabled parts for immutable content and resource accounting. */
 export function coverageNodes<T extends MaskCoverageNode>(root: T): MaskCoverageNode[] {
   const result: MaskCoverageNode[] = [],
@@ -580,16 +547,19 @@ export function validateMaskStack(value: unknown): asserts value is MaskDescript
   }
 }
 export function validateMaskMutation(value: unknown): asserts value is MaskMutation {
-  if (
-    !fields(value, ['operations']) ||
-    !Array.isArray(value.operations) ||
-    !value.operations.length ||
-    value.operations.length > 64
-  )
-    throw new Error('Invalid or oversized mask mutation.')
-  for (const op of value.operations) {
+  validateBrushFields(value, ['operations'], [], 'maskMutation')
+  if (!Array.isArray(value.operations) || !value.operations.length || value.operations.length > 64)
+    throw maskBrushValidationError(
+      'maskMutation.operations',
+      'Expected an array of 1–64 operations.',
+    )
+  for (const [index, op] of value.operations.entries()) {
+    const path = `maskMutation.operations[${index}]`
     if (!op || typeof op !== 'object' || Array.isArray(op))
-      throw new Error('Invalid mask operation.')
+      throw maskBrushValidationError(
+        path,
+        'Expected an operation object with a kind discriminator.',
+      )
     switch (op.kind) {
       case 'create':
         if (!fields(op, ['kind', 'id', 'name'], ['gradient', 'range']))
@@ -662,16 +632,18 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
         op.ids.forEach(validateMaskId)
         break
       case 'stroke':
-        if (!fields(op, ['kind', 'id', 'stroke'], ['componentId', 'strokeTarget']))
-          throw new Error('Invalid brush operation.')
-        validateMaskId(op.id)
-        if (op.componentId !== undefined) validateMaskId(op.componentId)
+        validateBrushFields(op, ['kind', 'id', 'stroke'], ['componentId', 'strokeTarget'], path)
+        validateBrushId(op.id, `${path}.id`)
+        if (op.componentId !== undefined) validateBrushId(op.componentId, `${path}.componentId`)
         if (
           op.strokeTarget !== undefined &&
-          !['primary', 'result'].includes(String(op.strokeTarget))
+          (typeof op.strokeTarget !== 'string' || !['primary', 'result'].includes(op.strokeTarget))
         )
-          throw new Error('Invalid brush target.')
-        validateMaskStroke(op.stroke)
+          throw maskBrushValidationError(
+            `${path}.strokeTarget`,
+            'Expected "primary" or "result"; omitted means result corrections.',
+          )
+        validateMaskStroke(op.stroke, `${path}.stroke`)
         break
       case 'component-add':
       case 'component-copy':
@@ -707,18 +679,26 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
           'component-reorder': [['ids'], ['parentId']],
         }
         const [required, optional] = schemas[op.kind]
-        if (!fields(op, ['kind', 'id', ...required], optional))
+        if (op.kind === 'component-add' && op.stroke !== undefined)
+          validateBrushFields(op, ['kind', 'id', ...required], optional, path)
+        else if (!fields(op, ['kind', 'id', ...required], optional))
           throw new Error('Invalid mask component operation.')
-        validateMaskId(op.id)
+        if (op.kind === 'component-add' && op.stroke !== undefined)
+          validateBrushId(op.id, `${path}.id`)
+        else validateMaskId(op.id)
         for (const key of ['componentId', 'newId', 'parentId', 'sourceMaskId', 'sourceComponentId'])
-          if (op[key] !== undefined) validateMaskId(op[key])
+          if (op[key] !== undefined) {
+            if (op.kind === 'component-add' && op.stroke !== undefined)
+              validateBrushId(op[key], `${path}.${key}`)
+            else validateMaskId(op[key])
+          }
         if (op.name !== undefined) validateMaskName(op.name)
         if (op.operator !== undefined) validateMaskOperator(op.operator)
         if (op.gradient !== undefined) validateMaskGradient(op.gradient)
         if (op.range !== undefined) validateMaskRange(op.range)
         if (op.gradient !== undefined && op.range !== undefined)
           throw new Error('A gradient and range are mutually exclusive.')
-        if (op.stroke !== undefined) validateMaskStroke(op.stroke)
+        if (op.stroke !== undefined) validateMaskStroke(op.stroke, `${path}.stroke`)
         if (op.edge !== undefined) validateMaskEdge(op.edge, true)
         for (const key of ['enabled', 'inverted'])
           if (op[key] !== undefined && typeof op[key] !== 'boolean')
@@ -747,13 +727,19 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
         break
       }
       default:
-        throw new Error('Unknown mask operation.')
+        throw maskBrushValidationError(
+          `${path}.kind`,
+          'Unknown mask operation; use kind:"stroke" for Paint/Erase.',
+        )
     }
   }
   if (
     new TextEncoder().encode(JSON.stringify(value)).byteLength > maskCapabilities.maxMutationBytes
   )
-    throw new Error('Invalid or oversized mask mutation.')
+    throw maskBrushValidationError(
+      'maskMutation',
+      `Encoded mutation exceeds ${maskCapabilities.maxMutationBytes} UTF-8 bytes; split the operations into bounded batches.`,
+    )
 }
 /** Fixed serialization is hashed by the main-owned immutable content store. */
 export function maskChunkBytes(parent: string | null, stroke: MaskStroke): string {

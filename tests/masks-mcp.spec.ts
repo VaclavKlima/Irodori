@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv'
+import type { JsonSchemaType } from '@modelcontextprotocol/sdk/validation'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { startEditorEndpoint } from '../src/main/editor-endpoint'
@@ -10,7 +12,10 @@ import type { EditState } from '../src/shared/edits'
 import type { EditorContextSnapshot } from '../src/shared/agent'
 import { cropGeometry, identityCrop } from '../src/shared/crop'
 import { identityMaskGeometry, maskCanonicalPoint } from '../src/shared/mask-geometry'
-import type { MaskPoint } from '../src/shared/masks'
+import type { MaskPoint, MaskStroke } from '../src/shared/masks'
+import { maskStrokeSchema } from '../src/shared/mask-brush'
+import { generatedMask } from './helpers/generated-mask'
+import { prepareMaskBaseReplacement } from '../src/main/mask-store'
 import {
   validateMaskRangeSampleRequest,
   type MaskRangeSampleRequest,
@@ -23,6 +28,317 @@ import {
 } from '../src/shared/mask-ranges'
 import { transferFixture } from './edit-transfer.helpers'
 
+for (const managed of [false, true])
+  test(`${managed ? 'managed' : 'standalone'} MCP advertises complete brush schemas and atomically validates generated-mask cleanup`, async () => {
+    const f = await fixture(managed),
+      photoId = f.t.ids[0],
+      id = randomUUID(),
+      componentId = randomUUID(),
+      unrelatedId = randomUUID()
+    try {
+      const tools = (await f.client.listTools()).tools,
+        schema = tools.find((tool) => tool.name === 'irodori_mutate_masks')!.inputSchema,
+        validate = new AjvJsonSchemaValidator().getValidator(schema as JsonSchemaType)
+      expect(schema.required).toEqual(
+        managed
+          ? ['photoId', 'expectedRevision', 'maskMutation', 'requestId']
+          : ['photoId', 'expectedRevision', 'maskMutation'],
+      )
+      const mutation = schema.properties!.maskMutation as {
+        additionalProperties: boolean
+        properties: {
+          operations: {
+            minItems: number
+            maxItems: number
+            items: {
+              oneOf: {
+                properties: Record<string, unknown>
+                required: string[]
+                additionalProperties: boolean
+              }[]
+            }
+          }
+        }
+      }
+      expect(mutation.additionalProperties).toBe(false)
+      expect(mutation.properties.operations).toMatchObject({ minItems: 1, maxItems: 64 })
+      const operations = mutation.properties.operations.items.oneOf,
+        brush = operations.find(
+          (op) => (op.properties.kind as { const: string }).const === 'stroke',
+        )!,
+        add = operations.find(
+          (op) => (op.properties.kind as { const: string }).const === 'component-add',
+        )!
+      expect(brush.additionalProperties).toBe(false)
+      expect(brush.required).toEqual(['kind', 'id', 'stroke'])
+      expect(brush.properties.stroke).toEqual(maskStrokeSchema)
+      expect(add.properties.stroke).toEqual(maskStrokeSchema)
+      expect(brush.properties.componentId).toMatchObject({
+        format: 'uuid',
+        pattern: expect.any(String),
+      })
+      expect(brush.properties.strokeTarget).toMatchObject({ enum: ['primary', 'result'] })
+
+      const initial = await f.call<EditState>('irodori_mutate_masks', {
+        photoId,
+        expectedRevision: 0,
+        maskMutation: {
+          operations: [
+            { kind: 'create', id, name: 'Generated subject' },
+            {
+              kind: 'update',
+              id,
+              light: { exposureEv: 0.6, shadows: 12 },
+              color: { temperature: 8, tint: -3, saturation: -10 },
+            },
+            {
+              kind: 'component-add',
+              id,
+              componentId,
+              name: 'Editable part',
+              operator: 'subtract',
+              stroke: { mode: 'add', radius: 0.1, feather: 0, points: [{ x: 0.7, y: 0.8 }] },
+            },
+            { kind: 'create', id: unrelatedId, name: 'Untouched' },
+            {
+              kind: 'stroke',
+              id: unrelatedId,
+              stroke: { mode: 'add', radius: 0.1, feather: 1, points: [{ x: 0.1, y: 0.1 }] },
+            },
+          ],
+        },
+      })
+      // Seed a deterministic generated base through the actual catalog owner.
+      // Inference and pixel processing are unchanged and qualified separately.
+      const base = generatedMask(8, 6, (x, y) => (x < 4 && y < 4 ? 255 : 0)),
+        history = await f.t.library.getEditHistory(photoId),
+        settings = {
+          ...initial.settings,
+          maskStack: prepareMaskBaseReplacement(initial.settings.maskStack, id, base),
+        }
+      await f.t.library.catalogCommands.command({
+        operation: 'edits.commit',
+        payload: {
+          history: {
+            ...history,
+            settings,
+            cursor: history.cursor + 1,
+            snapshots: [...history.snapshots, { settings, createdAt: new Date().toISOString() }],
+          },
+          expectedRevision: initial.revision,
+          maskBases: [base],
+        },
+      })
+      // External catalog publication invalidates the previous managed turn.
+      // Freeze a fresh request rather than bypassing its revision fence.
+      if (managed) {
+        f.gate.end()
+        Object.assign(f.context, await f.gate.begin(session, 'generated-mask-cleanup'))
+      }
+      const before = await f.t.library.getEdits(photoId),
+        beforeHistory = await f.t.library.getEditHistory(photoId),
+        context = await f.call<MappedContext>('irodori_get_mask_context', {
+          photoId,
+          expectedRevision: before.revision,
+          points: [{ x: 0, y: 0.25 }],
+        })
+      expect(context.points).toEqual([{ x: 0.25, y: 0.25 }])
+      expect(context.brushExamples!.paint.points).toEqual(context.points)
+      expect(context.brushExamples!.erase.points).toEqual(context.points)
+      const valid = { kind: 'stroke', id, stroke: context.brushExamples!.paint },
+        args = (operation: unknown) => ({
+          photoId,
+          expectedRevision: before.revision,
+          maskMutation: {
+            operations: [{ kind: 'update', id, name: 'Must not persist' }, operation],
+          },
+          ...(managed ? { requestId: f.context.requestId } : {}),
+        })
+      const invalid: [unknown, string][] = [
+        [{ ...valid, id: 'bad' }, '.id'],
+        [{ ...valid, id: randomUUID() }, '.id'],
+        [{ ...valid, componentId: 'bad' }, '.componentId'],
+        [{ ...valid, componentId: unrelatedId }, '.componentId'],
+        [{ ...valid, componentId: randomUUID() }, '.componentId'],
+        [{ ...valid, strokeTarget: 'all' }, '.strokeTarget'],
+        [{ ...valid, unexpected: true }, '.unexpected'],
+        [{ ...valid, stroke: { ...valid.stroke, mode: 'erase' } }, '.stroke.mode'],
+        [
+          { ...valid, stroke: { mode: 'add', radius: 0.1, points: context.points } },
+          '.stroke.feather',
+        ],
+        [{ ...valid, stroke: { radius: 0.1, feather: 0, points: context.points } }, '.stroke.mode'],
+        [{ ...valid, stroke: { mode: 'add', radius: 0.1, feather: 0 } }, '.stroke.points'],
+        [{ ...valid, stroke: { ...valid.stroke, radius: 1e-320 } }, '.stroke.radius'],
+        [{ ...valid, stroke: { ...valid.stroke, radius: 0.51 } }, '.stroke.radius'],
+        [{ ...valid, stroke: { ...valid.stroke, feather: -1 } }, '.stroke.feather'],
+        [{ ...valid, stroke: { ...valid.stroke, points: [] } }, '.stroke.points'],
+        [
+          { ...valid, stroke: { ...valid.stroke, points: Array(4097).fill({ x: 0.5, y: 0.5 }) } },
+          '.stroke.points',
+        ],
+        [{ ...valid, stroke: { ...valid.stroke, pressure: 1 } }, '.stroke.pressure'],
+        [
+          { ...valid, stroke: { ...valid.stroke, points: [{ x: 2, y: 0.5 }] } },
+          '.stroke.points[0].x',
+        ],
+        [
+          { ...valid, stroke: { ...valid.stroke, points: [{ x: 0.2, y: null }] } },
+          '.stroke.points[0].y',
+        ],
+        [
+          { ...valid, stroke: { ...valid.stroke, points: [{ x: 0.2, y: 0.3, pressure: 1 }] } },
+          '.stroke.points[0].pressure',
+        ],
+        [
+          {
+            kind: 'component-add',
+            id,
+            componentId: randomUUID(),
+            name: 'Part',
+            operator: 'add',
+            stroke: { ...valid.stroke, feather: 2 },
+          },
+          '.stroke.feather',
+        ],
+      ]
+      for (const [operation, field] of invalid) {
+        const rejected = await f.raw('irodori_mutate_masks', args(operation))
+        expect(rejected.isError).toBe(true)
+        expect(JSON.stringify(rejected.content)).toContain(`maskMutation.operations[1]${field}:`)
+        expect(JSON.stringify(rejected.content)).toContain('Minimal valid operation:')
+        expect(await f.t.library.getEdits(photoId)).toEqual(before)
+        expect(await f.t.library.getEditHistory(photoId)).toEqual(beforeHistory)
+      }
+      // Discovery rejects unsupported fields/ranges while runtime additionally checks
+      // Float32 representability and the existence/ownership of confirmed UUIDs.
+      for (const [operation, field] of invalid)
+        if (
+          !['.id', '.componentId'].includes(field) &&
+          !JSON.stringify(operation).includes('1e-320')
+        )
+          expect(validate(args(operation)).valid).toBe(false)
+
+      const cleanup = [
+        { ...valid, strokeTarget: 'primary' },
+        { ...valid, stroke: context.brushExamples!.erase },
+        { ...valid, componentId, strokeTarget: 'primary' },
+        { ...valid, componentId, strokeTarget: 'result', stroke: context.brushExamples!.erase },
+      ]
+      const request = { ...args(valid), maskMutation: { operations: cleanup } }
+      expect(validate(request).valid).toBe(true)
+      const changed = await f.call<EditState>('irodori_mutate_masks', request)
+      expect(changed.revision).toBe(before.revision + 1)
+      expect((await f.t.library.getEditHistory(photoId)).snapshots).toHaveLength(
+        beforeHistory.snapshots.length + 1,
+      )
+      const resolved = f.t.library.resolvedMasks(photoId, changed.settings.maskStack),
+        subject = resolved.find((mask) => mask.id === id)!,
+        saved = before.settings.maskStack.find((mask) => mask.id === id)!
+      expect(subject.base).toEqual(base)
+      expect(subject.light).toEqual(saved.light)
+      expect(subject.color).toEqual(saved.color)
+      expect(subject.strokes).toEqual([context.brushExamples!.paint])
+      expect(subject.resultStrokes).toEqual([context.brushExamples!.erase])
+      expect(subject.operands![0].strokes.at(-1)).toEqual(context.brushExamples!.paint)
+      expect(subject.operands![0].resultStrokes).toEqual([context.brushExamples!.erase])
+      expect(changed.settings.maskStack.find((mask) => mask.id === unrelatedId)).toEqual(
+        before.settings.maskStack.find((mask) => mask.id === unrelatedId),
+      )
+      const stale = await f.raw('irodori_mutate_masks', request)
+      expect(stale.isError).toBe(true)
+      expect(JSON.stringify(stale.content)).toMatch(/conflict|revision/i)
+      const undone = await f.call<EditState>('irodori_undo_edit', {
+        photoId,
+        expectedRevision: changed.revision,
+      })
+      expect(undone.settings).toEqual(before.settings)
+      const redone = await f.call<EditState>('irodori_redo_edit', {
+        photoId,
+        expectedRevision: undone.revision,
+      })
+      expect(redone.settings).toEqual(changed.settings)
+      await f.t.originalsUnchanged()
+      const finalHistory = await f.t.library.getEditHistory(photoId)
+      await f.t.restart()
+      expect((await f.t.library.getEdits(photoId)).settings).toEqual(changed.settings)
+      expect(await f.t.library.getEditHistory(photoId)).toEqual(finalHistory)
+      expect(f.t.library.resolvedMasks(photoId, changed.settings.maskStack)).toEqual(resolved)
+      expect((await f.t.library.getEdits(f.t.ids[1])).revision).toBe(0)
+    } finally {
+      await f.close()
+    }
+  })
+
+test('MCP brush examples use revision-mapped crop, rotation, decoder flip and lens coordinates', async () => {
+  const f = await fixture(),
+    photoId = f.t.ids[0],
+    id = randomUUID()
+  try {
+    const crop = cropGeometry(
+      { width: 6, height: 8 },
+      { ...identityCrop, quarterTurns: 1, angle: 10, width: 0.5, height: 0.5 },
+    )
+    Object.assign(f.prepared, { canonicalWidth: 6, canonicalHeight: 8, flip: 4, crop })
+    f.prepared.correction.distortion.fill(0.8)
+    const initial = await f.call<EditState>('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: 0,
+      maskMutation: { operations: [{ kind: 'create', id, name: 'Mapped brush' }] },
+    })
+    const input = { x: 0.25, y: 0.75 },
+      context = await f.call<MappedContext>('irodori_get_mask_context', {
+        photoId,
+        expectedRevision: initial.revision,
+        points: [input],
+      }),
+      m = crop.outputToSource,
+      u = m[0] * input.x * crop.width + m[1] * input.y * crop.height + m[4],
+      v = m[2] * input.x * crop.width + m[3] * input.y * crop.height + m[5]
+    // Independent constant radial-scale reference in the oriented 6×8 grid.
+    expect(context.points[0].x).toBeCloseTo(0.1 + (0.8 * u) / 6, 12)
+    expect(context.points[0].y).toBeCloseTo(0.1 + (0.8 * v) / 8, 12)
+    expect(context.points[0]).not.toEqual(input)
+    const brush = context.brushExamples!
+    expect(brush.paint.points).toEqual(context.points)
+    expect(brush.erase.points).toEqual(context.points)
+    const edited = await f.call<EditState>('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: context.revision,
+      maskMutation: {
+        operations: [
+          { kind: 'stroke', id, stroke: brush.paint },
+          { kind: 'stroke', id, stroke: brush.erase },
+        ],
+      },
+    })
+    expect(f.t.library.resolvedMasks(photoId, edited.settings.maskStack)[0].resultStrokes).toEqual([
+      brush.paint,
+      brush.erase,
+    ])
+    const stale = await f.raw('irodori_get_mask_context', {
+      photoId,
+      expectedRevision: context.revision,
+      points: [input],
+    })
+    expect(stale.isError).toBe(true)
+    const extended = await f.call<MappedContext>('irodori_get_mask_context', {
+      photoId,
+      expectedRevision: edited.revision,
+      allowOutsidePhoto: true,
+      points: [input],
+    })
+    expect(extended.brushExamples).toBeUndefined()
+    const noPoints = await f.call<MappedContext>('irodori_get_mask_context', {
+      photoId,
+      expectedRevision: edited.revision,
+    })
+    expect(noPoints.brushExamples).toBeUndefined()
+  } finally {
+    await f.close()
+  }
+})
+
 const session = '00000000-0000-0000-0000-000000000001'
 interface MappedContext {
   photoId: string
@@ -33,9 +349,10 @@ interface MappedContext {
   canonicalHeight: number
   points: MaskPoint[]
   renderingIdentity: string
+  brushExamples?: { paint: MaskStroke; erase: MaskStroke }
 }
 
-async function fixture() {
+async function fixture(managed = true) {
   const t = await transferFixture(2),
     snapshot: EditorContextSnapshot = {
       workspace: 'editor',
@@ -69,8 +386,8 @@ async function fixture() {
       photoId,
       revision,
       geometry: prepared,
-      width: 4,
-      height: 6,
+      width: prepared.crop.width,
+      height: prepared.crop.height,
       renderingIdentity: 'prepared-mask-context-fixture',
     }
   }
@@ -110,13 +427,19 @@ async function fixture() {
       args: [resolve('scripts/editor-mcp.mjs')],
       env: {
         ...(process.env as Record<string, string>),
-        IRODORI_AGENT_CONNECTION: JSON.stringify(endpoint.agentConnection(token)),
+        IRODORI_PROFILE: t.root,
+        ...(managed
+          ? { IRODORI_AGENT_CONNECTION: JSON.stringify(endpoint.agentConnection(token)) }
+          : {}),
       },
     }),
     context = await gate.begin(session, 'mask-request')
   await client.connect(transport)
   const raw = (name: string, args: Record<string, unknown> = {}) =>
-    client.callTool({ name, arguments: { requestId: context.requestId, ...args } })
+    client.callTool({
+      name,
+      arguments: { ...(managed ? { requestId: context.requestId } : {}), ...args },
+    })
   const call = async <T>(name: string, args: Record<string, unknown> = {}): Promise<T> => {
     const result = await raw(name, args)
     expect(result.isError, JSON.stringify(result.content)).not.toBe(true)
@@ -130,6 +453,7 @@ async function fixture() {
     token,
     context,
     rangeRequests,
+    prepared,
     client,
     raw,
     call,
@@ -215,7 +539,7 @@ test('managed MCP maps bounded points, freezes targets and shares mask operation
     })
     for (const key of ['geometry', 'distortion', 'correction', 'path'])
       expect(JSON.stringify(context)).not.toContain(`"${key}"`)
-    expect(JSON.stringify(context).length).toBeLessThan(1024)
+    expect(JSON.stringify(context).length).toBeLessThan(1600)
     const first = await f.call<EditState>('irodori_mutate_masks', {
       photoId,
       expectedRevision: 0,

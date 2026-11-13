@@ -4,6 +4,7 @@ import { initialSettings } from '../src/shared/edits'
 import { copiedEdits, transferredSettings } from '../src/shared/edit-transfer'
 import { processingMetadata } from '../src/main/processing/metadata'
 import { prepareMaskMutation } from '../src/main/mask-store'
+import { maskBrushExample, validateMaskStroke } from '../src/shared/mask-brush'
 import { hasLocalMasks, localMaskPixelData } from '../src/shared/masks-gpu'
 import {
   neutralMaskLight,
@@ -26,6 +27,130 @@ const stroke: MaskStroke = {
     { x: 0.3, y: 0.6 },
   ],
 }
+
+test('brush diagnostics locate exact fields and operation indices without weakening numeric limits', () => {
+  const id = randomUUID(),
+    valid = { kind: 'stroke', id, stroke }
+  const cases: [unknown, string, string][] = [
+    [{ ...valid, id: 'not-a-uuid' }, '.id', 'lowercase UUID'],
+    [{ ...valid, componentId: null }, '.componentId', 'lowercase UUID'],
+    [{ ...valid, strokeTarget: 'paint' }, '.strokeTarget', '"primary" or "result"'],
+    [{ ...valid, flow: 1 }, '.flow', 'Unknown field'],
+    [{ kind: 'stroke', id }, '.stroke', 'Required'],
+    ...['mode', 'feather', 'points', 'radius'].map((key): [unknown, string, string] => [
+      {
+        ...valid,
+        stroke: Object.fromEntries(Object.entries(stroke).filter(([name]) => name !== key)),
+      },
+      `.stroke.${key}`,
+      'Required',
+    ]),
+    ...[0, -1, 0.50001, 1e-320, NaN, Infinity, '0.1'].map((radius): [unknown, string, string] => [
+      { ...valid, stroke: { ...stroke, radius } },
+      '.stroke.radius',
+      'positive in Float32',
+    ]),
+    ...[-0.1, 1.01, NaN, Infinity, '0'].map((feather): [unknown, string, string] => [
+      { ...valid, stroke: { ...stroke, feather } },
+      '.stroke.feather',
+      '0 through 1',
+    ]),
+    [{ ...valid, stroke: { ...stroke, mode: 'paint' } }, '.stroke.mode', 'Paint'],
+    [{ ...valid, stroke: { ...stroke, flow: 1 } }, '.stroke.flow', 'Unknown field'],
+    [{ ...valid, stroke: { ...stroke, points: [] } }, '.stroke.points', '1–4096'],
+    [
+      { ...valid, stroke: { ...stroke, points: Array(4097).fill({ x: 0, y: 0 }) } },
+      '.stroke.points',
+      '1–4096',
+    ],
+    [
+      { ...valid, stroke: { ...stroke, points: [{ x: 0, y: NaN }] } },
+      '.stroke.points[0].y',
+      'finite normalized',
+    ],
+    [
+      { ...valid, stroke: { ...stroke, points: [{ x: -0.1, y: 0 }] } },
+      '.stroke.points[0].x',
+      '0 through 1',
+    ],
+    [
+      { ...valid, stroke: { ...stroke, points: [{ x: 1.1, y: 0 }] } },
+      '.stroke.points[0].x',
+      '0 through 1',
+    ],
+    [{ ...valid, stroke: { ...stroke, points: [{ x: 0 }] } }, '.stroke.points[0].y', 'Required'],
+    [
+      { ...valid, stroke: { ...stroke, points: [{ x: 0, y: 0, pressure: 1 }] } },
+      '.stroke.points[0].pressure',
+      'Unknown field',
+    ],
+  ]
+  for (const [operation, path, reason] of cases) {
+    let message = ''
+    try {
+      validateMaskMutation({ operations: [{ kind: 'create', id, name: 'Uncommitted' }, operation] })
+    } catch (error) {
+      message = String(error)
+    }
+    expect(message).toContain(`maskMutation.operations[1]${path}:`)
+    expect(message).toContain(reason)
+    expect(message).toContain('Minimal valid operation:')
+    expect(message).toContain('irodori_get_mask_context')
+    const example = JSON.parse(message.split('Minimal valid operation: ')[1].split('. Place it')[0])
+    validateMaskMutation({ operations: [example] })
+  }
+  for (const mode of ['add', 'subtract'] as const)
+    for (const radius of [2 ** -149, 0.5])
+      validateMaskStroke({ ...maskBrushExample(mode, { x: 0, y: 1 }), radius, feather: 1 })
+  validateMaskStroke({ ...stroke, points: Array(4096).fill({ x: 0, y: 1 }) })
+})
+
+test('brush component creation and envelope errors retain paths and atomic preparation', () => {
+  const id = randomUUID(),
+    componentId = randomUUID()
+  expect(() => validateMaskMutation({ operations: [] })).toThrow('maskMutation.operations:')
+  expect(() => validateMaskMutation({ operations: [{}] })).toThrow(
+    'maskMutation.operations[0].kind:',
+  )
+  expect(() => validateMaskMutation({ operations: [null] })).toThrow('maskMutation.operations[0]:')
+  expect(() => validateMaskMutation({ operations: [], extra: true })).toThrow('maskMutation.extra:')
+  expect(() =>
+    validateMaskMutation({
+      operations: [
+        {
+          kind: 'component-add',
+          id,
+          componentId,
+          name: 'Part',
+          operator: 'add',
+          stroke: { ...stroke, feather: 2 },
+        },
+      ],
+    }),
+  ).toThrow('maskMutation.operations[0].stroke.feather:')
+  const { stack } = prepareMaskMutation([], { operations: [{ kind: 'create', id, name: 'Saved' }] })
+  const before = structuredClone(stack)
+  for (const operation of [
+    { kind: 'stroke' as const, id: randomUUID(), stroke },
+    { kind: 'stroke' as const, id, componentId, stroke },
+    {
+      kind: 'component-add' as const,
+      id,
+      componentId,
+      parentId: randomUUID(),
+      name: 'Part',
+      operator: 'add' as const,
+      stroke,
+    },
+  ]) {
+    expect(() =>
+      prepareMaskMutation(stack, {
+        operations: [{ kind: 'update', id, name: 'Must not persist' }, operation],
+      }),
+    ).toThrow('maskMutation.operations[1].')
+    expect(stack).toEqual(before)
+  }
+})
 
 test('empty and erase-only masks preserve analysis until their coverage can affect pixels', () => {
   const mask: ResolvedMask = {

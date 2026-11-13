@@ -2,6 +2,7 @@ import { findMaskComponent } from '../shared/masks'
 import { objectSelectionTarget } from '../shared/object-selection'
 import { selectionCanonicalBox } from '../shared/object-selection'
 import { maskCanonicalPoint } from '../shared/mask-geometry'
+import { maskBrushExample } from '../shared/mask-brush'
 import { MergeError } from '../shared/merge'
 import type { DisplayState } from './display-state'
 import type { PreviewPreference } from '../shared/hdr-display'
@@ -712,6 +713,14 @@ export async function startEditorEndpoint(
               canonicalWidth: context.geometry.canonicalWidth,
               canonicalHeight: context.geometry.canonicalHeight,
               points: mapped,
+              ...(!allowOutsidePhoto && mapped.length
+                ? {
+                    brushExamples: {
+                      paint: maskBrushExample('add', mapped[0]),
+                      erase: maskBrushExample('subtract', mapped[0]),
+                    },
+                  }
+                : {}),
               renderingIdentity: context.renderingIdentity,
               coordinates:
                 'Input points are normalized cropped-output pixel-edge positions; returned points are normalized oriented uncorrected source coordinates for brush strokes (0–1), or gradient geometry (-1–2) when allowOutsidePhoto is true. Unsupported mapped coordinates are refused.',

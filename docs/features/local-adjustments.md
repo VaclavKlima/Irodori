@@ -168,6 +168,63 @@ revision/source validated and excluded from durable mask content.
 
 Expose capabilities, current masks and typed atomic create/update/duplicate/delete/reorder/stroke operations through the existing photo service. Every mutation identifies a photo, expected photo revision and mask IDs. UI and MCP use the same service; geometry never exposes file paths or shader code. Limits are policy defaults: 32 masks, 4096 points per stroke, 65536 active points per photo, 256 KiB per mutation and 32 MiB retained geometry per photo, additionally bounded by managed image budgets. Refuse excessive work before publishing a changed history.
 
+## Assistant Paint/Erase contracts — issue #107
+
+Standalone and managed Console MCP discovery share the brush schema and limits
+with runtime validation. `irodori_mutate_masks` retains its existing
+`{photoId, expectedRevision, maskMutation:{operations:[...]}}` envelope; managed
+calls also require the current `requestId`. A brush operation uses
+`{kind:"stroke", id, componentId?, strokeTarget?, stroke}`. IDs are lowercase
+UUIDs from the confirmed mask tree. Omitted `componentId` addresses the root;
+`strokeTarget` defaults to `result` (after operands, before inversion/edges),
+while `primary` addresses corrections before operands. Generated bases remain
+independent from both correction chains.
+
+Every stroke requires `mode` (`add` for Paint, `subtract` for Erase), `radius`
+(greater than 0 through 0.5 of the canonical source's shorter dimension, positive
+in Float32), `feather` (0–1), and 1–4096 points with finite normalized x/y (0–1).
+Unknown fields, unsupported targets and oversized mutations are rejected; the
+existing live/retained content limits remain unchanged.
+
+First read the confirmed revision and IDs with `irodori_get_edits`. Map normalized
+current cropped-output positions with
+`irodori_get_mask_context({photoId,expectedRevision,points:[{x,y}]})`. For ordinary
+points, the response includes `brushExamples.paint` and `brushExamples.erase`
+using its first actual mapped canonical point. Put either stroke in a brush
+operation and choose a suitable radius/feather. Never use preview pixels directly
+as canonical coordinates. No templates are returned without points or with
+`allowOutsidePhoto:true`, whose extended gradient coordinates are unsuitable for
+ordinary strokes. Mapping follows current crop/rotation, lens and decoder flip.
+
+Brush validation failures name the zero-based operation and exact field, such as
+`maskMutation.operations[1].stroke.feather`, explain the required value, and
+include a minimal operation template plus instructions to replace its illustrative
+ID/point with confirmed IDs and mapped points. Missing or foreign mask/component
+IDs receive the same diagnostics. Invalid batches publish no partial settings,
+immutable content or history. Stale revisions still require refreshing confirmed
+settings; accepted batches remain one photo-wide Undo step with restart support.
+On-demand `mask-brush` guidance provides the mapping/read/paint/erase sequence.
+
+Focused Bazzite/Linux x64 acceptance on November 13, 2026 reconciles 1,085 distinct
+passing cases from `masks-model`, `mask-compound-model`, `generated-mask-bases`,
+`mask-geometry`, `masks-service`, `masks-mcp`, `agent-policy`, `agent-guidance` and
+`agent-guidance-mcp`, including the runner's cheap prerequisites. The selected run
+took 58.11 s; one new managed fixture initially violated its frozen revision after
+seeding a generated base. Starting a fresh request after that external publication
+fixes the setup; the exact case passes in 1.54 s. Original failures and the
+interrupted sandbox attempt remain retained. Source/test type checking, lint,
+formatting and the application build pass.
+
+The actual standalone and managed stdio MCP transports use isolated synthetic
+fixtures, including persisted generated bases and component corrections. This
+qualifies transport, validation and history, not new inference, pixel processing,
+photographic taste, signed-in model behavior or physical HDR. Existing rendering
+evidence is reused because algorithms and source mapping are unchanged. Evidence:
+[`issue-107-20261113-acceptance/summary.md`](../../artifacts/verification/issue-107-20261113-acceptance/summary.md).
+macOS/Windows verification remains in
+[#114](https://github.com/VaclavKlima/Irodori/issues/114); default-branch delivery
+remains owned by [#107](https://github.com/VaclavKlima/Irodori/issues/107).
+
 ## Persistence
 
 Settings 13/catalog 23 add a top-first `maskStack` of lightweight descriptors. Immutable content-addressed stroke chunks live in SQLite, outside preview caches; commit new content and history atomically. Duplicates share geometry until further editing. Initially retain content append-only within the declared budget, protecting current/undo/redo and accepted jobs without unsafe eager cleanup.

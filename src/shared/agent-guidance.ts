@@ -3,6 +3,7 @@ import { SETTINGS_VERSION } from './edits'
 import { defaultExportOptions } from './export'
 import { INSPECTION_IMAGE_LIMIT, INSPECTION_PAIR_LIMIT } from './inspection'
 import { defaultLuminanceMaskRange, maskRangeCapabilities } from './mask-ranges'
+import { maskBrushExample } from './mask-brush'
 import { maskCapabilities } from './masks'
 import { objectSelectionCapabilities } from './object-selection'
 import { outputSharpeningCapabilities } from './output-sharpening'
@@ -170,7 +171,7 @@ const guidance: Record<EditingGuidanceTopic, Omit<EditingGuidance, 'version' | '
     workflow: [
       'Read current masks/revision, then map normalized compact-preview or current cropped-output points through irodori_get_mask_context. Use the returned canonical source points for stroke operations; stored strokes are already canonical.',
       maskCreation,
-      `Paint uses mode:"add"; Erase uses mode:"subtract". A stroke includes radius, feather and 1–${maskCapabilities.maxStrokePoints} points. Radius is a positive fraction of the canonical source’s shorter dimension; feather and x/y use normalized units. Read the schema for bounds.`,
+      `Paint uses mode:"add"; Erase uses mode:"subtract". Every stroke requires mode, radius, feather and 1–${maskCapabilities.maxStrokePoints} points. Radius is greater than 0 through 0.5 of the canonical source’s shorter dimension and must remain positive in Float32; feather is 0–1 and each finite x/y is 0–1. Unknown fields are rejected.`,
       'Use componentId for a coverage part and strokeTarget:"primary" or "result" for its correction chain. Untargeted strokes address the root result. Include valid IDs and all required stroke fields.',
       relativeMaskColor,
       maskEdges,
@@ -188,6 +189,29 @@ const guidance: Record<EditingGuidanceTopic, Omit<EditingGuidance, 'version' | '
     ],
     examples: [
       example(
+        'irodori_get_mask_context',
+        { photoId, expectedRevision: 0, points: [{ x: 0.5, y: 0.5 }] },
+        'Input is normalized current cropped output. The response includes brushExamples.paint and brushExamples.erase with the first actual mapped canonical point. Put either stroke in a kind:"stroke" operation using the existing mask id and this revision; componentId selects an owned part, strokeTarget selects primary or result.',
+      ),
+      example(
+        'irodori_mutate_masks',
+        {
+          photoId,
+          expectedRevision: 0,
+          maskMutation: {
+            operations: [
+              {
+                kind: 'stroke',
+                id: maskId,
+                strokeTarget: 'primary',
+                stroke: maskBrushExample('add', { x: 0.5, y: 0.5 }),
+              },
+            ],
+          },
+        },
+        'Paint primary coverage before operands. Replace the sample stroke with brushExamples.paint returned by irodori_get_mask_context and use a confirmed mask ID. Generated bases remain separate from manual corrections.',
+      ),
+      example(
         'irodori_mutate_masks',
         {
           photoId,
@@ -198,17 +222,12 @@ const guidance: Record<EditingGuidanceTopic, Omit<EditingGuidance, 'version' | '
                 kind: 'stroke',
                 id: maskId,
                 strokeTarget: 'result',
-                stroke: {
-                  mode: 'subtract',
-                  radius: 0.025,
-                  feather: 0.5,
-                  points: [{ x: 0.5, y: 0.5 }],
-                },
+                stroke: maskBrushExample('subtract', { x: 0.5, y: 0.5 }),
               },
             ],
           },
         },
-        'The example erases result coverage. Replace its point with a mapped canonical point and use an existing mask ID.',
+        'Erase result coverage after operands, before inversion/edges. Replace the sample stroke with brushExamples.erase from irodori_get_mask_context and use an existing mask ID. Add componentId only for an owned component.',
       ),
       example(
         'irodori_get_mask_preview',
