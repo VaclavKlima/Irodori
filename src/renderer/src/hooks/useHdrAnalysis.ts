@@ -58,7 +58,7 @@ export function useHdrAnalysis(
     generation = useRef(0),
     requestIdentity = useRef(''),
     sessionId = useRef(crypto.randomUUID())
-  const key = JSON.stringify(parameters)
+  const key = useMemo(() => JSON.stringify(parameters), [parameters])
   // Display reports carry changing timings. Analysis depends on actual pixel
   // fields, so those reports cannot restart an identical full-mask job.
   const selectedTarget = useMemo<DisplayTarget>(
@@ -112,28 +112,39 @@ export function useHdrAnalysis(
     (nativeContext?.comparison === 'before' ||
       (!!acceptedParameters && sameAdjustments(acceptedParameters, parameters)))
   )
-  const identity = JSON.stringify([
-    frame?.identity,
-    key,
-    selectedTarget.generation,
-    selectedTarget.requested,
-    selectedTarget.mode,
-    selectedTarget.colorSpace,
-    selectedTarget.peak,
-    selectedTarget.headroom,
-    selectedTarget.outputVersion,
-    domain,
-    masks,
-    backend === 'native'
-      ? [
-          nativeEligible,
-          confirmed?.revision,
-          nativeContext?.comparison,
-          comparisonOf,
-          nativeContext?.presentationSerial,
-        ]
-      : null,
-  ])
+  const presentationSerial = nativeContext?.presentationSerial
+  const identity = useMemo(
+    () =>
+      JSON.stringify([
+        frame?.identity,
+        key,
+        selectedTarget.generation,
+        selectedTarget.requested,
+        selectedTarget.mode,
+        selectedTarget.colorSpace,
+        selectedTarget.peak,
+        selectedTarget.headroom,
+        selectedTarget.outputVersion,
+        domain,
+        masks,
+        backend === 'native'
+          ? [nativeEligible, confirmed?.revision, comparison, comparisonOf, presentationSerial]
+          : null,
+      ]),
+    [
+      frame?.identity,
+      key,
+      selectedTarget,
+      domain,
+      masks,
+      backend,
+      nativeEligible,
+      confirmed?.revision,
+      comparison,
+      comparisonOf,
+      presentationSerial,
+    ],
+  )
   useEffect(() => {
     let current = true
     void window.irodori.getHdrMaskBackend().then(

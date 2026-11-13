@@ -630,7 +630,10 @@ export function useMasks(
                 }
               : undefined
       : undefined
-  const adjustments: AdjustmentParameters = { ...edits.adjustments, localMasks: resolved }
+  const adjustments = useMemo<AdjustmentParameters>(
+    () => ({ ...edits.adjustments, localMasks: resolved }),
+    [edits.adjustments, resolved],
+  )
   const resolvedRoot = resolved.find((mask) => mask.id === selectedId)
   const resolvedPart =
     selectedComponentId && resolvedRoot

@@ -32,12 +32,13 @@ backends require explicit approval and a very large, perceptible workflow benefi
 
 ## Expectations by action
 
-| Action                                                           | What should feel responsive                                                                               | What may take time                                              |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Exposure, color and other continuous adjustments                 | Control feedback and correctly attributed useful preview updates during the gesture                       | The separately measured exact refinement after release          |
-| Enable/change denoising or another expensive spatial calculation | Immediate acknowledgement, continued interface use, cancellation/supersession and honest loading feedback | Preparation and the exact native-resolution result after commit |
-| Open a cold RAW or change crop geometry                          | Selection/gesture feedback and an explicit pending state                                                  | Decode, preparation and correctly identified exact detail       |
-| Export, output proof and batch processing                        | Job acknowledgement, useful status and cancellation; editing can continue where supported                 | Full-quality processing of the frozen requested output          |
+| Action                                                           | What should feel responsive                                                                                                | What may take time                                                         |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Exposure, color and other continuous adjustments                 | Control feedback and correctly attributed useful preview updates during the gesture                                        | The separately measured exact refinement after release                     |
+| Pan and zoom of an already prepared photograph                   | Reuse immutable edit/mask preparation and rendered tiles; move the view without serializing encoded coverage on each frame | First computation of newly visible source tiles at the selected resolution |
+| Enable/change denoising or another expensive spatial calculation | Immediate acknowledgement, continued interface use, cancellation/supersession and honest loading feedback                  | Preparation and the exact native-resolution result after commit            |
+| Open a cold RAW or change crop geometry                          | Selection/gesture feedback and an explicit pending state                                                                   | Decode, preparation and correctly identified exact detail                  |
+| Export, output proof and batch processing                        | Job acknowledgement, useful status and cancellation; editing can continue where supported                                  | Full-quality processing of the frozen requested output                     |
 
 Do not apply a continuous-slider deadline to a different operation without an
 explicit action-specific decision. Existing slider measurements retain their

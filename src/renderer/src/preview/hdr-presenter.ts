@@ -343,6 +343,12 @@ export class HdrPresenter {
   private activeRender?: Promise<void>
   private releaseBitmaps?: () => void
   private view?: { image: Size; viewport: Size; view: View; parameters: AdjustmentParameters }
+  /** One detached immutable edit snapshot is shared by view-only requests. */
+  private navigationParameters?: {
+    source: AdjustmentParameters
+    key: string
+    snapshot: AdjustmentParameters
+  }
   private displayedGeometry?: PresentedPreviewGeometry
   get presentedGeometry(): PresentedPreviewGeometry | undefined {
     return this.displayedGeometry
@@ -2145,11 +2151,20 @@ export class HdrPresenter {
     this.refinementPending = false
     const requestedAt = performance.now()
     const sourceIdentity = this.frame.identity ?? this.frame.hdr!.sha256
+    if (
+      this.navigationParameters?.source !== parameters ||
+      this.navigationParameters.key !== editsKey
+    )
+      this.navigationParameters = {
+        source: parameters,
+        key: editsKey,
+        snapshot: structuredClone(parameters),
+      }
     let snapshot: PresentationRequest = {
       image: { ...image },
       viewport: { ...viewport },
       view: { ...view },
-      parameters: structuredClone(parameters),
+      parameters: this.navigationParameters.snapshot,
       target: structuredClone(this.target),
       mode: this.mode,
       split: this.split,
@@ -3054,7 +3069,9 @@ export class HdrPresenter {
             this.frame?.sourceRef,
             request.value.sourceIdentity,
             request.value.settingsRevision,
-            request.value.mode === 'before' ? neutralAdjustments : request.value.parameters,
+            adjustmentPixelKey(
+              request.value.mode === 'before' ? neutralAdjustments : request.value.parameters,
+            ),
             maskPixelTarget(request.value.target),
             request.value.mode,
             request.value.ranges,
@@ -3534,6 +3551,7 @@ export class HdrPresenter {
     this.localMaskStatus?.destroy()
     this.localMaskStatusReadback?.destroy()
     this.localMaskPacked = undefined
+    this.navigationParameters = undefined
     this.localHistogramMasks?.destroy()
     this.localHistogramBuffer?.destroy()
     this.localHistogramReadback?.destroy()

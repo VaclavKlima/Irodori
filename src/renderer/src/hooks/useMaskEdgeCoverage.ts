@@ -161,7 +161,10 @@ export function useMaskEdgeCoverage({
       }),
     )
   }, [parameters.localMasks, completed, identity, ready, requiredIds.length])
-  const prepared: AdjustmentParameters = { ...parameters, localMasks }
+  const prepared = useMemo<AdjustmentParameters>(
+    () => ({ ...parameters, localMasks }),
+    [parameters, localMasks],
+  )
   const retry = useCallback(() => {
     setFailure(null)
     setAttempt((value) => value + 1)

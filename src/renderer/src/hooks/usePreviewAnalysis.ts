@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AdjustmentParameters, WorkingFrame } from '../../../shared/adjustments'
 import {
   sampleWorking,
@@ -73,7 +73,7 @@ export function usePreviewAnalysis(
       queue.close()
     }
   }, [frame, identity, masks, masked, onMask, activity])
-  const key = JSON.stringify(parameters)
+  const key = useMemo(() => JSON.stringify(parameters), [parameters])
   useEffect(() => {
     if (!masked) histogram.current?.update(JSON.parse(key), !gesturing)
   }, [frame, identity, key, gesturing, masked])

@@ -449,6 +449,11 @@ export function PhotoPreview({
     }),
     [providedAdjustments, full.preview?.maskGeometry],
   )
+  const drawAdjustments = useMemo(() => snapshotAdjustments(adjustments), [adjustments])
+  const diagnosticAdjustments = useMemo(
+    () => snapshotAdjustments({ ...adjustments, localMasks: undefined, maskGeometry: undefined }),
+    [adjustments],
+  )
   const confirmedParameters = useMemo(
     () => confirmedAdjustments(confirmedEdits, photo?.id, full.preview ?? undefined),
     [confirmedEdits, photo?.id, full.preview],
@@ -734,13 +739,18 @@ export function PhotoPreview({
       ? tools.hdrOverlay & 4
       : tools.hdrOverlay
   const shadows = tools.shadows || tools.hover === 'shadows'
-  const maskSourceKey = JSON.stringify([
-    analysisWorking?.identity,
-    mode === 'before',
-    mode === 'before' ? neutralAdjustments : adjustments,
-    maskPixelTarget(actualTarget),
-    tools.domain,
-  ])
+  const maskTargetKey = JSON.stringify(maskPixelTarget(actualTarget))
+  const maskSourceKey = useMemo(
+    () =>
+      JSON.stringify([
+        analysisWorking?.identity,
+        mode === 'before',
+        mode === 'before' ? neutralAdjustments : adjustments,
+        JSON.parse(maskTargetKey),
+        tools.domain,
+      ]),
+    [analysisWorking?.identity, mode, adjustments, maskTargetKey, tools.domain],
+  )
   const setMask = useCallback(
     (value?: ClippingMask) => {
       setMaskState(value ? { key: maskSourceKey, value } : undefined)
@@ -950,16 +960,11 @@ export function PhotoPreview({
     if (previewPolicy.presentationCache && working?.hdr && !presentationState) return
     if (presenter.current instanceof PreviewPresenter)
       presenter.current.setClippingEnabled(shadows || highlights, maskSourceKey)
-    presenter.current?.draw(
-      model.image,
-      model.viewport,
-      model.view,
-      snapshotAdjustments(adjustments),
-    )
+    presenter.current?.draw(model.image, model.viewport, model.view, drawAdjustments)
     performance.measure('irodori.preview.presentation', {
       start: started,
       detail: {
-        ...snapshotAdjustments(adjustments),
+        ...diagnosticAdjustments,
         scale: model.view.scale,
       },
     })
@@ -1087,7 +1092,9 @@ export function PhotoPreview({
     }
   }, [cropping, change, stopDrag])
   usePreviewWheel(viewport, ready, change, stopDrag)
-  const adjustmentKey = JSON.stringify(adjustments)
+  // Prepared mask PNGs can be megabytes. View-only state must not serialize
+  // unchanged immutable edit parameters on every pointer or wheel frame.
+  const adjustmentKey = useMemo(() => JSON.stringify(adjustments), [adjustments])
   useEffect(() => {
     stopDrag()
   }, [
