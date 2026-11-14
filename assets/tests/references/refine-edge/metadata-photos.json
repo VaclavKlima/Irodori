@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "id": "cascadepsp-audited-hard-photo-research-v1",
+  "issue": 77,
+  "metadataProtocolSha256": "3524c3530833b9e23b5bd9b400bf81a57d1f4ebc10fc11b5418728d76748a076",
+  "sourceRevision": "481847c8f20d11e036c2b29d0be290aa8fa26071",
+  "scope": "Previously seen hard photographic research after both model numerical gates pass; no product integration or weight redistribution.",
+  "numericalPrerequisites": "Passed same-graph global/local synthetic receipts with unchanged FP32 and one-byte R8 bounds; every live session re-audited before model execution.",
+  "preparationBackend": "Explicitly selected original native Torch CPU preparation, padding, interpolation, skip decisions and overlap composition for research only; no CPU learned model is constructed or executed.",
+  "learnedInferenceBackend": "Native ONNX Runtime WebGPU with pre-audited bounded CPU dimension bookkeeping only; no image-inference CPU fallback or retry.",
+  "algorithm": "Unmodified upstream process_high_res_im and safe_forward; fast=false, L=900, BGR input and original normalization, thresholds, overlap order and truncating R8 conversion.",
+  "sentinelOrder": ["d08-flamingo", "h11-robin", "d04-forest-fence", "d06-wig"],
+  "inputs": "Reuse earlier hash-verified full-native neutral SDR prepared sources and frozen SAM baselines, no crop/lens/local edits.",
+  "comparators": ["frozen-sam", "production-feather4-shift0"],
+  "reviewCrops": "assets/tests/references/refine-edge/crops.json",
+  "qualityGate": "Useful fine boundaries without material regression, new excluded-object contamination, missing legs or incorrect semantic coverage; broad adoption still requires the original full twelve-scene gate.",
+  "stop": "Stop photographic expansion after a decisive hard-case failure; preserve that output and do not tune prompts, thresholds, weights or operators.",
+  "runtimeLimitSecondsPerCase": 600,
+  "outputs": "Fresh private native R8 masks, hashes, per-call live-session audit and provider profiles; image quality never inferred from numerical checks.",
+  "foregroundRequiresApproval": true,
+  "productionEnabled": false
+}

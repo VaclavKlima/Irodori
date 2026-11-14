@@ -2,6 +2,12 @@
 
 ## Status
 
+The [November 14 native photographic review](detail-photographic-review.md)
+adds the reviewed anonymous skin/body-hair source and a fixed set of sharpening
+control extremes on Bazzite. It preserves the historical standard-setting
+reviews and all numerical gates; noise reduction, output sharpening, general
+portrait/scalp-hair and physical HDR claims retain their separate limits.
+
 **Public settings/history/UI/MCP implemented; combined real RAW/HDR application/export, whole-source NR/detail CPU/GPU agreement, native keyboard interaction and full-source resource refusal/cancellation pass focused checks on 2026-10-29. Strong-noise photographic quality and remaining performance acceptance stay open.**
 This is Goal 1 slice 4 in [professional editing](professional-editing.md).
 The previous color, crop and inspector work is retained. This record retains the

@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "candidate": "cascadepsp-official-v1.0",
+  "purpose": "Pinned research-only automatic image-and-mask refinement candidate. No production adoption or weight redistribution is authorized by this receipt.",
+  "sourceUrl": "https://github.com/hkchengrex/CascadePSP",
+  "sourceRevision": "481847c8f20d11e036c2b29d0be290aa8fa26071",
+  "sourceEvidenceFiles": [
+    "LICENSE",
+    "README.md",
+    "docs/models.md",
+    "docs/dataset.md",
+    "segmentation-refinement/README.md",
+    "segmentation-refinement/setup.py",
+    "segmentation-refinement/segmentation_refinement/download.py",
+    "segmentation-refinement/segmentation_refinement/main.py",
+    "segmentation-refinement/segmentation_refinement/eval_helper.py",
+    "segmentation-refinement/segmentation_refinement/models/psp/pspnet.py",
+    "segmentation-refinement/segmentation_refinement/models/psp/extractors.py"
+  ],
+  "checkpoint": {
+    "url": "https://github.com/hkchengrex/CascadePSP/releases/download/v1.0/model",
+    "upstreamMd5": "7478d4a9c42ab52beb6d7e9683402fe0",
+    "maximumBytes": 400000000,
+    "sha256": "60826ace3385961cdf8608abbdf1234cd22379303b97edf96f18d67bba769cfa",
+    "redistribution": "Not included in Git; retained unchanged only in private local research artifacts."
+  },
+  "licensing": {
+    "code": "MIT; explicit upstream repository LICENSE and package metadata.",
+    "weights": "Official author-published release; no separate explicit pretrained-weight license statement found in pinned source evidence. Local research is evaluated separately from broad adoption.",
+    "weightAdoptionStatus": "unresolved-for-adoption",
+    "dataset": "Upstream BIG RGB photographs are not covered by the code license and have a separate noncommercial notice. No upstream dataset photographs are downloaded or used.",
+    "policy": "Do not infer trained-weight redistribution rights from the code or dataset notice. No weight bundling or production integration; resolve broad-adoption terms before recommending implementation."
+  },
+  "fixedPolicy": {
+    "automaticFirst": true,
+    "requiredUserEdgeMarking": false,
+    "fast": false,
+    "L": 900,
+    "stride": 450,
+    "localPadding": 16,
+    "dtype": "float32",
+    "onnxOpset": 17,
+    "maximumExportAttempts": 1,
+    "architectureRewrites": false,
+    "numericalTolerance": {
+      "absolute": 0.001,
+      "relative": 0.001,
+      "maximumR8Difference": 1
+    },
+    "execution": "CPU synthetic export tracing only. Model inference requires strict native ONNX Runtime WebGPU with CPU fallback disabled. Independent CPU numerical references follow successful model GPU execution only."
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "id": "native-photographic-sharpening-20261114-v1",
+  "issue": 43,
+  "scope": "Remaining reviewed skin/body-hair and extreme-setting native photographic appearance; existing standard forest/star/merge evidence retained. No portrait-face/scalp-hair generalization, NR research, output sharpening or physical HDR acceptance.",
+  "preparation": "Production full native linear source; raster linear-sRGB with retained transform, merge scene-linear Rec2020. Neutral edits, AsShot, no new crop/lens/local edits. Filter complete source before extracting integer native512 crops.",
+  "noiseReduction": {
+    "version": 1,
+    "luminance": 0,
+    "chroma": 0
+  },
+  "variants": [
+    {
+      "name": "neutral",
+      "amount": 0,
+      "radius": 1,
+      "threshold": 50
+    },
+    {
+      "name": "standard",
+      "amount": 50,
+      "radius": 1,
+      "threshold": 50
+    },
+    {
+      "name": "fine-unprotected",
+      "amount": 100,
+      "radius": 0.5,
+      "threshold": 0
+    },
+    {
+      "name": "wide-unprotected",
+      "amount": 100,
+      "radius": 3,
+      "threshold": 0
+    },
+    {
+      "name": "wide-protected",
+      "amount": 100,
+      "radius": 3,
+      "threshold": 100
+    }
+  ],
+  "backend": "Existing production saved-detail native GPU owner and GPU proof; explicit errors, no CPU filter/retry. Automatic budgets unchanged.",
+  "quality": "Native before/after texture, contours, bright/dark halo, noise amplification and blend-boundary seams. No clean-reference noise percentages; no tuning or relaxed numerical gates. Strong settings are declared stress cases, not recommended defaults.",
+  "frozenBeforeActiveRendering": true,
+  "reviewScale": "Exactly one decoded/source-grid pixel per PNG pixel; montage places native crops without resampling.",
+  "cases": [
+    {
+      "id": "forearm-skin-hair",
+      "kind": "raster",
+      "source": "assets/tests/images/raster/wikimedia/forearm-hair/originals/ArmHair.jpg",
+      "sha256": "02f590a33003698f750166798552a63b038456c008e9f3a220ed3544b79db4b8",
+      "notice": "assets/tests/images/raster/wikimedia/forearm-hair/manifest.json",
+      "credit": "Zephyris - ArmHair.jpg (2010 archived original)",
+      "sourceUrl": "https://commons.wikimedia.org/w/index.php?title=File:ArmHair.jpg&oldid=801603795",
+      "license": "CC BY-SA 3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "regions": [
+        {
+          "name": "skin-texture",
+          "left": 2800,
+          "top": 350,
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "hair-contours",
+          "left": 1150,
+          "top": 1000,
+          "width": 512,
+          "height": 512
+        }
+      ],
+      "noticeSha256": "f97fc34160692e5a13a00d3243342fa76ca21f1699092b36e1b7eaa3a3c75139"
+    },
+    {
+      "id": "observed-starfield",
+      "kind": "raster",
+      "source": "assets/tests/images/raster/eso/observed-starfield/eso0106a.jpg",
+      "sha256": "48a9fd312614b72b548c0c5e4b66d8ba0af9c5b76b5117828e5d39ae09dec9d6",
+      "notice": "assets/tests/images/raster/eso/observed-starfield/manifest.json",
+      "credit": "AURA - ESO eso0106a",
+      "sourceUrl": "https://www.eso.org/public/images/eso0106a/",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "regions": [
+        {
+          "name": "central-stars",
+          "left": 69,
+          "top": 69,
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "faint-edge-stars",
+          "left": 0,
+          "top": 139,
+          "width": 512,
+          "height": 512
+        }
+      ],
+      "noticeSha256": "7e0ab0ed7db330c29c6a0aeee2ab3ae1fefbee87a6342ec430c4f9a5eb44f6e8"
+    },
+    {
+      "id": "forest-merge",
+      "kind": "merge",
+      "manifestSha256": "1883d1aaa123a16a1217fcb120890e91b3a6545d60c3a3193ed2d352f994e377",
+      "assetSha256": "06801f7581b42778e55a8bebf925887e4dfc1d4dab3013459cd3f467f3b24bc8",
+      "maskSha256": "240f49fa0b465cc9fc481025124ed650c10e2cbe9239096f6b801b56b71d047f",
+      "notice": "assets/tests/images/raw/sony-zv-1a/forest-bracket/manifest.json",
+      "credit": "Project owner - unchanged permitted forest bracket",
+      "license": "Project testing permission; no general open-content license",
+      "regions": [
+        {
+          "name": "foliage",
+          "left": 1760,
+          "top": 1760,
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "deghost-transition",
+          "left": 2344,
+          "top": 281,
+          "width": 512,
+          "height": 512
+        }
+      ],
+      "boundarySelection": "Source-mask-only: row-major first maximum difference between samples +/-32px on either axis, centers >=512px inside native master. Center2600,537 vertical255->0; asset->mask x+15,y+0. No known-truth motion claim.",
+      "noticeSha256": "747ee212c3073c64e780c11ffb8cd3e2b96345599e35df920c3596ef7d96cffb"
+    }
+  ],
+  "stop": "Finish this fixed matrix and focused checks. Investigate one concrete defect if found; no strength/radius/model sweep or NR/output-sharpening expansion.",
+  "foregroundRequiresApproval": true,
+  "productionAlgorithmChanged": false
+}

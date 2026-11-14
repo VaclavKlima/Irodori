@@ -143,6 +143,16 @@ const definitions: Suite[] = [
     exclusive: true,
   },
   { file: 'object-selection-research', group: 'node', scopes: [], explicitOnly: true },
+  { file: 'refine-edge-research', group: 'node', scopes: [], explicitOnly: true },
+  { file: 'refine-edge-pooling', group: 'node', scopes: [], explicitOnly: true },
+  { file: 'refine-edge-metadata', group: 'node', scopes: [], explicitOnly: true },
+  {
+    file: 'refine-edge-research-gpu',
+    group: 'raw-gpu',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
   { file: 'inspection-region-model', group: 'node', scopes: ['preview', 'ui'] },
   {
     file: 'inspection-region-ui',

@@ -1,5 +1,14 @@
 # General object selection and manual refinement
 
+**Refine Edge follow-up, November 13:** the separate
+[image-guided refinement study](refine-edge-research.md) rejects the fixed guided
+filter and CascadePSP export route for broad adoption. It preserves the original
+study below, uses fresh Bazzite evidence, and leaves implementation #78 blocked.
+
+The [November 14 audited metadata continuation](refine-edge-metadata-followup.md)
+resolves CascadePSP execution and shows some real boundary improvements, but
+retains an unmet mealworm exclusion and stops before broad photographic acceptance.
+
 ## Outcome and scope — November 8, 2026
 
 **Subsequent implementation:** [Object selection](object-selection.md) is now enabled on Mac. The user explicitly approved delivery on the available device and [Bazzite follow-up](README.md#task-69); that supersedes the research recommendation to delay activation until Radeon qualification. The evidence and unqualified photographic/cross-platform claims below remain historical research findings.

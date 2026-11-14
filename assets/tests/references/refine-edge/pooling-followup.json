@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "id": "cascadepsp-exact-pooling-followup-v1",
+  "issue": 77,
+  "scope": "One separately authorized exact AdaptiveAvgPool2d export-compatibility follow-up; preserve the completed earlier research and its rejection.",
+  "frozenBeforeExecution": true,
+  "preserved": {
+    "protocol": "assets/tests/references/refine-edge/protocol.json",
+    "protocolSha256": "b52be86361e3d9364ac85f9d3bf96ce0c97ab5a806475a2dead12530d9f638e2",
+    "crops": "assets/tests/references/refine-edge/crops.json",
+    "cropsSha256": "0a0a898ed8d33ecd9634ad615727f3cc8eb215d32d059177eddc5e8174497e0a",
+    "candidateSources": "assets/tests/references/refine-edge/cascade-sources.json",
+    "candidateSourcesSha256": "16a47569ebef671efd25af4ea451e307e3f14a059c140beefe98d505eb3a7954",
+    "inputs": "assets/tests/references/object-selection/inputs.json",
+    "inputsSha256": "c5420a66ab6a92c9cd0df5fca94d26be122929e2b7575c0bf3d1d5ff2ab9b123"
+  },
+  "candidate": {
+    "id": "cascadepsp-l900-exact-pooling-v1",
+    "sourceRevision": "481847c8f20d11e036c2b29d0be290aa8fa26071",
+    "checkpointSha256": "60826ace3385961cdf8608abbdf1234cd22379303b97edf96f18d67bba769cfa",
+    "originalWeightsUnchanged": true,
+    "fast": false,
+    "L": 900,
+    "stride": 450,
+    "localPadding": 16,
+    "dtype": "float32",
+    "opset": 17,
+    "imageShape": [1, 3, 600, 900],
+    "paddedImageShape": [1, 3, 608, 904],
+    "globalGraph": {
+      "exportAttempts": 1,
+      "spatialAxes": "dynamic-height-and-width",
+      "representativeSourceShape": [1, 3, 600, 900],
+      "representativePaddedShape": [1, 3, 608, 904],
+      "inputs": ["image", "mask"],
+      "padding": "Preserve upstream safe_forward padding and returned source extent; do not truncate perimeter labels."
+    },
+    "localGraph": {
+      "exportAttempts": 1,
+      "spatialAxes": "fixed-904-by-904",
+      "imageShape": [1, 3, 904, 904],
+      "maskShape": [1, 1, 904, 904],
+      "interS8Shape": [1, 1, 904, 904],
+      "inputs": ["image", "mask", "inter_s8"],
+      "interS4": null,
+      "policy": "Preserve upstream local iteration, padding, thresholds and compositing."
+    }
+  },
+  "lowering": {
+    "operator": "AdaptiveAvgPool2d",
+    "route": ["Slice", "ReduceMean", "Concat"],
+    "dynamicWindowConstruction": ["Shape", "Gather", "Div"],
+    "primaryFeatureShape": [76, 113],
+    "outputBins": [2, 3, 6],
+    "windowStart": "floor(outputIndex * inputExtent / outputExtent)",
+    "windowEndExclusive": "ceil((outputIndex + 1) * inputExtent / outputExtent)",
+    "overlap": "Preserve upstream overlapping windows for non-divisible extents; never substitute fixed non-overlapping pooling.",
+    "graphRewriteLimit": "Only the selected exact pooling lowering; no architectural, learned-weight, activation or interpolation changes."
+  },
+  "numerical": {
+    "reference": "Independent PyTorch AdaptiveAvgPool2d FP32 outputs on synthetic feature tensors; retain generator, environment, shapes, bytes and hashes.",
+    "primaryFixture": "assets/tests/references/refine-edge/pooling-reference.json",
+    "absoluteTolerance": 0.001,
+    "relativeTolerance": 0.001,
+    "comparison": "abs(actual-reference) <= absoluteTolerance + relativeTolerance * abs(reference)",
+    "maximumR8Difference": 1,
+    "poolingParityIsFullModelParity": false,
+    "fullModelParityIsPhotographicAcceptance": false
+  },
+  "runtime": {
+    "provider": "WebGpuExecutionProvider",
+    "heavyCpuNodes": 0,
+    "cpuFallbackDisabled": true,
+    "ortConfig": { "session.disable_cpu_ep_fallback": "1" },
+    "actualDeviceRequired": true,
+    "resourcePolicy": "Automatic",
+    "resourceOverrides": false,
+    "cpuAllowance": "Synthetic pooling references and export tracing only; no CPU photographic inference or inference fallback.",
+    "gpuFailure": "Preserve the actual reason; stop without equivalent CPU restart.",
+    "cancellation": "No output publication; drain owned GPU/process resources."
+  },
+  "effortStop": {
+    "fullModelExportAttempts": 2,
+    "globalExportAttempts": 1,
+    "localExportAttempts": 1,
+    "alternateShape": false,
+    "alternateOpset": false,
+    "alternateModel": false,
+    "nextUnsupportedOperator": "stop-and-retain-evidence",
+    "failureRepairLoop": false
+  },
+  "photographicGate": {
+    "allPreviouslySeen": true,
+    "unseenHoldoutClaim": false,
+    "retuningAfterRelease": false,
+    "sentinels": [
+      {
+        "id": "d04-forest-fence",
+        "focus": "Fence-only coverage must exclude gaps, tree trunks, foliage and ground."
+      },
+      {
+        "id": "d08-flamingo",
+        "focus": "Retain both narrow legs, feet and leg rings; exclude neighboring bird and ground."
+      },
+      {
+        "id": "h11-robin",
+        "focus": "Retain the robin and beak; explicitly exclude the held mealworm."
+      },
+      {
+        "id": "d06-wig",
+        "focus": "Retain hair-like flyaways and curls; avoid background spill. Historical wig is not human-portrait hair."
+      }
+    ],
+    "proofs": ["fit-overlay", "native-overlay", "fit-plus-one-ev", "native-plus-one-ev"],
+    "comparators": ["frozen-sam", "feather4-shift0"],
+    "continueToTwelveScenesOnlyIf": "All four hard cases show useful quality without material regression, excluded-object contamination or unusable semantic coverage.",
+    "fullPhotographicOrchestration": "Build only after pooling and both model technical gates pass and the remaining integration is bounded; stop before substantial new infrastructure or any math change.",
+    "broadAdoptionGate": "All twelve scenes usable, no regressions, and gains for fur, hair-like, feather, foliage and hard-edge classes; prior scope unchanged.",
+    "missingEvidence": "incomplete-never-pass"
+  },
+  "licensing": {
+    "weightAdoptionStatus": "unresolved-for-adoption",
+    "productionIntegration": false,
+    "weightRedistribution": false,
+    "poolingCompatibilityResolvesLicensing": false
+  }
+}

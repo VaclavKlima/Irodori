@@ -1,0 +1,299 @@
+{
+  "version": 1,
+  "protocolSha256": "b52be86361e3d9364ac85f9d3bf96ce0c97ab5a806475a2dead12530d9f638e2",
+  "policy": "Source-only regions frozen before candidate execution; coordinates are native once-oriented pixels, without crop/lens edits. Former holdouts are previously seen confirmation scenes.",
+  "cases": [
+    {
+      "id": "d01-fog-dog",
+      "sourceSha256": "dead1a70a02909faf8458119fcc8f7067733b756978fd26921710e3008364605",
+      "width": 5496,
+      "height": 3672,
+      "regions": [
+        {
+          "name": "head-and-ear",
+          "x": 3509,
+          "y": 1507,
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "fur-rim",
+          "x": 3097,
+          "y": 2168,
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "feet-ground",
+          "x": 3261,
+          "y": 2645,
+          "width": 512,
+          "height": 512
+        }
+      ]
+    },
+    {
+      "id": "d02-front-boat",
+      "sourceSha256": "f349334517fad6132a107581a7d524160782b18d97fe423c9d277540e74dd081",
+      "width": 1920,
+      "height": 1280,
+      "regions": [
+        {
+          "name": "oars-and-rim",
+          "x": 874,
+          "y": 877,
+          "width": 384,
+          "height": 384
+        },
+        {
+          "name": "hull-reflection",
+          "x": 883,
+          "y": 896,
+          "width": 384,
+          "height": 384
+        }
+      ]
+    },
+    {
+      "id": "d03-central-trunk",
+      "sourceSha256": "50634536a3e64206123d631fb8c43d569cb6c78f89958fb53dc375e720a33fd9",
+      "width": 1920,
+      "height": 1280,
+      "regions": [
+        {
+          "name": "trunk-boundary",
+          "x": 768,
+          "y": 358,
+          "width": 384,
+          "height": 384
+        },
+        {
+          "name": "occluded-base",
+          "x": 806,
+          "y": 614,
+          "width": 384,
+          "height": 384
+        }
+      ]
+    },
+    {
+      "id": "d04-forest-fence",
+      "sourceSha256": "159e5461fceddede2dc9903cb080caf63dcd2e4dc9ef70881b35f1fc65bd91db",
+      "width": 3672,
+      "height": 5496,
+      "regions": [
+        {
+          "name": "picket-tops",
+          "x": 846,
+          "y": 3371,
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "fence-gaps",
+          "x": 1470,
+          "y": 3976,
+          "width": 512,
+          "height": 512
+        }
+      ]
+    },
+    {
+      "id": "d05-paper-edge",
+      "sourceSha256": "7e6e048962eacf890ef8bfb04fcadb5ac42e578bc5b67aa7912f08281975569f",
+      "width": 5496,
+      "height": 3672,
+      "regions": [
+        {
+          "name": "top-corner",
+          "x": 3289,
+          "y": 956,
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "side-on-carpet",
+          "x": 3316,
+          "y": 2314,
+          "width": 512,
+          "height": 512
+        }
+      ]
+    },
+    {
+      "id": "d06-wig",
+      "sourceSha256": "cefc6aacd187ed7f7ac8f0a60fbd9a9abfe042fa409d7a6f72b507040e1aa53b",
+      "width": 4320,
+      "height": 3240,
+      "regions": [
+        {
+          "name": "top-flyaways",
+          "x": 2034,
+          "y": 133,
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "left-hair-rim",
+          "x": 435,
+          "y": 1299,
+          "width": 512,
+          "height": 512
+        },
+        {
+          "name": "lower-curls",
+          "x": 1904,
+          "y": 2595,
+          "width": 512,
+          "height": 512
+        }
+      ]
+    },
+    {
+      "id": "d07-bicycle",
+      "sourceSha256": "24e93ef51df4067b4a2d847495de6f1ad3eb5795c4224f46f548d06509f8eee1",
+      "width": 1433,
+      "height": 1952,
+      "regions": [
+        {
+          "name": "wheel-spokes",
+          "x": 553,
+          "y": 1077,
+          "width": 384,
+          "height": 384
+        },
+        {
+          "name": "frame-holes",
+          "x": 353,
+          "y": 511,
+          "width": 384,
+          "height": 384
+        }
+      ]
+    },
+    {
+      "id": "d08-flamingo",
+      "sourceSha256": "6afbf8a85989a704738327f0a8016ea4d5b080668322b8fddfcbf8bfdc34effa",
+      "width": 1558,
+      "height": 1148,
+      "regions": [
+        {
+          "name": "head-beak",
+          "x": 977,
+          "y": 164,
+          "width": 384,
+          "height": 384
+        },
+        {
+          "name": "legs-and-feet",
+          "x": 774,
+          "y": 726,
+          "width": 384,
+          "height": 384
+        },
+        {
+          "name": "adjacent-bird",
+          "x": 618,
+          "y": 359,
+          "width": 384,
+          "height": 384
+        }
+      ]
+    },
+    {
+      "id": "d09-plain-mug",
+      "sourceSha256": "f46f6bc74eb235b489bcd75430f31f66a7ff4a84a87ed239f9bc8aa47b163a5f",
+      "width": 960,
+      "height": 1280,
+      "regions": [
+        {
+          "name": "handle-gap",
+          "x": 509,
+          "y": 320,
+          "width": 384,
+          "height": 384
+        },
+        {
+          "name": "rim-and-spout",
+          "x": 96,
+          "y": 154,
+          "width": 384,
+          "height": 384
+        }
+      ]
+    },
+    {
+      "id": "h10-shore-pine",
+      "sourceSha256": "2613b18b8178493f32e3538be15f1cd8232ca3c30223bcd6b31ea964f77664d7",
+      "width": 1920,
+      "height": 1080,
+      "regions": [
+        {
+          "name": "crown-foliage",
+          "x": 1536,
+          "y": 100,
+          "width": 384,
+          "height": 384
+        },
+        {
+          "name": "shore-reflection",
+          "x": 1536,
+          "y": 424,
+          "width": 384,
+          "height": 384
+        }
+      ]
+    },
+    {
+      "id": "h11-robin",
+      "sourceSha256": "4f70779f8bd8d8f3cd38e4dc2af6c05f841123b931bcfedf8c8aec7cc36f1b8a",
+      "width": 1406,
+      "height": 1414,
+      "regions": [
+        {
+          "name": "head-beak",
+          "x": 413,
+          "y": 162,
+          "width": 384,
+          "height": 384
+        },
+        {
+          "name": "feather-fringe",
+          "x": 1022,
+          "y": 656,
+          "width": 384,
+          "height": 384
+        }
+      ]
+    },
+    {
+      "id": "h12-glass",
+      "sourceSha256": "9bfb67a05858b5605949d0aec2a7d6bf61a5456cd0a639c93ecef6934b15642a",
+      "width": 2048,
+      "height": 3648,
+      "regions": [
+        {
+          "name": "handle-hole",
+          "x": 1446,
+          "y": 1231,
+          "width": 384,
+          "height": 384
+        },
+        {
+          "name": "rim",
+          "x": 525,
+          "y": 538,
+          "width": 384,
+          "height": 384
+        },
+        {
+          "name": "base-shadow",
+          "x": 750,
+          "y": 2106,
+          "width": 384,
+          "height": 384
+        }
+      ]
+    }
+  ]
+}

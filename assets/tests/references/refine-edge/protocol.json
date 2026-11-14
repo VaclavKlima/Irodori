@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "id": "image-guided-refine-edge-study-v1",
+  "issue": 77,
+  "scope": "Research decision only; broad improvement across the existing twelve-scene corpus, without production activation.",
+  "frozenBeforeCandidateExecution": true,
+  "baseline": {
+    "inputs": "assets/tests/references/object-selection/inputs.json",
+    "inputsSha256": "c5420a66ab6a92c9cd0df5fca94d26be122929e2b7575c0bf3d1d5ff2ab9b123",
+    "protocol": "assets/tests/references/object-selection/protocol.json",
+    "protocolSha256": "39a7a2536f06ddb31b7e41c6d61a3f89082b9dcbe1e3efe4d7c31dfc88670811",
+    "maskPolicy": "Retain original SAM coverage and prompts unchanged; compare raw starting coverage and Feather 4 / shift 0 independently.",
+    "comparator": { "feather": 4, "shift": 0 },
+    "independentReference": "assets/tests/references/automatic-selection/guided-filter.json",
+    "independentReferenceSha256": "48fd99ec7be5d28e6b3bc113d720c7c781a2c88c07409bef16388ad3d7d9b6c7"
+  },
+  "candidates": [
+    {
+      "id": "guided-r8-eps001",
+      "method": "RGB guided reconstruction",
+      "modelEdge": 1024,
+      "radius": 8,
+      "epsilon": 0.001,
+      "inputCoverage": "fractional-float32-preserved",
+      "output": "native-shape-r8"
+    },
+    {
+      "id": "cascadepsp-l900-full",
+      "method": "CascadePSP",
+      "fast": false,
+      "L": 900,
+      "output": "native-shape-r8"
+    }
+  ],
+  "corpus": {
+    "requiredScenes": 12,
+    "developmentScenes": 9,
+    "confirmationScenes": 3,
+    "confirmationPreviouslySeen": true,
+    "unseenHoldoutClaimAllowed": false,
+    "tuningAfterConfirmationRelease": "forbidden",
+    "sceneIds": [
+      "d01-fog-dog",
+      "d02-front-boat",
+      "d03-central-trunk",
+      "d04-forest-fence",
+      "d05-paper-edge",
+      "d06-wig",
+      "d07-bicycle",
+      "d08-flamingo",
+      "d09-plain-mug",
+      "h10-shore-pine",
+      "h11-robin",
+      "h12-glass"
+    ],
+    "limitations": [
+      "Existing former holdouts are confirmation scenes, not unseen inputs.",
+      "Historical wig does not qualify human portrait hair.",
+      "Glass and reflections provide semantic extent stress, not transparency alpha truth.",
+      "No annotations are available for quantitative photographic alpha accuracy."
+    ]
+  },
+  "runtime": {
+    "scope": "available-device-only",
+    "backend": "strict-gpu-per-actual-device",
+    "cpuFallback": "forbidden",
+    "unavailableDeviceAcceptance": "incomplete",
+    "resourcePolicy": "Automatic snapshot; no overrides or relaxed admission",
+    "failure": "explicit-refusal-and-owned-resource-cleanup",
+    "cancellation": "no-output-publication-and-owned-resource-cleanup"
+  },
+  "numerical": {
+    "floatAbsoluteTolerance": 0.001,
+    "floatRelativeTolerance": 0.001,
+    "maxR8Error": 1,
+    "coverage": "finite-fractional-input-native-dimensions",
+    "constantCoverage": "exact-empty-and-full"
+  },
+  "review": {
+    "required": ["fit-overlay", "native-overlay", "fit-plus-one-ev", "native-plus-one-ev"],
+    "defects": ["missing-coverage", "spill", "holes", "bright-halo", "dark-halo"],
+    "broadAdoption": {
+      "allScenesUsable": true,
+      "noSceneRegression": true,
+      "requiredGainClasses": ["fur", "hair-like", "feather", "foliage", "hard-edge"],
+      "classLimitedAdoption": false
+    },
+    "missingEvidence": "incomplete-never-pass",
+    "syntheticParityIsPhotographicQuality": false,
+    "productionActivated": false
+  }
+}

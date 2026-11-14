@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "id": "cascadepsp-audited-shape-metadata-v1",
+  "issue": 77,
+  "scope": "Separately authorized CPU shape bookkeeping with all model feature/image computation on native WebGPU; preserve prior strict-session failures.",
+  "preserved": {
+    "poolingProtocol": "assets/tests/references/refine-edge/pooling-followup.json",
+    "poolingProtocolSha256": "c749f65b8d451eb2d2d051a40af1478978ccd6db072a13d84c754b21cfa88661",
+    "originalProtocolSha256": "b52be86361e3d9364ac85f9d3bf96ce0c97ab5a806475a2dead12530d9f638e2",
+    "originalCropsSha256": "0a0a898ed8d33ecd9634ad615727f3cc8eb215d32d059177eddc5e8174497e0a",
+    "globalGraphSha256": "8ca1f74e794e9fd4c13082d2243d73a057cc98a9725e1c553c92af3160c94de7",
+    "checkpointSha256": "60826ace3385961cdf8608abbdf1234cd22379303b97edf96f18d67bba769cfa",
+    "sourceRevision": "481847c8f20d11e036c2b29d0be290aa8fa26071"
+  },
+  "providerPolicy": {
+    "modelComputationProvider": "WebGpuExecutionProvider",
+    "metadataProvider": "CPUExecutionProvider",
+    "cpuEpEnabledForAuditedMetadata": true,
+    "globalCpuFallbackDisabledClaimAllowed": false,
+    "cpuImageOrFeatureComputation": "forbidden",
+    "gpuFailureCpuRetry": "forbidden",
+    "allFinalNodesMustBeAccountedFor": true,
+    "unknownProviderOrAssignment": "reject-before-inference"
+  },
+  "preInferenceProof": {
+    "format": "Finalized optimized ORT graph with complete node provider assignments, edges and typed shapes",
+    "runtimeVersion": "1.31.1",
+    "bindToSameLiveSession": true,
+    "reloadSnapshotAsProof": false,
+    "keepSessionAliveDuringExtractionAndAudit": true,
+    "bindSourceGraphSnapshotProtocolAndRuntimeHashes": true,
+    "inferenceBeforePassedAudit": "forbidden",
+    "sessionRecreation": "requires-new-audit",
+    "postRunProfileAsPreRunProof": false
+  },
+  "cpuMetadataPolicy": {
+    "origin": "Shape reads tensor dimensions, never feature values; bounded integer constants may assist metadata only",
+    "operators": [
+      "Shape",
+      "Constant",
+      "Gather",
+      "Slice",
+      "Identity",
+      "Add",
+      "Sub",
+      "Mul",
+      "Div",
+      "Cast",
+      "Unsqueeze",
+      "Squeeze",
+      "Concat"
+    ],
+    "maximumTensorElements": 16,
+    "maximumTensorRank": 2,
+    "dtypes": ["int32", "int64"],
+    "integerConstantEncoding": "Exact safe JSON integers or canonical decimal strings for int64 values",
+    "featureGatherOrSlice": "forbidden-even-when-operator-name-is-allowed",
+    "terminalUse": "Only verified GPU shape-control input ports or bounded metadata chains that end at those ports",
+    "metadataAsFeatureOperandOrModelOutput": "forbidden",
+    "missingTypeShapeOrUnboundedDataFlow": "reject-before-inference"
+  },
+  "numerical": {
+    "absoluteTolerance": 0.001,
+    "relativeTolerance": 0.001,
+    "maximumR8Difference": 1,
+    "r8Conversion": "Original Float32 multiplication by 255 followed by truncation",
+    "sourceWeightsMathAndInterpolationUnchanged": true,
+    "syntheticParityIsPhotographicAcceptance": false
+  },
+  "resources": {
+    "policy": "Automatic",
+    "overrides": false,
+    "actualOrtPhysicalAdapterRequired": true,
+    "admitBeforeLargeModelLoad": true,
+    "opaqueDriverPeakClaim": false
+  },
+  "conditionalNextStages": {
+    "localExport": "Only after global pre-run audit and full synthetic numerical gates pass; retain original three-input local contract",
+    "photographs": "Only after both model stages pass, with exact upstream high-resolution orchestration and no new processing backend",
+    "previouslySeenHardCases": ["d04-forest-fence", "d08-flamingo", "h11-robin", "d06-wig"],
+    "fullTwelveSceneRun": "Only after all four hard cases show useful results without material regression",
+    "broadQualityRequirementUnchanged": true
+  },
+  "stopConditions": [
+    "Complete finalized assignment cannot be extracted from the same live session",
+    "CPU feature/image computation or unbounded/unknown CPU work is assigned",
+    "Numerical or resource gate fails",
+    "Exact upstream orchestration would require a substantial separately scoped rewrite"
+  ],
+  "delivery": {
+    "researchOnly": true,
+    "productionEnabled": false,
+    "weightsRedistributed": false,
+    "weightAdoptionRights": "unresolved",
+    "foregroundRunsRequireUserApproval": true,
+    "unrelatedConsoleEdits": "preserve"
+  }
+}
