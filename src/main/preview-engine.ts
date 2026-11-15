@@ -39,6 +39,7 @@ import { renderHdr } from './processing/hdr-processing'
 import { LENS_RENDER_VERSION } from './processing/lens-correction'
 import { processingMetadata } from './processing/metadata'
 import { resolveWhiteBalance } from './processing/white-balance'
+import { renderPreparedMaskPreview } from './processing/prepared-mask-preview'
 
 type ExtractEmbedded = (tool: ExifTool, path: string, output: string) => Promise<void>
 const extractEmbedded: ExtractEmbedded = async (tool, path, output) => {
@@ -359,9 +360,13 @@ export class PreviewEngine {
     output: string,
     options: ProcessingOptions,
     backend: 'cpu' | 'gpu' | 'auto' = this.backend as 'cpu' | 'gpu' | 'auto',
+    preparedMaskStack?: import('./processing/prepared-mask-stack').PreparedMaskStackRequest,
+    signal = new AbortController().signal,
   ): Promise<FullPreviewResult> {
     if (!options.workingAsset || options.crop || !['gpu', 'auto'].includes(backend))
       throw new Error('Invalid prepared preview request.')
+    if (preparedMaskStack)
+      return renderPreparedMaskPreview(output, options, preparedMaskStack, signal)
     this.renewFailedGpu()
     if (options.workingAsset.hdr) this.releaseFrame()
     const frame = options.workingAsset.hdr

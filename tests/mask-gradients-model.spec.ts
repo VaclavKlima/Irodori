@@ -30,7 +30,7 @@ test('linear and radial contracts admit extended source geometry and refuse dege
       rotation: -180,
       feather: 100,
     }
-  expect(maskCapabilities.version).toBe(6)
+  expect(maskCapabilities.version).toBe(7)
   for (const gradient of [linear, radial, { ...radial, feather: 0 }, { ...radial, rotation: 180 }])
     expect(() => validateMaskGradient(gradient, 100, 80)).not.toThrow()
   for (const gradient of [
@@ -85,7 +85,7 @@ test('gradient creation/replacement retains source bounds while brush points sta
       ],
     }),
   ).toThrow()
-  const descriptor = { ...mask }
+  const descriptor = { ...mask, texture: mask.texture ?? 0 }
   Reflect.deleteProperty(descriptor, 'strokes')
   expect(() => validateMaskStack([descriptor])).not.toThrow()
   expect(() =>

@@ -12,6 +12,46 @@ integration checks pass; their exact scope is recorded in the edge brief,
 separately from the earlier brush/selection passes below. Image-guided matting and
 recovered fine hair/fur/feather coverage remain separate research.
 
+## Masked Texture — issue #80
+
+**Masks → Adjustments → Texture** adds one optional
+integer root amount from **−100 to +100**, default **0**, with an independent
+reset and the shared draft/commit/cancel, photo-wide Undo/Redo, restart and
+UI/API/MCP owners. Coverage operands do not receive a second Texture operator.
+Settings **20** / catalog **30** add neutral amounts to current settings and all
+history snapshots without changing previous edits, history cursors or timestamps.
+
+The common isolated GPU stage uses the frozen signed native-crop-grid method.
+After global Detail/crop and point edits, roots run bottom-to-top as **Texture →
+Balance → Light → Saturation → one coverage blend**. Each spatial root sees the
+complete preceding result. Zero amount bypasses spatial work; zoom does not
+change its scale. Existing mask coverage, signed sRGB/Rec.2020, alpha, original
+source taps, strict resource admission and explicit GPU failure are preserved.
+There is no new CPU pixel backend or automatic lower-resolution fallback.
+
+Native SDR/HDR exports retain the independent authored HDR/SDR pair. Browser HDR
+and its interactive histogram consume explicit prepared prefixes. Raster WebGL2
+keeps its original source and applies a private Float32 candidate/union overlay
+after the unchanged legacy pass. Native pixels outside the Texture union and at
+alpha zero retain exact legacy output. Fit retains legacy presentation outside
+the affected sampler footprint; filtering can include neighboring Texture
+pixels. Encoded proof bitmaps do not replace the original source.
+Transient crop framing omits Texture while preserving Light/Color and explains
+that its preview resumes on Apply. Exact HDR service statistics/pixel queries and
+native clipping with active Texture explicitly refuse under the existing
+point-only exact protocol; normal preview/output remain available.
+
+The [feature brief](masked-texture.md) and [ordered integration](masked-texture-integration.md)
+retain frozen photo feedback, earlier failures and the current implementation
+limits. [Reconciled background acceptance](masked-texture.md#full-application-integration--2026-11-15)
+covers 1,169 distinct cases on RX 7900 XTX. Eleven additional native producer/HDR
+cases pass on integrated Radeon; browser iGPU execution remains unverified.
+Two required native foreground visual cases await
+explicit approval and execution; physical HDR, universal photographic quality
+and other-device acceptance are not established.
+[#122](https://github.com/VaclavKlima/Irodori/issues/122) owns macOS/Windows
+consumer qualification after an identified shared-source commit is published.
+
 ## Masked Color — issue #64
 
 Each mask has a separate Color group below Light in **Masks → Adjustments**.
@@ -115,8 +155,7 @@ from these retained acceptance limits.
 Camera captures and downloaded fixtures undergo full image/embedded-preview/metadata
 review and retain original bytes, hashes and permission/credit notices. Fixture
 intake alone does not establish a photographic quality pass or true HDR visual
-acceptance. Texture, Clarity, local Vibrance/mixer/grading and masked clipping
-remain separately scoped.
+acceptance. Texture is tracked by the subsequent [#80 application integration](#masked-texture--issue-80); Clarity, local Vibrance/mixer/grading and broader masked-clipping qualification remain separately scoped.
 
 ## Goal
 
@@ -153,7 +192,7 @@ Store brush polylines in normalized, oriented, uncorrected native source coordin
 
 Evaluate fixed-radius polyline distance with smoothstep feathering, independently of event rate and zoom. Paint combines coverage with `max`; Erase multiplies existing coverage by `1 - strokeCoverage`. Apply inversion after the complete stroke sequence. Preserve zero and full coverage exactly. GPU geometry candidate indexing bounds work to relevant image regions; TypeScript owns validation, indexing and orchestration rather than per-pixel processing.
 
-Evaluate enabled masks bottom-to-top, after the existing global point adjustments and before output/display conversion. Each mask applies its relative balance, six Light operators and local Saturation to the previous result, in that order, then blends `previous + coverage * (local - previous)`. Do not repeat global white balance, curves or creative color. Retain existing scene-linear Rec.2020 versus authored-image semantics and alpha. Apply the same frozen geometry/order independently to authored HDR and its SDR primary. A geometry or local-control edit must not decode RAW again.
+Evaluate enabled masks bottom-to-top, after the existing global point adjustments and before output/display conversion. Each mask reads the complete previous native-grid result and applies optional Texture, relative balance, six Light operators and local Saturation, in that order, then blends `previous + coverage * (local - previous)` once. Texture 0 bypasses spatial work and preserves the existing point path. Do not repeat global white balance, curves or creative color. Retain existing scene-linear Rec.2020 versus authored-image semantics and alpha. Apply the same frozen geometry/order independently to authored HDR and its SDR primary. A geometry or local-control edit must not decode RAW again.
 
 Use shared GPU numeric modules in the existing GLSL/WGSL frontends and native point renderer on both platforms. Include geometry/index buffers in admission, retain cancellation and explicit GPU retry, and never restart equivalent CPU image work on failure. Analysis that cannot include active local edits reports an explicit unavailable reason rather than pre-mask values.
 

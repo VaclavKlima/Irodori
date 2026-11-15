@@ -5,7 +5,7 @@ import {
   ACES_HDR_INTERACTIVE_PREVIEW_VERSION,
   type AcesInteractivePreviewPolicy,
 } from '../../../shared/aces-preview-wgsl'
-import { hdrShader, hdrMipShader, hdrCacheKernel } from './hdr-shader'
+import { hdrShader, hdrMipShader, hdrCacheKernel, hdrPreparedCacheShader } from './hdr-shader'
 import { hdrHistogramShaderFor } from './hdr-histogram'
 import { CREATIVE_COLOR_VERSION } from '../../../shared/creative-color'
 import { TONE_CURVE_VERSION } from '../../../shared/tone-curves'
@@ -17,6 +17,7 @@ export interface HdrPipelineProfile {
   readonly curves?: boolean
   readonly masks?: boolean
   readonly bases?: boolean
+  readonly prepared?: boolean
 }
 export interface HdrPipelines {
   readonly mipLayout: GPUBindGroupLayout
@@ -28,6 +29,10 @@ export interface HdrPipelines {
   readonly cache: GPUComputePipeline
   readonly interactive: Readonly<Partial<Record<AcesInteractivePreviewPolicy, GPUComputePipeline>>>
   readonly blit: GPURenderPipeline
+  readonly preparedCache?: GPUComputePipeline
+  readonly preparedInteractive?: Readonly<
+    Partial<Record<AcesInteractivePreviewPolicy, GPUComputePipeline>>
+  >
 }
 export interface HdrPipelinePreparation {
   readonly state: 'cold' | 'pending' | 'ready'
@@ -58,6 +63,7 @@ export class HdrPipelineCache {
       ...(profile.curves ? { curves: true } : {}),
       ...(profile.masks ? { masks: true } : {}),
       ...(profile.bases ? { bases: true } : {}),
+      ...(profile.prepared ? { prepared: true } : {}),
     })
     const key = JSON.stringify([
       selected.interactive
@@ -71,6 +77,7 @@ export class HdrPipelineCache {
       ...(selected.curves ? [TONE_CURVE_VERSION] : []),
       ...(selected.masks ? [MASK_RENDERING_VERSION] : []),
       ...(selected.bases ? ['generated-r8-atlas-v1'] : []),
+      ...(selected.prepared ? ['prepared-mask-consumed-point-v1'] : []),
     ])
     let entries = this.devices.get(device)
     if (!entries) {
@@ -89,10 +96,24 @@ export class HdrPipelineCache {
       ready: false,
       pending: Promise.resolve()
         .then(async () => {
-          const base =
-            selected.creative || selected.curves || selected.masks
-              ? await this.acquire(device, { interactive: selected.interactive }).pipelines
-              : undefined
+          let base: HdrPipelines | undefined
+          if (selected.prepared) {
+            // Consumed pixels change neither the original point program nor presentation.
+            base = await this.acquire(device, { ...selected, prepared: false }).pipelines
+            if (selected.creative || selected.curves || selected.masks) {
+              const prepared = await this.acquire(device, {
+                interactive: selected.interactive,
+                prepared: true,
+              }).pipelines
+              base = {
+                ...base,
+                preparedCache: prepared.preparedCache,
+                preparedInteractive: prepared.preparedInteractive,
+              }
+            }
+          } else if (selected.creative || selected.curves || selected.masks) {
+            base = await this.acquire(device, { interactive: selected.interactive }).pipelines
+          }
           return this.compile(device, selected, base)
         })
         .then((pipelines) => {
@@ -195,68 +216,79 @@ async function compileHdrPipelines(
         },
       ],
     })
-  const cacheLayout = device.createBindGroupLayout({
-    entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
-      {
-        binding: 1,
-        visibility: GPUShaderStage.COMPUTE,
-        texture: { sampleType: 'unfilterable-float' },
-      },
-      {
-        binding: 3,
-        visibility: GPUShaderStage.COMPUTE,
-        storageTexture: {
-          access: 'write-only',
-          format: 'rgba32float',
-          viewDimension: '2d-array',
-        },
-      },
-      { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-      { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-      ...(profile.creative
-        ? [
+  const cacheLayout =
+    profile.prepared && base
+      ? base.cacheLayout
+      : device.createBindGroupLayout({
+          entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
             {
-              binding: 12,
+              binding: 1,
               visibility: GPUShaderStage.COMPUTE,
-              buffer: { type: 'read-only-storage' as const },
-            },
-          ]
-        : []),
-      ...(profile.curves
-        ? [
-            {
-              binding: 14,
-              visibility: GPUShaderStage.COMPUTE,
-              buffer: { type: 'read-only-storage' as const },
-            },
-          ]
-        : []),
-      ...(profile.masks
-        ? [
-            {
-              binding: 16,
-              visibility: GPUShaderStage.COMPUTE,
-              buffer: { type: 'read-only-storage' as const },
+              texture: { sampleType: 'unfilterable-float' },
             },
             {
-              binding: 17,
+              binding: 3,
               visibility: GPUShaderStage.COMPUTE,
-              buffer: { type: 'storage' as const },
+              storageTexture: {
+                access: 'write-only',
+                format: 'rgba32float',
+                viewDimension: '2d-array',
+              },
             },
-          ]
-        : []),
-      ...(profile.bases
-        ? [
             {
-              binding: 18,
+              binding: 4,
               visibility: GPUShaderStage.COMPUTE,
-              texture: { sampleType: 'float' as const, viewDimension: '2d-array' as const },
+              buffer: { type: 'read-only-storage' },
             },
-          ]
-        : []),
-    ],
-  })
+            {
+              binding: 5,
+              visibility: GPUShaderStage.COMPUTE,
+              buffer: { type: 'read-only-storage' },
+            },
+            ...(profile.creative
+              ? [
+                  {
+                    binding: 12,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: 'read-only-storage' as const },
+                  },
+                ]
+              : []),
+            ...(profile.curves
+              ? [
+                  {
+                    binding: 14,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: 'read-only-storage' as const },
+                  },
+                ]
+              : []),
+            ...(profile.masks
+              ? [
+                  {
+                    binding: 16,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: 'read-only-storage' as const },
+                  },
+                  {
+                    binding: 17,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: 'storage' as const },
+                  },
+                ]
+              : []),
+            ...(profile.bases
+              ? [
+                  {
+                    binding: 18,
+                    visibility: GPUShaderStage.COMPUTE,
+                    texture: { sampleType: 'float' as const, viewDimension: '2d-array' as const },
+                  },
+                ]
+              : []),
+          ],
+        })
   // Queue every independent compiler before awaiting any result. Promise.all
   // observes each rejection, including a synchronous shader/layout failure.
   const mip = base
@@ -291,51 +323,80 @@ async function compileHdrPipelines(
             profile.curves,
             profile.masks,
             profile.bases,
+            profile.prepared,
           ),
         }),
         entryPoint: 'sampleHistogram',
       },
     }),
   )
-  const cache = Promise.resolve().then(() =>
-    device.createComputePipelineAsync({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [cacheLayout] }),
-      compute: {
-        module: device.createShaderModule({
-          code: hdrCacheKernel(
-            'reference',
-            profile.creative,
-            profile.curves,
-            profile.masks,
-            profile.bases,
-          ).shader,
-        }),
-        entryPoint: 'renderTile',
-      },
-    }),
-  )
+  const cache =
+    profile.prepared && base
+      ? Promise.resolve(base.cache)
+      : Promise.resolve().then(() =>
+          device.createComputePipelineAsync({
+            layout: device.createPipelineLayout({ bindGroupLayouts: [cacheLayout] }),
+            compute: {
+              module: device.createShaderModule({
+                code: hdrCacheKernel(
+                  'reference',
+                  profile.creative,
+                  profile.curves,
+                  profile.masks,
+                  profile.bases,
+                ).shader,
+              }),
+              entryPoint: 'renderTile',
+            },
+          }),
+        )
   const policies: AcesInteractivePreviewPolicy[] = profile.interactive
     ? [ACES_HDR_INTERACTIVE_PREVIEW_VERSION, ACES_SDR_INTERACTIVE_PREVIEW_VERSION]
     : []
   const interactive = policies.map((policy) =>
-    Promise.resolve().then(() =>
-      device.createComputePipelineAsync({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [cacheLayout] }),
-        compute: {
-          module: device.createShaderModule({
-            code: hdrCacheKernel(
-              policy,
-              profile.creative,
-              profile.curves,
-              profile.masks,
-              profile.bases,
-            ).shader,
+    profile.prepared && base?.interactive[policy]
+      ? Promise.resolve(base.interactive[policy]!)
+      : Promise.resolve().then(() =>
+          device.createComputePipelineAsync({
+            layout: device.createPipelineLayout({ bindGroupLayouts: [cacheLayout] }),
+            compute: {
+              module: device.createShaderModule({
+                code: hdrCacheKernel(
+                  policy,
+                  profile.creative,
+                  profile.curves,
+                  profile.masks,
+                  profile.bases,
+                ).shader,
+              }),
+              entryPoint: 'renderTile',
+            },
           }),
-          entryPoint: 'renderTile',
-        },
-      }),
-    ),
+        ),
   )
+  const preparedPrograms =
+    profile.prepared && base?.preparedCache
+      ? Promise.resolve([
+          base.preparedCache,
+          ...policies.map((policy) => base.preparedInteractive![policy]!),
+        ])
+      : profile.prepared
+        ? Promise.all(
+            ['reference', ...policies].map((policy) =>
+              device.createComputePipelineAsync({
+                layout: 'auto',
+                compute: {
+                  module: device.createShaderModule({
+                    code: hdrPreparedCacheShader(
+                      policy as AcesInteractivePreviewPolicy | 'reference',
+                    ),
+                  }),
+                  entryPoint: 'applyPreparedTile',
+                },
+              }),
+            ),
+          )
+        : Promise.resolve(undefined)
   const [
     mipProgram,
     presentationProgram,
@@ -343,6 +404,7 @@ async function compileHdrPipelines(
     cacheProgram,
     blit,
     interactivePrograms,
+    preparedCompiled,
   ] = await Promise.all([
     mip,
     presentation,
@@ -350,6 +412,7 @@ async function compileHdrPipelines(
     cache,
     presentationBlit(device),
     Promise.all(interactive),
+    preparedPrograms,
   ] as const)
   return Object.freeze({
     mipLayout,
@@ -363,6 +426,14 @@ async function compileHdrPipelines(
     interactive: Object.freeze(
       Object.fromEntries(policies.map((policy, i) => [policy, interactivePrograms[i]])),
     ),
+    ...(preparedCompiled
+      ? {
+          preparedCache: preparedCompiled[0],
+          preparedInteractive: Object.freeze(
+            Object.fromEntries(policies.map((policy, i) => [policy, preparedCompiled[i + 1]])),
+          ),
+        }
+      : {}),
   }) satisfies HdrPipelines
 }
 

@@ -1,0 +1,177 @@
+{
+  "version": 1,
+  "id": "masked-texture-order-proof-v2",
+  "issue": 80,
+  "status": "prospectively-frozen-before-ordered-candidate-gpu",
+  "algorithmReference": {
+    "file": "assets/tests/references/masked-texture/protocol.json",
+    "sha256": "f8aa5bc91184276ee3c8fe1115bafa427c4476736db850cc053c0cd1e901f399"
+  },
+  "correction": {
+    "previousProtocol": {
+      "file": "assets/tests/references/masked-texture/order-protocol-v1.json",
+      "sha256": "1830817ee8b6daf8e97a320c85269596d15e76e19e6f8f6d2237190bd88f58a4"
+    },
+    "previousReference": {
+      "file": "assets/tests/references/masked-texture/order-reference-v1.json",
+      "sha256": "109685c82217a61d6e44b63a8829bf3dca569ed323d86f6baba66daeff0645ff"
+    },
+    "previousGenerator": {
+      "file": "scripts/research/masked-texture/order-reference.py",
+      "sha256": "099b679296c048229a3c6ce14ef9fdff1972e23a661d2e9825338fba4cf0f0c5"
+    },
+    "reason": "V1 authoring-contract error: local exposure0.125 is not a valid0.01EV control step; the first GPU gate rejected it before filtered output for that case and before any photograph.",
+    "generatorControlSites": [
+      {
+        "case": "raster-even-partial",
+        "control": "local exposureEv",
+        "previous": 0.125,
+        "corrected": 0.12
+      },
+      {
+        "case": "raster-even-partial",
+        "control": "global exposureEv",
+        "previous": 0.125,
+        "corrected": 0.12
+      },
+      {
+        "case": "all three crop cases",
+        "control": "local exposureEv",
+        "previous": 0.125,
+        "corrected": 0.12
+      },
+      {
+        "case": "all three crop cases",
+        "control": "global exposureEv",
+        "previous": 0.125,
+        "corrected": 0.12
+      }
+    ],
+    "limits": "Four generator control sites expand to eight scalar fields in four cases. All algorithm/kernel/domain/boundary/strength/mask/crop/source/tolerance/photo controls remain unchanged. Retain all v1 files and failed evidence; no output-driven tuning."
+  },
+  "reference": {
+    "file": "assets/tests/references/masked-texture/order-reference-v2.json",
+    "sha256": "c2d1926b004768432203830385c5b894a9a55b067383a3f1cf6575243294007e",
+    "generator": "scripts/research/masked-texture/order-reference-v2.py",
+    "generatorSha256": "4fbd122e27d5055a121e93cdde4666a9036e1bca5884ac48a6c500af49ee9b75"
+  },
+  "scope": "One internal ordered-mask proof, not production settings/UI/history/MCP/export adoption",
+  "order": "Existing globalLight/Color then bottom-to-top roots; unblended frozen Texture then Balance, sixLight, saturation then oneexistingmix",
+  "rootList": "TOP-FIRST; steps/expected are BOTTOM-TO-TOP execution",
+  "strengths": [25, -25],
+  "pointReferenceLimits": {
+    "globalWhiteBalance": "neutral",
+    "globalCurves": "neutral",
+    "globalVibrance": 0,
+    "mixerGrading": "neutral",
+    "white": 1,
+    "activeGlobalControls": ["exposureEv", "contrast", "saturation"],
+    "activeLocalControls": [
+      "temperature",
+      "tint",
+      "saturation",
+      "exposureEv",
+      "contrast",
+      "highlights",
+      "shadows",
+      "whites",
+      "blacks"
+    ]
+  },
+  "gridPolicy": {
+    "id": "masked-texture-cropped-stack-v1",
+    "referenceCases": "Identity and three explicit native crops; crop-local pixel centers+0.5, finite-levelclamp/ceilhalf unchanged; coverage mapped to canonical source",
+    "qualificationCases": ["odd integer crop origin", "quarter turn", "fractional straighten"],
+    "requiresActualGpuEvidence": true,
+    "notPromised": "Uncropped canonical phase/rotation invariance or outsidecrop neighbors"
+  },
+  "gates": {
+    "absolute": 2e-6,
+    "relative": 2e-5,
+    "absoluteRgb": 2e-6,
+    "relativeRgb": 2e-5,
+    "exact": [
+      "per-root zeroCoverage copies precedingRGBAwords",
+      "alpha words unchanged",
+      "Texture alpha0 unblended candidate copies preceding hiddenRGBwords",
+      "allTexture0 uses actualcompletelegacyconsumer route",
+      "actual nativeconsumer output outsideTextureunion exactvsunchangedlegacy"
+    ],
+    "hiddenPointEdits": "ExistingLight/Color maymodifyhiddenRGB; alpha0 is Texture-onlybypass, finalcompatibility selectsactuallegacy",
+    "negativeControls": "Doublecoverage, doubleglobals and reversedorder each exceedunchangedRGBgate at a frozen witness",
+    "outputMetadata": "Actual nativeHDRselected-output peaks/headroom followexistingpolicy; not certifiedbythisoracle"
+  },
+  "runtime": {
+    "backend": "Existing isolatedDawn sharedpoint/Texture GPU; no CPUfeaturefallback",
+    "maxReferenceSize": { "width": 33, "height": 25 },
+    "maxReferenceBytes": 1048576,
+    "photo": "Only after small GPU/domain/order/exactlegacy/resource/crop gates; existing trackedflamingo, fresh evidence",
+    "foregroundRequiresApproval": true,
+    "resources": "UnchangedAutomaticRAM/conservative2GiBGPU/devicebuffers; drainTexturebeforeseparatepointcomposite; chargeunblendedcandidate+previous+next plus source/union/legacyoutput"
+  },
+  "photo": {
+    "caseFile": "assets/tests/references/masked-texture/photo-cases.json",
+    "caseSha256": "7e1d900942d309add89e3c76ed68af07238c8e59fc7174b89c46c531167c5483",
+    "caseId": "flamingo-plumage-ripples-reflected-legs",
+    "globals": {
+      "exposureEv": 0.25,
+      "contrast": 10,
+      "highlights": 0,
+      "shadows": 0,
+      "whites": 0,
+      "blacks": 0,
+      "saturation": 10,
+      "vibrance": 0
+    },
+    "roots": [
+      {
+        "id": "ripples",
+        "amount": -25,
+        "light": {
+          "exposureEv": -0.1,
+          "contrast": 0,
+          "highlights": 0,
+          "shadows": 0,
+          "whites": 0,
+          "blacks": 0
+        },
+        "color": { "temperature": 0, "tint": 0, "saturation": 10 }
+      },
+      {
+        "id": "reflected-legs",
+        "amount": 25,
+        "light": {
+          "exposureEv": 0.15,
+          "contrast": 0,
+          "highlights": 0,
+          "shadows": 0,
+          "whites": 0,
+          "blacks": 0
+        },
+        "color": { "temperature": 0, "tint": 0, "saturation": 10 }
+      },
+      {
+        "id": "plumage",
+        "amount": 25,
+        "light": {
+          "exposureEv": 0,
+          "contrast": 10,
+          "highlights": 0,
+          "shadows": 0,
+          "whites": 0,
+          "blacks": 0
+        },
+        "color": { "temperature": 0, "tint": 0, "saturation": 10 }
+      }
+    ],
+    "rootOrder": "TOP-FIRST, unchanged source mask order; execute bottom-to-top",
+    "crop": "Identity native crop; transformed geometry is qualified by the three tiny cases",
+    "prerequisite": "All fourteen numerical/order/crop/coverage and actualconsumer/exactlegacy/resource gates pass first",
+    "purpose": "Prospective integration test controls, not result-driven photographic tuning or a changed preferred user recipe"
+  },
+  "compatibilityOnlyCurveProbe": {
+    "scope": "Separate actualconsumer activecurve comparison with allTexture0; no independent combinedTexture+curve oracle qualification",
+    "freeze": "Exact tiny input and curve controls must be pinned in the owned run before dispatch"
+  },
+  "stop": "First failed gate stops; correctimplementation defects only withinfrozenmath/controls/tolerances. No automaticparameter/model/sourcecycle or productionfeature enablement."
+}

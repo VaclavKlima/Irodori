@@ -38,6 +38,7 @@ import { acceptExportWorkerProgress, exportProgressOwner } from './progress'
 import { isUncropped } from '../../shared/crop'
 import { resolveDetailSettings } from '../processing/detail-identity'
 import { outputSharpeningMode } from '../../shared/output-sharpening'
+import { hasMaskedTexture } from '../../shared/masked-texture'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const active = (task: BackgroundTask) => task.status === 'running' || task.status === 'cancelling'
@@ -356,20 +357,27 @@ export class ExportJobs {
                 }
                 sourceValidationMs += performance.now() - validationStarted
                 const detailActive = resolveDetailSettings(source.processing).active,
+                  textureActive = hasMaskedTexture(source.processing.adjustments ?? {}),
                   cropActive = source.processing.crop && !isUncropped(source.processing.crop),
                   resizeActive = manifest.options.size.mode !== 'original',
                   outputSharpeningActive = outputSharpeningMode(manifest.options) !== 'off',
                   admission =
-                    cropActive || detailActive || resizeActive || outputSharpeningActive
+                    cropActive ||
+                    detailActive ||
+                    textureActive ||
+                    resizeActive ||
+                    outputSharpeningActive
                       ? await this.requireImageAdmission(
                           signal,
-                          detailActive
-                            ? 'Detail'
-                            : cropActive
-                              ? 'Crop'
-                              : outputSharpeningActive
-                                ? 'Output sharpening'
-                                : 'Resize',
+                          textureActive
+                            ? 'Texture'
+                            : detailActive
+                              ? 'Detail'
+                              : cropActive
+                                ? 'Crop'
+                                : outputSharpeningActive
+                                  ? 'Output sharpening'
+                                  : 'Resize',
                         )
                       : undefined
                 signal.throwIfAborted()
@@ -386,9 +394,12 @@ export class ExportJobs {
                   attemptId: workerProgressIdentity.attemptId,
                 }
                 const renderJob: Parameters<ExportProcess['render']>[0] = {
+                  texturePolicy: manifest.pipeline.texture
+                    ? { ...manifest.pipeline.texture }
+                    : undefined,
                   cropPolicy: manifest.pipeline.crop ? { ...manifest.pipeline.crop } : undefined,
                   cropAdmission: cropActive ? admission : undefined,
-                  detailAdmission: detailActive ? admission : undefined,
+                  detailAdmission: detailActive || textureActive ? admission : undefined,
                   resizeAdmission: resizeActive ? admission : undefined,
                   outputSharpeningAdmission: outputSharpeningActive ? admission : undefined,
                   outputSharpeningPolicy: manifest.pipeline.outputSharpening
@@ -540,7 +551,7 @@ export class ExportJobs {
   }
   private async requireImageAdmission(
     signal: AbortSignal,
-    stage: 'Crop' | 'Detail' | 'Resize' | 'Output sharpening',
+    stage: 'Crop' | 'Detail' | 'Resize' | 'Output sharpening' | 'Texture',
   ) {
     if (!this.cropAdmission) throw new Error(`${stage} export resource admission is unavailable.`)
     return structuredClone(await this.cropAdmission(signal))

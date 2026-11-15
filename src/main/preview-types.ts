@@ -37,7 +37,9 @@ export interface PreviewAnalysisFrame {
   cropPreview?: import('./processing/crop-preview').CropPreviewJob
   detail?: import('./processing/detail-preparation').DetailPreparationJob
   detailPreview?: import('./processing/detail-preview').DetailPreviewJob
+  maskStack?: import('./processing/mask-stack-preparation').MaskStackPreparationJob
   preparedBackend?: 'cpu' | 'gpu' | 'auto'
+  preparedMaskStack?: import('./processing/prepared-mask-stack').PreparedMaskStackRequest
 }
 export interface HdrStatisticsJob {
   asset: HdrWorkingAsset
@@ -134,6 +136,7 @@ export type PreviewWorkerRequest =
         | 'crop-working'
         | 'crop-preview'
         | 'detail-working'
+        | 'mask-stack-working'
         | 'detail-preview'
         | 'prepared-full'
         | 'output-proof'
@@ -166,6 +169,7 @@ export type PreviewWorkerResponse =
         | CurveTone
         | import('./processing/crop-preparation').CropPreparationResult
         | import('./processing/detail-preparation').DetailPreparationResult
+        | import('./processing/mask-stack-preparation').MaskStackPreparationResult
         | PreviewWarmResult
         | import('./export/proof-decode').OutputProofDecoded
         | import('../shared/capture-sequence').CaptureMetadata
@@ -255,6 +259,13 @@ export interface HdrPreparationTimings {
 }
 
 export interface FullPreviewResult {
+  maskStackFiles?: import('./processing/mask-stack-presentation').PreparedMaskFiles
+  /** Completed SDR rendition only; these pixels must never reenter an unconsumed source cache. */
+  preparedMaskStack?: {
+    key: string
+    consumed: typeof import('./processing/prepared-mask-stack').PREPARED_MASK_STACK_CONSUMED
+    parentSha256: string
+  }
   maskGeometry?: import('../shared/mask-geometry').MaskGeometry
   preparedProofVersion?: typeof import('../shared/preview-frame').PREPARED_PROOF_VERSION
   detail?: import('./processing/detail-preview').DetailPreviewIdentity
@@ -288,11 +299,17 @@ export interface FullPreviewResult {
 }
 
 export interface FullPreviewProcessor {
+  prepareMaskStack?(
+    output: string,
+    job: import('./processing/mask-stack-preparation').MaskStackPreparationJob,
+    signal: AbortSignal,
+  ): Promise<import('./processing/mask-stack-preparation').MaskStackPreparationResult>
   renderPreparedFull?(
     output: string,
     options: ProcessingOptions,
     signal: AbortSignal,
     backend: 'cpu' | 'gpu' | 'auto',
+    preparedMaskStack?: import('./processing/prepared-mask-stack').PreparedMaskStackRequest,
   ): Promise<FullPreviewResult>
   prepareDetailPreview?(
     path: string,

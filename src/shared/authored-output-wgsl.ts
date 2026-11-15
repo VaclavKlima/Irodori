@@ -7,6 +7,8 @@ export type PointRenderDomain = 'scene-linear' | 'raster' | 'authored-hdr'
 export interface PointRenderOptions {
   readonly domain: PointRenderDomain
   readonly preserveAlpha?: boolean
+  /** Internal prepared consumer: global and local point edits are already consumed. */
+  readonly preparedPoint?: boolean
   readonly maskSize?: { readonly width: number; readonly height: number }
   /** An independently authored SDR primary accompanies HDR content during export. */
   readonly primary?: boolean
@@ -74,8 +76,8 @@ ${hdr && packed ? `var<workgroup> peaks:array<f32,${workgroup}>;` : ''}
   let pixel=input[id.x];
   if(!authoredFinite(pixel)${primary ? '||!authoredFinite(primary[id.x])' : ''}) { atomicMax(&result.peak,bitcast<u32>(1e30)); }
   ${masks ? 'let absolute=u32(u.values[0].y)+id.x;let maskPoint=vec2f(f32(absolute%u32(maskData[5].y))+.5,f32(absolute/u32(maskData[5].y))+.5);' : ''}
-  ${!raster ? `${masks ? 'var localEdited=applyLocalMasks(hdr_adjusted(pixel.rgb),maskPoint,1.,true);if(!localMaskFinite(localEdited)){atomicMax(&result.peak,bitcast<u32>(1e30));localEdited=vec3f(0.);}' : ''}let content=max(${masks ? 'localEdited' : 'hdr_adjusted(pixel.rgb)'},vec3f(0.));` : ''}
-  var sdr=${raster || primary ? `${masks ? 'applyLocalMasks(' : ''}rasterAdjusted(${primary ? 'primary[id.x].rgb' : 'pixel.rgb'},u.values[2],u.values[3].xy,u.values[11].xy,u.values[8].x)${masks ? ',maskPoint,u.values[8].x,false)' : ''}` : `mat3x3f(${matrix})*content`};
+  ${!raster ? `${options.preparedPoint ? 'var consumedContent=pixel.rgb;if(u.values[11].w<.5){' : ''}${masks ? 'var localEdited=applyLocalMasks(hdr_adjusted(pixel.rgb),maskPoint,1.,true);if(!localMaskFinite(localEdited)){atomicMax(&result.peak,bitcast<u32>(1e30));localEdited=vec3f(0.);}' : ''}${options.preparedPoint ? `consumedContent=${masks ? 'localEdited' : 'hdr_adjusted(pixel.rgb)'};}` : ''}let content=max(${options.preparedPoint ? 'consumedContent' : masks ? 'localEdited' : 'hdr_adjusted(pixel.rgb)'},vec3f(0.));` : ''}
+  var sdr=${options.preparedPoint ? `${primary ? 'primary[id.x].rgb' : raster ? 'pixel.rgb' : `mat3x3f(${matrix})*content`};if(u.values[11].w<.5){sdr=` : ''}${raster || primary ? `${masks ? 'applyLocalMasks(' : ''}rasterAdjusted(${primary ? 'primary[id.x].rgb' : 'pixel.rgb'},u.values[2],u.values[3].xy,u.values[11].xy,u.values[8].x)${masks ? ',maskPoint,u.values[8].x,false)' : ''}` : `mat3x3f(${matrix})*content`};${options.preparedPoint ? '}' : ''}
   ${masks ? 'if(!localMaskFinite(sdr)){atomicMax(&result.peak,bitcast<u32>(1e30));sdr=vec3f(0.);}' : ''}
   if(u.values[8].w>0.) { sdr=floor(sdr*65535.)/65535.; }
   sdr=clamp(sdr/u.values[8].x,vec3f(0.),vec3f(1.));

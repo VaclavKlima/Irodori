@@ -192,6 +192,7 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
           operands: [],
           light: { ...neutralMaskLight },
           color: { ...neutralMaskColor },
+          texture: 0,
           edge: { ...neutralMaskEdge },
           ...(op.gradient ? { gradient: structuredClone(op.gradient) } : {}),
           ...(op.range ? { range: structuredClone(op.range) } : {}),
@@ -200,13 +201,18 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
       case 'update': {
         const root = find(op.id),
           mask = findMaskComponent(root, op.componentId)
-        if (op.componentId && op.componentId !== root.id && (op.light || op.color))
-          throw new Error('Light and Color belong to the destination mask.')
+        if (
+          op.componentId &&
+          op.componentId !== root.id &&
+          (op.light || op.color || op.texture !== undefined)
+        )
+          throw new Error('Light, Color and Texture belong to the destination mask.')
         if (op.name !== undefined) mask.name = op.name
         if (op.enabled !== undefined) mask.enabled = op.enabled
         if (op.inverted !== undefined) mask.inverted = op.inverted
         if (op.light) root.light = { ...root.light, ...op.light }
         if (op.color) root.color = { ...root.color, ...op.color }
+        if (op.texture !== undefined) root.texture = op.texture
         if (op.edge) mask.edge = { ...mask.edge, ...op.edge }
         replaceSource(mask, op)
         break
@@ -219,6 +225,7 @@ export function prepareMaskMutation(current: readonly MaskDescriptor[], mutation
           ...fresh(source, op.newId, op.name),
           light: structuredClone(source.light),
           color: structuredClone(source.color),
+          texture: source.texture,
         })
         break
       }

@@ -28,6 +28,8 @@ import { imageResourceOwners } from './image-resource-owners'
 import { drawPixelGrid, pixelGridGlsl } from './pixel-grid'
 import { imageStatistics, type ImageStatistics } from '../../../shared/statistics'
 import { reduceHdrMask } from '../../../shared/hdr-statistics'
+import { pointOnlyMaskAdjustments } from '../../../shared/masked-texture'
+import { PreparedRasterOverlay, rasterOverlayBytes } from './prepared-raster-overlay'
 type ClippingMask = ReturnType<typeof reduceHdrMask>
 type ComparisonMode = 'after' | 'before' | 'split'
 
@@ -46,13 +48,15 @@ uniform int comparison;
 uniform float split;
 uniform vec3 transform;
 out vec4 color;
+vec2 sampleDx,sampleDy;
 vec4 sampleImage(vec2 p) {
   if (scale >= 1.0) return texelFetch(pixels, clamp(ivec2(floor(p)), ivec2(0), ivec2(imageSize)-1), 0);
-  return texture(pixels, p / imageSize);
+  return textureGrad(pixels, p / imageSize, sampleDx, sampleDy);
 }
 void main() {
   vec2 css = vec2(gl_FragCoord.x / dpr, viewport.y - gl_FragCoord.y / dpr);
   vec2 source = (css - viewport * 0.5 - pan) / scale + imageSize * 0.5;
+  sampleDx=dFdx(source/imageSize);sampleDy=dFdy(source/imageSize);
   if (any(lessThan(source, vec2(0))) || any(greaterThanEqual(source, imageSize))) { color = vec4(0); return; }
   color = sampleImage(source);
   if (working) {
@@ -78,7 +82,7 @@ function comparisonFragment(source: string) {
       'void main() {\n  vec2 css',
       `vec4 sampleBefore(vec2 p) {
   if (scale >= 1.0) return texelFetch(beforePixels, clamp(ivec2(floor(p)), ivec2(0), ivec2(imageSize)-1), 0);
-  return texture(beforePixels, p / imageSize);
+  return textureGrad(beforePixels, p / imageSize, sampleDx, sampleDy);
 }
 void main() {\n  vec2 css`,
     )
@@ -119,7 +123,12 @@ export class PreviewPresenter {
       ),
       storage = [...buffers].reduce((bytes, buffer) => bytes + buffer.byteLength, 0),
       bitmap = (this.bitmap?.width ?? 0) * (this.bitmap?.height ?? 0) * 4,
-      canvas = this.canvas.width * this.canvas.height * 32
+      canvas = this.canvas.width * this.canvas.height * 32,
+      sourceGpu = Math.max(
+        Math.ceil((working * 4) / 3) + bitmap * 2,
+        this.uploadedSourceGpuBytes +
+          Math.ceil(((this.beforeSource?.data.byteLength ?? 0) * 4) / 3),
+      )
     return {
       ramBytes:
         storage * 3 +
@@ -129,20 +138,28 @@ export class PreviewPresenter {
         this.localMaskBytes * 3 +
         this.localMaskBaseReservation.ramBytes +
         this.histogramBytes * 2 +
+        this.preparedRamBytes +
         this.clippingReservation.ramBytes,
       vramBytes:
-        Math.ceil((working * 4) / 3) +
-        bitmap * 2 +
+        sourceGpu +
         canvas +
         this.creativeBytes +
         this.localMaskBytes +
         this.localMaskBaseReservation.vramBytes +
         this.histogramBytes +
         this.clippingReservation.vramBytes +
+        this.preparedGpuBytes +
         this.retiringBeforeBytes,
     }
   }
   private gl: WebGL2RenderingContext | null = null
+  private preparedOverlay?: PreparedRasterOverlay
+  private preparedController?: AbortController
+  private preparedWork?: Promise<void>
+  private preparedGpuBytes = 0
+  private preparedRamBytes = 0
+  private preparedPending = false
+  private preparedFailedFrame?: WorkingFrame
   private context: CanvasRenderingContext2D | null = null
   private program?: WebGLProgram
   private creativeProgram?: WebGLProgram
@@ -182,6 +199,8 @@ export class PreviewPresenter {
   private clippingRequested = ''
   private clippingWork?: Promise<void>
   private uploadedCurves?: CompiledToneCurves
+  // A queued smaller frame must keep the old uploaded source charged until replacement.
+  private uploadedSourceGpuBytes = 0
   private texture?: WebGLTexture
   private beforeTexture?: WebGLTexture
   private beforeSource?: WorkingFrame
@@ -333,8 +352,9 @@ export class PreviewPresenter {
           '    if (!before && localMasksActive) { rgb=applyLocalMasks(rgb,source,transform.x);maskInvalid=!localMaskFinite(rgb);if(maskInvalid)rgb=vec3(0.); }\n    if (quantize) rgb',
         )
         .replace(
-          'vec2 source = (css - viewport * 0.5 - pan) / scale + imageSize * 0.5;',
+          'vec2 source = (css - viewport * 0.5 - pan) / scale + imageSize * 0.5;\n  sampleDx=dFdx(source/imageSize);sampleDy=dFdy(source/imageSize);',
           `vec2 source = (css - viewport * 0.5 - pan) / scale + imageSize * 0.5;
+  sampleDx=dFdx(source/imageSize);sampleDy=dFdy(source/imageSize);
   if(histogramPass){
     uint sampleIndex=uint(gl_FragCoord.y)*uint(histogramSize.x)+uint(gl_FragCoord.x);
     uint count=uint(histogramCount), imageWidth=uint(imageSize.x), total=imageWidth*uint(imageSize.y);
@@ -426,6 +446,7 @@ export class PreviewPresenter {
       gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE)
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, bitmap)
       gl.generateMipmap(gl.TEXTURE_2D)
+      this.uploadedSourceGpuBytes = Math.ceil((bitmap.width * bitmap.height * 16) / 3)
     }
   }
   private checkSize(width: number, height: number, bytes: number) {
@@ -433,13 +454,18 @@ export class PreviewPresenter {
     if (
       width > gl.getParameter(gl.MAX_TEXTURE_SIZE) ||
       height > gl.getParameter(gl.MAX_TEXTURE_SIZE) ||
-      width * height * bytes +
+      Math.max(
+        width * height * bytes,
+        this.uploadedSourceGpuBytes +
+          Math.ceil(((this.beforeSource?.data.byteLength ?? 0) * 4) / 3),
+      ) +
         this.canvas.width * this.canvas.height * 8 +
         this.creativeBytes +
         this.localMaskBytes +
         this.localMaskBaseReservation.vramBytes +
         this.histogramBytes +
         this.clippingReservation.vramBytes +
+        this.preparedGpuBytes +
         this.retiringBeforeBytes >
         512 * 1024 ** 2
     )
@@ -466,6 +492,15 @@ export class PreviewPresenter {
       this.bitmap = undefined
     }
     this.working = frame
+    if (frame.preparedMasks || this.preparedOverlay || this.preparedPending) {
+      this.loadPreparedOverlay(frame, () => this.uploadWorking(frame))
+    } else {
+      this.uploadWorking(frame)
+      this.canvas.dataset.editing = 'ready'
+    }
+  }
+
+  private uploadWorking(frame: WorkingFrame) {
     const gl = this.gl
     if (gl) {
       this.checkSize(frame.width, frame.height, (16 * 4) / 3)
@@ -484,8 +519,60 @@ export class PreviewPresenter {
       )
       gl.generateMipmap(gl.TEXTURE_2D)
       if (gl.getError() !== gl.NO_ERROR) throw new Error('Preview texture upload failed.')
+      this.uploadedSourceGpuBytes = Math.ceil((frame.data.byteLength * 4) / 3)
     }
-    this.canvas.dataset.editing = 'ready'
+  }
+
+  private loadPreparedOverlay(frame: WorkingFrame, upload: () => void) {
+    this.preparedController?.abort()
+    const previous = this.preparedWork?.catch(() => undefined),
+      retiring = this.preparedOverlay
+    this.preparedOverlay = undefined
+    this.preparedFailedFrame = undefined
+    this.preparedPending = true
+    this.canvas.dataset.editing = 'loading'
+    const controller = new AbortController()
+    this.preparedController = controller
+    const work = (async () => {
+      await previous
+      await retiring?.dispose()
+      this.preparedGpuBytes = 0
+      this.preparedRamBytes = 0
+      if (this.disposed || this.working !== frame || controller.signal.aborted) return
+      upload()
+      if (frame.preparedMasks) {
+        const memory = rasterOverlayBytes(frame.width, frame.height)
+        this.preparedGpuBytes = memory.pending
+        this.preparedRamBytes = memory.ram
+        this.checkSize(frame.width, frame.height, ((16 * 4) / 3) * (this.beforeSource ? 2 : 1))
+        this.canvas.dataset.preparedMaskState = 'loading'
+        const overlay = await PreparedRasterOverlay.create(this.gl!, frame, controller.signal)
+        if (this.disposed || this.working !== frame || controller.signal.aborted) {
+          await overlay.dispose()
+          return
+        }
+        this.preparedOverlay = overlay
+        this.preparedGpuBytes = overlay.bytes
+        this.preparedRamBytes = JSON.stringify(overlay.descriptor).length * 2 + 4096
+        this.canvas.dataset.preparedMaskKey = overlay.descriptor.key
+        this.canvas.dataset.preparedMaskState = 'ready'
+      } else {
+        delete this.canvas.dataset.preparedMaskKey
+        delete this.canvas.dataset.preparedMaskState
+      }
+      this.preparedPending = false
+      this.canvas.dataset.editing = 'ready'
+      this.redrawLatest()
+    })().catch((error: unknown) => {
+      if (this.disposed || this.working !== frame || controller.signal.aborted) return
+      this.preparedGpuBytes = 0
+      this.preparedRamBytes = 0
+      this.preparedPending = false
+      this.preparedFailedFrame = frame
+      this.canvas.dataset.preparedMaskState = 'failed'
+      this.lost(String(error))
+    })
+    this.preparedWork = work
   }
 
   /** The supplied baseline has already passed the main comparison identity and float checks. */
@@ -620,9 +707,91 @@ export class PreviewPresenter {
     if (latest && latest.clippingContext === this.clippingContext)
       this.draw(latest.image, latest.viewport, latest.view, latest.parameters)
   }
+  /** Texture-only photos keep the ordinary photograph shader. Analysis alone uses
+   * the existing native-sample program plus the same prepared overlay. */
+  private prepareTextureAnalysis(
+    image: Size,
+    viewport: Size,
+    view: View,
+    parameters: AdjustmentParameters,
+  ): WebGLProgram | undefined {
+    const gl = this.gl!,
+      program = this.prepareCreativeProgram()
+    if (!program) {
+      this.statisticsPending(true)
+      return
+    }
+    const plan = maskBaseAtlasPlan({})
+    this.localMaskBaseAtlas ??= new WebGlMaskBaseAtlas(gl)
+    this.localMaskBaseReservation = {
+      ramBytes: plan.decodeBytes + plan.uploadBytes,
+      vramBytes: Math.max(plan.bytes, this.localMaskBaseAtlas.bytes) + plan.uploadBytes,
+    }
+    if (!this.localMaskBaseAtlas.ready(plan, () => this.redrawLatest(), this.lost)) return
+    const location = (name: string) => gl.getUniformLocation(program, name)
+    gl.useProgram(program)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, this.texture!)
+    gl.uniform1i(location('pixels'), 0)
+    gl.uniform1i(location('localMaskData'), 0)
+    gl.activeTexture(gl.TEXTURE3)
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.localMaskBaseAtlas.texture!)
+    gl.uniform1i(location('localMaskBaseAtlas'), 3)
+    gl.uniform1i(location('localMasksActive'), 0)
+    if (this.beforeTexture) {
+      gl.activeTexture(gl.TEXTURE1)
+      gl.bindTexture(gl.TEXTURE_2D, this.beforeTexture)
+      gl.uniform1i(location('beforePixels'), 1)
+    }
+    const colour =
+      prepareCreativeColor(parameters) ??
+      prepareCreativeColor({ ...parameters, colorMixer: neutralColorMixer })!
+    gl.uniform4fv(location('creativeColorData[0]'), packCreativeColor(colour))
+    const curves = preparedToneCurves(parameters.curves)
+    gl.uniform4fv(location('toneCurveData[0]'), packToneCurves(curves))
+    this.uploadedCurves = curves
+    gl.uniform2f(location('viewport'), viewport.width, viewport.height)
+    gl.uniform2f(location('imageSize'), image.width, image.height)
+    gl.uniform2f(location('pan'), view.x, view.y)
+    gl.uniform1f(location('scale'), view.scale)
+    gl.uniform1f(location('dpr'), window.devicePixelRatio || 1)
+    gl.uniform1f(location('exposureEv'), parameters.exposureEv)
+    gl.uniform1f(location('contrast'), parameters.contrast)
+    gl.uniform1f(location('highlights'), parameters.highlights)
+    gl.uniform1f(location('shadows'), parameters.shadows)
+    gl.uniform1f(location('whites'), parameters.whites)
+    gl.uniform1f(location('blacks'), parameters.blacks)
+    gl.uniform2f(location('colorIntensity'), parameters.saturation, parameters.vibrance)
+    const wb = whiteBalanceMatrix(parameters.whiteBalance, this.working?.transform.whiteBalance),
+      matrix = wb ?? identityMatrix
+    gl.uniformMatrix3fv(
+      location('whiteBalance'),
+      false,
+      [0, 3, 6, 1, 4, 7, 2, 5, 8].map((i) => matrix[i]),
+    )
+    gl.uniform1i(location('customWb'), Number(!!wb))
+    gl.uniform1i(location('comparison'), 0)
+    gl.uniform1f(location('split'), this.comparison.split)
+    gl.uniform1i(location('working'), 1)
+    const transform = this.working!.transform
+    gl.uniform3f(location('transform'), transform.white, transform.threshold, transform.offset)
+    gl.uniform1i(location('quantize'), Number(transform.quantize))
+    gl.uniform1i(location('maskValidation'), 0)
+    gl.uniform1i(location('histogramPass'), 0)
+    gl.uniform1i(location('clippingPass'), 0)
+    return program
+  }
   draw(image: Size, viewport: Size, view: View, parameters: AdjustmentParameters) {
     if (this.disposed || !viewport.width || !viewport.height) return
     this.view = { image, viewport, view, parameters, clippingContext: this.clippingContext }
+    if (this.preparedPending || this.preparedFailedFrame === this.working) return
+    if (
+      this.preparedOverlay &&
+      this.preparedOverlay.descriptor.pointKey !== adjustmentPixelKey(parameters)
+    ) {
+      this.canvas.dataset.preparedMaskState = 'stale'
+      return
+    }
     const waiting =
       this.comparison.mode !== 'after' &&
       (this.comparisonRequired || !!this.beforeSource) &&
@@ -632,7 +801,8 @@ export class PreviewPresenter {
     this.canvas.style.visibility = waiting || sourceWaiting ? 'hidden' : ''
     if (waiting || sourceWaiting) return
     const curves = preparedToneCurves(parameters.curves)
-    const masks = hasLocalMasks(parameters)
+    const pointParameters = pointOnlyMaskAdjustments(parameters)
+    const masks = hasLocalMasks(pointParameters)
     const gl = this.gl,
       colour =
         prepareCreativeColor(parameters) ??
@@ -655,7 +825,7 @@ export class PreviewPresenter {
     }
     const dpr = window.devicePixelRatio || 1
     if (gl && creative) {
-      const plan = maskBaseAtlasPlan(masks ? parameters : {})
+      const plan = maskBaseAtlasPlan(masks ? pointParameters : {})
       this.localMaskBaseAtlas ??= new WebGlMaskBaseAtlas(gl)
       this.localMaskBaseReservation = {
         ramBytes: plan.decodeBytes + plan.uploadBytes,
@@ -699,7 +869,7 @@ export class PreviewPresenter {
         gl.uniform1i(location('localMaskBaseAtlas'), 3)
         if (masks) {
           const key = JSON.stringify([
-            localMaskPixelData(parameters),
+            localMaskPixelData(pointParameters),
             parameters.maskGeometry,
             image,
           ])
@@ -708,7 +878,7 @@ export class PreviewPresenter {
           if (!this.localMaskTexture) throw new Error('Local mask GPU texture allocation failed.')
           gl.bindTexture(gl.TEXTURE_2D, this.localMaskTexture)
           if (key !== this.localMaskKey) {
-            const packed = packLocalMasks(parameters, image),
+            const packed = packLocalMasks(pointParameters, image),
               height = Math.ceil(packed.length / 4 / MASK_GPU_TEXTURE_WIDTH),
               data = new Float32Array(height * MASK_GPU_TEXTURE_WIDTH * 4)
             if (height > gl.getParameter(gl.MAX_TEXTURE_SIZE))
@@ -790,6 +960,8 @@ export class PreviewPresenter {
         view.scale < 1 ? gl.LINEAR : gl.NEAREST,
       )
       gl.drawArrays(gl.TRIANGLES, 0, 3)
+      if (this.preparedOverlay && this.working)
+        this.preparedOverlay.draw(image, viewport, view, this.working.transform, this.comparison)
       if (masks && creative && !this.localMaskQuery) {
         const query = gl.createQuery()
         if (!query) throw new Error('Local adjustment validation query allocation failed.')
@@ -836,9 +1008,13 @@ export class PreviewPresenter {
         }
         this.localMaskQueryTimer = setTimeout(poll, 1)
       }
-      if (masks && creative && this.comparison.mode !== 'before') {
+      if ((masks || this.preparedOverlay) && this.comparison.mode !== 'before') {
+        const analysisProgram = creative
+          ? program
+          : this.prepareTextureAnalysis(image, viewport, view, pointParameters)
+        if (!analysisProgram) return
         try {
-          this.requestHistogram(image, parameters, program)
+          this.requestHistogram(image, parameters, analysisProgram)
         } catch (error) {
           this.statisticsPending(false)
           this.statisticsFailed(String(error))
@@ -852,13 +1028,14 @@ export class PreviewPresenter {
             )
           } else {
             try {
-              this.requestClipping(image, parameters, program)
+              this.requestClipping(image, parameters, analysisProgram)
             } catch (error) {
               this.clipping(undefined, this.clippingContext)
               this.clippingFailed(String(error), this.clippingContext)
             }
           }
         }
+        gl.useProgram(program)
       } else {
         this.histogramQueued = false
         this.histogramPublished = ''
@@ -989,6 +1166,15 @@ export class PreviewPresenter {
       gl.endQuery(gl.ANY_SAMPLES_PASSED)
       gl.colorMask(true, true, true, true)
       gl.uniform1i(gl.getUniformLocation(program, 'maskValidation'), 0)
+      if (this.preparedOverlay && this.working && this.view)
+        this.preparedOverlay.draw(
+          image,
+          this.view.viewport,
+          this.view.view,
+          this.working.transform,
+          this.comparison,
+          { width, height, count },
+        )
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.histogramReadback)
       gl.bufferData(gl.PIXEL_PACK_BUFFER, bytes, gl.STREAM_READ)
       gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, 0)
@@ -1165,6 +1351,15 @@ export class PreviewPresenter {
             gl.endQuery(gl.ANY_SAMPLES_PASSED)
             gl.colorMask(true, true, true, true)
             gl.uniform1i(gl.getUniformLocation(program, 'maskValidation'), 0)
+            if (this.preparedOverlay && this.working && this.view)
+              this.preparedOverlay.draw(
+                image,
+                this.view.viewport,
+                this.view.view,
+                this.working.transform,
+                this.comparison,
+                { width: image.width, height: rows, count, offset: row * image.width },
+              )
             gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.clippingReadback!)
             gl.bufferData(gl.PIXEL_PACK_BUFFER, bytes, gl.STREAM_READ)
             gl.readPixels(0, 0, image.width, rows, gl.RGBA, gl.UNSIGNED_BYTE, 0)
@@ -1244,10 +1439,16 @@ export class PreviewPresenter {
         this.histogramWork ?? Promise.resolve(),
         this.clippingWork ?? Promise.resolve(),
         this.localMaskBaseAtlas?.whenDisposed ?? Promise.resolve(),
+        this.preparedWork?.catch(() => undefined) ?? Promise.resolve(),
+        this.preparedOverlay?.dispose() ?? Promise.resolve(),
       ]).then(() => undefined)
     this.whenDisposed = drained
     this.imageOwner?.retire(drained)
+    void drained.then(() => {
+      this.uploadedSourceGpuBytes = 0
+    })
     this.disposed = true
+    this.preparedController?.abort()
     this.clearCreativePreparation()
     if (this.localMaskQueryTimer !== undefined) clearTimeout(this.localMaskQueryTimer)
     if (this.localMaskQuery) gl?.deleteQuery(this.localMaskQuery)

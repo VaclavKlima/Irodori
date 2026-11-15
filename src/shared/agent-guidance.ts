@@ -56,6 +56,8 @@ const example = (
   note: `${note} Template only: replace IDs, revision and context identities with current values. Managed Console calls also require the current requestId.`,
 })
 const relativeMaskColor = `Local color:{temperature,tint,saturation} accepts relative integers ${maskCapabilities.color.min} to ${maskCapabilities.color.max}, neutral ${maskCapabilities.color.default}. Positive temperature warms; positive tint adds magenta. These are creative units, not Kelvin or camera white balance. Global white balance is unchanged.`
+const maskTexture =
+  'Root texture accepts an integer -100 to +100, neutral 0. Negative softens fine detail; positive enhances it. It processes the native cropped grid before local Balance/Light/Saturation and one coverage blend, without recovering missing detail. Texture is a root adjustment, never a coverage component.'
 const maskEdges = `Whole-mask edge:{featherPx,shiftPx} uses canonical source pixels: Feather ${maskCapabilities.edge.featherPx.min}–${maskCapabilities.edge.featherPx.max} in ${maskCapabilities.edge.featherPx.step}-pixel steps, Expand/Contract ${maskCapabilities.edge.shiftPx.min}–${maskCapabilities.edge.shiftPx.max} in integer pixels. Positive shift grows the affected region after inversion. These controls do not recover missing hair, feathers or physical transparency.`
 const maskCreation =
   'Create a neutral root with a flat operation {kind:"create",id:<fresh UUID>,name:<name>} and optionally one gradient or range. Put Light/Color, inversion and other controls in a separate {kind:"update",id:<same UUID>,...} operation; both can share one operations batch and Undo step. The creation field is id, not maskId; op/type discriminators and a nested mask object are invalid. Read confirmed masks/revision after acceptance.'
@@ -94,6 +96,7 @@ const guidance: Record<EditingGuidanceTopic, Omit<EditingGuidance, 'version' | '
       'Inspect existing color and the requested natural or expressive direction. Use global Saturation/Vibrance, the eight-range mixer and three-way grading according to the visual goal; do not force every control.',
       'Mixer ranges and grading tones accept partial fields and retain unspecified settings. Discover their complete field names, units and bounds with edit capabilities and the typed tool schema.',
       relativeMaskColor,
+      maskTexture,
       'Use a spatial mask for a regional color goal. Color ranges isolate matching canonical-source colors and can be combined with spatial coverage when needed.',
     ],
     relatedTools: [
@@ -174,6 +177,7 @@ const guidance: Record<EditingGuidanceTopic, Omit<EditingGuidance, 'version' | '
       `Paint uses mode:"add"; Erase uses mode:"subtract". Every stroke requires mode, radius, feather and 1–${maskCapabilities.maxStrokePoints} points. Radius is greater than 0 through 0.5 of the canonical source’s shorter dimension and must remain positive in Float32; feather is 0–1 and each finite x/y is 0–1. Unknown fields are rejected.`,
       'Use componentId for a coverage part and strokeTarget:"primary" or "result" for its correction chain. Untargeted strokes address the root result. Include valid IDs and all required stroke fields.',
       relativeMaskColor,
+      maskTexture,
       maskEdges,
       'Inspect an existing root with irodori_get_mask_preview using view:"coverage", "overlay" or "pair" and optional inspection region/resolutionPercent. It returns lossless PNGs of stored mask shape, including disabled or neutral-adjustment masks; read enabled/adjustmentsNeutral and verify the actual photo effect separately. Group related mutation operations as one photo-wide Undo step.',
     ],

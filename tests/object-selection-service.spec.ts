@@ -201,7 +201,9 @@ async function fixture() {
             : {}),
         } as import('../src/shared/masks').MaskCoverageNode
       }
-      state.settings.maskStack = [{ ...descriptor(mask), light: mask.light, color: mask.color }]
+      state.settings.maskStack = [
+        { ...descriptor(mask), light: mask.light, color: mask.color, texture: mask.texture ?? 0 },
+      ]
       source.processing.adjustments = {
         ...source.processing.adjustments!,
         localMasks: [structuredClone(mask)],
@@ -632,6 +634,7 @@ test('catalog 23 / settings 13 migration preserves every brush-history branch, h
       for (const mask of value.maskStack) {
         delete mask.edge
         delete mask.color
+        delete mask.texture
         delete mask.operands
         delete mask.resultHead
       }

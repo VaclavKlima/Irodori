@@ -515,7 +515,7 @@ export class PhotoLibrary {
       !this.db.prepare("SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' LIMIT 1").get()
     if (
       !fresh &&
-      ![17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, CATALOG_VERSION].includes(
+      ![17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, CATALOG_VERSION].includes(
         version.user_version,
       )
     )
@@ -591,7 +591,7 @@ export class PhotoLibrary {
         this.workspace.initialize()
         new ExportReadStore(this.db).initialize()
       } else {
-        if ([17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28].includes(version.user_version))
+        if ([17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29].includes(version.user_version))
           migrateEditingHistory(this.db)
         this.cameraRecognition.prepare()
       }
@@ -605,7 +605,10 @@ export class PhotoLibrary {
         const data = JSON.parse(row.data) as ProcessingOptions
         bootstrap.seedEdits(row.id, data, new Date().toISOString())
       }
-      if (fresh || [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28].includes(version.user_version))
+      if (
+        fresh ||
+        [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29].includes(version.user_version)
+      )
         this.db.exec(`PRAGMA user_version = ${CATALOG_VERSION}`)
       this.db.exec('COMMIT')
     } catch (error) {
@@ -1336,7 +1339,16 @@ export class PhotoLibrary {
           (op.kind === 'update' || op.kind === 'component-update') &&
           Object.keys(op).every((key) => ['kind', 'id', 'componentId', 'name'].includes(key)),
       )
-      if (!labelsOnly) await this.fullPreviews.validateMaskEdit(id, expectedRevision, resolved)
+      // Disabling only a spatial amount must remain possible after a GPU/resource failure.
+      const textureResetOnly = mutation.operations.every(
+        (op) =>
+          op.kind === 'update' &&
+          op.texture === 0 &&
+          (!op.componentId || op.componentId === op.id) &&
+          Object.keys(op).every((key) => ['kind', 'id', 'componentId', 'texture'].includes(key)),
+      )
+      if (!labelsOnly && !textureResetOnly)
+        await this.fullPreviews.validateMaskEdit(id, expectedRevision, resolved)
       history.settings = { ...history.settings, maskStack: stack }
       history.snapshots = history.snapshots.slice(0, history.cursor + 1)
       history.snapshots.push({ settings: history.settings, createdAt: new Date().toISOString() })

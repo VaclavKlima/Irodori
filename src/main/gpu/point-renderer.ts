@@ -28,6 +28,7 @@ import {
   maskBaseAtlasPlan,
 } from '../../shared/masks-gpu'
 import { maskOutputSize } from '../../shared/mask-geometry'
+import { pointOnlyMaskAdjustments } from '../../shared/masked-texture'
 import { createMaskBaseAtlas } from './mask-bases'
 import {
   activeNativeMaskEdges,
@@ -37,6 +38,114 @@ import {
 
 const inputMatrix =
   'mat3x3f(' + REC2020_TO_ACES.map((row) => 'vec3f(' + row.join(',') + ')').join(',') + ')'
+
+/** Additional simultaneously live buffers used by paired native consumption. */
+export function preparedPointAllocationBytes(
+  capacity: number,
+  packed: boolean,
+  hdr = false,
+  primary = false,
+): number {
+  if (!Number.isSafeInteger(capacity) || capacity < 1)
+    throw new Error('Invalid prepared point capacity.')
+  const stride = packed ? (hdr ? 3 : 1) : hdr ? 6 : 3
+  return (
+    capacity * (20 + stride * 4 + (primary ? 20 : 0) + (hdr && packed ? 16 + stride * 4 : 0)) +
+    4 +
+    (hdr && packed ? 12 : 0)
+  )
+}
+
+/** Exact native-word compatibility is selected before downstream resize or encoding. */
+function preparedSelectionShader(
+  stride: number,
+  packed: boolean,
+  workgroup: number,
+  primary = false,
+  hdr = false,
+): string {
+  return `
+struct Params { values:array<vec4f,12> }
+@group(0) @binding(0) var<uniform> u:Params;
+@group(0) @binding(1) var<storage,read> parent:array<vec4f>;
+@group(0) @binding(2) var<storage,read> prepared:array<vec4f>;
+@group(0) @binding(3) var<storage,read> coverage:array<f32>;
+struct Legacy { peak:u32, values:array<u32> }
+@group(0) @binding(4) var<storage,read> legacy:Legacy;
+struct Result { peak:atomic<u32>, values:array<u32> }
+@group(0) @binding(5) var<storage,read_write> result:Result;
+${primary ? '@group(0) @binding(6) var<storage,read> primaryCoverage:array<f32>;' : ''}
+fn finite(value:vec4f)->bool {
+ return all((bitcast<vec4u>(value)&vec4u(0x7f800000u))!=vec4u(0x7f800000u));
+}
+fn unitInterval(bits:u32)->bool {
+ return (bits&0x7fffffffu)<=0x3f800000u&&((bits&0x80000000u)==0u||bits==0x80000000u);
+}
+@compute @workgroup_size(${workgroup}) fn selectPrepared(@builtin(global_invocation_id) id:vec3u) {
+ if(id.x>=u32(u.values[0].x)){return;}
+ let original=parent[id.x];let candidate=prepared[id.x];let amount=coverage[id.x];
+ let amountBits=bitcast<u32>(amount);let alphaBits=bitcast<u32>(original.a);
+ if(!finite(original)||!finite(candidate)||!unitInterval(amountBits)||!unitInterval(alphaBits)||
+    alphaBits!=bitcast<u32>(candidate.a)){
+  atomicMax(&result.peak,bitcast<u32>(1e30));
+ }
+ for(var channel=0u;channel<${stride}u;channel++){
+  let slot=id.x*${stride}u+channel;
+  ${primary ? `let selectedAmount=select(amount,primaryCoverage[id.x],channel<${packed ? '1' : '3'}u);let selectedBits=bitcast<u32>(selectedAmount);` : 'let selectedBits=amountBits;'}
+  if(!(selectedBits>0u&&selectedBits<=0x3f800000u&&alphaBits>0u&&alphaBits<=0x3f800000u)){result.values[slot]=legacy.values[slot];}
+  ${packed ? '' : 'if((result.values[slot]&0x7f800000u)==0x7f800000u){atomicMax(&result.peak,bitcast<u32>(1e30));}'}
+  ${hdr && !packed ? 'if(channel>=3u){atomicMax(&result.peak,result.values[slot]);}' : ''}
+ }
+}`
+}
+
+function preparedPeakShader(inside: boolean): string {
+  return `
+struct Params { values:array<vec4f,12> }
+@group(0) @binding(0) var<uniform> u:Params;
+@group(0) @binding(1) var<storage,read> parent:array<vec4f>;
+@group(0) @binding(2) var<storage,read> prepared:array<vec4f>;
+@group(0) @binding(3) var<storage,read> coverage:array<f32>;
+@group(0) @binding(4) var<storage,read_write> masked:array<vec4f>;
+@compute @workgroup_size(64) fn preparePeak(@builtin(global_invocation_id) id:vec3u){
+ if(id.x>=u32(u.values[0].x)){return;}
+ let amount=bitcast<u32>(coverage[id.x]);let alpha=bitcast<u32>(parent[id.x].a);
+ let selected=amount>0u&&amount<=0x3f800000u&&alpha>0u&&alpha<=0x3f800000u;
+ let pixel=${inside ? 'prepared' : 'parent'}[id.x];
+ masked[id.x]=vec4f(pixel.rgb,select(0.,pixel.a,${inside ? 'selected' : '!selected'}));
+}`
+}
+
+const preparedHeadroomShader = `
+struct Legacy{peak:f32,values:array<u32>}
+struct Result{peak:atomic<u32>,values:array<u32>}
+@group(0) @binding(0) var<storage,read> legacy:Legacy;
+@group(0) @binding(1) var<storage,read> peaks:array<f32>;
+@group(0) @binding(2) var<storage,read_write> result:Result;
+@compute @workgroup_size(1) fn headroom(){
+ let candidate=bitcast<f32>(atomicLoad(&result.peak));
+ let peak=max(1.01,max(peaks[0],peaks[1]));
+ atomicStore(&result.peak,bitcast<u32>(select(peak,1e30,legacy.peak>65504.||candidate>65504.)));
+}`
+
+const preparedPrimaryValidationShader = `
+struct Params {values:array<vec4f,12>}
+struct Result {peak:atomic<u32>,values:array<u32>}
+@group(0) @binding(0) var<uniform> u:Params;
+@group(0) @binding(1) var<storage,read> parent:array<vec4f>;
+@group(0) @binding(2) var<storage,read> prepared:array<vec4f>;
+@group(0) @binding(3) var<storage,read> coverage:array<f32>;
+@group(0) @binding(4) var<storage,read_write> result:Result;
+@compute @workgroup_size(64) fn validatePrimary(@builtin(global_invocation_id) id:vec3u){
+ if(id.x>=u32(u.values[0].x)){return;}
+ let a=parent[id.x];let b=prepared[id.x];let bits=bitcast<u32>(coverage[id.x]);
+ if(any((bitcast<vec4u>(a)&vec4u(0x7f800000u))==vec4u(0x7f800000u))||
+    any((bitcast<vec4u>(b)&vec4u(0x7f800000u))==vec4u(0x7f800000u))||
+    bitcast<u32>(a.a)!=bitcast<u32>(b.a)||a.a<0.||a.a>1.||
+    (bits&0x7fffffffu)>0x3f800000u||((bits&0x80000000u)!=0u&&bits!=0x80000000u)){
+  atomicMax(&result.peak,bitcast<u32>(1e30));
+ }
+}`
 
 /** Two fixed renditions use the same reference shader, with per-invocation table selection. */
 export function exportShader(
@@ -49,6 +158,7 @@ export function exportShader(
   curves = false,
   masks = false,
   bases = false,
+  preparedPoint = false,
 ) {
   const precision = /fn acesMath\(index:u32\)->vec2f\s*\{[^}]+\}/
   if (!precision.test(displayRenderingWgsl))
@@ -106,8 +216,8 @@ fn exportTarget(jmh:vec3f,linear:f32)->vec3f {
  if(id.x<u32(u.values[0].x)) {
  let pixel=input[id.x];
  ${masks ? 'let absolute=u32(u.values[0].y)+id.x;let maskPoint=vec2f(f32(absolute%u32(maskData[5].y))+.5,f32(absolute/u32(maskData[5].y))+.5);' : ''}
- ${masks ? 'var localEdited=applyLocalMasks(adjusted(pixel.rgb),maskPoint,1.,true);if(!localMaskFinite(localEdited)){atomicMax(&result.peak,bitcast<u32>(1e30));localEdited=vec3f(0.);}' : ''}
- let aces=${inputMatrix}*${masks ? 'localEdited' : 'adjusted(pixel.rgb)'};
+ ${preparedPoint ? 'var consumedRgb=pixel.rgb;if(u.values[11].w<.5){' : ''}${masks ? 'var localEdited=applyLocalMasks(adjusted(pixel.rgb),maskPoint,1.,true);if(!localMaskFinite(localEdited)){atomicMax(&result.peak,bitcast<u32>(1e30));localEdited=vec3f(0.);}' : ''}${preparedPoint ? `consumedRgb=${masks ? 'localEdited' : 'adjusted(pixel.rgb)'};}` : ''}
+ let aces=${inputMatrix}*${preparedPoint ? 'consumedRgb' : masks ? 'localEdited' : 'adjusted(pixel.rgb)'};
  acesOffset=0;
  let sdrInput=clamp_AP0_to_AP1(aces,0.,aces_ts().forward_limit);
  let jmh=RGB_to_JMh(sdrInput,aces_input_params());
@@ -195,6 +305,13 @@ export async function createPointGpu(
     (hdr && options.domain === 'raster')
   )
     throw new Error('Invalid point rendering domain.')
+  if (
+    (options.preparedPoint !== undefined && typeof options.preparedPoint !== 'boolean') ||
+    (options.preparedPoint && (deferredPixels !== 0 || (hdr && options.preserveAlpha)))
+  )
+    throw new Error(
+      'Prepared point consumption requires independent native strips and composited HDR output.',
+    )
   const authored = options.domain !== 'scene-linear',
     transform = options.transform ?? srgbTransform
   if (
@@ -206,7 +323,7 @@ export async function createPointGpu(
   )
     throw new Error('Invalid authored output transform.')
   if (authored) deferredPixels = 0
-  adjustments = structuredClone(adjustments)
+  adjustments = pointOnlyMaskAdjustments(structuredClone(adjustments))
   whiteBalance = whiteBalance ? [...whiteBalance] : undefined
   const color = prepareCreativeColor(adjustments),
     creative = creativeColorActive(color),
@@ -230,7 +347,11 @@ export async function createPointGpu(
       vramLimitBytes,
       !!options.primary,
       curves,
-      (maskData?.byteLength ?? 0) + (bases ? basePlan.bytes : 0),
+      (maskData?.byteLength ?? 0) +
+        (bases ? basePlan.bytes : 0) +
+        (options.preparedPoint
+          ? preparedPointAllocationBytes(capacity, packed, hdr, !!options.primary)
+          : 0),
     )
     if (!allocation.accepted)
       throw new ExportResourceError('GPU export exceeds the frozen managed image budgets.')
@@ -313,6 +434,35 @@ export async function createPointGpu(
     const primary = options.primary
       ? buffer(capacity * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
       : undefined
+    const preparedInput = options.preparedPoint
+        ? buffer(capacity * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
+        : undefined,
+      preparedUnion = options.preparedPoint
+        ? buffer(capacity * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
+        : undefined,
+      legacyOutput = options.preparedPoint
+        ? buffer(output.size, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
+        : undefined
+    const preparedPrimary =
+        options.preparedPoint && primary
+          ? buffer(capacity * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
+          : undefined,
+      primaryUnion = preparedPrimary
+        ? buffer(capacity * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
+        : undefined,
+      peakInput =
+        options.preparedPoint && hdr && packed
+          ? buffer(capacity * 16, GPUBufferUsage.STORAGE)
+          : undefined,
+      peakOutput = peakInput
+        ? buffer(
+            output.size,
+            GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+          )
+        : undefined,
+      peakHeaders = peakInput
+        ? buffer(8, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
+        : undefined
     const colorData = creative
       ? buffer(CREATIVE_COLOR_PARAMETER_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
       : undefined
@@ -360,7 +510,16 @@ export async function createPointGpu(
     }
     const module = device.createShaderModule({
       code: authored
-        ? authoredOutputShader(hdr, packed, creative, options, workgroup, curves, masks, bases)
+        ? authoredOutputShader(
+            hdr,
+            packed,
+            creative,
+            { ...options, preparedPoint: false },
+            workgroup,
+            curves,
+            masks,
+            bases,
+          )
         : exportShader(
             hdr,
             packed,
@@ -391,30 +550,171 @@ export async function createPointGpu(
         : []),
       ...(working ? [{ binding: 5, resource: { buffer: working } }] : []),
     ]
+    const pointEntries: GPUBindGroupEntry[] = [
+      ...commonEntries,
+      { binding: 1, resource: { buffer: input } },
+      ...(primary ? [{ binding: 6, resource: { buffer: primary } }] : []),
+      ...(colorData && (!authored || options.domain === 'raster' || primary)
+        ? [{ binding: 12, resource: { buffer: colorData } }]
+        : []),
+      ...(colorData && options.domain === 'authored-hdr'
+        ? [{ binding: 13, resource: { buffer: colorData } }]
+        : []),
+      ...(curveData && (!authored || options.domain === 'raster' || primary)
+        ? [{ binding: 14, resource: { buffer: curveData } }]
+        : []),
+      ...(curveData && options.domain === 'authored-hdr'
+        ? [{ binding: 15, resource: { buffer: curveData } }]
+        : []),
+      ...(maskBuffer ? [{ binding: 16, resource: { buffer: maskBuffer } }] : []),
+      ...(baseTexture
+        ? [{ binding: 18, resource: baseTexture.createView({ dimension: '2d-array' }) }]
+        : []),
+    ]
     const group = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
-      entries: [
-        ...commonEntries,
-        { binding: 1, resource: { buffer: input } },
-        ...(primary ? [{ binding: 6, resource: { buffer: primary } }] : []),
-        ...(colorData && (!authored || options.domain === 'raster' || primary)
-          ? [{ binding: 12, resource: { buffer: colorData } }]
-          : []),
-        ...(colorData && options.domain === 'authored-hdr'
-          ? [{ binding: 13, resource: { buffer: colorData } }]
-          : []),
-        ...(curveData && (!authored || options.domain === 'raster' || primary)
-          ? [{ binding: 14, resource: { buffer: curveData } }]
-          : []),
-        ...(curveData && options.domain === 'authored-hdr'
-          ? [{ binding: 15, resource: { buffer: curveData } }]
-          : []),
-        ...(maskBuffer ? [{ binding: 16, resource: { buffer: maskBuffer } }] : []),
-        ...(baseTexture
-          ? [{ binding: 18, resource: baseTexture.createView({ dimension: '2d-array' }) }]
-          : []),
-      ],
+      entries: pointEntries,
     })
+    let consumedPipeline: GPUComputePipeline | undefined,
+      consumedGroup: GPUBindGroup | undefined,
+      selectionPipeline: GPUComputePipeline | undefined,
+      selectionGroup: GPUBindGroup | undefined,
+      primaryValidation: { pipeline: GPUComputePipeline; group: GPUBindGroup } | undefined,
+      peakLegacy:
+        { prepare: GPUComputePipeline; group: GPUBindGroup; render: GPUBindGroup } | undefined,
+      peakCandidate:
+        { prepare: GPUComputePipeline; group: GPUBindGroup; render: GPUBindGroup } | undefined,
+      headroomProgram: { pipeline: GPUComputePipeline; group: GPUBindGroup } | undefined
+    if (preparedInput && preparedUnion && legacyOutput) {
+      device.pushErrorScope('validation')
+      const consumedModule = device.createShaderModule({
+        code: authored
+          ? authoredOutputShader(hdr, packed, creative, options, workgroup, curves, masks, bases)
+          : exportShader(
+              hdr,
+              packed,
+              workgroup,
+              false,
+              creative,
+              options.preserveAlpha,
+              curves,
+              masks,
+              bases,
+              true,
+            ),
+      })
+      const selectionModule = device.createShaderModule({
+        code: preparedSelectionShader(stride, packed, workgroup, !!primaryUnion, hdr),
+      })
+      for (const module of [consumedModule, selectionModule]) {
+        const errors = (await module.getCompilationInfo()).messages.filter(
+          (m) => m.type === 'error',
+        )
+        if (errors.length)
+          throw new Error(errors.map((e) => `${e.lineNum}:${e.linePos} ${e.message}`).join('\n'))
+      }
+      consumedPipeline = await device.createComputePipelineAsync({
+        layout: 'auto',
+        compute: { module: consumedModule, entryPoint: 'render' },
+      })
+      consumedGroup = device.createBindGroup({
+        layout: consumedPipeline.getBindGroupLayout(0),
+        entries: pointEntries.map((entry) =>
+          entry.binding === 1
+            ? { binding: 1, resource: { buffer: preparedInput } }
+            : entry.binding === 6 && preparedPrimary
+              ? { binding: 6, resource: { buffer: preparedPrimary } }
+              : entry,
+        ),
+      })
+      selectionPipeline = await device.createComputePipelineAsync({
+        layout: 'auto',
+        compute: { module: selectionModule, entryPoint: 'selectPrepared' },
+      })
+      selectionGroup = device.createBindGroup({
+        layout: selectionPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: uniform } },
+          { binding: 1, resource: { buffer: input } },
+          { binding: 2, resource: { buffer: preparedInput } },
+          { binding: 3, resource: { buffer: preparedUnion } },
+          { binding: 4, resource: { buffer: legacyOutput } },
+          { binding: 5, resource: { buffer: output } },
+          ...(primaryUnion ? [{ binding: 6, resource: { buffer: primaryUnion } }] : []),
+        ],
+      })
+      const compilePrepared = async (code: string, entryPoint: string) => {
+        const module = device.createShaderModule({ code })
+        const errors = (await module.getCompilationInfo()).messages.filter(
+          (m) => m.type === 'error',
+        )
+        if (errors.length) throw new Error(errors.map((e) => e.message).join('\n'))
+        return device.createComputePipelineAsync({
+          layout: 'auto',
+          compute: { module, entryPoint },
+        })
+      }
+      if (primary && preparedPrimary && primaryUnion) {
+        const pipeline = await compilePrepared(preparedPrimaryValidationShader, 'validatePrimary')
+        primaryValidation = {
+          pipeline,
+          group: device.createBindGroup({
+            layout: pipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: uniform } },
+              { binding: 1, resource: { buffer: primary } },
+              { binding: 2, resource: { buffer: preparedPrimary } },
+              { binding: 3, resource: { buffer: primaryUnion } },
+              { binding: 4, resource: { buffer: output } },
+            ],
+          }),
+        }
+      }
+      if (peakInput && peakOutput && peakHeaders) {
+        for (const inside of [false, true]) {
+          const prepare = await compilePrepared(preparedPeakShader(inside), 'preparePeak')
+          const group = device.createBindGroup({
+            layout: prepare.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: uniform } },
+              { binding: 1, resource: { buffer: input } },
+              ...(inside ? [{ binding: 2, resource: { buffer: preparedInput } }] : []),
+              { binding: 3, resource: { buffer: preparedUnion } },
+              { binding: 4, resource: { buffer: peakInput } },
+            ],
+          })
+          const render = device.createBindGroup({
+            layout: (inside ? consumedPipeline : pipeline).getBindGroupLayout(0),
+            entries: pointEntries.map((entry) =>
+              entry.binding === 1
+                ? { binding: 1, resource: { buffer: peakInput } }
+                : entry.binding === 2
+                  ? { binding: 2, resource: { buffer: peakOutput } }
+                  : inside && entry.binding === 6 && preparedPrimary
+                    ? { binding: 6, resource: { buffer: preparedPrimary } }
+                    : entry,
+            ),
+          })
+          if (inside) peakCandidate = { prepare, group, render }
+          else peakLegacy = { prepare, group, render }
+        }
+        const program = await compilePrepared(preparedHeadroomShader, 'headroom')
+        headroomProgram = {
+          pipeline: program,
+          group: device.createBindGroup({
+            layout: program.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: legacyOutput } },
+              { binding: 1, resource: { buffer: peakHeaders } },
+              { binding: 2, resource: { buffer: output } },
+            ],
+          }),
+        }
+      }
+      const preparedValidation = await device.popErrorScope()
+      if (preparedValidation)
+        throw new Error(`Prepared point pipeline validation failed: ${preparedValidation.message}`)
+    }
     const hdrPipeline = hdrDeferred
       ? await device.createComputePipelineAsync({
           layout: 'auto',
@@ -498,6 +798,133 @@ export async function createPointGpu(
         .catch(() => undefined)
       return work
     }
+    const dispatchPrepared = async (
+      pixels: Float32Array<ArrayBuffer>,
+      preparedPixels: Float32Array<ArrayBuffer>,
+      union: Float32Array<ArrayBuffer>,
+      offset: number,
+      primaryPixels?: {
+        legacy: Float32Array<ArrayBuffer>
+        prepared: Float32Array<ArrayBuffer>
+        union: Float32Array<ArrayBuffer>
+      },
+    ) => {
+      signal.throwIfAborted()
+      const count = pixels.length / 4
+      if (
+        !consumedPipeline ||
+        !consumedGroup ||
+        !selectionPipeline ||
+        !selectionGroup ||
+        !preparedInput ||
+        !preparedUnion ||
+        !legacyOutput
+      )
+        throw new Error('Prepared point consumption was not admitted for this GPU owner.')
+      if (
+        !(pixels instanceof Float32Array) ||
+        !(preparedPixels instanceof Float32Array) ||
+        !(union instanceof Float32Array) ||
+        !Number.isInteger(count) ||
+        count < 1 ||
+        count > capacity ||
+        preparedPixels.length !== pixels.length ||
+        union.length !== count ||
+        !Number.isSafeInteger(offset) ||
+        offset < 0 ||
+        Math.ceil(count / workgroup) > device.limits.maxComputeWorkgroupsPerDimension
+      )
+        throw new Error('Invalid prepared point tile.')
+      if (
+        primary &&
+        (!primaryPixels ||
+          primaryPixels.legacy.length !== pixels.length ||
+          primaryPixels.prepared.length !== pixels.length ||
+          primaryPixels.union.length !== count)
+      )
+        throw new Error('Prepared authored SDR primary must match its HDR strip.')
+      values[0] = count
+      values[1] = offset
+      // The unchanged legacy shader does not read this previously unused lane.
+      values[47] = 1
+      device.queue.writeBuffer(uniform, 0, values)
+      device.queue.writeBuffer(input, 0, pixels)
+      device.queue.writeBuffer(preparedInput, 0, preparedPixels)
+      device.queue.writeBuffer(preparedUnion, 0, union)
+      if (primary && preparedPrimary && primaryUnion && primaryPixels) {
+        device.queue.writeBuffer(primary, 0, primaryPixels.legacy)
+        device.queue.writeBuffer(preparedPrimary, 0, primaryPixels.prepared)
+        device.queue.writeBuffer(primaryUnion, 0, primaryPixels.union)
+      }
+      device.queue.writeBuffer(output, 0, new Float32Array([1.01]))
+      const encoder = device.createCommandEncoder()
+      const pass = (
+        pipeline: GPUComputePipeline,
+        group: GPUBindGroup,
+        dispatch = Math.ceil(count / workgroup),
+      ) => {
+        const pass = encoder.beginComputePass()
+        pass.setPipeline(pipeline)
+        pass.setBindGroup(0, group)
+        pass.dispatchWorkgroups(dispatch)
+        pass.end()
+      }
+      pass(pipeline, group)
+      encoder.copyBufferToBuffer(output, 0, legacyOutput, 0, 4 + count * stride * 4)
+      pass(consumedPipeline, consumedGroup)
+      if (peakLegacy && peakCandidate && peakOutput && peakHeaders && headroomProgram) {
+        encoder.clearBuffer(peakOutput, 0, 4)
+        pass(peakLegacy.prepare, peakLegacy.group, Math.ceil(count / 64))
+        pass(pipeline, peakLegacy.render)
+        encoder.copyBufferToBuffer(peakOutput, 0, peakHeaders, 0, 4)
+        encoder.clearBuffer(peakOutput, 0, 4)
+        pass(peakCandidate.prepare, peakCandidate.group, Math.ceil(count / 64))
+        pass(consumedPipeline, peakCandidate.render)
+        encoder.copyBufferToBuffer(peakOutput, 0, peakHeaders, 4, 4)
+        pass(headroomProgram.pipeline, headroomProgram.group, 1)
+      }
+      if (primaryValidation)
+        pass(primaryValidation.pipeline, primaryValidation.group, Math.ceil(count / 64))
+      pass(selectionPipeline, selectionGroup)
+      encoder.copyBufferToBuffer(output, 0, staging, 0, 4 + count * stride * 4)
+      device.queue.submit([encoder.finish()])
+      await staging.mapAsync(GPUMapMode.READ)
+      try {
+        signal.throwIfAborted()
+        const mapped = staging.getMappedRange(),
+          headroom = new Float32Array(mapped, 0, 1)[0]
+        if (!Number.isFinite(headroom) || headroom > 65504)
+          throw new Error('Invalid prepared point pixels, coverage or alpha.')
+        return {
+          data: Buffer.from(new Uint8Array(mapped, 4, count * stride * 4)),
+          headroom,
+        }
+      } finally {
+        staging.unmap()
+      }
+    }
+    const renderPrepared = (
+      pixels: Float32Array<ArrayBuffer>,
+      preparedPixels: Float32Array<ArrayBuffer>,
+      union: Float32Array<ArrayBuffer>,
+      offset = 0,
+      primaryPixels?: {
+        legacy: Float32Array<ArrayBuffer>
+        prepared: Float32Array<ArrayBuffer>
+        union: Float32Array<ArrayBuffer>
+      },
+    ) => {
+      if (closing) return Promise.reject(new Error('The export GPU owner is closed.'))
+      if (pending) return Promise.reject(new Error('The export GPU owner is busy.'))
+      const work = dispatchPrepared(pixels, preparedPixels, union, offset, primaryPixels)
+      pending = work
+      void work
+        .finally(() => {
+          if (pending === work) pending = undefined
+        })
+        .catch(() => undefined)
+      return work
+    }
     return {
       adapter,
       hdrDeferred,
@@ -510,8 +937,13 @@ export async function createPointGpu(
         offset = 0,
         primaryPixels?: Float32Array<ArrayBuffer>,
       ) {
+        if (options.preparedPoint)
+          return Promise.reject(
+            new Error('Prepared point owners require explicit paired consumption.'),
+          )
         return run(pixels, offset, pixels.length / 4, false, primaryPixels)
       },
+      ...(options.preparedPoint ? { renderPrepared } : {}),
       finishHdr(offset: number, count: number) {
         return run(undefined, offset, count, true)
       },

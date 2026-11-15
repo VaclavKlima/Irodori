@@ -124,12 +124,20 @@ export function Masks({
 }) {
   const selecting = !!objectSelection?.active
   const masks = selecting
-    ? { ...providedMasks, available: false, supported: false, busy: true }
+    ? {
+        ...providedMasks,
+        available: false,
+        supported: false,
+        textureAvailable: false,
+        textureSupported: false,
+        busy: true,
+      }
     : providedMasks
   const [menu, setMenu] = useState<OpenMenu | null>(null)
   const [renaming, setRenaming] = useState<{ scope: object; id: string } | null>(null)
   const [lightExpanded, setLightExpanded] = useState(true)
   const [colorExpanded, setColorExpanded] = useState(false)
+  const [textureExpanded, setTextureExpanded] = useState(true)
   const [edgesExpanded, setEdgesExpanded] = useState(true)
   const list = useRef<HTMLOListElement>(null)
   const details = useRef<HTMLDivElement>(null)
@@ -826,6 +834,42 @@ export function Masks({
                       ))}
                     </div>
                     <p className={styles.hint}>Relative balance; 0 preserves current color.</p>
+                  </InspectorSection>
+                  <InspectorSection
+                    id="mask-texture-controls"
+                    title="Texture"
+                    expanded={textureExpanded}
+                    onToggle={() => setTextureExpanded((value) => !value)}
+                    headerActions={
+                      <IconButton
+                        icon={RotateCcw}
+                        label="Reset mask Texture"
+                        disabled={!masks.textureAvailable}
+                        onClick={() =>
+                          masks.update({ kind: 'update', id: selected.id, texture: 0 })
+                        }
+                      />
+                    }
+                  >
+                    <div role="group" aria-label="Mask Texture controls">
+                      <AdjustmentInput
+                        label="Local Texture"
+                        value={masks.textureValue}
+                        min={-100}
+                        max={100}
+                        step={1}
+                        precision={0}
+                        resetKey={masks.resetKey}
+                        disabled={!masks.textureSupported}
+                        busy={masks.busy}
+                        onChange={masks.changeTexture}
+                        onCommit={masks.commitTexture}
+                        onCancel={masks.cancel}
+                      />
+                    </div>
+                    <p className={styles.hint}>
+                      Soften fine detail below 0; enhance above 0. Updates after release.
+                    </p>
                   </InspectorSection>
                 </>
               )}

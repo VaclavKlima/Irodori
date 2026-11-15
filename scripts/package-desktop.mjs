@@ -43,6 +43,11 @@ try {
   await mkdir(join(stage, 'licenses'), { recursive: true })
   await cp('assets/app/fonts/lato/OFL.txt', join(stage, 'licenses/Lato-OFL.txt'))
   await cp('assets/app/icons/manifest.json', join(stage, 'licenses/Little-Jizo-provenance.json'))
+  await cp(
+    'assets/app/licenses/halide-texture-LICENSE.txt',
+    join(stage, 'licenses/Halide-Texture-MIT.txt'),
+  )
+  await cp('assets/app/licenses/README.md', join(stage, 'licenses/Texture-provenance.md'))
   const packages = execFileSync('npm', ['ls', '--omit=dev', '--all', '--parseable'], {
     encoding: 'utf8',
   })

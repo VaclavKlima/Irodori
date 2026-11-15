@@ -6,7 +6,7 @@ import {
 } from './output-sharpening'
 
 export const EXPORT_VERSION = 1 as const
-export const EXPORT_RENDERING_VERSION = 'jpeg-linear-lanczos3-v7-output-sharpening'
+export const EXPORT_RENDERING_VERSION = 'jpeg-linear-lanczos3-v8-masked-texture'
 export const EXPORT_CODEC_VERSION = 'libultrahdr-2.0.2-iso-native-v1'
 export const EXPORT_RESIZE_VERSION = 'linear-lanczos3-pixel-centers-replicate-gpu-v2'
 export const EXPORT_MAX_DIMENSION = 32768

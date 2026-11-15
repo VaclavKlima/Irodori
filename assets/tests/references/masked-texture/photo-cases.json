@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "id": "masked-texture-source-cases-v1",
+  "status": "source-only-frozen-before-candidate-rendering",
+  "frozenOn": "2026-11-14",
+  "issue": "https://github.com/VaclavKlima/Irodori/issues/80",
+  "coordinateSystem": {
+    "grid": "authoritative oriented native source pixel edges",
+    "samplePosition": "pixel center: (x + 0.5, y + 0.5)",
+    "cropBounds": "integer left/top inclusive; right/bottom exclusive; no resampling",
+    "radialCoverage": "Let q be the source-pixel delta rotated by minus rotationDegrees, divided componentwise by radiusPx. For d=length(q), coverage is 1-smoothstep(1-featherPercent/100,1,d). Zero feather selects d<=1 exactly.",
+    "applicationMapping": "Existing radial MaskGradient: center.x=centerPx.x/width, center.y=centerPx.y/height, radiusX=radiusPx.x/width, radiusY=radiusPx.y/height, rotation=rotationDegrees, feather=featherPercent. No additional Feather/Expand, strokes, inversion or operands.",
+    "partialManualRegions": "These deliberately partial analytic regions are not object segmentations, recovered feather coverage, physical alpha or full subject masks. Neighborhood filtering may read outside them; final blending uses their coverage."
+  },
+  "selectionPolicy": {
+    "basis": "Unchanged original plus source-only native crops; no Texture candidate or filtered output was viewed.",
+    "afterOutputChanges": "Do not move masks/crops, change feather/support, substitute sources or remove unfavorable controls after candidate output. Any revision requires a separately versioned protocol and retained original evidence.",
+    "amounts": "Candidate amounts and independent per-mask strength assignments belong to the separately frozen research protocol, not this source-selection manifest.",
+    "unaffectedControlStage": "Exact comparisons apply to native linear working pixels before rendition, resize and lossy encoding, against the matching neutral/existing pipeline. Final resized/JPEG pixels are not an exact-zero-coverage oracle.",
+    "primaryOnlyByDefault": true,
+    "conditionalSupplements": "Supplemental cases below are inactive unless selected prospectively in the protocol; they must not trigger a second method, parameter sweep or automatic extra full-source work."
+  },
+  "cases": [
+    {
+      "id": "flamingo-plumage-ripples-reflected-legs",
+      "enabled": true,
+      "kind": "raster",
+      "source": "assets/tests/images/raster/wikimedia/flamingo-reflection/originals/Flamant_rose_Salines_de_Thyna.jpg",
+      "sha256": "3b87780172e91a6986610d6632babda98bf6ab24ab6e03cdff50bd70e33db5c6",
+      "bytes": 3540698,
+      "width": 2344,
+      "height": 2708,
+      "domain": "authored SDR sRGB JPEG; native decoding/color management determines linear working samples",
+      "notice": "assets/tests/images/raster/wikimedia/flamingo-reflection/manifest.json",
+      "licenseNotice": "assets/tests/images/raster/wikimedia/flamingo-reflection/LICENSE.md",
+      "credit": "Elgollimoh, Flamant rose Salines de Thyna.jpg, Wikimedia Commons, CC BY-SA 3.0.",
+      "sourceUrl": "https://commons.wikimedia.org/w/index.php?title=File:Flamant_rose_Salines_de_Thyna.jpg&oldid=1279790151",
+      "license": "CC BY-SA 3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "derivedOutputNotice": "Retain Elgollimoh credit, source/license links, a description of filtering/cropping/annotations and applicable CC BY-SA 3.0 terms. Keep generated images outside Git.",
+      "privacyReview": "Retained fixture manifest records complete original, both embedded previews and all 278 metadata tags reviewed on 2026-11-10; no personal information found. Source bytes remain unchanged.",
+      "limitations": [
+        "Processed published SDR JPEG; not camera-original RAW, radiometric truth or true HDR acceptance.",
+        "Reflected legs are visible; a complete reflected bird, human skin and foliage are absent.",
+        "The local crop of ripples includes existing soft horizontal reflected color, visible grain and small floating dark objects; these are source content, not candidate artifacts.",
+        "Manual regions are intentionally partial and do not qualify automatic selection, image-guided Refine Edge or complete subject isolation."
+      ],
+      "maskOrder": ["ripples", "reflected-legs", "plumage"],
+      "maskOrderMeaning": "Top-first list; apply bottom-to-top like the application. Outer supports are disjoint, so this particular photographic case does not establish overlapping-mask order correctness.",
+      "masks": [
+        {
+          "id": "plumage",
+          "label": "Partial wing plumage",
+          "partialManualRegion": true,
+          "coverage": {
+            "kind": "radial",
+            "centerPx": { "x": 1000, "y": 1310 },
+            "radiusPx": { "x": 400, "y": 210 },
+            "rotationDegrees": 0,
+            "featherPercent": 25
+          },
+          "outerBounds": { "left": 600, "top": 1100, "width": 800, "height": 420 },
+          "purpose": "Long pale/coral feathers and their existing fine striations; excludes most of the bird, its neck and all legs."
+        },
+        {
+          "id": "ripples",
+          "label": "Partial ripple patch beside reflection",
+          "partialManualRegion": true,
+          "coverage": {
+            "kind": "radial",
+            "centerPx": { "x": 1340, "y": 2650 },
+            "radiusPx": { "x": 220, "y": 40 },
+            "rotationDegrees": 0,
+            "featherPercent": 35
+          },
+          "outerBounds": { "left": 1120, "top": 2610, "width": 440, "height": 80 },
+          "purpose": "A small horizontal ripple/reflected-color patch to the right of the legs, with nearby smooth water left unmasked. It is not the full ripple field."
+        },
+        {
+          "id": "reflected-legs",
+          "label": "Partial reflected-leg area",
+          "partialManualRegion": true,
+          "coverage": {
+            "kind": "radial",
+            "centerPx": { "x": 920, "y": 2430 },
+            "radiusPx": { "x": 145, "y": 235 },
+            "rotationDegrees": 0,
+            "featherPercent": 30
+          },
+          "outerBounds": { "left": 775, "top": 2195, "width": 290, "height": 470 },
+          "purpose": "Part of both wavy reflected legs and water between them, independently controlled from real legs, plumage and the neighboring ripple patch. Surrounding water inside the ellipse is intentionally included."
+        }
+      ],
+      "regions": [
+        {
+          "name": "plumage-native",
+          "left": 700,
+          "top": 1050,
+          "width": 512,
+          "height": 512,
+          "maskIds": ["plumage"],
+          "purpose": "Feather striations, existing soft feather contours and the upper silhouette/smooth background near a partial manual mask."
+        },
+        {
+          "name": "ripples-native",
+          "left": 1130,
+          "top": 2196,
+          "width": 512,
+          "height": 512,
+          "maskIds": ["ripples"],
+          "purpose": "Selected ripple patch near the bottom alongside a substantial unmasked smooth-water control area."
+        },
+        {
+          "name": "reflected-legs-native",
+          "left": 650,
+          "top": 2196,
+          "width": 512,
+          "height": 512,
+          "maskIds": ["reflected-legs", "ripples"],
+          "purpose": "Wavy reflected contours, water between them and the leftmost edge of the separately selected ripple patch."
+        }
+      ],
+      "unaffectedControls": [
+        {
+          "name": "distant-smooth-water",
+          "left": 250,
+          "top": 500,
+          "width": 96,
+          "height": 96,
+          "purpose": "Smooth native water/background away from all selected regions."
+        },
+        {
+          "name": "unmasked-feathers",
+          "left": 350,
+          "top": 1400,
+          "width": 96,
+          "height": 96,
+          "purpose": "Feathers elsewhere on the same bird must not acquire the partial wing mask's Texture strength."
+        },
+        {
+          "name": "water-beside-reflection",
+          "left": 1120,
+          "top": 2260,
+          "width": 96,
+          "height": 96,
+          "purpose": "Nearby water remains outside both the reflected-leg and ripple supports."
+        },
+        {
+          "name": "water-outside-ripple-patch",
+          "left": 1650,
+          "top": 2520,
+          "width": 96,
+          "height": 96,
+          "purpose": "Water next to the small selected ripple patch, outside all manual mask supports."
+        }
+      ]
+    }
+  ],
+  "conditionalSupplementalCases": [
+    {
+      "id": "forearm-skin-hair",
+      "enabled": false,
+      "activation": "Only if prospectively selected to assess negative Texture or positive-strength grain after the primary proof; no automatic additional run.",
+      "source": "assets/tests/images/raster/wikimedia/forearm-hair/originals/ArmHair.jpg",
+      "sha256": "02f590a33003698f750166798552a63b038456c008e9f3a220ed3544b79db4b8",
+      "notice": "assets/tests/images/raster/wikimedia/forearm-hair/manifest.json",
+      "credit": "Zephyris - ArmHair.jpg (2010 archived original), CC BY-SA 3.0.",
+      "sourceUrl": "https://commons.wikimedia.org/w/index.php?title=File:ArmHair.jpg&oldid=801603795",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "regions": [
+        { "name": "skin-texture", "left": 2800, "top": 350, "width": 512, "height": 512 },
+        { "name": "hair-contours", "left": 1150, "top": 1000, "width": 512, "height": 512 }
+      ],
+      "selectionProvenance": "Unchanged source-only native regions from assets/tests/references/detail/photographic-sharpening-v1.json; no Texture output has been viewed.",
+      "limitations": "Reviewed anonymous skin/body hair, processed SDR JPEG; not face/scalp hair, RAW, paired clean/noisy truth or HDR acceptance. No Texture masks are frozen for this inactive case."
+    },
+    {
+      "id": "forest-merge",
+      "enabled": false,
+      "activation": "Only if prospectively selected for foliage or retained blend-boundary inspection; reuse the authenticated current-v4 source, never an edited proof PNG or camera JPEG.",
+      "kind": "merge",
+      "reference": "assets/tests/references/detail/photographic-sharpening-v1.json#forest-merge",
+      "manifestSha256": "1883d1aaa123a16a1217fcb120890e91b3a6545d60c3a3193ed2d352f994e377",
+      "assetSha256": "06801f7581b42778e55a8bebf925887e4dfc1d4dab3013459cd3f467f3b24bc8",
+      "maskSha256": "240f49fa0b465cc9fc481025124ed650c10e2cbe9239096f6b801b56b71d047f",
+      "width": 3645,
+      "height": 5465,
+      "notice": "assets/tests/images/raw/sony-zv-1a/forest-bracket/manifest.json",
+      "sourceOriginals": [
+        "assets/tests/images/raw/sony-zv-1a/forest-bracket/originals/DSC03277.ARW",
+        "assets/tests/images/raw/sony-zv-1a/forest-bracket/originals/DSC03278.ARW",
+        "assets/tests/images/raw/sony-zv-1a/forest-bracket/originals/DSC03279.ARW"
+      ],
+      "credit": "Project owner - unchanged permitted forest bracket; project testing permission, no general open-content license.",
+      "regions": [
+        { "name": "foliage", "left": 1760, "top": 1760, "width": 512, "height": 512 },
+        { "name": "deghost-transition", "left": 2344, "top": 281, "width": 512, "height": 512 }
+      ],
+      "selectionProvenance": "Unchanged native regions authenticated and frozen before #43 sharpening output. Boundary derives from retained source mask; asset-to-mask mapping is x+15,y+0.",
+      "limitations": "Current-v4 scene-linear master and permitted tracked originals; not known-truth motion/deghost correctness, radiometric calibration or physical HDR acceptance. No Texture masks are frozen for this inactive case."
+    }
+  ]
+}

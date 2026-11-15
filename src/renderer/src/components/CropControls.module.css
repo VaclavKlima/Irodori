@@ -50,3 +50,7 @@
 .tool .error {
   color: var(--error);
 }
+.hint {
+  color: var(--muted);
+  font-size: 11px;
+}

@@ -30,6 +30,16 @@ selective transfer, the typed API/MCP and frozen GPU export. Focused Bazzite
 acceptance, the deliberate version-12 color-order migration and remaining clipping,
 platform and initial-activation limits are recorded in [tone curves](docs/features/tone-curves.md).
 
+The [masked Texture integration](docs/features/masked-texture.md) adds an
+optional per-mask −100…+100 amount, default 0, in Masks → Adjustments. It shares
+history, the typed API/MCP and GPU preview/frozen SDR/HDR output. Raster and HDR
+previews retain their original sources alongside separately prepared Texture
+output. [Reconciled background functional verification](docs/features/masked-texture.md#full-application-integration--2026-11-15)
+covers 1,169 distinct cases on RX 7900 XTX;
+native foreground visuals, physical HDR and other-device qualification remain
+pending. Exact HDR service analysis/clipping with active Texture retains its
+explicit availability limits.
+
 Indicated-object selection now has a [Mac implementation](docs/features/object-selection.md) with manually editable mask proposals. Additional automatic mask types, generative retouching and cloud synchronization belong to later releases.
 
 The default [ACES 2 rendering pipeline](docs/display-rendering.md) preserves capture exposure and As Shot white balance, including night-scene darkness. Its fixed Rec.2020/D65 HDR content rendition uses nominal 1000-nit peak and 100-nit reference; monitor capability changes only presentation and diagnostics. SDR preview retains its direct rendition. It follows white balance and Light adjustments and stays separate from linear working assets. Measured Sony color/exposure calibration and physical screen luminance remain unverified.

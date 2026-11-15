@@ -70,6 +70,7 @@ for (const settingsVersion of [15, 16] as const)
         inverted: false,
         light: { exposureEv: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0 },
         color: { temperature: 20, tint: -3, saturation: -15 },
+        texture: 0,
         edge: { featherPx: 6, shiftPx: -2 },
       },
     ]

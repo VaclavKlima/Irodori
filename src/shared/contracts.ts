@@ -342,6 +342,7 @@ export interface Photo extends PhotoMetadata {
 }
 
 export interface LinearAsset {
+  preparedMasks?: import('./hdr').PreparedMaskPresentation
   maskGeometry?: import('./mask-geometry').MaskGeometry
   hdr?: HdrWorkingAsset
   url?: string
@@ -359,6 +360,11 @@ export interface HdrPreview extends Omit<FullPreview, 'format'> {
 export type DisplayPreview = FullPreview | HdrPreview
 
 export interface FullPreview {
+  preparedMaskStack?: {
+    readonly key: string
+    readonly consumed: 'global-and-local-point-v1'
+    readonly parentSha256: string
+  }
   maskGeometry?: import('./mask-geometry').MaskGeometry
   /** This prepared source contains spatial edits; Before needs its original lineage. */
   requiresUnfilteredComparison?: true

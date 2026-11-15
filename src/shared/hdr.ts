@@ -115,7 +115,30 @@ export interface DisplayCapabilities {
   p3: boolean
   reason: string
 }
+/** Published creative prefix stays separate from the original HDR source and its lease. */
+export interface PreparedMaskPresentation {
+  readonly key: string
+  readonly context: string
+  readonly consumed: 'global-and-local-point-v1'
+  readonly parentSha256: string
+  /** Frozen effective point edits; a later draft cannot replay on this prefix. */
+  readonly pointKey: string
+  readonly candidate: {
+    readonly url: string
+    readonly sha256: string
+    readonly byteLength: number
+    readonly strips: readonly { readonly byteLength: number; readonly sha256: string }[]
+  }
+  readonly union: {
+    readonly url: string
+    readonly sha256: string
+    readonly byteLength: number
+    readonly strips: readonly { readonly byteLength: number; readonly sha256: string }[]
+  }
+}
+
 export interface HdrWorkingAsset {
+  preparedMasks?: PreparedMaskPresentation
   maskGeometry?: import('./mask-geometry').MaskGeometry
   kind: 'hdr-working-v1'
   url?: string

@@ -76,6 +76,8 @@ export interface MaskOperand extends MaskCoverageNode {
 export interface MaskDescriptor extends MaskCoverageNode {
   light: MaskLight
   color: MaskColor
+  /** Signed native-grid fine-detail amount; zero is an exact spatial bypass. */
+  texture: number
 }
 export interface MaskStrokeChunk {
   hash: string
@@ -97,6 +99,8 @@ export interface ResolvedMaskOperand extends ResolvedMaskCoverage {
 export interface ResolvedMask extends ResolvedMaskCoverage {
   light: MaskLight
   color: MaskColor
+  /** Legacy synthetic point inputs may omit this neutral field; resolved durable roots carry it. */
+  texture?: number
 }
 export type MaskOperation =
   | { kind: 'create'; id: string; name: string; gradient?: MaskGradient; range?: MaskRange }
@@ -109,6 +113,7 @@ export type MaskOperation =
       inverted?: boolean
       light?: Partial<MaskLight>
       color?: Partial<MaskColor>
+      texture?: number
       edge?: Partial<MaskEdgeSettings>
       gradient?: MaskGradient
       range?: MaskRange
@@ -166,7 +171,7 @@ export interface MaskMutation {
   operations: MaskOperation[]
 }
 export const maskCapabilities = {
-  version: 6,
+  version: 7,
   order: 'top-last',
   types: ['brush', 'linear', 'radial', 'color-range', 'luminance-range'],
   range: maskRangeCapabilities,
@@ -190,6 +195,7 @@ export const maskCapabilities = {
     'temperature',
     'tint',
     'saturation',
+    'texture',
   ],
   color: {
     controls: ['temperature', 'tint', 'saturation'],
@@ -199,6 +205,15 @@ export const maskCapabilities = {
     default: 0,
     balance: 'relative-d65-bradford-half-mired-ucs-lab-v1',
     order: 'balance-light-saturation-coverage',
+  },
+  texture: {
+    min: -100,
+    max: 100,
+    step: 1,
+    default: 0,
+    order: 'texture-balance-light-saturation-coverage',
+    grid: 'prepared-crop-native-pixels',
+    algorithm: 'masked-texture-llf-residual-v1',
   },
   edge: {
     controls: ['featherPx', 'shiftPx'],
@@ -241,11 +256,18 @@ export const neutralMaskLight: Readonly<MaskLight> = {
 }
 export const neutralMaskEdge: Readonly<MaskEdgeSettings> = { featherPx: 0, shiftPx: 0 }
 export const neutralMaskColor: Readonly<MaskColor> = { temperature: 0, tint: 0, saturation: 0 }
-export function hasMaskAdjustments(mask: Pick<MaskDescriptor, 'light' | 'color'>): boolean {
+export function hasMaskAdjustments(
+  mask: Pick<MaskDescriptor, 'light' | 'color'> & { texture?: number },
+): boolean {
   return (
+    (mask.texture ?? 0) !== 0 ||
     Object.values(mask.light).some((value) => value !== 0) ||
     Object.values(mask.color).some((value) => value !== 0)
   )
+}
+export function validateMaskTexture(value: unknown): asserts value is number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || Math.abs(value) > 100)
+    throw new Error('Local Texture requires an integer from -100 to 100.')
 }
 export function maskHasEdges(mask: Pick<MaskDescriptor, 'edge'>): boolean {
   return mask.edge.featherPx !== 0 || mask.edge.shiftPx !== 0
@@ -506,7 +528,7 @@ export function validateMaskStack(value: unknown): asserts value is MaskDescript
             'inverted',
             'head',
             'edge',
-            ...(root ? ['light', 'color'] : ['operator']),
+            ...(root ? ['light', 'color', 'texture'] : ['operator']),
           ],
           ['base', 'gradient', 'range', 'operands', 'resultHead'],
         )
@@ -518,6 +540,7 @@ export function validateMaskStack(value: unknown): asserts value is MaskDescript
       if (root) {
         validateMaskLight(node.light)
         validateMaskColor(node.color)
+        validateMaskTexture(node.texture)
       } else validateMaskOperator(node.operator)
       if (node.base !== undefined) validateMaskBaseReference(node.base)
       if (node.gradient !== undefined) {
@@ -591,6 +614,7 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
               'inverted',
               'light',
               'color',
+              'texture',
               'edge',
               'gradient',
               'range',
@@ -604,6 +628,7 @@ export function validateMaskMutation(value: unknown): asserts value is MaskMutat
         if (op.name !== undefined) validateMaskName(op.name)
         if (op.light !== undefined) validateMaskLight(op.light, true)
         if (op.color !== undefined) validateMaskColor(op.color, true)
+        if (op.texture !== undefined) validateMaskTexture(op.texture)
         if (op.edge !== undefined) validateMaskEdge(op.edge, true)
         if (op.gradient !== undefined) validateMaskGradient(op.gradient)
         if (op.range !== undefined) validateMaskRange(op.range)
@@ -832,7 +857,12 @@ export function resolveMasks(
       })),
     }
   }
-  return stack.map((mask) => ({ ...resolve(mask), light: mask.light, color: mask.color }))
+  return stack.map((mask) => ({
+    ...resolve(mask),
+    light: mask.light,
+    color: mask.color,
+    texture: mask.texture,
+  }))
 }
 
 export function validateResolvedMasks(value: unknown): asserts value is ResolvedMask[] {
@@ -865,12 +895,14 @@ export function validateResolvedMasks(value: unknown): asserts value is Resolved
           'operands',
           'resultHead',
           'resultStrokes',
+          ...(root ? ['texture'] : []),
         ],
       ) ||
       !Array.isArray(mask.strokes) ||
       (mask.resultStrokes !== undefined && !Array.isArray(mask.resultStrokes))
     )
       throw new Error('Invalid resolved mask geometry.')
+    if (root && mask.texture !== undefined) validateMaskTexture(mask.texture)
     for (const stroke of [...mask.strokes, ...((mask.resultStrokes ?? []) as unknown[])]) {
       validateMaskStroke(stroke)
       points += stroke.points.length
@@ -900,6 +932,7 @@ export function validateResolvedMasks(value: unknown): asserts value is Resolved
             ].includes(key),
         ),
       ),
+      ...(root ? { texture: mask.texture ?? 0 } : {}),
       ...(mask.base ? { base: maskBaseReference(mask.base as MaskBaseContent) } : {}),
       ...(mask.operands !== undefined
         ? {

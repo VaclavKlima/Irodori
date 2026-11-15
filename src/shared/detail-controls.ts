@@ -9,6 +9,8 @@ import {
   DETAIL_SHARPENING_VERSION,
   SPATIAL_DETAIL_STAGE,
 } from './spatial-detail'
+import { maskedTextureSettingsKey } from './masked-texture'
+import type { EditSettings } from './edits'
 
 export type NoiseReductionPatch = Partial<NoiseReductionSettings>
 export type DetailSharpeningPatch = Partial<DetailSharpeningSettings>
@@ -88,9 +90,10 @@ export function spatialControlsActive(settings: SpatialControls): boolean {
   )
 }
 /** Authored controls matter to history even when Amount is zero. */
-export function spatialControlsKey(settings: SpatialControls): string {
+export function spatialControlsKey(settings: SpatialControls | EditSettings): string {
   const noise = settings.noiseReduction ?? neutralNoiseReduction,
     detail = settings.detailSharpening ?? neutralDetailSharpening
+  const texture = maskedTextureSettingsKey(settings as Partial<EditSettings>)
   return JSON.stringify([
     noise.version,
     noise.luminance,
@@ -99,5 +102,6 @@ export function spatialControlsKey(settings: SpatialControls): string {
     detail.amount,
     detail.radius,
     detail.threshold,
+    ...(texture === undefined ? [] : [texture]),
   ])
 }

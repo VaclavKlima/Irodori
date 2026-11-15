@@ -31,6 +31,12 @@ import {
 import type { DisplayPreview, FullPreview, HdrPreview } from '../shared/contracts'
 import { creativeColorActive, prepareCreativeColor } from '../shared/creative-color'
 import { preparedToneCurves } from '../shared/tone-curves'
+import { hasMaskedTexture, pointOnlyMaskAdjustments } from '../shared/masked-texture'
+import {
+  maskStackPresentationFiles,
+  validateMaskStackPresentationFiles,
+  validateMaskStackPresentationBytes,
+} from './processing/mask-stack-presentation'
 import {
   validateCurveToneRequest,
   type CurveToneRequest,
@@ -54,6 +60,7 @@ import {
   HDR_RAW_SOURCE_VERSION,
   HDR_SOURCE_VERSION,
   hdrSourceVersion,
+  hdrAdjustmentMatrix,
   SDR_TARGET,
   validateHdrSource,
   type DisplayTarget,
@@ -159,6 +166,7 @@ interface Entry extends FullPreviewResult, PreparedPreviewLineage {
   invalid: boolean
 }
 interface Request {
+  textureDisk?: PreviewDiskReservation
   id: string
   token: string
   abort: AbortController
@@ -577,7 +585,16 @@ export class FullPreviews {
         const metadata = JSON.parse(await readFile(join(path, 'entry.json'), 'utf8'))
         if (typeof metadata.variant !== 'string' || !metadata.variant)
           throw new Error('Unsupported preview cache entry.')
-        validatePreparedPreviewLineage(metadata, metadata.sourceKey, metadata)
+        if (metadata.maskStackFiles) {
+          if (metadata.preparedMaskStack?.key !== metadata.maskStackFiles.key || metadata.linear)
+            throw new Error('Invalid consumed Texture cache entry.')
+          await validateMaskStackPresentationFiles(path, metadata, metadata.maskStackFiles)
+          validatePreparedPreviewLineage(
+            { ...metadata, preparedMaskStack: undefined },
+            metadata.sourceKey,
+            metadata,
+          )
+        } else validatePreparedPreviewLineage(metadata, metadata.sourceKey, metadata)
         const workingOnly = metadata.format === 'hdr-working'
         if (workingOnly && !metadata.linear?.hdr) throw new Error('Missing HDR source descriptor.')
         const file = workingOnly
@@ -600,6 +617,8 @@ export class FullPreviews {
             file.size +
               placeholder.size +
               (metadata.linear?.byteLength ?? 0) +
+              (metadata.maskStackFiles?.candidate.byteLength ?? 0) +
+              (metadata.maskStackFiles?.union.byteLength ?? 0) +
               (metadata.firstSurface?.byteLength ?? 0)
         )
           throw new Error('Incomplete preview')
@@ -661,6 +680,8 @@ export class FullPreviews {
           detailSource: metadata.detailSource,
           detail: metadata.detail,
           preparedProofVersion: metadata.preparedProofVersion,
+          preparedMaskStack: metadata.preparedMaskStack,
+          maskStackFiles: metadata.maskStackFiles,
           firstSurface: metadata.firstSurface,
           firstSurfaceDecline: metadata.firstSurfaceDecline,
           diagnostics: metadata.diagnostics,
@@ -1207,11 +1228,16 @@ export class FullPreviews {
                     adjustments:
                       comparison || (sourceSpace && unfiltered)
                         ? neutralAdjustments
-                        : resolved.adjustments,
+                        : sourceSpace && resolved.adjustments
+                          ? pointOnlyMaskAdjustments(resolved.adjustments)
+                          : resolved.adjustments,
                     settings: sourceLens ? { ...sourceLens } : resolved.settings,
                   }
                 : undefined
-            if (!workingOnly && options?.adjustments?.localMasks?.length) {
+            if (
+              options?.adjustments?.localMasks?.length &&
+              (!workingOnly || hasMaskedTexture(options.adjustments))
+            ) {
               options.adjustments = {
                 ...options.adjustments,
                 localMasks: await this.rangeMasks(
@@ -1227,6 +1253,7 @@ export class FullPreviews {
             if (
               options &&
               (resolveDetailSettings(options).active ||
+                hasMaskedTexture(options.adjustments ?? neutralAdjustments) ||
                 (crop && !sourceSpace && !isUncropped(crop)))
             )
               return await this.prepareSpatial(
@@ -1691,6 +1718,7 @@ export class FullPreviews {
       detail = resolveDetailSettings(options),
       selectedOptions = { ...options, crop: settings },
       parameters = options.adjustments ?? neutralAdjustments,
+      textureActive = hasMaskedTexture(parameters),
       check = () => {
         signal.throwIfAborted()
         if (this.closed || this.blocked.has(id) || !this.original(id))
@@ -1701,7 +1729,7 @@ export class FullPreviews {
           .filter((entry) => entry.id === id && !entry.invalid)
           .sort((a, b) => b.usedAt - a.usedAt),
       renditionKey = (key: string) =>
-        flags.workingOnly
+        flags.workingOnly && !textureActive
           ? `working-${key}`
           : createHash('sha256')
               .update(
@@ -1713,6 +1741,7 @@ export class FullPreviews {
                   ADJUSTMENT_VERSION,
                   HDR_ADJUSTMENT_VERSION,
                   HDR_OUTPUT_VERSION,
+                  ...(textureActive ? ['masked-texture-app-v1', flags.workingOnly] : []),
                 ]),
               )
               .digest('hex')
@@ -1924,17 +1953,47 @@ export class FullPreviews {
     const sourceEntry = source,
       linear = source.linear,
       variant = renditionKey(source.sourceKey)
+    const textureGeometry = sourceEntry.crop
+      ? croppedMaskGeometry(
+          linear.hdr?.maskGeometry ??
+            linear.maskGeometry ??
+            identityMaskGeometry(sourceEntry.crop.source.width, sourceEntry.crop.source.height),
+          sourceEntry.crop,
+        )
+      : (linear.hdr?.maskGeometry ??
+        linear.maskGeometry ??
+        identityMaskGeometry(sourceEntry.width, sourceEntry.height))
+    const texturePoint = { ...parameters, maskGeometry: textureGeometry }
     sourceEntry.pins++
     request.linearEntry = sourceEntry
-    const matching = recent().find(
+    let matching = recent().find(
       (entry) => entry.variant === variant && (flags.workingOnly || entry.format === 'rgba8-srgb'),
     )
+    if (matching?.maskStackFiles) {
+      try {
+        if (matching.maskStackFiles.parentSha256 !== linear.sha256)
+          throw new Error('Texture cache parent changed.')
+        if (matching.maskStackFiles.pointKey !== adjustmentPixelKey(texturePoint))
+          throw new Error('Texture cache point context changed.')
+        await validateMaskStackPresentationBytes(
+          matching.path,
+          matching,
+          matching.maskStackFiles,
+          signal,
+        )
+      } catch {
+        signal.throwIfAborted()
+        matching.invalid = true
+        matching = undefined
+      }
+    }
     let entry =
       matching ??
+      (!textureActive &&
       (flags.workingOnly ||
-      (sourceEntry.format === 'rgba8-srgb' &&
-        sourceEntry.preparedProofVersion === PREPARED_PROOF_VERSION &&
-        sameAdjustments(sourceEntry.adjustments ?? neutralAdjustments, parameters))
+        (sourceEntry.format === 'rgba8-srgb' &&
+          sourceEntry.preparedProofVersion === PREPARED_PROOF_VERSION &&
+          sameAdjustments(sourceEntry.adjustments ?? neutralAdjustments, parameters)))
         ? sourceEntry
         : undefined)
     const cacheHit = sourceCacheHit && !!entry
@@ -1959,6 +2018,67 @@ export class FullPreviews {
               height: sourceEntry.height,
               path: join(sourceEntry.path, 'linear.f32'),
             },
+          }
+          if (textureActive) {
+            if (!this.processor.prepareMaskStack || !this.processor.renderPreparedFull)
+              throw new Error('The Texture processing worker is unavailable.')
+            const admission = await this.spatialAdmission('detail', flags, signal)
+            const geometry = textureGeometry
+            const point = texturePoint
+            preparedOptions.adjustments = point
+            preparedOptions.workingAsset = {
+              ...preparedOptions.workingAsset!,
+              maskGeometry: geometry,
+            }
+            const reservation = await this.reservePreviewDiskBytes(
+              sourceEntry.width * sourceEntry.height * 24 + 128 * 1024,
+              'Texture preview',
+            )
+            request.textureDisk = reservation
+            {
+              const result = await this.processor.prepareMaskStack(
+                directory,
+                {
+                  parent: { identity: sourceEntry.sourceKey!, asset: preparedOptions.workingAsset },
+                  adjustments: point,
+                  domain: linear.hdr
+                    ? linear.hdr.source.display
+                      ? 'authored-hdr'
+                      : 'scene-linear'
+                    : 'raster',
+                  transform: linear.transform,
+                  whiteBalance: linear.hdr
+                    ? (hdrAdjustmentMatrix(point, linear.hdr.whiteBalance) ?? undefined)
+                    : undefined,
+                  admission,
+                },
+                signal,
+              )
+              check()
+              const frame = await this.processor.renderPreparedFull(
+                directory,
+                preparedOptions,
+                signal,
+                'gpu',
+                result.request,
+              )
+              check()
+              const files = result.request
+                ? await maskStackPresentationFiles(
+                    result.request,
+                    adjustmentPixelKey(point),
+                    signal,
+                  )
+                : undefined
+              return {
+                ...frame,
+                maskStackFiles: files,
+                detail: sourceEntry.detail,
+                crop: sourceEntry.crop,
+                adjustments: parameters,
+                renderId: `${frame.renderId}-masked-texture-app-v1-${variant}`,
+              }
+            }
           }
           let backend: 'cpu' | 'gpu' | 'auto' = (process.env.IRODORI_PREVIEW_BACKEND ?? 'auto') as
             'cpu' | 'gpu' | 'auto'
@@ -2028,7 +2148,9 @@ export class FullPreviews {
     const renderingIdentity = linear.hdr
         ? `${hdrSourceVersion(linear.hdr.source)}-${linear.sha256}`
         : undefined,
-      renderId = flags.workingOnly ? renderingIdentity! : entry.renderId
+      renderId = flags.workingOnly
+        ? `${renderingIdentity!}${entry.maskStackFiles ? `-${entry.maskStackFiles.key}` : ''}`
+        : entry.renderId
     if (!flags.background)
       this.diagnostics = {
         photoId: id,
@@ -2057,7 +2179,10 @@ export class FullPreviews {
       firstSurfaceDecline: request.firstDecline,
       adjustments: parameters,
       workingSource: this.workingRef(sourceEntry),
-      ...(sourceEntry.detailSource ? { requiresUnfilteredComparison: true as const } : {}),
+      ...(sourceEntry.detailSource || textureActive
+        ? { requiresUnfilteredComparison: true as const }
+        : {}),
+      preparedMaskStack: entry.preparedMaskStack,
       settingsRevision: options.revision,
       appliedCorrections: sourceEntry.appliedCorrections,
       sourceRef: renderingIdentity
@@ -2070,6 +2195,39 @@ export class FullPreviews {
         : undefined,
       linear: {
         ...linear,
+        ...(entry.maskStackFiles
+          ? {
+              preparedMasks: {
+                ...entry.maskStackFiles,
+                candidate: {
+                  ...entry.maskStackFiles.candidate,
+                  url: `irodori-photo://library/${id}/mask-stack/${PREVIEW_VERSION}/${entry.revision}`,
+                },
+                union: {
+                  ...entry.maskStackFiles.union,
+                  url: `irodori-photo://library/${id}/mask-union/${PREVIEW_VERSION}/${entry.revision}`,
+                },
+              },
+            }
+          : {}),
+        ...(linear.hdr && entry.maskStackFiles
+          ? {
+              hdr: {
+                ...linear.hdr,
+                preparedMasks: {
+                  ...entry.maskStackFiles,
+                  candidate: {
+                    ...entry.maskStackFiles.candidate,
+                    url: `irodori-photo://library/${id}/mask-stack/${PREVIEW_VERSION}/${entry.revision}`,
+                  },
+                  union: {
+                    ...entry.maskStackFiles.union,
+                    url: `irodori-photo://library/${id}/mask-union/${PREVIEW_VERSION}/${entry.revision}`,
+                  },
+                },
+              },
+            }
+          : {}),
         url: `irodori-photo://library/${id}/linear/${PREVIEW_VERSION}/${sourceEntry.revision}`,
       },
       photoId: id,
@@ -2083,7 +2241,7 @@ export class FullPreviews {
       placeholderUrl: flags.workingOnly
         ? undefined
         : `irodori-photo://library/${id}/placeholder/${PREVIEW_VERSION}/${entry.revision}`,
-      url: `irodori-photo://library/${id}/${flags.workingOnly ? 'linear' : 'full'}/${PREVIEW_VERSION}/${entry.revision}`,
+      url: `irodori-photo://library/${id}/${flags.workingOnly ? 'linear' : 'full'}/${PREVIEW_VERSION}/${flags.workingOnly ? sourceEntry.revision : entry.revision}`,
     } as DisplayPreview
   }
 
@@ -2137,8 +2295,22 @@ export class FullPreviews {
             throw new Error('Invalid prepared HDR descriptor.')
         }
       }
-      validatePreparedPreviewLineage(frame, sourceKey, lineage ?? {})
-      const bytes = file.size + placeholder.size + (frame.linear?.byteLength ?? 0),
+      if (frame.maskStackFiles) {
+        if (frame.preparedMaskStack?.key !== frame.maskStackFiles.key || frame.linear)
+          throw new Error('Invalid Texture rendition lineage.')
+        await validateMaskStackPresentationFiles(temporary, frame, frame.maskStackFiles)
+        validatePreparedPreviewLineage(
+          { ...frame, preparedMaskStack: undefined },
+          sourceKey,
+          lineage ?? {},
+        )
+      } else validatePreparedPreviewLineage(frame, sourceKey, lineage ?? {})
+      const bytes =
+          file.size +
+          placeholder.size +
+          (frame.linear?.byteLength ?? 0) +
+          (frame.maskStackFiles?.candidate.byteLength ?? 0) +
+          (frame.maskStackFiles?.union.byteLength ?? 0),
         metadata = { ...frame, ...lineage, sourceKey, variant, bytes }
       await writeFile(join(temporary, 'entry.json'), JSON.stringify(metadata))
       request.abort.signal.throwIfAborted()
@@ -2157,8 +2329,13 @@ export class FullPreviews {
       published = true
       return entry
     } finally {
-      await rm(temporary, { recursive: true, force: true })
-      if (!published) await rm(path, { recursive: true, force: true })
+      try {
+        await rm(temporary, { recursive: true, force: true })
+        if (!published) await rm(path, { recursive: true, force: true })
+      } finally {
+        request.textureDisk?.()
+        request.textureDisk = undefined
+      }
     }
   }
 
@@ -2865,7 +3042,7 @@ export class FullPreviews {
     const [id, kind, version, revision, extra] = url.pathname.slice(1).split('/')
     if (
       extra !== undefined ||
-      (kind !== 'full' && kind !== 'placeholder' && kind !== 'linear' && kind !== 'first') ||
+      !['full', 'placeholder', 'linear', 'first', 'mask-stack', 'mask-union'].includes(kind) ||
       version !== PREVIEW_VERSION ||
       !hashPattern.test(id) ||
       !tokenPattern.test(revision) ||
@@ -2896,6 +3073,7 @@ export class FullPreviews {
       !entry ||
       entry.invalid ||
       (kind === 'linear' && !entry.linear) ||
+      ((kind === 'mask-stack' || kind === 'mask-union') && !entry.maskStackFiles) ||
       (entry.format === 'hdr-working' && kind !== 'linear')
     )
       return
@@ -2904,15 +3082,27 @@ export class FullPreviews {
     return {
       path: join(
         entry.path,
-        kind === 'linear' ? 'linear.f32' : kind === 'full' ? 'full.rgba' : 'placeholder.png',
+        kind === 'linear'
+          ? 'linear.f32'
+          : kind === 'full'
+            ? 'full.rgba'
+            : kind === 'mask-stack'
+              ? 'mask-stack.f32'
+              : kind === 'mask-union'
+                ? 'mask-union.f32'
+                : 'placeholder.png',
       ),
       contentType: kind === 'placeholder' ? 'image/png' : 'application/octet-stream',
       byteLength:
         kind === 'linear'
           ? entry.linear!.byteLength
-          : kind === 'full'
-            ? entry.byteLength
-            : entry.placeholderBytes,
+          : kind === 'mask-stack'
+            ? entry.maskStackFiles!.candidate.byteLength
+            : kind === 'mask-union'
+              ? entry.maskStackFiles!.union.byteLength
+              : kind === 'full'
+                ? entry.byteLength
+                : entry.placeholderBytes,
       release: () => {
         if (released) return
         released = true

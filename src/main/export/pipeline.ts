@@ -7,9 +7,11 @@ import { exportDetailPolicy } from './detail-policy'
 import { exportResizePolicy } from './resize-policy'
 import { exportOutputSharpeningPolicy } from './output-sharpening-policy'
 import type { OutputProofPipeline } from '../../shared/export-proof'
+import { exportTexturePolicy } from './texture-policy'
 
 export function exportPipeline(): OutputProofPipeline {
   return {
+    texture: { ...exportTexturePolicy },
     rendering: EXPORT_RENDERING_VERSION,
     codec: EXPORT_CODEC_VERSION,
     display: DISPLAY_RENDERING_VERSION,

@@ -74,7 +74,12 @@ export async function renderExport(
   let metadataMs = 0,
     sdrEncodeMs = 0
   const admission =
-    job.outputSharpeningAdmission ?? job.detailAdmission ?? job.cropAdmission ?? job.resizeAdmission
+    job.outputSharpeningAdmission ??
+    job.detailAdmission ??
+    job.cropAdmission ??
+    job.resizeAdmission ??
+    job.preparedMaskStack?.admission ??
+    job.primaryPreparedMaskStack?.admission
   let sdrMemory: ReturnType<typeof exportSdrEncodePlan> | undefined
   const pendingTags = metadata(job).finally(() => {
     metadataMs = performance.now() - metadataStarted
@@ -138,6 +143,7 @@ export async function renderExport(
     crop: rendition.diagnostics.crop,
     resize: rendition.diagnostics.resize,
     detail: rendition.diagnostics.detail,
+    preparedMaskStack: rendition.diagnostics.preparedMaskStack,
     outputSharpening: rendition.diagnostics.outputSharpening,
     sourcePreparation: rendition.diagnostics.sourcePreparation,
     renderer: rendition.diagnostics.renderer,

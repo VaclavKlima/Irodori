@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "id": "masked-texture-llf-residual-v1",
+  "issue": 80,
+  "scope": "One bounded research candidate; neutral point edits only; no app settings/UI/history/MCP/export enablement.",
+  "sourcePin": {
+    "repository": "halide/Halide",
+    "commit": "8cfbcdb0a6e718eff70f6dfd04f37dcc78ede5ca",
+    "path": "apps/local_laplacian/local_laplacian_generator.cpp",
+    "sourceSha256": "36481ce3d3a0bf2e5346303e85857f265d98bc0816cf903f6610bf6339fdea74",
+    "licenseSha256": "f8dfa0ece6635d3c5b8c65120e6c3aa94a80df77e023f24df35570b70f79ebfc",
+    "license": "MIT notice retained; no Halide runtime dependency or code bundled into production"
+  },
+  "algorithm": {
+    "pyramidLevels": 4,
+    "modifiedBands": [
+      1,
+      2
+    ],
+    "boundary": "Clamp each finite intermediate level; ceil-half dimensions. Explicit research adaptation, not virtual-source-edge Halide parity.",
+    "downsample": "Separable Y then X, [1,3,3,1]/8 at2p+[-1,0,1,2]; centered-difference arithmetic preserves constants.",
+    "upsample": "a+(b-a)*t, a=floor((p+1)/2),b=floor((p-1)/2),t=((p%2)*2+1)/4, X thenY, clamped reads",
+    "feature": "L=asinh(Y/0.18), actual srgb/rec2020 primary-derived coefficients; source |L|<=6 or explicit refusal; no exposure normalization/clamp",
+    "alpha": "Gaussian pair stores weighted numerator and alpha weight; normalize at coefficient/upsample reads, emptyweight=>0; transparent input ignored and RGB/alpha words retained",
+    "anchors": {
+      "minimum": -6,
+      "maximum": 6,
+      "step": 0.125,
+      "count": 97
+    },
+    "remapResidual": "F_g(L)=(L-g)*exp(-0.5*((L-g)/0.2)^2)",
+    "coefficient": "norm(F_j)-norm(U(F_j+1)), interpolate adjacent g using normalized source G_j, only j1/2; store weighted delta numerator and G_j.alphaWeight",
+    "reconstruct": "R1=(norm(D1)+norm(U(D2)))*G1.alphaWeight, normalized weighted upsample R1 to full grid",
+    "amount": "a=integerAmount/100, -100..100; feature change d=a*fullDelta",
+    "luminanceDelta": "2*Y*sinh(d/2)^2+hypot(Y,0.18)*sinh(d)",
+    "composite": "RGBout=RGBsource+coverage*luminanceDelta; coverage AFTER nonlinear reconstruction; alpha unchanged; amount0/mask0/alpha0 exact source copy",
+    "order": "Each active mask can materialize preceding Float32 result before next source preparation; no general active global/local point-edit integration claimed.",
+    "fullNativeSupportBoundPx": 32,
+    "tiling": "Full-frame research buffers, no invented three-strip/composed-halo claim; full integration and tiled execution remain unqualified"
+  },
+  "gates": {
+    "absoluteRgb": 2e-06,
+    "relativeRgb": 2e-05,
+    "exact": [
+      "neutral words",
+      "zero-coverage words",
+      "alpha words",
+      "hidden RGB words",
+      "constant source words"
+    ],
+    "firstProceduralQuality": {
+      "period4And8Positive25MinFeatureRmsGain": 1.02,
+      "period4And8Negative25MaxFeatureRmsGain": 0.98,
+      "period2Positive25FeatureRmsGainRange": [
+        0.95,
+        1.05
+      ],
+      "flatNoisePositive25MaxFeatureRmsGain": 1.1,
+      "stepMaxOvershootFraction": 0.05,
+      "maximumSupportPx": 32
+    },
+    "photo": "Useful modest texture/softening in fixed native views; no material new halo/grain/mask seam/coarse contrast shift; exact unmasked working bytes vs original prepared source and original production proof pixels. Unseen or general quality not claimed."
+  },
+  "reference": {
+    "file": "assets/tests/references/masked-texture/reference.json",
+    "sha256": "a362d3175310750046c03468e7128f0c7b5a15b50a1b5c166633bf0f04a48f4e",
+    "generatorSha256": "e495f7bf06002b04a185211f18fac58ec0f29e7bad1cc8798b2b0567957e4e98"
+  },
+  "photoCases": {
+    "file": "assets/tests/references/masked-texture/photo-cases.json",
+    "sha256": "7e1d900942d309add89e3c76ed68af07238c8e59fc7174b89c46c531167c5483"
+  },
+  "variants": {
+    "moderate": [
+      -25,
+      0,
+      25
+    ],
+    "stress": [
+      -100,
+      100
+    ],
+    "independentAmounts": {
+      "plumage": 25,
+      "ripples": -25,
+      "reflected-legs": 10
+    },
+    "comparison": {
+      "noiseReduction": [
+        0,
+        0
+      ],
+      "detailSharpening": [
+        50,
+        1,
+        50
+      ]
+    }
+  },
+  "preparation": "Existing production full-native prepareLinear and GPU SDR proof; AsShot/neutral curves Light Color WB, no lens/crop/local edits. Preserve raster linear-sRGB/transform and merge scene-linear Rec2020.",
+  "runtime": {
+    "backend": "Existing isolated native Dawn device, no CPU feature fallback/retry",
+    "maxNativePixels": 24000000,
+    "budget": "Unchanged Automatic RAM and conservative unmatched-adapter2GiB VRAM, all allocated buffers and managed host frames admitted before work",
+    "maxSecondsPerOwnedRun": 600,
+    "resourceFailure": "Explicit refusal, no lower resolution or equivalent CPU restart",
+    "foregroundRequiresApproval": true
+  },
+  "stop": "Stop on first numerical/resource/quality failure; inspect exact failure and correct implementation defects only. No result-driven algorithm/strength/mask/source tuning or automatic candidate cycle. Skin/foliage only after useful flamingo review."
+}

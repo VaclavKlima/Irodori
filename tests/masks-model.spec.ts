@@ -293,6 +293,7 @@ test('mask commands reject unbounded, nonfinite, out-of-source and unsupported d
           head: 'a'.repeat(64),
           light: { ...neutralMaskLight },
           color: { ...neutralMaskColor },
+          texture: 0,
           edge: { ...neutralMaskEdge },
         },
       ],

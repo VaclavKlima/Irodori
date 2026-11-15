@@ -22,10 +22,15 @@ export interface PreparedPreviewLineage {
 
 /** Validate path-free lineage both before publication and when reopening disposable cache entries. */
 export function validatePreparedPreviewLineage(
-  frame: Pick<FullPreviewResult, 'width' | 'height' | 'linear' | 'crop' | 'detail'>,
+  frame: Pick<
+    FullPreviewResult,
+    'width' | 'height' | 'linear' | 'crop' | 'detail' | 'preparedMaskStack'
+  >,
   sourceKey: string | undefined,
   lineage: PreparedPreviewLineage,
 ): void {
+  if (frame.preparedMaskStack)
+    throw new Error('A consumed mask rendition is not an unedited prepared source.')
   const detail = lineage.detailSource
   if (detail) {
     const key = detailLineageKey(detail),
@@ -84,9 +89,11 @@ export function preparedWorkingIdentity(
   id: string,
   options: ProcessingOptions,
   workingOnly: boolean,
-  entry: Pick<FullPreviewResult, 'width' | 'height' | 'crop'> & PreparedPreviewLineage,
+  entry: Pick<FullPreviewResult, 'width' | 'height' | 'crop' | 'preparedMaskStack'> &
+    PreparedPreviewLineage,
   uncropped = false,
 ): string | undefined {
+  if (entry.preparedMaskStack) return
   const settings = resolveDetailSettings(options),
     upstream = workingSourceIdentity(id, options, workingOnly)
   let key = upstream

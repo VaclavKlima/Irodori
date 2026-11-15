@@ -44,6 +44,7 @@ import { usePreviewWheel } from '../hooks/usePreviewWheel'
 import type { WhiteBalancePickerController } from '../hooks/useWhiteBalancePicker'
 import type { ToneCurvesController } from '../hooks/useToneCurves'
 import type { MasksController } from '../hooks/useMasks'
+import { hasMaskedTexture, pointOnlyMaskAdjustments } from '../../../shared/masked-texture'
 import { maskCanonicalPoint } from '../../../shared/mask-geometry'
 import { MaskOverlayPresenter } from '../preview/mask-overlay'
 import { useWorkingPreview } from '../hooks/useWorkingPreview'
@@ -444,10 +445,14 @@ export function PhotoPreview({
   )
   const adjustments = useMemo(
     () => ({
-      ...providedAdjustments,
+      ...(full.preview?.sourceSpace === 'uncropped'
+        ? pointOnlyMaskAdjustments(providedAdjustments)
+        : full.preview?.adjustments && hasMaskedTexture(full.preview.adjustments)
+          ? full.preview.adjustments
+          : providedAdjustments),
       maskGeometry: full.preview?.maskGeometry,
     }),
-    [providedAdjustments, full.preview?.maskGeometry],
+    [providedAdjustments, full.preview],
   )
   const drawAdjustments = useMemo(() => snapshotAdjustments(adjustments), [adjustments])
   const diagnosticAdjustments = useMemo(
@@ -2098,6 +2103,7 @@ export function PhotoPreview({
                 role="img"
                 aria-label={photo.filename}
                 data-testid="main-preview"
+                data-masked-texture-key={full.preview?.preparedMaskStack?.key}
                 data-suspended={suspended}
                 data-gesturing={gesturing}
                 data-editing-epoch={editingEpoch}

@@ -29,6 +29,49 @@ readable data; keeping them does not keep their retired executors available.
 | Whole-mask edge preparation                 | Common native Dawn/WGSL in a bundled-Node worker; native Sharp PNG codec                                                                                                                                          | Complete base/ordered brush/inverted coverage, exact disk ±16 px, Gaussian radius ≤64 px, native 128-row strips and full halos, disposable revision/source-bound R8, unchanged memory ceilings | [Implementation and focused Mac acceptance](features/mask-edges.md); [focused Bazzite qualification and limits](features/masking-bazzite-acceptance.md). Zero/zero preserves the existing path. No per-renderer filter forks, CPU filter fallback, model rerun or full-image TypeScript pixel math.                                                                                                                                                                                                              |
 | Object selection and generated coverage     | Common ONNX Runtime Node native WebGPU SAM 2.1 Tiny, Mask2Former sky and BiRefNet background in a bundled-Node worker; common Dawn preprocessing/RGB guided reconstruction; shared WGSL/GLSL R8 coverage sampling | Pinned portable graph hashes, one source/embedding, explicit GPU failure/cancel/retry; 32 MP/8192 source bound, compact bounded atlas, immutable PNG base plus ordered corrections             | [Mac delivery and device evidence](features/object-selection.md); [sky/background models, resources and acceptance limits](features/sky-background-selection.md); [focused Bazzite qualification and RAW startup evidence](features/masking-bazzite-acceptance.md). Native codecs remain outside Electron. No heavy CPU inference fallback or full-image TypeScript reconstruction.                                                                                                                              |
 
+## Masked Texture preparation and consumption — issue #80
+
+The [application integration](features/masked-texture.md#full-application-integration--2026-11-15)
+adds the frozen signed local-Laplacian Texture operator to the common isolated
+Dawn preparation owner. Global Detail and committed native crop precede global
+point edits and bottom-to-top roots. Each root performs Texture, existing
+Balance/Light/Saturation and one final canonical-coverage blend. Root amount 0
+bypasses spatial work. Full native crop spacing chooses scale; display zoom does
+not. A separate prepared-stack identity binds parent/grid/domain/point context,
+ordered controls, candidate and unquantized union without changing original
+working-source identity.
+
+Native SDR/HDR rendition preserves actual legacy native words outside Texture
+and at alpha zero through admitted GPU selection. Authored HDR content and SDR
+primary remain independent. Selected unrounded HDR peaks use the unchanged
+shader policy. Browser HDR retains original-source textures plus separately
+verified candidate/union mip chains, uses a legacy-first cache pass and keeps
+Before unfiltered. Histogram point selection consumes the prefix once. Raster
+WebGL2 retains its original source and draws a private Float32 candidate/union
+overlay after the unchanged legacy pass. Native pixels outside the Texture union
+and at alpha zero retain exact legacy output. Fit retains legacy presentation
+outside the affected sampler footprint; filtering and mips can include
+neighboring Texture pixels. Encoded proof bitmaps do not replace the source.
+
+All live prefix/coverage/readback/transport/renderer/crop/edge owners count
+against existing admissions. The 24 MP ceiling is not guaranteed admission.
+GPU/domain/resource failures refuse explicitly, preserve edits and drain work;
+no CPU feature backend, precision repair or reduced-resolution fallback is added.
+UI/API/MCP and settings 20/catalog 30 history wiring are implemented. During
+uncropped framing, Texture is omitted while Light/Color remain; Apply rebuilds
+it on the committed grid. Exact HDR service statistics/pixels and native clipping
+with active Texture remain explicitly unavailable under the point-only protocol.
+
+[Reconciled current-device background acceptance](features/masked-texture.md#full-application-integration--2026-11-15)
+covers 1,169 distinct cases on RX 7900 XTX, with original failures retained and
+exact corrective reruns recorded separately. Eleven additional native
+producer/HDR cases pass on integrated RADV Raphael-Mendocino; browser selectors
+still chose RX 7900 XTX, so browser iGPU execution remains unverified. Two required foreground visual cases await
+explicit approval and execution; physical HDR, broad photographic/performance
+and cross-platform acceptance remain separate.
+[Other-device #122](https://github.com/VaclavKlima/Irodori/issues/122) retains
+macOS/Windows qualification after identified source publication.
+
 ## Agent mask inspection — issue #113
 
 [Existing-root mask inspection](features/agent-editing-workflow.md) uses the

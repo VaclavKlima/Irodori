@@ -11,3 +11,7 @@ package-lock.json
 vendor/opencv/
 vendor/ultrahdr/*.mjs
 vendor/ultrahdr/licenses/
+
+# Immutable, hash-pinned research protocol and independently generated oracle.
+assets/tests/references/masked-texture/protocol.json
+assets/tests/references/masked-texture/reference.json

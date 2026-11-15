@@ -39,6 +39,7 @@ type Draft = {
   newComponent?: { componentId: string; parentId?: string; name: string; operator: MaskOperator }
   light?: MaskLight
   color?: MaskColor
+  texture?: number
   edge?: MaskEdgeSettings
   stroke?: MaskStroke
   order?: string[]
@@ -151,7 +152,15 @@ export function useMasks(
   const [pending, setPending] = useState(false)
   const [committingAdjustments, setCommittingAdjustments] = useState<Pick<
     Draft,
-    'photoId' | 'revision' | 'maskId' | 'componentId' | 'edge' | 'color' | 'gradient' | 'range'
+    | 'photoId'
+    | 'revision'
+    | 'maskId'
+    | 'componentId'
+    | 'edge'
+    | 'color'
+    | 'texture'
+    | 'gradient'
+    | 'range'
   > | null>(null)
   const pendingCommit = useRef<Promise<void> | null>(null)
   const [brushDraft, setBrushDraft] = useState<{
@@ -257,11 +266,19 @@ export function useMasks(
     (previewReady ||
       !!activePart ||
       !!activeRangeSession ||
-      !!(draft && draft.photoId === photoId && draft.revision === state?.revision)) &&
+      !!(
+        draft &&
+        (draft.texture === undefined || draft.light || draft.color || draft.edge) &&
+        draft.photoId === photoId &&
+        draft.revision === state?.revision
+      )) &&
     edits.confirmed &&
     !!state &&
     !!photoId
   const available = supported && !pending && !edits.saving
+  // An existing Texture amount must remain recoverable when its prepared preview refuses.
+  const textureSupported = Boolean(enabled && edits.confirmed && state && photoId && selected)
+  const textureAvailable = textureSupported && !pending && !edits.saving
   const active =
     supported &&
     !creatingGradient &&
@@ -334,13 +351,14 @@ export function useMasks(
       !value?.light &&
       !value?.edge &&
       !value?.color &&
+      value?.texture === undefined &&
       !value?.range &&
       !(value?.gradient && value.gradientInput)
     ) {
       if (value?.gradient) publish(null)
       return pendingCommit.current ?? undefined
     }
-    if (value.edge || value.color || value.gradient || value.range)
+    if (value.edge || value.color || value.texture !== undefined || value.gradient || value.range)
       setCommittingAdjustments({
         photoId: value.photoId,
         revision: value.revision,
@@ -348,6 +366,7 @@ export function useMasks(
         componentId: value.componentId,
         edge: value.edge,
         color: value.color,
+        texture: value.texture,
         gradient: value.gradient,
         range: value.range,
       })
@@ -361,21 +380,28 @@ export function useMasks(
     }
     busy.current = true
     setPending(true)
-    const work = current.current.edits.commitMasks(
-      [
-        {
-          kind: 'update',
-          id: value.maskId,
-          ...(value.componentId ? { componentId: value.componentId } : {}),
-          ...(value.light ? { light: value.light } : {}),
-          ...(value.color ? { color: value.color } : {}),
-          ...(value.edge ? { edge: value.edge } : {}),
-          ...(value.gradient ? { gradient: value.gradient } : {}),
-          ...(value.range ? { range: value.range } : {}),
-        },
-      ],
-      value.revision,
-    )
+    const rootControls = {
+      ...(value.light ? { light: value.light } : {}),
+      ...(value.color ? { color: value.color } : {}),
+      ...(value.texture !== undefined ? { texture: value.texture } : {}),
+    }
+    const coverageControls = {
+      ...(value.edge ? { edge: value.edge } : {}),
+      ...(value.gradient ? { gradient: value.gradient } : {}),
+      ...(value.range ? { range: value.range } : {}),
+    }
+    const rootUpdate: MaskOperation = { kind: 'update', id: value.maskId, ...rootControls }
+    const coverageUpdate: MaskOperation = {
+      kind: 'update',
+      id: value.maskId,
+      ...(value.componentId ? { componentId: value.componentId } : {}),
+      ...coverageControls,
+    }
+    const operations: MaskOperation[] =
+      value.componentId && value.componentId !== value.maskId && Object.keys(rootControls).length
+        ? [rootUpdate, ...(Object.keys(coverageControls).length ? [coverageUpdate] : [])]
+        : [{ ...coverageUpdate, ...rootControls }]
+    const work = current.current.edits.commitMasks(operations, value.revision)
     pendingCommit.current = work
     try {
       await work
@@ -460,12 +486,6 @@ export function useMasks(
             const next = {
               ...mask,
 
-              ...(mask.id === root.id
-                ? {
-                    light: currentDraft.light ?? mask.light,
-                    color: currentDraft.color ?? mask.color,
-                  }
-                : {}),
               gradient:
                 currentDraft.gradient && !currentDraft.newComponent
                   ? currentDraft.gradient
@@ -506,9 +526,15 @@ export function useMasks(
             }
             return next
           })
+          const adjustedRoot = {
+            ...nextRoot,
+            light: currentDraft.light ?? nextRoot.light,
+            color: currentDraft.color ?? nextRoot.color,
+          }
+          // Spatial Texture changes are committed once; only the numeric control previews the draft.
           return currentDraft.gradient || currentDraft.stroke || currentDraft.range
-            ? mapMaskCoverage(nextRoot, (node) => ({ ...node, preparedCoverage: undefined }))
-            : nextRoot
+            ? mapMaskCoverage(adjustedRoot, (node) => ({ ...node, preparedCoverage: undefined }))
+            : adjustedRoot
         })
     if (currentDraft?.order)
       result = currentDraft.order.map((id) => result.find((mask) => mask.id === id)!)
@@ -646,6 +672,7 @@ export function useMasks(
           enabled: true,
           light: { ...neutralMaskLight },
           color: { ...neutralMaskColor },
+          texture: 0,
         }
       : resolvedRoot
   const edgeValues =
@@ -681,6 +708,20 @@ export function useMasks(
   const safely = (work: Promise<unknown>) => {
     void work.catch(() => undefined)
   }
+  const textureValue =
+    draft &&
+    draft.photoId === photoId &&
+    draft.revision === state?.revision &&
+    draft.maskId === selectedId &&
+    draft.texture !== undefined
+      ? draft.texture
+      : committingAdjustments &&
+          committingAdjustments.photoId === photoId &&
+          committingAdjustments.revision === state?.revision &&
+          committingAdjustments.maskId === selectedId &&
+          committingAdjustments.texture !== undefined
+        ? committingAdjustments.texture
+        : (selected?.texture ?? 0)
   const finish = async () => {
     if (busy.current) return
     const value = draftRef.current
@@ -1134,6 +1175,9 @@ export function useMasks(
           : (workspace.overlayScope ?? ('result' as const)),
     },
     adjustments,
+    textureValue,
+    textureSupported,
+    textureAvailable,
     coverageMutation,
     gesturing: !!draft || !!activeRangeSession,
     drawing: !!draft?.stroke,
@@ -1265,6 +1309,8 @@ export function useMasks(
       publish({
         ...(prior?.edge ? { edge: prior.edge } : {}),
         ...(prior?.color ? { color: prior.color } : {}),
+        ...(prior?.texture !== undefined ? { texture: prior.texture } : {}),
+        ...(prior?.edge && prior.componentId ? { componentId: prior.componentId } : {}),
         photoId,
         revision: state.revision,
         maskId: selected.id,
@@ -1287,6 +1333,8 @@ export function useMasks(
       publish({
         ...(prior?.light ? { light: prior.light } : {}),
         ...(prior?.edge ? { edge: prior.edge } : {}),
+        ...(prior?.texture !== undefined ? { texture: prior.texture } : {}),
+        ...(prior?.edge && prior.componentId ? { componentId: prior.componentId } : {}),
         photoId,
         revision: state.revision,
         maskId: selected.id,
@@ -1294,6 +1342,27 @@ export function useMasks(
       })
     },
     commitColor: () => safely(flush()),
+    changeTexture: (value: number) => {
+      if (!textureAvailable || !selected || !state || !photoId) return
+      const previous = draftRef.current
+      const prior =
+        previous?.maskId === selected.id &&
+        previous.photoId === photoId &&
+        previous.revision === state.revision
+          ? previous
+          : null
+      publish({
+        ...(prior?.light ? { light: prior.light } : {}),
+        ...(prior?.color ? { color: prior.color } : {}),
+        ...(prior?.edge ? { edge: prior.edge } : {}),
+        ...(prior?.edge && prior.componentId ? { componentId: prior.componentId } : {}),
+        photoId,
+        revision: state.revision,
+        maskId: selected.id,
+        texture: value,
+      })
+    },
+    commitTexture: () => safely(flush()),
     changeEdge: (key: keyof MaskEdgeSettings, value: number) => {
       if (!available || !selected || !state || !photoId) return
       const previous = draftRef.current
@@ -1306,6 +1375,7 @@ export function useMasks(
       publish({
         ...(prior?.light ? { light: prior.light } : {}),
         ...(prior?.color ? { color: prior.color } : {}),
+        ...(prior?.texture !== undefined ? { texture: prior.texture } : {}),
         photoId,
         revision: state.revision,
         maskId: selected.id,

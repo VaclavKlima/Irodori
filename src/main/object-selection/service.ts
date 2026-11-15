@@ -416,6 +416,7 @@ export function selectedMaskStack(
       base: reference,
       light: { ...neutralMaskLight },
       color: { ...neutralMaskColor },
+      texture: 0,
       edge: { ...neutralMaskEdge },
       operands: [],
       resultHead: null,

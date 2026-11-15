@@ -13,6 +13,10 @@ import type { FullPreviewResult } from './preview-types'
 import type { PreviewWorkerRequest, PreviewWorkerResponse } from './preview-types'
 import { NativeRawSourceClient } from './native-raw-source'
 import { decodeOutputProof } from './export/proof-decode'
+import {
+  prepareMaskStack,
+  type MaskStackPreparationResult,
+} from './processing/mask-stack-preparation'
 
 function send(message: PreviewWorkerResponse) {
   if (process.connected) process.send?.(message)
@@ -27,7 +31,10 @@ const nativeRaw = new NativeRawSourceClient((message) => {
 })
 let closing = false
 let detailWork:
-  | { controller: AbortController; pending: Promise<DetailPreparationResult | FullPreviewResult> }
+  | {
+      controller: AbortController
+      pending: Promise<DetailPreparationResult | FullPreviewResult | MaskStackPreparationResult>
+    }
   | undefined
 async function close() {
   if (closing) return
@@ -81,7 +88,13 @@ process.on('message', async (data: PreviewWorkerRequest, handle) => {
       if (!data.options || !data.frame?.preparedBackend)
         throw new Error('Missing prepared preview request.')
       const controller = new AbortController(),
-        pending = engine.renderPreparedFull(data.output, data.options, data.frame.preparedBackend),
+        pending = engine.renderPreparedFull(
+          data.output,
+          data.options,
+          data.frame.preparedBackend,
+          data.frame.preparedMaskStack,
+          controller.signal,
+        ),
         owned = { controller, pending }
       detailWork = owned
       try {
@@ -103,6 +116,22 @@ process.on('message', async (data: PreviewWorkerRequest, handle) => {
           controller.signal,
           (options, backend) => engine.renderPreparedFull(data.output, options, backend),
         ),
+        owned = { controller, pending }
+      detailWork = owned
+      try {
+        const result = await pending
+        if (!closing) send({ type: 'result', result })
+      } finally {
+        if (detailWork === owned) detailWork = undefined
+      }
+      return
+    }
+    if (data.type === 'mask-stack-working') {
+      if (closing || detailWork) throw new Error('The Texture worker is unavailable or busy.')
+      if (!data.frame?.maskStack) throw new Error('Missing Texture preparation request.')
+      engine.releaseFrame()
+      const controller = new AbortController(),
+        pending = prepareMaskStack(data.output, data.frame.maskStack, controller.signal),
         owned = { controller, pending }
       detailWork = owned
       try {

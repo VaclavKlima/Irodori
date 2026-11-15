@@ -18,6 +18,7 @@ export interface OutputProofRequest {
   inspection?: InspectionOptions
 }
 export interface OutputProofPipeline {
+  texture?: { stage: string; algorithm: string }
   rendering: string
   codec: string
   display: string

@@ -23,6 +23,7 @@ import { cropGeometry, identityCrop } from '../../shared/crop'
 import type { CropAdmission } from '../../shared/crop-resources'
 import { exportCropPolicy } from '../export/crop-policy'
 import { exportDetailPolicy } from '../export/detail-policy'
+import { exportTexturePolicy } from '../export/texture-policy'
 import { exportResizePolicy } from '../export/resize-policy'
 import { sameSource, hashFile } from '../export/files'
 import { ExportProcess } from '../export/process'
@@ -176,6 +177,7 @@ export class AgentPhotoPreviews {
                 cropPolicy: { ...exportCropPolicy },
                 cropAdmission: admission,
                 detailPolicy: { ...exportDetailPolicy },
+                texturePolicy: { ...exportTexturePolicy },
                 detailAdmission: admission,
                 resizePolicy: { ...exportResizePolicy },
                 resizeAdmission: admission,
@@ -327,6 +329,7 @@ export class AgentPhotoPreviews {
           rendering: EXPORT_RENDERING_VERSION,
           crop: exportCropPolicy,
           detail: exportDetailPolicy,
+          texture: exportTexturePolicy,
           resize: exportResizePolicy,
           photoId,
           revision,
@@ -378,6 +381,7 @@ export class AgentPhotoPreviews {
               cropPolicy: { ...exportCropPolicy },
               cropAdmission: admission,
               detailPolicy: { ...exportDetailPolicy },
+              texturePolicy: { ...exportTexturePolicy },
               detailAdmission: admission,
               resizePolicy: { ...exportResizePolicy },
               resizeAdmission: admission,

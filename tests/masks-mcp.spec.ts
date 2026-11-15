@@ -799,6 +799,71 @@ test('range MCP creates standalone and intersecting sources atomically and prese
   }
 })
 
+test('local Texture updates use the advertised root schema, reject invalid batches and share manual history', async () => {
+  const f = await fixture(),
+    photoId = f.t.ids[0],
+    id = randomUUID()
+  try {
+    const tools = (await f.client.listTools()).tools
+    const descriptor = tools.find((tool) => tool.name === 'irodori_mutate_masks')!
+    const validate = new AjvJsonSchemaValidator().getValidator(
+      descriptor.inputSchema as JsonSchemaType,
+    )
+    const request = {
+      photoId,
+      expectedRevision: 0,
+      maskMutation: {
+        operations: [
+          { kind: 'create', id, name: 'Texture subject' },
+          { kind: 'update', id, texture: 25 },
+        ],
+      },
+    }
+    expect(validate({ ...request, requestId: f.context.requestId }).valid).toBe(true)
+    const created = await f.call<EditState>('irodori_mutate_masks', request)
+    expect(created.settings.maskStack[0].texture).toBe(25)
+    for (const texture of [101, -101, 0.25, '25']) {
+      const rejected = await f.raw('irodori_mutate_masks', {
+        photoId,
+        expectedRevision: created.revision,
+        maskMutation: {
+          operations: [
+            { kind: 'update', id, texture: -25 },
+            { kind: 'update', id, texture },
+          ],
+        },
+      })
+      expect(rejected.isError).toBe(true)
+      expect((await f.t.library.getEdits(photoId)).settings).toEqual(created.settings)
+    }
+    const manual = await f.t.library.mutateMasks(photoId, created.revision, {
+      operations: [{ kind: 'update', id, texture: -25 }],
+    })
+    expect((await f.call<EditState>('irodori_get_edits', { photoId })).settings).toEqual(
+      manual.settings,
+    )
+    const reset = await f.call<EditState>('irodori_mutate_masks', {
+      photoId,
+      expectedRevision: manual.revision,
+      maskMutation: { operations: [{ kind: 'update', id, texture: 0 }] },
+    })
+    expect(reset.settings.maskStack[0].texture).toBe(0)
+    const undone = await f.call<EditState>('irodori_undo_edit', {
+      photoId,
+      expectedRevision: reset.revision,
+    })
+    expect(undone.settings).toEqual(manual.settings)
+    const redone = await f.call<EditState>('irodori_redo_edit', {
+      photoId,
+      expectedRevision: undone.revision,
+    })
+    expect(redone.settings).toEqual(reset.settings)
+    await f.t.originalsUnchanged()
+  } finally {
+    await f.close()
+  }
+})
+
 test('local Color partial updates, validation and reset share manual history without changing global white balance', async () => {
   const f = await fixture(),
     photoId = f.t.ids[0],

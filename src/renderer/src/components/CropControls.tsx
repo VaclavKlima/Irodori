@@ -17,10 +17,12 @@ export function CropControls({
   crop,
   settings,
   source,
+  textureActive = false,
 }: {
   crop: CropController
   settings?: CropSettings
   source?: CropSize
+  textureActive?: boolean
 }) {
   const [custom, setCustom] = useState(false)
   const draft = crop.draft,
@@ -197,6 +199,9 @@ export function CropControls({
         </p>
       )}
       {!crop.active && crop.pending && <p role="status">Preparing crop…</p>}
+      {crop.active && textureActive && (
+        <p className={styles.hint}>Texture preview resumes after applying crop.</p>
+      )}
     </div>
   )
 }

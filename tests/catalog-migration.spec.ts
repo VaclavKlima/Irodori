@@ -144,6 +144,7 @@ function storedHistory(history: EditHistory, catalogVersion: number): EditHistor
     if (catalogVersion < 23) delete legacy.maskStack
     else {
       for (const mask of legacy.maskStack as Record<string, unknown>[]) {
+        if (catalogVersion < 30) delete mask.texture
         if (catalogVersion < 25) delete mask.edge
         if (catalogVersion < 26) delete mask.color
         if (catalogVersion < 27) delete mask.gradient
@@ -537,7 +538,7 @@ test('creative color preflight rejects malformed current and redo groups before 
   }
 })
 
-for (const previousVersion of [24, 25, 26, 27])
+for (const previousVersion of [24, 25, 26, 27, 28, 29])
   test(`catalog ${previousVersion} upgrades local controls neutrally across current, undo and redo snapshots without rewriting immutable content`, async () => {
     const f = await fixture()
     try {

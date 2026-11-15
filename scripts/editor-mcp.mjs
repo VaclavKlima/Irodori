@@ -849,7 +849,7 @@ let tools = [
   {
     name: 'irodori_mutate_masks',
     description:
-      "Commit bounded mask operations as one photo-wide Undo step. Top-first list order applies bottom-to-top. Partial color updates accept relative temperature, tint and saturation, each integer -100 to +100 with 0 neutral. Positive temperature warms and positive tint adds magenta; these are relative units, not Kelvin or camera white balance. Each mask applies color balance, Light, then saturation and blends coverage once. Global white balance is unchanged. Geometry is normalized to the oriented uncorrected source, radius is a fraction of its shorter dimension. Whole-mask edge updates accept featherPx (0–64 in half-pixel steps) and shiftPx (-16–16 integer canonical source pixels); positive shift grows the affected region after inversion. Coverage order at every node is primary base/gradient and primary strokes, ordered child operands, result corrections, inversion, shift, then feather. Add uses max(A,B), Subtract A*(1-B), Intersect A*B. Disabled operands are skipped. component-add/copy/update/duplicate/remove/reorder manage owned editable groups, preserving the fixed starting coverage. Copies share immutable content without live dependencies or source Light/Color. Limits include disabled parts: 32 nodes per root, 256 per photograph, depth 8. Untargeted strokes address the root result; componentId and strokeTarget explicitly target primary or result corrections. These controls do not recover missing fine detail. Read current masks and revision with irodori_get_edits. Use the separate object-selection tools for AI proposals. Color/luminance range sources use range:{version:1,kind:color,samples:[{a,b}],range,softness} or range:{version:1,kind:luminance,lower,upper,softness}; kind values are strings. Color samples are brightness-normalized Oklab a/L,b/L returned by irodori_sample_mask_range, not RGB or ordinary Oklab. One to five samples form a union; Range/Softness are integer 0–100. Luminance bounds use source-white percent, 100=white and upper:null means all brighter values. Selection stays tied to the neutral source before edits, independently of display mode. Range replaces the whole source record; changing an existing source kind requires replacePrimary:true, preserving manual corrections, operands and adjustments. Only one generated, gradient or range source may occupy each node. Optional gradient on create atomically creates a neutral linear/radial mask; gradient on update replaces its entire geometry. One gradient per coverage node, mutually exclusive with that node's generated object base. Linear coverage fades from full-strength start to zero-strength end; radial selects inside. Coordinates and radii use normalized oriented source axes; rotations use degrees, Feather integer percent. Endpoint separation and both semiaxes require at least one source pixel.",
+      "Commit bounded mask operations as one photo-wide Undo step. Top-first list order applies bottom-to-top. Partial color updates accept relative temperature, tint and saturation, each integer -100 to +100 with 0 neutral. Positive temperature warms and positive tint adds magenta; these are relative units, not Kelvin or camera white balance. Each mask applies Texture, color balance, Light, then saturation and blends coverage once. Root texture accepts an integer -100 to +100, neutral 0; negative softens fine detail, positive enhances it. Texture runs on the native cropped grid and does not recover missing detail. Texture belongs to roots, never coverage components. Global white balance is unchanged. Geometry is normalized to the oriented uncorrected source, radius is a fraction of its shorter dimension. Whole-mask edge updates accept featherPx (0–64 in half-pixel steps) and shiftPx (-16–16 integer canonical source pixels); positive shift grows the affected region after inversion. Coverage order at every node is primary base/gradient and primary strokes, ordered child operands, result corrections, inversion, shift, then feather. Add uses max(A,B), Subtract A*(1-B), Intersect A*B. Disabled operands are skipped. component-add/copy/update/duplicate/remove/reorder manage owned editable groups, preserving the fixed starting coverage. Copies share immutable content without live dependencies or source Light/Color. Limits include disabled parts: 32 nodes per root, 256 per photograph, depth 8. Untargeted strokes address the root result; componentId and strokeTarget explicitly target primary or result corrections. These controls do not recover missing fine detail. Read current masks and revision with irodori_get_edits. Use the separate object-selection tools for AI proposals. Color/luminance range sources use range:{version:1,kind:color,samples:[{a,b}],range,softness} or range:{version:1,kind:luminance,lower,upper,softness}; kind values are strings. Color samples are brightness-normalized Oklab a/L,b/L returned by irodori_sample_mask_range, not RGB or ordinary Oklab. One to five samples form a union; Range/Softness are integer 0–100. Luminance bounds use source-white percent, 100=white and upper:null means all brighter values. Selection stays tied to the neutral source before edits, independently of display mode. Range replaces the whole source record; changing an existing source kind requires replacePrimary:true, preserving manual corrections, operands and adjustments. Only one generated, gradient or range source may occupy each node. Optional gradient on create atomically creates a neutral linear/radial mask; gradient on update replaces its entire geometry. One gradient per coverage node, mutually exclusive with that node's generated object base. Linear coverage fades from full-strength start to zero-strength end; radial selects inside. Coordinates and radii use normalized oriented source axes; rotations use degrees, Feather integer percent. Endpoint separation and both semiaxes require at least one source pixel.",
     inputSchema: schema({
       photoId,
       expectedRevision,
@@ -882,6 +882,7 @@ let tools = [
                   gradient: maskGradient,
                   range: maskRange,
                   replacePrimary: { const: true },
+                  texture: colorAmount,
                   color: schema(
                     {
                       temperature: colorAmount,
@@ -1226,7 +1227,7 @@ const presetSource = {
       mode: { type: 'string', enum: ['photo', 'explicit'] },
       photoId,
       groups: presetGroups,
-      settingsVersion: { type: 'integer', enum: [12, 13, 14, 15, 16, 17, 18, 19] },
+      settingsVersion: { type: 'integer', enum: [12, 13, 14, 15, 16, 17, 18, 19, 20] },
       values: {
         ...schema(presetFields, []),
         description:
@@ -1237,7 +1238,7 @@ const presetSource = {
     ['mode', 'groups'],
   ),
   description:
-    'Photo capture: {mode:"photo",photoId,groups}. Explicit look: {mode:"explicit",settingsVersion:19,groups,values}; referencePhotoId is required for white-balance/lens. No photo is changed. All included groups must be complete.',
+    'Photo capture: {mode:"photo",photoId,groups}. Explicit look: {mode:"explicit",settingsVersion:20,groups,values}; referencePhotoId is required for white-balance/lens. No photo is changed. All included groups must be complete.',
   allOf: [
     {
       if: { properties: { mode: { const: 'photo' } } },
@@ -1295,7 +1296,7 @@ tools.push(
   {
     name: 'irodori_create_preset',
     description:
-      'Save a unique trimmed name from confirmed photo edits or a complete explicit look. Use source.mode="photo" with photoId/groups, or source.mode="explicit" with settingsVersion:19, groups and values. For example, groups:["color"] needs values:{saturation:5,vibrance:22}. Choose appearance:{icon,color} to match the requested intent when creating a look, such as sunset/amber for Golden Hour. No photo or clipboard changes. Camera-dependent explicit groups require a verified referencePhotoId. Store no calibration tables or paths.',
+      'Save a unique trimmed name from confirmed photo edits or a complete explicit look. Use source.mode="photo" with photoId/groups, or source.mode="explicit" with settingsVersion:20, groups and values. For example, groups:["color"] needs values:{saturation:5,vibrance:22}. Choose appearance:{icon,color} to match the requested intent when creating a look, such as sunset/amber for Golden Hour. No photo or clipboard changes. Camera-dependent explicit groups require a verified referencePhotoId. Store no calibration tables or paths.',
     inputSchema: schema({
       presetRequest: schema(
         {
@@ -1310,7 +1311,7 @@ tools.push(
   {
     name: 'irodori_update_preset',
     description:
-      'Edit a preset name, appearance or definition at expectedPresetRevision. Appearance accepts a partial {icon,color}; omitted fields retain their current values. Preserve the marker unless the user asks to change it. Replacement source uses mode="photo" with photoId/groups or mode="explicit" with settingsVersion:19, groups and complete values. Preset revisions are independent of photo-edit revisions. No photo/history changes; accepted jobs keep the old frozen definition.',
+      'Edit a preset name, appearance or definition at expectedPresetRevision. Appearance accepts a partial {icon,color}; omitted fields retain their current values. Preserve the marker unless the user asks to change it. Replacement source uses mode="photo" with photoId/groups or mode="explicit" with settingsVersion:20, groups and complete values. Preset revisions are independent of photo-edit revisions. No photo/history changes; accepted jobs keep the old frozen definition.',
     inputSchema: schema({
       presetRequest: schema(
         {

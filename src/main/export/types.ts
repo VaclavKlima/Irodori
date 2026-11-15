@@ -34,6 +34,10 @@ export interface ExportCropPolicy {
   geometry: string
   filter: string
 }
+export interface ExportTexturePolicy {
+  stage: string
+  algorithm: string
+}
 export interface ExportManifest {
   version: 1
   id: string
@@ -50,6 +54,7 @@ export interface ExportManifest {
     detail?: ExportDetailPolicy
     resize?: ExportResizePolicy
     outputSharpening?: ExportOutputSharpeningPolicy
+    texture?: ExportTexturePolicy
   }
   destinationId: string
   options: ExportOptions
@@ -63,6 +68,7 @@ export interface ExportFile extends Omit<ExportResult, 'status'> {
   diagnostics?: ExportDiagnostics
 }
 export interface ExportDiagnostics {
+  preparedMaskStack?: import('../preview-types').FullPreviewResult['preparedMaskStack']
   memory?: {
     render?: ReturnType<typeof import('../../shared/export-resources').exportRenderMemoryPlan>
     sdr?: ReturnType<typeof import('../../shared/export-resources').exportSdrEncodePlan>
@@ -118,6 +124,10 @@ export interface ExportRenderResult {
   diagnostics?: ExportDiagnostics
 }
 export interface ExportRenderJob {
+  texturePolicy?: ExportTexturePolicy
+  primaryPreparedMaskStack?: import('../processing/prepared-mask-stack').PreparedMaskStackRequest
+  /** Internal SDR-only consumed-stage input; never a renderer-supplied path or persisted edit. */
+  preparedMaskStack?: import('../processing/prepared-mask-stack').PreparedMaskStackRequest
   /** Main-owned inspection extraction occurs after all full-source spatial/geometry processing. */
   inspection?: {
     bounds: import('../../shared/inspection').InspectionBounds

@@ -43,7 +43,7 @@ export function maskCoverageNodes(mask: ResolvedMask, includeDisabled = false): 
     nodes.push(node)
     for (const child of node.operands ?? [])
       if (includeDisabled || child.enabled)
-        visit({ ...child, light: neutralMaskLight, color: neutralMaskColor }, depth + 1)
+        visit({ ...child, light: neutralMaskLight, color: neutralMaskColor, texture: 0 }, depth + 1)
   }
   visit(mask, 1)
   return nodes
@@ -55,6 +55,7 @@ function coverageFields(node: ResolvedMask): ResolvedMaskCoverage {
   const coverage = { ...node }
   Reflect.deleteProperty(coverage, 'light')
   Reflect.deleteProperty(coverage, 'color')
+  Reflect.deleteProperty(coverage, 'texture')
   return coverage
 }
 export function mapMaskCoverage(
@@ -63,7 +64,10 @@ export function mapMaskCoverage(
 ): ResolvedMask {
   const operands = mask.operands?.map((child) => {
     const node = coverageFields(
-      mapMaskCoverage({ ...child, light: neutralMaskLight, color: neutralMaskColor }, map),
+      mapMaskCoverage(
+        { ...child, light: neutralMaskLight, color: neutralMaskColor, texture: 0 },
+        map,
+      ),
     )
     return { ...node, operator: child.operator }
   })
@@ -92,7 +96,12 @@ export function coveragePixelData(mask: ResolvedMask): unknown {
       .filter((node) => node.enabled)
       .map((node) => ({
         operator: node.operator,
-        coverage: coveragePixelData({ ...node, light: neutralMaskLight, color: neutralMaskColor }),
+        coverage: coveragePixelData({
+          ...node,
+          light: neutralMaskLight,
+          color: neutralMaskColor,
+          texture: 0,
+        }),
       })),
   }
 }
@@ -282,6 +291,7 @@ export function localMaskPixelData(parameters: Pick<AdjustmentParameters, 'local
         coverage: coveragePixelData(mask),
         light: mask.light,
         color: mask.color,
+        ...((mask.texture ?? 0) !== 0 ? { texture: mask.texture } : {}),
       })) ?? []
   )
 }

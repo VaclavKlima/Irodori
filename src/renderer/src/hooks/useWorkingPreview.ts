@@ -1,11 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { WorkingFrame } from '../../../shared/adjustments'
-import type { DisplayPreview } from '../../../shared/contracts'
+import type { DisplayPreview, LinearAsset } from '../../../shared/contracts'
 import { frameByteLength } from '../../../shared/preview-frame'
 import { validateWhiteBalanceProfile } from '../../../shared/white-balance'
 import { validateHdrAsset } from '../preview/hdr-stream'
 import { imageResourceOwners } from '../preview/image-resource-owners'
 import { useForegroundActivity } from './useForegroundActivity'
+
+function previewWorkingIdentity(asset: LinearAsset | undefined): string {
+  return `${asset?.url}:${asset?.sha256}${(asset?.preparedMasks ?? asset?.hdr?.preparedMasks) ? `-texture-${(asset!.preparedMasks ?? asset!.hdr!.preparedMasks)!.key}` : ''}`
+}
 
 export function useWorkingPreview(preview: DisplayPreview | null, presented: boolean) {
   const { begin } = useForegroundActivity(preview?.photoId, undefined, presented)
@@ -63,7 +67,7 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
       (prepared.current &&
         preparedGeometry.current === geometryIdentity &&
         (!preview.linear?.url ||
-          preparedIdentity.current === `${preview.linear.url}:${preview.linear.sha256}`)) ||
+          preparedIdentity.current === previewWorkingIdentity(preview.linear))) ||
       (preview.settingsRevision ?? 0) < requiredRevision.current
     )
       return
@@ -118,7 +122,7 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
               )
                 throw new Error('HDR descriptor does not match its frame.')
               if (!cancelled) {
-                preparedIdentity.current = `${asset.url}:${asset.sha256}`
+                preparedIdentity.current = previewWorkingIdentity(asset)
                 preparedFormat.current = preview.format
                 preparedGeometry.current = geometryIdentity
                 prepared.current = true
@@ -127,7 +131,9 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
                   geometryIdentity,
                   frame: {
                     sourceRef: result.sourceRef,
-                    identity: `${asset.url}:${asset.sha256}`,
+                    sourceSha256: asset.sha256,
+                    preparedMasks: asset.preparedMasks ?? asset.hdr?.preparedMasks,
+                    identity: previewWorkingIdentity(asset),
                     data: new Float32Array(0),
                     width: result.width,
                     height: result.height,
@@ -165,7 +171,7 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
             const data = new Float32Array(bytes)
             if (!data.every(Number.isFinite)) throw new Error('Invalid working pixels.')
             if (!cancelled) {
-              preparedIdentity.current = `${asset.url}:${asset.sha256}`
+              preparedIdentity.current = previewWorkingIdentity(asset)
               preparedFormat.current = preview.format
               preparedGeometry.current = geometryIdentity
               prepared.current = true
@@ -175,7 +181,9 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
               setLoaded({
                 geometryIdentity,
                 frame: {
-                  identity: `${asset.url}:${asset.sha256}`,
+                  identity: previewWorkingIdentity(asset),
+                  sourceSha256: asset.sha256,
+                  preparedMasks: asset.preparedMasks,
                   data,
                   width: result.width,
                   height: result.height,
@@ -207,8 +215,7 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
       !preview ||
       (preview.format === 'rgba8-srgb' && working?.hdr?.source.display) ||
       (preview?.format === 'hdr-working' && !working?.hdr) ||
-      (preview?.comparisonOf &&
-        working?.identity !== `${preview.linear?.url}:${preview.linear?.sha256}`) ||
+      (preview?.comparisonOf && working?.identity !== previewWorkingIdentity(preview.linear)) ||
       loaded?.geometryIdentity !== geometryIdentity
         ? null
         : working,

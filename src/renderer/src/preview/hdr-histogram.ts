@@ -10,10 +10,12 @@ export function hdrHistogramShaderFor(
   curves = false,
   masks = false,
   bases = false,
+  prepared = false,
 ): string {
   return `${hdrRenderingShader(creative, curves)}
 ${hdrPresentationWgsl}
 ${masks ? localMasksWgsl(16, bases ? 18 : undefined, 'acesPow') : ''}
+${prepared ? '@group(0) @binding(7) var preparedPixels:texture_2d<f32>;\n@group(0) @binding(8) var preparedUnion:texture_2d<f32>;' : ''}
 @group(0) @binding(6) var<storage,read_write> histogram:array<atomic<u32>>;
 @compute @workgroup_size(64) fn sampleHistogram(@builtin(global_invocation_id) p:vec3u) {
   let count=u32(u.values[9].x);
@@ -38,6 +40,14 @@ ${masks ? localMasksWgsl(16, bases ? 18 : undefined, 'acesPow') : ''}
     if(!localMaskFinite(working)){atomicOr(&histogram[${HDR_HISTOGRAM_WORDS}u],1u);return;}`
         : ''
     }
+  }
+  ${
+    prepared
+      ? `
+  let coordinate=vec2i(i32(index%size.x),i32(index/size.x));
+  let coverageBits=bitcast<u32>(textureLoad(preparedUnion,coordinate,0).r);
+  if(u.values[4].x!=1.&&coverageBits>0u&&coverageBits<=0x3f800000u&&pixel.a>0.){working=textureLoad(preparedPixels,coordinate,0).rgb;}`
+      : ''
   }
   let rgb=outputRgb(working);
   let y=dot(rgb,irodori);

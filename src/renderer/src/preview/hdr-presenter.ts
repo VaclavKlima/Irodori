@@ -31,6 +31,12 @@ import {
   maskBaseAtlasPlan,
 } from '../../../shared/masks-gpu'
 import { WebGpuMaskBaseAtlas } from './mask-base-assets'
+import { pointOnlyMaskAdjustments } from '../../../shared/masked-texture'
+import {
+  preparedMaskUnionMipShader,
+  uploadPreparedMaskTexture,
+  validatePreparedMaskPresentation,
+} from './prepared-mask-upload'
 import { adjustmentPixelKey } from '../../../shared/adjustments'
 import { neutralColorMixer } from '../../../shared/color-mixer'
 import type { EditorPreviewPolicy } from '../../../shared/editor-preview-policy'
@@ -245,6 +251,12 @@ export class HdrPresenter {
   private gpuTimings?: HdrGpuTimings
   private context?: GPUCanvasContext
   private texture?: GPUTexture
+  private preparedTexture?: GPUTexture
+  private preparedUnionTexture?: GPUTexture
+  private preparedPrograms?: HdrPipelines
+  private preparedStatus?: GPUBuffer
+  private preparedStatusReadback?: GPUBuffer
+  private preparedReservation: HdrManagedBytes = { ramBytes: 0, vramBytes: 0 }
   private sourceLease?: HdrSourceLease<GPUTexture>
   private comparisonFrame?: WorkingFrame
   private comparisonInput?: WorkingFrame
@@ -860,7 +872,7 @@ export class HdrPresenter {
       ...(beforeIdentity
         ? { beforeSource: { identity: beforeIdentity, sha256: this.comparisonFrame!.hdr!.sha256 } }
         : {}),
-      renderingPolicy: `${HDR_OUTPUT_VERSION}:${HDR_ADJUSTMENT_VERSION}:normal-detail-v1`,
+      renderingPolicy: `${HDR_OUTPUT_VERSION}:${HDR_ADJUSTMENT_VERSION}:normal-detail-v1${frame.hdr.preparedMasks ? `:masked-${frame.hdr.preparedMasks.key}` : ''}`,
       settingsRevision: state.revision,
       adjustments: snapshot.parameters,
       target,
@@ -967,14 +979,25 @@ export class HdrPresenter {
         mask.ramBytes +
         this.creativeReservation.ramBytes +
         this.localMaskReservation.ramBytes +
-        this.localHistogramReservation.ramBytes,
+        this.localHistogramReservation.ramBytes +
+        this.preparedReservation.ramBytes,
+      // Prepared source transport and private mip chains are not in the original-source cache.
       vramBytes:
         source.vramBytes +
         mask.vramBytes +
         this.creativeReservation.vramBytes +
         this.localMaskReservation.vramBytes +
-        this.localHistogramReservation.vramBytes,
+        this.localHistogramReservation.vramBytes +
+        this.preparedReservation.vramBytes,
     }
+  }
+  private preparedHistogramBindings(): GPUBindGroupEntry[] {
+    return this.preparedTexture && this.preparedUnionTexture
+      ? [
+          { binding: 7, resource: this.preparedTexture.createView({ mipLevelCount: 1 }) },
+          { binding: 8, resource: this.preparedUnionTexture.createView({ mipLevelCount: 1 }) },
+        ]
+      : []
   }
   private sharedSourceReservation(): HdrManagedBytes {
     const cached = sourceCache.memory(this.sourceLease)
@@ -1568,6 +1591,15 @@ export class HdrPresenter {
       texture?.destroy()
     }
     await this.releaseComparisonSource()
+    this.preparedTexture?.destroy()
+    this.preparedUnionTexture?.destroy()
+    this.preparedStatus?.destroy()
+    this.preparedStatusReadback?.destroy()
+    this.preparedTexture = undefined
+    this.preparedUnionTexture = undefined
+    this.preparedStatus = undefined
+    this.preparedStatusReadback = undefined
+    this.preparedReservation = { ramBytes: 0, vramBytes: 0 }
   }
   private async releaseComparisonSource() {
     const texture = this.comparisonTexture,
@@ -1667,7 +1699,11 @@ export class HdrPresenter {
     this.retainSource = retainSource
     const identity = frame.identity ?? frame.hdr.sha256
     if (this.frame) {
-      if ((this.frame.identity ?? this.frame.hdr!.sha256) === identity) return
+      if (
+        (this.frame.identity ?? this.frame.hdr!.sha256) === identity &&
+        this.frame.hdr!.preparedMasks?.key === frame.hdr.preparedMasks?.key
+      )
+        return
       // PhotoPreview recreates this owner whenever working.hdr or the photo generation changes.
       throw new Error('Create a new HDR presenter when its working source changes.')
     }
@@ -1713,6 +1749,22 @@ export class HdrPresenter {
   }
   private async load(frame: WorkingFrame) {
     const started = performance.now()
+    const preparedMasks = validatePreparedMaskPresentation(frame.hdr!)
+    if (preparedMasks) {
+      let width = frame.width,
+        height = frame.height,
+        bytes = 0
+      for (;;) {
+        bytes += width * height * 20
+        if (width === 1 && height === 1) break
+        width = Math.max(1, width >> 1)
+        height = Math.max(1, height >> 1)
+      }
+      this.preparedReservation = {
+        ramBytes: frame.width * Math.min(64, frame.height) * 40 + 2 * 1024 ** 2,
+        vramBytes: bytes + 8,
+      }
+    }
     const sourcePhotoId =
       frame.sourceRef &&
       frame.sourceRef.workingSha256 === frame.hdr?.sha256 &&
@@ -1783,6 +1835,7 @@ export class HdrPresenter {
     const pipelineStarted = performance.now(),
       pipelinePreparation = prepareHdrPipelines(device, {
         interactive: this.interactivePrecision,
+        prepared: !!preparedMasks,
       })
     // Observe failure while upload is in flight. A cancelled photo never owns
     // or cancels these device-only programs shared by subsequent photographs.
@@ -1910,6 +1963,7 @@ export class HdrPresenter {
       this.cacheLayout = compiled.cacheLayout
       this.cachePipeline = compiled.cache
       this.blit = compiled.blit
+      this.preparedPrograms = compiled
       this.interactivePipelines.clear()
       for (const policy of [
         ACES_HDR_INTERACTIVE_PREVIEW_VERSION,
@@ -1965,6 +2019,93 @@ export class HdrPresenter {
         )
       }
       this.sourceReservation()
+      if (preparedMasks) {
+        this.preparedTexture = device.createTexture({
+          size: [frame.width, frame.height],
+          format: 'rgba32float',
+          mipLevelCount: this.levels,
+          usage:
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_DST |
+            GPUTextureUsage.STORAGE_BINDING,
+        })
+        this.preparedUnionTexture = device.createTexture({
+          size: [frame.width, frame.height],
+          format: 'r32float',
+          mipLevelCount: this.levels,
+          usage:
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_DST |
+            GPUTextureUsage.STORAGE_BINDING,
+        })
+        await uploadPreparedMaskTexture(
+          device,
+          this.preparedTexture,
+          preparedMasks.candidate,
+          frame.width,
+          frame.height,
+          4,
+          this.abort.signal,
+        )
+        await uploadPreparedMaskTexture(
+          device,
+          this.preparedUnionTexture,
+          preparedMasks.union,
+          frame.width,
+          frame.height,
+          1,
+          this.abort.signal,
+        )
+        await submitHdrSourceMips(device, this.preparedTexture, sourceIdentity, compiled)
+        const unionMip = await device.createComputePipelineAsync({
+          layout: 'auto',
+          compute: {
+            module: device.createShaderModule({ code: preparedMaskUnionMipShader }),
+            entryPoint: 'down',
+          },
+        })
+        const encoder = device.createCommandEncoder()
+        for (let level = 1; level < this.levels; level++) {
+          const group = device.createBindGroup({
+            layout: unionMip.getBindGroupLayout(0),
+            entries: [
+              {
+                binding: 0,
+                resource: this.preparedUnionTexture.createView({
+                  baseMipLevel: level - 1,
+                  mipLevelCount: 1,
+                }),
+              },
+              {
+                binding: 1,
+                resource: this.preparedUnionTexture.createView({
+                  baseMipLevel: level,
+                  mipLevelCount: 1,
+                }),
+              },
+            ],
+          })
+          const pass = encoder.beginComputePass()
+          pass.setPipeline(unionMip)
+          pass.setBindGroup(0, group)
+          pass.dispatchWorkgroups(
+            Math.ceil(Math.max(1, frame.width >> level) / 8),
+            Math.ceil(Math.max(1, frame.height >> level) / 8),
+          )
+          pass.end()
+        }
+        device.queue.submit([encoder.finish()])
+        await device.queue.onSubmittedWorkDone()
+        this.preparedStatus = device.createBuffer({
+          size: 4,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        })
+        this.preparedStatusReadback = device.createBuffer({
+          size: 4,
+          usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+        })
+        this.canvas.dataset.preparedMaskKey = preparedMasks.key
+      }
       this.uniform = device.createBuffer({
         size: 192,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -2001,6 +2142,7 @@ export class HdrPresenter {
           { binding: 1, resource: this.texture!.createView({ mipLevelCount: 1 }) },
           { binding: 4, resource: { buffer: this.rendering } },
           { binding: 6, resource: { buffer: this.histogramBuffer } },
+          ...this.preparedHistogramBindings(),
         ],
       })
       const tileSize = uploadMemory.tileSize
@@ -2340,17 +2482,35 @@ export class HdrPresenter {
       surfacePixels: 0,
     }
     const { image, viewport, view, parameters, target, mode, split, ranges } = request.value
+    const preparedMasks = this.frame!.hdr?.preparedMasks
+    if (
+      preparedMasks &&
+      mode !== 'before' &&
+      preparedMasks.pointKey !== adjustmentPixelKey(parameters)
+    ) {
+      this.canvas.dataset.texturePending = 'true'
+      return undefined
+    }
+    this.canvas.dataset.texturePending = 'false'
+    if (preparedMasks) this.canvas.dataset.textureDrawStage = 'point-context-ready'
+    if (this.preparedStatus)
+      this.device!.queue.writeBuffer(this.preparedStatus, 0, new Uint32Array([0]))
     const curves = preparedToneCurves(parameters.curves)
-    const masks = mode !== 'before' && hasLocalMasks(parameters)
+    const legacyParameters = pointOnlyMaskAdjustments(parameters)
+    const masks = mode !== 'before' && hasLocalMasks(legacyParameters)
     if (masks) {
-      const key = JSON.stringify([localMaskPixelData(parameters), parameters.maskGeometry, image])
+      const key = JSON.stringify([
+        localMaskPixelData(legacyParameters),
+        parameters.maskGeometry,
+        image,
+      ])
       if (key !== this.localMaskPackedKey) {
-        this.localMaskPacked = packLocalMasks(parameters, image)
+        this.localMaskPacked = packLocalMasks(legacyParameters, image)
         this.localMaskPackedKey = key
       }
     }
     const maskData = masks ? this.localMaskPacked : undefined
-    const basePlan = maskBaseAtlasPlan(masks ? parameters : {}),
+    const basePlan = maskBaseAtlasPlan(masks ? legacyParameters : {}),
       bases = masks && basePlan.bases.length > 0
     this.localMaskReservation = {
       ramBytes:
@@ -2400,10 +2560,12 @@ export class HdrPresenter {
       this.localMaskBaseKey = basePlan.key
     }
     if (creative && !this.creativePipelines) {
+      if (preparedMasks) this.canvas.dataset.textureDrawStage = 'creative-program-pending'
       const programs = await prepareHdrPipelines(device, {
         interactive: this.interactivePrecision,
         creative: true,
         curves: true,
+        prepared: !!preparedMasks,
       }).pipelines
       if (
         this.abort.signal.aborted ||
@@ -2413,16 +2575,20 @@ export class HdrPresenter {
       )
         return undefined
       this.creativePipelines = programs
+      if (preparedMasks) this.canvas.dataset.textureDrawStage = 'creative-program-ready'
     }
     if (masks && (!this.localMaskPipelines || this.localMaskPipelinesBases !== bases)) {
+      if (preparedMasks) this.canvas.dataset.textureDrawStage = 'mask-program-pending'
       this.localMaskPipelines = await prepareHdrPipelines(device, {
         interactive: this.interactivePrecision,
         creative: true,
         curves: true,
         masks: true,
         bases,
+        prepared: !!preparedMasks,
       }).pipelines
       this.localMaskPipelinesBases = bases
+      if (preparedMasks) this.canvas.dataset.textureDrawStage = 'mask-program-ready'
       this.cacheGroups.clear()
       if (this.abort.signal.aborted || this.requestSuperseded(request)) return undefined
     }
@@ -2461,6 +2627,7 @@ export class HdrPresenter {
       : creative
         ? this.creativePipelines
         : undefined
+    if (preparedMasks) this.canvas.dataset.textureDrawStage = 'buffers-pending'
     if (creative) {
       this.creativeBuffer ??= device.createBuffer({
         size: CREATIVE_COLOR_PARAMETER_BYTES,
@@ -2685,6 +2852,51 @@ export class HdrPresenter {
             ...this.cacheKernel.dispatch(memory.tileSize + 2, jobs.length / 4),
           )
           compute.end()
+          if (preparedMasks && !beforeSource && this.preparedTexture && this.preparedUnionTexture) {
+            const program =
+              policy === 'reference'
+                ? this.preparedPrograms!.preparedCache
+                : this.preparedPrograms!.preparedInteractive?.[policy]
+            if (!program) throw new Error('Prepared mask HDR cache program is unavailable.')
+            const overlay = device.createBindGroup({
+              layout: program.getBindGroupLayout(0),
+              entries: [
+                { binding: 0, resource: { buffer: this.uniform! } },
+                {
+                  binding: 1,
+                  resource: this.preparedTexture.createView({
+                    baseMipLevel: selected.level,
+                    mipLevelCount: 1,
+                  }),
+                },
+                {
+                  binding: 2,
+                  resource: this.preparedUnionTexture.createView({
+                    baseMipLevel: selected.level,
+                    mipLevelCount: 1,
+                  }),
+                },
+                { binding: 3, resource: this.cacheTexture!.createView({ dimension: '2d-array' }) },
+                { binding: 4, resource: { buffer: table } },
+                { binding: 5, resource: { buffer: this.jobs! } },
+                {
+                  binding: 6,
+                  resource: this.texture!.createView({
+                    baseMipLevel: selected.level,
+                    mipLevelCount: 1,
+                  }),
+                },
+                { binding: 7, resource: { buffer: this.preparedStatus! } },
+              ],
+            })
+            const pass = computation.beginComputePass()
+            pass.setPipeline(program)
+            pass.setBindGroup(0, overlay)
+            pass.dispatchWorkgroups(
+              ...this.cacheKernel.dispatch(memory.tileSize + 2, jobs.length / 4),
+            )
+            pass.end()
+          }
           this.renderedTiles += jobs.length / 4
           device.queue.submit([computation.finish()])
           timings.tileSubmissionMs += performance.now() - submitting
@@ -2734,6 +2946,7 @@ export class HdrPresenter {
       return true
     }
     if (target.mode === 'sdr') p[15] = 0
+    if (preparedMasks) this.canvas.dataset.textureDrawStage = 'tiles-pending'
     if (
       !(await drawPlan(
         plan,
@@ -2761,6 +2974,21 @@ export class HdrPresenter {
         return undefined
     }
     if (this.abort.signal.aborted) return undefined
+    if (preparedMasks) this.canvas.dataset.textureDrawStage = 'tiles-ready'
+    if (this.preparedStatus && this.preparedStatusReadback) {
+      const status = device.createCommandEncoder()
+      status.copyBufferToBuffer(this.preparedStatus, 0, this.preparedStatusReadback, 0, 4)
+      device.queue.submit([status.finish()])
+      await this.preparedStatusReadback.mapAsync(GPUMapMode.READ)
+      try {
+        if (new Uint32Array(this.preparedStatusReadback.getMappedRange())[0]) {
+          this.cache!.reset()
+          throw new Error('Prepared mask HDR presentation contains invalid pixels or alpha.')
+        }
+      } finally {
+        this.preparedStatusReadback.unmap()
+      }
+    }
     if (masks) {
       const status = device.createCommandEncoder()
       status.copyBufferToBuffer(this.localMaskStatus!, 0, this.localMaskStatusReadback!, 0, 4)
@@ -2819,7 +3047,12 @@ export class HdrPresenter {
       !this.previewPolicy.presentationCache ||
       (!!this.presentationState &&
         (this.nativePresented || sameAdjustments(this.presentationState.settings, parameters)))
-    if (!confirmed()) return false
+    if (!confirmed()) {
+      if (this.frame?.hdr?.preparedMasks)
+        this.canvas.dataset.textureDrawStage = 'present-unconfirmed'
+      return false
+    }
+    if (this.frame?.hdr?.preparedMasks) this.canvas.dataset.textureDrawStage = 'present-pending'
     const { timings } = rendered
     const submitting = performance.now()
     const dpr = window.devicePixelRatio || 1
@@ -3079,6 +3312,7 @@ export class HdrPresenter {
           ])
         : undefined
     this.loaded()
+    if (this.frame?.hdr?.preparedMasks) this.canvas.dataset.textureDrawStage = 'presented'
     this.requestHistogram(rendered.histogram, request.intent === 'navigation')
     return true
   }
@@ -3131,7 +3365,9 @@ export class HdrPresenter {
       histogramReadback = this.histogramReadback!,
       histogramWords = HDR_HISTOGRAM_WORDS,
       maskedGroup: GPUBindGroup | undefined
-    const basePlan = maskBaseAtlasPlan(masks ? presentation.parameters : {}),
+    const basePlan = maskBaseAtlasPlan(
+        masks ? pointOnlyMaskAdjustments(presentation.parameters) : {},
+      ),
       bases = !!masks && basePlan.bases.length > 0
     let maskedPrograms: HdrPipelines | undefined
     try {
@@ -3167,6 +3403,7 @@ export class HdrPresenter {
                 curves: true,
                 masks: true,
                 bases,
+                prepared: !!this.frame!.hdr?.preparedMasks,
               }).pipelines
         if (!current()) return
         if (bases) {
@@ -3217,6 +3454,7 @@ export class HdrPresenter {
               { binding: 6, resource: { buffer: this.histogramBuffer! } },
               { binding: 12, resource: { buffer: this.creativeHistogramBuffer! } },
               { binding: 14, resource: { buffer: this.curveHistogramBuffer! } },
+              ...this.preparedHistogramBindings(),
             ],
           })
       }
@@ -3231,6 +3469,7 @@ export class HdrPresenter {
             { binding: 12, resource: { buffer: this.creativeHistogramBuffer! } },
             { binding: 14, resource: { buffer: this.curveHistogramBuffer! } },
             { binding: 16, resource: { buffer: this.localHistogramMasks! } },
+            ...this.preparedHistogramBindings(),
             ...(bases
               ? [
                   {
@@ -3252,6 +3491,7 @@ export class HdrPresenter {
             { binding: 1, resource: sourceTexture.createView({ mipLevelCount: 1 }) },
             { binding: 4, resource: { buffer: this.rendering! } },
             { binding: 6, resource: { buffer: this.histogramBuffer! } },
+            ...this.preparedHistogramBindings(),
           ],
         })
       const encoder = device.createCommandEncoder()

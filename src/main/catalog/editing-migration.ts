@@ -18,7 +18,7 @@ import {
   validateDetailSharpening,
 } from '../../shared/spatial-detail'
 
-export const CATALOG_VERSION = 29
+export const CATALOG_VERSION = 30
 
 /** Validate the entire library before startup permits any migration or recovery write. */
 export function supportsEditingSettings(
@@ -38,7 +38,7 @@ export function supportsEditingSettings(
     return false
   const legacy = settings.version === 7
   if (
-    ![7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, SETTINGS_VERSION].includes(
+    ![7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, SETTINGS_VERSION].includes(
       settings.version as number,
     )
   )
@@ -60,7 +60,8 @@ export function supportsEditingSettings(
           26: 16,
           27: 17,
           28: 18,
-          29: SETTINGS_VERSION,
+          29: 19,
+          30: SETTINGS_VERSION,
         } as Record<number, number>
       )[catalogVersion]
   )
@@ -90,6 +91,7 @@ export function supportsEditingSettings(
             typeof mask !== 'object' ||
             (version < 15 && Object.hasOwn(mask, 'edge')) ||
             (version < 16 && Object.hasOwn(mask, 'color')) ||
+            (version < 20 && Object.hasOwn(mask, 'texture')) ||
             (version < 17 && Object.hasOwn(mask, 'gradient')) ||
             (version < 18 &&
               (Object.hasOwn(mask, 'operands') || Object.hasOwn(mask, 'resultHead'))),
@@ -101,6 +103,7 @@ export function supportsEditingSettings(
           ...mask,
           ...(version < 15 ? { edge: { ...neutralMaskEdge } } : {}),
           ...(version < 16 ? { color: { ...neutralMaskColor } } : {}),
+          ...(version < 20 ? { texture: 0 } : {}),
         })),
       )
       if (
@@ -187,6 +190,7 @@ export function migrateEditingHistory(db: DatabaseSync): void {
                 ...((settings.version as number) < 18 ? { operands: [], resultHead: null } : {}),
                 ...((settings.version as number) < 15 ? { edge: { ...neutralMaskEdge } } : {}),
                 ...((settings.version as number) < 16 ? { color: { ...neutralMaskColor } } : {}),
+                ...((settings.version as number) < 20 ? { texture: 0 } : {}),
               }))
             : [],
       }

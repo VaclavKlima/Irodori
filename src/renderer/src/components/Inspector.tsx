@@ -26,6 +26,7 @@ import { Info, Sun, Crop, Palette, ScanLine, RotateCcw, PanelsTopLeft, Layers } 
 import { Presets } from './Presets'
 import { Masks } from './Masks'
 import type { MasksController } from '../hooks/useMasks'
+import { hasMaskedTexture } from '../../../shared/masked-texture'
 import type { EditingPreset, PresetWorkspace } from '../../../shared/presets'
 import { CropControls } from './CropControls'
 import type { CropController } from '../hooks/useCrop'
@@ -278,6 +279,7 @@ export function Inspector({
             >
               <CropControls
                 crop={crop}
+                textureActive={hasMaskedTexture(edits.adjustments)}
                 settings={edits.state?.settings.crop}
                 source={photo ? { width: photo.width, height: photo.height } : undefined}
               />

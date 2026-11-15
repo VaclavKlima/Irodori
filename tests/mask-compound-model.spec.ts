@@ -330,6 +330,7 @@ test('settings 17 migration preserves brush/object/gradient histories, revision/
     const basesBefore = db.prepare('SELECT * FROM mask_base_content ORDER BY hash').all()
     const settings = { ...initialSettings(), version: 17, maskStack: created.stack }
     for (const node of settings.maskStack) {
+      delete (node as Partial<typeof node>).texture
       delete node.operands
       delete node.resultHead
     }
@@ -347,7 +348,11 @@ test('settings 17 migration preserves brush/object/gradient histories, revision/
         { createdAt: '2026-11-01T10:03:00Z', settings: { ...settings, contrast: 17 } },
       ],
     }
-    const before = resolveMasks(created.stack, created.chunks, [base])
+    const before = resolveMasks(
+      created.stack.map((mask) => ({ ...mask, texture: 0 })),
+      created.chunks,
+      [base],
+    )
     db.prepare('INSERT INTO edits VALUES (?,?)').run('photo', JSON.stringify(history))
     migrateEditingHistory(db)
     const actual = JSON.parse((db.prepare('SELECT data FROM edits').get() as { data: string }).data)
@@ -356,7 +361,12 @@ test('settings 17 migration preserves brush/object/gradient histories, revision/
       settings: {
         ...settings,
         version: SETTINGS_VERSION,
-        maskStack: settings.maskStack.map((mask) => ({ ...mask, operands: [], resultHead: null })),
+        maskStack: settings.maskStack.map((mask) => ({
+          ...mask,
+          texture: 0,
+          operands: [],
+          resultHead: null,
+        })),
       },
       snapshots: history.snapshots.map((snapshot) => ({
         ...snapshot,
@@ -365,6 +375,7 @@ test('settings 17 migration preserves brush/object/gradient histories, revision/
           version: SETTINGS_VERSION,
           maskStack: snapshot.settings.maskStack.map((mask) => ({
             ...mask,
+            texture: 0,
             operands: [],
             resultHead: null,
           })),

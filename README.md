@@ -33,7 +33,14 @@ Open **Masks** in the inspector and use **Create mask** to choose Brush,
 Select object, Select Sky, Select Background, Linear gradient or Radial gradient. The mask list keeps named rows and visibility controls; each row's
 **⋯** menu contains rename, duplicate, invert, Move up/down and delete. Dragging
 also reorders masks; the top mask applies last. **Coverage** contains selection
-and Paint/Erase tools, while **Adjustments** contains local Light and Color controls.
+and Paint/Erase tools, while **Adjustments** contains local Light, Color and optional **Texture** controls.
+[Masked Texture](docs/features/masked-texture.md) adds a root amount −100…+100,
+default 0, shared with history, Console and frozen SDR/HDR output. Its
+application integration has [reconciled background functional acceptance](docs/features/masked-texture.md#full-application-integration--2026-11-15)
+covering 1,169 distinct cases on RX 7900 XTX;
+native foreground visuals, physical HDR and other-device qualification remain
+pending. Exact HDR service analysis/clipping with active Texture retains the
+availability limits in the brief.
 **Show overlay** remains available above both tabs. Mask edits share the photo's
 Undo/Redo, restart and frozen SDR/HDR exports. **Select object** creates
 [editable SAM 2 point/box proposals](docs/features/object-selection.md), with separate
@@ -46,7 +53,7 @@ including manual corrections, with shared Undo/Redo, Console and frozen exports.
 keyboard creation and editable photo-registered geometry. [Compound coverage](docs/features/mask-compounds.md) adds ordered Add, Subtract and
 Intersect parts, independent editable copies and nested groups. Coverage keeps
 starting coverage fixed and separates part editing from result corrections;
-Light/Color applies once to the destination result. [Color and luminance range masks](docs/features/mask-ranges.md)
+Texture, Light and Color apply once to the destination result. [Color and luminance range masks](docs/features/mask-ranges.md)
 select stable source colors or brightness before creative edits, with up to five
 color samples, soft boundaries and editable compound intersections. Automatic
 [Select Sky and Select Background](docs/features/sky-background-selection.md) create
@@ -179,7 +186,7 @@ JPEG, PNG, TIFF, and Sony ARW are supported. Sony ZV-1 12-bit compressed RAW is 
 
 The application profile is named `Irodori`. The managed library is stored in Electron's user-data directory, under `library/` (normally `~/.config/Irodori/library` on Linux). It contains `catalog.sqlite`, `originals/<SHA-256>/` with original files and cached previews, and temporary `staging/` files. Imported photos survive restarts and removal of their source folder. Never edit catalog or managed files while Irodori is running.
 
-This version uses catalog schema 22 and settings version 12. Catalogs 17–21 migrate transactionally: every current and historical edit receives missing neutral color, crop, detail and curve groups, including neutral Saturation/Vibrance for settings 7. The version-12 color-order appearance migration is described in the [curve brief](docs/features/tone-curves.md). Revisions, timestamps, cursors, redo branches, originals and durable masters are preserved. Other catalog/settings formats and malformed histories are rejected before migration or recovery writes. To start again with an unsupported library, close Irodori, retain the entire old library elsewhere, and reimport its originals into a fresh library. Do not delete the retained library or its managed originals. Publication journals and Trash recovery continue to work. Disposable old preview caches rebuild automatically; unsupported managed source masters remain retained and unavailable.
+This version uses catalog schema 30 and settings version 20. Catalogs 17–29 migrate transactionally: every current and historical edit receives its versioned neutral global groups and mask fields, including neutral Saturation/Vibrance for settings 7 and Texture 0 for earlier mask roots. The version-12 color-order appearance migration is described in the [curve brief](docs/features/tone-curves.md). Revisions, timestamps, cursors, redo branches, originals and durable masters are preserved. Other catalog/settings formats and malformed histories are rejected before migration or recovery writes. To start again with an unsupported library, close Irodori, retain the entire old library elsewhere, and reimport its originals into a fresh library. Do not delete the retained library or its managed originals. Publication journals and Trash recovery continue to work. Disposable old preview caches rebuild automatically; unsupported managed source masters remain retained and unavailable.
 
 Cancel stops further work and preserves completed imports. Corrupt files, changed sources, unsupported formats, and write failures are shown individually. Interrupted staging files and unpublished original directories are cleaned at startup. RAW decoder inputs are limited to 512 MB; previews have a 90-second per-file timeout.
 

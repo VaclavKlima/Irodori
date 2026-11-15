@@ -403,8 +403,10 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
     options: ProcessingOptions,
     signal: AbortSignal,
     backend: 'cpu' | 'gpu' | 'auto',
+    preparedMaskStack?: import('./processing/prepared-mask-stack').PreparedMaskStackRequest,
   ): Promise<FullPreviewResult> {
     const frozen = structuredClone(options)
+    const frozenStack = preparedMaskStack ? structuredClone(preparedMaskStack) : undefined
     if (!frozen.workingAsset) throw new Error('Missing prepared preview source.')
     this.assertIdle(await this.waitForWarmup(signal))
     return this.run<FullPreviewResult>(
@@ -418,6 +420,7 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
         height: frozen.workingAsset.height,
         sha256: frozen.workingAsset.sha256,
         preparedBackend: backend,
+        preparedMaskStack: frozenStack,
       },
     ).finally(() => this.scheduleIdle())
   }
@@ -469,6 +472,28 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
       sha256: frozen.asset.sha256,
       detail: frozen,
     }).finally(() => this.scheduleIdle())
+  }
+
+  async prepareMaskStack(
+    output: string,
+    job: import('./processing/mask-stack-preparation').MaskStackPreparationJob,
+    signal: AbortSignal,
+  ): Promise<import('./processing/mask-stack-preparation').MaskStackPreparationResult> {
+    const frozen = structuredClone(job)
+    this.assertIdle(await this.waitForWarmup(signal))
+    return this.run<import('./processing/mask-stack-preparation').MaskStackPreparationResult>(
+      'mask-stack-working',
+      frozen.parent.asset.path,
+      output,
+      signal,
+      undefined,
+      {
+        width: frozen.parent.asset.width,
+        height: frozen.parent.asset.height,
+        sha256: frozen.parent.asset.sha256,
+        maskStack: frozen,
+      },
+    ).finally(() => this.scheduleIdle())
   }
 
   async prepareDetailPreview(

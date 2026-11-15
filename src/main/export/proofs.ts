@@ -233,6 +233,7 @@ export class OutputProofs {
           primaryWorkingAsset: frozenLease(primary),
           cropPolicy: pipeline.crop,
           detailPolicy: pipeline.detail,
+          texturePolicy: pipeline.texture,
           resizePolicy: pipeline.resize,
           outputSharpeningPolicy: pipeline.outputSharpening,
           cropAdmission: admission,

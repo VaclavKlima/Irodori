@@ -71,6 +71,8 @@ test('actual catalog 23 startup upgrades all brush history to 24 and rejects dis
         for (const mask of settings.maskStack) {
           delete mask.edge
           delete mask.color
+          delete mask.texture
+          delete mask.texture
           delete mask.operands
           delete mask.resultHead
         }
@@ -103,6 +105,8 @@ test('actual catalog 23 startup upgrades all brush history to 24 and rejects dis
         for (const mask of settings.maskStack) {
           delete mask.edge
           delete mask.color
+          delete mask.texture
+          delete mask.texture
           delete mask.operands
           delete mask.resultHead
         }

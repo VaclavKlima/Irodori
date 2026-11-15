@@ -82,6 +82,34 @@ ${masks ? '@group(0) @binding(17) var<storage,read_write> localMaskStatus:atomic
   }
 }
 
+/** Runs after the unchanged legacy tile pass; zero-union pixels never receive a store. */
+export function hdrPreparedCacheShader(precision: AcesPreviewPolicy = 'reference'): string {
+  const math =
+    precision === 'reference'
+      ? acesWgsl
+      : precision === ACES_SDR_INTERACTIVE_PREVIEW_VERSION
+        ? acesSdrPreviewWgsl
+        : acesPreviewWgsl
+  return `${hdrRenderingShader().replace(acesWgsl, math)}
+@group(0) @binding(2) var coverage:texture_2d<f32>;
+@group(0) @binding(3) var cached:texture_storage_2d_array<rgba32float,write>;
+@group(0) @binding(5) var<storage,read> jobs:array<vec4u>;
+@group(0) @binding(6) var original:texture_2d<f32>;
+@group(0) @binding(7) var<storage,read_write> status:atomic<u32>;
+@compute @workgroup_size(64) fn applyPreparedTile(@builtin(global_invocation_id) p:vec3u){
+ let size=vec2i(textureDimensions(cached));if(p.x>=u32(size.x*size.y)){return;}
+ let job=jobs[p.z];if(job.w!=0u){return;}
+ let at=vec2i(i32(p.x)%size.x,i32(p.x)/size.x);
+ let point=clamp(vec2i(job.xy)*(size-2)+at-1,vec2i(0),vec2i(textureDimensions(pixels))-1);
+ let coverageBits=bitcast<u32>(textureLoad(coverage,point,0).r);
+ let parent=textureLoad(original,point,0);let alpha=bitcast<u32>(parent.a);
+ if(!(coverageBits>0u&&coverageBits<=0x3f800000u&&alpha>0u&&alpha<=0x3f800000u)){return;}
+ let pixel=textureLoad(pixels,point,0);let rgb=outputRgb(pixel.rgb);
+ if(bitcast<u32>(pixel.a)!=alpha||any((bitcast<vec3u>(rgb)&vec3u(0x7f800000u))==vec3u(0x7f800000u))){atomicOr(&status,1u);return;}
+ textureStore(cached,at,i32(job.z),vec4f(rgb,pixel.a));
+}`
+}
+
 // Pan/zoom presentation deliberately contains no ACES evaluation.
 export const hdrShader = `
 struct Params { values: array<vec4f, 12> }

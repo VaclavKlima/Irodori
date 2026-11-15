@@ -152,6 +152,7 @@ test('settings 14 history gains neutral edges without changing revisions, cursor
       for (const mask of value.maskStack) {
         delete mask.edge
         delete mask.color
+        delete mask.texture
         delete mask.operands
         delete mask.resultHead
       }
@@ -232,6 +233,7 @@ test('settings 15 adds neutral Color to all history while preserving authored ed
       settings.version = 15
       for (const mask of settings.maskStack) {
         delete mask.color
+        delete mask.texture
         delete mask.operands
         delete mask.resultHead
       }

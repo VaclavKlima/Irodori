@@ -10,6 +10,7 @@ import { CROP_GEOMETRY_VERSION, cropGeometry, identityCrop } from '../../shared/
 import { CROP_FILTER_VERSION } from '../../shared/crop-filter'
 import { exportGeometry } from '../../shared/export'
 import { outputSharpeningMode } from '../../shared/output-sharpening'
+import { hasMaskedTexture } from '../../shared/masked-texture'
 import {
   exportInputMemoryPlan,
   exportRenderMemoryPlan,
@@ -28,6 +29,9 @@ import { resolveDetailSettings } from '../processing/detail-identity'
 import { readRasterWorking } from '../processing/detail-preview'
 import { readHdrStrips } from '../processing/hdr-processing'
 import { spatialExecutionBackend } from '../processing/spatial-backend'
+import { openPreparedMaskReader } from '../processing/prepared-mask-reader'
+import { croppedWorkingIdentity, workingSourceIdentity } from '../working-assets'
+import { preparedPointAllocationBytes } from '../gpu/point-renderer'
 import { halfFloat } from './codec'
 import { validateExportCropPolicy } from './crop-policy'
 import { prepareExportDetailStage } from './detail'
@@ -41,6 +45,12 @@ import { resizeLinearGpu } from './resize'
 import { exportResizePolicy, validateExportResizePolicy } from './resize-policy'
 import { outputSharpeningMemoryPlan, sharpenOutputRenditions } from './output-sharpening'
 import { validateExportOutputSharpeningPolicy } from './output-sharpening-policy'
+import { validateExportTexturePolicy } from './texture-policy'
+import {
+  prepareExportTextureInputs,
+  rasterTextureParentStrips,
+  type ExportTextureInputs,
+} from './texture'
 import type {
   ExportCropDiagnostics,
   ExportDetailDiagnostics,
@@ -82,6 +92,7 @@ export async function exportRenditions(
   ) => Promise<Buffer>,
 ) {
   job = structuredClone(job)
+  validateExportTexturePolicy(job)
   validateExportCropPolicy(job)
   validateExportDetailPolicy(job)
   validateExportResizePolicy(job)
@@ -93,17 +104,39 @@ export async function exportRenditions(
   const outputMode = outputSharpeningMode(job.options),
     outputSharpening = outputMode !== 'off',
     a = { ...(job.source.processing.adjustments ?? neutralAdjustments) },
+    textureActive = hasMaskedTexture(a),
     detailControls = resolveDetailSettings(job.source.processing),
     cropSettings = structuredClone(job.source.processing.crop ?? identityCrop),
     cropAdmission = job.cropAdmission ? structuredClone(job.cropAdmission) : undefined,
     admission =
-      job.outputSharpeningAdmission ?? job.detailAdmission ?? cropAdmission ?? job.resizeAdmission,
+      job.outputSharpeningAdmission ??
+      job.detailAdmission ??
+      cropAdmission ??
+      job.resizeAdmission ??
+      job.preparedMaskStack?.admission ??
+      job.primaryPreparedMaskStack?.admission,
     uncroppedAsset = job.source.processing.workingAsset?.hdr,
     channels = job.hdr ? 6 : 3
   if (detailControls.active && !job.detailAdmission)
     throw new Error('Noise reduction/detail export requires a frozen resource admission.')
   if (admission) validateExportAdmission(admission)
+  if (textureActive && !admission)
+    throw new Error('Texture export requires frozen resource admission.')
+  for (const request of [job.preparedMaskStack, job.primaryPreparedMaskStack]) {
+    if (
+      request &&
+      admission &&
+      (JSON.stringify(admission.policy) !== JSON.stringify(request.admission.policy) ||
+        admission.reservation.ramBytes !== request.admission.reservation.ramBytes ||
+        admission.reservation.vramBytes !== request.admission.reservation.vramBytes)
+    )
+      throw new Error('Prepared mask consumption requires one coherent frozen resource admission.')
+  }
+  if (job.primaryPreparedMaskStack && !job.preparedMaskStack && !textureActive)
+    throw new Error('An authored primary requires its prepared HDR content partner.')
   if (job.source.hdr && !uncroppedAsset) throw new Error('HDR working asset was not prepared.')
+  if (job.primaryPreparedMaskStack && !uncroppedAsset?.source.display)
+    throw new Error('Only authored HDR consumes an independently prepared SDR primary.')
   const needsPrimary = !job.source.hdr || Boolean(uncroppedAsset?.source.display),
     primaryLease = job.source.hdr ? job.primaryWorkingAsset : job.workingAsset,
     cachedPrimary =
@@ -328,6 +361,45 @@ export async function exportRenditions(
       precisionRecoveryTiles: result.precisionRecoveryTiles,
     }
   }
+  let textureInputs: ExportTextureInputs | undefined
+  if (
+    textureActive &&
+    (!job.preparedMaskStack || (asset?.source.display && !job.primaryPreparedMaskStack))
+  ) {
+    const upstream = workingSourceIdentity(
+        job.source.photo.id,
+        job.source.processing,
+        Boolean(uncroppedAsset),
+      ),
+      primaryUpstream = workingSourceIdentity(job.source.photo.id, job.source.processing, false)
+    textureInputs = await prepareExportTextureInputs(
+      job,
+      {
+        asset,
+        workingPath,
+        base,
+        sourceWidth,
+        sourceHeight,
+        crop,
+        cropSettings,
+        adjustments: a,
+        admission: admission!,
+        workingIdentity: croppedWorkingIdentity(
+          (asset ? detailDiagnostics?.working?.key : detailDiagnostics?.primary?.key) ?? upstream,
+          crop,
+        ),
+        primaryIdentity: croppedWorkingIdentity(
+          detailDiagnostics?.primary?.key ?? primaryUpstream,
+          crop,
+        ),
+      },
+      new AbortController().signal,
+    )
+    job.preparedMaskStack = textureInputs.working
+    job.primaryPreparedMaskStack = textureInputs.primary
+  }
+  if (job.preparedMaskStack && asset?.source.display && !job.primaryPreparedMaskStack)
+    throw new Error('Prepared authored HDR requires its independently prepared SDR primary.')
   const rgb = Buffer.alloc(pixels * 3),
     half = job.hdr ? new Uint16Array(pixels * 4) : undefined
   const linearPath = join(job.directory, 'rendition.f32'),
@@ -382,32 +454,133 @@ export async function exportRenditions(
   let gpuTilesMs = 0,
     gpuPackingMs = 0
   let primary: ReturnType<typeof cropFrameReader> | undefined
+  let preparedReader: Awaited<ReturnType<typeof openPreparedMaskReader>> | undefined
+  let primaryPreparedReader: Awaited<ReturnType<typeof openPreparedMaskReader>> | undefined
   let earlyPrimary: Promise<Buffer> | undefined
   try {
-    primary = base
-      ? cropFrameReader(
-          { data: base, width: sourceWidth, height: sourceHeight, transform: srgbTransform },
-          {
-            settings: cropSettings,
-            backend: spatialExecutionBackend(mode, 'crop'),
-            admission:
-              admission && memory
-                ? {
-                    policy: admission.policy,
-                    reservation: {
-                      ramBytes:
-                        admission.reservation.ramBytes +
-                        memory.retainedBytes +
-                        memory.gpuWorkBytes -
-                        base.buffer.byteLength,
-                      vramBytes: admission.reservation.vramBytes + memory.gpuBuffers.totalBytes,
-                    },
-                  }
-                : admitted,
-          },
-          new AbortController().signal,
-        )
-      : undefined
+    if (job.preparedMaskStack) {
+      const stack = job.preparedMaskStack.stack,
+        upstream = workingSourceIdentity(
+          job.source.photo.id,
+          job.source.processing,
+          Boolean(uncroppedAsset),
+        ),
+        parentIdentity = croppedWorkingIdentity(
+          (asset ? detailDiagnostics?.working?.key : detailDiagnostics?.primary?.key) ?? upstream,
+          crop,
+        ),
+        parentAsset = asset
+          ? {
+              ...stack.parent.asset,
+              path: workingPath!,
+              width,
+              height,
+              byteLength: asset.byteLength,
+              sha256: asset.sha256,
+              hdr: asset,
+              maskGeometry: a.maskGeometry,
+            }
+          : {
+              ...stack.parent.asset,
+              width,
+              height,
+              byteLength: width * height * 16,
+              transform: srgbTransform,
+              hdr: undefined,
+              maskGeometry: a.maskGeometry,
+            }
+      preparedReader = await openPreparedMaskReader(
+        job.preparedMaskStack,
+        {
+          parent: { identity: parentIdentity, asset: parentAsset },
+          adjustments: a,
+          domain: asset ? (asset.source.display ? 'authored-hdr' : 'scene-linear') : 'raster',
+          whiteBalance: asset
+            ? (hdrAdjustmentMatrix(a, asset.whiteBalance) ?? undefined)
+            : undefined,
+          transform: parentAsset.transform,
+        },
+        new AbortController().signal,
+        memory
+          ? memory.retainedBytes + memory.gpuWorkBytes
+          : sourceWidth * sourceHeight * 16 + pixels * 3 + width * 64 * 40,
+      )
+    }
+    if (job.primaryPreparedMaskStack) {
+      const stack = job.primaryPreparedMaskStack.stack,
+        upstream = workingSourceIdentity(job.source.photo.id, job.source.processing, false),
+        parentIdentity = croppedWorkingIdentity(detailDiagnostics?.primary?.key ?? upstream, crop),
+        parentAsset = {
+          ...stack.parent.asset,
+          width,
+          height,
+          byteLength: width * height * 16,
+          transform: srgbTransform,
+          hdr: undefined,
+          maskGeometry: a.maskGeometry,
+        }
+      primaryPreparedReader = await openPreparedMaskReader(
+        job.primaryPreparedMaskStack,
+        {
+          parent: { identity: parentIdentity, asset: parentAsset },
+          adjustments: a,
+          domain: 'raster',
+          transform: srgbTransform,
+        },
+        new AbortController().signal,
+        (memory
+          ? memory.retainedBytes + memory.gpuWorkBytes
+          : sourceWidth * sourceHeight * 16 + pixels * 3 + width * 64 * 40) +
+          (preparedReader?.workRamBytes ?? 0),
+      )
+    }
+    primary = textureInputs?.rasterParent
+      ? {
+          geometry: crop,
+          transform: srgbTransform,
+          diagnostics: textureInputs.primaryCrop!,
+          memory: textureInputs.primaryCrop?.memory,
+          strips: rasterTextureParentStrips(
+            textureInputs.rasterParent,
+            new AbortController().signal,
+          ),
+        }
+      : base
+        ? cropFrameReader(
+            { data: base, width: sourceWidth, height: sourceHeight, transform: srgbTransform },
+            {
+              settings: cropSettings,
+              backend: spatialExecutionBackend(mode, 'crop'),
+              admission:
+                admission && memory
+                  ? {
+                      policy: admission.policy,
+                      reservation: {
+                        ramBytes:
+                          admission.reservation.ramBytes +
+                          memory.retainedBytes +
+                          memory.gpuWorkBytes +
+                          (preparedReader?.workRamBytes ?? 0) +
+                          (primaryPreparedReader?.workRamBytes ?? 0) -
+                          base.buffer.byteLength,
+                        vramBytes:
+                          admission.reservation.vramBytes +
+                          memory.gpuBuffers.totalBytes +
+                          (preparedReader
+                            ? preparedPointAllocationBytes(
+                                width * 64,
+                                packed,
+                                job.hdr,
+                                Boolean(asset?.source.display),
+                              )
+                            : 0),
+                      },
+                    }
+                  : admitted,
+            },
+            new AbortController().signal,
+          )
+        : undefined
     {
       try {
         if (memory && !memory.gpuAccepted)
@@ -420,11 +593,18 @@ export async function exportRenditions(
           job.hdr,
           packed,
           64,
-          packed && job.hdr && !asset?.source.display ? pixels : 0,
-          memory?.gpuLimitBytes,
+          packed && job.hdr && !asset?.source.display && !preparedReader ? pixels : 0,
+          preparedReader
+            ? Math.min(
+                memory?.gpuLimitBytes ?? preparedReader.gpuLimitBytes,
+                preparedReader.gpuLimitBytes,
+                primaryPreparedReader?.gpuLimitBytes ?? preparedReader.gpuLimitBytes,
+              )
+            : memory?.gpuLimitBytes,
           {
             domain: asset ? (asset.source.display ? 'authored-hdr' : 'scene-linear') : 'raster',
             primary: Boolean(asset?.source.display),
+            preparedPoint: Boolean(preparedReader),
             edgeAdmission: admission
               ? {
                   policy: admission.policy,
@@ -432,7 +612,9 @@ export async function exportRenditions(
                     ramBytes:
                       admission.reservation.ramBytes +
                       (memory?.retainedBytes ?? 0) +
-                      (memory?.gpuWorkBytes ?? 0),
+                      (memory?.gpuWorkBytes ?? 0) +
+                      (preparedReader?.workRamBytes ?? 0) +
+                      (primaryPreparedReader?.workRamBytes ?? 0),
                     vramBytes: admission.reservation.vramBytes,
                   },
                 }
@@ -453,17 +635,49 @@ export async function exportRenditions(
             (authored && !(authored.value.buffer instanceof ArrayBuffer))
           )
             throw new Error('Invalid GPU input strip.')
-          const rendered = await converter.render(
-            new Float32Array(strip.buffer, strip.byteOffset, strip.length),
-            top * width,
-            authored
+          const legacyPixels = new Float32Array(strip.buffer, strip.byteOffset, strip.length)
+          let rendered: Awaited<ReturnType<typeof converter.render>>
+          if (preparedReader) {
+            if (!converter.renderPrepared)
+              throw new Error('Prepared point consumption is unavailable.')
+            const prepared = await preparedReader.read(legacyPixels, top * width)
+            const primaryLegacy = authored
               ? new Float32Array(
                   authored.value.buffer as ArrayBuffer,
                   authored.value.byteOffset,
                   authored.value.length,
                 )
-              : undefined,
-          )
+              : undefined
+            const preparedPrimary =
+              primaryPreparedReader && primaryLegacy
+                ? await primaryPreparedReader.read(primaryLegacy, top * width)
+                : undefined
+            rendered = await converter.renderPrepared(
+              legacyPixels,
+              prepared.pixels,
+              prepared.union,
+              top * width,
+              preparedPrimary && primaryLegacy
+                ? {
+                    legacy: primaryLegacy,
+                    prepared: preparedPrimary.pixels,
+                    union: preparedPrimary.union,
+                  }
+                : undefined,
+            )
+          } else {
+            rendered = await converter.render(
+              legacyPixels,
+              top * width,
+              authored
+                ? new Float32Array(
+                    authored.value.buffer as ArrayBuffer,
+                    authored.value.byteOffset,
+                    authored.value.length,
+                  )
+                : undefined,
+            )
+          }
           gpuTilesMs += performance.now() - tileStarted
           const packingStarted = performance.now()
           if (packed) {
@@ -556,6 +770,8 @@ export async function exportRenditions(
         }
         if (asset && primary && !(await primary.strips.next()).done)
           throw new Error('Unexpected HDR JPEG primary rows.')
+        preparedReader?.finish()
+        primaryPreparedReader?.finish()
       } catch (error) {
         await earlyPrimary?.catch(() => {})
         earlyPrimary = undefined
@@ -571,7 +787,15 @@ export async function exportRenditions(
       }
     }
   } finally {
-    await linear?.close()
+    try {
+      await linear?.close()
+    } finally {
+      try {
+        await preparedReader?.close()
+      } finally {
+        await primaryPreparedReader?.close()
+      }
+    }
   }
   const renderMs = performance.now() - started
   const resizeStarted = performance.now()
@@ -672,6 +896,7 @@ export async function exportRenditions(
     diagnostics: {
       crop: cropDiagnostics,
       detail: detailDiagnostics,
+      preparedMaskStack: preparedReader?.identity,
       outputSharpening: outputDiagnostics,
       resize: original
         ? undefined

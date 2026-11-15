@@ -1,0 +1,341 @@
+{
+  "version": 1,
+  "id": "masked-texture-supplemental-source-cases-v1",
+  "issue": 80,
+  "status": "source-only-frozen-before-supplemental-candidate-rendering",
+  "selectedOn": "2026-11-14",
+  "selectionTrigger": "User preferred Texture+25 for flamingo feathers and reflected legs and preferred combined appearance overall; ripples remained indistinguishable. This permits the planned conditional skin/foliage review, without changing the candidate or strengths.",
+  "parentProtocol": {
+    "path": "assets/tests/references/masked-texture/protocol.json",
+    "sha256": "f8aa5bc91184276ee3c8fe1115bafa427c4476736db850cc053c0cd1e901f399"
+  },
+  "originalCases": {
+    "path": "assets/tests/references/masked-texture/photo-cases.json",
+    "sha256": "7e1d900942d309add89e3c76ed68af07238c8e59fc7174b89c46c531167c5483"
+  },
+  "selectionPolicy": {
+    "sourceOnly": "Unchanged source originals, prior Neutral production views and original native crops only; no supplemental Texture output viewed.",
+    "noAfterOutputTuning": "Do not move masks/crops, change strengths/feather/support, substitute sources or drop unfavorable controls after output. Any revision requires separate versioned evidence.",
+    "amounts": "Same frozen modest -25/0/+25 and declared stress -100/+100; no tuning or automatic method cycle.",
+    "viewing": "Each integer 512x512 crop has one source-grid pixel per PNG pixel; source-overview resizing is for location/privacy review only.",
+    "scope": "Two supplemental sources, one analytic radial mask per source, neutral point edits/AsShot, complete native source filtering before proof and crop. No feature enablement, general stack, tiling, merge correctness or physical HDR acceptance."
+  },
+  "cases": [
+    {
+      "enabled": true,
+      "renderStatus": "not-rendered",
+      "amounts": [-25, 0, 25],
+      "stressAmounts": [-100, 100],
+      "noiseReduction": {
+        "luminance": 0,
+        "chroma": 0
+      },
+      "comparator": {
+        "kind": "existing-global-detail-sharpening",
+        "amount": 50,
+        "radius": 1,
+        "threshold": 50
+      },
+      "maskMeaning": "Partial manual treatment region; not segmentation, physical alpha or complete subject isolation.",
+      "sourceGrid": "Authoritative oriented native pixel centers; preserve existing finite full-frame Texture policy and existing production source transform.",
+      "id": "forearm-skin-hair",
+      "kind": "raster",
+      "source": "assets/tests/images/raster/wikimedia/forearm-hair/originals/ArmHair.jpg",
+      "sha256": "02f590a33003698f750166798552a63b038456c008e9f3a220ed3544b79db4b8",
+      "bytes": 2054629,
+      "width": 4272,
+      "height": 2848,
+      "primaries": "srgb",
+      "domain": "Published authored SDR JPEG, assumed sRGB. Existing production preparation produces linear-sRGB and preserves its actual srgbTransform.",
+      "notice": "assets/tests/images/raster/wikimedia/forearm-hair/manifest.json",
+      "noticeSha256": "f97fc34160692e5a13a00d3243342fa76ca21f1699092b36e1b7eaa3a3c75139",
+      "licenseNotice": "assets/tests/images/raster/wikimedia/forearm-hair/LICENSE.md",
+      "licenseNoticeSha256": "419249ffd3c4d2de1f91d83ddf8ec350d72c6b9b1b6743c1a0ac79979ec1fa40",
+      "credit": "Zephyris, ArmHair.jpg (2010 archived original), Wikimedia Commons, CC BY-SA 3.0.",
+      "sourceUrl": "https://commons.wikimedia.org/w/index.php?title=File:ArmHair.jpg&oldid=801603795",
+      "license": "CC BY-SA 3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "privacyReview": "Fixture manifest retains complete-original and all-metadata review, no embedded preview. Source bytes and notices reauthenticated; this source-only review saw anonymous skin/body hair and no identifying content.",
+      "masks": [
+        {
+          "id": "skin-body-hair",
+          "label": "Partial skin and body-hair region",
+          "partialManualRegion": true,
+          "coverage": {
+            "kind": "radial",
+            "centerPx": {
+              "x": 2350,
+              "y": 1000
+            },
+            "radiusPx": {
+              "x": 1500,
+              "y": 1000
+            },
+            "rotationDegrees": 0,
+            "featherPercent": 30
+          },
+          "outerBounds": {
+            "left": 850,
+            "top": 0,
+            "width": 3000,
+            "height": 2000
+          }
+        }
+      ],
+      "maskOrder": ["skin-body-hair"],
+      "regions": [
+        {
+          "name": "skin-texture",
+          "left": 2800,
+          "top": 350,
+          "width": 512,
+          "height": 512,
+          "maskIds": ["skin-body-hair"],
+          "purpose": "Review modest negative Texture on fine skin variation and positive-strength grain; retain existing source softness."
+        },
+        {
+          "name": "hair-contours",
+          "left": 1150,
+          "top": 1000,
+          "width": 512,
+          "height": 512,
+          "maskIds": ["skin-body-hair"],
+          "purpose": "Check individual body-hair contours, bright/dark rims and source grain under the same treatment."
+        }
+      ],
+      "unaffectedControls": [
+        {
+          "name": "unmasked-left-skin",
+          "left": 150,
+          "top": 150,
+          "width": 96,
+          "height": 96,
+          "purpose": "Same authored source outside the left mask bound."
+        },
+        {
+          "name": "unmasked-lower-right-skin",
+          "left": 4000,
+          "top": 2500,
+          "width": 96,
+          "height": 96,
+          "purpose": "Same authored source outside both right and lower mask bounds."
+        }
+      ],
+      "sourcePreparationEvidence": {
+        "path": "artifacts/detail-review/2026-11-14-native-sharpening/run-02/forearm-skin-hair/neutral/linear.f32",
+        "sha256": "e71560914c5928b8bc98905f66416910ae01d3e69831a0cfd7622e506fae26c1",
+        "bytes": 194666496,
+        "width": 4272,
+        "height": 2848,
+        "transform": {
+          "white": 1,
+          "threshold": 0.0031308,
+          "offset": 0.055,
+          "quantize": false
+        },
+        "maskGeometry": {
+          "version": 1,
+          "canonicalWidth": 4272,
+          "canonicalHeight": 2848,
+          "sourceWidth": 4272,
+          "sourceHeight": 2848,
+          "flip": 0
+        },
+        "sourceIdentity": "cbfa7074a99d6e938c86b572a31a2634df1472bb27c8c8e77d3b08a9e08af00d",
+        "neutralProof": {
+          "id": "forearm-skin-hair",
+          "rgba": {
+            "path": "artifacts/detail-review/2026-11-14-native-sharpening/run-02/forearm-skin-hair/neutral/full.rgba",
+            "sha256": "4d81d20d02eb26049762269c9558390ac71c08fd24c1af36ab026e6f38d00f03",
+            "bytes": 48666624
+          },
+          "crops": [
+            {
+              "path": "artifacts/detail-review/2026-11-14-native-sharpening/run-02/forearm-skin-hair/neutral/skin-texture.png",
+              "sha256": "b009f0bcb0bf22fd96c19fff2b81aab700c07859195f8dc3ec09377d4ac8df84",
+              "bytes": 250427
+            },
+            {
+              "path": "artifacts/detail-review/2026-11-14-native-sharpening/run-02/forearm-skin-hair/neutral/hair-contours.png",
+              "sha256": "60b879b4aacd6c7848cdae6ab53b28f2770dc1cb1bdcae93e96e43721ccb3a3b",
+              "bytes": 358517
+            }
+          ]
+        }
+      },
+      "limitations": [
+        "Anonymous body skin/hair, not face/scalp-hair or general portrait acceptance.",
+        "Processed JPEG, existing focus/compression/noise retained; no clean/noisy paired truth or HDR photographic acceptance."
+      ]
+    },
+    {
+      "enabled": true,
+      "renderStatus": "not-rendered",
+      "amounts": [-25, 0, 25],
+      "stressAmounts": [-100, 100],
+      "noiseReduction": {
+        "luminance": 0,
+        "chroma": 0
+      },
+      "comparator": {
+        "kind": "existing-global-detail-sharpening",
+        "amount": 50,
+        "radius": 1,
+        "threshold": 50
+      },
+      "maskMeaning": "Partial manual treatment region; not segmentation, physical alpha or complete subject isolation.",
+      "sourceGrid": "Authoritative oriented native pixel centers; preserve existing finite full-frame Texture policy and existing production source transform.",
+      "id": "forest-merge",
+      "kind": "merge",
+      "width": 3645,
+      "height": 5465,
+      "primaries": "rec2020",
+      "domain": "Authenticated current-v4 scene-linear Float32 Rec2020 master, proof through existing unchanged production GPU SDR renderer. Not a photographically calibrated HDR acceptance.",
+      "masterDirectory": "artifacts/verification/2026-10-31T19-59-26.702Z-check-9x6X1C/functional/raw-gpu-exclusive/results/professional-editing-accep-db3dd--HDR-SDR-export-and-restart-raw-gpu/accepted-master",
+      "manifestSha256": "1883d1aaa123a16a1217fcb120890e91b3a6545d60c3a3193ed2d352f994e377",
+      "assetSha256": "06801f7581b42778e55a8bebf925887e4dfc1d4dab3013459cd3f467f3b24bc8",
+      "maskSha256": "240f49fa0b465cc9fc481025124ed650c10e2cbe9239096f6b801b56b71d047f",
+      "assetBytes": 318718800,
+      "motionMaskBytes": 20067760,
+      "hdrStrips": 86,
+      "notice": "assets/tests/images/raw/sony-zv-1a/forest-bracket/manifest.json",
+      "noticeSha256": "747ee212c3073c64e780c11ffb8cd3e2b96345599e35df920c3596ef7d96cffb",
+      "licenseNotice": "assets/tests/images/raw/sony-zv-1a/forest-bracket/README.md",
+      "licenseNoticeSha256": "c45490a10ee77ce8078ac46ee788cb695873a69fe8d2b0ddfd9d93f31da39139",
+      "sourceOriginals": [
+        "assets/tests/images/raw/sony-zv-1a/forest-bracket/originals/DSC03277.ARW",
+        "assets/tests/images/raw/sony-zv-1a/forest-bracket/originals/DSC03278.ARW",
+        "assets/tests/images/raw/sony-zv-1a/forest-bracket/originals/DSC03279.ARW"
+      ],
+      "originals": [
+        {
+          "path": "assets/tests/images/raw/sony-zv-1a/forest-bracket/originals/DSC03277.ARW",
+          "sha256": "159e5461fceddede2dc9903cb080caf63dcd2e4dc9ef70881b35f1fc65bd91db",
+          "bytes": 21533696
+        },
+        {
+          "path": "assets/tests/images/raw/sony-zv-1a/forest-bracket/originals/DSC03278.ARW",
+          "sha256": "d3f8954afbe5f9d1d61ca5bea39d25a04a18143eb8fa1f6360960c4e0cbb1578",
+          "bytes": 21242880
+        },
+        {
+          "path": "assets/tests/images/raw/sony-zv-1a/forest-bracket/originals/DSC03279.ARW",
+          "sha256": "e17e3c0ab859945212e031e35e13c241224ed1ccb0f1335de4c0f1fc4dc90f3c",
+          "bytes": 21242880
+        }
+      ],
+      "credit": "Project owner, unchanged permitted Sony ZV-1A forest bracket.",
+      "license": "Project testing permission; no general open-content license.",
+      "privacyReview": "Committed fixture notice retains each whole decoded scene, all embedded previews, sensitive background crops and full metadata review. Retained full Neutral view and native crops re-inspected source-only; no identifying content observed.",
+      "masks": [
+        {
+          "id": "foliage-and-boundary",
+          "label": "Partial foliage and retained blend-boundary region",
+          "partialManualRegion": true,
+          "coverage": {
+            "kind": "radial",
+            "centerPx": {
+              "x": 2300,
+              "y": 1350
+            },
+            "radiusPx": {
+              "x": 1100,
+              "y": 1300
+            },
+            "rotationDegrees": 0,
+            "featherPercent": 30
+          },
+          "outerBounds": {
+            "left": 1200,
+            "top": 50,
+            "width": 2200,
+            "height": 2600
+          }
+        }
+      ],
+      "maskOrder": ["foliage-and-boundary"],
+      "regions": [
+        {
+          "name": "foliage",
+          "left": 1760,
+          "top": 1760,
+          "width": 512,
+          "height": 512,
+          "maskIds": ["foliage-and-boundary"],
+          "purpose": "Assess positive25 fine foliage definition versus existing global sharpening, with negative/stress behavior retained."
+        },
+        {
+          "name": "deghost-transition",
+          "left": 2344,
+          "top": 281,
+          "width": 512,
+          "height": 512,
+          "maskIds": ["foliage-and-boundary"],
+          "purpose": "Inspect bright leaf/sky boundaries and retained blend-mask transition; no new merge/deghost truth claim."
+        }
+      ],
+      "unaffectedControls": [
+        {
+          "name": "unmasked-left-foliage",
+          "left": 200,
+          "top": 1500,
+          "width": 96,
+          "height": 96,
+          "purpose": "Foliage outside the left treatment bound."
+        },
+        {
+          "name": "unmasked-lower-tree-and-ground",
+          "left": 2200,
+          "top": 4200,
+          "width": 96,
+          "height": 96,
+          "purpose": "Tree/ground area far below the treatment bound."
+        }
+      ],
+      "sourcePreparationEvidence": {
+        "master": {
+          "path": "artifacts/verification/2026-10-31T19-59-26.702Z-check-9x6X1C/functional/raw-gpu-exclusive/results/professional-editing-accep-db3dd--HDR-SDR-export-and-restart-raw-gpu/accepted-master/manifest.json",
+          "sha256": "1883d1aaa123a16a1217fcb120890e91b3a6545d60c3a3193ed2d352f994e377",
+          "bytes": 136236
+        },
+        "linear": {
+          "path": "artifacts/verification/2026-10-31T19-59-26.702Z-check-9x6X1C/functional/raw-gpu-exclusive/results/professional-editing-accep-db3dd--HDR-SDR-export-and-restart-raw-gpu/accepted-master/linear.f32",
+          "sha256": "06801f7581b42778e55a8bebf925887e4dfc1d4dab3013459cd3f467f3b24bc8",
+          "bytes": 318718800
+        },
+        "motion": {
+          "path": "artifacts/verification/2026-10-31T19-59-26.702Z-check-9x6X1C/functional/raw-gpu-exclusive/results/professional-editing-accep-db3dd--HDR-SDR-export-and-restart-raw-gpu/accepted-master/motion.mask",
+          "sha256": "240f49fa0b465cc9fc481025124ed650c10e2cbe9239096f6b801b56b71d047f",
+          "bytes": 20067760
+        },
+        "sourceIdentity": "080a26c96579a7c556c3a7eeff6a15d0a96b28d39f9696011623be17f8edf96a",
+        "maskMapping": "Retained source-mask boundary uses asset x+15, y+0; Texture radial coordinates are authoritative master coordinates.",
+        "neutralProof": {
+          "id": "forest-merge",
+          "rgba": {
+            "path": "artifacts/detail-review/2026-11-14-native-sharpening/run-02/forest-merge/neutral/full.rgba",
+            "sha256": "dc277729d4cfb6f862d56393608d5b623652bba707f95c83e4dbf872fe5c9915",
+            "bytes": 79679700
+          },
+          "crops": [
+            {
+              "path": "artifacts/detail-review/2026-11-14-native-sharpening/run-02/forest-merge/neutral/foliage.png",
+              "sha256": "1fb6a3db61753e728ac03c83f315202d26bee6829c9a280fc9a42e11ca8c80db",
+              "bytes": 704104
+            },
+            {
+              "path": "artifacts/detail-review/2026-11-14-native-sharpening/run-02/forest-merge/neutral/deghost-transition.png",
+              "sha256": "819583140ba331f8facb4becf80aba3b60d1166ba5ecaa2cd45a6b95ebf8f75e",
+              "bytes": 713921
+            }
+          ]
+        }
+      },
+      "limitations": [
+        "Retained current-v4 master and authenticated originals; not known-truth alignment/motion/deghost correctness or a new merge acceptance.",
+        "Photographic scene-linear input with unchanged SDR proof; no physical HDR, calibrated luminance, general stack or output feature acceptance.",
+        "Private retained master is a pinned derivative, not a new committed fixture. Reproduction needs the identical retained master or separately authenticated reconstruction from tracked originals."
+      ]
+    }
+  ]
+}

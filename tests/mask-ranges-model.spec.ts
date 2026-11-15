@@ -34,7 +34,7 @@ const gradient = { kind: 'linear' as const, start: { x: 0, y: 0 }, end: { x: 1, 
 const stroke = { mode: 'add' as const, radius: 0.1, feather: 0, points: [{ x: 0.5, y: 0.5 }] }
 
 test('range contracts bound sample counts and controls while preserving HDR and unbounded upper values', () => {
-  expect(maskCapabilities.version).toBe(6)
+  expect(maskCapabilities.version).toBe(7)
   for (const range of [
     color(),
     defaultLuminanceMaskRange,
@@ -196,8 +196,8 @@ test('authored ranges and explicit source replacement preserve corrections, nest
 })
 
 test('settings-18 history migrates without changing masks, branches or appearance and rejects disguised old range content', () => {
-  expect(SETTINGS_VERSION).toBe(19)
-  expect(CATALOG_VERSION).toBe(29)
+  expect(SETTINGS_VERSION).toBe(20)
+  expect(CATALOG_VERSION).toBe(30)
   const id = randomUUID(),
     part = randomUUID()
   const maskStack = prepareMaskMutation([], {
@@ -213,7 +213,14 @@ test('settings-18 history migrates without changing masks, branches or appearanc
       },
     ],
   }).stack
-  const settings = { ...initialSettings(), version: 18, maskStack }
+  const settings = {
+    ...initialSettings(),
+    version: 18,
+    maskStack: maskStack.map(({ texture: _texture, ...mask }) => {
+      void _texture
+      return mask
+    }),
+  }
   expect(supportsEditingSettings(settings, 28)).toBe(true)
   expect(supportsEditingSettings(settings, 29)).toBe(false)
   const disguised = structuredClone(settings)
@@ -240,10 +247,21 @@ test('settings-18 history migrates without changing masks, branches or appearanc
     )
     expect(migrated).toEqual({
       ...history,
-      settings: { ...settings, version: 19 },
-      snapshots: history.snapshots.map((s) => ({ ...s, settings: { ...s.settings, version: 19 } })),
+      settings: {
+        ...settings,
+        version: 20,
+        maskStack: settings.maskStack.map((mask) => ({ ...mask, texture: 0 })),
+      },
+      snapshots: history.snapshots.map((s) => ({
+        ...s,
+        settings: {
+          ...s.settings,
+          version: 20,
+          maskStack: s.settings.maskStack.map((mask) => ({ ...mask, texture: 0 })),
+        },
+      })),
     })
-    expect(supportsEditingSettings(migrated.settings, 29)).toBe(true)
+    expect(supportsEditingSettings(migrated.settings, 30)).toBe(true)
     expect(() =>
       validatePresetDefinition({
         version: 1,

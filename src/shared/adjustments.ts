@@ -274,6 +274,9 @@ export function renderAdjustments(
   return output
 }
 export interface WorkingFrame {
+  /** Verified original pixels remain distinct from the consumed creative prefix. */
+  sourceSha256?: string
+  preparedMasks?: import('./hdr').PreparedMaskPresentation
   maskGeometry?: MaskGeometry
   sourceRef?: import('./prepared-source').PreparedHdrSourceRef
   hdr?: import('./hdr').HdrWorkingAsset
