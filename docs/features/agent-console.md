@@ -8,10 +8,10 @@ extends the shared preview tools. This feature makes no photo-settings or catalo
 
 Open Console and choose **Connect Codex**. Irodori discovers an installed Codex
 executable; **Choose Codex executable** offers a native file picker when setup
-fails. Stable patch releases in the reviewed **0.166.x** and **0.167.x** families
-are accepted automatically when the strict startup configuration check passes.
-Other minor or major versions, prereleases and malformed version strings are
-refused until their configuration and tool defaults have been reviewed and tested.
+fails. Stable Codex releases from **0.166.0 onward** are accepted when runtime
+feature and strict configuration checks pass. New stable minor or major releases
+do not need a version-list update. Older builds, prereleases and malformed version
+strings are refused; incompatible releases report the failed compatibility check.
 
 Sign in through Codex inside this console. When it emits its authentication
 hyperlink, **Open sign-in** opens that exact link in the system browser and
@@ -93,7 +93,15 @@ conversational consent. Live-model permission acceptance remains unverified when
 an authenticated isolated client is unavailable; see the preset brief.
 
 Each startup checks the CLI version, strict configuration parsing and effective
-configuration. Irodori writes its restrictions to `irodori-policy.toml` and applies
+configuration. It inventories the installed CLI's feature flags, keeps required
+hooks, `code_mode_host` execution infrastructure and `code_mode_interrupt`
+cancellation enabled, disables other active flags, then checks the effective
+inventory again.
+New tool flags therefore start disabled. Removed aliases are ignored at runtime;
+the execution-engine selector `unified_exec`, forced on by newer CLIs, is permitted
+only while the independently checked `shell_tool` and `unified_exec_tty` capabilities
+are disabled.
+Irodori writes its restrictions to `irodori-policy.toml` and applies
 the same session overrides to strict preflight and terminal startup. Codex keeps normal hook-trust state in its base
 `config.toml`; reconnect and New conversation preserve it. Only the enumerated
 Irodori MCP tools are preapproved for direct requested edits. Shell escalation
@@ -324,6 +332,83 @@ lifecycle and preservation of normal hook-trust configuration. Local receipt:
 This is configuration/lifecycle acceptance without an authenticated model turn.
 [Issue #109](https://github.com/VaclavKlima/Irodori/issues/109) retains macOS and
 Windows qualification. Delivery is tracked in #108.
+
+## Automatic release compatibility — November 14, 2026
+
+[Issue #120](https://github.com/VaclavKlima/Irodori/issues/120) supersedes the
+release-family policy above. Stable releases at or above the protocol baseline
+reach runtime validation automatically. Every connection inventories known
+features with bounded output and time, writes a closed-by-default feature table,
+and rechecks the effective inventory before strict app-server configuration
+validation. Missing, malformed, changing or unenforceable capabilities refuse
+startup before the request gate and terminal. A runtime-enabled execution-engine
+selector is harmless only with its separately disabled shell capability; all
+unrecognized active feature flags must be disabled successfully.
+
+Codex 0.168.0's [managed feature policy](https://github.com/openai/codex/blob/rust-v0.168.0/codex-rs/core/src/config/managed_features.rs#L203-L211)
+forces the execution-engine selector on. Its [tool registration](https://github.com/openai/codex/blob/rust-v0.168.0/codex-rs/core/src/tools/spec_plan.rs#L1275-L1305)
+returns before creating shell tools when `shell_tool` is disabled. This specific
+inert selector is the only runtime exception beyond hooks and required tool-host
+infrastructure; unknown enabled features still refuse startup.
+
+Feature overrides use one TOML table so literal dotted feature names survive the
+CLI's override parser. Inspection and terminal use the same dedicated `CODEX_HOME`
+and generated overrides. The redundant terminal-only named profile is removed:
+Codex 0.168.0 rejects that option on inspection commands, and using a separate
+terminal configuration would leave it outside the preflight. The base configuration
+and its normal hook trust remain untouched. Effective configuration also verifies
+plugin defaults, project-instruction suppression and login-shell restrictions.
+
+Automatic preflight establishes these runtime restrictions, not universal future
+CLI or authenticated-model acceptance. Other-device qualification remains tracked
+in [#109](https://github.com/VaclavKlima/Irodori/issues/109).
+
+Local Bazzite/Linux x64 acceptance with **codex-cli 0.168.0** and bundled Node 24.20.0
+passes `agent-session` and `agent-policy` plus the runner's cheap checks:
+**1,078 cases, no failures or skips, 67.08 seconds**, background. Type checking,
+lint, formatting and production build pass. The routine 60-second warning is
+retained; assertions were not shortened. Coverage includes installed-CLI preflight
+without sign-in/model calls, preserved hook trust, future stable releases and
+feature defaults, literal dotted keys, retired aliases, unsafe/malformed
+inventories, refusal before terminal startup and PTY lifecycle. Local receipt:
+`artifacts/verification/2026-11-13T23-36-44.879Z-check-Enz6zx/summary.md` (UTC).
+This configuration/lifecycle record did not exercise tool dispatch. A subsequent
+real Console request failed with `code-mode host is disabled`: the initial
+closed-by-default table had incorrectly disabled required execution infrastructure.
+That functional failure supersedes the earlier local-acceptance claim. The policy
+now preserves `code_mode_host` and host-cell cancellation through
+`code_mode_interrupt` while keeping shell, plugins, browser and unrelated
+capabilities disabled. Regression checks cover host enablement, refusal when it
+cannot be enabled, older CLI inventories and identical terminal overrides.
+Model metadata can require code mode even when the optional `code_mode` flag is
+false; the [tool-mode selection](https://github.com/openai/codex/blob/rust-v0.168.0/codex-rs/core/src/tools/mod.rs#L66-L86)
+therefore still needs the host. The [interruption path](https://github.com/openai/codex/blob/rust-v0.168.0/codex-rs/core/src/tasks/mod.rs#L1063-L1073)
+uses `code_mode_interrupt` to cancel active host cells after Stop/Ctrl+C.
+
+An isolated actual-CLI dispatch diagnostic uses the unchanged policy sealed by
+production `verifyAgentConfig`, a local mock Responses stream and a synthetic MCP
+server. Toggling only the host off reproduces the exact error with zero MCP calls;
+the corrected production policy delivers one `irodori_get_editor_context` call.
+No model service, credentials, user library or real photograph is involved. The
+host reports no `process`, `require` or `fetch` global. Evidence is retained in
+`artifacts/console-code-host/summary.json` and its paired host-disabled/enabled
+transcripts. This tests real host dispatch only: normal fixture hooks remain
+untrusted, so it does not establish frozen-request authorization, actual edits or
+authenticated Console acceptance. Existing shared request-gate/hook checks cover
+those enforcement paths separately.
+Current acceptance and default-branch delivery remain tracked in #120. An
+authenticated model turn, macOS and Windows remain unverified.
+
+The corrected `agent-session` and `agent-policy` selection, including cheap
+checks, passes **1,080 cases, no failures or skips, 67.03 seconds**, background,
+with type checking, lint, formatting and production build passing. Receipt:
+`artifacts/verification/2026-11-13T23-50-49.067Z-check-bvEIne/summary.md`.
+An earlier sandboxed invocation failed unrelated subprocess tests because Node
+spawn returned `EPERM`; the exact first failing case and final scoped run pass
+with approved process access. Both failed and successful evidence are retained.
+The 60-second routine warning remains recorded. This corrects the observed
+host-dependency failure. Source publication and remaining acceptance are tracked
+in [#120](https://github.com/VaclavKlima/Irodori/issues/120).
 
 ## Linear and radial mask gradients — issue #84
 

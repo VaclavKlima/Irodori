@@ -224,8 +224,6 @@ export class AgentSessions {
             '--no-daemon',
             '--strict-config',
             '--no-alt-screen',
-            '--profile',
-            'irodori',
             ...policyOverrides,
             '-C',
             workspace,

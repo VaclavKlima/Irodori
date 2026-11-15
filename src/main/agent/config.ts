@@ -114,6 +114,7 @@ export const disabledAgentFeatures = [
 /** The generated policy uses single-line JSON-compatible TOML values only. */
 export async function agentConfigOverrides(home: string): Promise<string[]> {
   const args: string[] = []
+  const features: string[] = []
   let section = ''
   for (const line of (await readFile(join(home, 'irodori-policy.toml'), 'utf8')).split('\n')) {
     if (!line.trim()) continue
@@ -121,10 +122,17 @@ export async function agentConfigOverrides(home: string): Promise<string[]> {
       section = line.slice(1, -1)
       continue
     }
-    const match = line.match(/^([a-zA-Z_][\w]*)\s*=\s*(.+)$/)
+    const match = line.match(/^([a-zA-Z_][\w]*|"[a-z][a-z0-9_.]*")\s*=\s*(.+)$/)
     if (!match) throw new Error('Invalid generated Codex policy.')
+    // CLI dotted overrides split literal dots and do not decode quoted path segments.
+    // One TOML table preserves feature names exactly, including future dotted names.
+    if (section === 'features') {
+      features.push(`${match[1]} = ${match[2]}`)
+      continue
+    }
     args.push('-c', `${section ? `${section}.` : ''}${match[1]}=${match[2]}`)
   }
+  args.push('-c', `features={${features.join(', ')}}`)
   return args
 }
 const quoted = (text: string) => JSON.stringify(text)
@@ -209,7 +217,103 @@ export async function prepareAgentConfig(
   )
 }
 
-const verifiedCodexReleaseFamilies = ['0.166', '0.167'] as const
+type AgentFeature = { stage: string; enabled: boolean }
+// Codex routes MCP tools through its execution host even when code mode is not opted in.
+// This infrastructure does not enable shell tools or add any MCP capabilities.
+const enabledAgentFeatures = new Set(['hooks', 'code_mode_host', 'code_mode_interrupt'])
+// This retired alias is absent from some inventories; active tool gates remain required.
+const requiredAgentFeatures = [
+  'hooks',
+  ...disabledAgentFeatures.filter((name) => name !== 'remote_control'),
+]
+
+/** Inventory is read from the installed CLI, including flags added by future releases. */
+async function agentFeatures(executable: string, workspace: string, env: Record<string, string>) {
+  let stdout: string
+  try {
+    ;({ stdout } = await promisify(execFile)(
+      executable,
+      [
+        '--no-daemon',
+        ...(await agentConfigOverrides(env.CODEX_HOME)),
+        '-C',
+        workspace,
+        'features',
+        'list',
+      ],
+      { env, timeout: 10_000, maxBuffer: 256 * 1024 },
+    ))
+  } catch (error) {
+    const reason = (error as { stderr?: string }).stderr ?? String(error)
+    throw new Error(
+      `Codex feature compatibility could not be inspected. Startup was refused. ${reason.slice(-1200)}`,
+      { cause: error },
+    )
+  }
+  const features = new Map<string, AgentFeature>()
+  for (const line of stdout.trim().split(/\r?\n/)) {
+    const match = line.match(
+      /^([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*)\s+(stable|under development|experimental|deprecated|removed)\s+(true|false)\s*$/,
+    )
+    if (!match || features.has(match[1]))
+      throw new Error('Codex returned an invalid feature inventory. Startup was refused.')
+    features.set(match[1], { stage: match[2], enabled: match[3] === 'true' })
+  }
+  if (
+    requiredAgentFeatures.some(
+      (name) => !features.has(name) || features.get(name)!.stage === 'removed',
+    )
+  )
+    throw new Error('Codex is missing required restriction features. Startup was refused.')
+  return features
+}
+
+async function restrictAgentFeatures(
+  executable: string,
+  workspace: string,
+  env: Record<string, string>,
+) {
+  const features = await agentFeatures(executable, workspace, env)
+  // Closed by default except the hooks and execution infrastructure needed for photo tools.
+  // Removed aliases have no runtime effect and may report immutable legacy defaults.
+  const flags = new Map<string, boolean>()
+  for (const [name, feature] of features)
+    if (feature.stage !== 'removed') flags.set(name, enabledAgentFeatures.has(name))
+  const path = join(env.CODEX_HOME, 'irodori-policy.toml')
+  const policy = await readFile(path, 'utf8')
+  await writeFile(
+    path,
+    policy.replace(
+      /\[features\]\n[^[]*/,
+      `[features]\n${[...flags].map(([name, enabled]) => `${quoted(name)} = ${enabled}`).join('\n')}\n`,
+    ),
+    { mode: 0o600 },
+  )
+  const effective = await agentFeatures(executable, workspace, env)
+  if (
+    features.size !== effective.size ||
+    [...features].some(([name, feature]) => {
+      const actual = effective.get(name)
+      return (
+        !actual ||
+        actual.stage !== feature.stage ||
+        (actual.stage !== 'removed' &&
+          actual.enabled !== enabledAgentFeatures.has(name) &&
+          // Newer CLIs force this execution-engine selector on. It cannot expose
+          // command tools while the separately verified shell_tool capability is off.
+          !(
+            name === 'unified_exec' &&
+            effective.get('shell_tool')?.enabled === false &&
+            effective.get('unified_exec_tty')?.enabled === false
+          ))
+      )
+    })
+  )
+    throw new Error(
+      'The required Codex feature restrictions could not be applied. Startup was refused.',
+    )
+  return flags
+}
 
 /** Strict parsing and the effective config are checked without signing in or starting a model turn. */
 export async function verifyAgentConfig(
@@ -223,17 +327,14 @@ export async function verifyAgentConfig(
     timeout: 10_000,
     maxBuffer: 64 * 1024,
   })
-  // Stable patches share a reviewed release family, but must still pass the strict preflight.
-  // New release families need review, particularly for default tool additions.
+  // Version is a protocol floor, not a list requiring an app update for every CLI release.
   const reportedVersion = stdout.trim()
   const version = reportedVersion.match(/^codex-cli (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/)
-  if (
-    !version ||
-    !verifiedCodexReleaseFamilies.some((family) => family === `${version[1]}.${version[2]}`)
-  )
+  if (!version || (Number(version[1]) === 0 && Number(version[2]) < 166))
     throw new Error(
-      `This Codex release has not been verified for the restricted photo console. Detected: ${JSON.stringify(reportedVersion.slice(0, 120))}. Supported stable releases: ${verifiedCodexReleaseFamilies.map((family) => `${family}.x`).join(', ')}.`,
+      `The photo console requires a stable Codex release from 0.166.0 onward. Detected: ${JSON.stringify(reportedVersion.slice(0, 120))}.`,
     )
+  const featureRestrictions = await restrictAgentFeatures(executable, workspace, env)
   // Strict preflight and the terminal use the identical generated policy overrides.
   const args = [
     '--no-daemon',
@@ -299,9 +400,17 @@ export async function verifyAgentConfig(
               config.sandbox_mode !== 'read-only' ||
               config.approval_policy !== 'never' ||
               config.web_search !== 'disabled' ||
+              config.project_doc_max_bytes !== 0 ||
+              config.allow_login_shell !== false ||
+              config.plugins?._default?.enabled !== false ||
               config.agents?.enabled !== false ||
               config.features?.hooks !== true ||
-              disabledAgentFeatures.some((key) => config.features?.[key] !== false) ||
+              [...featureRestrictions].some(
+                ([name, enabled]) => config.features?.[name] !== enabled,
+              ) ||
+              Object.entries(config.features ?? {}).some(
+                ([name, enabled]) => enabled !== enabledAgentFeatures.has(name),
+              ) ||
               Object.keys(config.mcp_servers ?? {}).join(',') !== 'irodori' ||
               config.skills?.bundled?.enabled !== false ||
               config.skills?.include_instructions !== false ||

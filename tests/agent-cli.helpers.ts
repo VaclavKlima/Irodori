@@ -1,21 +1,75 @@
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { disabledAgentFeatures } from '../src/main/agent/config'
+
+interface AgentCliFixtureOptions {
+  featureDefaults?: Record<string, boolean>
+  featureStages?: Record<string, string>
+  omitFeatures?: string[]
+  ignoredFeatures?: string[]
+  featureOutput?: string
+  changeInventory?: boolean
+  failFeatureList?: boolean
+}
 
 /** Deterministic CLI stand-in for PTY/lifecycle tests; it never calls a model or reads credentials. */
 export async function agentCliFixture(
   directory: string,
   version = '0.166.0',
   configOverrides: Record<string, unknown> = {},
+  options: AgentCliFixtureOptions = {},
 ) {
   const path = join(directory, 'codex-fixture')
+  const invocations = join(directory, 'fixture-invocations.jsonl')
+  const probes = join(directory, 'fixture-feature-probes')
+  await writeFile(invocations, '')
+  await writeFile(probes, '0')
   await writeFile(
     path,
     `#!/usr/bin/env node
-import { readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+const options = ${JSON.stringify(options)};
+const argv = process.argv.slice(2);
+appendFileSync(${JSON.stringify(invocations)}, JSON.stringify(argv) + '\\n');
 if (process.argv.includes('--version')) { console.log(${JSON.stringify(`codex-cli ${version}`)}); process.exit(0); }
+if (argv.includes('--profile')) {
+  console.error('Named profiles are no longer supported.'); process.exit(1);
+}
+const overrides = new Map();
+for (let i = 0; i < argv.length; i++) if (argv[i] === '-c') {
+  const entry = argv[++i], separator = entry.indexOf('=');
+  const key = entry.slice(0, separator), value = entry.slice(separator + 1);
+  overrides.set(key, key === 'features'
+    ? Object.fromEntries([...value.matchAll(/"([^"]+)"\\s*=\\s*(true|false)/g)].map(match => [match[1], match[2] === 'true']))
+    : JSON.parse(value));
+}
+const defaults = { hooks: true, code_mode_host: true, code_mode_interrupt: true, code_mode: false, code_mode_host_grpc: false, ...Object.fromEntries(${JSON.stringify(disabledAgentFeatures)}.map(name => [name, true])), ordinary_feature: true, removed_alias: true, ...options.featureDefaults };
+const features = { ...defaults };
+const configuredFeatures = { ...(overrides.get('features') ?? {}) };
+for (const [path, value] of overrides) if (path.startsWith('features.')) {
+  const key = path.slice('features.'.length);
+  const name = key.startsWith('"') ? JSON.parse(key) : key;
+  configuredFeatures[name] = value;
+}
+for (const [name, value] of Object.entries(configuredFeatures)) {
+  if (!(options.ignoredFeatures ?? []).includes(name)) features[name] = value;
+}
+if (argv.includes('features') && argv.includes('list')) {
+  const count = Number(readFileSync(${JSON.stringify(probes)}, 'utf8'));
+  writeFileSync(${JSON.stringify(probes)}, String(count + 1));
+  if (options.failFeatureList) { console.error('Feature inventory unavailable.'); process.exit(1); }
+  if (options.featureOutput !== undefined) { process.stdout.write(options.featureOutput); process.exit(0); }
+  if (count > 0 && options.changeInventory) features.unexpected_tool = true;
+  for (const [name, value] of Object.entries(features)) {
+    if ((options.omitFeatures ?? []).includes(name)) continue;
+    const stage = options.featureStages?.[name] ?? (name === 'removed_alias' ? 'removed' : 'stable');
+    console.log(name + '\\t' + stage + '\\t' + value);
+  }
+  process.exit(0);
+}
 if (process.argv.includes('app-server')) {
   let buffer = '';
   process.stdin.on('data', data => {
@@ -25,10 +79,8 @@ if (process.argv.includes('app-server')) {
       if (message.id === 1) console.log(JSON.stringify({ id: 1, result: {} }));
       if (message.id === 2) {
         const text = readFileSync(join(process.env.CODEX_HOME, 'irodori-policy.toml'), 'utf8');
-        const entries = text.split('[features]')[1].split('[')[0];
         const setting = key => JSON.parse(text.split('\\n').find(line => line.startsWith(key + ' = ')).slice(key.length + 3));
-        const features = Object.fromEntries([...entries.matchAll(/(\\w+) = (true|false)/g)].map(m => [m[1], m[2] === 'true']));
-        const config = { features, sandbox_mode: 'read-only', approval_policy: 'never', web_search: 'disabled', agents: { enabled: false }, model_instructions_file: setting('model_instructions_file'), mcp_servers: { irodori: { command: setting('command'), args: setting('args'), required: setting('required'), enabled_tools: setting('enabled_tools'), default_tools_approval_mode: setting('default_tools_approval_mode') } }, skills: { bundled: { enabled: false }, include_instructions: false } };
+        const config = { features: configuredFeatures, sandbox_mode: 'read-only', approval_policy: 'never', web_search: 'disabled', project_doc_max_bytes: 0, allow_login_shell: false, plugins: { _default: { enabled: false } }, agents: { enabled: false }, model_instructions_file: setting('model_instructions_file'), mcp_servers: { irodori: { command: setting('command'), args: setting('args'), required: setting('required'), enabled_tools: setting('enabled_tools'), default_tools_approval_mode: setting('default_tools_approval_mode') } }, skills: { bundled: { enabled: false }, include_instructions: false } };
         for (const [path, value] of Object.entries(${JSON.stringify(configOverrides)})) {
           const keys = path.split('.'), key = keys.pop();
           const target = keys.reduce((object, key) => object[key], config);
