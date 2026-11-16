@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test'
+import { mkdir } from 'node:fs/promises'
 import { test, expect } from './electron.fixture'
 import { activateButton } from './button.helpers'
 import { importPhotos } from './import.helpers'
@@ -7,6 +8,7 @@ import { maskAction, maskDetailTab } from './mask-panel.helpers'
 import { foregroundTest } from './foreground'
 import { captureWindow } from './window-capture.helpers'
 import { focusPreviewWindow } from './preview-pan.helpers'
+import { hdrJpegFixture } from './hdr-jpeg.helpers'
 
 async function armGradient(page: Page, kind: 'Linear' | 'Radial') {
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
@@ -228,7 +230,7 @@ test('pointer creation, handle drags and repeated keyboard gestures commit once 
   expect((await history()).settings.maskStack[0].gradient).toEqual(stepped)
   await start.focus()
   await page.keyboard.down('ArrowRight')
-  await page.keyboard.press('Control+z')
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z')
   await page.keyboard.down('ArrowRight')
   await page.keyboard.up('ArrowRight')
   expect((await history()).revision).toBe(2)
@@ -317,5 +319,185 @@ test(
       await page.getByTestId('inspector-scroll').evaluate((element) => element.scrollTop),
     ).toBe(0)
     await captureWindow(app, page, testInfo.outputPath('1100-console-gradient-geometry.png'))
+    const saved = await history()
+    await page.getByRole('combobox', { name: 'Preview zoom', exact: true }).selectOption('1')
+    await ready(page, saved.revision)
+    await expect
+      .poll(() =>
+        page
+          .getByTestId('main-preview')
+          .evaluate((element) => JSON.parse(element.dataset.presentedView ?? '{}').scale),
+      )
+      .toBe(1)
+    await expect(center).toBeInViewport({ ratio: 1 })
+    expect(await history()).toEqual(saved)
+    await captureWindow(app, page, testInfo.outputPath('1100-console-radial-gradient-native.png'))
   },
 )
+
+test.describe('authored HDR gradient presentation', () => {
+  test.use({ hdrDisplay: true })
+  test(
+    'a neutral gradient and its local edit retain actual foreground authored HDR presentation',
+    foregroundTest(
+      'The real monitor must report HDR headroom and present an extended hardware canvas with native gradient guides.',
+    ),
+    async ({ irodori: { app, page } }, info) => {
+      test.setTimeout(120000)
+      const native = await app.browserWindow(page)
+      await native.evaluate((window) => window.setContentSize(1100, 700))
+      await focusPreviewWindow(app, page)
+      await page.evaluate(() => window.irodori.setPreviewPreference('hdr'))
+      let target = await page.evaluate(() => window.irodori.getDisplayState())
+      try {
+        await expect
+          .poll(
+            async () => {
+              target = await page.evaluate(() => window.irodori.getDisplayState())
+              return (
+                target.mode === 'hdr' &&
+                target.capabilities?.hardware === true &&
+                target.capabilities.extended === true &&
+                (target.headroom ?? 0) > 1
+              )
+            },
+            { timeout: 15000 },
+          )
+          .toBe(true)
+      } catch (error) {
+        await info.attach('authored-hdr-display-unavailable', {
+          contentType: 'application/json',
+          body: JSON.stringify(target),
+        })
+        test.skip(
+          target.mode !== 'hdr' ||
+            target.capabilities?.hardware !== true ||
+            target.capabilities.extended !== true ||
+            (target.headroom ?? 0) <= 1,
+          `Actual HDR gradient presentation is unavailable: ${target.reason} Selected coverage is incomplete.`,
+        )
+        throw error
+      }
+      const directory = info.outputPath('authored-hdr')
+      await mkdir(directory)
+      const input = await hdrJpegFixture(directory)
+      await importPhotos(app, page, [input.path], false, 'keyboard')
+      const photoId = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id,
+        canvas = page.getByTestId('main-preview'),
+        history = () => page.evaluate((id) => window.irodori.getEditHistory(id), photoId)
+      const presented = async (revision: number) => {
+        await ready(page, revision)
+        await expect(canvas).toHaveAttribute('data-backend', 'webgpu-hdr')
+        await expect(canvas).toHaveAttribute('data-quality', 'normal')
+        await expect(canvas).toHaveAttribute('data-presented-settings-revision', String(revision))
+        await expect
+          .poll(() =>
+            canvas.evaluate(async (element, expectedRevision) => {
+              const current = await window.irodori.getDisplayState(),
+                state = element.dataset
+              return (
+                Number(state.requestedSerial) > 0 &&
+                state.completedEditSerial === state.requestedSerial &&
+                state.presentedSourceIdentity === state.requestedSourceIdentity &&
+                state.presentedSettingsRevision === String(expectedRevision) &&
+                Number(state.targetGeneration) === current.generation
+              )
+            }, revision),
+          )
+          .toBe(true)
+        await expect
+          .poll(() =>
+            page.evaluate(
+              ({ photoId, expectedRevision }) =>
+                window.irodori.getPhotoPresentationContext({ photoId, expectedRevision }),
+              { photoId, expectedRevision: revision },
+            ),
+          )
+          .toMatchObject({
+            photoId,
+            revision,
+            workspaceTarget: { mode: 'hdr', requestedPreference: 'hdr' },
+            frame: { status: 'presented', mode: 'hdr', backend: 'webgpu-hdr' },
+          })
+      }
+      await presented(0)
+      const source = await page.evaluate((id) => window.irodori.getPreviewContext(id, 0), photoId)
+      expect(source.sourceDynamicRange).toBe('hdr')
+      expect(source.sourceMetadata?.authoredHeadroom).toBeGreaterThan(1)
+      await activateButton(page.getByTestId('console-toggle'))
+      await navigateInspector(page, 'Masks')
+      const before = await history()
+      await armGradient(page, 'Radial')
+      expect(await history()).toEqual(before)
+      await activateButton(page.getByRole('button', { name: 'Place centered', exact: true }))
+      await expect.poll(history).toMatchObject({ revision: 1 })
+      const neutral = (await history()).settings.maskStack[0]
+      expect(neutral.gradient).toMatchObject({ kind: 'radial' })
+      expect(Object.values(neutral.light)).toEqual([0, 0, 0, 0, 0, 0])
+      expect(Object.values(neutral.color)).toEqual([0, 0, 0])
+      await presented(1)
+      const exposure = page.getByRole('spinbutton', { name: 'Local Exposure value', exact: true })
+      await exposure.fill('0.5')
+      expect((await history()).revision).toBe(1)
+      await exposure.press('Enter')
+      await expect.poll(history).toMatchObject({ revision: 2 })
+      expect((await history()).settings.maskStack[0]).toMatchObject({
+        gradient: neutral.gradient,
+        light: { exposureEv: 0.5 },
+      })
+      await presented(2)
+      await maskDetailTab(page, 'Coverage')
+      await expect(
+        page.getByRole('button', { name: 'Gradient move handle', exact: true }),
+      ).toBeInViewport({ ratio: 1 })
+      await expect(page.getByTestId('gradient-overlay')).toBeVisible()
+      const browser = await canvas.evaluate(async (element) => {
+        const configuration = (element as HTMLCanvasElement)
+          .getContext('webgpu')!
+          .getConfiguration()!
+        await configuration.device.queue.onSubmittedWorkDone()
+        const adapter = configuration.device.adapterInfo
+        return {
+          adapter: {
+            vendor: adapter.vendor,
+            architecture: adapter.architecture,
+            device: adapter.device,
+            description: adapter.description,
+            isFallbackAdapter: adapter.isFallbackAdapter,
+          },
+          format: configuration.format,
+          colorSpace: configuration.colorSpace,
+          toneMapping: configuration.toneMapping,
+        }
+      })
+      expect(browser.adapter.isFallbackAdapter).toBe(false)
+      expect(browser.format).toBe('rgba16float')
+      expect(browser.toneMapping?.mode).toBe('extended')
+      target = await page.evaluate(() => window.irodori.getDisplayState())
+      expect(target).toMatchObject({
+        mode: 'hdr',
+        capabilities: { hardware: true, extended: true },
+      })
+      expect(target.headroom).toBeGreaterThan(1)
+      const presentation = await page.evaluate(
+        (photoId) => window.irodori.getPhotoPresentationContext({ photoId, expectedRevision: 2 }),
+        photoId,
+      )
+      expect(presentation.frame).toMatchObject({ status: 'presented', mode: 'hdr' })
+      await info.attach('authored-hdr-gradient-presentation', {
+        contentType: 'application/json',
+        body: JSON.stringify({
+          target,
+          browser,
+          source,
+          presentation,
+          photoId,
+          revision: 2,
+          fixture: 'Original synthetic ISO gain-map chart; no photographic quality claim.',
+          physicalOutputVerified: false,
+        }),
+      })
+      await captureWindow(app, page, info.outputPath('1100-console-authored-hdr-gradient.png'))
+    },
+  )
+})

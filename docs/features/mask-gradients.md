@@ -71,8 +71,9 @@ Registered focused targets: `mask-gradients-model`, `gradient-geometry`,
 MCP, migration, frozen-output and mask-edge targets retain independent references.
 The exact local evidence is recorded below after acceptance. Other-device
 verification is owned by [#97](https://github.com/VaclavKlima/Irodori/issues/97):
-Apple Silicon macOS and Windows remain unverified. Hidden Wayland windows do not
-establish foreground authored HDR selection or physical HDR luminance.
+the Apple Silicon Mac receipt is recorded below; Windows and integrated Radeon
+WebGL remain unverified. Hidden Wayland windows do not establish foreground
+authored HDR selection or physical HDR luminance.
 
 ### Bazzite acceptance — November 10, 2026
 
@@ -123,3 +124,65 @@ protects this contract. The [focused publication check](../../artifacts/verifica
 passes 1,008 cases with zero failures/skips in 59.0 seconds, including typecheck,
 lint, formatting, production build, the fast model checks and all mask MCP cases.
 The existing GPU, photographic output and native UI receipts remain applicable.
+
+### macOS qualification — November 16, 2026
+
+[#97](https://github.com/VaclavKlima/Irodori/issues/97) records the available-device
+slice based on published main `d3fa365330aa62ae9ed108d0e8ede24d6507f93d`:
+macOS 26.7 (25G229), Apple M4 Pro, 24 GiB unified memory, bundled Node 24.20.0,
+Electron 44.3.0 and Playwright 1.63.0. Dawn witnesses Apple M4 Pro/Metal; GLSL
+witnesses `ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Unspecified Version)`.
+The native mask host and accepted C++ codec match the accepted #118 bytes.
+
+**95 distinct selected feature/regression cases and 1,047 other cheap checks
+pass**, with no unresolved Mac failure. Thirty-four Linux-only native RAW cases
+remain unavailable. Original incomplete/failed invocation statuses are preserved;
+these reconciled receipts establish the selected Mac slice, not a comprehensive
+checkpoint or acceptance of other devices.
+
+| Evidence                                                                                                     | Accepted scope                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Audited unchanged #99/#105/#118 receipts                                                                     | 86 selected passes: gradient model 4, gradient geometry 5, mask geometry 5, edge model 7, frozen rendering 5, mask service 6, mask MCP 11, catalog migration 21, edge service 12, edge GPU 4, edge MCP 3 and edge UI 3                                                         |
+| [New GPU/GLSL selection](../../artifacts/verification/2026-11-16T18-51-31.966Z-check-I8ijji/summary.md)      | Four selected passes: independent WGSL coverage, crop/lens/all eight flips and quarter-turn registration, prepared edge replacement and GLSL; 1,072 total passed, zero failures, 34 unavailable, 53.70 s, original exit 2                                                      |
+| [New foreground UI selection](../../artifacts/verification/2026-11-16T18-54-13.464Z-check-m4TwnX/summary.md) | All five UI cases pass: creation/geometry/restart, radial Feather/Paint/duplication, pointer and grouped-key cancellation, native 1100 × 700 Console-open Fit/100% guides and actual authored HDR; 1,073 total passed, zero failures, 34 unavailable, 57.89 s, original exit 2 |
+
+The reused cases have matching relevant production/test/helper bytes, tracked
+forest/alpine/Sony RAW fixture hashes and native executable hashes. This includes
+settings-16 migration, immutable corrections, shared-service/MCP operations,
+real cropped/rotated Sony RAW and forest linear/radial Light/Color with Paint/Erase
+and nonneutral edges. Frozen SDR/HDR proof/export retains the ≤2 primary-code
+gate and independent ISO reconstruction absolute-error gate of 0.02. Some source
+invocations failed unrelated cases; their original statuses remain intact and
+only individually passing cases are reused.
+
+The qualification changes only the UI test: held-key cancellation uses the
+platform primary modifier (Command+Z on Mac), the native case explicitly waits
+for a current 100% frame and a visible center handle without changing history,
+and a foreground case imports the existing synthetic ISO gain-map chart.
+Neutral radial creation and a committed local exposure edit both present an
+authored HDR frame at the exact settings revision, source identity, completed
+request serial and display-target generation. The actual Built-in Retina Display
+target reports 1800 × 1169 logical pixels at device-pixel ratio 2, hardware/extended
+HDR capability and 2.2646618657× headroom (1.179295659 stops). The non-fallback
+Apple/Metal WebGPU canvas uses `rgba16float`, Display-P3 and extended tone mapping;
+revision 2 is presented at target generation 9. Serial equality is asserted;
+numeric serial values are not serialized in the attachment. No probe is spoofed
+and no OS display setting is changed. The synthetic chart establishes
+presentation plumbing, not photographic quality or measured physical HDR luminance.
+
+The four retained native captures were visually reviewed: Fit ellipses and
+handles align, expanded Geometry scrolls independently, the 100% guide remains
+registered with its center visible, and the HDR chart retains guides and Console
+space. Captures are SDR layout evidence, not a calibrated HDR measurement.
+Production processing, common backends, numerical/resource gates and the Mac's
+reference arithmetic/tile batch 32/separate fence/cache-disabled policy are
+unchanged. Windows x64, actual integrated Radeon ANGLE/WebGL, live signed-in
+Console and physical display calibration remain outside this accepted slice.
+
+The bounded local index, exact case reconciliation, source/fixture/native hashes,
+visual review and retained HDR presentation attachment are under
+`artifacts/mask-gradients/2026-11-16-macos-qualification/`. No new photograph,
+benchmark or comprehensive checkpoint was needed. Verified default-branch delivery
+of the qualification test and this brief is recorded in
+[#97](https://github.com/VaclavKlima/Irodori/issues/97), which remains open for
+Windows and integrated Radeon WebGL acceptance.
