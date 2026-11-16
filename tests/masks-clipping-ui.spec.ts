@@ -1,5 +1,5 @@
 import type { ElectronApplication, Page } from '@playwright/test'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { test, expect } from './electron.fixture'
 import { activateButton } from './button.helpers'
 import { observeAnalysisMessages, settledHealthyPreview } from './hdr-analysis-cancel.helpers'
@@ -7,6 +7,8 @@ import { importPhotos } from './import.helpers'
 import { captureWindow } from './window-capture.helpers'
 import { identityCrop } from '../src/shared/crop'
 import { foregroundTest } from './foreground'
+import { hdrJpegFixture } from './hdr-jpeg.helpers'
+import { focusPreviewWindow } from './preview-pan.helpers'
 
 async function overlayState(page: Page) {
   return page.getByTestId('clipping-overlay').evaluate(async (node) => {
@@ -74,12 +76,42 @@ async function observeNativeReplies(app: ElectronApplication) {
     type Handler = (...args: unknown[]) => unknown
     const channel = 'preview:hdr-mask-render',
       handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers,
-      original = handlers.get(channel)
-    if (!original) throw new Error('Missing real native clipping handler.')
-    const replies: Record<string, unknown>[] = []
+      original = handlers.get(channel),
+      getDisplay = handlers.get('display:get')
+    if (!original || !getDisplay) throw new Error('Missing real native clipping/display handler.')
+    const replies: Record<string, unknown>[] = [],
+      requests: Record<string, unknown>[] = []
+    const targetFields = (value: unknown) => {
+      const target = value as Record<string, unknown>
+      return Object.fromEntries(
+        ['generation', 'requested', 'mode', 'colorSpace', 'peak', 'headroom', 'outputVersion'].map(
+          (key) => [key, target?.[key]],
+        ),
+      )
+    }
     let omitted = 0
     const wrapped: Handler = async (...args) => {
-      const outcome = await original(...args)
+      const request = args[1] as Record<string, unknown>,
+        observed: Record<string, unknown> = {
+          source: request.source,
+          revision: request.expectedSettingsRevision,
+          comparison: request.comparison,
+          domain: request.domain,
+          generation: request.generation,
+          target: targetFields(request.target),
+          actualBefore: targetFields(await getDisplay(args[0])),
+        }
+      if (requests.length < 64) requests.push(observed)
+      else omitted++
+      let outcome: unknown
+      try {
+        outcome = await original(...args)
+      } catch (error) {
+        observed.error = String(error).slice(0, 4096)
+        throw error
+      } finally {
+        observed.actualAfter = targetFields(await getDisplay(args[0]))
+      }
       const result = outcome as Record<string, unknown>
       if (replies.length < 64)
         replies.push({
@@ -100,7 +132,7 @@ async function observeNativeReplies(app: ElectronApplication) {
     ipcMain.removeHandler(channel)
     ipcMain.handle(channel, wrapped)
     return {
-      state: () => ({ replies, omitted }),
+      state: () => ({ requests, replies, omitted }),
       close: () => {
         if (handlers.get(channel) === wrapped) {
           ipcMain.removeHandler(channel)
@@ -639,3 +671,248 @@ test(
     }
   },
 )
+
+test.describe('actual HDR target masked clipping', () => {
+  test.use({ hdrDisplay: true })
+  test(
+    'native masked clipping binds the real foreground HDR target and preserves source/history through Fit, 100% and toggles',
+    foregroundTest(
+      'The physical display must expose HDR headroom and an extended hardware canvas; actual native clipping and Console-open captures require foreground presentation.',
+    ),
+    async ({ irodori: { app, page } }, info) => {
+      test.setTimeout(120000)
+      const native = await app.browserWindow(page)
+      await native.evaluate((window) => window.setContentSize(1100, 700))
+      await focusPreviewWindow(app, page)
+      await page.evaluate(() => window.irodori.setPreviewPreference('hdr'))
+      let target = await page.evaluate(() => window.irodori.getDisplayState())
+      try {
+        await expect
+          .poll(
+            async () => {
+              target = await page.evaluate(() => window.irodori.getDisplayState())
+              return (
+                target.mode === 'hdr' &&
+                target.capabilities?.hardware === true &&
+                target.capabilities.extended === true &&
+                (target.headroom ?? 0) > 1
+              )
+            },
+            { timeout: 15000 },
+          )
+          .toBe(true)
+      } catch (error) {
+        await info.attach('actual-hdr-clipping-display-unavailable', {
+          contentType: 'application/json',
+          body: JSON.stringify(target),
+        })
+        test.skip(
+          target.mode !== 'hdr' ||
+            target.capabilities?.hardware !== true ||
+            target.capabilities.extended !== true ||
+            (target.headroom ?? 0) <= 1,
+          `Actual HDR clipping presentation is unavailable: ${target.reason} Selected coverage is incomplete.`,
+        )
+        throw error
+      }
+      const directory = info.outputPath('authored-hdr-clipping')
+      await mkdir(directory)
+      const input = await hdrJpegFixture(directory)
+      const nativeReplies = await observeNativeReplies(app)
+      try {
+        await importPhotos(app, page, [input.path], false, 'keyboard')
+        await activateButton(page.getByTestId('console-toggle'))
+        await settledHdrHistogram(page)
+        const id = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id,
+          canvas = page.getByTestId('main-preview'),
+          viewport = page.getByTestId('preview-viewport'),
+          clipping = page.getByRole('button', { name: 'Canvas channel clipping', exact: true }),
+          status = page.getByRole('status', { name: 'Clipping overlay status' }),
+          maskId = crypto.randomUUID()
+        const presented = async (revision: number) => {
+          await settledHdrHistogram(page)
+          await expect(canvas).toHaveAttribute('data-presented-settings-revision', String(revision))
+          await expect
+            .poll(() =>
+              page.evaluate(
+                ({ photoId, expectedRevision }) =>
+                  window.irodori.getPhotoPresentationContext({ photoId, expectedRevision }),
+                { photoId: id, expectedRevision: revision },
+              ),
+            )
+            .toMatchObject({
+              photoId: id,
+              revision,
+              workspaceTarget: { mode: 'hdr', requestedPreference: 'hdr' },
+              frame: { status: 'presented', mode: 'hdr', backend: 'webgpu-hdr' },
+            })
+          target = await page.evaluate(() => window.irodori.getDisplayState())
+          expect(target.mode).toBe('hdr')
+          expect(target.headroom).toBeGreaterThan(1)
+          await expect(canvas).toHaveAttribute('data-target-generation', String(target.generation))
+        }
+        const reply = async (revision: number) => {
+          const live = await canvas.evaluate(async (element) => ({
+            target: await window.irodori.getDisplayState(),
+            presentedTargetGeneration: element.dataset.targetGeneration,
+            presentedRevision: element.dataset.presentedSettingsRevision,
+          }))
+          target = live.target
+          if (
+            target.mode !== 'hdr' ||
+            live.presentedTargetGeneration !== String(target.generation) ||
+            live.presentedRevision !== String(revision)
+          )
+            return undefined
+          return nativeReplies.evaluate(
+            (control, selection) =>
+              control
+                .state()
+                .replies.slice()
+                .reverse()
+                .find((value) => {
+                  const source = value.source as { photoId?: string } | undefined,
+                    target = value.target as Record<string, unknown> | undefined
+                  return (
+                    value.kind === 'mask' &&
+                    value.comparison === 'after' &&
+                    value.settingsRevision === selection.revision &&
+                    source?.photoId === selection.photoId &&
+                    target?.mode === 'hdr' &&
+                    (
+                      [
+                        'generation',
+                        'requested',
+                        'mode',
+                        'colorSpace',
+                        'peak',
+                        'headroom',
+                        'outputVersion',
+                      ] as const
+                    ).every((key) => target[key] === selection.target[key])
+                  )
+                }),
+            { revision, photoId: id, target },
+          )
+        }
+        await presented(0)
+        await activateButton(clipping)
+        await expect.poll(() => reply(0), { timeout: 60000 }).toBeTruthy()
+        await expect(status).toHaveCount(0)
+        const baseline = await reply(0)
+        await page.evaluate(
+          ({ id, maskId }) =>
+            window.irodori.mutateMasks(id, 0, {
+              operations: [
+                { kind: 'create', id: maskId, name: 'HDR target clipping' },
+                {
+                  kind: 'stroke',
+                  id: maskId,
+                  stroke: {
+                    mode: 'add',
+                    radius: 0.4,
+                    feather: 0.2,
+                    points: [{ x: 0.7, y: 0.5 }],
+                  },
+                },
+                {
+                  kind: 'update',
+                  id: maskId,
+                  light: { exposureEv: 5 },
+                  color: { temperature: 5, tint: -3, saturation: 7 },
+                  edge: { featherPx: 1, shiftPx: 0 },
+                },
+              ],
+            }),
+          { id, maskId },
+        )
+        await presented(1)
+        await expect.poll(() => reply(1), { timeout: 60000 }).toBeTruthy()
+        const edited = await reply(1)
+        expect(edited?.sha256).not.toBe(baseline?.sha256)
+        await expect(status).toHaveCount(0)
+        await expect.poll(async () => (await overlayState(page)).visible).toBeGreaterThan(0)
+        const saved = await page.evaluate((id) => window.irodori.getEdits(id), id)
+        const sourceIdentity = await canvas.getAttribute('data-presented-source-identity')
+        await canvas.focus()
+        await canvas.press('1')
+        await expect(viewport).toHaveAttribute('data-scale', '1')
+        await presented(1)
+        await expect.poll(async () => (await overlayState(page)).visible).toBeGreaterThan(0)
+        await canvas.press('0')
+        await presented(1)
+        await expect.poll(async () => (await overlayState(page)).visible).toBeGreaterThan(0)
+        await activateButton(clipping)
+        await expect.poll(async () => (await overlayState(page)).visible).toBe(0)
+        await canvas.focus()
+        await canvas.press('j')
+        await expect(clipping).toHaveAttribute('aria-pressed', 'true')
+        await expect.poll(async () => (await overlayState(page)).visible).toBeGreaterThan(0)
+        expect(await page.evaluate((id) => window.irodori.getEdits(id), id)).toEqual(saved)
+        await expect(canvas).toHaveAttribute('data-presented-source-identity', sourceIdentity!)
+        const browser = await canvas.evaluate(async (element) => {
+          const configuration = (element as HTMLCanvasElement)
+            .getContext('webgpu')!
+            .getConfiguration()!
+          await configuration.device.queue.onSubmittedWorkDone()
+          const adapter = configuration.device.adapterInfo
+          return {
+            adapter: {
+              vendor: adapter.vendor,
+              architecture: adapter.architecture,
+              device: adapter.device,
+              description: adapter.description,
+              isFallbackAdapter: adapter.isFallbackAdapter,
+            },
+            format: configuration.format,
+            colorSpace: configuration.colorSpace,
+            toneMapping: configuration.toneMapping,
+          }
+        })
+        expect(browser.adapter.isFallbackAdapter).toBe(false)
+        expect(browser.format).toBe('rgba16float')
+        expect(browser.toneMapping?.mode).toBe('extended')
+        await expect(page.getByText('Histogram unavailable', { exact: true })).toBeHidden()
+        await expect(
+          page.getByRole('slider', { name: 'Histogram tonal value' }).locator('path[d]'),
+        ).toHaveCount(3)
+        await info.attach('actual-hdr-masked-clipping', {
+          contentType: 'application/json',
+          body: JSON.stringify({
+            target,
+            browser,
+            baseline,
+            edited,
+            sourceIdentity,
+            overlay: await overlayState(page),
+            fixture: 'Original synthetic ISO gain-map chart; no photographic quality claim.',
+            physicalOutputVerified: false,
+          }),
+        })
+        await captureWindow(
+          app,
+          page,
+          info.outputPath('1100-console-actual-hdr-masked-clipping.png'),
+        )
+      } finally {
+        await info.attach('actual-hdr-masked-clipping-diagnostics', {
+          contentType: 'application/json',
+          body: JSON.stringify({
+            display: await page.evaluate(() => window.irodori.getDisplayState()).catch(() => null),
+            canvas: await page
+              .getByTestId('main-preview')
+              .evaluate((element) => ({ ...element.dataset }))
+              .catch(() => null),
+            clipping: await page
+              .getByRole('status', { name: 'Clipping overlay status' })
+              .evaluateAll((elements) => elements[0]?.getAttribute('title') ?? null)
+              .catch(() => null),
+            observed: await nativeReplies.evaluate((control) => control.state()),
+          }),
+        })
+        await nativeReplies.evaluate((control) => control.close())
+        await nativeReplies.dispose()
+      }
+    },
+  )
+})

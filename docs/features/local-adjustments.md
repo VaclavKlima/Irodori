@@ -131,8 +131,8 @@ a protection margin and do not qualify automatic selection or physical alpha.
 Four focused WGSL/reference/export cases also pass on Radeon 610M / RADV
 RAPHAEL_MENDOCINO, Mesa 26.2.6. Actual adapter receipts identify the executing
 hardware; both attempted Mesa GL selectors still produced a Navi31 WebGL
-context. Integrated-GPU WebGL presentation, macOS, Windows, live signed-in
-Console and physical true-HDR appearance/luminance remain unverified, with
+context. The Mac qualification is recorded below. Integrated Radeon WebGL,
+Windows, live signed-in Console and physical true-HDR appearance/luminance remain unverified, with
 [other-device follow-up #95](https://github.com/VaclavKlima/Irodori/issues/95).
 
 The renderer integration checks exposed implicit low-precision photograph
@@ -156,6 +156,67 @@ Camera captures and downloaded fixtures undergo full image/embedded-preview/meta
 review and retain original bytes, hashes and permission/credit notices. Fixture
 intake alone does not establish a photographic quality pass or true HDR visual
 acceptance. Texture is tracked by the subsequent [#80 application integration](#masked-texture--issue-80); Clarity, local Vibrance/mixer/grading and broader masked-clipping qualification remain separately scoped.
+
+### macOS masked Color qualification — November 16, 2026
+
+[#95](https://github.com/VaclavKlima/Irodori/issues/95) records the available-device
+slice based on published main `7f06e7a9520415b1ddb3eaac4db7f8e43891a971`:
+macOS 26.7 (25G229), Apple M4 Pro, 24 GiB unified memory, bundled Node 24.20.0,
+Electron 44.3.0 and Playwright 1.63.0. The checksummed native mask host and accepted
+C++ codec match the earlier Mac acceptance. Color processing and its gates are
+unchanged; only bounded UI qualification assertions were added.
+
+**64 distinct selected feature/regression cases and 1,061 other cheap checks
+pass**, with no unresolved Mac failure. Thirty-four Linux-only native RAW cases
+remain unavailable. The reconciled record retains each original failed/incomplete
+invocation and exact recovery; it is not a comprehensive checkpoint.
+
+Audited unchanged model, geometry, shared service/MCP, catalog migration, frozen
+SDR/HDR rendering and mask/histogram receipts supply 52 selected passes. The new
+Color GPU reference, two photographic cases, three UI cases and six browser
+GLSL/histogram cases supply the other 12. Source/test/helper, original fixture and
+native executable hashes are retained in the local reuse audit.
+
+The [first focused selection](../../artifacts/verification/2026-11-16T19-34-56.766Z-check-jjmnPD/summary.md)
+passes 1,076 cases but fails the new test's assumption that Tint is initially
+visible without using the compact detail scroller (67.67 s). Existing Color UI
+and all six browser cases pass. The test now reveals each Color field/reset,
+requires full control visibility and verifies pinned Create mask/Adjustments and
+unchanged outer-inspector scroll. Its exact foreground recovery passes one case
+in 4.27 s; no production layout or assertion gate was changed. The
+[missing GPU/photographic selection](../../artifacts/verification/2026-11-16T19-38-21.397Z-check-GzjQwk/summary.md)
+passes 1,071 cases, zero failures, 34 unavailable, 79.85 s, original exit 2. Its
+skin case takes 27.41 s; the routine duration warning is retained and reviewed.
+
+Dawn witnesses Apple M4 Pro/Metal and the browser witnesses ANGLE Metal on Apple
+M4 Pro. Independent signed/HDR balance → Light → saturation/single-blend references,
+exact neutral/disabled/zero-coverage bypass, alpha, overflow refusal and stale
+histogram recovery retain their existing bounds. Real authored-SDR skin and
+flamingo/water/reflection proofs preserve unmasked pixels and frozen output gates.
+All 13 Fit/native photographic outputs were reviewed without obvious new ringing
+or bright halos. The reflection's authored rectangle visibly reaches a short
+standing-leg section above the waterline; this is manual coverage placement, not
+finished matting or a pixel-operator spill claim. Combined-scene acceptance remains
+[#96](https://github.com/VaclavKlima/Irodori/issues/96).
+
+The added native 1100 × 700 Console-open case uses the existing synthetic ISO
+gain-map chart. Actual Built-in Retina Display capability reports 1800 × 1169
+logical pixels/DPR 2 and 14.6438296704× headroom (3.872220993 stops). The nonfallback
+Apple/Metal canvas is `rgba16float`, Display-P3, extended tone mapping. Brushed
+Color 17/−7/−18, primary Command Undo/Redo, exact neutral reset and restart retain
+current HDR frames. The final attachment records revision 9, target generation 2,
+matching request/completion serials 1/1 and identical requested/presented source.
+The capture confirms the intended detail scroller and pinned controls with Console
+open; it does not show all three Color fields simultaneously. No capability probe
+or OS display setting was altered. Synthetic HDR and SDR captures do not establish
+photographic HDR quality, physical luminance/calibration or model HDR vision.
+
+Local bounded evidence:
+`artifacts/mask-color/2026-11-16-macos-qualification/{summary.md,details.md,result.json,reuse-audit.json,environment.json,visual-review.json,photographic-review.json,hdr-presentation.json}`.
+Verified default-branch delivery of the qualification test and this brief is
+recorded in [#95](https://github.com/VaclavKlima/Irodori/issues/95), which stays open
+for Windows x64 and actual integrated Radeon browser qualification. No new
+photograph, benchmark or comprehensive checkpoint was needed.
 
 ## Goal
 

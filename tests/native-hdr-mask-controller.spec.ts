@@ -23,8 +23,11 @@ import {
 } from './native-mask-controller.helpers'
 
 test.skip(
-  process.platform !== 'linux' || process.arch !== 'x64',
-  'Native mask ownership currently supports Linux x64 only.',
+  !(
+    (process.platform === 'linux' && process.arch === 'x64') ||
+    (process.platform === 'darwin' && process.arch === 'arm64')
+  ),
+  'Native mask ownership requires the supported Linux x64 or macOS arm64 host.',
 )
 test.setTimeout(30000)
 const edited = {

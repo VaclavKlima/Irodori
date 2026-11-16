@@ -1,14 +1,19 @@
 import { expect, test } from '@playwright/test'
+import { execFile } from 'node:child_process'
 import { access, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { nativeCpuMaskCapability } from '../src/main/native-cpu-executable'
 import { observed, processExists, sha, valueOf } from './native-mask-controller.helpers'
 
 test.skip(
-  process.platform !== 'linux' || process.arch !== 'x64',
-  'Bundled native mask capabilities currently support Linux x64 only.',
+  !(
+    (process.platform === 'linux' && process.arch === 'x64') ||
+    (process.platform === 'darwin' && process.arch === 'arm64')
+  ),
+  'Bundled native mask capabilities require the supported Linux x64 or macOS arm64 host.',
 )
 test.setTimeout(20000)
 const reference = {
@@ -56,7 +61,10 @@ function syntheticCapability() {
       after: 'double h_rad = irodori_electron_atan2::atan2(Aab[2], Aab[1]);',
     },
     isolation: 'namespace and C symbol renames only',
-    maskCompilerFlags: ['-mno-fma', '-mno-avx', '-mno-sse4.2'],
+    maskCompilerFlags:
+      process.platform === 'darwin'
+        ? ['-U__ARM_FEATURE_FMA']
+        : ['-mno-fma', '-mno-avx', '-mno-sse4.2'],
     upstreamSourcePins: Object.fromEntries(
       sourceNames.map((name) => [name, sha(`contract-fixture:${name}`)]),
     ),
@@ -108,7 +116,7 @@ async function withCapability(
   }) => Promise<void>,
 ) {
   const root = await mkdtemp(join(tmpdir(), 'irodori-mask-capability-')),
-    directory = join(root, 'native-cpu-render/linux-x64'),
+    directory = join(root, `native-cpu-render/${process.platform}-${process.arch}`),
     config = join(root, 'fixture.json'),
     script = fileURLToPath(new URL('./native-hdr-mask-capability-child.mjs', import.meta.url))
   await mkdir(directory, { recursive: true })
@@ -163,6 +171,39 @@ async function withCapability(
   }
 }
 
+/** Independently observe the owned child's OS descriptors after its EOF report. */
+async function standardDescriptorsClosed(pid: number) {
+  if (process.platform === 'linux') {
+    for (const fd of [1, 2]) {
+      try {
+        await readlink(`/proc/${pid}/fd/${fd}`)
+        return false
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
+    return true
+  }
+  let output: string
+  try {
+    output = (
+      await promisify(execFile)(
+        '/usr/sbin/lsof',
+        ['-nP', '-a', '-p', String(pid), '-d', '1,2', '-Ff'],
+        { timeout: 5000, maxBuffer: 65536 },
+      )
+    ).stdout
+  } catch (error) {
+    const failure = error as { code?: number | string; stdout?: string; stderr?: string }
+    // lsof returns one when no descriptor matches. Missing tooling, permissions,
+    // timeouts and other failures cannot establish an independent EOF witness.
+    if (failure.code !== 1 || (failure.stderr ?? '').trim())
+      throw new Error('The macOS owned-child descriptor witness is unavailable.', { cause: error })
+    output = failure.stdout ?? ''
+  }
+  return !/^f[12](?:\D|$)/m.test(output)
+}
+
 test('an E receipt and real pipe EOF cannot escape capability discovery before successful actual child close', async () => {
   const capability = syntheticCapability()
   await withCapability(capability, 'held-after-eof', async (control) => {
@@ -174,18 +215,8 @@ test('an E receipt and real pipe EOF cannot escape capability discovery before s
     expect(processExists(child.pid)).toBe(true)
     // The child explicitly closed these OS descriptors. The process remains
     // alive behind a file gate, independently of both complete parent pipes.
-    for (const fd of [1, 2])
-      await expect
-        .poll(async () => {
-          try {
-            await readlink(`/proc/${child.pid}/fd/${fd}`)
-            return false
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true
-            throw error
-          }
-        })
-        .toBe(true)
+    await expect.poll(() => standardDescriptorsClosed(child.pid)).toBe(true)
+    expect(processExists(child.pid)).toBe(true)
     expect(settled).toBe(false)
     await control.allowExit()
     expect(await valueOf(control.completion)).toEqual({

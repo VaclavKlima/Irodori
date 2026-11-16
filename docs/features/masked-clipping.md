@@ -5,7 +5,8 @@
 [Issue #93](https://github.com/VaclavKlima/Irodori/issues/93) implements whole-photo
 masked clipping with focused Bazzite acceptance and records default-branch delivery.
 [Other-device qualification #104](https://github.com/VaclavKlima/Irodori/issues/104)
-remains incomplete.
+records the Mac receipt below; Windows and integrated Radeon browser
+qualification remain incomplete.
 
 The ordinary histogram already includes ordered local edits. This change concerns
 clipping classification of the complete edited photograph, including enabled
@@ -121,3 +122,86 @@ Other-device verification remains incomplete in [#104](https://github.com/Vaclav
 which records macOS arm64, Windows x64 and integrated-GPU browser targets. No
 comprehensive checkpoint or benchmark was run. Issue #93 records the published
 revision and delivery verification separately from this local acceptance evidence.
+
+## macOS qualification — November 16, 2026
+
+[#104](https://github.com/VaclavKlima/Irodori/issues/104) records the available-device
+slice on published baseline `7f06e7a9520415b1ddb3eaac4db7f8e43891a971`:
+macOS 26.7 (25G229), Apple M4 Pro, 24 GiB unified memory, bundled Node 24.20.0,
+Electron 44.3.0 and Playwright 1.63.0. Dawn and Electron ANGLE witness Apple M4
+Pro/Metal. The checksummed accepted native mask host and C++ codec are reused;
+compiled mask arithmetic is pinned to
+`4b06d3580d9fcb9474e132c23ebe4b58d0633204d7b797c34252e9f0541ef473`.
+Production processing, predicates, common backends and numerical/resource gates
+are unchanged.
+
+**65 distinct selected feature/regression cases and 1,045 other cheap checks
+pass**, with no unresolved Mac failure. Thirty-four Linux-only native RAW cases
+remain unavailable. Reconciliation retains the original failed/incomplete
+invocations and exact recovery instead of relabelling them as clean passes.
+
+| Accepted scope                                                        | Distinct passes |
+| --------------------------------------------------------------------- | --------------: |
+| Native predicate model, clipping projection and histogram lifecycle   |              23 |
+| GPU Float32 coverage, geometry and cancellation                       |               2 |
+| Existing HDR mask/histogram browser cases                             |               2 |
+| Current #95 GLSL, overflow and stale histogram cases                  |               6 |
+| Compiled native controller, capability and controlled child lifecycle |              25 |
+| Genuine analysis-worker/receiver cancellation and digest drainage     |               4 |
+| Real RAW, raster and actual foreground HDR clipping UI                |               3 |
+
+The first 29 cases already had applicable Mac receipts, with relevant source,
+test/helper, fixture and native executable hashes audited. Six browser cases reuse
+the newly accepted #95 bytes. The
+[new native/foreground selection](../../artifacts/verification/2026-11-16T19-40-07.993Z-check-VJDNx2/summary.md)
+passes 1,099 cases but fails the new HDR test, with 34 unavailable, 176.55 s and
+original exit 1. All 25 native service, four receiver and two existing clipping UI
+cases pass; the repeated existing UI cases count once. Its ten slowest cases were
+reviewed, retaining the duration warning and unchanged assertions.
+
+The new HDR test initially waited for a target generation captured before
+activation and retained an actual native target-change rejection. The observer
+now records bounded real request/main-target/error diagnostics and requires a
+reply matching the live display target and presented frame. All seven pixel
+target fields, photo, revision and comparison remain exact. The failed case's
+foreground rerun passes in 5.05 s, with no main/renderer errors; the earlier failed
+attempt remains intact. No production recovery behavior or target fence was
+changed. The successful diagnostic records 34 genuine requests: 30 cancelled,
+four masks and no errors/omissions, through real generation 7→24 and headroom
+1.715→14.644× changes. Each request matched the main target at admission. The
+first attempt lacked those field snapshots, so its precise mismatch is not known.
+This does not qualify sustained headroom changes or physical HDR output.
+
+The formerly Linux-only controller/capability test guards now admit the already
+supported macOS arm64 host. Compiled-controller cases still require the verified
+absolute executable and actual arithmetic identity. Capability fixtures use the
+current platform bundle path and Mac `-U__ARM_FEATURE_FMA` declaration. They remain
+explicitly synthetic contract children, distinct from compiled arithmetic proof.
+An independent owned-child `lsof` witness checks closed stdout/stderr while the
+child stays alive; Linux retains `/proc`. Missing tools, permissions, timeout or
+other witness failures cannot pass. Lifecycle tests retain real process/FD/read
+drainage, error, cancellation, revision/target/budget and unpublished-scratch gates.
+
+Real Sony RAW and rotated/straightened raster cases retain local Light/Color,
+edges, Before/Undo/Redo, crop, Fit/100%, restart and scoped J coverage. The new
+synthetic ISO gain-map chart separately requires an actual extended hardware HDR
+target, a nonfallback `rgba16float` Display-P3 canvas and extended tone mapping.
+The final Built-in Retina target reports 1800 × 1169 logical pixels/DPR 2,
+14.6438296704× headroom, revision 1 and generation 24. Baseline and edited native
+replies have different headroom, so their changed SHA does not isolate the local
+Light/Color/edge effect. Isolated numerical/local-edit evidence comes from the
+compiled and real-photo cases. View changes/toggles preserve source/history and
+the independent histogram stays usable. The small
+chart is not enlarged by Fit, so distinct Fit/100% geometry is established by the
+real-photo cases rather than inferred from this chart. Captures establish layout
+and warning placement, not calibrated physical thresholds or photographic HDR.
+Active Texture and unsupported curve combinations retain their explicit exact
+analysis/clipping refusals; no missing operator was silently implemented.
+
+Local bounded evidence:
+`artifacts/masked-clipping/2026-11-16-macos-qualification/{summary.md,details.md,result.json,reuse-audit.json,environment.json,visual-review.json,photographic-review.json,hdr-presentation.json}`.
+Verified default-branch delivery of the qualification tests and this brief is
+recorded in [#104](https://github.com/VaclavKlima/Irodori/issues/104), which stays
+open for Windows x64 and actual integrated Radeon browser qualification. Live
+signed-in Console/model HDR vision and physical calibration remain unverified.
+No new photograph, benchmark or comprehensive checkpoint ran.
