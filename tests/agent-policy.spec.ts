@@ -39,27 +39,66 @@ test('managed assistant uses discoverable operator guidance and confirmed visual
   expect(instructions).toContain('Live capabilities and complete typed schemas are authoritative')
   expect(instructions).toContain('do not guess successive payload shapes')
   expect(instructions).toContain('coherent partial patches or mask-operation batches')
+  expect(instructions).toContain(
+    'For each photo you will edit, capture its actual current appearance before the first mutation',
+  )
   expect(instructions).toContain('compare it with that captured starting image')
   expect(instructions).toContain('not a historical revision')
   expect(instructions).toContain(
     'native regions when judging noise, texture, sharpness, mask edges',
   )
   expect(instructions).toContain('never silently replace a stale region with the whole image')
+  expect(instructions).toContain(
+    'An additional overview supplies scene context without replacing that region',
+  )
 })
 
-test('managed assistant reviews subject readability, preserves lighting and justifies local edits and crops', () => {
+test('managed assistant requires scene-coherence review and correction while preserving expressive intent', () => {
   const instructions = agentInstructions(false)
   expect(instructions).toContain('At the intended viewing size, check important faces')
   expect(instructions).toContain('readable detail and subject separation')
+  expect(instructions).toContain(
+    'assess brightness, color/warmth and local contrast against nearby, similarly lit surroundings',
+  )
+  expect(instructions).toContain('Respect existing shade, light direction and transitions')
+  expect(instructions).toContain('do not force all regions to equal brightness')
+  expect(instructions).toContain('Judge the photographic effect separately from mask accuracy')
+  expect(instructions).toContain('disconnected, separately lit or pasted in')
+  expect(instructions).toContain('reduce or revise the responsible adjustments')
+  expect(instructions).toContain('inspect the confirmed correction and reassess before completion')
+  expect(instructions).toContain(
+    'Do not automatically change unrelated surroundings to compensate for an overdone subject',
+  )
+  expect(instructions).toContain(
+    'Preserve bold, expressive editing through mood, contrast, palette and composition while retaining coherent subject/scene lighting',
+  )
+  expect(instructions).toContain(
+    'Dramatic, cinematic or expressive styling alone does not request relighting',
+  )
+  expect(instructions).toContain('Relight only when explicitly requested')
+  expect(instructions).toContain(
+    'Local tonal edits may improve readability while preserving apparent scene lighting, without inventing a new light source',
+  )
+  expect(instructions).toContain(
+    'intentional relighting must remain internally consistent across the affected subject and surroundings',
+  )
+  expect(instructions).toContain('with clean transitions and no pasted-in effect')
+  expect(instructions).toContain('Avoid blanket slider caps or weak-setting defaults')
   expect(instructions).toContain('Preserve the lighting mood and natural darkness')
   expect(instructions).toContain(
     'For an observed regional problem, prefer a justified local adjustment',
   )
   expect(instructions).toContain('Crop only for a clear compositional benefit')
   expect(instructions).toContain(
+    'After the last mutation or correction, inspect the latest confirmed whole-photo overview alongside any requested/native regions',
+  )
+  expect(instructions).toContain(
     'Before calling the edit finished, compare the confirmed result with the captured starting image',
   )
-  expect(instructions).toContain('verify that the intended improvement is visible')
+  expect(instructions).toContain('captured starting image and requested intent')
+  expect(instructions).toContain(
+    'verify that the intended improvement is visible and fits the photograph',
+  )
 })
 
 test('managed assistant respects actual SDR proofing, missing capabilities and production feature requests', () => {

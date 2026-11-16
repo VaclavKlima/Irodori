@@ -87,7 +87,7 @@ test('operator examples satisfy the same underlying mutation, sampling and proof
   expect(checked).toBeGreaterThanOrEqual(9)
 })
 
-test('specialist guidance preserves source/color, proofing and preset authorization semantics', () => {
+test('specialist guidance preserves source/color, inspection, proofing and preset authorization semantics', () => {
   const color = getEditingGuidance({ topic: 'color' }).workflow.join('\n')
   expect(color).toContain('color:{temperature,tint,saturation}')
   expect(color).toContain(`${maskCapabilities.color.min} to ${maskCapabilities.color.max}`)
@@ -100,6 +100,27 @@ test('specialist guidance preserves source/color, proofing and preset authorizat
   expect(range).toContain('CURRENT CROPPED OUTPUT')
   expect(range).toContain('upper:null')
   expect(range).toContain('replacePrimary:true')
+  const inspection = getEditingGuidance({ topic: 'inspection' }).workflow.join('\n')
+  expect(inspection).toContain('actual current appearance before the first mutation')
+  expect(inspection).toContain('captured starting image and requested intent')
+  expect(inspection).toContain('it is not historical')
+  expect(inspection).toContain(
+    'an additional whole-photo overview supplies scene context without replacing that region',
+  )
+  expect(inspection).toContain('a stale region must not silently become the whole photo')
+  expect(inspection).toContain('inspect the confirmed correction before completion')
+  expect(inspection).toContain(
+    'After the last mutation or correction, inspect the latest confirmed whole-photo overview alongside any requested/native regions',
+  )
+  expect(inspection).toContain(
+    'Review lighting coherence for bold styling as well as natural edits',
+  )
+  expect(inspection).toContain(
+    'Dramatic, cinematic or expressive styling alone does not request relighting',
+  )
+  expect(inspection).toContain(
+    'explicitly requested relighting still needs internally consistent subject/surrounding light and clean transitions',
+  )
   const proof = getEditingGuidance({ topic: 'export' }).workflow.join('\n')
   expect(proof).toContain('use Standard as the starting point')
   expect(proof).toContain('absent sharpening remains Off')
@@ -154,4 +175,31 @@ test('mask guidance demonstrates an executable create/update batch and rejects t
   expect(object.relatedTools).toContain('irodori_mutate_masks')
   expect(object.workflow.join('\n')).toContain('After acceptance')
   expect(object.workflow.join('\n')).toContain('kind:"update"')
+  expect(object.relatedTools).toContain('irodori_get_photo_preview')
+  const objectWorkflow = object.workflow.join('\n')
+  expect(objectWorkflow).toContain(
+    'Review the confirmed photo effect separately from coverage accuracy',
+  )
+  expect(objectWorkflow).toContain('nearby, similarly lit surroundings')
+  expect(objectWorkflow).toContain('respecting shade, light direction and transitions')
+  expect(objectWorkflow).toContain('If the subject looks pasted in, revise the responsible edits')
+  expect(objectWorkflow).toContain(
+    'inspect the confirmed correction in a whole-photo overview before completion',
+  )
+  expect(objectWorkflow).toContain(
+    'Bold mood, contrast, palette and composition must retain coherent subject/scene lighting',
+  )
+  expect(objectWorkflow).toContain(
+    'Dramatic, cinematic or expressive styling alone does not request relighting',
+  )
+  expect(objectWorkflow).toContain('Relight only when explicitly requested')
+  expect(objectWorkflow).toContain(
+    'Local tonal edits may improve readability while preserving apparent scene lighting, without inventing a new light source',
+  )
+  expect(objectWorkflow).toContain(
+    'internally consistent light across the affected subject and surroundings',
+  )
+  expect(objectWorkflow).toContain('with clean transitions and no pasted-in effect')
+  expect(objectWorkflow).toContain('Do not impose blanket weak settings')
+  expect(objectWorkflow).toContain('automatically compensate by changing unrelated surroundings')
 })

@@ -29,12 +29,29 @@ output. Tool choice follows that intent. Related global edits form coherent
 partial patches; mask batches remain separate ordinary Undo steps. No exact
 slider recipe, mandatory tool count or whole-turn transaction is imposed.
 
-The initial edited photo preview is the historical comparison for the turn.
-Neutral Before is a rendition of the confirmed revision with current geometry,
-not a saved earlier grade. Confirmed results need appropriate visual review;
-noise, detail and mask boundaries need native regions. An explicit SDR destination
+Before the first mutation of each edited photo, the agent captures its actual
+current appearance as the historical comparison for the turn. Neutral Before is
+a rendition of the confirmed revision with current geometry, not a saved earlier
+grade. Confirmed results need appropriate visual review; noise, detail and mask
+boundaries need native regions. An explicit SDR destination
 needs an actual SDR output proof while preserving the HDR master and workspace
 preference. SDR inspection never proves physical HDR output.
+
+[Subject-enhancement follow-up #123](https://github.com/VaclavKlima/Irodori/issues/123)
+requires reviewing the photographic effect separately from mask accuracy. The
+agent compares subject brightness, warmth and local contrast with nearby,
+similarly lit surroundings, considering shade, light direction and transitions.
+It revises an observed disconnected or pasted-in effect and, after the last
+mutation or correction, inspects the latest confirmed whole-photo overview before
+completion, alongside any requested or native regions. Changes to surrounding
+areas need their own photographic justification. Bold mood, contrast, palette and composition retain
+coherent subject/scene lighting. Dramatic or cinematic styling alone does not
+request relighting; local tonal edits can improve readability while preserving
+the apparent light. Explicitly requested relighting still needs internally
+consistent illumination and clean transitions. No slider caps or weak-setting
+defaults are introduced. A whole-photo overview adds scene context while
+preserving any frozen inspection region. The existing inspection and object-selection guidance repeats
+these review requirements without changing tool schemas or photo settings.
 
 Missing capabilities are explained with a relevant in-conversation feature
 request. Independent authorized work can proceed. A requested local effect must
@@ -361,6 +378,88 @@ two artistic examples. This resolves their taste review without establishing
 universal photographic quality, physical HDR or other-device acceptance.
 Delivery is tracked in #111. No processing or policy change, additional model
 retry or broad regression run is inferred from this feedback.
+
+## Subject/scene coherence — November 16, 2026
+
+[Issue #123](https://github.com/VaclavKlima/Irodori/issues/123) strengthens the
+existing review instructions and the inspection/object-selection guidance. The
+policy is 7,955 UTF-8 bytes in production and 8,104 in development,
+within the unchanged 8 KiB limit. No tool schemas, settings, history formats,
+masking algorithms or processing backends change.
+
+The final focused `agent-policy`, `agent-guidance` and `agent-guidance-mcp` batch
+passes 19 selected cases and 1,024 other cheap Node cases: **1,043 passes, zero
+failures in 47.68 seconds**. Type checking, lint, formatting, build, Node and
+service stages pass. Thirty-four actual-Linux-only checks are unavailable on
+this Mac, so the runner correctly reports incomplete/exit 2. The earlier policy
+checkpoint passes the same distinct cases in 49.87 seconds; counts are not added.
+Final local receipt:
+`artifacts/verification/2026-11-16T14-18-50.762Z-check-FQSsZm/summary.md`.
+
+Private manual incident reproduction uses the unchanged original RAW and the
+actual retained revision 0, rejected revision 5 and accepted revision 6 images
+and settings. Eleven original encoded image blocks retain their call/revision
+provenance, dimensions, byte counts and hashes. Revision 0 has no retained native
+region; none is fabricated. The source and historical photographs remain private,
+outside Git; they are not new committed automated fixtures.
+
+The initial four-turn baseline/candidate comparison uses an isolated normally
+signed-in profile on macOS 26.7 (25G229), Apple M4 Pro/24 GiB, Electron 44.3.0,
+bundled Node 24.20.0 and Codex CLI 0.169.0 with `gpt-6.1-sol`. All runs use the
+same source, initial settings and image bytes, 4096 MiB GPU preference and SDR
+inspection. The configured CLI-default effort is unchanged; internal effort
+metadata is unavailable. Each turn starts a fresh conversation. All four finish
+without tool errors and retain ordinary Undo/Redo restoration.
+
+The user accepts the natural result from the first 7,514-byte candidate policy.
+Both natural runs retain plausible shade; the severe original failure does not
+clearly recur, so the pair does not establish a causal quality improvement.
+The initial root-authored dramatic prompt explicitly requests a brighter person
+against a darker park. The user rejects both results because the subject's
+lighting does not fit. These are retained rejected relighting examples, not
+acceptance of dramatic styling. The first candidate also misses small interior
+mask holes despite claiming clean transitions; proposal, native overlay and photo
+evidence retain that limitation.
+
+The corrective policy distinguishes bold styling from inventing a new light
+source while preserving local readability edits. Its separate paired request is
+"Give this photograph a dramatic cinematic look. Choose a bold, expressive
+direction that suits the person and the park." The accepted natural evidence is
+reused explicitly; the corrective artistic comparison uses the new policy and
+does not silently relabel the first candidate. Current review status and exact
+receipts are retained under `artifacts/agent-evaluation/issue-123/`, including the
+self-contained `artistic-review-v2.html` and per-case policy/build hashes.
+
+The corrected artistic baseline finishes in 65.15 seconds with 17 MCP calls; the
+7,955-byte candidate finishes in 50.03 seconds with 12. Both retain identical
+starting settings/image bytes and ordinary Undo/Redo, with zero tool errors. The
+candidate uses a global cooler-shadow/olive-gold grade and stronger tonal shaping
+while keeping the person visibly shaded and retaining the original framing. Its
+last mutation is followed by a current whole-photo overview and native region.
+It creates no masks; this does not establish correction of the earlier coverage
+holes. Neither current artistic result needs a post-review correction in this
+run, so catch-and-correct behavior is not demonstrated here.
+
+The user explicitly accepts the revised artistic result after the earlier natural
+acceptance. This completes the bounded Mac photographic review. All six retained
+editing turns account for 95 actual MCP calls, zero tool errors and restored
+Undo/Redo. These are observed turns, not a timing benchmark or a statistical
+quality claim. The compact primary gallery decodes all 17 unchanged embedded
+images and labels accepted/reused natural v1, current artistic v2 and rejected
+historical relighting separately. Full rejected evidence stays in its archive.
+The 120-file baseline and candidate build manifests, source hashes and unchanged
+private original are verified. All eleven background Electron launches closed
+with zero visibility/focus violations and all recorded app processes exited. The
+reused temporary profile and six generated archived test libraries are removed.
+Cleanup and exact receipts remain in the local audit beside the gallery.
+
+Mac scoped work is accepted. This change delivers the instructions, existing
+contract tests and technical record; #123 records publication. Other-device
+qualification is owned by
+[#124](https://github.com/VaclavKlima/Irodori/issues/124). SDR images, source flags
+and this bounded review do not qualify physical HDR, model HDR vision, broad
+photographic judgment or statistical recurrence reduction. No comprehensive
+checkpoint, benchmark or additional processing research is included.
 
 ## Research basis
 

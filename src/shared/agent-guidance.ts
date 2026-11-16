@@ -255,6 +255,7 @@ const guidance: Record<EditingGuidanceTopic, Omit<EditingGuidance, 'version' | '
       `The current model is ${objectSelectionCapabilities.model}; it supports ${objectSelectionCapabilities.maxPromptSlots} prompt slots and a box uses two. Freeze selectionTarget as new-mask, new-component or replace-component before inference.`,
       'Inspect the separate native canonical coverage image before irodori_accept_object_selection commits it. Destination Light/Color, primary/result corrections and other coverage parts keep their existing owners.',
       'After acceptance, use the returned confirmed revision and accepted root UUID id in a kind:"update" operation through irodori_mutate_masks to apply local Light/Color. Accepting coverage alone does not brighten or darken the photograph.',
+      'Review the confirmed photo effect separately from coverage accuracy. Compare subject brightness, warmth and local contrast with nearby, similarly lit surroundings, respecting shade, light direction and transitions. If the subject looks pasted in, revise the responsible edits and inspect the confirmed correction in a whole-photo overview before completion. Bold mood, contrast, palette and composition must retain coherent subject/scene lighting. Local tonal edits may improve readability while preserving apparent scene lighting, without inventing a new light source. Dramatic, cinematic or expressive styling alone does not request relighting. Relight only when explicitly requested; intentional relighting still needs internally consistent light across the affected subject and surroundings, with clean transitions and no pasted-in effect. Do not impose blanket weak settings or automatically compensate by changing unrelated surroundings.',
       'Use positive/negative prompts and manual Paint/Erase for observed holes, spill and unwanted fragments. Cancel unused pending proposals with irodori_cancel_object_selection.',
     ],
     relatedTools: [
@@ -264,6 +265,7 @@ const guidance: Record<EditingGuidanceTopic, Omit<EditingGuidance, 'version' | '
       'irodori_cancel_object_selection',
       'irodori_mutate_masks',
       'irodori_get_mask_preview',
+      'irodori_get_photo_preview',
     ],
     limitations: [
       'Inference scores do not establish finished mask quality or physical alpha. Generated bases, gradients and ranges are mutually exclusive; source replacement must be explicit. Do not promise dedicated sky/background classification or fine-detail matting that capabilities do not expose.',
@@ -416,10 +418,11 @@ const guidance: Record<EditingGuidanceTopic, Omit<EditingGuidance, 'version' | '
     purpose: 'Obtain image evidence at the correct revision, spatial extent and rendition.',
     workflow: [
       'Read preview context for authoritative dimensions, grid, encodings and payload limits, and presentation context for selected/effective display mode versus delivered rendition. Coordinates address the complete current oriented/lens-corrected/cropped photo, independently of zoom/pan.',
-      'A frozen editor inspection region remains the requested assessment extent. Use its exact photoId/region/gridIdentity; geometry changes need fresh context and a stale region must not silently become the whole photo.',
+      'A frozen editor inspection region remains the requested assessment extent. Use its exact photoId/region/gridIdentity; an additional whole-photo overview supplies scene context without replacing that region. Geometry changes need fresh context and a stale region must not silently become the whole photo.',
       'inspection supports pixel/normalized grid-bound regions, resolutionPercent independent of JPEG quality, SDR PNG/JPEG and comparison after/before/pair. 100 percent means photo-native for previews and export-native for decoded output proofs.',
       `Legacy calls omit inspection and return a whole-image 1024-pixel SDR JPEG at quality 80 within ${AGENT_PREVIEW_LIMIT / 1024 ** 2} MiB. Extended image/pair limits are ${INSPECTION_IMAGE_LIMIT / 1024 ** 2}/${INSPECTION_PAIR_LIMIT / 1024 ** 2} MiB. Explicitly reduce extent/resolution/transfer quality after a payload refusal.`,
-      'Matched members share the current confirmed revision, geometry, extent, dimensions, encoding and rendition. Before neutralizes tonal/color/local edits and denoise/sharpening while preserving current crop/lens; it is not historical. Compare a captured starting image when preserving or refining an existing grade.',
+      'Matched members share the current confirmed revision, geometry, extent, dimensions, encoding and rendition. Before neutralizes tonal/color/local edits and denoise/sharpening while preserving current crop/lens; it is not historical. Capture each edited photo’s actual current appearance before the first mutation. After the last mutation or correction, inspect the latest confirmed whole-photo overview alongside any requested/native regions. Compare the confirmed result with that captured starting image and requested intent; assess its fit with the whole scene, revise observed problems and inspect the confirmed correction before completion.',
+      'Review lighting coherence for bold styling as well as natural edits. Dramatic, cinematic or expressive styling alone does not request relighting; explicitly requested relighting still needs internally consistent subject/surrounding light and clean transitions.',
     ],
     relatedTools: [
       'irodori_get_preview_context',
