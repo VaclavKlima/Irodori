@@ -304,6 +304,11 @@ export class HdrPresenter {
   private localMaskPipelinesBases = false
   private localMaskBaseAtlas?: WebGpuMaskBaseAtlas
   private localMaskBaseKey = ''
+  private localMaskPlan?: {
+    parameters: AdjustmentParameters
+    active: boolean
+    plan: ReturnType<typeof maskBaseAtlasPlan>
+  }
   private localHistogramBaseAtlas?: WebGpuMaskBaseAtlas
   private localMaskBuffer?: GPUBuffer
   private localMaskStatus?: GPUBuffer
@@ -2447,6 +2452,16 @@ export class HdrPresenter {
         )
       : epoch !== this.epoch
   }
+  /** Request parameters are detached immutable snapshots; validate their PNGs once. */
+  private maskAtlasPlan(parameters: AdjustmentParameters, active: boolean) {
+    if (this.localMaskPlan?.parameters !== parameters || this.localMaskPlan.active !== active)
+      this.localMaskPlan = {
+        parameters,
+        active,
+        plan: maskBaseAtlasPlan(active ? pointOnlyMaskAdjustments(parameters) : {}),
+      }
+    return this.localMaskPlan.plan
+  }
   private async render(request: HdrEditRequest<PresentationRequest>, gpuFrame?: HdrGpuTimingFrame) {
     // This mutable offscreen surface is ineligible as soon as another render can write it.
     this.completedSurface = undefined
@@ -2510,7 +2525,7 @@ export class HdrPresenter {
       }
     }
     const maskData = masks ? this.localMaskPacked : undefined
-    const basePlan = maskBaseAtlasPlan(masks ? legacyParameters : {}),
+    const basePlan = this.maskAtlasPlan(parameters, masks),
       bases = masks && basePlan.bases.length > 0
     this.localMaskReservation = {
       ramBytes:
@@ -3365,9 +3380,7 @@ export class HdrPresenter {
       histogramReadback = this.histogramReadback!,
       histogramWords = HDR_HISTOGRAM_WORDS,
       maskedGroup: GPUBindGroup | undefined
-    const basePlan = maskBaseAtlasPlan(
-        masks ? pointOnlyMaskAdjustments(presentation.parameters) : {},
-      ),
+    const basePlan = this.maskAtlasPlan(presentation.parameters, !!masks),
       bases = !!masks && basePlan.bases.length > 0
     let maskedPrograms: HdrPipelines | undefined
     try {
@@ -3792,6 +3805,7 @@ export class HdrPresenter {
     this.localMaskStatusReadback?.destroy()
     this.localMaskPacked = undefined
     this.navigationParameters = undefined
+    this.localMaskPlan = undefined
     this.localHistogramMasks?.destroy()
     this.localHistogramBuffer?.destroy()
     this.localHistogramReadback?.destroy()

@@ -1,9 +1,25 @@
-import { snapshotAdjustments, type AdjustmentParameters } from '../../../shared/adjustments'
+import {
+  sameAdjustments,
+  snapshotAdjustments,
+  type AdjustmentParameters,
+} from '../../../shared/adjustments'
 import type { EditState } from '../../../shared/edits'
 import { validateMaskGeometry, type MaskGeometry } from '../../../shared/mask-geometry'
 import { resolveMasks } from '../../../shared/masks'
 import { hasLocalMasks } from '../../../shared/masks-gpu'
 import type { EditGestureCommit } from './edit-gesture'
+
+/** Frozen Texture point edits can use live prepared planes only for the same authored pixels. */
+export function texturePreviewParameters(
+  frozen: AdjustmentParameters,
+  prepared: AdjustmentParameters,
+  geometry: MaskGeometry | undefined,
+) {
+  const source = { ...frozen, maskGeometry: geometry }
+  const candidate = { ...prepared, maskGeometry: geometry }
+  const ready = sameAdjustments(source, candidate)
+  return { parameters: ready ? candidate : source, ready }
+}
 
 export interface ConfirmedAdjustmentSource {
   readonly photoId: string

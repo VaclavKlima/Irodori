@@ -9,6 +9,7 @@ import { maskBaseReference, resolveMasks, neutralMaskLight } from '../src/shared
 import {
   confirmedAdjustments,
   confirmedGestureCommit,
+  texturePreviewParameters,
 } from '../src/renderer/src/preview/confirmed-adjustments'
 import type { EditGestureCommit } from '../src/renderer/src/preview/edit-gesture'
 import { generatedMask } from './helpers/generated-mask'
@@ -86,6 +87,27 @@ test('confirmed render parameters resolve the persisted mask tree and match prep
   })
   expect(parameters.localMasks?.[0].resultStrokes).toHaveLength(1)
   expect(f.state).toEqual(original)
+})
+
+test('Texture binds matching prepared compound coverage but cannot authorize changed drafts', () => {
+  const f = fixture(),
+    frozen = confirmedAdjustments(f.state, f.state.photoId, f.source)!
+  frozen.localMasks![0].texture = 25
+  const prepared = structuredClone(frozen)
+  const plane = { ...generatedMask(8, 6, () => 128), key: 'c'.repeat(64) }
+  prepared.localMasks![0].operands![0].preparedCoverage = plane
+  const matching = texturePreviewParameters(frozen, prepared, f.source.maskGeometry)
+  expect(matching.ready).toBe(true)
+  expect(matching.parameters.localMasks![0].operands![0].preparedCoverage).toBe(plane)
+  for (const field of ['light', 'coverage', 'texture'] as const) {
+    const changed = structuredClone(prepared)
+    if (field === 'light') changed.localMasks![0].light.exposureEv = 0.5
+    if (field === 'coverage') changed.localMasks![0].operands![0].edge.featherPx = 4
+    if (field === 'texture') changed.localMasks![0].texture = 30
+    const waiting = texturePreviewParameters(frozen, changed, f.source.maskGeometry)
+    expect(waiting.ready).toBe(false)
+    expect(waiting.parameters.localMasks).toBe(frozen.localMasks)
+  }
 })
 
 for (const kind of ['brush', 'gradient'] as const) {

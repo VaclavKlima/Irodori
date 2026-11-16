@@ -184,18 +184,25 @@ test('every spec has one unique target and group; fast checks exclude build, Ele
 })
 
 test('instrumented diagnostics require explicit target selection', () => {
-  const diagnostic = 'tests/editor-pacing-diagnostic.spec.ts'
-  expect(files(['--target', 'editor-pacing-diagnostic'])).toContain(diagnostic)
-  for (const args of [
-    ['--fast'],
-    ['--full'],
-    ['--all'],
-    ['--benchmark-all'],
-    ['--hdr-benchmark'],
-    ['preview'],
-    ['ui'],
-  ])
-    expect(files(args)).not.toContain(diagnostic)
+  for (const target of ['editor-pacing-diagnostic', 'masked-navigation-native']) {
+    const diagnostic = `tests/${target}.spec.ts`
+    expect(files(['--target', target])).toContain(diagnostic)
+    for (const args of [
+      ['--fast'],
+      ['--full'],
+      ['--all'],
+      ['--benchmark-all'],
+      ['--hdr-benchmark'],
+      ['preview'],
+      ['ui'],
+    ])
+      expect(files(args)).not.toContain(diagnostic)
+  }
+  expect(
+    selectPlan(['--target', 'masked-navigation-native']).groups.find((group) =>
+      group.targets.includes('masked-navigation-native'),
+    ),
+  ).toMatchObject({ stage: 'raw-gpu-exclusive', workers: 1 })
 })
 
 test('unadopted denoising studies stay available only through deliberate targets', () => {

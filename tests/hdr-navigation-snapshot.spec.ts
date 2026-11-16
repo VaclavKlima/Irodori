@@ -3,6 +3,8 @@ import { HdrPresenter } from '../src/renderer/src/preview/hdr-presenter'
 import { HdrEditQueue } from '../src/renderer/src/preview/hdr-edit-queue'
 import { neutralAdjustments, type AdjustmentParameters } from '../src/shared/adjustments'
 import { SDR_TARGET } from '../src/shared/hdr'
+import { generatedMask } from './helpers/generated-mask'
+import { neutralMaskLight, neutralMaskColor, type ResolvedMask } from '../src/shared/masks'
 
 test('navigation reuses one detached parameter snapshot and actual input changes replace it', () => {
   const queue = new HdrEditQueue<{ parameters: AdjustmentParameters }>()
@@ -54,4 +56,38 @@ test('navigation reuses one detached parameter snapshot and actual input changes
   expect(refreshed).not.toBe(replacement)
   replacement.exposureEv = 1
   expect(refreshed.exposureEv).toBe(0.75)
+})
+
+test('immutable navigation validates prepared atlas content once and refuses a damaged replacement', () => {
+  const owner = Object.create(HdrPresenter.prototype) as {
+    maskAtlasPlan: (
+      parameters: AdjustmentParameters,
+      active: boolean,
+    ) => { bases: unknown[]; key: string }
+  }
+  const plane = { ...generatedMask(8, 6, () => 128), key: 'c'.repeat(64) }
+  const mask: ResolvedMask = {
+    id: crypto.randomUUID(),
+    name: 'Prepared',
+    enabled: true,
+    inverted: false,
+    head: null,
+    strokes: [],
+    edge: { featherPx: 3, shiftPx: 0 },
+    light: { ...neutralMaskLight, exposureEv: 0.5 },
+    color: neutralMaskColor,
+    preparedCoverage: plane,
+  }
+  const input = { ...neutralAdjustments, localMasks: [mask] }
+  const first = owner.maskAtlasPlan(input, true)
+  expect(first.bases).toHaveLength(1)
+  for (let n = 0; n < 16; n++) expect(owner.maskAtlasPlan(input, true)).toBe(first)
+  const replacement = structuredClone(input)
+  expect(owner.maskAtlasPlan(replacement, true)).not.toBe(first)
+  replacement.localMasks[0].preparedCoverage = { ...plane, pngBase64: 'invalid' }
+  expect(() => owner.maskAtlasPlan(structuredClone(replacement), true)).toThrow(
+    'Invalid or oversized generated mask PNG',
+  )
+  expect(owner.maskAtlasPlan(input, false).bases).toHaveLength(0)
+  expect(owner.maskAtlasPlan(input, true).key).toBe(first.key)
 })

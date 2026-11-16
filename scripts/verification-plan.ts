@@ -750,6 +750,13 @@ const definitions: Suite[] = [
   { file: 'confirmed-adjustments', group: 'node', scopes: ['preview', 'adjustments'] },
   { file: 'hdr-navigation-snapshot', group: 'node', scopes: ['preview', 'adjustments'] },
   {
+    file: 'masked-navigation-native',
+    group: 'raw-gpu',
+    scopes: [],
+    exclusive: true,
+    explicitOnly: true,
+  },
+  {
     file: 'masked-navigation-ui',
     group: 'raw-gpu',
     scopes: ['preview', 'adjustments'],

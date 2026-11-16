@@ -66,7 +66,11 @@ import {
 } from '../preview/geometry'
 import { HdrPresenter } from '../preview/hdr-presenter'
 import { clippingOverlayPixels } from '../preview/clipping-overlay'
-import { confirmedAdjustments, confirmedGestureCommit } from '../preview/confirmed-adjustments'
+import {
+  confirmedAdjustments,
+  confirmedGestureCommit,
+  texturePreviewParameters,
+} from '../preview/confirmed-adjustments'
 import type { ReserveNativeMask } from '../preview/native-mask-relay'
 import { maskPixelTarget } from '../preview/native-mask-reservation'
 import { PreviewPresenter } from '../preview/presenter'
@@ -443,15 +447,25 @@ export function PhotoPreview({
       confirmedEdits.settings.processing === 'display-referred-v1',
     cropping ? crop?.context?.revision : undefined,
   )
-  const adjustments = useMemo(
-    () => ({
-      ...(full.preview?.sourceSpace === 'uncropped'
-        ? pointOnlyMaskAdjustments(providedAdjustments)
-        : full.preview?.adjustments && hasMaskedTexture(full.preview.adjustments)
-          ? full.preview.adjustments
-          : providedAdjustments),
-      maskGeometry: full.preview?.maskGeometry,
-    }),
+  const { parameters: adjustments, ready: textureParametersReady } = useMemo(
+    () =>
+      full.preview?.sourceSpace !== 'uncropped' &&
+      full.preview?.adjustments &&
+      hasMaskedTexture(full.preview.adjustments)
+        ? texturePreviewParameters(
+            full.preview.adjustments,
+            providedAdjustments,
+            full.preview.maskGeometry,
+          )
+        : {
+            parameters: {
+              ...(full.preview?.sourceSpace === 'uncropped'
+                ? pointOnlyMaskAdjustments(providedAdjustments)
+                : providedAdjustments),
+              maskGeometry: full.preview?.maskGeometry,
+            },
+            ready: true,
+          },
     [providedAdjustments, full.preview],
   )
   const drawAdjustments = useMemo(() => snapshotAdjustments(adjustments), [adjustments])
@@ -774,7 +788,7 @@ export function PhotoPreview({
     analysisWorking?.hdr ||
       suspended ||
       cropping ||
-      (mode !== 'before' && maskEdgeCoverage?.ready === false)
+      (mode !== 'before' && (maskEdgeCoverage?.ready === false || !textureParametersReady))
       ? null
       : analysisWorking,
     `${photo?.id}-${analysisWorking?.identity ?? 'pending'}-${generation}`,
@@ -813,7 +827,10 @@ export function PhotoPreview({
     ],
   )
   const { statisticsError: analysisError, maskError } = useHdrAnalysis(
-    hdrReady && !suspended && !cropping && (mode === 'before' || maskEdgeCoverage?.ready !== false)
+    hdrReady &&
+      !suspended &&
+      !cropping &&
+      (mode === 'before' || (maskEdgeCoverage?.ready !== false && textureParametersReady))
       ? analysisWorking
       : null,
     mode === 'before' ? neutralAdjustments : adjustments,
@@ -930,7 +947,7 @@ export function PhotoPreview({
     [working, full.preview, beforeWorking, comparisonRequired, comparisonAlias],
   )
   function draw(model: Model) {
-    if (mode !== 'before' && maskEdgeCoverage?.ready === false) return
+    if (mode !== 'before' && (maskEdgeCoverage?.ready === false || !textureParametersReady)) return
     pulseActivity()
     const started = performance.now()
     presenter.current?.setComparison(mode, split)
@@ -1034,6 +1051,7 @@ export function PhotoPreview({
     model.viewport.height &&
     (full.preview?.linear?.hdr ? hdrReady : rasterReady) &&
     comparisonReady &&
+    (mode === 'before' || textureParametersReady) &&
     !gpuError &&
     !full.error,
   )
