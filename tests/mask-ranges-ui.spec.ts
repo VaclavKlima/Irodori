@@ -1,6 +1,6 @@
 import sharp from 'sharp'
-import { maskCanonicalPoint } from '../src/shared/mask-geometry'
-import { defaultColorMaskRange } from '../src/shared/mask-ranges'
+import { maskCanonicalPoint, maskOutputPoint } from '../src/shared/mask-geometry'
+import { defaultColorMaskRange, maskRangeColorFromHex } from '../src/shared/mask-ranges'
 import type { Page } from '@playwright/test'
 import { test, expect } from './electron.fixture'
 import { activateButton } from './button.helpers'
@@ -144,6 +144,9 @@ test(
     await expect(panel.getByRole('button', { name: 'Color sample 1', exact: true })).toBeVisible({
       timeout: 60000,
     })
+    await expect(
+      panel.getByRole('button', { name: 'Remove color sample', exact: true }),
+    ).toBeDisabled()
     await panel.getByText('Sample position', { exact: true }).press('Enter')
     for (let count = 1; count < 5; count++) {
       await activateButton(panel.getByRole('button', { name: 'Add color sample', exact: true }))
@@ -175,6 +178,46 @@ test(
     expect(range.samples[0].a).toBeCloseTo(expected.color!.a, 8)
     expect(range.samples[0].b).toBeCloseTo(expected.color!.b, 8)
     await ready(page, 2)
+    const controls = page.getByRole('region', { name: 'Color range controls', exact: true })
+    await activateButton(controls.getByRole('button', { name: 'Color sample 5', exact: true }))
+    await controls.getByText('Enter color', { exact: true }).press('Enter')
+    await controls.getByRole('textbox', { name: 'Sample color value', exact: true }).fill('#CC4433')
+    await activateButton(controls.getByRole('button', { name: 'Use color', exact: true }))
+    const history = () => page.evaluate((id) => window.irodori.getEditHistory(id), photoId)
+    await expect.poll(history).toMatchObject({ revision: 3 })
+    const replaced = (await history()).settings.maskStack[0].range
+    if (replaced?.kind !== 'color') throw new Error('Expected the edited color range.')
+    expect(replaced.samples).toHaveLength(5)
+    expect(replaced.samples.slice(0, 4)).toEqual(range.samples.slice(0, 4))
+    const replacement = maskRangeColorFromHex('#CC4433')
+    expect(replaced.samples[4].a).toBeCloseTo(replacement.a, 12)
+    expect(replaced.samples[4].b).toBeCloseTo(replacement.b, 12)
+    await activateButton(controls.getByRole('button', { name: 'Remove color sample', exact: true }))
+    await expect.poll(history).toMatchObject({ revision: 4 })
+    expect((await history()).settings.maskStack[0].range).toMatchObject({
+      samples: range.samples.slice(0, 4),
+    })
+    await expect(
+      controls.getByRole('button', { name: 'Add color sample', exact: true }),
+    ).toBeEnabled()
+    for (const [label, value, revision] of [
+      ['Range', '10', 5],
+      ['Softness', '35', 6],
+    ] as const) {
+      const input = controls.getByRole('spinbutton', { name: `${label} value`, exact: true })
+      await input.fill(value)
+      expect((await history()).revision).toBe(revision - 1)
+      await input.press('Enter')
+      await expect.poll(history).toMatchObject({ revision })
+    }
+    expect((await history()).settings.maskStack[0].range).toMatchObject({ range: 10, softness: 35 })
+    await activateButton(page.getByRole('button', { name: 'Undo', exact: true }))
+    await expect.poll(history).toMatchObject({ revision: 7 })
+    expect((await history()).settings.maskStack[0].range).toMatchObject({ range: 10, softness: 25 })
+    await activateButton(page.getByRole('button', { name: 'Redo', exact: true }))
+    await expect.poll(history).toMatchObject({ revision: 8 })
+    expect((await history()).settings.maskStack[0].range).toMatchObject({ range: 10, softness: 35 })
+    await ready(page, 8)
     await page
       .getByRole('region', { name: 'Color range controls', exact: true })
       .getByRole('button', { name: 'Sample color', exact: true })
@@ -616,6 +659,75 @@ test(
       saved,
     )
     expect(patch(await capture(), croppedAfter, nearest)).toBeLessThanOrEqual(1)
+
+    const corrected = await page.evaluate((id) => window.irodori.getMaskContext(id, 4), id)
+    expect(corrected.geometry.correction?.distortion.length).toBeGreaterThan(1)
+    expect(corrected.geometry.correction!.distortion.some((value) => value !== 1)).toBe(true)
+    const sampleAtCanonicalPoint = async (revision: number) => {
+      const context = await page.evaluate(
+        ({ id, revision }) => window.irodori.getMaskContext(id, revision),
+        { id, revision },
+      )
+      const output = maskOutputPoint(sample.canonicalPoint, context.geometry)!
+      expect(output).not.toBeNull()
+      const result = await page.evaluate(
+        ({ id, revision, renderingIdentity, point }) =>
+          window.irodori.sampleMaskRange({
+            photoId: id,
+            expectedRevision: revision,
+            renderingIdentity,
+            point,
+          }),
+        {
+          id,
+          revision,
+          renderingIdentity: context.renderingIdentity,
+          point: { x: output.x / context.width, y: output.y / context.height },
+        },
+      )
+      expect(result.sourceIdentity).toBe(sample.sourceIdentity)
+      expect(result.color).toEqual(sample.color)
+      expect(result.luminance).toBe(sample.luminance)
+      return context
+    }
+    await sampleAtCanonicalPoint(4)
+    await page.evaluate(
+      (id) => window.irodori.updateEdits(id, { lens: { distortion: false } }, 4),
+      id,
+    )
+    await ready(page, 5)
+    await settled()
+    const uncorrected = await sampleAtCanonicalPoint(5)
+    // The remaining chromatic correction still owns its two-pixel border crop.
+    expect(uncorrected.geometry.correction!.distortion.every((value) => value === 1)).toBe(true)
+    expect(uncorrected.geometry.flip).toBe(corrected.geometry.flip)
+    expect(
+      (await page.evaluate((id) => window.irodori.getEditHistory(id), id)).settings.maskStack,
+    ).toEqual(saved.maskStack)
+    await page.evaluate((id) => window.irodori.undoEdit(id, 5), id)
+    await ready(page, 6)
+    await settled()
+    expect((await page.evaluate((id) => window.irodori.getEditHistory(id), id)).settings).toEqual(
+      saved,
+    )
+    await info.attach('range-source-geometry', {
+      contentType: 'application/json',
+      body: JSON.stringify({
+        sourceIdentity: sample.sourceIdentity,
+        canonicalPoint: sample.canonicalPoint,
+        corrected: {
+          width: corrected.width,
+          height: corrected.height,
+          flip: corrected.geometry.flip,
+          canonicalWidth: corrected.geometry.canonicalWidth,
+          canonicalHeight: corrected.geometry.canonicalHeight,
+          correctionWidth: corrected.geometry.correction!.width,
+          correctionHeight: corrected.geometry.correction!.height,
+          distortionSamples: corrected.geometry.correction!.distortion.length,
+        },
+        uncorrected: { width: uncorrected.width, height: uncorrected.height },
+      }),
+    })
   },
 )
 

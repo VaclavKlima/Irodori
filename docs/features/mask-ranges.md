@@ -1,8 +1,8 @@
 # Color and luminance range masks
 
 [Issue #63](https://github.com/VaclavKlima/Irodori/issues/63) owns this extension.
-The implementation has focused Bazzite acceptance. Issue #63 records verified
-default-branch delivery separately from local acceptance.
+The implementation has focused Bazzite acceptance and the local macOS qualification
+below. Issue #63 records verified default-branch delivery separately from local acceptance.
 Other-device and integrated-browser acceptance is tracked in
 [#105](https://github.com/VaclavKlima/Irodori/issues/105).
 
@@ -174,5 +174,88 @@ Frozen raster/RAW SDR/HDR proof/export retains the existing two-code SDR and 0.0
 HDR reconstruction gates through later edits and restart.
 
 Current photographic captures use SDR presentation; physical HDR luminance,
-calibration and authenticated model HDR vision are not certified. macOS, Windows
-and integrated browser work remain incomplete in #105.
+calibration and authenticated model HDR vision are not certified. At that checkpoint,
+macOS, Windows and integrated browser work remained incomplete in #105.
+
+### macOS qualification — November 16, 2026
+
+[#105](https://github.com/VaclavKlima/Irodori/issues/105) owns this bounded Mac slice.
+It starts from clean published main
+`4392a12b4766acd185e6ccb8d6d86b50993e5697`. The additions are qualification tests
+and this evidence record; production processing and UI code are unchanged. The
+new exclusive `raw-gpu` target `mask-ranges-merged` uses the committed three-frame
+Sony ZV-1A forest bracket and the actual review/publication owners. Existing range
+UI coverage now also checks sample replacement/removal, numeric Color Range and
+Softness, and real RAW source sampling across a distortion change.
+
+The device is macOS 26.7 (25G229), Apple M4 Pro, 24 GiB unified memory, bundled
+Node 24.20.0, Electron 44.3.0 and Playwright 1.63.0. Dawn identifies
+`apple apple-m4-pro`, Metal driver 26.7. The active browser WebGPU canvas records
+vendor `apple`, architecture `metal-3`, an `rgba16float` Display-P3 surface and
+standard tone mapping; Chromium redacts its device and description strings.
+Electron independently reports ANGLE Metal on Apple M4 Pro. This is software GPU
+presentation evidence, separate from physical display luminance. The accepted
+checked native mask and C++ codec distributions from #122/#117 are reused and
+validated by the application builds; no replacement runtime is adopted.
+
+**1,161 distinct cases have passing evidence: 157 selected feature/regression
+cases and 1,004 other cheap Node cases.** The 19-target foreground batch passes
+1,139 cases, zero failures, in 171.39 seconds. It includes all five range targets,
+the three #110 services, compound GPU/WebGL/UI/photographic checks, edges,
+clipping, geometry and MCP. The subsequent migration/merged selection passes
+all static/build stages, the cheap Node cases and 21 catalog migrations, then
+fails its new adapter-description assertion after the functional assertions pass.
+The corrected exact merged case passes separately. The two extended native range
+cases also pass their exact reruns. Thirty-four actual-Linux-only Node cases
+remain unavailable, so the runner receipts retain incomplete/failed statuses;
+they are not relabelled clean invocations. Routine timing warnings remain.
+
+The range checks retain one-to-five samples, brightness-independent color,
+neutral/black/transparent behavior, numeric source-white bounds and unbounded
+Upper. Create/Add/Replace/Cancel, nested corrections/edges, previous-selection
+recovery and transient clipping ownership pass. Actual RAW pixels retain
+Before/After, crop/straighten/quarter rotation, Undo/Redo and restart. Mapping the
+same canonical point before/after disabling real Sony distortion gives identical
+source identity, color and luminance; the chromatic-correction border remains.
+The real bracket separately witnesses nonzero decoder orientation and lens
+geometry; all eight decoder flips retain independent numerical/MCP mapping
+coverage. The native 1100 × 700 Console-open range capture and cropped RAW capture
+were visually reviewed. Sunflower reference/layout and warmed navigation evidence
+from [#117](masked-navigation-performance.md#macos-qualification--november-16-2026)
+and its #122 prerequisite are reused without repeating their accepted checks.
+
+The genuine published v4 master is **3645 × 5465**, 318,718,800 Float32 bytes.
+An independently read alpha-weighted 7 × 7 neighborhood measures **293.018732%**
+source white. Sampling and temporary Lower 100/unbounded Upper coverage agree,
+select the above-white location and preserve the complete initial history and
+durable bundle hashes. Creative edits and SDR/HDR preference changes retain the
+same source/sample/coverage identities. A 145 × 97 real crop bounds output work
+while range preparation still uses the whole master. The local edit changes SDR
+pixels by up to **67 codes**. Frozen SDR and HDR exports match their proofs at
+**0 codes**, and independent HDR reconstruction differs by **0.004469**, below
+the unchanged 0.02 gate. Undo/Redo, cache-clearing restart and restored proofs
+preserve the accepted settings, source originals and durable merge bundle.
+
+#110 cache tests verify reclamation, active/stream/lookup protection, in-preview-queue
+admission, concurrent range/proof accounting, atomic shrink and idempotent release.
+Genuine refusals retain their demand/budget/blocker diagnostics. Stale source,
+revision and hash checks pass. Injected range-service cancellation is distinguished
+from actual bundled-worker cancellation/timeout/retry and proof-decoder process
+drainage in the affected worker/service checks. No full-size adversarial Mac
+resource-pressure or mid-Dawn cancellation claim is added.
+
+Local receipt, exact attempts, source/input hashes, adapters and launch/profile
+cleanup: `artifacts/mask-ranges/2026-11-16-macos-qualification/summary.md`,
+with linked `details.md` and `result.json`. These ignored artifacts remain local.
+The new assertions initially needed floating-point and retained-border expectation
+corrections. One native attempt failed to activate the Light tab after restart;
+the unchanged exact case passes. The merged adapter-description failure is retained
+alongside its corrected rerun. No production defect or processing-policy change
+was required.
+
+The accepted qualification tests and this record are included in this revision.
+#105 maintains the verified publication receipt and stays open for Windows and
+the separately named integrated-GPU browser qualification. Physical HDR/calibration,
+authenticated model HDR vision, sustained performance and broader photographic
+quality remain outside this slice. No comprehensive checkpoint or new photograph
+was required for publication.

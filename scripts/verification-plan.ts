@@ -244,6 +244,12 @@ const definitions: Suite[] = [
     scopes: ['adjustments', 'preview', 'library'],
     exclusive: true,
   },
+  {
+    file: 'mask-ranges-merged',
+    group: 'raw-gpu',
+    scopes: ['adjustments', 'preview', 'library'],
+    exclusive: true,
+  },
   { file: 'hdr-histogram-lifecycle', group: 'node', scopes: ['adjustments', 'preview'] },
   { file: 'clipping-overlay', group: 'node', scopes: ['adjustments', 'preview'] },
   { file: 'masks-service', group: 'service', scopes: ['adjustments', 'library', 'mcp'] },
