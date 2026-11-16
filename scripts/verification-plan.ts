@@ -118,6 +118,13 @@ const definitions: Suite[] = [
   { file: 'object-selection-model', group: 'node', scopes: [], explicitOnly: true },
   { file: 'automatic-selection-model', group: 'node', scopes: [], explicitOnly: true },
   {
+    file: 'automatic-selection-reference-gpu',
+    group: 'raw-gpu',
+    scopes: [],
+    explicitOnly: true,
+    exclusive: true,
+  },
+  {
     file: 'automatic-selection-presentation-ui',
     group: 'raw-gpu',
     scopes: ['ui', 'adjustments'],

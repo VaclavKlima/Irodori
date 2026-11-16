@@ -61,6 +61,14 @@ const report = {
   host: { platform: process.platform, arch: process.arch, node: process.version, pid: process.pid },
   driPrime: process.env.DRI_PRIME ?? null,
   cpuFallbackDisabled: true,
+  physicalAdapter: {
+    status: process.platform === 'linux' ? 'pending' : 'unobservable',
+    method: process.platform === 'linux' ? 'linux-drm-fdinfo' : null,
+    reason:
+      process.platform === 'linux'
+        ? 'Awaiting native ORT DRM-engine activity.'
+        : 'Independent physical-adapter observation uses Linux DRM only. Host hardware and a separate Dawn adapter are distinct evidence.',
+  },
   scope:
     'Pinned ORT encoder/decoder execution and physical-device evidence; no image quality or physical-memory claim.',
 }
@@ -217,6 +225,14 @@ try {
         .map((client) => client.device),
     ),
   ]
+  if (process.platform === 'linux')
+    report.physicalAdapter = {
+      status: report.activeDevices.length ? 'observed' : 'unobserved',
+      method: 'linux-drm-fdinfo',
+      reason: report.activeDevices.length
+        ? 'Native ORT process DRM-engine activity identifies the physical adapter.'
+        : 'No native ORT process DRM-engine activity was observed.',
+    }
   report.status = 'passed'
 } catch (error) {
   report.status = 'failed'

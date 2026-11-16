@@ -140,6 +140,110 @@ the new automatic capabilities, the 16 MiB base cap and a ready photo. Its exist
 no test imports or mask edits were made in the user's library.
 
 Current-device receipts and final target counts are recorded with issue #86.
-macOS/Windows qualification remains incomplete and is tracked in
-[#118](https://github.com/VaclavKlima/Irodori/issues/118); local Radeon evidence does
-not imply cross-platform acceptance.
+macOS qualification is tracked in
+[#118](https://github.com/VaclavKlima/Irodori/issues/118), with Windows x64 retained
+in [#125](https://github.com/VaclavKlima/Irodori/issues/125); local Radeon evidence
+does not imply cross-platform acceptance.
+
+## macOS qualification — November 16, 2026
+
+[#118](https://github.com/VaclavKlima/Irodori/issues/118) records local acceptance
+on macOS 26.7 (25G229), Apple M4 Pro and 24 GiB unified memory. Work started from
+clean main `148e1fc6b50c71b3d024100747a64e09f299a361`. This revision includes the
+qualification tooling, tests and this record. The verified default-branch
+publication receipt is maintained on #118. Windows x64 remains with
+[#125](https://github.com/VaclavKlima/Irodori/issues/125).
+
+The common bundled Node 24.20.0 / ONNX Runtime 1.31.1 native WebGPU path passes
+both models. Node profiles contain only `WebGpuExecutionProvider`, with CPU
+inference fallback disabled. The system identifies Apple M4 Pro hardware; native
+ORT physical-adapter activity is not independently observable through the
+Linux-only DRM witness on Mac. A separate Dawn adapter does not prove that
+physical identity. No platform-specific processing backend was added.
+
+The native mask host was rebuilt using the retained Rust 1.90.0 toolchain. The
+accepted C++ HDR codec remains unchanged. The RAW/HDR test profile records
+automatic RAM/GPU settings before selecting a **4096 MiB custom GPU budget**;
+automatic RAM remains selected at **6 GiB**. The automatic GPU policy starts at
+its **2 GiB unknown-capacity fallback** (`adapter-unverified`); the custom 4 GiB
+setting is a managed budget, not measured dedicated GPU capacity. The user's
+library and resource preferences are untouched. Admission still reserves the
+automatic model/host allowances and uses the maximum sequential phase. Source
+limits, 16 MiB encoded bases, 32 MiB
+photo content and the 256 MiB atlas bound are unchanged. New tests verify exact
+memory boundaries, refusal before decoding/inference and oversized-result refusal
+without publishing history or replacing accepted coverage.
+
+### Numerical and functional evidence
+
+The [reproducible official-weight harness](../../scripts/research/sky-selection/README.md#reproducible-mac-official-weight-qualification)
+uses authenticated official weights in isolated Python 3.12.16, CPU FP32/eval,
+and the identical GPU-prepared input tensors. It covers Treesky, orange sunset
+and storm clouds in both color and luminance, plus robin foreground/background
+separation. This is a newly identified seven-input cohort; it does not relabel
+the historical Radeon comparison tensors. Every one of **15,794,176 values**
+passes `1e-3 + 1e-3 * abs(reference)`, with **zero sky/foreground label flips**.
+Maximum sky absolute error is `6.68e-6`; the background maximum is `0.0014191`,
+within its relative gate (maximum gate ratio `0.14379`). Independent preprocessing
+retains `1e-6` RGB, and guided reconstruction retains its one-byte reference bound.
+
+Reconciled local acceptance contains **104 distinct selected passing cases** and
+**1,009 distinct shared cheap checks**, with no unresolved Mac failure. **37
+Linux-only cases remain unavailable**: 34 native RAW executable checks and three
+native codec checks. Original registered invocations retain their failed or
+incomplete status; exact successful reruns resolve the applicable failures rather
+than changing those receipts into clean passes.
+
+| Selection / receipt                                                         | Result and duration                                                                    |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Initial model/service/mask/UI registered batch                              | 1,081 passed, one new Background test setup failure, 34 Linux-only skips; 112.59 s     |
+| Exact corrected Background UI                                               | 1 passed, no skips; 16.72 s                                                            |
+| Automatic GPU/reference, RAW/HDR, legacy worker/MCP and HDR precision batch | 1,092 passed, two fixture/prerequisite failures, 37 Linux-only skips; 127.70 s         |
+| Exact corrected Background MCP                                              | 1 passed, no skips; 4.06 s                                                             |
+| Exact RAW/HDR with the independent JPEG prerequisite                        | 1 passed, no skips; 93.98 s                                                            |
+| Foreground automatic presentation, legacy object UI and Sunflower           | 1,073 passed, no failures, 34 Linux-only skips; 84.62 s; invocation remains incomplete |
+
+Sky and Background both have explicit proposal inspection, root acceptance,
+independent corrections/refinement, history/restart and native Fit/100%/pan
+coverage. Shared service cases exercise both automatic modes through
+Add/Subtract/Intersect, nested destinations and starting-source replacement,
+preserving manual chains, controls, inversion, names, Texture and unrelated mask
+order. Real Background compound insertion/replacement and the managed MCP
+intersection use the existing owners. Deterministic model cases cover
+unseparated predictions, inversion, disconnected sky and first-label ties.
+
+The genuine Sony single-RAW/three-RAW HDR-master case exercises **Sky**, crop,
+local Light/Color/edges, manual corrections, frozen SDR/HDR exports and restart.
+Original bytes are unchanged. HDR JPEG/content/native codec cases pass the
+unchanged **0.02** independent reconstruction bound and exact alpha assertions.
+The JPEG acceptance reader requires actual `pkg-config` discovery of
+`libturbojpeg 3.2.0` and Python 3 ctypes; missing prerequisites are not substituted
+with the application decoder. This Mac used the existing 3.2.0 library and an
+isolated pkgconf tool. Test fixture errors (Coverage-tab ownership, explicit
+`replacePrimary`, and the managed `.jpeg` filename) were corrected without
+changing product behavior. The only production edit extracts the unchanged
+logit-to-coverage reduction for deterministic tests; pixel policy, public API,
+persisted settings and rendering identities remain unchanged.
+
+### Native photographic review and limits
+
+Native compositor captures at **1100 × 700**, DPR 2, with Console open were
+reviewed for both actions at Fit and 100%, after middle-button pan and with local
+Light applied. Coverage remains registered and Use mask stays visible. The
+canonical six-scene cohort also has reviewed Fit overlays and unresampled native
+crops: golden horizon, blue needles, orange branches, storm treeline,
+architectural outline and robin background. Sky openings and the background
+orientation are useful and editable; fine needles/branches, textured foreground
+and flare-adjacent areas retain partial coverage and can need Paint/Erase.
+Architectural/glazing ambiguity, fine-edge matting, physical transparency and
+physical HDR/color calibration are not certified.
+
+Bounded local index:
+`artifacts/sky-selection/2026-11-16-macos-qualification/{summary.md,details.md,result.json}`.
+It links the exact registered runs, corrected reruns, retained failures,
+environment/resource/provider records, reference tensors and native review.
+Routine selections exceeded 60 seconds; slow-case details remain in the original
+reports, without removed assertions or performance claims. No comprehensive
+checkpoint, Windows qualification or live installed-Codex client acceptance was
+performed. The verified default-branch delivery and issue completion are recorded
+in #118.

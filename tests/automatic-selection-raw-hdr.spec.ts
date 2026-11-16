@@ -24,6 +24,18 @@ test('automatic sky bases register on a genuine Sony RAW and three-RAW HDR maste
     (settings) => window.irodori.setResourceSettings({ ...settings, vramMiB: 4096 }),
     resources.settings,
   )
+  await writeFile(
+    info.outputPath('resource-policy.json'),
+    JSON.stringify(
+      {
+        original: resources,
+        qualification: await page.evaluate(() => window.irodori.getResourceSettings()),
+        scope: 'Isolated test profile only; the user library and resource settings are unchanged.',
+      },
+      null,
+      2,
+    ),
+  )
   await page.evaluate(() => window.irodori.setPreviewPreference('sdr'))
   const paths = ['DSC03277.ARW', 'DSC03278.ARW', 'DSC03279.ARW'].map((name) =>
     resolve('assets/tests/images/raw/sony-zv-1a/forest-bracket/originals', name),

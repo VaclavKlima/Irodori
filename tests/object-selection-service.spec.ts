@@ -8,8 +8,14 @@ import { join } from 'node:path'
 import { ObjectSelectionService, selectedMaskStack } from '../src/main/object-selection/service'
 import { initialSettings, SETTINGS_VERSION, type EditState } from '../src/shared/edits'
 import { identityMaskGeometry, type MaskGeometry } from '../src/shared/mask-geometry'
-import { neutralMaskColor, neutralMaskLight, type ResolvedMask } from '../src/shared/masks'
+import {
+  maskCapabilities,
+  neutralMaskColor,
+  neutralMaskLight,
+  type ResolvedMask,
+} from '../src/shared/masks'
 import type { ObjectSelectionRequest } from '../src/shared/object-selection'
+import type { CropAdmission } from '../src/shared/crop-resources'
 import { cropAdmission } from './crop-frame.helpers'
 import { syntheticExportSource } from './export.helpers'
 import { generatedMask } from './helpers/generated-mask'
@@ -23,6 +29,11 @@ import { catalogTransaction } from '../src/main/catalog/transaction'
 import { MaskContentStore, prepareMaskMutation } from '../src/main/mask-store'
 
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+const selectionModes = [undefined, 'sky', 'background'] as const
+const automaticMode = (
+  selection: 'sky' | 'background' | undefined,
+): Partial<ObjectSelectionRequest> =>
+  selection ? { selection, prompts: { positivePoints: [], negativePoints: [] } } : {}
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'irodori-selection-service-'))
   const source = await syntheticExportSource(root, 16, 16, (x, y) => [x / 16, y / 16, 0.3])
@@ -36,8 +47,11 @@ async function fixture() {
   let geometry: MaskGeometry = identityMaskGeometry(16, 16)
   const calls = { decode: 0, run: 0, commits: 0, coverage: 0, runtimeClose: 0, decoderClose: 0 }
   const outputs: string[] = []
+  const selections: ('sky' | 'background' | undefined)[] = []
   const options: {
     badFrameHash?: boolean
+    oversizedResult?: boolean
+    admission?: CropAdmission
     beforeDecode?: (signal: AbortSignal) => Promise<void>
     beforeRun?: (signal: AbortSignal) => Promise<void>
     beforeRuntimeClose?: () => Promise<void>
@@ -57,7 +71,7 @@ async function fixture() {
         renderingIdentity: 'a'.repeat(64),
       }),
       edits: async () => structuredClone(state),
-      admission: async () => cropAdmission(),
+      admission: async () => options.admission ?? cropAdmission(),
       prepareCoverage: async (mask, context, signal) => {
         calls.coverage++
         expect(context.geometry.canonicalWidth).toBe(16)
@@ -118,7 +132,8 @@ async function fixture() {
         },
       },
       runtime: {
-        run: async (input, prompts, output, signal) => {
+        run: async (input, prompts, output, signal, selection) => {
+          selections.push(selection)
           calls.run++
           outputs.push(output)
           expect(input).toEqual({
@@ -133,14 +148,20 @@ async function fixture() {
           await options.beforeRun?.(signal)
           signal.throwIfAborted()
           const base = generatedMask(16, 16, (x) => (x < 8 ? 255 : 0))
-          const png = Buffer.from(base.pngBase64, 'base64')
+          const original = Buffer.from(base.pngBase64, 'base64')
+          const png = options.oversizedResult
+            ? Buffer.concat([
+                original,
+                Buffer.alloc(maskCapabilities.maxBaseEncodedBytes + 1 - original.length),
+              ])
+            : original
           await writeFile(output, png)
           return {
             key: input.key,
             width: 16,
             height: 16,
             path: output,
-            sha256: base.hash,
+            sha256: sha(png),
             encodedBytes: png.length,
             modelIdentity: 'sam2.1-hiera-tiny-f32-labels-v1',
             selectedCandidate: 0,
@@ -160,6 +181,7 @@ async function fixture() {
     calls,
     options,
     outputs,
+    selections,
     service,
     state: () => state,
     geometry: (next: MaskGeometry) => {
@@ -228,88 +250,116 @@ async function fixture() {
   }
 }
 
-test('a proposal changes no history; explicit acceptance commits once and consumes its immutable target', async () => {
-  const f = await fixture()
-  try {
-    const request = await f.request()
-    const proposal = await f.service.create(request)
-    expect(f.calls.commits).toBe(0)
-    expect(f.state().revision).toBe(4)
-    expect(f.state().settings.maskStack).toEqual([])
-    expect(proposal.mask.base?.hash).toHaveLength(64)
-    expect(proposal.mask.edge).toEqual({ featherPx: 0, shiftPx: 0 })
-    await expect(readFile(f.outputs[0])).rejects.toThrow(/ENOENT/)
-    const accepted = await f.service.accept({
-      photoId: request.photoId,
-      expectedRevision: 4,
-      proposalId: proposal.id,
-    })
-    expect(accepted.revision).toBe(5)
-    expect(accepted.settings.version).toBe(SETTINGS_VERSION)
-    expect(accepted.settings.maskStack[0].base?.hash).toBe(proposal.mask.base?.hash)
-    await expect(
-      f.service.accept({ photoId: request.photoId, expectedRevision: 4, proposalId: proposal.id }),
-    ).rejects.toThrow(/unavailable/)
-    expect(f.calls.commits).toBe(1)
-  } finally {
-    await f.close()
-  }
-})
-
-test('same-grid base replacement preserves the existing name, controls, history head and manual strokes', async () => {
-  const f = await fixture()
-  try {
-    const mask: ResolvedMask = {
-      id: randomUUID(),
-      name: 'Manually repaired object',
-      enabled: false,
-      inverted: true,
-      head: 'c'.repeat(64),
-      color: { temperature: 12, tint: -3, saturation: -15 },
-      light: { ...neutralMaskLight, exposureEv: 1.2, shadows: 12 },
-      edge: { featherPx: 12.5, shiftPx: -3 },
-      base: generatedMask(16, 16, () => 0),
-      strokes: [
-        { mode: 'add', radius: 0.1, feather: 0.5, points: [{ x: 0.2, y: 0.3 }] },
-        { mode: 'subtract', radius: 0.05, feather: 0, points: [{ x: 0.6, y: 0.4 }] },
-      ],
+for (const selection of selectionModes) {
+  test(`${selection ?? 'guided object'}: a proposal changes no history; explicit acceptance commits once and consumes its immutable target`, async () => {
+    const f = await fixture()
+    try {
+      const request = await f.request(automaticMode(selection))
+      const proposal = await f.service.create(request)
+      expect(f.selections).toEqual([selection])
+      expect(f.calls.commits).toBe(0)
+      expect(f.state().revision).toBe(4)
+      expect(f.state().settings.maskStack).toEqual([])
+      expect(proposal.mask.base?.hash).toHaveLength(64)
+      expect(proposal.mask.edge).toEqual({ featherPx: 0, shiftPx: 0 })
+      await expect(readFile(f.outputs[0])).rejects.toThrow(/ENOENT/)
+      const accepted = await f.service.accept({
+        photoId: request.photoId,
+        expectedRevision: 4,
+        proposalId: proposal.id,
+      })
+      expect(accepted.revision).toBe(5)
+      expect(accepted.settings.version).toBe(SETTINGS_VERSION)
+      expect(accepted.settings.maskStack[0].base?.hash).toBe(proposal.mask.base?.hash)
+      await expect(
+        f.service.accept({
+          photoId: request.photoId,
+          expectedRevision: 4,
+          proposalId: proposal.id,
+        }),
+      ).rejects.toThrow(/unavailable/)
+      expect(f.calls.commits).toBe(1)
+    } finally {
+      await f.close()
     }
-    f.setMask(mask)
-    const request = await f.request({ maskId: mask.id })
-    const proposal = await f.service.create(request)
-    expect(proposal.mask).toMatchObject({
-      id: mask.id,
-      name: mask.name,
-      enabled: false,
-      inverted: true,
-      head: mask.head,
-      light: mask.light,
-      color: mask.color,
-      edge: mask.edge,
-      strokes: mask.strokes,
-    })
-    expect(proposal.mask.base?.hash).not.toBe(mask.base?.hash)
-    expect(proposal.mask.preparedCoverage?.key).toBe('a'.repeat(64))
-    expect(f.calls.coverage).toBe(1)
-    expect(f.calls.commits).toBe(0)
-    const result = await f.service.accept({
-      photoId: request.photoId,
-      expectedRevision: 4,
-      proposalId: proposal.id,
-    })
-    expect(result.settings.maskStack[0]).toMatchObject({
-      head: mask.head,
-      light: mask.light,
-      color: mask.color,
-      edge: mask.edge,
-      enabled: false,
-      inverted: true,
-      base: { hash: proposal.mask.base!.hash },
-    })
-  } finally {
-    await f.close()
-  }
-})
+  })
+}
+
+for (const selection of selectionModes) {
+  test(`${selection ?? 'guided object'}: same-grid base replacement preserves the existing name, controls, history head and manual strokes`, async () => {
+    const f = await fixture()
+    try {
+      const mask: ResolvedMask = {
+        id: randomUUID(),
+        name: 'Manually repaired object',
+        texture: 23,
+        enabled: false,
+        inverted: true,
+        head: 'c'.repeat(64),
+        color: { temperature: 12, tint: -3, saturation: -15 },
+        light: { ...neutralMaskLight, exposureEv: 1.2, shadows: 12 },
+        edge: { featherPx: 12.5, shiftPx: -3 },
+        base: generatedMask(16, 16, () => 0),
+        strokes: [
+          { mode: 'add', radius: 0.1, feather: 0.5, points: [{ x: 0.2, y: 0.3 }] },
+          { mode: 'subtract', radius: 0.05, feather: 0, points: [{ x: 0.6, y: 0.4 }] },
+        ],
+      }
+      f.setMask(mask)
+      const unrelated = {
+        id: randomUUID(),
+        name: 'Independent mask',
+        enabled: true,
+        inverted: false,
+        head: null,
+        light: { ...neutralMaskLight, exposureEv: -0.3 },
+        color: { ...neutralMaskColor },
+        edge: { featherPx: 0, shiftPx: 0 },
+        texture: -12,
+      }
+      f.state().settings.maskStack.push(unrelated)
+      const order = f.state().settings.maskStack.map((entry) => entry.id)
+      const request = await f.request({ ...automaticMode(selection), maskId: mask.id })
+      const proposal = await f.service.create(request)
+      expect(f.selections).toEqual([selection])
+      expect(proposal.mask).toMatchObject({
+        id: mask.id,
+        name: mask.name,
+        enabled: false,
+        inverted: true,
+        head: mask.head,
+        light: mask.light,
+        color: mask.color,
+        texture: mask.texture,
+        edge: mask.edge,
+        strokes: mask.strokes,
+      })
+      expect(proposal.mask.base?.hash).not.toBe(mask.base?.hash)
+      expect(proposal.mask.preparedCoverage?.key).toBe('a'.repeat(64))
+      expect(f.calls.coverage).toBe(1)
+      expect(f.calls.commits).toBe(0)
+      const result = await f.service.accept({
+        photoId: request.photoId,
+        expectedRevision: 4,
+        proposalId: proposal.id,
+      })
+      expect(result.settings.maskStack[0]).toMatchObject({
+        head: mask.head,
+        light: mask.light,
+        color: mask.color,
+        texture: mask.texture,
+        edge: mask.edge,
+        enabled: false,
+        inverted: true,
+        base: { hash: proposal.mask.base!.hash },
+      })
+      expect(result.settings.maskStack.map((entry) => entry.id)).toEqual(order)
+      expect(result.settings.maskStack[1]).toEqual(unrelated)
+    } finally {
+      await f.close()
+    }
+  })
+}
 
 test('equal-sized rotation, source identity and revision changes reject stale requests before preparation', async () => {
   for (const change of ['rotation', 'source', 'revision'] as const) {
@@ -697,45 +747,208 @@ test('a generated base disguised as settings 13 is refused and rolls back all ea
   }
 })
 
-test('selection admission charges exact sequential GPU buffers without lowering the model allowance', () => {
-  const width = 5496,
-    height = 3672,
-    pixels = width * height,
-    mib = 1024 ** 2
-  const admission = cropAdmission()
-  const plan = objectSelectionMemoryPlan(width, height, admission)
-  expect(plan.phases.preprocessing).toBe(
-    pixels * 4 + 1024 * 3672 * 16 + 2 * 3 * 1024 * 1024 * 4 + 16,
-  )
-  expect(plan.phases.reconstruction).toBe(Math.ceil(pixels / 4) * 8 + 256 * 256 * 4 + 16)
-  expect(plan.phases.modelAllowance).toBe(512 * mib)
-  expect(plan.additionalVram).toBe(512 * mib + plan.phases.preprocessing)
-  expect(plan.additionalRam).toBe(pixels * 24 + 1024 ** 3)
-  expect(plan.vramBytes).toBe(admission.reservation.vramBytes + plan.additionalVram)
-})
+for (const selection of selectionModes) {
+  test(`${selection ?? 'guided object'} admission charges exact sequential buffers and retains model/host allowances`, () => {
+    const width = 5496,
+      height = 3672,
+      pixels = width * height,
+      mib = 1024 ** 2,
+      admission = cropAdmission(),
+      plan = objectSelectionMemoryPlan(width, height, admission, selection)
+    expect(plan.phases.preprocessing).toBe(
+      pixels * 4 + 1024 * height * 16 + 2 * 3 * 1024 * 1024 * 4 + 16,
+    )
+    const guideEdge = selection === 'background' ? 1024 : 128
+    expect(plan.phases.reconstruction).toBe(
+      selection
+        ? pixels * 6 + guideEdge * guideEdge * (16 + 3 * 64 + 2 * 16) + 32
+        : Math.ceil(pixels / 4) * 8 + 256 * 256 * 4 + 16,
+    )
+    expect(plan.phases.modelAllowance).toBe((selection ? 1024 : 512) * mib)
+    expect(plan.additionalVram).toBe(
+      Math.max(
+        pixels * 12,
+        plan.phases.modelAllowance + plan.phases.preprocessing,
+        plan.phases.modelAllowance + plan.phases.reconstruction,
+      ),
+    )
+    expect(plan.additionalRam).toBe(pixels * 24 + (selection ? 2 : 1) * 1024 ** 3)
+    expect(plan.vramBytes).toBe(admission.reservation.vramBytes + plan.additionalVram)
+  })
 
-test('selection admission refuses exact image budget overflow and unsupported dimensions', () => {
-  const initial = cropAdmission(),
-    plan = objectSelectionMemoryPlan(256, 256, initial)
-  const exact = {
-    ...initial,
-    policy: {
-      ...initial.policy,
-      ram: { ...initial.policy.ram, effectiveBytes: plan.ramBytes },
-      vram: { ...initial.policy.vram, effectiveBytes: plan.vramBytes },
-    },
-  }
-  expect(objectSelectionMemoryPlan(256, 256, exact).accepted).toBe(true)
-  expect(
-    objectSelectionMemoryPlan(256, 256, {
-      ...exact,
+  test(`${selection ?? 'guided object'} admission accepts exact budgets and refuses one-byte RAM/GPU overflow and unsupported dimensions`, () => {
+    const initial = cropAdmission(),
+      plan = objectSelectionMemoryPlan(256, 256, initial, selection)
+    const exact = {
+      ...initial,
       policy: {
-        ...exact.policy,
-        vram: { ...exact.policy.vram, effectiveBytes: plan.vramBytes - 1 },
+        ...initial.policy,
+        ram: { ...initial.policy.ram, effectiveBytes: plan.ramBytes },
+        vram: { ...initial.policy.vram, effectiveBytes: plan.vramBytes },
       },
-    }).accepted,
-  ).toBe(false)
-  expect(() => objectSelectionMemoryPlan(16384, 1000, initial)).toThrow()
+    }
+    expect(objectSelectionMemoryPlan(256, 256, exact, selection).accepted).toBe(true)
+    for (const resource of ['ram', 'vram'] as const)
+      expect(
+        objectSelectionMemoryPlan(
+          256,
+          256,
+          {
+            ...exact,
+            policy: {
+              ...exact.policy,
+              [resource]: {
+                ...exact.policy[resource],
+                effectiveBytes: exact.policy[resource].effectiveBytes - 1,
+              },
+            },
+          },
+          selection,
+        ).accepted,
+      ).toBe(false)
+    for (const [width, height] of [
+      [8193, 1],
+      [8192, 3907],
+    ])
+      expect(() => objectSelectionMemoryPlan(width, height, initial, selection)).toThrow(
+        /resource dimensions/,
+      )
+  })
+}
+
+for (const selection of ['sky', 'background'] as const) {
+  test(`${selection} refuses a memory budget before decoding/inference and preserves accepted settings`, async () => {
+    for (const resource of ['ram', 'vram'] as const) {
+      const f = await fixture()
+      try {
+        const id = randomUUID()
+        f.setMask({
+          id,
+          name: 'Existing correction',
+          enabled: true,
+          inverted: true,
+          head: null,
+          light: { ...neutralMaskLight, exposureEv: 0.4 },
+          color: { ...neutralMaskColor },
+          texture: 12,
+          edge: { featherPx: 0, shiftPx: 0 },
+          strokes: [],
+        })
+        const before = structuredClone(f.state())
+        const admission = cropAdmission()
+        const plan = objectSelectionMemoryPlan(16, 16, admission, selection)
+        f.options.admission = {
+          ...admission,
+          policy: {
+            ...admission.policy,
+            [resource]: {
+              ...admission.policy[resource],
+              effectiveBytes: (resource === 'ram' ? plan.ramBytes : plan.vramBytes) - 1,
+            },
+          },
+        }
+        await expect(f.service.create(await f.request(automaticMode(selection)))).rejects.toThrow(
+          /image-memory budget/,
+        )
+        expect(f.calls).toMatchObject({ decode: 0, run: 0, commits: 0 })
+        expect(f.state()).toEqual(before)
+        f.options.admission = undefined
+        const proposal = await f.service.create(await f.request(automaticMode(selection)))
+        expect(proposal.photoId).toBe(f.source.photo.id)
+        expect(f.state()).toEqual(before)
+      } finally {
+        await f.close()
+      }
+    }
+  })
+
+  test(`${selection} refuses oversized generated coverage before publication and can retry`, async () => {
+    const f = await fixture()
+    try {
+      f.setMask({
+        id: randomUUID(),
+        name: 'Existing mask',
+        enabled: true,
+        inverted: false,
+        head: null,
+        light: { ...neutralMaskLight, exposureEv: -0.5 },
+        color: { ...neutralMaskColor },
+        edge: { featherPx: 0, shiftPx: 0 },
+        strokes: [],
+        base: generatedMask(16, 16, () => 64),
+      })
+      const before = structuredClone(f.state())
+      f.options.oversizedResult = true
+      await expect(f.service.create(await f.request(automaticMode(selection)))).rejects.toThrow(
+        /hash or encoding mismatch|oversized generated mask PNG/,
+      )
+      expect(f.calls).toMatchObject({ decode: 1, run: 1, commits: 0 })
+      expect(f.state()).toEqual(before)
+      await expect(readFile(f.outputs[0])).rejects.toMatchObject({ code: 'ENOENT' })
+      f.options.oversizedResult = undefined
+      const proposal = await f.service.create(await f.request(automaticMode(selection)))
+      expect(proposal.mask.base?.hash).toHaveLength(64)
+      expect(f.state()).toEqual(before)
+    } finally {
+      await f.close()
+    }
+  })
+
+  test(`${selection} refuses unsupported source dimensions before canonical preparation`, async () => {
+    for (const [width, height] of [
+      [8193, 1],
+      [8192, 3907],
+    ]) {
+      const f = await fixture()
+      try {
+        const request = await f.request(automaticMode(selection))
+        const before = structuredClone(f.state())
+        f.geometry(identityMaskGeometry(width, height))
+        await expect(f.service.create(request)).rejects.toThrow(
+          /32 megapixels and 8192 pixels per side/,
+        )
+        expect(f.calls).toMatchObject({ decode: 0, run: 0, commits: 0 })
+        expect(f.state()).toEqual(before)
+      } finally {
+        await f.close()
+      }
+    }
+  })
+}
+
+test('an unseparated background failure preserves prior masks and admits a fresh GPU proposal', async () => {
+  const f = await fixture()
+  try {
+    f.setMask({
+      id: randomUUID(),
+      name: 'Existing subject',
+      enabled: true,
+      inverted: false,
+      head: null,
+      light: { ...neutralMaskLight, exposureEv: 0.4 },
+      color: { ...neutralMaskColor },
+      edge: { featherPx: 0, shiftPx: 0 },
+      strokes: [],
+    })
+    const before = structuredClone(f.state())
+    f.options.beforeRun = async () => {
+      throw new Error(
+        'A foreground subject and background could not be separated. Existing masks are unchanged. Use Select object or Paint/Erase.',
+      )
+    }
+    await expect(f.service.create(await f.request(automaticMode('background')))).rejects.toThrow(
+      /could not be separated/,
+    )
+    expect(f.state()).toEqual(before)
+    expect(f.calls.commits).toBe(0)
+    await expect(readFile(f.outputs[0])).rejects.toMatchObject({ code: 'ENOENT' })
+    f.options.beforeRun = undefined
+    const proposal = await f.service.create(await f.request(automaticMode('background')))
+    expect(proposal.photoId).toBe(f.source.photo.id)
+    expect(f.state()).toEqual(before)
+  } finally {
+    await f.close()
+  }
 })
 
 test('edge-aware AI refinement retires its model heap and revalidates revision after coverage preparation', async () => {
@@ -799,70 +1012,77 @@ test('gradient and range refinement refuse before canonical decoding or object i
   }
 })
 
-test('a component proposal freezes its destination, previews the destination tree and preserves root controls', async () => {
-  const f = await fixture()
-  try {
-    const rootId = randomUUID(),
-      componentId = randomUUID()
-    const mask: ResolvedMask = {
-      id: rootId,
-      name: 'Water',
-      enabled: true,
-      inverted: false,
-      head: null,
-      edge: { featherPx: 0, shiftPx: 0 },
-      gradient: {
-        kind: 'radial',
-        center: { x: 0.5, y: 0.5 },
-        radiusX: 0.4,
-        radiusY: 0.3,
-        rotation: 0,
-        feather: 50,
-      },
-      light: { ...neutralMaskLight, exposureEv: -1 },
-      color: { ...neutralMaskColor },
-      strokes: [],
-      operands: [],
-      resultHead: null,
-    }
-    f.setMask(mask)
-    const request = await f.request({
-      target: {
-        kind: 'new-component',
-        maskId: rootId,
-        componentId,
-        name: 'Protected bird',
-        operator: 'subtract',
-      },
+for (const selection of selectionModes) {
+  for (const operator of ['add', 'subtract', 'intersect'] as const) {
+    test(`${selection ?? 'guided object'} ${operator}: a component proposal freezes its destination, previews the destination tree and preserves root controls`, async () => {
+      const f = await fixture()
+      try {
+        const rootId = randomUUID(),
+          componentId = randomUUID()
+        const mask: ResolvedMask = {
+          id: rootId,
+          name: 'Water',
+          enabled: true,
+          inverted: false,
+          head: null,
+          edge: { featherPx: 0, shiftPx: 0 },
+          gradient: {
+            kind: 'radial',
+            center: { x: 0.5, y: 0.5 },
+            radiusX: 0.4,
+            radiusY: 0.3,
+            rotation: 0,
+            feather: 50,
+          },
+          light: { ...neutralMaskLight, exposureEv: -1 },
+          color: { ...neutralMaskColor },
+          strokes: [],
+          operands: [],
+          resultHead: null,
+        }
+        f.setMask(mask)
+        const request = await f.request({
+          ...automaticMode(selection),
+          target: {
+            kind: 'new-component',
+            maskId: rootId,
+            componentId,
+            name: 'Protected bird',
+            operator,
+          },
+        })
+        const pending = f.service.create(request)
+        // Mutating the caller-owned object after dispatch cannot change acceptance.
+        if (request.target?.kind === 'new-component')
+          request.target.operator = operator === 'add' ? 'subtract' : 'add'
+        const proposal = await pending
+        expect(f.selections).toEqual([selection])
+        expect(proposal.mask.id).toBe(rootId)
+        expect(proposal.mask.gradient).toEqual(mask.gradient)
+        expect(proposal.mask.light).toEqual(mask.light)
+        expect(proposal.mask.base).toBeUndefined()
+        expect(proposal.mask.operands?.[0]).toMatchObject({
+          id: componentId,
+          operator,
+          name: 'Protected bird',
+        })
+        expect(proposal.mask.operands?.[0].base?.hash).toHaveLength(64)
+        expect(f.calls.commits).toBe(0)
+        const accepted = await f.service.accept({
+          photoId: request.photoId,
+          expectedRevision: 4,
+          proposalId: proposal.id,
+        })
+        expect(accepted.settings.maskStack).toHaveLength(1)
+        expect(accepted.settings.maskStack[0].operands?.[0].operator).toBe(operator)
+        expect(accepted.settings.maskStack[0].light).toEqual(mask.light)
+        expect(f.calls.commits).toBe(1)
+      } finally {
+        await f.close()
+      }
     })
-    const pending = f.service.create(request)
-    // Mutating the caller-owned object after dispatch cannot change acceptance.
-    if (request.target?.kind === 'new-component') request.target.operator = 'add'
-    const proposal = await pending
-    expect(proposal.mask.id).toBe(rootId)
-    expect(proposal.mask.gradient).toEqual(mask.gradient)
-    expect(proposal.mask.light).toEqual(mask.light)
-    expect(proposal.mask.base).toBeUndefined()
-    expect(proposal.mask.operands?.[0]).toMatchObject({
-      id: componentId,
-      operator: 'subtract',
-      name: 'Protected bird',
-    })
-    expect(proposal.mask.operands?.[0].base?.hash).toHaveLength(64)
-    expect(f.calls.commits).toBe(0)
-    const accepted = await f.service.accept({
-      photoId: request.photoId,
-      expectedRevision: 4,
-      proposalId: proposal.id,
-    })
-    expect(accepted.settings.maskStack).toHaveLength(1)
-    expect(accepted.settings.maskStack[0].operands?.[0].operator).toBe('subtract')
-    expect(accepted.settings.maskStack[0].light).toEqual(mask.light)
-    expect(f.calls.commits).toBe(1)
-  } finally {
-    await f.close()
   }
-})
+}
 
 test('component selection refuses missing destinations and conflicting target forms before inference', async () => {
   const f = await fixture()
@@ -879,134 +1099,147 @@ test('component selection refuses missing destinations and conflicting target fo
   }
 })
 
-test('nested object replacement retains both correction chains, grouping and destination adjustments', async () => {
-  const f = await fixture()
-  try {
-    const rootId = randomUUID(),
-      childId = randomUUID()
-    const stroke = {
-      mode: 'subtract' as const,
-      radius: 0.1,
-      feather: 0,
-      points: [{ x: 0.3, y: 0.3 }],
-    }
-    const mask: ResolvedMask = {
-      id: rootId,
-      name: 'Destination',
-      enabled: true,
-      inverted: false,
-      head: null,
-      light: { ...neutralMaskLight, exposureEv: -1 },
-      color: { ...neutralMaskColor },
-      edge: { featherPx: 0, shiftPx: 0 },
-      strokes: [],
-      operands: [
-        {
-          id: childId,
-          name: 'Refined protection',
-          enabled: true,
-          inverted: true,
-          head: 'b'.repeat(64),
-          resultHead: 'c'.repeat(64),
-          operator: 'subtract',
-          edge: { featherPx: 0, shiftPx: 0 },
-          base: generatedMask(16, 16, () => 0),
-          strokes: [stroke],
-          resultStrokes: [stroke],
-          operands: [],
-        },
-      ],
-    }
-    f.setMask(mask)
-    const request = await f.request({
-      target: { kind: 'replace-component', maskId: rootId, componentId: childId },
-    })
-    const proposal = await f.service.create(request)
-    const part = proposal.mask.operands![0]
-    expect(part.base?.hash).not.toBe(mask.operands![0].base?.hash)
-    expect(part).toMatchObject({
-      id: childId,
-      operator: 'subtract',
-      inverted: true,
-      head: 'b'.repeat(64),
-      resultHead: 'c'.repeat(64),
-      strokes: [stroke],
-      resultStrokes: [stroke],
-    })
-    expect(proposal.mask.light).toEqual(mask.light)
-    const accepted = await f.service.accept({
-      photoId: request.photoId,
-      expectedRevision: 4,
-      proposalId: proposal.id,
-    })
-    expect(accepted.settings.maskStack[0].operands![0]).toMatchObject({
-      id: childId,
-      head: 'b'.repeat(64),
-      resultHead: 'c'.repeat(64),
-      base: { hash: part.base!.hash },
-    })
-    expect(f.calls.commits).toBe(1)
-  } finally {
-    await f.close()
-  }
-})
-
-test('explicit object starting-source replacement remains a proposal until acceptance and preserves corrections', async () => {
-  for (const primaryKind of ['gradient', 'range']) {
+for (const selection of selectionModes) {
+  test(`${selection ?? 'guided object'}: nested object replacement retains both correction chains, grouping and destination adjustments`, async () => {
     const f = await fixture()
     try {
-      const id = randomUUID()
-      const gradient = {
-        kind: 'linear' as const,
-        start: { x: 0.2, y: 0.3 },
-        end: { x: 0.8, y: 0.7 },
+      const rootId = randomUUID(),
+        childId = randomUUID()
+      const stroke = {
+        mode: 'subtract' as const,
+        radius: 0.1,
+        feather: 0,
+        points: [{ x: 0.3, y: 0.3 }],
       }
-      const stroke = { mode: 'add' as const, radius: 0.1, feather: 0, points: [{ x: 0.3, y: 0.3 }] }
       const mask: ResolvedMask = {
-        id,
-        name: 'Starting gradient',
+        id: rootId,
+        name: 'Destination',
         enabled: true,
-        inverted: true,
-        head: 'b'.repeat(64),
-        resultHead: 'c'.repeat(64),
-        ...(primaryKind === 'gradient' ? { gradient } : { range: defaultLuminanceMaskRange }),
+        inverted: false,
+        head: null,
         light: { ...neutralMaskLight, exposureEv: -1 },
         color: { ...neutralMaskColor },
         edge: { featherPx: 0, shiftPx: 0 },
-        strokes: [stroke],
-        resultStrokes: [stroke],
-        operands: [],
+        strokes: [],
+        operands: [
+          {
+            id: childId,
+            name: 'Refined protection',
+            enabled: true,
+            inverted: true,
+            head: 'b'.repeat(64),
+            resultHead: 'c'.repeat(64),
+            operator: 'subtract',
+            edge: { featherPx: 0, shiftPx: 0 },
+            base: generatedMask(16, 16, () => 0),
+            strokes: [stroke],
+            resultStrokes: [stroke],
+            operands: [],
+          },
+        ],
       }
       f.setMask(mask)
       const request = await f.request({
-        target: { kind: 'replace-component', maskId: id, replacePrimary: true },
+        ...automaticMode(selection),
+        target: { kind: 'replace-component', maskId: rootId, componentId: childId },
       })
       const proposal = await f.service.create(request)
-      expect(f.state().settings.maskStack[0][primaryKind as 'gradient' | 'range']).toEqual(
-        primaryKind === 'gradient' ? gradient : defaultLuminanceMaskRange,
-      )
-      expect(proposal.mask.gradient).toBeUndefined()
-      expect(proposal.mask.range).toBeUndefined()
-      expect(proposal.mask).toMatchObject({
-        head: mask.head,
-        resultHead: mask.resultHead,
-        light: mask.light,
+      expect(f.selections).toEqual([selection])
+      const part = proposal.mask.operands![0]
+      expect(part.base?.hash).not.toBe(mask.operands![0].base?.hash)
+      expect(part).toMatchObject({
+        id: childId,
+        operator: 'subtract',
         inverted: true,
+        head: 'b'.repeat(64),
+        resultHead: 'c'.repeat(64),
         strokes: [stroke],
         resultStrokes: [stroke],
       })
+      expect(proposal.mask.light).toEqual(mask.light)
       const accepted = await f.service.accept({
         photoId: request.photoId,
         expectedRevision: 4,
         proposalId: proposal.id,
       })
-      expect(accepted.settings.maskStack[0].gradient).toBeUndefined()
-      expect(accepted.settings.maskStack[0].range).toBeUndefined()
-      expect(accepted.settings.maskStack[0].base?.hash).toBe(proposal.mask.base?.hash)
-      expect(accepted.settings.maskStack[0].head).toBe(mask.head)
+      expect(accepted.settings.maskStack[0].operands![0]).toMatchObject({
+        id: childId,
+        head: 'b'.repeat(64),
+        resultHead: 'c'.repeat(64),
+        base: { hash: part.base!.hash },
+      })
       expect(f.calls.commits).toBe(1)
     } finally {
       await f.close()
     }
-  }
-})
+  })
+}
+
+for (const selection of selectionModes) {
+  test(`${selection ?? 'guided object'}: explicit object starting-source replacement remains a proposal until acceptance and preserves corrections`, async () => {
+    for (const primaryKind of ['gradient', 'range']) {
+      const f = await fixture()
+      try {
+        const id = randomUUID()
+        const gradient = {
+          kind: 'linear' as const,
+          start: { x: 0.2, y: 0.3 },
+          end: { x: 0.8, y: 0.7 },
+        }
+        const stroke = {
+          mode: 'add' as const,
+          radius: 0.1,
+          feather: 0,
+          points: [{ x: 0.3, y: 0.3 }],
+        }
+        const mask: ResolvedMask = {
+          id,
+          name: 'Starting gradient',
+          enabled: true,
+          inverted: true,
+          head: 'b'.repeat(64),
+          resultHead: 'c'.repeat(64),
+          ...(primaryKind === 'gradient' ? { gradient } : { range: defaultLuminanceMaskRange }),
+          light: { ...neutralMaskLight, exposureEv: -1 },
+          color: { ...neutralMaskColor },
+          edge: { featherPx: 0, shiftPx: 0 },
+          strokes: [stroke],
+          resultStrokes: [stroke],
+          operands: [],
+        }
+        f.setMask(mask)
+        const request = await f.request({
+          ...automaticMode(selection),
+          target: { kind: 'replace-component', maskId: id, replacePrimary: true },
+        })
+        const proposal = await f.service.create(request)
+        expect(f.selections).toEqual([selection])
+        expect(f.state().settings.maskStack[0][primaryKind as 'gradient' | 'range']).toEqual(
+          primaryKind === 'gradient' ? gradient : defaultLuminanceMaskRange,
+        )
+        expect(proposal.mask.gradient).toBeUndefined()
+        expect(proposal.mask.range).toBeUndefined()
+        expect(proposal.mask).toMatchObject({
+          head: mask.head,
+          resultHead: mask.resultHead,
+          light: mask.light,
+          inverted: true,
+          strokes: [stroke],
+          resultStrokes: [stroke],
+        })
+        const accepted = await f.service.accept({
+          photoId: request.photoId,
+          expectedRevision: 4,
+          proposalId: proposal.id,
+        })
+        expect(accepted.settings.maskStack[0].gradient).toBeUndefined()
+        expect(accepted.settings.maskStack[0].range).toBeUndefined()
+        expect(accepted.settings.maskStack[0].base?.hash).toBe(proposal.mask.base?.hash)
+        expect(accepted.settings.maskStack[0].head).toBe(mask.head)
+        expect(f.calls.commits).toBe(1)
+      } finally {
+        await f.close()
+      }
+    }
+  })
+}

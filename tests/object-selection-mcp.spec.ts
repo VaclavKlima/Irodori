@@ -5,7 +5,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { randomBytes, randomUUID, createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import sharp from 'sharp'
 import { PhotoLibrary } from './photo-library.helpers'
 import { PreviewProcess } from '../src/main/preview-process'
@@ -19,12 +19,32 @@ import { defaultExportOptions } from '../src/shared/export'
 import { identityCrop } from '../src/shared/crop'
 import type { EditState } from '../src/shared/edits'
 import type { EditorContextSnapshot } from '../src/shared/agent'
-import type { ObjectSelectionContext } from '../src/shared/object-selection'
+import type { ObjectSelectionContext, ObjectSelectionTarget } from '../src/shared/object-selection'
 import { DatabaseSync } from 'node:sqlite'
 import { CATALOG_VERSION } from '../src/main/catalog/editing-migration'
 import { transferFixture } from './edit-transfer.helpers'
 
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+
+function selectionLibrary(root: string) {
+  const args: ConstructorParameters<typeof PhotoLibrary> = [
+    join(root, 'library'),
+    {
+      process: async () => {
+        throw new Error('Unexpected import decoding.')
+      },
+      close: async () => {},
+    },
+    () => {},
+  ]
+  args[5] = new PreviewProcess(resolve('out/main/preview-worker.js'))
+  args[15] = new ExportProcess(
+    resolve('out/main/export-worker.js'),
+    resolve('out/main/preview-worker.js'),
+  )
+  args[16] = new PreviewProcess(resolve('out/main/preview-worker.js'))
+  return new PhotoLibrary(...args)
+}
 
 test('actual catalog 23 startup upgrades all brush history to 24 and rejects disguised future bases before recovery writes', async () => {
   const fixture = await transferFixture(1)
@@ -148,34 +168,7 @@ test('actual managed MCP delivers a native proposal and preserves manual edits t
   await metadataWorker.close(true)
   const dimensions = await sharp(path).metadata()
   let inferenceCount = 0
-  const createLibrary = () =>
-    new PhotoLibrary(
-      join(root, 'library'),
-      {
-        process: async () => {
-          throw new Error('Unexpected import decoding.')
-        },
-        close: async () => {},
-      },
-      () => {},
-      undefined,
-      undefined,
-      new PreviewProcess(resolve('out/main/preview-worker.js')),
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      new ExportProcess(
-        resolve('out/main/export-worker.js'),
-        resolve('out/main/preview-worker.js'),
-      ),
-      new PreviewProcess(resolve('out/main/preview-worker.js')),
-    )
+  const createLibrary = () => selectionLibrary(root)
   let library = createLibrary()
   let client: Client | undefined
   let endpoint: Awaited<ReturnType<typeof startEditorEndpoint>> | undefined
@@ -543,6 +536,204 @@ test('actual managed MCP delivers a native proposal and preserves manual edits t
     await client?.close()
     await endpoint?.close()
     await library.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('managed Background selection freezes its compound destination and commits once without changing other coverage or controls', async () => {
+  test.setTimeout(120000)
+  const root = await mkdtemp(join(tmpdir(), 'irodori-background-mcp-'))
+  const path = resolve(
+    'assets/tests/images/raster/wikimedia/object-selection/originals/European_Robin_(Erithacus_rubecula)_with_mealworm.jpeg',
+  )
+  const original = await readFile(path),
+    photoId = hash(original)
+  const library = selectionLibrary(root)
+  const metadataWorker = new PreviewProcess(resolve('out/main/preview-worker.js'))
+  const runtime = new ObjectSelectionProcess({
+    workerPath: resolve('out/main/object-selection-worker.js'),
+    modelDirectory: resolve('out/main/object-selection-model'),
+  })
+  let client: Client | undefined
+  let endpoint: Awaited<ReturnType<typeof startEditorEndpoint>> | undefined
+  let gate: AgentRequestGate | undefined
+  try {
+    const metadata = await metadataWorker.inspect(path, new AbortController().signal)
+    await metadataWorker.close(true)
+    const dimensions = await sharp(path).metadata()
+    await library.open()
+    library.cropAdmission = async () => cropAdmission()
+    const dependencies = library.objectSelections as unknown as {
+      runtime: Pick<ObjectSelectionProcess, 'run' | 'close'>
+      decoder: PreviewProcess
+    }
+    dependencies.runtime = runtime
+    dependencies.decoder = new PreviewProcess(resolve('out/main/preview-worker.js'))
+    const directory = join(root, 'library', 'originals', photoId)
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'original.jpeg'), original)
+    await library.catalogCommands.command({
+      operation: 'original.publish',
+      payload: {
+        photo: {
+          id: photoId,
+          filename: basename(path),
+          format: 'JPEG',
+          width: dimensions.width!,
+          height: dimensions.height!,
+          bytes: original.length,
+          importedAt: '2026-11-16T00:00:00Z',
+          previewSource: 'image',
+          thumbnailUrl: '',
+          previewUrl: '',
+        },
+        metadata,
+        processingIdentity: 'display-referred-v1',
+        createdAt: '2026-11-16T00:00:00Z',
+      },
+    })
+    const maskId = randomUUID(),
+      siblingId = randomUUID(),
+      componentId = randomUUID()
+    const before = await library.mutateMasks(photoId, 0, {
+      operations: [
+        { kind: 'create', id: siblingId, name: 'Independent mask' },
+        {
+          kind: 'create',
+          id: maskId,
+          name: 'Background destination',
+          gradient: {
+            kind: 'radial',
+            center: { x: 0.5, y: 0.5 },
+            radiusX: 0.4,
+            radiusY: 0.3,
+            rotation: 0,
+            feather: 50,
+          },
+        },
+        {
+          kind: 'update',
+          id: maskId,
+          light: { exposureEv: 0.25 },
+          color: { saturation: 7, tint: 3 },
+        },
+        {
+          kind: 'stroke',
+          id: maskId,
+          stroke: { mode: 'subtract', radius: 0.02, feather: 0.5, points: [{ x: 0.5, y: 0.5 }] },
+        },
+      ],
+    })
+    const beforeHistory = await library.getEditHistory(photoId)
+    const snapshot: EditorContextSnapshot = {
+      workspace: 'editor',
+      activePhotoId: photoId,
+      selectedIds: [],
+      transient: { crop: false, saving: false },
+    }
+    gate = new AgentRequestGate(
+      async () => snapshot,
+      async (id) => (await library.getEdits(id)).revision,
+      false,
+    )
+    const token = randomBytes(32).toString('hex')
+    endpoint = await startEditorEndpoint(root, library, undefined, {
+      agentGate: (supplied) => (supplied === token ? gate : undefined),
+    })
+    client = new Client({ name: 'background-compound-acceptance', version: '1' })
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [resolve('out/main/editor-mcp.js')],
+        env: {
+          ...(process.env as Record<string, string>),
+          IRODORI_AGENT_CONNECTION: JSON.stringify(endpoint.agentConnection(token)),
+        },
+      }),
+    )
+    const turn = await gate.begin(randomUUID(), 'background-compound')
+    const call = async <T>(name: string, args: Record<string, unknown>): Promise<T> => {
+      const result = await client!.callTool(
+        { name, arguments: { requestId: turn.requestId, ...args } },
+        undefined,
+        { timeout: 90000 },
+      )
+      expect(result.isError, JSON.stringify(result.content)).not.toBe(true)
+      return result.structuredContent as unknown as T
+    }
+    const context = await call<ObjectSelectionContext>('irodori_get_object_selection_context', {
+      photoId,
+      expectedRevision: before.revision,
+    })
+    const selectionTarget: ObjectSelectionTarget = {
+      kind: 'new-component',
+      maskId,
+      componentId,
+      name: 'Background intersection',
+      operator: 'intersect',
+    }
+    const proposal = await call<{
+      id: string
+      target: ObjectSelectionTarget
+      modelIdentity: string
+      selectionBase: { hash: string; width: number; height: number }
+      mask: { id: string; operands: { id: string; operator: string; base: { hash: string } }[] }
+    }>('irodori_create_object_selection', {
+      photoId,
+      expectedRevision: before.revision,
+      gridIdentity: context.gridIdentity,
+      selection: 'background',
+      selectionTarget,
+    })
+    expect(proposal.target).toEqual(selectionTarget)
+    expect(proposal.modelIdentity).toContain(':background')
+    expect(proposal.selectionBase).toMatchObject({
+      width: dimensions.width,
+      height: dimensions.height,
+    })
+    expect(proposal.mask.id).toBe(maskId)
+    expect(proposal.mask.operands[0]).toMatchObject({
+      id: componentId,
+      operator: 'intersect',
+      base: { hash: proposal.selectionBase.hash },
+    })
+    expect(await library.getEditHistory(photoId)).toEqual(beforeHistory)
+    selectionTarget.operator = 'add'
+    selectionTarget.name = 'Changed caller destination'
+    const accepted = await call<EditState>('irodori_accept_object_selection', {
+      photoId,
+      expectedRevision: before.revision,
+      proposalId: proposal.id,
+    })
+    expect(accepted.revision).toBe(before.revision + 1)
+    expect(accepted.settings.maskStack.map((mask) => mask.id)).toEqual(
+      before.settings.maskStack.map((mask) => mask.id),
+    )
+    expect(accepted.settings.maskStack[1]).toEqual(before.settings.maskStack[1])
+    const destination = accepted.settings.maskStack[0]
+    expect(destination.operands).toHaveLength(1)
+    expect(destination.operands![0]).toMatchObject({
+      id: componentId,
+      name: 'Background intersection',
+      operator: 'intersect',
+      base: { hash: proposal.selectionBase.hash },
+    })
+    expect({ ...destination, operands: before.settings.maskStack[0].operands }).toEqual(
+      before.settings.maskStack[0],
+    )
+    expect((await library.getEditHistory(photoId)).snapshots).toHaveLength(
+      beforeHistory.snapshots.length + 1,
+    )
+    expect(await readFile(path)).toEqual(original)
+    expect(await readFile(join(directory, 'original.jpeg'))).toEqual(original)
+  } finally {
+    gate?.stop()
+    await gate?.settled()
+    await client?.close()
+    await endpoint?.close()
+    await metadataWorker.close(true)
+    await library.close()
+    await runtime.close()
     await rm(root, { recursive: true, force: true })
   }
 })

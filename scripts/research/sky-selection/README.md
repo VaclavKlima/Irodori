@@ -56,3 +56,51 @@ the guide is scaled by 255 with epsilon scaled by 255² to avoid the OpenCV floa
 normalized-space inverse degeneracy. Both references agree at every R8 pixel;
 the GPU tolerance remains one byte. The failed original oracle is retained in
 private evidence. Reproduction never relaxes a gate to fit GPU output.
+
+## Reproducible Mac official-weight qualification
+
+Issue [#118](https://github.com/VaclavKlima/Irodori/issues/118) adds a test-only
+full-output oracle. Use isolated **Python 3.12.16** and
+`reference-requirements-macos.txt` on macOS; its Torch/torchvision versions omit
+the Linux `+cpu` suffix. This environment is not an application dependency.
+
+```sh
+python3.12 -m venv artifacts/sky-selection/reference-env
+artifacts/sky-selection/reference-env/bin/python -m pip install -r scripts/research/sky-selection/reference-requirements-macos.txt
+node scripts/research/sky-selection/model-reference-child.mjs prepare artifacts/sky-selection/model-reference
+artifacts/sky-selection/reference-env/bin/python scripts/research/sky-selection/generate-model-reference.py artifacts/sky-selection/model-reference --models artifacts/sky-selection/reference-models --download
+npm run verify -- --target automatic-selection-reference-gpu
+```
+
+The interpreter must report 3.12.16. Input preparation requires a fresh output
+directory, uses the bundled Node runtime and common GPU preprocessing, and records
+the original photograph, graph and generator hashes. The cohort is Treesky,
+orange sunset and storm clouds in both color and luminance, plus the robin
+background. This is a newly identified portable cohort, not a reconstruction of
+the undocumented historical three-input Radeon cohort.
+
+The generator authenticates the pinned official checkpoints, configuration and
+reviewed BiRefNet source files before loading them. `--download` permits only
+missing pinned reference inputs; subsequent inference is offline CPU FP32 with
+eval mode and unchanged torchvision deformable convolution. Omit `--download`
+when the authenticated model cache already exists. The official snapshot's local
+constant model-name expressions are retained; no user expressions or arbitrary
+remote model paths enter the application.
+
+Exact little-endian Float32 input and output tensors, reference-model downloads
+and the manifest stay under ignored `artifacts/sky-selection/`. The manifest
+records the reference environment, official source revisions/hashes and generator
+identity. Files are not lossy samples: the native WebGPU target compares all
+**15,794,176 values**, retaining `1e-3 + 1e-3 * abs(reference)` and zero
+argmax-sky/zero-logit flips. Both native ORT node profiles must contain only
+`WebGpuExecutionProvider`; CPU reference computation is never an application
+fallback. Missing official tensors leave selected verification incomplete.
+
+An alternate retained reference directory can be selected with
+`IRODORI_AUTOMATIC_REFERENCE_DIR`. After changing a generator or preparation
+identity, prepare and generate a fresh directory rather than relabeling old
+tensors. Failed comparisons and native profiles remain in that invocation's
+artifact directory. Numerical agreement does not establish photographic edge
+quality or physical HDR/color calibration. On Mac, native provider profiling and
+system hardware identification are recorded separately; Linux DRM physical-device
+activity is unavailable and Dawn's adapter is not an independent ORT witness.

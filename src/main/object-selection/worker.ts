@@ -12,6 +12,7 @@ import {
 import { packObjectSelectionPrompts } from './prompts'
 import { AUTOMATIC_SELECTION_ID, loadAutomaticSelectionGraph } from './automatic-model'
 import { refineAutomaticSelection } from './automatic-gpu'
+import { accumulateAutomaticCoverage } from './automatic-coverage'
 import { maskCapabilities } from '../../shared/masks'
 import type {
   ObjectSelectionPrepared,
@@ -124,35 +125,7 @@ async function automatic(
       const values = tensor.data as Float32Array
       if (!values.every(Number.isFinite))
         throw new Error('Automatic selection returned non-finite model output. Retry GPU.')
-      if (selection === 'sky') {
-        for (let pixel = 0; pixel < mask.length; pixel++) {
-          const sky = values[2 * mask.length + pixel]
-          let isSky = true
-          for (let label = 0; label < 150; label++) {
-            if (
-              label !== 2 &&
-              (values[label * mask.length + pixel] > sky ||
-                (label < 2 && values[label * mask.length + pixel] === sky))
-            ) {
-              isSky = false
-              break
-            }
-          }
-          if (isSky && !mask[pixel]) {
-            mask[pixel] = 1
-            selected++
-          }
-        }
-      } else {
-        for (let pixel = 0; pixel < mask.length; pixel++) {
-          mask[pixel] = 1 / (1 + Math.exp(values[pixel]))
-          if (values[pixel] > 0) selected++
-        }
-        if (!selected || selected === mask.length)
-          throw new Error(
-            'A foreground subject and background could not be separated. Existing masks are unchanged. Use Select object or Paint/Erase.',
-          )
-      }
+      selected += accumulateAutomaticCoverage(selection, values, mask)
       input.dispose()
       input = undefined
       Object.values(outputs).forEach((value) => value.dispose())

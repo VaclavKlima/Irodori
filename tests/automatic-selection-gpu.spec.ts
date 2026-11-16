@@ -39,7 +39,7 @@ test('automatic input sizes and normalization agree with frozen independent Torc
   }
 })
 
-test('both automatic models identify their native GPU provider and physical adapter independently of Dawn', async ({}, info) => {
+test('both automatic models identify their native GPU provider and physical adapter where independently observable', async ({}, info) => {
   test.setTimeout(150000)
   const require = createRequire(import.meta.url)
   const platform = process.platform === 'win32' ? 'win' : process.platform
@@ -69,7 +69,13 @@ test('both automatic models identify their native GPU provider and physical adap
     expect(profile.nodes).toBeGreaterThan(0)
     expect(profile.providers).toEqual(['WebGpuExecutionProvider'])
   }
-  if (process.platform === 'linux') expect(report.activeDevices.length).toBeGreaterThan(0)
+  if (process.platform === 'linux') {
+    expect(report.activeDevices.length).toBeGreaterThan(0)
+    expect(report.physicalAdapter.status).toBe('observed')
+  } else {
+    expect(report.physicalAdapter.status).toBe('unobservable')
+    expect(report.physicalAdapter.reason).toContain('Linux DRM')
+  }
 })
 
 test('RGB guided coverage agrees with independent OpenCV pixels and preserves native odd dimensions', async ({}, info) => {
