@@ -78,8 +78,11 @@ Keep open retains the window and explains that development has ended and reload
 may be unavailable. Retiring and replacement instances remain tracked until
 their actual PIDs disappear. A socket close or a `closing` outcome does not prove
 process exit. On Unix, a process-group inventory also protects Electron processes
-that have started but not registered. Only after applications have disappeared
-may the launcher clean up remaining descendants. Unexpected Vite failure remains
+that have started but not registered. It classifies executable names rather than
+parent directories: macOS reports full executable paths, and a bundled Node
+inside an `Irodori` checkout must not be mistaken for an editor. Only after
+applications have disappeared may the launcher clean up remaining descendants.
+Unexpected Vite failure remains
 an unsuccessful launcher exit.
 
 Electron main installs **no application SIGTERM override**. Automatic main-code

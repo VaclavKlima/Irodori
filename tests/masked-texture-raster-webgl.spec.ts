@@ -60,10 +60,10 @@ window.runPreparedRaster=async(activeLight=false,requestedDpr=1)=>{
     letterBefore=await render(prepared,letterScale,'before',true,letterbox),
     letterSplit=await render(prepared,letterScale,'split',true,letterbox),
     letterReturned=await render(prepared,letterScale,'after',true,letterbox),
-    letterLegacyBefore=await render(legacy,letterScale,'before',false,letterbox);
-  await render(legacy,letterScale,'split',false,letterbox);
-  const letterLegacyReturned=await render(legacy,letterScale,'after',false,letterbox);
-  return{nativeLegacy,nativePrepared,nativeBefore,fitLegacy,fitPrepared,before,split,dpr,gpu:prepared.gpu,letterbox,letterScale,letterLegacy,letterPrepared,letterBefore,letterSplit,letterReturned,letterLegacyBefore,letterLegacyReturned,statistics:analysis.stats,clipping:[...analysis.clip.levels[0].data]};
+    letterLegacyBefore=await render(legacy,letterScale,'before',false,letterbox),
+    letterLegacySplit=await render(legacy,letterScale,'split',false,letterbox),
+    letterLegacyReturned=await render(legacy,letterScale,'after',false,letterbox);
+  return{nativeLegacy,nativePrepared,nativeBefore,fitLegacy,fitPrepared,before,split,dpr,gpu:prepared.gpu,letterbox,letterScale,letterLegacy,letterPrepared,letterBefore,letterSplit,letterReturned,letterLegacyBefore,letterLegacySplit,letterLegacyReturned,statistics:analysis.stats,clipping:[...analysis.clip.levels[0].data]};
  }finally{if(originalDpr)Object.defineProperty(window,'devicePixelRatio',originalDpr);window.fetch=originalFetch;for(const owner of owners){owner.presenter.dispose();await owner.presenter.whenDisposed;owner.canvas.remove()}}
 };`
 
@@ -119,6 +119,7 @@ test('raster prepared Texture preserves unchanged native and Fit presentation wi
                   letterSplit: { pixels: number[]; width: number; height: number }
                   letterReturned: { pixels: number[]; width: number; height: number }
                   letterLegacyBefore: { pixels: number[]; width: number; height: number }
+                  letterLegacySplit: { pixels: number[]; width: number; height: number }
                   letterLegacyReturned: { pixels: number[]; width: number; height: number }
                 }>
               }
@@ -172,7 +173,8 @@ test('raster prepared Texture preserves unchanged native and Fit presentation wi
         let letterOutside = 0
         const letterProtectedActual: number[] = [],
           letterProtectedExpected: number[] = [],
-          letterSplitExpected: number[] = []
+          letterSplitExpected: number[] = [],
+          letterLegacySplitExpected: number[] = []
         for (let y = 0; y < r.letterPrepared.height; y++)
           for (let x = 0; x < r.letterPrepared.width; x++) {
             const i = (y * r.letterPrepared.width + x) * 4,
@@ -191,11 +193,65 @@ test('raster prepared Texture preserves unchanged native and Fit presentation wi
                 i + 4,
               ),
             )
+            letterLegacySplitExpected.push(
+              ...(cssX < r.letterbox.width * 0.5
+                ? r.letterLegacyBefore
+                : r.letterLegacy
+              ).pixels.slice(i, i + 4),
+            )
           }
+        const splitDifferences = (actual: number[], expected: number[]) => {
+          let changedBytes = 0,
+            changedPixels = 0
+          const firstDifferences: object[] = []
+          for (let i = 0; i < expected.length; i += 4) {
+            const changed = expected.slice(i, i + 4).filter((value, c) => value !== actual[i + c])
+            if (!changed.length) continue
+            changedBytes += changed.length
+            changedPixels++
+            if (firstDifferences.length >= 16) continue
+            const x = (i / 4) % r.letterPrepared.width,
+              y = Math.floor(i / 4 / r.letterPrepared.width),
+              cssX = (x + 0.5) / r.dpr,
+              cssY = r.letterbox.height - (y + 0.5) / r.dpr
+            firstDifferences.push({
+              x,
+              y,
+              cssX,
+              cssY,
+              sourceX: (cssX - r.letterbox.width * 0.5) / r.letterScale + 32,
+              sourceY: (cssY - r.letterbox.height * 0.5) / r.letterScale + 16,
+              side: cssX < r.letterbox.width * 0.5 ? 'before' : 'after',
+              expected: expected.slice(i, i + 4),
+              actual: actual.slice(i, i + 4),
+            })
+          }
+          return { changedBytes, changedPixels, firstDifferences }
+        }
+        const legacyDifferences = splitDifferences(
+            r.letterLegacySplit.pixels,
+            letterLegacySplitExpected,
+          ),
+          preparedDifferences = splitDifferences(r.letterSplit.pixels, letterSplitExpected)
+        if (legacyDifferences.changedBytes || preparedDifferences.changedBytes)
+          await test
+            .info()
+            .attach(`letterbox-split-${activeLight ? 'active' : 'neutral'}-dpr-${r.dpr}`, {
+              body: JSON.stringify(
+                { scenario, gpu: r.gpu, legacyDifferences, preparedDifferences },
+                null,
+                2,
+              ),
+              contentType: 'application/json',
+            })
         expect(
           letterProtectedActual,
           `${scenario}: every protected fractional letterbox RGBA byte`,
         ).toEqual(letterProtectedExpected)
+        expect(
+          r.letterLegacySplit.pixels,
+          `${scenario}: every legacy fractional letterbox split RGBA byte`,
+        ).toEqual(letterLegacySplitExpected)
         expect(
           r.letterSplit.pixels,
           `${scenario}: every fractional letterbox split RGBA byte`,

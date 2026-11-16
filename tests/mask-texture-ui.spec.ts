@@ -89,10 +89,8 @@ test('Texture is usable at 1100 by 700 with Console open and preserves shared hi
   const history = () => page.evaluate((id) => window.irodori.getEditHistory(id), photoId)
   const neutral = (await history()).settings,
     beforeHash = await cachedProofHash(page)
-  // Hidden-launcher DOM layout; native Wayland presentation is qualified separately.
-  await page.setViewportSize({ width: 1100, height: 700 })
-  await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
-  await activateButton(page.getByTestId('console-toggle'))
+  // Resize the actual hidden window; foreground presentation is qualified separately.
+  await minimumAdjustmentWindow(app, page)
   await maskDetailTab(page, 'Adjustments')
   const texture = page.getByRole('spinbutton', { name: 'Local Texture value', exact: true })
   await expect(texture).toHaveValue('0')
@@ -186,6 +184,26 @@ test(
     await texture.press('Enter')
     await ready(page, 3)
     await expect(canvas).toHaveAttribute('data-masked-texture-key', /^[a-f0-9]{64}$/)
+    await expect(canvas).toHaveAttribute('data-prepared-mask-state', 'ready', { timeout: 60000 })
+    await expect(canvas).toHaveAttribute(
+      'data-prepared-mask-key',
+      (await canvas.getAttribute('data-masked-texture-key'))!,
+    )
+    await expect(page.getByTestId('preview-viewport')).toHaveAttribute('data-resolution', 'full')
+    await expect(canvas).toBeVisible()
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async (photoId) => {
+            const context = await window.irodori.getPhotoPresentationContext({
+              photoId,
+              expectedRevision: 3,
+            })
+            return context.frame.status
+          }, photoId),
+        { timeout: 60000 },
+      )
+      .toBe('presented')
     expect(
       (await page.evaluate((id) => window.irodori.getEdits(id), photoId)).settings.maskStack[0]
         .texture,

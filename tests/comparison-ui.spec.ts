@@ -1,8 +1,9 @@
 import { openInspectorTool } from './inspector.helpers'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
+import { activateButton } from './button.helpers'
 
-test('histogram, clipping and comparison preserve edits and view, with accessible split and Canvas2D fallback', async ({
+test('histogram, clipping and comparison preserve edits and view, with accessible split and explicit GPU recovery', async ({
   irodori,
 }, info) => {
   test.setTimeout(90000)
@@ -87,13 +88,34 @@ test('histogram, clipping and comparison preserve edits and view, with accessibl
       revision: state.revision - 1,
     }),
   ).rejects.toThrow(/conflict/)
+  const view = await viewport.evaluate((element) => ({
+    scale: (element as HTMLElement).dataset.scale,
+    panX: (element as HTMLElement).dataset.panX,
+    panY: (element as HTMLElement).dataset.panY,
+  }))
   await canvas.evaluate((element) =>
     (element as HTMLCanvasElement)
       .getContext('webgl2')!
       .getExtension('WEBGL_lose_context')!
       .loseContext(),
   )
-  await expect(canvas).toHaveAttribute('data-backend', 'canvas2d')
+  const failure = page.getByTestId('preview-gpu-error')
+  await expect(failure).toHaveAttribute('role', 'alert')
+  await expect(failure).toContainText('WebGL')
+  await expect(canvas).toHaveAttribute('data-editing', 'unavailable')
+  expect(await page.evaluate((id) => window.irodori.getEdits(id), id)).toEqual(state)
+  await activateButton(failure.getByRole('button', { name: 'Retry GPU', exact: true }))
+  await expect(failure).toHaveCount(0)
+  await expect(canvas).toHaveAttribute('data-editing', 'ready')
+  await expect(canvas).toHaveAttribute('data-backend', 'webgl2')
+  expect(await page.evaluate((id) => window.irodori.getEdits(id), id)).toEqual(state)
+  expect(
+    await viewport.evaluate((element) => ({
+      scale: (element as HTMLElement).dataset.scale,
+      panX: (element as HTMLElement).dataset.panX,
+      panY: (element as HTMLElement).dataset.panY,
+    })),
+  ).toEqual(view)
   await canvas.focus()
   await canvas.press('y')
   await expect(canvas).toHaveAttribute('data-comparison', 'split')

@@ -7,9 +7,10 @@ an application implementation in **Masks → Adjustments → Texture**. The
 user selected completing the feature after the fixed-method photo study and
 shared-consumer proofs. Production GPU preparation, root settings, history,
 UI/API/MCP and preview/export integration are implemented.
-**Reconciled current-device background functional verification is complete;
-native foreground visuals, physical HDR and other-device acceptance remain
-pending.** Raster WebGL2
+**Bazzite background functional verification and macOS qualification are
+complete.** The Mac record below includes approved native Texture and Sunflower
+visual checks. Bazzite foreground checks, Windows and physical HDR acceptance
+remain pending. Raster WebGL2
 retains its original source with a private Float32 candidate/union overlay after
 the legacy pass, with exact native protection outside the union and Fit
 compatibility outside the affected sampler footprint. This status supersedes
@@ -117,6 +118,87 @@ macOS/Windows qualification after publication of an identified common source
 commit. #80 remains open for the pending native foreground checks. Local ignored
 reports are retained under `artifacts/masked-texture/2026-11-15-full-delivery/`
 (`summary.md`, `details.md`, `result.json`); they are not published GitHub assets.
+
+## macOS qualification — 2026-11-16
+
+[Issue #122](https://github.com/VaclavKlima/Irodori/issues/122) resumes on macOS
+26.7 (25G229), Apple M4 Pro with 24 GiB unified memory and its 16-core GPU,
+bundled Node 24.20.0 and Electron 44.3.0. The isolated GPU reports
+`apple apple-m4-pro (Metal driver on macOS Version 26.7 (Build 25G229))`.
+The native mask host is rebuilt from current sources with the retained Rust
+1.90.0 toolchain. The accepted C++ HDR codec distribution remains unchanged.
+
+The background qualification found a reproducible raster comparison defect:
+with active local Light at a fractional letterboxed scale, the creative shader's
+Before branch differed from full Before near source edges. It affected both
+legacy and prepared Texture presentation. Split now redraws its Before half
+through the same ordinary/spatial Before program and source, using a scissor
+that follows the exact fragment-center split boundary. The After and prepared
+Texture passes retain their existing shader math and sampling. Scissor, program
+and active texture state are restored before validation and analysis. The
+regression checks every legacy and prepared split byte at DPR 1 and 2, in
+addition to the existing native/union/alpha, Fit, histogram and clipping gates.
+This corrects transient comparison composition; frozen output and cache pixel
+policies are unchanged.
+
+The Mac launcher also misidentified repo-local Node descendants because its
+process inventory matched the full path. Executable-name classification fixes
+the existing shutdown regression without weakening confirmed-exit ownership.
+The functional Texture layout test now uses the actual native window resize
+helper instead of viewport emulation; its hidden Mac pass does not establish
+Wayland presentation after that harness change.
+
+Reconciled background acceptance covers **54 distinct selected feature and
+comparison cases**, plus **1,034 cheap Node cases**. The 21 isolated processing,
+worker, HDR-consumer and frozen-output cases pass in **31.72 s**; the final
+Texture application/raster batch passes four cases in **22.14 s**, with its
+native case deferred. The distinct-source raster comparison passes three cases;
+the comparison UI's retired automatic-Canvas2D assertion is corrected to verify
+explicit GPU error/retry and exact edit/view preservation. Its exact rerun
+passes in **4.82 s**. The accepted unchanged codec's encoded Texture round trip
+also passes in **4.53 s**. The 34 Linux-only native RAW checks remain unavailable
+on Mac. Type checking, lint, formatting and the application build pass; the final
+test-only change has targeted lint/format and type-check evidence. This is
+reconciled acceptance across original invocations and exact corrective runs,
+not a relabelled clean invocation or a comprehensive checkpoint.
+
+The final hidden app batch records five launches across four isolated profiles,
+all windows closed, no show/focus events or policy violations, and all four
+profile directories removed. Native GPU presentation uses ANGLE Metal on the
+Apple M4 Pro. No CPU feature fallback, changed image operator, numerical/quality
+gate or reduced-resolution recovery is introduced.
+
+The user subsequently approved the two native checks. Sunflower's native
+1100 × 700 and 1440 × 1000 assertions pass in the initial **2/2, 12.35 s**
+foreground invocation. Its fourteen tool screenshots were visually reviewed
+against freshly rendered references, retaining the approved List + Beside
+browser, Little Jizō and actual implemented-control/data differences. No blocking
+composition, overlap or clipping defect was found.
+
+The first Texture screenshot was rejected during visual review: the test's
+earlier geometry/edit-ready assertions allowed capture while the photograph was
+still loading. The native case now also requires completed prepared-mask
+state/key agreement, full resolution, visible canvas and the exact revision's
+photo-presentation context reporting `presented`. Its corrective invocation
+passes **1/1 in 6.91 s**. The accepted native screenshot shows the committed
+flamingo photograph, SDR presentation, Texture +25, reset and Console at
+1100 × 700. This fixes test readiness; no production presentation change or
+arbitrary delay was needed. The earlier premature capture remains retained.
+
+Mac qualification therefore covers **56 distinct selected cases plus
+1,034 cheap Node passes**, with no pending Mac foreground case. Native windows
+closed and their isolated profiles were removed. The user then approved
+publication of all seven reviewed source, test and documentation files. This
+revision delivers the Mac corrections and acceptance record; #122 continues to
+track unverified Windows qualification. It does not establish acceptance of
+#80's separate Bazzite foreground checks.
+
+Windows, physical HDR luminance, real authored-HDR
+photographic appearance, broad quality/performance and the exact HDR service
+analysis/clipping limits remain outside the background evidence. Local attempts
+and corrective runs are retained under
+`artifacts/masked-texture/2026-11-16-macos-qualification/` and linked verification
+directories; the original failed runs remain failed.
 
 ## Bounded prototype checkpoint — 2026-11-14
 

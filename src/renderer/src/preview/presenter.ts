@@ -904,64 +904,93 @@ export class PreviewPresenter {
           gl.uniform1i(location('localMaskData'), 2)
         }
       }
-      if (this.beforeTexture) {
-        gl.activeTexture(gl.TEXTURE1)
-        gl.bindTexture(gl.TEXTURE_2D, this.beforeTexture)
-        gl.uniform1i(location('beforePixels'), 1)
+      if (creative) gl.uniform4fv(location('creativeColorData[0]'), packCreativeColor(colour!))
+      if (creative && this.uploadedCurves !== curves) {
+        gl.uniform4fv(location('toneCurveData[0]'), packToneCurves(curves))
+        this.uploadedCurves = curves
+      }
+      const bindPresentation = (activeProgram: WebGLProgram, mode: ComparisonMode) => {
+        gl.useProgram(activeProgram)
+        const location = (name: string) => gl.getUniformLocation(activeProgram, name)
+        if (this.beforeTexture) {
+          gl.activeTexture(gl.TEXTURE1)
+          gl.bindTexture(gl.TEXTURE_2D, this.beforeTexture)
+          gl.uniform1i(location('beforePixels'), 1)
+          gl.texParameteri(
+            gl.TEXTURE_2D,
+            gl.TEXTURE_MAG_FILTER,
+            view.scale < 1 ? gl.LINEAR : gl.NEAREST,
+          )
+        }
+        gl.activeTexture(gl.TEXTURE0)
+        gl.bindTexture(gl.TEXTURE_2D, this.texture!)
+        gl.uniform1i(location('pixels'), 0)
+        gl.uniform2f(location('viewport'), viewport.width, viewport.height)
+        gl.uniform2f(location('imageSize'), image.width, image.height)
+        gl.uniform2f(location('pan'), view.x, view.y)
+        gl.uniform1f(location('scale'), view.scale)
+        gl.uniform1f(location('dpr'), dpr)
+        gl.uniform1f(location('exposureEv'), parameters.exposureEv)
+        gl.uniform1f(location('contrast'), parameters.contrast)
+        gl.uniform1f(location('highlights'), parameters.highlights)
+        gl.uniform1f(location('shadows'), parameters.shadows)
+        gl.uniform1f(location('whites'), parameters.whites)
+        gl.uniform1f(location('blacks'), parameters.blacks)
+        gl.uniform2f(location('colorIntensity'), parameters.saturation, parameters.vibrance)
+        const wb = whiteBalanceMatrix(parameters.whiteBalance, this.working?.transform.whiteBalance)
+        const matrix = wb ?? identityMatrix
+        gl.uniformMatrix3fv(
+          location('whiteBalance'),
+          false,
+          [0, 3, 6, 1, 4, 7, 2, 5, 8].map((i) => matrix[i]),
+        )
+        gl.uniform1i(location('customWb'), Number(!!wb))
+        gl.uniform1i(location('comparison'), mode === 'before' ? 1 : mode === 'split' ? 2 : 0)
+        gl.uniform1f(location('split'), this.comparison.split)
+        gl.uniform1i(location('working'), Number(!!this.working))
+        if (this.working) {
+          const t = this.working.transform
+          gl.uniform3f(location('transform'), t.white, t.threshold, t.offset)
+          gl.uniform1i(location('quantize'), Number(t.quantize))
+        }
         gl.texParameteri(
           gl.TEXTURE_2D,
           gl.TEXTURE_MAG_FILTER,
           view.scale < 1 ? gl.LINEAR : gl.NEAREST,
         )
       }
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, this.texture!)
-      gl.uniform1i(location('pixels'), 0)
-      if (creative) gl.uniform4fv(location('creativeColorData[0]'), packCreativeColor(colour!))
-      if (creative && this.uploadedCurves !== curves) {
-        gl.uniform4fv(location('toneCurveData[0]'), packToneCurves(curves))
-        this.uploadedCurves = curves
-      }
-      gl.uniform2f(location('viewport'), viewport.width, viewport.height)
-      gl.uniform2f(location('imageSize'), image.width, image.height)
-      gl.uniform2f(location('pan'), view.x, view.y)
-      gl.uniform1f(location('scale'), view.scale)
-      gl.uniform1f(location('dpr'), dpr)
-      gl.uniform1f(location('exposureEv'), parameters.exposureEv)
-      gl.uniform1f(location('contrast'), parameters.contrast)
-      gl.uniform1f(location('highlights'), parameters.highlights)
-      gl.uniform1f(location('shadows'), parameters.shadows)
-      gl.uniform1f(location('whites'), parameters.whites)
-      gl.uniform1f(location('blacks'), parameters.blacks)
-      gl.uniform2f(location('colorIntensity'), parameters.saturation, parameters.vibrance)
-      const wb = whiteBalanceMatrix(parameters.whiteBalance, this.working?.transform.whiteBalance)
-      const matrix = wb ?? identityMatrix
-      gl.uniformMatrix3fv(
-        location('whiteBalance'),
-        false,
-        [0, 3, 6, 1, 4, 7, 2, 5, 8].map((i) => matrix[i]),
-      )
-      gl.uniform1i(location('customWb'), Number(!!wb))
-      gl.uniform1i(
-        location('comparison'),
-        this.comparison.mode === 'before' ? 1 : this.comparison.mode === 'split' ? 2 : 0,
-      )
-      gl.uniform1f(location('split'), this.comparison.split)
-
-      gl.uniform1i(location('working'), Number(!!this.working))
-      if (this.working) {
-        const t = this.working.transform
-        gl.uniform3f(location('transform'), t.white, t.threshold, t.offset)
-        gl.uniform1i(location('quantize'), Number(t.quantize))
-      }
-      gl.texParameteri(
-        gl.TEXTURE_2D,
-        gl.TEXTURE_MAG_FILTER,
-        view.scale < 1 ? gl.LINEAR : gl.NEAREST,
-      )
+      bindPresentation(program, this.comparison.mode)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
       if (this.preparedOverlay && this.working)
         this.preparedOverlay.draw(image, viewport, view, this.working.transform, this.comparison)
+      if (creative && this.comparison.mode === 'split') {
+        // Full Before and split Before share the same program, source and sampling.
+        // A creative shader's Before branch can produce different filtered pixels.
+        const beforeProgram = this.spatialProgram ?? this.program
+        if (!beforeProgram) throw new Error('Raster comparison program unavailable.')
+        const enabled = gl.isEnabled(gl.SCISSOR_TEST),
+          box = gl.getParameter(gl.SCISSOR_BOX) as Int32Array,
+          active = gl.getParameter(gl.ACTIVE_TEXTURE) as number,
+          columns = Math.max(
+            0,
+            Math.min(width, Math.ceil(viewport.width * dpr * this.comparison.split - 0.5)),
+          ),
+          left = enabled ? Math.max(0, box[0]) : 0,
+          bottom = enabled ? Math.max(0, box[1]) : 0,
+          right = enabled ? Math.min(columns, box[0] + box[2]) : columns,
+          top = enabled ? Math.min(height, box[1] + box[3]) : height
+        try {
+          gl.enable(gl.SCISSOR_TEST)
+          gl.scissor(left, bottom, Math.max(0, right - left), Math.max(0, top - bottom))
+          bindPresentation(beforeProgram, 'before')
+          gl.drawArrays(gl.TRIANGLES, 0, 3)
+        } finally {
+          gl.scissor(box[0], box[1], box[2], box[3])
+          if (!enabled) gl.disable(gl.SCISSOR_TEST)
+          gl.useProgram(program)
+          gl.activeTexture(active)
+        }
+      }
       if (masks && creative && !this.localMaskQuery) {
         const query = gl.createQuery()
         if (!query) throw new Error('Local adjustment validation query allocation failed.')

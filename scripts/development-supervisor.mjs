@@ -2,6 +2,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:net'
 import { readFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
+import { basename } from 'node:path'
 import { readDevelopmentMessages, sendDevelopmentMessage } from './development-protocol.mjs'
 
 export async function processExists(pid) {
@@ -24,7 +25,8 @@ function groupApplications(group) {
   if (result.status !== 0) throw new Error('Cannot confirm development application disappearance.')
   return result.stdout.split('\n').flatMap((line) => {
     const fields = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/)
-    return fields && Number(fields[2]) === group && /electron|irodori/i.test(fields[3])
+    // macOS comm includes the executable path; parent directory names do not identify the app.
+    return fields && Number(fields[2]) === group && /electron|irodori/i.test(basename(fields[3]))
       ? [Number(fields[1])]
       : []
   })
