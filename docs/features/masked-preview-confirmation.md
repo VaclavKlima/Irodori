@@ -117,7 +117,26 @@ this completes the selected focused checks. Counts from repeated fast checks are
 not added together. The run exceeded the routine 60-second budget; the slowest
 test was 13.86 seconds, and no assertion was removed or cut short.
 
-macOS, Windows and unavailable presentation paths remain incomplete under
+Windows and unavailable presentation paths remain incomplete under
 [issue #99](https://github.com/VaclavKlima/Irodori/issues/99), which links this
-confirmation regression. This fix does not claim physical HDR luminance
-qualification or resolve the independent managed Console failure in #101.
+confirmation regression. The later Mac ordinary-policy evidence is recorded
+below. This fix does not claim physical HDR luminance qualification or resolve
+the independent managed Console failure in #101.
+
+### Mac ordinary-policy acceptance — November 16, 2026
+
+#99 reuses the accepted #117 saved RAW compound activation/global edit/navigation/
+restart case (6.20 seconds), its 62 confirmation/gesture Node passes, and #105's
+actual native RAW range × radial compound pixel case. Their renderer,
+confirmation and mask owners are byte-identical on published main
+`0ea158243f3eed4c9ab48030448cdd6256011706`. The new #99 `masks-hdr-ui` selection
+also passes inside/outside mask pixels, Before/history and neutral-mask histogram
+retention. See the [compound Mac qualification](mask-compounds.md#macos-ordinary-policy-qualification--november-16-2026)
+for exact reused and new receipts, source hashes and limits.
+
+Mac's ordinary policy remains reference arithmetic, tile batch 32, separate fence
+and disabled exact-frame presentation caching. The functional browser case
+passes; the separately gated cache-hit variant remains unavailable and owned by
+#99, with #117's policy record. No feature flag or presentation policy was changed
+to make that case pass. These HDR-source/SDR-display checks do not certify physical
+HDR output, another platform or the installed signed-in Console client.

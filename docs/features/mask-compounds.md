@@ -155,6 +155,70 @@ Verified default-branch delivery and the published commit are recorded in
 [issue #85](https://github.com/VaclavKlima/Irodori/issues/85). The separately
 accepted desktop input work belongs to #98; this receipt covers only the selected
 compound-mask targets.
-macOS, Windows, integrated WebGL, live signed-in Console and physical HDR
-luminance remain unverified; see #99. Existing automatic selection fine-edge
-quality limits remain #78.
+The Mac ordinary-policy qualification is recorded below. Windows, integrated
+Radeon WebGL, live signed-in Console and physical HDR luminance remain unverified;
+see #99. Existing automatic selection fine-edge quality limits remain #78.
+
+### macOS ordinary-policy qualification — November 16, 2026
+
+[#99](https://github.com/VaclavKlima/Irodori/issues/99) records the available-device
+slice on clean published main `0ea158243f3eed4c9ab48030448cdd6256011706`:
+macOS 26.7 (25G229), Apple M4 Pro, 24 GiB unified memory, bundled Node 24.20.0,
+Electron 44.3.0 and Playwright 1.63.0. Dawn identifies Apple M4 Pro/Metal; the
+browser witness is ANGLE Metal on Apple M4 Pro. The checked native mask host and
+accepted C++ codec are unchanged from #118. No product or test change was needed.
+
+**179 distinct selected feature/regression cases and 949 other cheap checks
+pass**, with no unresolved Mac failure. Thirty-four Linux-only native RAW cases
+and the Mac-disabled exact-frame-cache case remain unavailable. Original
+incomplete/failed invocation statuses are preserved; this is a reconciled
+ordinary-policy acceptance record, not a clean comprehensive checkpoint.
+
+Most required evidence already existed from the same Mac. The five compound
+test files, their numerical/JPEG/proof helpers and compound mask/store/edge/GPU/UI
+owners match the accepted #105 bytes. Its native input/capture launcher also
+matches. The only later selection-worker change extracts unchanged automatic
+coverage arithmetic and has separate #118 acceptance; it does not change SAM
+selection or compound operators. Retained provider, fixture and source hashes
+are audited before reuse rather than inferred from a prior issue's completion.
+
+| Evidence                                         | Accepted scope                                                                                                                |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| #105 five compound targets                       | 18 cases: model 8, GPU 4, WebGL 1, photographic 1, UI 4; native and photographic receipts reused                              |
+| #105 shared MCP and catalog migration            | 11 MCP and 21 migration cases; independent copies/corrections, history and immutable-content compatibility                    |
+| #117 confirmation/gesture owners                 | 62 Node cases and one saved RAW compound activation/global edit/navigation/restart case                                       |
+| #105 actual browser RAW compound pixels          | Native range × radial intersection, edges, Before/Undo, crop/rotation/lens registration and restart                           |
+| #118 shared selection and service owners         | 49 selection-service, three managed selection/MCP and six mask-service cases; frozen destinations and independent corrections |
+| New `masks-rendering` / `masks-hdr-ui` selection | Five real proof/export cases and two browser mask/histogram cases pass on current source                                      |
+
+The new registered background invocation is
+`artifacts/verification/2026-11-16T18-05-44.531Z-check-IpBgBN/summary.md`:
+**1,075 passed, zero failed, 34 Linux-only unavailable, 79.43 seconds**. Type
+checking, lint, formatting, application build, Node and native GPU stages pass.
+Its seven selected cases include independent frozen compound SDR/HDR exports
+after source-mask edits and shared-service restart, real Sony crop placement,
+authored HDR/synthetic merge-master edge output, unmasked pixel preservation,
+Before/history and neutral-mask histogram retention. The compound frozen-output
+case passes in 11.54 seconds. Existing two-code proof/export and independent
+0.02 ISO gain-map reconstruction gates are unchanged. The routine warning's ten
+slowest cases were reviewed; no assertion was reduced or extra benchmark added.
+
+The retained native 1100 × 700 Console-open nested-tree capture and flamingo
+baseline/protected radial Fit and unresampled feather/leg/beak crops were reviewed
+again. Bird interiors remain protected while surrounding water darkens; copied
+coverage stays independent and destination edges remain neutral. Existing coarse
+SAM boundaries and the dark feather outline remain visible, without a matting
+claim. No new photographic input, model, camera capture or foreground run was
+needed.
+
+Mac uses its ordinary reference arithmetic, tile batch 32, separate fence and
+**disabled exact-frame presentation cache**. Functional confirmation passes;
+the cache-hit variant remains explicitly skipped under #99/#117. No Linux cache
+policy, backend fork, numerical/resource relaxation or physical HDR claim is
+introduced. Windows x64, integrated Radeon browser presentation, the conditional
+cache path, signed-in Console and physical HDR remain outside this accepted slice.
+
+Local bounded index and source/fixture/capture audits:
+`artifacts/mask-compounds/2026-11-16-macos-qualification/{summary.md,details.md,result.json,reuse-audit.json,confirmation-reuse.json}`.
+The current changes only record qualification in the briefs. #99 maintains
+publication status and remains the owner of its unverified platform/cache paths.
