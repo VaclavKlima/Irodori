@@ -117,7 +117,6 @@ export function useHdrAnalysis(
     () =>
       JSON.stringify([
         frame?.identity,
-        key,
         selectedTarget.generation,
         selectedTarget.requested,
         selectedTarget.mode,
@@ -130,7 +129,9 @@ export function useHdrAnalysis(
         backend === 'native'
           ? [nativeEligible, confirmed?.revision, comparison, comparisonOf, presentationSerial]
           : null,
-      ]),
+      ]) +
+      '\n' +
+      key,
     [
       frame?.identity,
       key,

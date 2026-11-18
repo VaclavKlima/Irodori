@@ -19,10 +19,14 @@ export function retainHdrContent(
   if (!selected.has(hash)) return
   const count = statistics.visiblePixels
   const key = `${hash}:${count}`
+  const previous = content.get(key)
   content.delete(key)
   content.set(key, {
     hash,
-    parameters: structuredClone(parameters),
+    parameters:
+      previous && sameAdjustments(previous.parameters, parameters)
+        ? previous.parameters
+        : structuredClone(parameters),
     statistics: structuredClone(statistics),
   })
   const matching = [...content].filter(([, entry]) => entry.hash === hash)

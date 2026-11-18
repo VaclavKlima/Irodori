@@ -2,10 +2,17 @@ import { openInspectorTool } from './inspector.helpers'
 import { expect, test } from './electron.fixture'
 import { importPhotos } from './import.helpers'
 import { activateButton } from './button.helpers'
+import { minimumAdjustmentWindow } from './adjustment-input.helpers'
+import { captureWindow } from './window-capture.helpers'
+import { foregroundTest } from './foreground'
 
-test('histogram, clipping and comparison preserve edits and view, with accessible split and explicit GPU recovery', async ({
-  irodori,
-}, info) => {
+const title =
+  'histogram, clipping and comparison preserve edits and view, with accessible split and explicit GPU recovery'
+const requiresForeground = foregroundTest(
+  'The resized minimum-size Console-open comparison requires a compositor-presented window for capture on Wayland.',
+)
+
+test(title, requiresForeground, async ({ irodori }, info) => {
   test.setTimeout(90000)
   const { page } = irodori
   await importPhotos(irodori.app, page, [
@@ -119,15 +126,9 @@ test('histogram, clipping and comparison preserve edits and view, with accessibl
   await canvas.focus()
   await canvas.press('y')
   await expect(canvas).toHaveAttribute('data-comparison', 'split')
-  await irodori.app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0]
-    window.unmaximize()
-    window.setContentSize(1100, 700)
-  })
-  await page.getByTestId('console-toggle').click()
-  await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1100, 700])
-  await page.screenshot({ path: info.outputPath('comparison.png') })
-  await page.getByRole('button', { name: 'Previous photo', exact: true }).click()
+  await minimumAdjustmentWindow(irodori.app, page)
+  await captureWindow(irodori.app, page, info.outputPath('comparison.png'))
+  await activateButton(page.getByRole('button', { name: 'Previous photo', exact: true }))
   await expect(canvas).toHaveAttribute('data-comparison', 'after')
   await expect(page.getByRole('button', { name: 'Shadow clipping', exact: true })).toHaveAttribute(
     'aria-pressed',

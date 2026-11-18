@@ -2,6 +2,7 @@ import type { Frame, Page } from '@playwright/test'
 import { build } from 'esbuild'
 import sharp from 'sharp'
 import { test, expect } from './electron.fixture'
+import { foregroundTest } from './foreground'
 import {
   neutralAdjustments,
   renderAdjustments,
@@ -159,9 +160,13 @@ function composed(a: number[], b: number[], w: number, boundary: number) {
   return out
 }
 
-test('two ordinary version slots preserve independent pixels and non-overlapping alpha at a shared native region', async ({
-  irodori: { page },
-}) => {
+const title =
+  'two ordinary version slots preserve independent pixels and non-overlapping alpha at a shared native region'
+const requiresForeground = foregroundTest(
+  'Composited A/B and split pixel capture requires a compositor-presented drawable on Wayland.',
+)
+
+test(title, requiresForeground, async ({ irodori: { page } }) => {
   const frame = await harness(page)
   const reference = parameters.map((p, i) => [
     ...renderAdjustments(new Float32Array(pixels(i)), p, srgbTransform),

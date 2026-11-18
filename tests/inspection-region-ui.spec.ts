@@ -5,10 +5,16 @@ import { agentCliFixture, runAgentHook } from './agent-cli.helpers'
 import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { agentTools } from '../src/main/agent/policy'
+import { minimumAdjustmentWindow } from './adjustment-input.helpers'
+import { foregroundTest } from './foreground'
 
-test('inspection rectangles are temporary, editable and cancellable at the Console-open minimum size', async ({
-  irodori,
-}, testInfo) => {
+const title =
+  'inspection rectangles are temporary, editable and cancellable at the Console-open minimum size'
+const requiresForeground = foregroundTest(
+  'Post-resize GPU geometry commits and capture at native minimum size require a visible Wayland surface.',
+)
+
+test(title, requiresForeground, async ({ irodori }, testInfo) => {
   const { app, page } = irodori
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await importPhotos(app, page, [
@@ -17,12 +23,7 @@ test('inspection rectangles are temporary, editable and cancellable at the Conso
   ])
   await activateButton(page.getByRole('button', { name: 'Select alpine-lake.jpg', exact: true }))
   await expect(page.getByTestId('main-preview')).toHaveAttribute('data-editing', 'ready')
-  const nativeWindow = await app.browserWindow(page)
-  await nativeWindow.evaluate((window) => {
-    window.unmaximize()
-    window.setContentSize(1100, 700)
-  })
-  await activateButton(page.getByTestId('console-toggle'))
+  await minimumAdjustmentWindow(app, page)
   await activateButton(page.getByRole('button', { name: 'Inspect region', exact: true }))
   const x = page.getByRole('textbox', { name: 'Inspection X', exact: true })
   await expect(x).toBeEnabled()

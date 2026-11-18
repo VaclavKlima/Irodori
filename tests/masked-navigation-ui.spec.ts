@@ -7,6 +7,7 @@ test('masked navigation reuses serialized coverage while actual edit changes inv
 }, info) => {
   test.setTimeout(120000)
   const { app, page } = irodori
+  await page.evaluate(() => window.irodori.setPreviewPreference('sdr'))
   await importPhotos(app, page, ['tests/fixtures/sony-zv1.ARW'], false, 'renderer')
   const photoId = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
   const maskId = crypto.randomUUID()
@@ -51,17 +52,23 @@ test('masked navigation reuses serialized coverage while actual edit changes inv
   const state = await page.evaluate(async () => {
     const c = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')!
     const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
+    const waitFor = async (ready: () => boolean, failure: string) => {
+      const start = performance.now()
+      while (!ready()) {
+        if (performance.now() - start > 15000) throw new Error(failure)
+        await frame()
+      }
+    }
     const key = async (key: string) => {
       const serial = c.dataset.requestedSerial
       c.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
       const start = performance.now()
-      while (
-        c.dataset.requestedSerial === serial ||
-        c.dataset.completedEditSerial !== c.dataset.requestedSerial
-      ) {
-        if (performance.now() - start > 15000) throw new Error('Masked navigation did not settle')
-        await frame()
-      }
+      await waitFor(
+        () =>
+          c.dataset.requestedSerial !== serial &&
+          c.dataset.completedEditSerial === c.dataset.requestedSerial,
+        'Masked navigation did not settle',
+      )
       await c.getContext('webgpu')!.getConfiguration()!.device.queue.onSubmittedWorkDone()
       return performance.now() - start
     }
@@ -103,6 +110,7 @@ test('masked navigation reuses serialized coverage while actual edit changes inv
       analysis: c.dataset.analysisSerial,
     }
     const samples: number[] = []
+    const counts = () => ({ ...probe, stacks: [...probe.stacks] })
     try {
       for (const input of [
         'ArrowRight',
@@ -115,28 +123,57 @@ test('masked navigation reuses serialized coverage while actual edit changes inv
         '-',
       ])
         samples.push(await key(input))
-    } finally {
-      JSON.stringify = original
-      window.structuredClone = originalClone
-    }
-    const retainedPayloads = performance
-      .getEntriesByName('irodori.preview.presentation')
-      .slice(measuresBefore)
-      .filter((entry) =>
-        JSON.stringify((entry as PerformanceMeasure).detail).includes('pngBase64'),
-      ).length
-    return {
-      probe,
-      retainedPayloads,
-      samples,
-      before,
-      after: {
+      const navigation = counts()
+      const after = {
         tiles: c.dataset.renderedTiles,
         uploads: c.dataset.sourceUploads,
         analysis: c.dataset.analysisSerial,
-      },
-      quality: c.dataset.quality,
-      policy: c.dataset.presentedPolicy,
+      }
+      const presentedSerial = Number(c.dataset.presentationSerial)
+      const previousGeneration = Number(c.dataset.targetGeneration)
+      const source = c.dataset.presentedSourceIdentity
+      probe.calls = 0
+      probe.bytes = 0
+      probe.coverageClones = 0
+      probe.stacks.length = 0
+      const requested = await window.irodori.refreshPreviewDisplay()
+      await waitFor(
+        () =>
+          Number(c.dataset.targetGeneration) >= requested.generation &&
+          Number(c.dataset.presentationSerial) > presentedSerial &&
+          c.dataset.completedEditSerial === c.dataset.requestedSerial &&
+          c.dataset.analysisPending === 'false' &&
+          Number(c.dataset.analysisSerial) > Number(after.analysis),
+        'Refreshed SDR target and histogram did not publish',
+      )
+      const display = await window.irodori.getDisplayState()
+      return {
+        probe: navigation,
+        retainedPayloads: performance
+          .getEntriesByName('irodori.preview.presentation')
+          .slice(measuresBefore)
+          .filter((entry) => original((entry as PerformanceMeasure).detail).includes('pngBase64'))
+          .length,
+        samples,
+        before,
+        after,
+        quality: c.dataset.quality,
+        policy: c.dataset.presentedPolicy,
+        refresh: {
+          probe: counts(),
+          previousGeneration,
+          requestedGeneration: requested.generation,
+          presentedGeneration: Number(c.dataset.targetGeneration),
+          currentGeneration: display.generation,
+          mode: display.mode,
+          preference: display.requested,
+          sameSource: c.dataset.presentedSourceIdentity === source,
+          revision: c.dataset.presentedSettingsRevision,
+        },
+      }
+    } finally {
+      JSON.stringify = original
+      window.structuredClone = originalClone
     }
   })
   await writeFile(info.outputPath('masked-navigation.json'), JSON.stringify(state, null, 2))
@@ -145,6 +182,15 @@ test('masked navigation reuses serialized coverage while actual edit changes inv
   expect(state.probe.coverageClones).toBe(0)
   expect(state.retainedPayloads).toBe(0)
   expect(state.after).toEqual(state.before)
+  expect(state.refresh).toMatchObject({
+    probe: { calls: 0, bytes: 0, coverageClones: 0 },
+    mode: 'sdr',
+    preference: 'sdr',
+    sameSource: true,
+    revision: '1',
+  })
+  expect(state.refresh.requestedGeneration).toBeGreaterThan(state.refresh.previousGeneration)
+  expect(state.refresh.presentedGeneration).toBe(state.refresh.currentGeneration)
   expect(state.quality).toBe('normal')
   expect(state.policy).toBe('reference')
   expect(await page.evaluate((id) => window.irodori.getEditHistory(id), photoId)).toEqual(history)

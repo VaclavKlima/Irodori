@@ -818,16 +818,15 @@ function CurrentPhotoPreview({
       : tools.hdrOverlay
   const shadows = tools.shadows || tools.hover === 'shadows'
   const maskTargetKey = JSON.stringify(maskPixelTarget(actualTarget))
+  // Prepared coverage can be megabytes. Keep its exact identity separate from
+  // the small source and target fields that change during display refresh.
+  const adjustmentKey = useMemo(() => JSON.stringify(adjustments), [adjustments])
   const maskSourceKey = useMemo(
     () =>
-      JSON.stringify([
-        analysisWorking?.identity,
-        mode === 'before',
-        mode === 'before' ? neutralAdjustments : adjustments,
-        JSON.parse(maskTargetKey),
-        tools.domain,
-      ]),
-    [analysisWorking?.identity, mode, adjustments, maskTargetKey, tools.domain],
+      JSON.stringify([analysisWorking?.identity, mode === 'before', maskTargetKey, tools.domain]) +
+      '\n' +
+      (mode === 'before' ? JSON.stringify(neutralAdjustments) : adjustmentKey),
+    [analysisWorking?.identity, mode, adjustmentKey, maskTargetKey, tools.domain],
   )
   const setMask = useCallback(
     (value?: ClippingMask) => {
@@ -1174,9 +1173,6 @@ function CurrentPhotoPreview({
     }
   }, [cropping, change, stopDrag])
   usePreviewWheel(viewport, ready, change, stopDrag)
-  // Prepared mask PNGs can be megabytes. View-only state must not serialize
-  // unchanged immutable edit parameters on every pointer or wheel frame.
-  const adjustmentKey = useMemo(() => JSON.stringify(adjustments), [adjustments])
   useEffect(() => {
     stopDrag()
   }, [
