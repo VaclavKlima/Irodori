@@ -107,6 +107,14 @@ test('managed assistant respects actual SDR proofing, missing capabilities and p
   expect(instructions).toContain('use an actual SDR output proof')
   expect(instructions).toContain('preserving the HDR master and workspace preference')
   expect(instructions).toContain('SDR images of an HDR source remain SDR evidence')
+  expect(instructions).toContain(
+    'When Irodori displays HDR and your image is SDR, tell the photographer',
+  )
+  expect(instructions).toContain(
+    'revision-bound irodori_get_photo_statistics or irodori_get_photo_pixel',
+  )
+  expect(instructions).toContain('output/current requires matching target generation')
+  expect(instructions).toContain('Values establish neither HDR vision nor physical brightness')
   expect(instructions).toContain('Complete independent supported parts')
   expect(instructions).toContain('Make one concrete relevant feature request in this conversation')
   expect(instructions).toContain('including normal production use')

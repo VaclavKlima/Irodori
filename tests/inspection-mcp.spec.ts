@@ -1,12 +1,17 @@
 import { expect, test } from '@playwright/test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import sharp from 'sharp'
 import { startEditorEndpoint } from '../src/main/editor-endpoint'
 import { AgentRequestGate } from '../src/main/agent/request-gate'
+import { readAgentPresentationContext } from '../src/main/agent/presentation-context'
+import { DisplayState } from '../src/main/display-state'
+import { defaultExportOptions } from '../src/shared/export'
+import { inspectionHdrCapability } from '../src/shared/inspection'
 import type { PhotoLibrary } from '../src/main/library'
 
 // This transport test isolates MCP member ordering, metadata and request fencing;
@@ -21,6 +26,36 @@ for (const managed of [false, true])
         .png()
         .toBuffer()
     ).toString('base64')
+    const jpeg = (await sharp(Buffer.from(data, 'base64')).jpeg().toBuffer()).toString('base64')
+    const display = new DisplayState(root, () => {})
+    const target = display.report({
+      hardware: true,
+      extended: true,
+      p3: true,
+      headroomStops: 2,
+      reason: 'Test HDR display.',
+    })
+    const present = (mode: 'hdr' | 'sdr', revision = 3) =>
+      display.reportPresentation({
+        photoId,
+        revision,
+        targetGeneration: target.generation,
+        mode,
+        backend: mode === 'hdr' ? 'webgpu-hdr' : 'canvas2d-hdr-sdr',
+        stage: 'presented',
+        reason: 'Test frame.',
+        timings: {},
+      })
+    present('hdr')
+    let displayAvailable = true
+    const notice =
+      'Irodori is displaying this photograph in HDR. The Console inspection image is SDR.'
+    const displayMismatch = {
+      frame: 'hdr',
+      delivered: 'sdr',
+      targetGeneration: target.generation,
+      notice,
+    }
     const calls: unknown[] = []
     const context = {
       photoId,
@@ -32,9 +67,29 @@ for (const managed of [false, true])
     }
     const library = {
       getEdits: async () => ({ revision: 3 }),
+      getPhotoPresentationContext: (request: Parameters<typeof readAgentPresentationContext>[0]) =>
+        readAgentPresentationContext(request, {
+          currentRevision: async () => 3,
+          readDisplayTarget: () => (displayAvailable ? display.get() : undefined),
+          readPreviewDiagnostics: () => ({
+            photoId,
+            revision: 3,
+            loadingStage: 'prepared',
+            timings: {},
+          }),
+          inspectionHdr: inspectionHdrCapability,
+        }),
+      prepareExport: async () => ({ id: 'proof-preparation' }),
+      getOutputProofOverview: async ({ options }: { options: { output: 'hdr' | 'sdr' } }) => ({
+        photoId,
+        revision: 3,
+        output: options.output,
+        overview: { rendition: 'SDR overview of decoded JPEG primary' },
+        data: jpeg,
+      }),
       agentPreviews: {
         context: async () => ({ ...context, geometry: { privateRendererMapping: 'lens-table' } }),
-        get: async () => ({ photoId, revision: 3, mimeType: 'image/jpeg', data }),
+        get: async () => ({ photoId, revision: 3, mimeType: 'image/jpeg', data: jpeg }),
         inspect: async (
           _id: string,
           _revision: number,
@@ -70,7 +125,7 @@ for (const managed of [false, true])
       true,
     )
     const token = 'c'.repeat(64)
-    const endpoint = await startEditorEndpoint(root, library, undefined, {
+    const endpoint = await startEditorEndpoint(root, library, display, {
       agentGate: (value) => (value === token ? gate : undefined),
     })
     const connection = JSON.parse(await readFile(join(root, 'editor', 'connection.json'), 'utf8'))
@@ -87,11 +142,13 @@ for (const managed of [false, true])
     try {
       const request = managed ? await gate.begin(crypto.randomUUID(), 'inspection') : undefined
       await client.connect(transport)
-      const call = (name: string, args: Record<string, unknown>) =>
-        client.callTool({
-          name,
-          arguments: { ...args, ...(request ? { requestId: request.requestId } : {}) },
-        })
+      const call = async (name: string, args: Record<string, unknown>) =>
+        CallToolResultSchema.parse(
+          await client.callTool({
+            name,
+            arguments: { ...args, ...(request ? { requestId: request.requestId } : {}) },
+          }),
+        )
       const tools = await client.listTools()
       expect(tools.tools.map((t) => t.name)).toContain('irodori_get_preview_context')
       expect(
@@ -121,7 +178,18 @@ for (const managed of [false, true])
         expect(result.isError, JSON.stringify(result.content)).not.toBe(true)
         const images = (result.content as { type: string }[]).filter((c) => c.type === 'image')
         expect(images).toHaveLength('comparison' in inspection ? 2 : 1)
+        expect(images.every((image) => 'data' in image && image.data === data)).toBe(true)
         expect(JSON.stringify(result.structuredContent)).not.toContain(data)
+        if (managed) {
+          expect(result.structuredContent).toMatchObject({ displayMismatch })
+          expect(result.content[0]).toMatchObject({
+            type: 'text',
+            text: expect.stringContaining(notice),
+          })
+        } else {
+          expect(result.structuredContent).not.toHaveProperty('displayMismatch')
+          expect(JSON.stringify(result.content)).not.toContain(notice)
+        }
         if ('comparison' in inspection)
           expect(
             (result.structuredContent as { members: { label: string }[] }).members.map(
@@ -135,6 +203,36 @@ for (const managed of [false, true])
       expect((legacy.content as { type: string }[]).filter((c) => c.type === 'image')).toHaveLength(
         1,
       )
+      if (managed) expect(legacy.structuredContent).toMatchObject({ displayMismatch })
+      else expect(legacy.structuredContent).not.toHaveProperty('displayMismatch')
+
+      const prepared = await call('irodori_prepare_export', { ids: [photoId] })
+      expect(prepared.isError).not.toBe(true)
+      for (const output of ['hdr', 'sdr'] as const) {
+        const proof = await call('irodori_get_output_proof', {
+          preparationId: prepared.structuredContent!.id,
+          photoId,
+          options: { ...defaultExportOptions, output },
+          proofToken: crypto.randomUUID(),
+        })
+        expect(proof.isError, JSON.stringify(proof.content)).not.toBe(true)
+        expect(proof.structuredContent).toMatchObject({
+          output,
+          overview: { rendition: 'SDR overview of decoded JPEG primary' },
+        })
+        expect(proof.content[1]).toMatchObject({
+          type: 'image',
+          mimeType: 'image/jpeg',
+          data: jpeg,
+        })
+        if (managed) {
+          expect(proof.structuredContent).toMatchObject({ displayMismatch })
+          expect(proof.content[0]).toMatchObject({
+            type: 'text',
+            text: expect.stringContaining(notice),
+          })
+        } else expect(proof.structuredContent).not.toHaveProperty('displayMismatch')
+      }
       const hdr = await call('irodori_get_photo_preview', {
         photoId,
         expectedRevision: 3,
@@ -143,6 +241,13 @@ for (const managed of [false, true])
       expect(hdr.isError).toBe(true)
       expect(JSON.stringify(hdr.content)).toContain('unqualified')
       if (managed) {
+        for (const state of ['sdr-frame', 'stale-frame', 'display-unavailable']) {
+          present(state === 'sdr-frame' ? 'sdr' : 'hdr', state === 'stale-frame' ? 2 : 3)
+          displayAvailable = state !== 'display-unavailable'
+          const preview = await call('irodori_get_photo_preview', { photoId, expectedRevision: 3 })
+          expect(preview.isError).not.toBe(true)
+          expect(preview.structuredContent).not.toHaveProperty('displayMismatch')
+        }
         const outside = await call('irodori_get_preview_context', {
           photoId: 'd'.repeat(64),
           expectedRevision: 3,

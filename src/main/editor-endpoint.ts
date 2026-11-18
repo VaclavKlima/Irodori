@@ -45,6 +45,31 @@ export async function startEditorEndpoint(
     async (id) => (await library.getEdits(id)).revision,
     options.development ?? false,
   )
+  const describeInspectionDisplay = async <T extends { photoId: string; revision: number }>(
+    inspection: T,
+    signal: AbortSignal,
+  ) => {
+    if (!display) return inspection
+    const presentation = await library
+      .getPhotoPresentationContext({
+        photoId: inspection.photoId,
+        expectedRevision: inspection.revision,
+      })
+      .catch(() => undefined)
+    signal.throwIfAborted()
+    if (presentation?.frame.status !== 'presented' || presentation.frame.mode !== 'hdr')
+      return inspection
+    return {
+      ...inspection,
+      displayMismatch: {
+        frame: 'hdr',
+        delivered: 'sdr',
+        targetGeneration: presentation.workspaceTarget.targetGeneration,
+        notice:
+          'Irodori is displaying this photograph in HDR. The Console inspection image is SDR.',
+      },
+    }
+  }
   const server = createServer(async (request, response) => {
     response.setHeader('Content-Type', 'application/json')
     response.setHeader('Cache-Control', 'no-store')
@@ -246,8 +271,8 @@ export async function startEditorEndpoint(
                 // Canonical lens tables are renderer geometry, not model prompt context.
                 void geometry
                 result = context
-              } else
-                result =
+              } else {
+                const preview =
                   args.inspection === undefined
                     ? await library.agentPreviews.get(photoId, expectedRevision, signal)
                     : await library.agentPreviews.inspect(
@@ -256,6 +281,8 @@ export async function startEditorEndpoint(
                         args.inspection,
                         signal,
                       )
+                result = gate ? await describeInspectionDisplay(preview, signal) : preview
+              }
             } finally {
               response.removeListener('close', gone)
             }
@@ -268,8 +295,9 @@ export async function startEditorEndpoint(
                 lifetime.abort(new Error('Output preview client disconnected.'))
             }
             response.once('close', gone)
+            const signal = gate ? AbortSignal.any([gate.signal, lifetime.signal]) : lifetime.signal
             try {
-              result = await library.getOutputProofOverview(
+              const proof = await library.getOutputProofOverview(
                 {
                   preparationId,
                   photoId,
@@ -277,8 +305,9 @@ export async function startEditorEndpoint(
                   token: args.proofToken,
                   ...(args.inspection === undefined ? {} : { inspection: args.inspection }),
                 },
-                gate ? AbortSignal.any([gate.signal, lifetime.signal]) : lifetime.signal,
+                signal,
               )
+              result = gate ? await describeInspectionDisplay(proof, signal) : proof
             } finally {
               response.removeListener('close', gone)
             }

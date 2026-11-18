@@ -110,6 +110,63 @@ HDR brightness. True HDR client/physical-display acceptance remains in
 [#57](README.md#task-57); regional histograms/clipping remain in
 [#61](README.md#task-61).
 
+### Managed Console HDR delivery checkpoint — issue #82
+
+A focused background check used the built Irodori 0.2.0 application on an Apple
+M4 Pro with macOS 26.7 (25G229), Electron 44.3.0 and an isolated temporary
+library. The tracked CC0 Sony ZV-1 RAW was presented by `webgpu-hdr` in Display
+P3 at a reported target headroom of 1.0625×. The managed presentation context
+identified the same confirmed revision and display generation before and after
+the image requests.
+
+The real compiled MCP and managed prompt gate returned a matched 192 × 128
+Before/After pair for that revision. Independent decoding verified two distinct
+8-bit sRGB JPEGs with matching geometry and no supported ISO gain maps. The
+strict HDR pair request returned the unqualified-client reason and zero images.
+The single check passed in 9.7 seconds. It used an MCP SDK client and a Codex PTY
+stand-in. The [diagnostic receipt](../../artifacts/issue-82-hdr-console/summary.md)
+records exact bundle and fixture hashes, display reports and profile cleanup.
+
+An independent loopback control gave Codex CLI 0.170.0 a synthetic ISO gain-map
+JPEG and an SDR-only JPEG with identical decoded SDR primary pixels over MCP
+stdio. With `gpt-5.4` configured for a fake Responses endpoint, the CLI
+forwarded both JPEGs byte for byte, including the ISO gain map. The
+`gpt-6.2-sol` configuration did not expose the MCP tool to the fake endpoint,
+so only the `gpt-5.4` loopback route has this byte-preservation evidence. The
+[loopback receipt](../../artifacts/issue-82-hdr/cli-controls/receipt.json) covers
+local serialization. Provider decoding and live model interpretation require
+an isolated authenticated qualification with controlled gain-map images. Keep
+strict HDR gated under [#82](https://github.com/VaclavKlima/Irodori/issues/82).
+
+### Signed-in gain-map control — issue #82
+
+The two blinded orders ran in fresh conversations through the authenticated
+Irodori Console, Codex CLI 0.170.0, the OpenAI provider and `gpt-6.2-sol`. The
+test-only copy of the MCP bridge emitted the synthetic controls after the
+normal hook, managed request and revision checks. Each order contained two
+ISO gain-map JPEGs with independently verified above-white shapes and an SDR
+blank. All three decoded to identical SDR pixels. The app used a separate
+temporary profile and a synthetic managed photo.
+
+The Codex tool-result events retained all six JPEGs in order with matching
+hashes, and both turns completed in 17.19 seconds combined. The model called
+all six images blank, scoring **0/4 hidden shapes and 2/2 blank controls**.
+This route fails visual qualification. The evidence identifies what reached
+the client and what the model reported. The provider's image preprocessing
+step remains unobserved. See the [blinded score](../../artifacts/issue-82-hdr/live/score.json).
+
+Managed photo preview and output proof attach `displayMismatch` when the same
+photo and revision have a reported presented HDR frame. The notice describes
+the HDR frame and the delivered SDR image, with the display generation for
+attribution. Console instructions require disclosing this mismatch and using
+revision-bound HDR statistics or pixels for highlight and clipping judgment.
+The export format stays independent of the proof image's SDR transfer rendition.
+The [focused Mac run](../../artifacts/verification/2026-11-18T11-37-20.195Z-check-QKQLGq/summary.md)
+reported 1,089 passes, zero failures, and 34 skips in the shared checks. A
+[rebuilt-app check](../../artifacts/issue-82-hdr-console/run-notice-01/managed-hdr-pair-managed-M-9b1f0--for-the-current-HDR-source/receipt.json)
+passed in 9.4 seconds. Both rendered SDR members matched the original test
+bytes, and the notice accompanied each image for the matched HDR frame.
+
 Focused verification targets and local evidence are recorded below. Historical
 Console/output-proof evidence retains its original scope; transport stand-ins do
 not establish authenticated live-model visual quality or HDR capability.
