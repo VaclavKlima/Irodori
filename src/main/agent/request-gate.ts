@@ -15,6 +15,7 @@ interface FrozenRequest {
   paused: boolean
   preparations: Map<string, 'export' | 'paste' | 'preset'>
   selectionProposals: Set<string>
+  comparisons: Map<string, string>
 }
 
 /** Transport-side ownership is independent of model instructions and hook tool denial. */
@@ -76,6 +77,7 @@ export class AgentRequestGate {
       paused: false,
       preparations: new Map(),
       selectionProposals: new Set(),
+      comparisons: new Map(),
     }
     return this.context()
   }
@@ -126,7 +128,13 @@ export class AgentRequestGate {
     execute: () => Promise<T>,
   ): Promise<T> {
     const request = this.current
-    if (!this.accepting || !request || request.paused || args.requestId !== request.requestId)
+    const comparisonCleanup = operation === 'irodori_dispose_edit_comparison'
+    if (
+      !this.accepting ||
+      !request ||
+      (request.paused && !comparisonCleanup) ||
+      args.requestId !== request.requestId
+    )
       throw new Error(
         'This request is stale or paused. Submit a new request; navigation cannot retarget a turn.',
       )
@@ -147,6 +155,7 @@ export class AgentRequestGate {
     for (const id of ids) {
       if (typeof id !== 'string' || !request.targets.has(id))
         throw new Error("The photograph is outside this request's frozen targets.")
+      if (comparisonCleanup) continue
       const known = request.targets.get(id)!
       const actual = await this.revision(id)
       if (actual !== known.revision) {
@@ -181,6 +190,11 @@ export class AgentRequestGate {
     }
     if (args.taskId !== undefined && !this.tasks.has(String(args.taskId)))
       throw new Error('This task does not belong to this conversation.')
+    if (
+      (args.comparisonId !== undefined || comparisonCleanup) &&
+      request.comparisons.get(String(args.comparisonId)) !== args.photoId
+    )
+      throw new Error('This comparison does not belong to this request and photograph.')
     if (!this.accepting || this.current !== request)
       throw new Error('The request stopped before execution.')
     if (
@@ -209,10 +223,24 @@ export class AgentRequestGate {
         )
       if (operation === 'irodori_create_object_selection' && value.id)
         request.selectionProposals.add(value.id)
+      if (operation === 'irodori_prepare_edit_comparison' && value.id && value.photoId)
+        request.comparisons.set(value.id, value.photoId)
+      if (operation === 'irodori_dispose_edit_comparison')
+        request.comparisons.delete(String(args.comparisonId))
       if (operation === 'irodori_accept_object_selection')
         request.selectionProposals.delete(String(args.proposalId))
       if (value.taskId) this.tasks.add(value.taskId)
-      if (value.photoId && typeof value.revision === 'number' && request.targets.has(value.photoId))
+      const checkpointMetadata = [
+        'irodori_get_edit_checkpoint',
+        'irodori_create_edit_checkpoint',
+        'irodori_rename_edit_checkpoint',
+      ].includes(operation)
+      if (
+        !checkpointMetadata &&
+        value.photoId &&
+        typeof value.revision === 'number' &&
+        request.targets.has(value.photoId)
+      )
         request.targets.get(value.photoId)!.revision = value.revision
     }
     return result

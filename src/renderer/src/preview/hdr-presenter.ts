@@ -70,6 +70,7 @@ import {
   HdrPresentationHeadroom,
   hdrPresentationMemory,
   hdrRestoredUploadMemory,
+  boundedHdrMemoryLimits,
   type HdrManagedBytes,
   type HdrMemoryLimits,
   type HdrMemoryRequest,
@@ -106,7 +107,11 @@ import {
   selectHdrSampleSources,
 } from './hdr-sample'
 import { hdrCacheKernel } from './hdr-shader'
-import { hdrSourceIdentity, type HdrSourceLease } from './hdr-source-cache'
+import {
+  hdrSourceIdentity,
+  type HdrSourceLease,
+  type HdrSourceMemorySnapshot,
+} from './hdr-source-cache'
 import { submitHdrSourceMips, uploadHdrTexture } from './hdr-source-preparation'
 import type { HdrUploadedSource } from './hdr-upload'
 import { imageResourceOwners } from './image-resource-owners'
@@ -242,6 +247,26 @@ type HdrPresentationDepartureReason =
   | 'not-admitted'
 
 export class HdrPresenter {
+  private comparisonReadOnly = false
+  private comparisonLimits?: HdrMemoryLimits
+  private comparisonPeerSource = (): HdrSourceLease<GPUTexture> | undefined => undefined
+  private comparisonSourceCredit?: HdrSourceMemorySnapshot
+  setReadOnlyComparison(
+    limits: HdrMemoryLimits,
+    peerSource: () => HdrSourceLease<GPUTexture> | undefined = () => undefined,
+    sourceCredit?: HdrSourceMemorySnapshot,
+  ) {
+    this.comparisonReadOnly = true
+    this.comparisonLimits = limits
+    this.comparisonPeerSource = peerSource
+    this.comparisonSourceCredit = sourceCredit
+  }
+  get comparisonSourceLease() {
+    return this.abort.signal.aborted ? undefined : this.sourceLease
+  }
+  get comparisonReservation() {
+    return this.imageOwnerPeak
+  }
   private abort = new AbortController()
   private device?: GPUDevice
   private deviceLost = false
@@ -959,7 +984,9 @@ export class HdrPresenter {
       height: frame.height,
       canvasWidth: width,
       canvasHeight: height,
-      maximumLayers,
+      maximumLayers: this.comparisonReadOnly
+        ? Math.min(maximumLayers, Math.floor(HDR_CACHE_MAX_TILES / 2))
+        : maximumLayers,
       bitmapReservation: HDR_BITMAP_RESERVATION,
       rawHalfSupported:
         !!this.retainedCanvas &&
@@ -1005,7 +1032,12 @@ export class HdrPresenter {
       : []
   }
   private sharedSourceReservation(): HdrManagedBytes {
-    const cached = sourceCache.memory(this.sourceLease)
+    const peer = this.comparisonPeerSource()
+    const cached = sourceCache.memory(
+      this.sourceLease,
+      peer ? [peer] : [],
+      this.comparisonSourceCredit,
+    )
     return {
       ramBytes: cached.ramBytes + hdrSampleMemory((buffer) => sourceCache.ownsSampleBuffer(buffer)),
       vramBytes: cached.vramBytes,
@@ -1635,11 +1667,17 @@ export class HdrPresenter {
       this.abort.signal.throwIfAborted()
       this.resourcePolicy ??= freezeFirstSurfacePolicy(policy)
       this.presentationHeadroom ??= new HdrPresentationHeadroom(
-        {
-          ramBytes: this.resourcePolicy.ram.effectiveBytes,
-          vramBytes: this.resourcePolicy.vram.effectiveBytes,
-          revision: this.resourcePolicy.revision,
-        },
+        this.comparisonLimits
+          ? boundedHdrMemoryLimits(this.comparisonLimits, {
+              ramBytes: this.resourcePolicy.ram.effectiveBytes,
+              vramBytes: this.resourcePolicy.vram.effectiveBytes,
+              revision: this.resourcePolicy.revision,
+            })
+          : {
+              ramBytes: this.resourcePolicy.ram.effectiveBytes,
+              vramBytes: this.resourcePolicy.vram.effectiveBytes,
+              revision: this.resourcePolicy.revision,
+            },
         this.previewPolicy.presentationCache ? presentationCache : null,
       )
       this.canvas.dataset.resourcePolicy = JSON.stringify(this.resourcePolicy)
@@ -1729,7 +1767,7 @@ export class HdrPresenter {
     this.invalidate()
     this.hideCachedPresentation()
     this.frame = frame
-    selectHdrSampleSources(frame.hdr.sha256)
+    if (!this.comparisonReadOnly) selectHdrSampleSources(frame.hdr.sha256)
     this.nativePresented = false
     this.attemptedRestore = ''
     this.ready = false
@@ -1744,7 +1782,7 @@ export class HdrPresenter {
         if (this.abort.signal.aborted) return
         await this.releaseSource()
         if (this.abort.signal.aborted) return
-        if (String(error).includes('resource budget')) {
+        if (!this.comparisonReadOnly && String(error).includes('resource budget')) {
           // The current pin is already released. Never ban a healthy device for budget pressure.
           await sourceCache.clearAndDrain()
         }
@@ -2011,17 +2049,19 @@ export class HdrPresenter {
         )
           return
         this.canvas.dataset.sourceCache = lease ? 'miss-retained' : 'miss-unretained'
-        publishHdrSample(frame.hdr!.sha256, completed.samples.sample, completed.samples.draft)
+        if (!this.comparisonReadOnly)
+          publishHdrSample(frame.hdr!.sha256, completed.samples.sample, completed.samples.draft)
         this.canvas.dataset.sourceUploads = String(
           Number(this.canvas.dataset.sourceUploads ?? 0) + 1,
         )
       } else {
         // Cached source samples are immutable. No previous edits, target or statistics are reused.
-        publishHdrSample(
-          frame.hdr!.sha256,
-          this.sourceLease.samples.sample,
-          this.sourceLease.samples.draft,
-        )
+        if (!this.comparisonReadOnly)
+          publishHdrSample(
+            frame.hdr!.sha256,
+            this.sourceLease.samples.sample,
+            this.sourceLease.samples.draft,
+          )
       }
       this.sourceReservation()
       if (preparedMasks) {
@@ -3328,7 +3368,8 @@ export class HdrPresenter {
         : undefined
     this.loaded()
     if (this.frame?.hdr?.preparedMasks) this.canvas.dataset.textureDrawStage = 'presented'
-    this.requestHistogram(rendered.histogram, request.intent === 'navigation')
+    if (!this.comparisonReadOnly)
+      this.requestHistogram(rendered.histogram, request.intent === 'navigation')
     return true
   }
   private requestHistogram(snapshot: HistogramRequest, navigation: boolean) {

@@ -180,6 +180,43 @@ export interface IrodoriApi extends NativeHdrMaskBridge, AgentApi {
     request: HdrAnalysisRequest,
   ): Promise<HdrPhotoPixel>
   getEditClipboard(): Promise<import('./edit-transfer').EditClipboard | null>
+  listEditCheckpoints(
+    photoId: string,
+    query?: import('./edit-checkpoints').EditCheckpointQuery,
+  ): Promise<import('./edit-checkpoints').EditCheckpointPage>
+  getEditCheckpoint(
+    photoId: string,
+    checkpointId: string,
+  ): Promise<import('./edit-checkpoints').EditCheckpoint>
+  createEditCheckpoint(
+    request: import('./edit-checkpoints').CreateEditCheckpointRequest,
+  ): Promise<import('./edit-checkpoints').EditCheckpoint>
+  renameEditCheckpoint(
+    request: import('./edit-checkpoints').RenameEditCheckpointRequest,
+  ): Promise<import('./edit-checkpoints').EditCheckpoint>
+  deleteEditCheckpoint(
+    request: import('./edit-checkpoints').EditCheckpointRevisionRequest,
+  ): Promise<void>
+  restoreEditCheckpoint(
+    request: import('./edit-checkpoints').RestoreEditCheckpointRequest,
+  ): Promise<EditState>
+  prepareEditComparison(
+    request: import('./edit-comparisons').PrepareEditComparisonRequest,
+  ): Promise<import('./edit-comparisons').EditComparisonSession>
+  requestEditComparisonFrame(
+    photoId: string,
+    sessionId: string,
+    member: 'a' | 'b',
+    requestId: string,
+    rendition: 'sdr' | 'hdr',
+    rendererReservation?: import('./resource-policy').ManagedImageBytes,
+  ): Promise<DisplayPreview>
+  getEditComparisonPreview(
+    photoId: string,
+    sessionId: string,
+    inspection: Omit<import('./inspection').InspectionOptions, 'comparison'>,
+  ): Promise<import('./edit-comparisons').EditComparisonInspectionResult>
+  disposeEditComparison(photoId: string, sessionId: string): Promise<void>
   listPresets(query?: import('./presets').PresetQuery): Promise<import('./presets').PresetPage>
   getPreset(id: string): Promise<import('./presets').EditingPreset>
   createPreset(
@@ -519,6 +556,7 @@ export interface ReviewThumbnailRequest {
 }
 
 export interface LibraryEvent {
+  editCheckpointsChanged?: { photoId: string }
   presetsChanged?: boolean
   editsChanged?: { photoId: string; revision: number }
   lensChanged?: { photoId: string; revision: number }

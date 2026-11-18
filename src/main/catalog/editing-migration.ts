@@ -145,6 +145,43 @@ export function supportsEditingSettings(
   }
 }
 
+/** Shared by persisted history and independently retained named checkpoints. */
+export function migrateEditingSettings(settings: Record<string, unknown>) {
+  if (!supportsEditingSettings(settings))
+    throw new Error('This edit history format is unsupported. Its files were preserved.')
+  if (settings.version === SETTINGS_VERSION) return settings
+  return {
+    ...settings,
+    version: SETTINGS_VERSION,
+    ...(settings.version === 7 ? { saturation: 0, vibrance: 0 } : {}),
+    crop: (settings.version as number) >= 9 ? settings.crop : { ...identityCrop },
+    colorMixer:
+      (settings.version as number) >= 10 ? settings.colorMixer : structuredClone(neutralColorMixer),
+    colorGrading:
+      (settings.version as number) >= 10
+        ? settings.colorGrading
+        : structuredClone(neutralColorGrading),
+    noiseReduction:
+      (settings.version as number) >= 11 ? settings.noiseReduction : { ...neutralNoiseReduction },
+    detailSharpening:
+      (settings.version as number) >= 11
+        ? settings.detailSharpening
+        : { ...neutralDetailSharpening },
+    curves:
+      (settings.version as number) >= 12 ? settings.curves : structuredClone(identityToneCurves),
+    maskStack:
+      (settings.version as number) >= 13
+        ? (settings.maskStack as MaskDescriptor[]).map((mask) => ({
+            ...mask,
+            ...((settings.version as number) < 18 ? { operands: [], resultHead: null } : {}),
+            ...((settings.version as number) < 15 ? { edge: { ...neutralMaskEdge } } : {}),
+            ...((settings.version as number) < 16 ? { color: { ...neutralMaskColor } } : {}),
+            ...((settings.version as number) < 20 ? { texture: 0 } : {}),
+          }))
+        : [],
+  }
+}
+
 /** Caller owns the startup transaction; no revisions, cursors, branches or timestamps change. */
 export function migrateEditingHistory(db: DatabaseSync): void {
   for (const row of db.prepare('SELECT id, data FROM edits').all() as {
@@ -154,46 +191,8 @@ export function migrateEditingHistory(db: DatabaseSync): void {
     const history = JSON.parse(row.data)
     let changed = false
     const upgrade = (settings: Record<string, unknown>) => {
-      if (!supportsEditingSettings(settings))
-        throw new Error('This edit history format is unsupported. Its files were preserved.')
-      if (settings.version === SETTINGS_VERSION) return settings
-      changed = true
-      return {
-        ...settings,
-        version: SETTINGS_VERSION,
-        ...(settings.version === 7 ? { saturation: 0, vibrance: 0 } : {}),
-        crop: (settings.version as number) >= 9 ? settings.crop : { ...identityCrop },
-        colorMixer:
-          (settings.version as number) >= 10
-            ? settings.colorMixer
-            : structuredClone(neutralColorMixer),
-        colorGrading:
-          (settings.version as number) >= 10
-            ? settings.colorGrading
-            : structuredClone(neutralColorGrading),
-        noiseReduction:
-          (settings.version as number) >= 11
-            ? settings.noiseReduction
-            : { ...neutralNoiseReduction },
-        detailSharpening:
-          (settings.version as number) >= 11
-            ? settings.detailSharpening
-            : { ...neutralDetailSharpening },
-        curves:
-          (settings.version as number) >= 12
-            ? settings.curves
-            : structuredClone(identityToneCurves),
-        maskStack:
-          (settings.version as number) >= 13
-            ? (settings.maskStack as MaskDescriptor[]).map((mask) => ({
-                ...mask,
-                ...((settings.version as number) < 18 ? { operands: [], resultHead: null } : {}),
-                ...((settings.version as number) < 15 ? { edge: { ...neutralMaskEdge } } : {}),
-                ...((settings.version as number) < 16 ? { color: { ...neutralMaskColor } } : {}),
-                ...((settings.version as number) < 20 ? { texture: 0 } : {}),
-              }))
-            : [],
-      }
+      if (settings.version !== SETTINGS_VERSION) changed = true
+      return migrateEditingSettings(settings)
     }
     history.settings = upgrade(history.settings)
     history.snapshots = history.snapshots.map(

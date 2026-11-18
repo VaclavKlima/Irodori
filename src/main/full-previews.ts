@@ -166,6 +166,7 @@ interface Entry extends FullPreviewResult, PreparedPreviewLineage {
   invalid: boolean
 }
 interface Request {
+  frozenSnapshot?: boolean
   textureDisk?: PreviewDiskReservation
   id: string
   token: string
@@ -190,6 +191,13 @@ interface ComparisonContext {
   after: PreparedPreviewSourceRef
   expectedRevision: number
   owner: ComparisonOwner
+}
+interface FrozenPreviewOwner {
+  id: string
+  abort: AbortController
+  options: ProcessingOptions
+  request?: Request
+  work?: Promise<DisplayPreview | null>
 }
 interface CropRequestOptions {
   workingOnly: boolean
@@ -217,6 +225,7 @@ interface FirstSurfaceConfiguration {
 
 /** One foreground consumer, with serialized disk changes and independent stream leases. */
 export class FullPreviews {
+  private frozenPreviews = new Map<string, FrozenPreviewOwner>()
   private comparisons = new Map<string, ComparisonOwner>()
   private comparisonDrains = new Set<Promise<DisplayPreview | null>>()
   private prewarmOutcome?: import('../shared/preview-diagnostics').PreviewDiagnostics['prewarm']
@@ -760,6 +769,61 @@ export class FullPreviews {
     })
   }
 
+  /** A main-owned immutable edit snapshot with its own independently releasable source lease. */
+  async requestFrozen(
+    id: string,
+    token: string,
+    options: ProcessingOptions,
+    rendition: 'sdr' | 'hdr',
+    rendererReservation?: ManagedImageBytes,
+  ): Promise<DisplayPreview> {
+    if (this.frozenPreviews.has(token) || !tokenPattern.test(token))
+      throw new Error('Invalid frozen preview request.')
+    if (rendition !== 'sdr' && rendition !== 'hdr') throw new Error('Invalid comparison rendition.')
+    if (rendererReservation) validateManagedImageBytes(rendererReservation)
+    const owner: FrozenPreviewOwner = {
+      id,
+      abort: new AbortController(),
+      options: structuredClone(options),
+    }
+    this.frozenPreviews.set(token, owner)
+    try {
+      // HDR snapshots retain their native source even when the requested display is SDR.
+      const work = this.prepare(
+        id,
+        token,
+        false,
+        false,
+        true,
+        true,
+        options.processing === 'hdr-v1' && !(rendition === 'sdr' && options.metadata.hdrJpeg),
+        rendition === 'sdr',
+        undefined,
+        rendererReservation,
+        false,
+        undefined,
+        false,
+        undefined,
+        true,
+        undefined,
+        owner,
+      )
+      owner.work = work
+      const preview = await work
+      owner.abort.signal.throwIfAborted()
+      if (!preview?.linear)
+        throw new Error('The full-resolution floating-point comparison source is unavailable.')
+      if (rendition === 'hdr' && !preview.linear.hdr)
+        throw new Error(
+          'The requested HDR comparison rendition is unavailable for this SDR photograph.',
+        )
+      return preview
+    } catch (error) {
+      await this.release(token)
+      throw error
+    }
+  }
+
   private workingRef(entry: Entry): PreparedPreviewSourceRef | undefined {
     return entry.linear && entry.sourceKey
       ? { photoId: entry.id, cacheId: entry.revision, workingSha256: entry.linear.sha256 }
@@ -987,9 +1051,16 @@ export class FullPreviews {
     id: string,
     expectedRevision: number,
     masks: ResolvedMask[],
+    candidate?: { crop: CropSettings; lens: LensSettings },
   ): Promise<void> {
     if (!masks.length) return
-    const prepared = await this.nativeCropSource(id, expectedRevision, undefined, true)
+    const prepared = await this.nativeCropSource(id, expectedRevision, candidate?.lens, true)
+    if (candidate)
+      prepared.options = {
+        ...prepared.options,
+        crop: structuredClone(candidate.crop),
+        settings: { ...candidate.lens },
+      }
     masks = await this.rangeMasks(id, prepared.options, masks, new AbortController().signal, true)
     const crop = cropGeometry(prepared.source, prepared.options.crop ?? identityCrop)
     const unfiltered = masks.map((mask) =>
@@ -1146,6 +1217,7 @@ export class FullPreviews {
     comparison?: ComparisonContext,
     geometryRead = false,
     editingParentRequestId?: string,
+    frozen?: FrozenPreviewOwner,
   ): Promise<DisplayPreview | null> {
     if (
       this.closed ||
@@ -1178,11 +1250,13 @@ export class FullPreviews {
     const request: Request = {
       id,
       token,
-      abort: comparison?.owner.abort ?? new AbortController(),
+      abort: frozen?.abort ?? comparison?.owner.abort ?? new AbortController(),
       sourceSpace,
       unfiltered,
       geometryRead,
+      frozenSnapshot: Boolean(frozen),
     }
+    if (frozen) frozen.request = request
     if (background) this.background.add(request)
     else this.active = request
     const work = this.foreground(
@@ -1197,7 +1271,9 @@ export class FullPreviews {
                 throw new Error('This photo is unavailable.')
             }
             check()
-            const resolved = structuredClone(await this.options?.(id, request.abort.signal))
+            const resolved = frozen
+              ? structuredClone(frozen.options)
+              : structuredClone(await this.options?.(id, request.abort.signal))
             if (comparison) {
               if (!resolved || resolved.revision !== comparison.expectedRevision)
                 throw new Error('The comparison settings revision changed.')
@@ -1666,8 +1742,10 @@ export class FullPreviews {
             throw error
           } finally {
             if (background) {
-              if (request.entry) request.entry.pins--
-              if (request.linearEntry) request.linearEntry.pins--
+              if (!frozen) {
+                if (request.entry) request.entry.pins--
+                if (request.linearEntry) request.linearEntry.pins--
+              }
               this.background.delete(request)
             }
             if (this.running === request) this.running = undefined
@@ -1967,7 +2045,10 @@ export class FullPreviews {
     sourceEntry.pins++
     request.linearEntry = sourceEntry
     let matching = recent().find(
-      (entry) => entry.variant === variant && (flags.workingOnly || entry.format === 'rgba8-srgb'),
+      (entry) =>
+        entry.variant === variant &&
+        (!textureActive || Boolean(entry.maskStackFiles)) &&
+        (flags.workingOnly || entry.format === 'rgba8-srgb'),
     )
     if (matching?.maskStackFiles) {
       try {
@@ -2395,7 +2476,8 @@ export class FullPreviews {
     for (const [job, photo] of this.analyses)
       if (photo === id) job.abort(new Error('Statistics revision conflict.'))
     for (const job of this.background)
-      if (job.id === id) job.abort.abort(new Error('Statistics revision conflict.'))
+      if (job.id === id && !job.frozenSnapshot)
+        job.abort.abort(new Error('Statistics revision conflict.'))
     if (this.active?.id === id) this.detach(false)
   }
 
@@ -2927,6 +3009,22 @@ export class FullPreviews {
   }
 
   async release(token?: string): Promise<void> {
+    const frozen = (token === undefined ? [...this.frozenPreviews.keys()] : [token]).flatMap(
+      (key) => {
+        const owner = this.frozenPreviews.get(key)
+        if (!owner) return []
+        this.frozenPreviews.delete(key)
+        owner.abort.abort(new Error('Frozen comparison preview released.'))
+        return [owner]
+      },
+    )
+    await Promise.all(
+      frozen.map(async (owner) => {
+        await owner.work?.catch(() => undefined)
+        if (owner.request?.entry) owner.request.entry.pins--
+        if (owner.request?.linearEntry) owner.request.linearEntry.pins--
+      }),
+    )
     if (token === undefined || this.editingParent?.token === token) this.editingParent = undefined
     const firstDrained = this.retireFirstSurfaces(token)
     const comparisons = (token === undefined ? [...this.comparisons.keys()] : [token])
@@ -3114,6 +3212,11 @@ export class FullPreviews {
 
   async beginRemoval(id: string): Promise<void> {
     this.blocked.add(id)
+    await Promise.all(
+      [...this.frozenPreviews]
+        .filter(([, owner]) => owner.id === id)
+        .map(([token]) => this.release(token)),
+    )
     if (this.editingParent?.id === id) this.editingParent = undefined
     const comparisons = [...this.comparisons]
       .filter(([, owner]) => owner.id === id)
@@ -3249,6 +3352,7 @@ export class FullPreviews {
     this.editingParent = undefined
     for (const job of this.analyses.keys()) job.abort(new Error('Preview service closed.'))
     this.closed = true
+    await Promise.all([...this.frozenPreviews.keys()].map((token) => this.release(token)))
     for (const token of this.comparisons.keys())
       this.retireComparison(token, 'Preview service closed.')
     await this.cpu?.close()

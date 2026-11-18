@@ -50,7 +50,22 @@ import {
   type EditHistory,
   type EditPatch,
   type EditState,
+  type EditSettings,
 } from '../shared/edits'
+import {
+  editCheckpointName,
+  exactCheckpointFields,
+  validateCheckpointPhotoId,
+  validateCheckpointRevision,
+  validateEditComparisonSource,
+  type CreateEditCheckpointRequest,
+  type EditCheckpointQuery,
+  type EditCheckpointRevisionRequest,
+  type RenameEditCheckpointRequest,
+  type RestoreEditCheckpointRequest,
+  type EditComparisonSource,
+  type FrozenEditComparisonSource,
+} from '../shared/edit-checkpoints'
 import {
   EXPORT_CODEC_VERSION,
   EXPORT_RENDERING_VERSION,
@@ -113,6 +128,8 @@ import {
 } from './edit-application-store'
 import { EditTransfers } from './edit-transfer'
 import { PresetReadStore } from './preset-store'
+import { EditCheckpointReadStore } from './edit-checkpoint-store'
+import { EditComparisons } from './edit-comparisons'
 import { Presets } from './presets'
 import {
   exactPresetFields,
@@ -261,7 +278,10 @@ export class PhotoLibrary {
   readonly merges: MergeReviews
   editTransfers!: EditTransfers
   private presets!: Presets
+  private checkpointStore!: EditCheckpointReadStore
+  private checkpointRemovals = new Set<string>()
   agentPreviews!: AgentPhotoPreviews
+  editComparisons!: EditComparisons
   maskPreviews!: MaskPreviews
   outputProofs!: OutputProofs
   exports!: ExportJobs
@@ -568,6 +588,7 @@ export class PhotoLibrary {
       new ExportReadStore(this.db).preferences()
       new EditApplicationReadStore(this.db).validateExisting()
       new PresetReadStore(this.db).validateExisting()
+      new EditCheckpointReadStore(this.db).validateExisting()
     }
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;')
     await mkdir(join(this.root, 'originals'), { recursive: true })
@@ -598,6 +619,7 @@ export class PhotoLibrary {
       new MaskContentStore(this.db).initialize()
       new EditApplicationReadStore(this.db).initialize()
       new PresetReadStore(this.db).initialize()
+      new EditCheckpointReadStore(this.db).initialize()
       for (const row of this.db.prepare('SELECT id, data FROM processing').all() as {
         id: string
         data: string
@@ -619,6 +641,7 @@ export class PhotoLibrary {
     this.db.exec('PRAGMA query_only = ON;')
     this.catalog = this.createCatalogWriter(join(this.root, 'catalog.sqlite'))
     await this.catalog.open()
+    this.checkpointStore = new EditCheckpointReadStore(this.db)
     this.presets = new Presets(
       new PresetReadStore(this.db),
       { command: (command) => this.write(command) },
@@ -743,6 +766,13 @@ export class PhotoLibrary {
     )
     await rm(join(this.root, 'cache', 'agent-previews'), { recursive: true, force: true })
     await rm(join(this.root, 'cache', 'object-selection'), { recursive: true, force: true })
+    this.editComparisons = new EditComparisons({
+      resolve: (photoId, sources) => this.resolveEditComparisonSources(photoId, sources),
+      assert: (sources) => this.assertEditComparisonSources(sources),
+      source: (frozen) => this.frozenEditComparisonSource(frozen),
+      previews: this.fullPreviews,
+      inspection: this.agentPreviews,
+    })
     await rm(join(this.root, 'cache', 'mask-edges'), { recursive: true, force: true })
     await rm(join(this.root, 'cache', 'mask-ranges'), { recursive: true, force: true })
     this.maskRanges = new MaskRangeService(this.root, {
@@ -842,13 +872,19 @@ export class PhotoLibrary {
     return row ? (JSON.parse(row.photo) as Photo) : undefined
   }
 
-  private readProcessing(id: string): ProcessingOptions | undefined {
+  private readProcessing(
+    id: string,
+    frozenSettings?: EditSettings,
+    frozenRevision?: number,
+  ): ProcessingOptions | undefined {
     const row = this.db.prepare('SELECT data FROM processing WHERE id = ?').get(id) as
       { data: string } | undefined
     if (!row) return undefined
     const data = JSON.parse(row.data) as ProcessingOptions
     if (data.metadata.mergeMaster) validateMergeVersion(data.metadata.mergeMaster.recipe?.version)
-    const edits = this.readEdits(id)
+    const edits = frozenSettings
+      ? { settings: frozenSettings, revision: frozenRevision! }
+      : this.readEdits(id)
     return {
       ...data,
       workingAsset: data.metadata.mergeMaster
@@ -889,8 +925,15 @@ export class PhotoLibrary {
     return data?.metadata.version === PROCESSING_METADATA_VERSION ? data : undefined
   }
 
-  private async exportSource(id: string): Promise<ExportSource> {
-    const processing = await this.processingOptions(id)
+  private async exportSource(
+    id: string,
+    frozenSettings?: EditSettings,
+    frozenRevision?: number,
+  ): Promise<ExportSource> {
+    const current = await this.processingOptions(id)
+    const processing = frozenSettings
+      ? this.readProcessing(id, frozenSettings, frozenRevision)!
+      : current
     const photo = this.find(id)
     if (!photo) throw new Error('This photograph is unavailable.')
     const path = join(
@@ -1007,6 +1050,275 @@ export class PhotoLibrary {
     await this.processingOptions(id)
     if (this.closed || !this.find(id)) throw new Error('This photo is unavailable.')
     return this.readEdits(id)
+  }
+
+  private checkpointAvailable(photoId: string) {
+    validateCheckpointPhotoId(photoId)
+    this.assertRecovered(true)
+    if (this.closed || this.checkpointRemovals.has(photoId) || !this.find(photoId))
+      throw new Error('This photograph is unavailable for saved versions.')
+  }
+
+  private checkpointProcessingAvailable(photoId: string, settings: EditSettings) {
+    const row = this.db
+      .prepare('SELECT processing_identity FROM photos WHERE id = ?')
+      .get(photoId) as { processing_identity: string } | undefined
+    if (!row || row.processing_identity !== settings.processing)
+      throw new Error(
+        'The saved version uses an earlier source processing identity. Its settings were preserved; choose a version matching the current source.',
+      )
+  }
+
+  async listEditCheckpoints(photoId: string, query?: EditCheckpointQuery) {
+    this.checkpointAvailable(photoId)
+    return this.checkpointStore.list(photoId, query)
+  }
+
+  async getEditCheckpoint(photoId: string, checkpointId: string) {
+    this.checkpointAvailable(photoId)
+    return this.checkpointStore.get(photoId, checkpointId)
+  }
+
+  createEditCheckpoint(request: CreateEditCheckpointRequest) {
+    request = structuredClone(request)
+    return this.admission.run(async () => {
+      if (!exactCheckpointFields(request, ['photoId', 'name', 'expectedRevision']))
+        throw new Error('Invalid new saved version request.')
+      validateCheckpointRevision(request.expectedRevision, 0)
+      const name = editCheckpointName(request.name)
+      this.checkpointAvailable(request.photoId)
+      await this.flushEditorEdits({ kind: 'photos', photoIds: [request.photoId] })
+      await this.processingOptions(request.photoId)
+      const checkpoint = await this.scheduler.mutate(() => {
+        this.checkpointAvailable(request.photoId)
+        return this.write({
+          operation: 'checkpoint.create',
+          payload: {
+            ...request,
+            name,
+            id: randomUUID(),
+            createdAt: new Date().toISOString(),
+          },
+        })
+      })
+      if (!this.closed) this.emit({ editCheckpointsChanged: { photoId: request.photoId } })
+      return checkpoint
+    })
+  }
+
+  renameEditCheckpoint(request: RenameEditCheckpointRequest) {
+    request = structuredClone(request)
+    return this.admission.run(async () => {
+      if (
+        !exactCheckpointFields(request, [
+          'photoId',
+          'checkpointId',
+          'expectedCheckpointRevision',
+          'name',
+        ])
+      )
+        throw new Error('Invalid saved version rename.')
+      const name = editCheckpointName(request.name)
+      const checkpoint = await this.scheduler.mutate(() => {
+        this.checkpointAvailable(request.photoId)
+        return this.write({
+          operation: 'checkpoint.rename',
+          payload: {
+            ...request,
+            name,
+            updatedAt: new Date().toISOString(),
+          },
+        })
+      })
+      if (!this.closed) this.emit({ editCheckpointsChanged: { photoId: request.photoId } })
+      return checkpoint
+    })
+  }
+
+  deleteEditCheckpoint(request: EditCheckpointRevisionRequest) {
+    request = structuredClone(request)
+    return this.admission.run(async () => {
+      if (
+        !exactCheckpointFields(request, ['photoId', 'checkpointId', 'expectedCheckpointRevision'])
+      )
+        throw new Error('Invalid saved version deletion.')
+      await this.scheduler.mutate(() => {
+        this.checkpointAvailable(request.photoId)
+        return this.write({ operation: 'checkpoint.delete', payload: request })
+      })
+      if (!this.closed) this.emit({ editCheckpointsChanged: { photoId: request.photoId } })
+    })
+  }
+
+  restoreEditCheckpoint(request: RestoreEditCheckpointRequest): Promise<EditState> {
+    request = structuredClone(request)
+    return this.admission.run(async () => {
+      if (
+        !exactCheckpointFields(request, [
+          'photoId',
+          'checkpointId',
+          'expectedCheckpointRevision',
+          'expectedRevision',
+        ])
+      )
+        throw new Error('Invalid saved version restoration.')
+      validateCheckpointRevision(request.expectedRevision, 0)
+      this.checkpointAvailable(request.photoId)
+      await this.flushEditorEdits({ kind: 'photos', photoIds: [request.photoId] })
+      await this.processingOptions(request.photoId)
+      const checkpoint = this.checkpointStore.expected(request)
+      this.checkpointProcessingAvailable(request.photoId, checkpoint.settings)
+      const history = this.readEdits(request.photoId)
+      if (history.revision !== request.expectedRevision)
+        throw new Error('Edit conflict: reload the confirmed settings and try again.')
+      const settings = structuredClone(checkpoint.settings)
+      const unchanged = JSON.stringify(settings) === JSON.stringify(history.settings)
+      if (!unchanged) {
+        if (
+          JSON.stringify(settings.crop) !== JSON.stringify(history.settings.crop) ||
+          JSON.stringify(settings.lens) !== JSON.stringify(history.settings.lens)
+        )
+          await this.fullPreviews.validateCropEdit(
+            request.photoId,
+            request.expectedRevision,
+            settings.crop,
+            settings.lens,
+          )
+        const resolved = this.resolvedMasks(request.photoId, settings.maskStack)
+        if (JSON.stringify(settings.maskStack) !== JSON.stringify(history.settings.maskStack))
+          await this.fullPreviews.validateMaskEdit(
+            request.photoId,
+            request.expectedRevision,
+            resolved,
+            { crop: settings.crop, lens: settings.lens },
+          )
+        history.settings = settings
+        history.snapshots = history.snapshots.slice(0, history.cursor + 1)
+        history.snapshots.push({ settings, createdAt: new Date().toISOString() })
+        history.cursor++
+      }
+      return this.scheduler.run('interactive', () =>
+        this.scheduler.mutate(async () => {
+          this.checkpointAvailable(request.photoId)
+          this.checkpointStore.expected(request)
+          if (unchanged) {
+            const current = this.readEdits(request.photoId)
+            if (current.revision !== request.expectedRevision)
+              throw new Error('Edit conflict: reload the confirmed settings and try again.')
+            return this.editState(current)
+          }
+          return this.publishEdit(
+            history,
+            request.expectedRevision,
+            undefined,
+            undefined,
+            undefined,
+            request,
+          )
+        }),
+      )
+    })
+  }
+
+  private comparisonFileIdentity(source: ExportSource) {
+    return createHash('sha256')
+      .update(
+        JSON.stringify({
+          photoId: source.photo.id,
+          file: source.identity,
+          metadata: source.processing.metadata,
+          workingAsset: source.processing.workingAsset,
+        }),
+      )
+      .digest('hex')
+  }
+
+  async resolveEditComparisonSources(
+    photoId: string,
+    sources: readonly [EditComparisonSource, EditComparisonSource],
+  ): Promise<[FrozenEditComparisonSource, FrozenEditComparisonSource]> {
+    this.checkpointAvailable(photoId)
+    if (!Array.isArray(sources) || sources.length !== 2)
+      throw new Error('Choose two explicit comparison sources.')
+    sources.forEach(validateEditComparisonSource)
+    const source = await this.exportSource(photoId)
+    const history = this.readEdits(photoId),
+      sourceIdentity = this.comparisonFileIdentity(source)
+    const frozen = sources.map((reference) => {
+      const checkpoint =
+        reference.kind === 'checkpoint'
+          ? this.checkpointStore.expected({ photoId, ...reference })
+          : undefined
+      if (reference.kind === 'current' && history.revision !== reference.expectedRevision)
+        throw new Error('The Current comparison revision changed. Refresh the sources.')
+      const settings = structuredClone(checkpoint?.settings ?? history.settings)
+      this.checkpointProcessingAvailable(photoId, settings)
+      this.resolvedMasks(photoId, settings.maskStack)
+      return {
+        photoId,
+        source: structuredClone(reference),
+        settings,
+        capturedFromRevision: checkpoint?.capturedFromRevision ?? history.revision,
+        label: checkpoint?.name ?? 'Current',
+        sourceIdentity,
+        identity: createHash('sha256')
+          .update(JSON.stringify({ photoId, reference, settings, sourceIdentity }))
+          .digest('hex'),
+      }
+    }) as [FrozenEditComparisonSource, FrozenEditComparisonSource]
+    await this.assertEditComparisonSources(frozen)
+    return frozen
+  }
+
+  async assertEditComparisonSources(sources: readonly FrozenEditComparisonSource[]): Promise<void> {
+    const observed = new Map<FrozenEditComparisonSource, ExportSource>()
+    for (const frozen of sources) {
+      this.checkpointAvailable(frozen.photoId)
+      this.checkpointProcessingAvailable(frozen.photoId, frozen.settings)
+      const source = await this.exportSource(
+        frozen.photoId,
+        frozen.settings,
+        frozen.capturedFromRevision,
+      )
+      if (this.comparisonFileIdentity(source) !== frozen.sourceIdentity)
+        throw new Error('The managed comparison source changed. Refresh the sources.')
+      observed.set(frozen, source)
+    }
+    // No asynchronous work follows the final catalog checks for either member.
+    for (const frozen of sources) {
+      this.checkpointAvailable(frozen.photoId)
+      this.checkpointProcessingAvailable(frozen.photoId, frozen.settings)
+      const processing = this.readProcessing(
+        frozen.photoId,
+        frozen.settings,
+        frozen.capturedFromRevision,
+      )
+      if (
+        !processing ||
+        this.comparisonFileIdentity({ ...observed.get(frozen)!, processing }) !==
+          frozen.sourceIdentity
+      )
+        throw new Error('The managed comparison source metadata changed. Refresh the sources.')
+      const reference = frozen.source
+      if (reference.kind === 'checkpoint') {
+        const checkpoint = this.checkpointStore.expected({ photoId: frozen.photoId, ...reference })
+        if (JSON.stringify(checkpoint.settings) !== JSON.stringify(frozen.settings))
+          throw new Error('The saved comparison version changed. Refresh the sources.')
+      } else if (this.readEdits(frozen.photoId).revision !== reference.expectedRevision)
+        throw new Error('The Current comparison revision changed. Refresh the sources.')
+    }
+  }
+
+  async frozenEditComparisonSource(frozen: FrozenEditComparisonSource): Promise<ExportSource> {
+    await this.assertEditComparisonSources([frozen])
+    const source = await this.exportSource(
+      frozen.photoId,
+      frozen.settings,
+      frozen.capturedFromRevision,
+    )
+    if (this.comparisonFileIdentity(source) !== frozen.sourceIdentity)
+      throw new Error('The managed comparison source changed. Refresh the sources.')
+    return source
   }
 
   displayTarget?: () => DisplayTarget
@@ -1153,11 +1465,12 @@ export class PhotoLibrary {
     application?: ApplicationCommit,
     maskChunks?: MaskStrokeChunk[],
     maskBases?: MaskBaseContent[],
+    checkpointRestore?: EditCheckpointRevisionRequest,
   ): Promise<EditState> {
     this.assertRecovered()
     const confirmed = await this.write({
       operation: 'edits.commit',
-      payload: { history, expectedRevision, application, maskChunks, maskBases },
+      payload: { history, expectedRevision, application, maskChunks, maskBases, checkpointRestore },
     })
     if (!this.closed) this.fullPreviews.settingsChanged(confirmed.history.photoId)
     if (!this.closed)
@@ -1821,8 +2134,10 @@ export class PhotoLibrary {
     }
     this.tasks.set(id, task)
     this.changed()
+    for (const photo of photos) this.checkpointRemovals.add(photo.id)
     task.work = Promise.all(
       photos.flatMap((photo) => [
+        this.editComparisons.remove(photo.id),
         this.objectSelections.beginRemoval(photo.id),
         this.maskPreviews.beginRemoval(photo.id),
         this.maskEdges.beginRemoval(photo.id),
@@ -1920,6 +2235,7 @@ export class PhotoLibrary {
       })
       .finally(() => {
         for (const photo of photos) {
+          this.checkpointRemovals.delete(photo.id)
           this.objectSelections.endRemoval(photo.id)
           this.maskPreviews.endRemoval(photo.id)
           this.maskEdges.endRemoval(photo.id)
@@ -3582,6 +3898,7 @@ export class PhotoLibrary {
     if (this.notification) clearTimeout(this.notification)
     try {
       await closeServices([
+        () => this.editComparisons?.close(),
         () => this.maskPreviews?.close(),
         () => this.maskEdges?.close(),
         () => this.objectSelections?.close(),

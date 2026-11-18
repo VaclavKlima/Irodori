@@ -59,6 +59,14 @@ when adding or changing shortcuts or selectable text. Verify `desktop-input-ui`
 and affected existing owners. Native clipboard, pointer selection and OS focus
 cases require `--foreground`; do not replace them with synthetic passes.
 
+While [version comparison](features/edit-checkpoints.md) owns the preview, its
+focused photograph maps `\` to A/B and `Y` to split. Zoom/pan retain their existing
+keys; Escape ends comparison and restores live-preview focus when appropriate.
+Forms, menus, native pickers and Console keep their input owners. Comparison
+blocks photo authoring and Undo/Redo, while confirmed edits remain flushable for
+Console request capture, restart and quit. Crop and other unfinished editing
+tools retain their stronger flush guards.
+
 ## Dropdowns and native picker stability
 
 Use standard HTML `<select>` elements for ordinary single-choice dropdowns. These

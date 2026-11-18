@@ -7,7 +7,7 @@ import { MergeError } from '../shared/merge'
 import type { DisplayState } from './display-state'
 import type { PreviewPreference } from '../shared/hdr-display'
 import { createServer } from 'node:http'
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { mkdir, writeFile, rename, rm, chmod } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { PhotoLibrary } from './library'
@@ -28,6 +28,15 @@ export async function startEditorEndpoint(
 ) {
   const token = randomBytes(32).toString('hex')
   let closing = false
+  const comparisons = new Map<string, { photoId: string; detach: () => void }>()
+  const releaseComparison = async (photoId: string, id: string) => {
+    const owner = comparisons.get(id)
+    if (owner && owner.photoId !== photoId)
+      throw new Error('The comparison belongs to another photograph.')
+    await library.editComparisons.dispose(photoId, id)
+    owner?.detach()
+    comparisons.delete(id)
+  }
   const contextGate = new AgentRequestGate(
     async () => {
       if (!options.capture) throw new Error('Editor context is unavailable.')
@@ -450,6 +459,105 @@ export async function startEditorEndpoint(
           case 'irodori_get_edit_clipboard':
             result = { clipboard: library.getEditClipboard() }
             break
+          case 'irodori_list_edit_checkpoints':
+            result = await library.listEditCheckpoints(photoId, args.checkpointQuery)
+            break
+          case 'irodori_get_edit_checkpoint':
+            result = await library.getEditCheckpoint(photoId, args.checkpointId)
+            break
+          case 'irodori_create_edit_checkpoint':
+            result = await library.createEditCheckpoint({
+              photoId,
+              name: args.name,
+              expectedRevision,
+            })
+            break
+          case 'irodori_rename_edit_checkpoint':
+            result = await library.renameEditCheckpoint({
+              photoId,
+              checkpointId: args.checkpointId,
+              expectedCheckpointRevision: args.expectedCheckpointRevision,
+              name: args.name,
+            })
+            break
+          case 'irodori_delete_edit_checkpoint':
+            await library.deleteEditCheckpoint({
+              photoId,
+              checkpointId: args.checkpointId,
+              expectedCheckpointRevision: args.expectedCheckpointRevision,
+            })
+            result = { deleted: true }
+            break
+          case 'irodori_restore_edit_checkpoint':
+            result = {
+              ...(await library.restoreEditCheckpoint({
+                photoId,
+                checkpointId: args.checkpointId,
+                expectedCheckpointRevision: args.expectedCheckpointRevision,
+                expectedRevision,
+              })),
+              maskContent: undefined,
+              maskBases: undefined,
+            }
+            break
+          case 'irodori_prepare_edit_comparison': {
+            const lifetime = new AbortController()
+            const gone = () => {
+              if (!response.writableFinished)
+                lifetime.abort(new Error('Comparison client disconnected.'))
+            }
+            response.once('close', gone)
+            try {
+              const session = await library.editComparisons.prepare(
+                { photoId, baseline: args.baseline, target: args.target, requestId: randomUUID() },
+                gate ? AbortSignal.any([gate.signal, lifetime.signal]) : lifetime.signal,
+                'mcp',
+              )
+              let detach = () => {}
+              if (gate) {
+                const signal = gate.signal
+                const dispose = () => {
+                  void releaseComparison(photoId, session.id).catch(() => {})
+                }
+                if (signal.aborted) {
+                  await library.editComparisons.dispose(photoId, session.id)
+                  throw new Error('The comparison request stopped.')
+                }
+                signal.addEventListener('abort', dispose, { once: true })
+                detach = () => signal.removeEventListener('abort', dispose)
+              }
+              comparisons.set(session.id, { photoId, detach })
+              const { geometry, ...context } = session.context
+              void geometry
+              result = { ...session, context }
+            } finally {
+              response.removeListener('close', gone)
+            }
+            break
+          }
+          case 'irodori_get_edit_comparison_preview': {
+            const lifetime = new AbortController()
+            const gone = () => {
+              if (!response.writableFinished)
+                lifetime.abort(new Error('Comparison client disconnected.'))
+            }
+            response.once('close', gone)
+            try {
+              result = await library.editComparisons.inspect(
+                photoId,
+                args.comparisonId,
+                args.inspection ?? {},
+                gate ? AbortSignal.any([gate.signal, lifetime.signal]) : lifetime.signal,
+              )
+            } finally {
+              response.removeListener('close', gone)
+            }
+            break
+          }
+          case 'irodori_dispose_edit_comparison':
+            await releaseComparison(photoId, args.comparisonId)
+            result = { disposed: true }
+            break
           case 'irodori_list_presets':
             result = library.listPresets(presetQuery)
             break
@@ -827,6 +935,9 @@ export async function startEditorEndpoint(
     agentConnection: (agentToken: string) => ({ version: 1 as const, port, token: agentToken }),
     async close() {
       closing = true
+      await Promise.allSettled(
+        [...comparisons].map(([id, owner]) => releaseComparison(owner.photoId, id)),
+      )
       await rm(connection, { force: true })
       server.closeIdleConnections()
       await new Promise<void>((resolve, reject) =>

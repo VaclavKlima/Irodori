@@ -417,6 +417,7 @@ const guidance: Record<EditingGuidanceTopic, Omit<EditingGuidance, 'version' | '
   inspection: {
     purpose: 'Obtain image evidence at the correct revision, spatial extent and rendition.',
     workflow: [
+      'To compare two editing passes, save complete named checkpoints, then use irodori_prepare_edit_comparison with explicit baseline/target checkpoint or Current sources. Inspect its common grid through irodori_get_edit_comparison_preview and dispose the handle afterwards. This leaves committed edits and history unchanged; neutral Before is not an earlier pass.',
       'Read preview context for authoritative dimensions, grid, encodings and payload limits, and presentation context for selected/effective display mode versus delivered rendition. Coordinates address the complete current oriented/lens-corrected/cropped photo, independently of zoom/pan.',
       'A frozen editor inspection region remains the requested assessment extent. Use its exact photoId/region/gridIdentity; an additional whole-photo overview supplies scene context without replacing that region. Geometry changes need fresh context and a stale region must not silently become the whole photo.',
       'inspection supports pixel/normalized grid-bound regions, resolutionPercent independent of JPEG quality, SDR PNG/JPEG and comparison after/before/pair. 100 percent means photo-native for previews and export-native for decoded output proofs.',
@@ -425,6 +426,9 @@ const guidance: Record<EditingGuidanceTopic, Omit<EditingGuidance, 'version' | '
       'Review lighting coherence for bold styling as well as natural edits. Dramatic, cinematic or expressive styling alone does not request relighting; explicitly requested relighting still needs internally consistent subject/surrounding light and clean transitions.',
     ],
     relatedTools: [
+      'irodori_prepare_edit_comparison',
+      'irodori_get_edit_comparison_preview',
+      'irodori_dispose_edit_comparison',
       'irodori_get_preview_context',
       'irodori_get_photo_presentation_context',
       'irodori_get_photo_preview',

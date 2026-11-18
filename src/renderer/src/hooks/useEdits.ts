@@ -49,6 +49,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
   const pending = useRef<Promise<void>>(Promise.resolve())
   const flushes = useRef(new EditFlushes())
   const historyGuards = useRef(new Set<symbol>())
+  const flushGuards = useRef(new Set<symbol>())
   const otherFlushes = useRef(new Set<() => Promise<void>>())
   const registerFlush = useCallback((flush: () => Promise<void>) => {
     otherFlushes.current.add(flush)
@@ -56,11 +57,13 @@ export function useEdits(photoId: string | undefined, enabled = true) {
       otherFlushes.current.delete(flush)
     }
   }, [])
-  const suspendHistory = useCallback(() => {
+  const suspendHistory = useCallback(({ blockFlush = true }: { blockFlush?: boolean } = {}) => {
     const owner = Symbol('transient editing tool')
     historyGuards.current.add(owner)
+    if (blockFlush) flushGuards.current.add(owner)
     return () => {
       historyGuards.current.delete(owner)
+      flushGuards.current.delete(owner)
     }
   }, [])
   useEffect(() => {
@@ -326,7 +329,7 @@ export function useEdits(photoId: string | undefined, enabled = true) {
           scope,
           gesture.current?.state.photoId ?? current.current?.photoId,
           async () => {
-            if (historyGuards.current.size)
+            if (flushGuards.current.size)
               throw new Error('Finish or cancel the crop before continuing.')
             await flush()
           },

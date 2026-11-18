@@ -1361,6 +1361,119 @@ tools.push(
     inputSchema: schema({ preparationId: { type: 'string' } }),
   },
 )
+const checkpointId = { type: 'string', format: 'uuid' }
+const expectedCheckpointRevision = { type: 'integer', minimum: 1 }
+const comparisonId = { type: 'string', format: 'uuid' }
+const comparisonSource = {
+  ...schema(
+    {
+      kind: { type: 'string', enum: ['checkpoint', 'current'] },
+      checkpointId,
+      expectedCheckpointRevision,
+      expectedRevision,
+    },
+    ['kind'],
+  ),
+  allOf: [
+    {
+      if: { properties: { kind: { const: 'checkpoint' } } },
+      then: {
+        required: ['checkpointId', 'expectedCheckpointRevision'],
+        properties: { expectedRevision: false },
+      },
+      else: {
+        required: ['expectedRevision'],
+        properties: { checkpointId: false, expectedCheckpointRevision: false },
+      },
+    },
+  ],
+}
+const comparisonInspection = schema(
+  Object.fromEntries(Object.entries(inspection.properties).filter(([key]) => key !== 'comparison')),
+  [],
+)
+tools.push(
+  {
+    name: 'irodori_list_edit_checkpoints',
+    description:
+      'List this photo’s complete named edit checkpoints newest first in bounded searchable chunks of 60. Saved checkpoints survive Undo branching and restart. Listing never applies settings.',
+    inputSchema: schema(
+      {
+        photoId,
+        checkpointQuery: schema(
+          {
+            search: { type: 'string', maxLength: 500 },
+            offset: { type: 'integer', minimum: 0 },
+            expectedStoreRevision: { type: 'integer', minimum: 0 },
+            anchorId: checkpointId,
+          },
+          [],
+        ),
+      },
+      ['photoId'],
+    ),
+  },
+  {
+    name: 'irodori_get_edit_checkpoint',
+    description:
+      'Read one saved checkpoint and its complete settings, captured photo revision and independent checkpoint metadata revision. Never changes photo history.',
+    inputSchema: schema({ photoId, checkpointId }),
+  },
+  {
+    name: 'irodori_create_edit_checkpoint',
+    description:
+      'Save all confirmed edits of this photo, including masks, under a unique name at expectedRevision. Contents remain immutable; later edits and Undo branches cannot replace this version. Creates no photo history step.',
+    inputSchema: schema({
+      photoId,
+      name: { type: 'string', minLength: 1, maxLength: 100 },
+      expectedRevision,
+    }),
+  },
+  {
+    name: 'irodori_rename_edit_checkpoint',
+    description:
+      'Rename exactly this checkpoint at expectedCheckpointRevision. Changes metadata only; does not replace saved settings or change photo history.',
+    inputSchema: schema({
+      photoId,
+      checkpointId,
+      expectedCheckpointRevision,
+      name: { type: 'string', minLength: 1, maxLength: 100 },
+    }),
+  },
+  {
+    name: 'irodori_delete_edit_checkpoint',
+    description:
+      'Delete this identified checkpoint at expectedCheckpointRevision. An explicit user deletion instruction authorizes deletion; otherwise name it and ask in Console, then wait for agreement. Listing, saving and restoring grant no deletion permission. Current edits and Undo history remain intact.',
+    inputSchema: schema({ photoId, checkpointId, expectedCheckpointRevision }),
+  },
+  {
+    name: 'irodori_restore_edit_checkpoint',
+    description:
+      'Explicitly restore all settings of this checkpoint at expectedCheckpointRevision and current photo expectedRevision. Adds one ordinary Undo step; identical settings add none. Undo returns the preceding complete edit. Saved checkpoints remain unchanged.',
+    inputSchema: schema({ photoId, checkpointId, expectedCheckpointRevision, expectedRevision }),
+  },
+  {
+    name: 'irodori_prepare_edit_comparison',
+    description:
+      'Freeze explicit baseline and target sources from named checkpoints or Current edits of the same photo. Returns a comparison ID, labelled exact snapshot identities and common native grid context. Incompatible geometry and stale sources fail explicitly. Never changes settings/history. Handles belong to this request; dispose when finished.',
+    inputSchema: schema({ photoId, baseline: comparisonSource, target: comparisonSource }),
+  },
+  {
+    name: 'irodori_get_edit_comparison_preview',
+    description:
+      'Inspect the two frozen versions as labelled A/B images using one shared native region, resolution, encoding and rendition. Use the prepared comparison grid, resolutionPercent:100 and a bounded region for exact detail inspection. JPEG remains lossy; PNG is lossless SDR. Limits are 8 MiB/image and 16 MiB/pair without silent reduction. HDR client delivery remains unavailable; SDR results are labelled explicitly.',
+    inputSchema: schema({ photoId, comparisonId, inspection: comparisonInspection }, [
+      'photoId',
+      'comparisonId',
+    ]),
+  },
+  {
+    name: 'irodori_dispose_edit_comparison',
+    description:
+      'Cancel and release this request’s frozen comparison and prepared assets without changing edits or checkpoints.',
+    inputSchema: schema({ photoId, comparisonId }),
+  },
+)
 const managed = process.env.IRODORI_AGENT_CONNECTION !== undefined
 if (managed) {
   const allowed = new Set(agentTools)
@@ -1435,11 +1548,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         'irodori_get_photo_preview',
         'irodori_get_output_proof',
         'irodori_get_mask_preview',
+        'irodori_get_edit_comparison_preview',
       ].includes(request.params.name)
     ) {
       if (Array.isArray(result.result.members)) {
         const { members, ...metadata } = result.result
         if (members.length < 1 || members.length > 2) throw new Error('Invalid inspection members.')
+        if (
+          request.params.name === 'irodori_get_edit_comparison_preview' &&
+          (members.length !== 2 || members[0].label !== 'a' || members[1].label !== 'b')
+        )
+          throw new Error('A complete labelled edit comparison is required.')
         let total = 0
         const content = []
         const labelled = []

@@ -114,6 +114,14 @@ function glCompletion(gl: WebGL2RenderingContext): Promise<void> {
 }
 
 export class PreviewPresenter {
+  private comparisonReadOnly = false
+  private comparisonValidatedKey = ''
+  setReadOnlyComparison() {
+    this.comparisonReadOnly = true
+  }
+  get comparisonReservation() {
+    return this.imageBytes()
+  }
   private readonly imageOwner?: ReturnType<typeof imageResourceOwners.register>
   private imageBytes() {
     const working =
@@ -991,7 +999,18 @@ export class PreviewPresenter {
           gl.activeTexture(active)
         }
       }
-      if (masks && creative && !this.localMaskQuery) {
+      const comparisonValidationKey = JSON.stringify([
+        adjustmentPixelKey(parameters),
+        image,
+        viewport,
+        view,
+      ])
+      if (
+        masks &&
+        creative &&
+        !this.localMaskQuery &&
+        (!this.comparisonReadOnly || this.comparisonValidatedKey !== comparisonValidationKey)
+      ) {
         const query = gl.createQuery()
         if (!query) throw new Error('Local adjustment validation query allocation failed.')
         const validationKey = JSON.stringify([
@@ -1032,12 +1051,19 @@ export class PreviewPresenter {
             this.lost(
               'Local adjustment processing produced non-finite pixels. Reduce the local adjustments.',
             )
-          else if (latest && (this.working !== validatedSource || currentKey !== validationKey))
+          else if (this.comparisonReadOnly && latest && currentKey === validationKey) {
+            this.comparisonValidatedKey = validationKey
+            this.redrawLatest()
+          } else if (latest && (this.working !== validatedSource || currentKey !== validationKey))
             this.redrawLatest()
         }
         this.localMaskQueryTimer = setTimeout(poll, 1)
       }
-      if ((masks || this.preparedOverlay) && this.comparison.mode !== 'before') {
+      if (
+        !this.comparisonReadOnly &&
+        (masks || this.preparedOverlay) &&
+        this.comparison.mode !== 'before'
+      ) {
         const analysisProgram = creative
           ? program
           : this.prepareTextureAnalysis(image, viewport, view, pointParameters)
@@ -1084,6 +1110,7 @@ export class PreviewPresenter {
       context.drawImage(this.bitmap, left, top, image.width * view.scale, image.height * view.scale)
       drawPixelGrid(context, image, viewport, view)
     }
+    if (this.comparisonReadOnly && this.localMaskQuery) return
     this.canvas.dataset.whiteBalance = JSON.stringify(
       parameters.whiteBalance ?? { mode: 'as-shot' },
     )

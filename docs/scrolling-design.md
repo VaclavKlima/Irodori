@@ -6,6 +6,16 @@ the behavior and contracts of its controls.
 
 Continuous scrolling is the default for collections in Irodori. Future collections must use the shared collection controller and declare their identity and ordering, availability, selection semantics, loading and retry behavior, recovery state, and focused verification. Do not add page-number controls or a separate pagination engine. Bounded transport chunks are not UI pages.
 
+The [Versions collection](features/edit-checkpoints.md) uses that same controller
+with the active photo ID, checkpoint store revision, and descending creation
+time/ID order. Reads contain at most 60 summaries. Row selection only inspects;
+A/B choices remain stable when another row is selected or its chunk is evicted.
+Loading/error placeholders and Retry preserve the list and explicit commands.
+Keyboard navigation waits for an unloaded target row to be published before
+moving focus. Selection and the ID/inset anchor are local to the current photo
+session; the inspector tab recovers through workspace state, while comparison
+and dialogs restart closed. Check `checkpoints-ui` and `checkpoints-native`.
+
 ## Collection behavior
 
 Editor Photos, grouped Library, import review, and task errors have independent native scrollbars. Their scroll extents represent the entire known collection. Discovery increases the import extent as records become known. Virtual rows render the viewport plus two overscan rows, with stable placeholders for records still being read. Card dimensions never grow to accommodate a cache limit. Task errors use measured, fully readable rows in a separate area capped at 240 pixels; measurements of hidden rows are ignored.

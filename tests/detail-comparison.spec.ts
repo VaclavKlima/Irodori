@@ -18,6 +18,98 @@ test.afterEach(() => {
   else process.env.IRODORI_PREVIEW_BACKEND = previous
 })
 
+for (const hdr of [false, true]) {
+  test(`frozen ${hdr ? 'HDR' : 'raster'} versions retain independent leases and their authored settings while Current changes`, async () => {
+    const f = await detailCacheFixture(hdr)
+    const tokens = [crypto.randomUUID(), crypto.randomUUID()]
+    try {
+      const original = structuredClone(f.options),
+        natural = {
+          ...structuredClone(original),
+          revision: 12,
+          adjustments: { ...original.adjustments!, exposureEv: 0.2 },
+        },
+        stronger = {
+          ...structuredClone(original),
+          revision: 19,
+          adjustments: { ...original.adjustments!, exposureEv: 0.8 },
+        }
+      f.change({ adjustments: { ...original.adjustments!, exposureEv: 2 } })
+      const current = structuredClone(f.options),
+        a = await f.previews.requestFrozen(f.id, tokens[0], natural, 'sdr'),
+        b = await f.previews.requestFrozen(f.id, tokens[1], stronger, 'sdr')
+      expect([a.settingsRevision, b.settingsRevision]).toEqual([12, 19])
+      expect([a.adjustments!.exposureEv, b.adjustments!.exposureEv]).toEqual([0.2, 0.8])
+      expect(f.options).toEqual(current)
+      await f.previews.release(tokens[0])
+      const remaining = f.previews.acquire(new URL(b.linear!.url!))
+      expect(remaining).toBeDefined()
+      remaining!.release()
+      expect(await readFile(f.source.original)).toEqual(f.source.originalBytes)
+    } finally {
+      await Promise.all(tokens.map((token) => f.previews.release(token)))
+      await f.close()
+    }
+  })
+}
+
+test('an unfiltered raster snapshot exposes its full-resolution float source and exact saved settings', async () => {
+  const f = await detailCacheFixture(),
+    token = crypto.randomUUID()
+  try {
+    const frozen = {
+      ...structuredClone(f.options),
+      noiseReduction: undefined,
+      detailSharpening: undefined,
+      adjustments: { ...f.options.adjustments!, exposureEv: 0.35 },
+    }
+    const frame = await f.previews.requestFrozen(f.id, token, frozen, 'sdr')
+    expect(frame.format).toBe('rgba8-srgb')
+    expect(frame.linear).toMatchObject({
+      byteLength: frame.width * frame.height * 16,
+      transform: { white: 1 },
+    })
+    expect(frame.linear!.hdr).toBeUndefined()
+    expect(frame.adjustments!.exposureEv).toBe(0.35)
+    const owner = f.previews.acquire(new URL(frame.linear!.url!))!
+    expect(owner).toBeDefined()
+    try {
+      expect((await readFile(owner.path)).byteLength).toBe(frame.linear!.byteLength)
+    } finally {
+      owner.release()
+    }
+  } finally {
+    await f.previews.release(token)
+    await f.close()
+  }
+})
+
+test('an unrelated Current update cannot interrupt a saved-version source preparation', async () => {
+  const f = await detailCacheFixture(),
+    entered = gate(),
+    resume = gate(),
+    token = crypto.randomUUID()
+  try {
+    const frozen = structuredClone(f.options)
+    f.beforeDetail(async (_job, signal) => {
+      entered.resolve()
+      await resume.promise
+      signal.throwIfAborted()
+    })
+    const work = f.previews.requestFrozen(f.id, token, frozen, 'sdr')
+    await entered.promise
+    f.change({ adjustments: { ...f.options.adjustments!, exposureEv: 1 } })
+    resume.resolve()
+    const frame = await work
+    expect(frame.settingsRevision).toBe(frozen.revision)
+    expect(frame.adjustments).toEqual(frozen.adjustments)
+  } finally {
+    resume.resolve()
+    await f.previews.release(token)
+    await f.close()
+  }
+})
+
 function gate() {
   let resolve!: () => void
   const promise = new Promise<void>((accept) => {

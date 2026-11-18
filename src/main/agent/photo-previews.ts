@@ -117,151 +117,229 @@ export class AgentPhotoPreviews {
       photoId,
       revision,
       signal,
-      async (source, directory, active, validate) => {
-        const lease = await this.acquire(source, active)
-        let primary: WorkingAssetLease | undefined
-        try {
-          const preparation = join(directory, 'source')
-          await mkdir(preparation)
-          const prepared = await prepareInspectionContext(
-            source,
-            preparation,
-            active,
-            freezeLease(lease),
-          )
-          const resolved = resolveInspection(options, prepared.context)
-          if (source.hdr && source.processing.metadata.hdrJpeg)
-            primary = await this.acquire(source, active, 'primary')
-          const members: InspectionImage[] = []
-          for (const label of resolved.labels) {
-            await validate()
-            const memberDirectory = join(directory, label)
-            await mkdir(memberDirectory)
-            const renditionSource = label === 'before' ? neutralInspectionSource(source) : source
-            const baseAdmission = await this.admission(active)
-            const admission = {
-              ...baseAdmission,
-              reservation: {
-                ...baseAdmission.reservation,
-                ramBytes:
-                  baseAdmission.reservation.ramBytes +
-                  members.reduce((bytes, member) => bytes + Buffer.byteLength(member.data), 0),
+      (source, directory, active, validate) =>
+        this.renderInspection(source, directory, active, validate, options),
+    )
+  }
+
+  /** Frozen version inspection shares the production renderer and normal payload limits. */
+  inspectFrozen(
+    source: ExportSource,
+    options: InspectionOptions,
+    signal: AbortSignal,
+    validate: () => Promise<void>,
+    retainedBytes = 0,
+  ): Promise<InspectionResult> {
+    options = validateInspectionOptions(options)
+    if (options.hdr) return Promise.reject(new Error(inspectionHdrCapability.reason))
+    return this.withFrozenSource(source, signal, async (directory, active) =>
+      this.renderInspection(source, directory, active, validate, options, retainedBytes),
+    )
+  }
+
+  contextFrozen(
+    source: ExportSource,
+    signal: AbortSignal,
+    validate: () => Promise<void>,
+  ): Promise<PreviewContext> {
+    return this.withFrozenSource(source, signal, async (directory, active) => {
+      await validate()
+      const lease = await this.acquire(source, active)
+      try {
+        const prepared = await prepareInspectionContext(
+          source,
+          directory,
+          active,
+          freezeLease(lease),
+        )
+        await validate()
+        return prepared.context
+      } finally {
+        lease?.release()
+      }
+    })
+  }
+
+  private withFrozenSource<T>(
+    source: ExportSource,
+    signal: AbortSignal,
+    work: (directory: string, signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const active = AbortSignal.any([signal, this.lifetime.signal])
+    const pending = this.tail.then(() =>
+      this.scheduler.run(
+        'interactive',
+        async () => {
+          active.throwIfAborted()
+          const directory = join(this.root, 'cache', 'agent-previews', randomUUID())
+          await mkdir(directory, { recursive: true })
+          try {
+            if (!sameSource(await lstat(source.path), source.identity))
+              throw new Error('The managed comparison source changed.')
+            return await work(directory, active)
+          } finally {
+            await rm(directory, { recursive: true, force: true })
+          }
+        },
+        active,
+      ),
+    )
+    this.tail = pending.catch(() => {})
+    return pending
+  }
+
+  private async renderInspection(
+    source: ExportSource,
+    directory: string,
+    active: AbortSignal,
+    validate: () => Promise<void>,
+    options: InspectionOptions,
+    retainedBytes = 0,
+  ): Promise<InspectionResult> {
+    const photoId = source.photo.id,
+      revision = source.processing.revision
+    await validate()
+    const lease = await this.acquire(source, active)
+    let primary: WorkingAssetLease | undefined
+    try {
+      const preparation = join(directory, 'source')
+      await mkdir(preparation)
+      const prepared = await prepareInspectionContext(
+        source,
+        preparation,
+        active,
+        freezeLease(lease),
+      )
+      const resolved = resolveInspection(options, prepared.context)
+      if (source.hdr && source.processing.metadata.hdrJpeg)
+        primary = await this.acquire(source, active, 'primary')
+      const members: InspectionImage[] = []
+      for (const label of resolved.labels) {
+        await validate()
+        const memberDirectory = join(directory, label)
+        await mkdir(memberDirectory)
+        const renditionSource = label === 'before' ? neutralInspectionSource(source) : source
+        const baseAdmission = await this.admission(active)
+        const admission = {
+          ...baseAdmission,
+          reservation: {
+            ...baseAdmission.reservation,
+            ramBytes:
+              baseAdmission.reservation.ramBytes +
+              retainedBytes +
+              members.reduce((bytes, member) => bytes + Buffer.byteLength(member.data), 0),
+          },
+        }
+        const result = await this.renderer.render(
+          {
+            source: renditionSource,
+            options: {
+              ...defaultExportOptions,
+              output: 'sdr',
+              metadata: 'none',
+              quality: resolved.encoding.format === 'jpeg' ? resolved.encoding.quality : 80,
+              size: {
+                mode: 'fit',
+                width: resolved.width,
+                height: resolved.height,
+                allowEnlargement: false,
+                method: 'lanczos3',
               },
-            }
-            const result = await this.renderer.render(
-              {
-                source: renditionSource,
-                options: {
-                  ...defaultExportOptions,
-                  output: 'sdr',
-                  metadata: 'none',
-                  quality: resolved.encoding.format === 'jpeg' ? resolved.encoding.quality : 80,
-                  size: {
-                    mode: 'fit',
-                    width: resolved.width,
-                    height: resolved.height,
-                    allowEnlargement: false,
-                    method: 'lanczos3',
-                  },
-                },
-                inspection: {
-                  bounds: resolved.bounds,
-                  width: resolved.width,
-                  height: resolved.height,
-                  encoding: resolved.encoding.format,
-                },
-                hdr: false,
-                directory: memberDirectory,
-                workingAsset: prepared.working,
-                primaryWorkingAsset: freezeLease(primary),
-                cropPolicy: { ...exportCropPolicy },
-                cropAdmission: admission,
-                detailPolicy: { ...exportDetailPolicy },
-                texturePolicy: { ...exportTexturePolicy },
-                detailAdmission: admission,
-                resizePolicy: { ...exportResizePolicy },
-                resizeAdmission: admission,
-              },
-              active,
-            )
-            await validate()
-            const expectedPath = join(
-              memberDirectory,
-              resolved.encoding.format === 'png' ? 'output.png' : 'output.jpg',
-            )
-            if (
-              result.path !== expectedPath ||
-              result.geometry?.width !== resolved.width ||
-              result.geometry?.height !== resolved.height
-            )
-              throw new Error(
-                'The inspection renderer returned invalid geometry or an invalid output path.',
-              )
-            const info = await lstat(result.path)
-            if (!info.isFile() || info.isSymbolicLink() || info.size > INSPECTION_IMAGE_LIMIT)
-              throw new Error(
-                'The inspection image exceeds 8 MiB. Request a smaller region, lower resolutionPercent, or JPEG with lower quality. Resolution and quality were not reduced.',
-              )
-            const encoded = await readFile(result.path)
-            if (createHash('sha256').update(encoded).digest('hex') !== result.sha256)
-              throw new Error('The encoded inspection image is incomplete.')
-            const renderingIdentity = createHash('sha256')
-              .update(
-                JSON.stringify({
-                  policy: 'inspection-v1',
-                  rendering: EXPORT_RENDERING_VERSION,
-                  photoId,
-                  revision,
-                  processing: renditionSource.processing,
-                  identity: source.identity,
-                  options,
-                  label,
-                }),
-              )
-              .digest('hex')
-            members.push({
-              label,
-              photoId,
-              revision,
-              renderingIdentity,
-              gridIdentity: prepared.context.gridIdentity,
+            },
+            inspection: {
+              bounds: resolved.bounds,
               width: resolved.width,
               height: resolved.height,
-              native: 'photo-native',
-              photoBounds: resolved.photoBounds,
-              bounds: resolved.bounds,
-              nativeGrid: { width: prepared.context.width, height: prepared.context.height },
-              encoding: resolved.encoding,
-              mimeType: resolved.encoding.format === 'png' ? 'image/png' : 'image/jpeg',
-              colorSpace: 'srgb',
-              sourceDynamicRange: prepared.context.sourceDynamicRange,
-              sourceMetadata: prepared.context.sourceMetadata,
-              requestedRendition: 'sdr',
-              effectiveRendition: 'sdr',
-              hdr: prepared.context.hdr,
-              rendition: 'sRGB SDR rendition',
-              comparison:
-                label === 'before'
-                  ? 'neutral rendition derived from current revision'
-                  : 'current revision',
-              byteLength: encoded.byteLength,
-              data: encoded.toString('base64'),
-            })
-          }
-          if (
-            members.reduce((bytes, member) => bytes + member.byteLength, 0) > INSPECTION_PAIR_LIMIT
+              encoding: resolved.encoding.format,
+            },
+            hdr: false,
+            directory: memberDirectory,
+            workingAsset: prepared.working,
+            primaryWorkingAsset: freezeLease(primary),
+            cropPolicy: { ...exportCropPolicy },
+            cropAdmission: admission,
+            detailPolicy: { ...exportDetailPolicy },
+            texturePolicy: { ...exportTexturePolicy },
+            detailAdmission: admission,
+            resizePolicy: { ...exportResizePolicy },
+            resizeAdmission: admission,
+          },
+          active,
+        )
+        await validate()
+        const expectedPath = join(
+          memberDirectory,
+          resolved.encoding.format === 'png' ? 'output.png' : 'output.jpg',
+        )
+        if (
+          result.path !== expectedPath ||
+          result.geometry?.width !== resolved.width ||
+          result.geometry?.height !== resolved.height
+        )
+          throw new Error(
+            'The inspection renderer returned invalid geometry or an invalid output path.',
           )
-            throw new Error(
-              'The inspection pair exceeds 16 MiB. Request smaller regions or lower resolution/quality.',
-            )
-          await validate()
-          return { photoId, revision, gridIdentity: prepared.context.gridIdentity, members }
-        } finally {
-          primary?.release()
-          lease?.release()
-        }
-      },
-    )
+        const info = await lstat(result.path)
+        if (!info.isFile() || info.isSymbolicLink() || info.size > INSPECTION_IMAGE_LIMIT)
+          throw new Error(
+            'The inspection image exceeds 8 MiB. Request a smaller region, lower resolutionPercent, or JPEG with lower quality. Resolution and quality were not reduced.',
+          )
+        const encoded = await readFile(result.path)
+        if (createHash('sha256').update(encoded).digest('hex') !== result.sha256)
+          throw new Error('The encoded inspection image is incomplete.')
+        const renderingIdentity = createHash('sha256')
+          .update(
+            JSON.stringify({
+              policy: 'inspection-v1',
+              rendering: EXPORT_RENDERING_VERSION,
+              photoId,
+              revision,
+              processing: renditionSource.processing,
+              identity: source.identity,
+              options,
+              label,
+            }),
+          )
+          .digest('hex')
+        members.push({
+          label,
+          photoId,
+          revision,
+          renderingIdentity,
+          gridIdentity: prepared.context.gridIdentity,
+          width: resolved.width,
+          height: resolved.height,
+          native: 'photo-native',
+          photoBounds: resolved.photoBounds,
+          bounds: resolved.bounds,
+          nativeGrid: { width: prepared.context.width, height: prepared.context.height },
+          encoding: resolved.encoding,
+          mimeType: resolved.encoding.format === 'png' ? 'image/png' : 'image/jpeg',
+          colorSpace: 'srgb',
+          sourceDynamicRange: prepared.context.sourceDynamicRange,
+          sourceMetadata: prepared.context.sourceMetadata,
+          requestedRendition: 'sdr',
+          effectiveRendition: 'sdr',
+          hdr: prepared.context.hdr,
+          rendition: 'sRGB SDR rendition',
+          comparison:
+            label === 'before'
+              ? 'neutral rendition derived from current revision'
+              : 'current revision',
+          byteLength: encoded.byteLength,
+          data: encoded.toString('base64'),
+        })
+      }
+      if (members.reduce((bytes, member) => bytes + member.byteLength, 0) > INSPECTION_PAIR_LIMIT)
+        throw new Error(
+          'The inspection pair exceeds 16 MiB. Request smaller regions or lower resolution/quality.',
+        )
+      await validate()
+      return { photoId, revision, gridIdentity: prepared.context.gridIdentity, members }
+    } finally {
+      primary?.release()
+      lease?.release()
+    }
   }
 
   private enqueueInspection<T>(

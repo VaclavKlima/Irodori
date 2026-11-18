@@ -187,6 +187,38 @@ const api: IrodoriApi = {
     }
   },
   getEditClipboard: () => ipcRenderer.invoke('edits:clipboard'),
+  listEditCheckpoints: (photoId, query) =>
+    editTransferResult(ipcRenderer.invoke('checkpoints:list', photoId, query)),
+  getEditCheckpoint: (photoId, id) =>
+    editTransferResult(ipcRenderer.invoke('checkpoints:get', photoId, id)),
+  createEditCheckpoint: (request) =>
+    editTransferResult(ipcRenderer.invoke('checkpoints:create', request)),
+  renameEditCheckpoint: (request) =>
+    editTransferResult(ipcRenderer.invoke('checkpoints:rename', request)),
+  deleteEditCheckpoint: (request) =>
+    editTransferResult(ipcRenderer.invoke('checkpoints:delete', request)),
+  restoreEditCheckpoint: (request) =>
+    editTransferResult(ipcRenderer.invoke('checkpoints:restore', request)),
+  prepareEditComparison: (request) =>
+    editTransferResult(ipcRenderer.invoke('edit-comparison:prepare', request)),
+  requestEditComparisonFrame: (photoId, sessionId, member, requestId, rendition, reservation) =>
+    editTransferResult(
+      ipcRenderer.invoke(
+        'edit-comparison:frame',
+        photoId,
+        sessionId,
+        member,
+        requestId,
+        rendition,
+        reservation,
+      ),
+    ),
+  getEditComparisonPreview: (photoId, sessionId, inspection) =>
+    editTransferResult(
+      ipcRenderer.invoke('edit-comparison:inspect', photoId, sessionId, inspection),
+    ),
+  disposeEditComparison: (photoId, sessionId) =>
+    editTransferResult(ipcRenderer.invoke('edit-comparison:dispose', photoId, sessionId)),
   listPresets: (query) => editTransferResult(ipcRenderer.invoke('presets:list', query)),
   getPreset: (id) => editTransferResult(ipcRenderer.invoke('presets:get', id)),
   createPreset: (request) => editTransferResult(ipcRenderer.invoke('presets:create', request)),

@@ -107,6 +107,9 @@ async function fixture(hdr = false, authored = false) {
         counters.crops++
         return worker.prepareCropPreview(path, output, job, signal)
       },
+      async prepareDetailPreview(path, output, job, signal) {
+        return worker.prepareDetailPreview(path, output, job, signal)
+      },
       close: () => worker.close(true),
       releaseFrame: () => worker.releaseFrame(),
     }
@@ -205,6 +208,61 @@ async function hdrFiles(
     }
   }
 }
+
+test('cold frozen versions prepare each saved Texture stack after its own source-stage Detail', async () => {
+  test.setTimeout(180000)
+  for (const hdr of [false, true]) {
+    const f = await fixture(hdr, hdr),
+      tokens = [randomUUID(), randomUUID()]
+    try {
+      const current = structuredClone(f.options),
+        a: ProcessingOptions = {
+          ...structuredClone(current),
+          revision: 11,
+          noiseReduction: { ...f.source.job.noiseReduction, luminance: 8 },
+          detailSharpening: { ...f.source.job.detailSharpening, amount: 10 },
+          adjustments: {
+            ...current.adjustments!,
+            exposureEv: 0.15,
+            localMasks: current.adjustments!.localMasks!.map((mask) => ({
+              ...mask,
+              texture: mask.texture ? 8 : 0,
+            })),
+          },
+        },
+        b: ProcessingOptions = {
+          ...structuredClone(a),
+          revision: 17,
+          detailSharpening: { ...a.detailSharpening!, amount: 30 },
+          adjustments: {
+            ...a.adjustments!,
+            exposureEv: 0.4,
+            localMasks: a.adjustments!.localMasks!.map((mask) => ({
+              ...mask,
+              texture: mask.texture ? 25 : 0,
+            })),
+          },
+        },
+        first = await f.previews.requestFrozen(f.id, tokens[0], a, hdr ? 'hdr' : 'sdr'),
+        second = await f.previews.requestFrozen(f.id, tokens[1], b, hdr ? 'hdr' : 'sdr')
+      expect(f.counters.texture).toBe(2)
+      expect(first.linear!.preparedMasks!.key).toMatch(/^[a-f0-9]{64}$/)
+      expect(second.linear!.preparedMasks!.key).toMatch(/^[a-f0-9]{64}$/)
+      expect(first.linear!.preparedMasks!.key).not.toBe(second.linear!.preparedMasks!.key)
+      if (hdr) {
+        expect(first.linear!.hdr!.preparedMasks).toEqual(first.linear!.preparedMasks)
+        expect(second.linear!.hdr!.preparedMasks).toEqual(second.linear!.preparedMasks)
+        await hdrFiles(f.previews, first.linear!.hdr!.preparedMasks!, first.width)
+        await hdrFiles(f.previews, second.linear!.hdr!.preparedMasks!, second.width)
+      }
+      expect(f.options).toEqual(current)
+      expect(await readFile(f.source.original)).toEqual(f.source.originalBytes)
+    } finally {
+      await Promise.all(tokens.map((token) => f.previews.release(token)))
+      await f.close()
+    }
+  }
+})
 
 test('production Texture preview variants retain parent lineage, native HDR file leases and cache identity across edits and restart', async ({}, info: TestInfo) => {
   test.setTimeout(180000)

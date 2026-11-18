@@ -4,6 +4,9 @@ import { CatalogMutations } from './domain'
 import { CatalogConnectionError } from './transaction'
 
 const operations = new Set([
+  'checkpoint.create',
+  'checkpoint.rename',
+  'checkpoint.delete',
   'preset.create',
   'preset.update',
   'preset.delete',

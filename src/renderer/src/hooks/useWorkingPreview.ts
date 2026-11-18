@@ -11,7 +11,11 @@ function previewWorkingIdentity(asset: LinearAsset | undefined): string {
   return `${asset?.url}:${asset?.sha256}${(asset?.preparedMasks ?? asset?.hdr?.preparedMasks) ? `-texture-${(asset!.preparedMasks ?? asset!.hdr!.preparedMasks)!.key}` : ''}`
 }
 
-export function useWorkingPreview(preview: DisplayPreview | null, presented: boolean) {
+export function useWorkingPreview(
+  preview: DisplayPreview | null,
+  presented: boolean,
+  frozen = false,
+) {
   const { begin } = useForegroundActivity(preview?.photoId, undefined, presented)
   const [loaded, setLoaded] = useState<{ frame: WorkingFrame; geometryIdentity: string } | null>(
     null,
@@ -50,14 +54,14 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
     () =>
       window.irodori.onLibraryEvent((event) => {
         const replaced = event.lensChanged ?? event.geometryChanged ?? event.sourceChanged
-        if (replaced && replaced.photoId === preview?.photoId) {
+        if (!frozen && replaced && replaced.photoId === preview?.photoId) {
           requiredRevision.current = replaced.revision
           prepared.current = false
           setLoaded(null)
           setGeneration((value) => value + 1)
         }
       }),
-    [preview?.photoId],
+    [preview?.photoId, frozen],
   )
   useEffect(() => {
     if (preview && preparedFormat.current !== preview.format) prepared.current = false
@@ -83,6 +87,7 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
           releaseActivity = begin()
           try {
             const direct =
+              frozen ||
               preview.format === 'hdr-working' ||
               preview.sourceSpace === 'uncropped' ||
               Boolean(preview.comparisonOf)
@@ -209,13 +214,14 @@ export function useWorkingPreview(preview: DisplayPreview | null, presented: boo
       abort.abort()
       if (requested) void window.irodori.releaseFullPreview(token).catch(() => undefined)
     }
-  }, [preview, presented, generation, attempt, begin, geometryIdentity])
+  }, [preview, presented, generation, attempt, begin, geometryIdentity, frozen])
   return {
     working:
       !preview ||
       (preview.format === 'rgba8-srgb' && working?.hdr?.source.display) ||
       (preview?.format === 'hdr-working' && !working?.hdr) ||
       (preview?.comparisonOf && working?.identity !== previewWorkingIdentity(preview.linear)) ||
+      (frozen && working?.identity !== previewWorkingIdentity(preview?.linear)) ||
       loaded?.geometryIdentity !== geometryIdentity
         ? null
         : working,

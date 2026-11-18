@@ -14,6 +14,23 @@ import type { Grant } from '../export/store'
 
 /** Main-only domain operations. No renderer, SQL text, callback or file execution API. */
 export interface CatalogOperations {
+  'checkpoint.create': {
+    input: import('../../shared/edit-checkpoints').CreateEditCheckpointRequest & {
+      id: string
+      createdAt: string
+    }
+    output: import('../../shared/edit-checkpoints').EditCheckpoint
+  }
+  'checkpoint.rename': {
+    input: import('../../shared/edit-checkpoints').RenameEditCheckpointRequest & {
+      updatedAt: string
+    }
+    output: import('../../shared/edit-checkpoints').EditCheckpoint
+  }
+  'checkpoint.delete': {
+    input: import('../../shared/edit-checkpoints').EditCheckpointRevisionRequest
+    output: void
+  }
   'preset.create': {
     input: { preset: import('../../shared/presets').EditingPreset }
     output: import('../../shared/presets').EditingPreset
@@ -34,6 +51,7 @@ export interface CatalogOperations {
       maskBases?: import('../../shared/masks').MaskBaseContent[]
       expectedRevision: number
       application?: import('../edit-application-store').ApplicationCommit
+      checkpointRestore?: import('../../shared/edit-checkpoints').EditCheckpointRevisionRequest
     }
     output: {
       history: EditHistory

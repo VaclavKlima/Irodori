@@ -892,6 +892,101 @@ app
       trusted(event)
       return library!.getEditClipboard()
     })
+    handleLibraryRequest('checkpoints:list', async (event, photoId, query) => {
+      trusted(event)
+      try {
+        return { result: await library!.listEditCheckpoints(photoId, query) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('checkpoints:get', async (event, photoId, id) => {
+      trusted(event)
+      try {
+        return { result: await library!.getEditCheckpoint(photoId, id) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('checkpoints:create', async (event, request) => {
+      trusted(event)
+      try {
+        return { result: await library!.createEditCheckpoint(request) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('checkpoints:rename', async (event, request) => {
+      trusted(event)
+      try {
+        return { result: await library!.renameEditCheckpoint(request) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('checkpoints:delete', async (event, request) => {
+      trusted(event)
+      try {
+        return { result: await library!.deleteEditCheckpoint(request) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('checkpoints:restore', async (event, request) => {
+      trusted(event)
+      try {
+        return { result: await library!.restoreEditCheckpoint(request) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest('edit-comparison:prepare', async (event, request) => {
+      trusted(event)
+      try {
+        return { result: await library!.editComparisons.prepare(request) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    handleLibraryRequest(
+      'edit-comparison:frame',
+      async (event, photoId, sessionId, member, requestId, rendition, reservation) => {
+        trusted(event)
+        try {
+          return {
+            result: await library!.editComparisons.frame(
+              photoId,
+              sessionId,
+              member,
+              requestId,
+              rendition,
+              reservation,
+            ),
+          }
+        } catch (error) {
+          return { error: String(error) }
+        }
+      },
+    )
+    handleLibraryRequest(
+      'edit-comparison:inspect',
+      async (event, photoId, sessionId, inspection) => {
+        trusted(event)
+        try {
+          return { result: await library!.editComparisons.inspect(photoId, sessionId, inspection) }
+        } catch (error) {
+          return { error: String(error) }
+        }
+      },
+    )
+    handleLibraryRequest('edit-comparison:dispose', async (event, photoId, sessionId) => {
+      trusted(event)
+      try {
+        return { result: await library!.editComparisons.dispose(photoId, sessionId) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
     handleLibraryRequest('presets:list', async (event, query) => {
       trusted(event)
       try {

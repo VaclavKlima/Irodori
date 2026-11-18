@@ -22,8 +22,20 @@ import { Exposure } from './Exposure'
 import type { EditController } from '../hooks/useEdits'
 import { LensCorrections } from './LensCorrections'
 import { InspectorSection } from './InspectorSection'
-import { Info, Sun, Crop, Palette, ScanLine, RotateCcw, PanelsTopLeft, Layers } from 'lucide-react'
+import {
+  Info,
+  Sun,
+  Crop,
+  Palette,
+  ScanLine,
+  RotateCcw,
+  PanelsTopLeft,
+  Layers,
+  History,
+} from 'lucide-react'
 import { Presets } from './Presets'
+import { EditCheckpoints } from './EditCheckpoints'
+import type { EditCheckpointsController } from '../hooks/useEditCheckpoints'
 import { Masks } from './Masks'
 import type { MasksController } from '../hooks/useMasks'
 import { hasMaskedTexture } from '../../../shared/masked-texture'
@@ -64,7 +76,9 @@ export function Inspector({
   onApplyPreset,
   masks,
   objectSelection,
+  checkpoints,
 }: {
+  checkpoints: EditCheckpointsController
   masks: MasksController
   objectSelection?: ObjectSelectionController
   group: InspectorGroup
@@ -92,6 +106,7 @@ export function Inspector({
   const [resetting, setResetting] = useState(false)
   const [resetError, setResetError] = useState('')
   const switchTo = async (change: () => void) => {
+    if (checkpoints.active) return
     const request = ++navigation.current
     const focused = document.activeElement
     if (focused instanceof HTMLInputElement) focused.blur()
@@ -119,7 +134,7 @@ export function Inspector({
     const next = { ...sections, [id]: !sections[id] }
     onSectionsChange(next)
   }
-  const title = (id: Exclude<InspectorGroup, 'info' | 'presets' | 'masks'>) => (
+  const title = (id: Exclude<InspectorGroup, 'info' | 'presets' | 'masks' | 'versions'>) => (
     <div className={`${inspectorStyles.title} ${id === 'color' ? inspectorStyles.colorTitle : ''}`}>
       <h2>{id[0].toUpperCase() + id.slice(1)}</h2>
       <IconButton
@@ -136,12 +151,19 @@ export function Inspector({
   return (
     <aside className={styles.inspector} aria-label="Adjustments" data-testid="adjustments-panel">
       <div className={styles.inspectorPinned} data-testid="inspector-pinned">
-        <Histogram
-          tools={tools}
-          ready={previewReady}
-          expanded={sections.histogram}
-          onToggle={() => toggle('histogram')}
-        />
+        {checkpoints.active ? (
+          <div className={inspectorStyles.comparisonHistogram} role="status">
+            <h2>Histogram</h2>
+            <p>Unavailable during version comparison.</p>
+          </div>
+        ) : (
+          <Histogram
+            tools={tools}
+            ready={previewReady}
+            expanded={sections.histogram}
+            onToggle={() => toggle('histogram')}
+          />
+        )}
       </div>
       <div className={styles.inspectorBody}>
         <Tabs
@@ -155,12 +177,20 @@ export function Inspector({
             { id: 'detail', label: 'Detail', icon: ScanLine },
             { id: 'geometry', label: 'Geometry', icon: Crop },
             { id: 'presets', label: 'Presets', icon: PanelsTopLeft },
+            { id: 'versions', label: 'Versions', icon: History },
             { id: 'info', label: 'Info', icon: Info },
-          ]}
+          ].map((item) => ({
+            ...item,
+            id: item.id as InspectorGroup,
+            disabledReason:
+              checkpoints.active && item.id !== 'versions'
+                ? 'End version comparison to continue editing.'
+                : undefined,
+          }))}
           onChange={(next) => void switchTo(() => onGroupChange(next))}
         />
         <div
-          className={`${inspectorStyles.scroll} ${group === 'presets' ? inspectorStyles.presetScroll : ''} ${group === 'masks' ? inspectorStyles.maskScroll : ''}`}
+          className={`${inspectorStyles.scroll} ${group === 'presets' || group === 'versions' ? inspectorStyles.presetScroll : ''} ${group === 'masks' ? inspectorStyles.maskScroll : ''}`}
           data-testid="inspector-scroll"
         >
           <TabPanel id="light" active={group === 'light'}>
@@ -304,6 +334,22 @@ export function Inspector({
               state={presets}
               onState={onPresetsChange}
               onApply={onApplyPreset}
+            />
+          </TabPanel>
+          <TabPanel id="versions" active={group === 'versions'}>
+            <EditCheckpoints
+              active={group === 'versions' && !suspended}
+              photoId={photo?.id ?? null}
+              blocked={
+                suspended ||
+                crop.active ||
+                crop.pending ||
+                masks.busy ||
+                !!masks.creatingGradient ||
+                masks.rangeCreating ||
+                !!objectSelection?.active
+              }
+              checkpoints={checkpoints}
             />
           </TabPanel>
           <TabPanel id="info" active={group === 'info'}>

@@ -63,6 +63,11 @@ export interface HdrSourceMemory {
   /** Includes invalidated or evicted entries still pinned by submitted work. */
   readonly entries: number
 }
+declare const memorySnapshotBrand: unique symbol
+/** Passive exact-entry credit for resources already included in an aggregate reservation. */
+export interface HdrSourceMemorySnapshot {
+  readonly [memorySnapshotBrand]: true
+}
 
 const hash = (value: string) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
 export function hdrSourceIdentity(
@@ -207,6 +212,7 @@ export class HdrSourceCache<Resource extends HdrSourceResource> {
   private entries: Entry<Resource>[] = []
   private owned = new Set<Entry<Resource>>()
   private leases = new WeakMap<HdrSourceLease<Resource>, LeaseState<Resource>>()
+  private memorySnapshots = new WeakMap<HdrSourceMemorySnapshot, WeakSet<Entry<Resource>>>()
   private lost = new WeakSet<object>()
   private waiters = new Set<{ device?: object; resolve: () => void }>()
   private epoch = 0
@@ -241,15 +247,34 @@ export class HdrSourceCache<Resource extends HdrSourceResource> {
   forgetPhoto(photoId: string): void {
     for (const entry of this.entries) if (entry.photoId === photoId) entry.photoId = undefined
   }
-  memory(excluding?: HdrSourceLease<Resource>): HdrSourceMemory {
-    const state = excluding ? this.leases.get(excluding) : undefined
-    if (excluding && (!state || state.releasing || !this.owned.has(state.entry)))
-      throw new Error('Only an active source lease can be excluded from cache reservations.')
+  /** No lease or strong entry reference is retained by this admission-only snapshot. */
+  captureMemory(): HdrSourceMemorySnapshot {
+    const snapshot = Object.freeze({}) as HdrSourceMemorySnapshot
+    this.memorySnapshots.set(snapshot, new WeakSet(this.owned))
+    return snapshot
+  }
+  memory(
+    excluding?: HdrSourceLease<Resource>,
+    additionalExcluded: readonly HdrSourceLease<Resource>[] = [],
+    credited?: HdrSourceMemorySnapshot,
+  ): HdrSourceMemory {
+    if (!Array.isArray(additionalExcluded))
+      throw new Error('Additional source exclusions require active source leases.')
+    const creditedEntries = credited === undefined ? undefined : this.memorySnapshots.get(credited)
+    if (credited !== undefined && !creditedEntries)
+      throw new Error('Source memory credits must belong to this cache.')
+    const excluded = new Set<Entry<Resource>>()
+    for (const lease of [...(excluding ? [excluding] : []), ...additionalExcluded]) {
+      const state = this.leases.get(lease)
+      if (!state || state.releasing || !this.owned.has(state.entry))
+        throw new Error('Only an active source lease can be excluded from cache reservations.')
+      excluded.add(state.entry)
+    }
     let ramBytes = 0,
       vramBytes = 0,
       entries = 0
     for (const entry of this.owned) {
-      if (entry === state?.entry) continue
+      if (excluded.has(entry) || creditedEntries?.has(entry)) continue
       entries++
       ramBytes += entry.samples.sample.byteLength + entry.samples.draft.byteLength
       vramBytes += entry.identity.textureBytes

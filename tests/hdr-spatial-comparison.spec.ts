@@ -134,6 +134,7 @@ interface Snapshot {
   visibility: string
   held: number
   lost: string[]
+  siblingLost: string[]
   data: Record<string, string>
   requests: string[]
   cache: { entries: number; ramBytes: number; vramBytes: number }
@@ -179,7 +180,7 @@ import {hdrPresentationMemory,HDR_BITMAP_RESERVATION} from './src/renderer/src/p
 import {hdrSourceIdentity} from './src/renderer/src/preview/hdr-source-cache';
 import {observeHdrSample} from './src/renderer/src/preview/hdr-sample';
 const workers=${JSON.stringify(workerPaths)},NativeWorker=window.Worker,urls=[];
-let presenter,canvas,retainedCanvas,after,before,viewport={width:8,height:6},mode='after',holdHash='',held=[],
+let presenter,canvas,retainedCanvas,failedPresenter,failedCanvas,siblingLost=[],after,before,viewport={width:8,height:6},mode='after',holdHash='',held=[],
  requests=[],lost=[],statistics,publications=[],retired=Promise.resolve(),clearing=Promise.resolve(),
  holdFences=false,fences=[],instrumented=false,samples={},sampleStops=[];
 window.Worker=class extends NativeWorker {
@@ -213,7 +214,7 @@ function source(input,corrupt=false){
 function half(word){const e=(word>>>10)&31,f=word&1023;
  return (word&32768?-1:1)*(e?(1+f/1024)*2**(e-15):f*2**-24)}
 window.hdrComparison={
- create(input,target,smallBudget=false,forceStaging=false){
+ create(input,target,smallBudget=false,forceStaging=false,readOnly=false){
   const policy=${JSON.stringify(policy)},dpr=devicePixelRatio||1;
   if(forceStaging)Object.defineProperty(window,'Float16Array',{configurable:true,value:undefined});
   canvas=document.createElement('canvas');document.body.append(canvas);
@@ -229,11 +230,19 @@ window.hdrComparison={
   presenter=new HdrPresenter(canvas,target,selectEditorPreviewPolicy(smallBudget?null:'linux'),
    reason=>lost.push(reason),()=>publications.push(canvas.dataset.presentedBeforeSourceIdentity||null),
    result=>{statistics=result},retainedCanvas);
+  if(readOnly)presenter.setReadOnlyComparison({revision:1,ramBytes:1024**3,vramBytes:1024**3});
   presenter.setPresentationState({revision:1,settings:neutralAdjustments});
   after=source(input);presenter.setWorking(after);
  },
  before(input,required=true,corrupt=false){before=input?source(input,corrupt):null;
   presenter.setComparisonSource(before,required)},
+ failSibling(input){
+  failedCanvas=document.createElement('canvas');document.body.append(failedCanvas);
+  failedPresenter=new HdrPresenter(failedCanvas,SDR_TARGET,selectEditorPreviewPolicy(null),
+   reason=>siblingLost.push(reason),()=>{});
+  failedPresenter.setReadOnlyComparison({revision:1,ramBytes:1,vramBytes:1});
+  failedPresenter.setWorking(source(input));
+ },
  alias(){presenter.setComparisonSource(after)},
  probeMask(which){let finish;const drained=new Promise(resolve=>{finish=resolve}),
   scope=presenter.reserveMask(which==='before'?before:after,()=>{},drained);
@@ -261,7 +270,7 @@ window.hdrComparison={
     canvas.dataset.editing==='ready'&&canvas.dataset.comparison===mode&&
     canvas.dataset.completedEditSerial===canvas.dataset.requestedSerial&&
     canvas.dataset.analysisPending!=='true',visibility:canvas?.style.visibility,held:held.length,
-   lost,data:{...canvas?.dataset},requests,cache:sourceCache.memory(),owner:imageResourceOwners.snapshot(),publications,statistics,samples,
+   lost,siblingLost,data:{...canvas?.dataset},requests,cache:sourceCache.memory(),owner:imageResourceOwners.snapshot(),publications,statistics,samples,
    recovery:presenter?.recovery.snapshot,recoverable:!!presenter&&!!retainedCanvas&&presenter.recoverCompletedFrame(retainedCanvas)}},
  async pixels(){
   const texture=presenter.surface,device=presenter.device,width=texture.width,height=texture.height,
@@ -277,6 +286,7 @@ window.hdrComparison={
  close(){if(presenter){presenter.dispose();retired=presenter.whenDisposed;presenter=null}},
  drainCache(){clearing=sourceCache.clearAndDrain()},
  async finish(){this.release();this.close();await retired;await clearing;
+  if(failedPresenter){failedPresenter.dispose();await failedPresenter.whenDisposed;failedPresenter=null;failedCanvas?.remove()}
   await sourceCache.clearAndDrain();await presentationCache.clearAndDrain();
   for(const stop of sampleStops)stop();sampleStops=[];
   for(const url of urls)URL.revokeObjectURL(url);canvas?.remove();canvas=null}
@@ -326,7 +336,49 @@ async function finish(frame: Frame) {
     .toEqual({ ramBytes: 0, vramBytes: 0 })
 }
 
+test('a read-only sibling budget failure reports promptly without waiting for the healthy source pin to drain', async ({
+  irodori: { page },
+}) => {
+  const frame = await harness(page),
+    source = fixture(0)
+  try {
+    await act(frame, 'create', source, sdr)
+    await act(frame, 'draw', neutralAdjustments)
+    await ready(frame)
+    await act(frame, 'failSibling', fixture(1))
+    await expect.poll(async () => (await snapshot(frame)).siblingLost.length).toBe(1)
+    expect((await snapshot(frame)).siblingLost[0]).toContain('resource budget')
+    expect((await snapshot(frame)).cache.entries).toBe(1)
+    await act(frame, 'draw', graded)
+    await ready(frame)
+    compare(await capture(frame), reference(source, graded, sdr))
+  } finally {
+    await finish(frame)
+  }
+})
+
 for (const authored of [false, true]) {
+  test(`read-only ${authored ? 'authored' : 'capture'} HDR version surfaces retain ordinary point pixels without selecting global analysis sources`, async ({
+    irodori: { page },
+  }) => {
+    const frame = await harness(page),
+      source = fixture(1, authored),
+      target = authored ? hdr : sdr
+    try {
+      await act(frame, 'create', source, target, false, false, true)
+      await act(frame, 'draw', graded)
+      await ready(frame)
+      compare(await capture(frame), reference(source, graded, target))
+      const state = await snapshot(frame)
+      expect(state.samples).toEqual({})
+      expect(state.statistics).toBeUndefined()
+      expect(state.data.comparison).toBe('after')
+      expect(state.data.sourceUploads).toBe('1')
+    } finally {
+      await act(frame, 'finish')
+    }
+  })
+
   test(`actual ${authored ? 'authored' : 'capture'} HDR presenter selects original Before pixels, histograms and cached mips without reuploading point edits`, async ({
     irodori: { page },
   }) => {

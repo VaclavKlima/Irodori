@@ -11,6 +11,10 @@ import {
   publishHdrSample,
   selectHdrSampleSources,
 } from '../src/renderer/src/preview/hdr-sample'
+import {
+  HDR_BITMAP_RESERVATION,
+  hdrPresentationMemory,
+} from '../src/renderer/src/preview/hdr-memory'
 
 class SourceResource {
   destroyed = 0
@@ -69,6 +73,149 @@ function candidate(
 const admission = (): HdrSourceAdmission => ({
   signal: new AbortController().signal,
   isCurrent: () => true,
+})
+
+test('aggregate peer exclusions require active owned leases, deduplicate shared entries and retain unrelated retiring charges', async () => {
+  const cache = new HdrSourceCache<SourceResource>(),
+    otherCache = new HdrSourceCache<SourceResource>(),
+    aDevice = {},
+    bDevice = {},
+    a = candidate('a'),
+    b = candidate('b'),
+    own = (await cache.admit(aDevice, a, admission()))!,
+    peer = (await cache.admit(bDevice, b, admission()))!,
+    alias = cache.acquire(aDevice, a.identity)!,
+    foreign = (await otherCache.admit({}, candidate('c'), admission()))!,
+    fence = deferred()
+  try {
+    expect(cache.memory(own, [own, alias, peer, peer])).toEqual({
+      ramBytes: 0,
+      vramBytes: 0,
+      entries: 0,
+    })
+    expect(cache.memory(undefined, [own, alias])).toEqual({
+      ramBytes: b.samples.sample.byteLength + b.samples.draft.byteLength,
+      vramBytes: b.identity.textureBytes,
+      entries: 1,
+    })
+    expect(() => cache.memory(own, [foreign])).toThrow('active source lease')
+    const retiring = cache.invalidate(bDevice),
+      releasing = peer.releaseAfter(fence.promise)
+    expect(() => cache.memory(own, [peer])).toThrow('active source lease')
+    expect(cache.memory(own, [alias])).toEqual({
+      ramBytes: b.samples.sample.byteLength + b.samples.draft.byteLength,
+      vramBytes: b.identity.textureBytes,
+      entries: 1,
+    })
+    fence.resolve()
+    await Promise.all([retiring, releasing])
+    expect(cache.memory(own, [alias])).toEqual({ ramBytes: 0, vramBytes: 0, entries: 0 })
+  } finally {
+    fence.resolve()
+    await Promise.all([
+      own.releaseAfter(Promise.resolve()),
+      alias.releaseAfter(Promise.resolve()),
+      peer.releaseAfter(Promise.resolve()),
+      foreign.releaseAfter(Promise.resolve()),
+    ])
+    await Promise.all([cache.dispose(), otherCache.dispose()])
+  }
+})
+
+test('two distinct native 20-megapixel source pipelines fit their aggregate budget without charging the peer source twice', async () => {
+  const cache = new HdrSourceCache<SourceResource>(),
+    device = {},
+    a = candidate('a', 5496, 3672),
+    b = candidate('b', 5496, 3672),
+    own = (await cache.admit(device, a, admission()))!,
+    peer = (await cache.admit(device, b, admission()))!,
+    limits = { revision: 1, ramBytes: 1024 ** 3, vramBytes: 1024 ** 3 },
+    request = {
+      width: 5496,
+      height: 3672,
+      canvasWidth: 600,
+      canvasHeight: 400,
+      maximumLayers: 1,
+      bitmapReservation: HDR_BITMAP_RESERVATION,
+      rawHalfSupported: false,
+    }
+  try {
+    const duplicated = hdrPresentationMemory(
+      { ...request, otherReservations: cache.memory(own) },
+      limits,
+    )
+    expect(duplicated.accepted).toBe(false)
+    const first = hdrPresentationMemory(
+      { ...request, otherReservations: cache.memory(own, [peer]) },
+      limits,
+    )
+    const second = hdrPresentationMemory(
+      { ...request, otherReservations: cache.memory(peer, [own]) },
+      limits,
+    )
+    expect(first.accepted).toBe(true)
+    expect(second.accepted).toBe(true)
+    expect(first.peak.ramBytes + second.peak.ramBytes).toBeLessThanOrEqual(limits.ramBytes * 2)
+    expect(first.peak.vramBytes + second.peak.vramBytes).toBeLessThanOrEqual(limits.vramBytes * 2)
+    expect(cache.memory().entries).toBe(2)
+  } finally {
+    await Promise.all([own.releaseAfter(Promise.resolve()), peer.releaseAfter(Promise.resolve())])
+    await cache.dispose()
+  }
+})
+
+test('passive baseline credits match exact existing entries, preserve retirement ownership and never credit a later same-hash source', async () => {
+  const cache = new HdrSourceCache<SourceResource>(),
+    otherCache = new HdrSourceCache<SourceResource>(),
+    baselineDevice = {},
+    device = {},
+    baseline = candidate('a'),
+    baseLease = (await cache.admit(baselineDevice, baseline, admission()))!,
+    before = cache.memory(),
+    credit = cache.captureMemory(),
+    a = candidate('b', 5496, 3672),
+    b = candidate('c', 5496, 3672),
+    first = (await cache.admit(device, a, admission()))!,
+    fence = deferred()
+  let second: typeof first | undefined, replacement: typeof first | undefined
+  try {
+    expect(cache.memory(first)).toEqual(before)
+    expect(before.entries).toBe(1)
+    expect(cache.memory(first, [], credit)).toEqual({ ramBytes: 0, vramBytes: 0, entries: 0 })
+    expect(() => cache.memory(first, [], otherCache.captureMemory())).toThrow(
+      'belong to this cache',
+    )
+    const retiring = cache.invalidate(baselineDevice),
+      released = baseLease.releaseAfter(fence.promise)
+    expect(cache.memory(first)).toEqual(before)
+    expect(cache.memory(first, [], credit)).toEqual({ ramBytes: 0, vramBytes: 0, entries: 0 })
+    fence.resolve()
+    await Promise.all([retiring, released])
+    second = (await cache.admit(device, b, admission()))!
+    expect(cache.memory(first, [], credit)).toEqual({
+      ramBytes: b.samples.sample.byteLength + b.samples.draft.byteLength,
+      vramBytes: b.identity.textureBytes,
+      entries: 1,
+    })
+    expect(cache.memory(first, [second], credit)).toEqual({ ramBytes: 0, vramBytes: 0, entries: 0 })
+    await first.releaseAfter(Promise.resolve())
+    const sameHash = candidate('a')
+    replacement = (await cache.admit(device, sameHash, admission()))!
+    expect(cache.memory(second, [], credit)).toEqual({
+      ramBytes: sameHash.samples.sample.byteLength + sameHash.samples.draft.byteLength,
+      vramBytes: sameHash.identity.textureBytes,
+      entries: 1,
+    })
+  } finally {
+    fence.resolve()
+    await Promise.all([
+      baseLease.releaseAfter(Promise.resolve()),
+      first.releaseAfter(Promise.resolve()),
+      second?.releaseAfter(Promise.resolve()),
+      replacement?.releaseAfter(Promise.resolve()),
+    ])
+    await Promise.all([cache.dispose(), otherCache.dispose()])
+  }
 })
 
 test('analysis samples stay charged after their retired GPU cache owner finishes draining', async () => {

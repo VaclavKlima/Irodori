@@ -6,6 +6,11 @@ Irodori is a desktop photo editor inspired by the Adobe Lightroom workflow. It c
 
 Users can edit a photograph manually, give the agent a request in natural language, and then fine-tune its work. Both methods share adjustment settings, the preview, and the edit history.
 
+[Named per-photo checkpoints](docs/features/edit-checkpoints.md) retain complete
+editing passes independently of Undo history. Users can compare two saved passes
+or frozen Current edits at synchronized native regions and restore a version
+through the same undoable edit service. UI and Console use the same snapshots.
+
 The application is intended for photographers working with local photographs, including camera RAW files and HDR content.
 
 ## First usable release

@@ -84,6 +84,8 @@ import type { InspectionRegionController } from '../hooks/useInspectionRegion'
 import type { ObjectSelectionController } from '../hooks/useObjectSelection'
 import { ObjectSelectionOverlay } from './ObjectSelection'
 import { inspectionGeometryMatches } from '../preview/inspection-geometry'
+import type { EditComparisonSession } from '../../../shared/edit-comparisons'
+import { EditComparisonPreview } from './EditComparisonPreview'
 import { selectionScreenPoint } from '../preview/object-selection-geometry'
 import { neutralMaskColor, neutralMaskLight } from '../../../shared/masks'
 import { maskCoverageNodes, maskTreeHasEdges } from '../../../shared/masks-gpu'
@@ -95,6 +97,8 @@ interface Model {
   view: View
 }
 interface Props {
+  comparison?: EditComparisonSession | null
+  onEndComparison?: () => void
   previewPolicy: EditorPreviewPolicy
   hdrJpeg?: boolean
   suspended?: boolean
@@ -152,7 +156,62 @@ function maskCursorStyle(
 }
 
 // The parent keys this component by photo ID so every new photograph starts in Fit.
-export function PhotoPreview({
+export function PhotoPreview(props: Props) {
+  const [lastView, setLastView] = useState<PreviewViewState | null>(props.initialView ?? null)
+  const onViewChange = props.onViewChange
+  const rememberView = useCallback(
+    (view: PreviewViewState) => {
+      setLastView((previous) =>
+        JSON.stringify(previous) === JSON.stringify(view) ? previous : view,
+      )
+      onViewChange?.(view)
+    },
+    [onViewChange],
+  )
+  const onEndComparison = props.onEndComparison
+  const endComparison = useCallback(() => {
+    const origin = document.activeElement
+    const restorePreview =
+      origin instanceof HTMLElement && !!origin.closest('[data-testid="edit-comparison-preview"]')
+    onEndComparison?.()
+    if (restorePreview)
+      requestAnimationFrame(() => {
+        // Explicit Close/Escape may unmount its focused control. Never replace a
+        // newer focus choice in Console, the Versions panel or another dialog.
+        if (document.activeElement !== document.body) return
+        const canvas = document.querySelector<HTMLElement>('[data-testid="main-preview"]')
+        if (canvas && !canvas.closest('[hidden], [inert]')) canvas.focus({ preventScroll: true })
+      })
+  }, [onEndComparison])
+  return (
+    <>
+      <div
+        style={{ display: props.comparison ? 'none' : 'contents' }}
+        inert={Boolean(props.comparison)}
+      >
+        <CurrentPhotoPreview
+          {...props}
+          suspended={props.suspended || Boolean(props.comparison)}
+          onViewChange={rememberView}
+        />
+      </div>
+      {props.comparison && (
+        <EditComparisonPreview
+          key={props.comparison.id}
+          session={props.comparison}
+          filename={props.photo?.filename}
+          initialView={lastView}
+          displayTarget={props.displayTarget}
+          previewPolicy={props.previewPolicy}
+          suspended={props.suspended}
+          onEnd={endComparison}
+        />
+      )}
+    </>
+  )
+}
+
+function CurrentPhotoPreview({
   previewPolicy,
   hdrJpeg = false,
   suspended = false,

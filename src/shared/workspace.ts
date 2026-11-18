@@ -40,6 +40,7 @@ export const inspectorGroups = [
   'detail',
   'geometry',
   'presets',
+  'versions',
   'info',
 ] as const
 export type InspectorGroup = (typeof inspectorGroups)[number]

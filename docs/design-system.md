@@ -156,6 +156,12 @@ Console arrangement and date/month/year browser.
   dimensions, format, camera/exposure and supplied additional metadata. Long
   values wrap inside the independently scrolling panel. Do not repeat the old
   compact preview metadata summary above it.
+- **Versions:** between Presets and Info, with complete per-photo checkpoint
+  rows, Save checkpoint, explicit A/B selectors and Compare/Restore actions.
+  The list scrolls independently; management dialogs keep fixed footer actions.
+  Read-only comparison replaces the photograph controls with filename, A/B,
+  Split and End comparison while preserving the same central viewport. See
+  [named checkpoints](features/edit-checkpoints.md).
 
 Group titles use 12px/600 text and a 24px-wide reset button whose 16px icon,
 4px padding and border compute to 26px height. Titles have 5px bottom spacing;

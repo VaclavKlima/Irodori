@@ -1,0 +1,159 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 6px;
+  font-size: 11px;
+}
+.panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.panel h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.panel button {
+  font-size: 10px;
+  min-height: 26px;
+}
+.search {
+  width: 100%;
+  min-height: 26px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--canvas);
+  color: var(--text);
+  font: inherit;
+}
+.list {
+  flex: 1;
+  min-height: 44px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  scrollbar-gutter: stable;
+}
+.hint,
+.list p {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0;
+}
+.list p {
+  padding: 6px;
+}
+.row {
+  position: absolute;
+  width: 100%;
+  height: 44px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+}
+.row[data-selected='true'] {
+  border-color: var(--accent);
+  background: var(--surface-raised);
+}
+.select {
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4px 7px;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.select strong,
+.select span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.select strong {
+  font-size: 11px;
+  font-weight: 500;
+}
+.select span {
+  color: var(--muted);
+  font-size: 9px;
+}
+.row[data-selected='true'] strong {
+  color: var(--accent);
+}
+.rowMenu {
+  position: absolute;
+  right: 2px;
+  top: 39px;
+  z-index: 2;
+  min-width: 120px;
+  padding: 3px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px #0008;
+}
+.rowMenu button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+}
+.comparison {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border-top: 1px solid var(--line-subtle);
+  padding-top: 6px;
+}
+.comparison label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.comparison label span {
+  width: 12px;
+  flex: none;
+}
+.comparison select {
+  min-width: 0;
+  flex: 1;
+  height: 26px;
+  background: var(--canvas);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font: inherit;
+}
+.actions {
+  display: flex;
+  gap: 5px;
+}
+.actions button {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 5px;
+}
+.error {
+  color: var(--error);
+  max-height: 72px;
+  overflow: auto;
+  margin: 0;
+}
+.panel :focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}

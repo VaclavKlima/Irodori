@@ -17,6 +17,25 @@ interface Suite {
   explicitOnly?: boolean
 }
 const definitions: Suite[] = [
+  { file: 'checkpoints-model', group: 'node', scopes: ['adjustments', 'library'] },
+  { file: 'checkpoints-service', group: 'service', scopes: ['adjustments', 'library'] },
+  { file: 'checkpoints-mcp', group: 'service', scopes: ['adjustments', 'mcp'] },
+  {
+    file: 'checkpoints-photographic',
+    group: 'raw-gpu',
+    scopes: ['adjustments', 'preview', 'mcp'],
+    exclusive: true,
+  },
+  { file: 'checkpoints-ui', group: 'electron', scopes: ['adjustments', 'ui'] },
+  { file: 'checkpoints-native', group: 'electron', scopes: ['ui'], exclusive: true },
+  { file: 'edit-comparisons', group: 'service', scopes: ['adjustments', 'preview', 'mcp'] },
+  { file: 'edit-comparison-model', group: 'node', scopes: ['adjustments', 'preview'] },
+  {
+    file: 'edit-comparison-ui',
+    group: 'electron',
+    scopes: ['adjustments', 'preview', 'ui'],
+    exclusive: true,
+  },
   { file: 'desktop-input-ui', group: 'electron', scopes: ['ui'], exclusive: true },
   { file: 'mask-compound-ui', group: 'electron', scopes: ['adjustments', 'ui'], exclusive: true },
   {

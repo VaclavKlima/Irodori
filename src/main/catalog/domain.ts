@@ -20,6 +20,7 @@ import { ImportSourceMutations } from './import-source-mutations'
 import { EditApplicationMutations } from '../edit-application-store'
 import { ExportMutations } from './export-mutations'
 import { PresetMutations } from '../preset-store'
+import { EditCheckpointMutations } from '../edit-checkpoint-store'
 
 /** Only the dedicated writer uses this after the explicit startup phase ends. */
 export class CatalogMutations {
@@ -31,6 +32,7 @@ export class CatalogMutations {
   readonly editApplications: EditApplicationMutations
   readonly exports: ExportMutations
   readonly presets: PresetMutations
+  readonly checkpoints: EditCheckpointMutations
   constructor(readonly db: DatabaseSync) {
     this.stacks = new StackMutations(db)
     this.browse = new BrowseMutations(db)
@@ -40,6 +42,7 @@ export class CatalogMutations {
     this.exports = new ExportMutations(db)
     this.editApplications = new EditApplicationMutations(db)
     this.presets = new PresetMutations(db)
+    this.checkpoints = new EditCheckpointMutations(db)
   }
   transaction<T>(work: () => T): T {
     return catalogTransaction(this.db, work)
@@ -88,6 +91,36 @@ export class CatalogMutations {
   }
   execute(command: CatalogCommand): unknown {
     switch (command.operation) {
+      case 'checkpoint.create':
+        return this.transaction(() => {
+          const { photoId, name, expectedRevision, id, createdAt } = command.payload
+          this.photo(photoId)
+          const history = this.readEdits(photoId)
+          if (
+            !Number.isSafeInteger(expectedRevision) ||
+            expectedRevision < 0 ||
+            history.revision !== expectedRevision
+          )
+            throw new Error('Edit conflict: reload the confirmed settings and try again.')
+          return this.checkpoints.create({
+            version: 1,
+            kind: 'checkpoint',
+            id,
+            photoId,
+            name,
+            revision: 1,
+            createdAt,
+            updatedAt: createdAt,
+            capturedFromRevision: history.revision,
+            settings: history.settings,
+          })
+        })
+      case 'checkpoint.rename':
+        return this.transaction(() =>
+          this.checkpoints.rename(command.payload, command.payload.updatedAt),
+        )
+      case 'checkpoint.delete':
+        return this.transaction(() => this.checkpoints.delete(command.payload))
       case 'preset.create':
         return this.transaction(() => this.presets.create(command.payload.preset))
       case 'preset.update':
@@ -118,7 +151,8 @@ export class CatalogMutations {
         })
       }
       case 'edits.commit': {
-        const { history, expectedRevision, application, maskChunks, maskBases } = command.payload
+        const { history, expectedRevision, application, maskChunks, maskBases, checkpointRestore } =
+          command.payload
         if (
           !Number.isSafeInteger(expectedRevision) ||
           expectedRevision < 0 ||
@@ -130,6 +164,21 @@ export class CatalogMutations {
           const previous = this.readEdits(history.photoId)
           if (previous.revision !== expectedRevision)
             throw new Error('Edit conflict: reload the confirmed settings and try again.')
+          if (checkpointRestore) {
+            const checkpoint = this.checkpoints.expected(checkpointRestore)
+            const source = this.db
+              .prepare('SELECT processing_identity FROM photos WHERE id = ?')
+              .get(history.photoId) as { processing_identity: string }
+            if (source.processing_identity !== checkpoint.settings.processing)
+              throw new Error(
+                'The saved version source processing identity changed. Its settings were preserved.',
+              )
+            if (
+              checkpoint.photoId !== history.photoId ||
+              JSON.stringify(checkpoint.settings) !== JSON.stringify(history.settings)
+            )
+              throw new Error('The saved version changed before restoration.')
+          }
           if (
             !Number.isSafeInteger(history.cursor) ||
             history.cursor < 0 ||

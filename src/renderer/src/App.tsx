@@ -25,6 +25,7 @@ import { useDisplayState } from './hooks/useDisplayState'
 import type { PreviewPreference } from '../../shared/hdr-display'
 import { usePreviewTools } from './hooks/usePreviewTools'
 import { useEdits } from './hooks/useEdits'
+import { useEditCheckpoints } from './hooks/useEditCheckpoints'
 import { useMasks } from './hooks/useMasks'
 import { useMaskEdgeCoverage } from './hooks/useMaskEdgeCoverage'
 import { useInspectionRegion } from './hooks/useInspectionRegion'
@@ -215,6 +216,7 @@ export function App() {
     hydrate,
   } = library
   const edits = useEdits(photo?.id, workspace === 'editor')
+  const checkpoints = useEditCheckpoints(photo?.id, edits, workspace === 'editor')
   const flushEdits = edits.flush
   const flushPresentationFailure = useCallback(() => {
     // Save the active draft before its input is disabled; useEdits owns history and errors.
@@ -226,20 +228,26 @@ export function App() {
   const crop = useCrop(
     edits,
     photo?.id,
-    workspace === 'editor' && !!photo && !mergeTargets && !importOpen && !settingsOpen,
+    workspace === 'editor' &&
+      !checkpoints.active &&
+      !!photo &&
+      !mergeTargets &&
+      !importOpen &&
+      !settingsOpen,
     !!photo && interactivePhoto === photo.id,
     (id, crop, revision) => window.irodori.updateEdits(id, { crop }, revision),
   )
   const whiteBalancePicker = useWhiteBalancePicker(
     edits,
     photo?.id,
-    workspace === 'editor' && !!photo && !crop.active && !crop.pending,
+    workspace === 'editor' && !checkpoints.active && !!photo && !crop.active && !crop.pending,
     !!photo && interactivePhoto === photo.id,
   )
   const toneCurves = useToneCurves(
     edits,
     photo?.id,
     workspace === 'editor' &&
+      !checkpoints.active &&
       inspectorGroup === 'light' &&
       !!photo &&
       !crop.active &&
@@ -255,6 +263,7 @@ export function App() {
     edits,
     photo?.id,
     workspace === 'editor' &&
+      !checkpoints.active &&
       inspectorGroup === 'masks' &&
       !!photo &&
       !crop.active &&
@@ -276,7 +285,7 @@ export function App() {
     photoId: photo?.id,
     revision: edits.state?.revision,
     confirmation: edits.state ?? undefined,
-    enabled: workspace === 'editor' && !!photo && edits.confirmed,
+    enabled: workspace === 'editor' && !checkpoints.active && !!photo && edits.confirmed,
     parameters: masks.adjustments,
     selectedId:
       masks.workspace.overlayScope === 'selected-part'
@@ -286,7 +295,7 @@ export function App() {
     mutation: masks.coverageMutation,
   })
   const startCrop = async () => {
-    if (!crop.supported || crop.pending) return
+    if (!crop.supported || crop.pending || checkpoints.active) return
     objectSelection.close()
     inspection.close()
     masks.cancel()
@@ -302,6 +311,7 @@ export function App() {
     photo?.id,
     edits.state,
     workspace === 'editor' &&
+      !checkpoints.active &&
       !!photo &&
       interactivePhoto === photo.id &&
       !crop.active &&
@@ -321,6 +331,7 @@ export function App() {
     revision: edits.state?.revision,
     enabled:
       workspace === 'editor' &&
+      !checkpoints.active &&
       inspectorGroup === 'masks' &&
       !!photo &&
       interactivePhoto === photo.id &&
@@ -493,17 +504,18 @@ export function App() {
     [getSelection, flushEdits],
   )
   const cropTool = { ...crop, start: startCrop }
-  const presentationTools = crop.active
-    ? {
-        ...previewTools,
-        mode: 'after' as const,
-        hdrRanges: false,
-        hdrOverlay: 0,
-        shadows: false,
-        highlights: false,
-        hover: null,
-      }
-    : previewTools
+  const presentationTools =
+    crop.active || checkpoints.active
+      ? {
+          ...previewTools,
+          mode: 'after' as const,
+          hdrRanges: false,
+          hdrOverlay: 0,
+          shadows: false,
+          highlights: false,
+          hover: null,
+        }
+      : previewTools
   const [deleteTargets, setDeleteTargets] = useState<readonly PhotoReference[] | null>(null)
   const [contextMenu, setContextMenu] = useState<MenuState | null>(null)
   const contextMenuRef = useRef<MenuState | null>(null)
@@ -1003,8 +1015,20 @@ export function App() {
       actionFailed(ticket, error)
     }
   }
+  function comparisonActions(context: PhotoActionsContext): PhotoActionsContext {
+    if (!checkpoints.active) return context
+    const availability = { ...context.availability }
+    for (const id of ['photo-paste-edits', 'selection-paste-edits'] as const)
+      if (availability[id].kind === 'applicable')
+        availability[id] = {
+          kind: 'blocked',
+          reason: 'End version comparison to edit photographs.',
+        }
+    return { ...context, availability }
+  }
   function dispatchPhotoAction(id: PhotoActionId) {
-    const context = contextMenuRef.current?.context
+    const original = contextMenuRef.current?.context
+    const context = original ? comparisonActions(original) : null
     if (!context || context.availability[id].kind !== 'applicable' || activeAction.current !== null)
       return
     switch (id) {
@@ -1080,6 +1104,7 @@ export function App() {
     }
   }
   async function requestPresetApplication(preset: EditingPreset, selection: boolean) {
+    if (checkpoints.active) throw new Error('End version comparison before applying a preset.')
     if (crop.active || crop.pending)
       throw new Error('Apply or cancel the crop before applying a preset.')
     const active = library.getActivePhoto()
@@ -1355,7 +1380,7 @@ export function App() {
               tasksOpen
             }
           >
-            <div className={styles.previewToolbar}>
+            <div className={styles.previewToolbar} hidden={!!checkpoints.comparison}>
               <div className={styles.filename}>
                 <span data-testid="preview-filename" title={photo?.filename}>
                   {photo?.filename ?? 'No photo selected'}
@@ -1378,7 +1403,7 @@ export function App() {
                       </select>
                       <button
                         className={styles.iconButton}
-                        disabled={!crop.supported || crop.pending}
+                        disabled={!crop.supported || crop.pending || checkpoints.active}
                         aria-label="Crop photo"
                         aria-pressed={crop.active}
                         onClick={() => (crop.active ? crop.cancel() : void startCrop())}
@@ -1388,7 +1413,11 @@ export function App() {
                       <button
                         className={`${styles.iconButton} ${styles.beforeButton}`}
                         disabled={
-                          crop.active || crop.pending || !photo || interactivePhoto !== photo.id
+                          checkpoints.active ||
+                          crop.active ||
+                          crop.pending ||
+                          !photo ||
+                          interactivePhoto !== photo.id
                         }
                         aria-pressed={previewTools.mode === 'before'}
                         onClick={() =>
@@ -1403,7 +1432,11 @@ export function App() {
                       <button
                         className={styles.iconButton}
                         disabled={
-                          crop.active || crop.pending || !photo || interactivePhoto !== photo.id
+                          checkpoints.active ||
+                          crop.active ||
+                          crop.pending ||
+                          !photo ||
+                          interactivePhoto !== photo.id
                         }
                         aria-label="Compare before and after"
                         aria-pressed={previewTools.mode === 'split'}
@@ -1427,7 +1460,14 @@ export function App() {
               <div className={styles.previewActions}>
                 <button
                   className={styles.iconButton}
-                  disabled={edits.saving || crop.active || crop.pending || !edits.state?.canUndo}
+                  disabled={
+                    checkpoints.active ||
+                    checkpoints.busy ||
+                    edits.saving ||
+                    crop.active ||
+                    crop.pending ||
+                    !edits.state?.canUndo
+                  }
                   onClick={() => void edits.history('undo')}
                   aria-label="Undo"
                   title="Undo photo edit (Ctrl/Cmd+Z)"
@@ -1436,7 +1476,14 @@ export function App() {
                 </button>
                 <button
                   className={styles.iconButton}
-                  disabled={edits.saving || crop.active || crop.pending || !edits.state?.canRedo}
+                  disabled={
+                    checkpoints.active ||
+                    checkpoints.busy ||
+                    edits.saving ||
+                    crop.active ||
+                    crop.pending ||
+                    !edits.state?.canRedo
+                  }
                   onClick={() => void edits.history('redo')}
                   aria-label="Redo"
                   title="Redo photo edit (Ctrl/Cmd+Shift+Z)"
@@ -1493,6 +1540,8 @@ export function App() {
               </p>
             )}
             <PhotoPreview
+              comparison={checkpoints.comparison}
+              onEndComparison={checkpoints.close}
               maskEdgeCoverage={maskEdgeCoverage}
               objectSelection={objectSelection}
               inspection={{ ...inspection, start: startInspection }}
@@ -1541,6 +1590,7 @@ export function App() {
         </main>
 
         <Inspector
+          checkpoints={checkpoints}
           objectSelection={objectSelection}
           masks={masks}
           presets={presetWorkspace}
@@ -1575,6 +1625,7 @@ export function App() {
           edits={edits}
           previewReady={
             workspace === 'editor' &&
+            !checkpoints.active &&
             !crop.active &&
             !crop.pending &&
             !!photo &&
@@ -1668,7 +1719,7 @@ export function App() {
         <PhotoContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          context={contextMenu.context}
+          context={comparisonActions(contextMenu.context)}
           toolbar={contextMenu.toolbar}
           initialFocus={contextMenu.initialFocus}
           pending={actionPending}

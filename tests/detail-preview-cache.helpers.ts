@@ -33,7 +33,7 @@ export async function detailCacheFixture(hdr = false, budget?: number, authored 
         async renderFull(path, output, signal, selected) {
           if (selected?.workingAsset) {
             counters.proofs++
-            return worker.renderPreparedFull(output, selected, signal, 'cpu')
+            return worker.renderPreparedFull(output, selected, signal, 'gpu')
           }
           counters.sources++
           if (!hdr || (authored && !selected?.workingOnly))

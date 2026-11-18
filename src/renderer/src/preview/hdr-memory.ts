@@ -90,6 +90,20 @@ export function freezeHdrMemoryLimits(value: HdrMemoryLimits): Readonly<HdrMemor
   return Object.freeze({ ...checked, revision: value.revision })
 }
 
+/** A caller's reserved share can narrow, but never enlarge, the actual adapter policy. */
+export function boundedHdrMemoryLimits(
+  requested: HdrMemoryLimits,
+  actual: HdrMemoryLimits,
+): Readonly<HdrMemoryLimits> {
+  const reserved = freezeHdrMemoryLimits(requested),
+    authoritative = freezeHdrMemoryLimits(actual)
+  return freezeHdrMemoryLimits({
+    revision: authoritative.revision,
+    ramBytes: Math.min(reserved.ramBytes, authoritative.ramBytes),
+    vramBytes: Math.min(reserved.vramBytes, authoritative.vramBytes),
+  })
+}
+
 export function fitsBoth(ownership: HdrManagedBytes, limits: HdrMemoryLimits) {
   return ownership.ramBytes <= limits.ramBytes && ownership.vramBytes <= limits.vramBytes
 }

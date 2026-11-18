@@ -18,6 +18,10 @@ Master/Red/Green/Blue curves now share preview, history, MCP and frozen export.
 See [curve controls and acceptance limits](docs/features/tone-curves.md), including
 the deliberate version-12 color-order appearance migration. [Named presets](docs/features/named-presets.md)
 now save independent local definitions and reuse the same application/history service.
+The **Versions** inspector saves [named per-photo checkpoints](docs/features/edit-checkpoints.md)
+such as Natural and Stronger. Compare saved versions or frozen Current edits at
+the same 100% region with A/B switching or split, then restore either as one
+undoable edit. Checkpoints retain complete settings and local masks through restart.
 Custom JPEG export includes [Output preview](docs/features/output-proof.md): an explicit,
 cancellable proof of the encoded JPEG at export dimensions, shared with Console.
 Console also supports [detail inspection](docs/features/detail-inspection.md): whole-photo
