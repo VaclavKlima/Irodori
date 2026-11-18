@@ -416,8 +416,10 @@ owned by GPU presentation. At this histogram checkpoint, clipping overlays, exac
 full HDR statistics and HDR pixel sampling with active masks remained unavailable.
 [Masked clipping #93](masked-clipping.md) owns the subsequent whole-photo overlay
 extension. Exact full HDR statistics and HDR pixel sampling remain separate;
-regional/mask-only analysis is [#59](https://github.com/VaclavKlima/Irodori/issues/59).
-The normal histogram still describes the entire photograph.
+[#59](https://github.com/VaclavKlima/Irodori/issues/59) delivered Console rectangle
+diagnostics. Editor regional analysis and mask-ID inspection are tracked in
+[#129](https://github.com/VaclavKlima/Irodori/issues/129). The normal Editor
+histogram still describes the entire photograph.
 
 Histogram errors follow the same source and pixel-key ownership as successful
 results. A superseded invalid readback cannot disable newer healthy HDR editing

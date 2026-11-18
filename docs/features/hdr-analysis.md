@@ -2,7 +2,7 @@
 
 ## Status
 
-The Console diagnostics are part of [issue #59](https://github.com/VaclavKlima/Irodori/issues/59). The Editor histogram and overlay controls and mask-ID inspection remain open. See the [versioned HDR processing contract](../hdr-processing.md) for the underlying analysis domains.
+[Issue #59](https://github.com/VaclavKlima/Irodori/issues/59) delivered Console diagnostics. [Issue #129](https://github.com/VaclavKlima/Irodori/issues/129) tracks Editor histogram and overlay controls and mask-ID inspection. [Issue #128](https://github.com/VaclavKlima/Irodori/issues/128) tracks other-device Console verification. See the [versioned HDR processing contract](../hdr-processing.md) for the underlying analysis domains.
 
 ## Console diagnostics
 
@@ -19,6 +19,8 @@ Use `irodori_get_photo_diagnostics` with `photoId` and `expectedRevision`. The r
 On November 18, 2026, the isolated Electron test on macOS 26.7 (Apple M4 Pro, arm64) checked the committed Sony ZV-1 RAW in the reported HDR target and the synthetic authored HDR JPEG in fixed SDR. The RAW rectangle contained exactly 8,710 pixels. The authored patch contained 1,920 pixels above reference white and zero SDR clipping. Five existing HDR JPEG import and export regressions passed.
 
 The focused report at `artifacts/verification/2026-11-18T12-43-56.038Z-check-jn9gWa/summary.md` records 1,116 passes and 34 platform skips in 74.18 seconds. The separate exact regional HDR strip check passed. That run also reproduced three existing `hdr-assets` failures on the checkout without Console diagnostics: two GPU proof fixtures lack the required mock capability, and one raster fixture expects an older rendering identity. Other-device qualification remains open.
+
+In a separate manual Console check, the photographer selected a 261 × 302 rectangle at (885, 1499) on an edited HDR photo. The fixed SDR result used that rectangle, reported its RGB histogram and counted 686 highlight-clipped pixels out of 78,822. The grade contained curves and local masks. The current exact HDR analysis limits for those edits still apply.
 
 ## Goal
 
