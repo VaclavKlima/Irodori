@@ -18,6 +18,7 @@ export const agentTools = [
   'irodori_accept_object_selection',
   'irodori_cancel_object_selection',
   'irodori_get_photo_statistics',
+  'irodori_get_photo_diagnostics',
   'irodori_get_photo_pixel',
   'irodori_propose_white_balance',
   'irodori_sample_curve_tone',
@@ -73,7 +74,7 @@ At the intended viewing size, check important faces, features and textures for r
 
 Saved versions: Use checkpoint tools with inspection guidance for frozen Current or saved-pass comparisons; dispose handles afterwards. Restore adds one Undo step.
 
-Rendition and output: Distinguish source range, requested/effective display and delivered rendition. Recheck presentation after mode/target changes. SDR images of an HDR source remain SDR evidence. When Irodori displays HDR and your image is SDR, tell the photographer. Use revision-bound irodori_get_photo_statistics or irodori_get_photo_pixel (content-hdr; output/current requires matching target generation). Report refusals. Values establish neither HDR vision nor physical brightness. An explicit SDR deliverable takes precedence: use an actual SDR output proof of the confirmed grade and masks, preserving the HDR master and workspace preference. SDR proofing works regardless of editor mode controls. Never replace proofing with saturation reduction. Export-native inspection evaluates output sharpening separately from saved Detail sharpening. Export requires application destination and authorization; never invent paths. Accepted background jobs survive Stop or New conversation.
+Rendition and output: Distinguish source range, requested/effective display and delivered rendition. Recheck after mode/target changes. SDR images of an HDR source remain SDR evidence. When Irodori displays HDR and your image is SDR, tell the photographer. Use revision-bound irodori_get_photo_statistics or irodori_get_photo_pixel (content-hdr; output/current requires matching target generation). Use photo diagnostics for regional clipping and above-white maps. Report analysis refusals and brightness relative to reference white. An explicit SDR deliverable takes precedence: use an actual SDR output proof of the confirmed grade and masks, preserving the HDR master and workspace preference. SDR proofing works in any mode. Never replace proofing with saturation reduction. Inspect export sharpening separately from Detail sharpening. Export requires application destination and authorization; never invent paths. Accepted background jobs survive Stop or New conversation.
 
 Missing capabilities: Complete independent supported parts of the authorized request when useful, state precisely which parts were applied or omitted, and explain the photographic goal and missing capability. Make one concrete relevant feature request in this conversation, including normal production use. Do not substitute global changes for a requested spatial edit, claim unavailable repair/detail recovery, or invent an alternative workflow that changes the user's intent. If the missing capability prevents useful supported work, explain it and stop. Unrelated communication requests remain unavailable.
 

@@ -43,10 +43,12 @@ import {
   type NativeHdrMaskResult,
 } from '../shared/native-hdr-mask'
 import { nativeHdrMaskMemory } from '../shared/native-hdr-mask-memory'
+import { validateNativeInspectionBounds, type InspectionBounds } from '../shared/inspection'
 import { validatePreparedHdrSourceRef, type PreparedHdrSourceRef } from '../shared/prepared-source'
 import { validateManagedImageBytes, type ResourcePolicySnapshot } from '../shared/resource-policy'
 import { attestAndFeedCpuMaskSource } from './native-cpu-input'
 import { writeNativeCpuMask } from './native-cpu-mask-sink'
+import { reduceNativeHdrMask, type HdrDiagnosticMask } from './native-mask-diagnostics'
 
 export interface HdrMaskSourceLease extends PreparedHdrSourceLease {
   /** Actual main-selected confirmed Before/After parameters. */
@@ -74,6 +76,7 @@ export interface NativeMaskControllerOptions {
     readonly acquireSource: (
       request: NativeHdrMaskRequest,
       signal: AbortSignal,
+      policy?: Readonly<ResourcePolicySnapshot>,
     ) => Promise<HdrMaskSourceLease>
     readonly checkTarget: (
       request: Pick<NativeHdrMaskRequest, 'domain' | 'target' | 'source' | 'comparisonOf'>,
@@ -94,9 +97,16 @@ interface TicketBase {
   drained: Promise<void>
   finishDrain: () => void
 }
+interface MaskDiagnostic {
+  bounds: InspectionBounds
+  size: { width: number; height: number }
+  policy: Readonly<ResourcePolicySnapshot>
+}
+type MaskWorkResult = NativeHdrMaskResult | NativeHdrMaskDeclined | HdrDiagnosticMask
 interface MaskTicket extends TicketBase {
   request: NativeHdrMaskRequest
-  resolve: (result: NativeHdrMaskResult | NativeHdrMaskDeclined) => void
+  diagnostic?: MaskDiagnostic
+  resolve: (result: MaskWorkResult) => void
 }
 type Ticket = MaskTicket
 interface MaskOutput {
@@ -259,6 +269,48 @@ export class NativeMaskController {
     }
   }
   renderMask(value: NativeHdrMaskRequest): Promise<NativeHdrMaskResult | NativeHdrMaskDeclined> {
+    return this.queueMask(value).then((result) => {
+      if (!('kind' in result)) throw new Error('Invalid Editor mask result.')
+      return result
+    })
+  }
+
+  /** Main-only Console work shares the mask owner and yields to editing. */
+  async renderDiagnosticMask(
+    request: NativeHdrMaskRequest,
+    bounds: InspectionBounds,
+    size: { width: number; height: number },
+    policy: Readonly<ResourcePolicySnapshot>,
+    signal: AbortSignal,
+  ): Promise<HdrDiagnosticMask> {
+    signal.throwIfAborted()
+    const result = this.queueMask(request, structuredClone({ bounds, size, policy }))
+    let drained: Promise<void> | undefined
+    const cancel = () => {
+      drained = this.cancelMask(request.sessionId, request.requestId)
+    }
+    signal.addEventListener('abort', cancel, { once: true })
+    if (signal.aborted) cancel()
+    try {
+      const outcome = await result
+      signal.throwIfAborted()
+      if ('kind' in outcome) {
+        if (outcome.kind === 'mask') throw new Error('Invalid Console mask result.')
+        if (outcome.reason === 'memory-limit')
+          throw new Error('HDR diagnostics exceed the managed image budget.')
+        throw new Error('HDR diagnostics are busy with Editor presentation. Try again.')
+      }
+      return outcome
+    } finally {
+      signal.removeEventListener('abort', cancel)
+      await drained
+    }
+  }
+
+  private queueMask(
+    value: NativeHdrMaskRequest,
+    diagnostic?: MaskDiagnostic,
+  ): Promise<MaskWorkResult> {
     validateMask(value)
     if (this.closed)
       return Promise.reject(new NativeMaskCancelled('Native mask controller is closed.'))
@@ -273,16 +325,19 @@ export class NativeMaskController {
     })
     // A completed receiver keeps its reservation until actual stream drainage.
     if (this.masks.size) return Promise.resolve(declined('previous-receiver'))
+    if (diagnostic && (this.current || this.pending || this.cleanup))
+      return Promise.resolve(declined('presentation-priority'))
     this.pending?.reject(new NativeMaskCancelled('Native mask superseded before admission.'))
     this.pending?.finishDrain()
     this.current?.abort.abort(new NativeMaskCancelled('Native mask superseded.'))
-    const result = new Promise<NativeHdrMaskResult | NativeHdrMaskDeclined>((resolve, reject) => {
+    const result = new Promise<MaskWorkResult>((resolve, reject) => {
       let finishDrain!: () => void
       const drained = new Promise<void>((done) => {
         finishDrain = done
       })
       this.pending = {
         request,
+        diagnostic,
         abort: new AbortController(),
         admitted: false,
         resolve,
@@ -294,10 +349,8 @@ export class NativeMaskController {
     this.start()
     return result
   }
-  private async performMask(
-    ticket: MaskTicket,
-  ): Promise<NativeHdrMaskResult | NativeHdrMaskDeclined> {
-    const { request, abort } = ticket,
+  private async performMask(ticket: MaskTicket): Promise<MaskWorkResult> {
+    const { request, abort, diagnostic } = ticket,
       signal = abort.signal,
       configuration = this.options.mask
     signal.throwIfAborted()
@@ -312,7 +365,7 @@ export class NativeMaskController {
     })
     if (this.masks.size) return decline('previous-receiver')
     configuration.checkTarget(request)
-    const lease = await configuration.acquireSource(request, signal)
+    const lease = await configuration.acquireSource(request, signal, diagnostic?.policy)
     let directory: string | undefined,
       output: FileHandle | undefined,
       coverageFile: FileHandle | undefined,
@@ -334,7 +387,9 @@ export class NativeMaskController {
       )
         throw new Error('The native mask frozen source policy changed.')
       validateProcessingPatch(lease.parameters)
-      if (!sameAdjustments(lease.parameters, request.parameters))
+      // Console uses the main-resolved parameters for this exact revision and grid.
+      // Editor requests additionally attest the parameters used for their frame.
+      if (!diagnostic && !sameAdjustments(lease.parameters, request.parameters))
         throw new Error('Native mask parameters do not match confirmed Before/After history.')
       if (
         !sameSource(lease.source, request.source) ||
@@ -343,6 +398,8 @@ export class NativeMaskController {
       )
         throw new Error('The native mask lease does not match its exact source.')
       validateHdrSource(lease.asset.source)
+      if (diagnostic)
+        validateNativeInspectionBounds(diagnostic.bounds, lease.asset.width, lease.asset.height)
       // Always reserve the eight-participant envelope; execution can choose less.
       const plan = nativeHdrMaskMemory(
         lease.asset.width,
@@ -421,6 +478,19 @@ export class NativeMaskController {
       signal.throwIfAborted()
       await lease.check(request.expectedSettingsRevision, signal)
       configuration.checkTarget(request)
+      if (diagnostic) {
+        const result = await reduceNativeHdrMask(
+          join(directory, 'mask.r8'),
+          native.output,
+          diagnostic.bounds,
+          diagnostic.size,
+          request.target,
+          signal,
+        )
+        await lease.check(request.expectedSettingsRevision, signal)
+        configuration.checkTarget(request)
+        return result
+      }
       const maskId = randomUUID(),
         result: NativeHdrMaskResult = {
           kind: 'mask',
@@ -470,7 +540,7 @@ export class NativeMaskController {
       return result
     }
     const failures: unknown[] = []
-    let result: NativeHdrMaskResult | NativeHdrMaskDeclined | undefined
+    let result: MaskWorkResult | undefined
     try {
       result = await perform()
     } catch (error) {

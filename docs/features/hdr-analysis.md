@@ -2,7 +2,23 @@
 
 ## Status
 
-A limited experimental Sony RAW implementation now exists; see [the versioned implementation contract](../hdr-processing.md). This brief retains the broader destination and acceptance criteria, including work deferred beyond the Linux preview milestone.
+The Console diagnostics are part of [issue #59](https://github.com/VaclavKlima/Irodori/issues/59). The Editor histogram and overlay controls and mask-ID inspection remain open. See the [versioned HDR processing contract](../hdr-processing.md) for the underlying analysis domains.
+
+## Console diagnostics
+
+Use `irodori_get_photo_diagnostics` with `photoId` and `expectedRevision`. The region defaults to the frozen inspection rectangle for that photo, or the entire committed crop. An explicit inspection rectangle can override it. Pixel rectangles use the edit grid from `irodori_get_preview_context`. The default `current` target requires the matching presented frame and `targetGeneration` from `irodori_get_photo_presentation_context`. Use `target: "sdr"` for fixed SDR diagnostics.
+
+- The histogram scans every pixel in the selected region. HDR reports the existing output histogram and logarithmic luminance descriptor for the selected target. SDR reports encoded RGB bins from the rendered SDR pixels, including the authored SDR primary when it remains in use.
+- The clipping PNG marks HDR output clipping in red. For SDR, it marks highlighted channels in red and black pixels in blue. Magenta marks reduced pixels containing both warnings.
+- The above-white PNG marks HDR content above 1× reference white in cyan. Its exact count is independent of output clipping. Headroom and gamut counts are available for HDR targets when supported.
+- Overlays fit within 1024 pixels on the longest side and preserve flagged source pixels through reduction. Count and histogram exactness refer to the native region. The image background is the Console’s SDR inspection rendition.
+- A refused analysis component includes a reason. The available components can still return results. Existing exact-analysis limits for unsupported edits apply. A revision, grid or display generation change invalidates the request. None of these reads changes edits or display preferences.
+
+### Console verification on macOS
+
+On November 18, 2026, the isolated Electron test on macOS 26.7 (Apple M4 Pro, arm64) checked the committed Sony ZV-1 RAW in the reported HDR target and the synthetic authored HDR JPEG in fixed SDR. The RAW rectangle contained exactly 8,710 pixels. The authored patch contained 1,920 pixels above reference white and zero SDR clipping. Five existing HDR JPEG import and export regressions passed.
+
+The focused report at `artifacts/verification/2026-11-18T12-43-56.038Z-check-jn9gWa/summary.md` records 1,116 passes and 34 platform skips in 74.18 seconds. The separate exact regional HDR strip check passed. That run also reproduced three existing `hdr-assets` failures on the checkout without Console diagnostics: two GPU proof fixtures lack the required mock capability, and one raster fixture expects an older rendering identity. Other-device qualification remains open.
 
 ## Goal
 

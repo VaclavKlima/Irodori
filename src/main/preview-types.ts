@@ -1,4 +1,5 @@
 import type { ImageStatistics } from '../shared/statistics'
+import type { InspectionBounds } from '../shared/inspection'
 import type { CurveTone, CurveToneRequest } from '../shared/curve-tone'
 
 /** Callable release with an atomic reduction after temporary preview files are removed. */
@@ -32,6 +33,7 @@ export interface PreviewAnalysisFrame {
   height: number
   sha256: string
   hdr?: HdrStatisticsJob
+  sdrDiagnostics?: SdrDiagnosticsJob
   whiteBalance?: WhiteBalanceSampleJob
   crop?: import('./processing/crop-preparation').CropPreparationJob
   cropPreview?: import('./processing/crop-preview').CropPreviewJob
@@ -41,7 +43,13 @@ export interface PreviewAnalysisFrame {
   preparedBackend?: 'cpu' | 'gpu' | 'auto'
   preparedMaskStack?: import('./processing/prepared-mask-stack').PreparedMaskStackRequest
 }
+export interface SdrDiagnosticsJob {
+  bounds: InspectionBounds
+  size: { width: number; height: number }
+}
+
 export interface HdrStatisticsJob {
+  bounds?: InspectionBounds
   asset: HdrWorkingAsset
   adjustments: AdjustmentParameters
   domain: HdrAnalysisDomain
@@ -163,6 +171,7 @@ export type PreviewWorkerResponse =
         | FullPreviewResult
         | ProcessingMetadata
         | ImageStatistics
+        | (ImageStatistics & { mask: string })
         | HdrStatistics
         | HdrPixel
         | SampledWhiteBalanceProposal
@@ -346,6 +355,12 @@ export interface FullPreviewProcessor {
     signal: AbortSignal,
   ): Promise<SampledWhiteBalanceProposal>
   hdrStatistics?(path: string, job: HdrStatisticsJob, signal: AbortSignal): Promise<HdrStatistics>
+  sdrDiagnostics?(
+    path: string,
+    frame: { width: number; height: number; sha256: string },
+    job: SdrDiagnosticsJob,
+    signal: AbortSignal,
+  ): Promise<ImageStatistics & { mask: Uint8Array }>
   statistics?(
     path: string,
     frame: { width: number; height: number; sha256: string },

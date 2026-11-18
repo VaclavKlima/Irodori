@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { mkdtemp, lstat, writeFile, rm, readdir } from 'node:fs/promises'
+import { mkdtemp, lstat, writeFile, rm, readdir, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import sharp from 'sharp'
@@ -18,8 +18,78 @@ import { cropAdmission } from './crop-frame.helpers'
 import { syntheticExportSource, sha } from './export.helpers'
 import type { MaskEdgeProcess } from '../src/main/mask-edges/process'
 import type { MaskEdgeWorkerRequest } from '../src/main/mask-edges/types'
+import { encodeDiagnosticOverlays } from '../src/main/mask-edges/diagnostic-overlays'
 import type { MaskCoverageRequest } from '../src/shared/mask-edges'
 import { generatedMask } from './helpers/generated-mask'
+
+test('diagnostic PNGs distinguish clipping, headroom and above-white coverage', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'irodori-diagnostic-png-'))
+  try {
+    const width = 4,
+      height = 2,
+      basePath = join(root, 'base.png')
+    const opaque = [51, 68, 85, 255],
+      transparent = [51, 68, 85, 0],
+      red = [195, 20, 25, 255],
+      blue = [15, 20, 205, 255],
+      magenta = [195, 20, 205, 255],
+      cyan = [15, 200, 205, 255]
+    await sharp(Buffer.from([...Array.from({ length: 7 }, () => opaque).flat(), ...transparent]), {
+      raw: { width, height, channels: 4 },
+    })
+      .png()
+      .toFile(basePath)
+    const hdrBits = Buffer.from([0, 1, 2, 4, 8, 12, 5, 4]).toString('base64')
+    const hdr = await encodeDiagnosticOverlays({
+      basePath,
+      masks: [
+        {
+          label: 'clipping',
+          targetMode: 'hdr',
+          width,
+          height,
+          dataBase64: hdrBits,
+          outputPath: join(root, 'hdr-clipping.png'),
+        },
+        {
+          label: 'above-white',
+          targetMode: 'hdr',
+          width,
+          height,
+          dataBase64: hdrBits,
+          outputPath: join(root, 'hdr-brightness.png'),
+        },
+      ],
+    })
+    const sdr = await encodeDiagnosticOverlays({
+      basePath,
+      masks: [
+        {
+          label: 'clipping',
+          targetMode: 'sdr',
+          width,
+          height,
+          dataBase64: Buffer.from([0, 1, 2, 3, 0, 0, 0, 0]).toString('base64'),
+          outputPath: join(root, 'sdr-clipping.png'),
+        },
+      ],
+    })
+    expect(hdr.map(({ label }) => label)).toEqual(['clipping', 'above-white'])
+    const expected = [
+      [opaque, red, opaque, opaque, opaque, opaque, red, transparent],
+      [opaque, opaque, opaque, cyan, opaque, cyan, cyan, [15, 200, 205, 180]],
+      [opaque, blue, red, magenta, opaque, opaque, opaque, transparent],
+    ]
+    for (const [index, member] of [...hdr, ...sdr].entries()) {
+      const png = await readFile(member.path)
+      expect(member).toMatchObject({ width, height, sha256: sha(png), byteLength: png.byteLength })
+      expect((await sharp(png).metadata()).space).toBe('srgb')
+      expect(await sharp(png).raw().toBuffer()).toEqual(Buffer.from(expected[index].flat()))
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'irodori-mask-preview-'))

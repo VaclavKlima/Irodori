@@ -28,6 +28,7 @@ import {
 } from '../../shared/hdr-first-surface'
 import type { HdrPixel } from '../../shared/hdr-pixel'
 import { analyzeHdr, hdrStatistics } from '../../shared/hdr-statistics'
+import { validateNativeInspectionBounds } from '../../shared/inspection'
 import type { ProcessingOptions } from '../../shared/lens'
 import { validateMergeVersion } from '../../shared/merge'
 import { frameByteLength } from '../../shared/preview-frame'
@@ -71,8 +72,26 @@ export async function scanHdr(path: string, job: HdrStatisticsJob) {
       'Exact HDR statistics with active curves require a qualified GPU analysis path. The photograph, interactive histogram and tone samples remain available.',
     )
   const result = hdrStatistics(job.domain, job.target, job.asset)
-  for await (const data of readHdrStrips(path, job.asset))
-    analyzeHdr(data, job.adjustments, job.asset, job.target, result)
+  const { bounds, asset } = job
+  if (bounds) validateNativeInspectionBounds(bounds, asset.width, asset.height)
+  let top = 0
+  for await (const data of readHdrStrips(path, asset)) {
+    const rows = data.length / (asset.width * 4)
+    if (!bounds) analyzeHdr(data, job.adjustments, asset, job.target, result)
+    else {
+      const first = Math.max(top, bounds.y),
+        end = Math.min(top + rows, bounds.y + bounds.height)
+      if (first < end)
+        analyzeHdr(data, job.adjustments, asset, job.target, result, undefined, 0, {
+          x: bounds.x,
+          y: first - top,
+          width: bounds.width,
+          height: end - first,
+          frameWidth: asset.width,
+        })
+    }
+    top += rows
+  }
   return result
 }
 

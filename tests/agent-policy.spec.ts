@@ -114,7 +114,10 @@ test('managed assistant respects actual SDR proofing, missing capabilities and p
     'revision-bound irodori_get_photo_statistics or irodori_get_photo_pixel',
   )
   expect(instructions).toContain('output/current requires matching target generation')
-  expect(instructions).toContain('Values establish neither HDR vision nor physical brightness')
+  expect(instructions).toContain('Use photo diagnostics for regional clipping and above-white maps')
+  expect(instructions).toContain(
+    'Report analysis refusals and brightness relative to reference white',
+  )
   expect(instructions).toContain('Complete independent supported parts')
   expect(instructions).toContain('Make one concrete relevant feature request in this conversation')
   expect(instructions).toContain('including normal production use')

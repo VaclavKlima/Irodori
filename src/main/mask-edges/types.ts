@@ -39,9 +39,32 @@ export interface MaskPreviewWorkerResult {
   adapter?: string
   members: MaskPreviewWorkerImage[]
 }
+export interface DiagnosticOverlayMask {
+  label: 'clipping' | 'above-white'
+  width: number
+  height: number
+  dataBase64: string
+  outputPath: string
+  targetMode: 'hdr' | 'sdr'
+}
+export interface DiagnosticOverlayRequest {
+  basePath: string
+  masks: DiagnosticOverlayMask[]
+}
+export interface DiagnosticOverlayImage {
+  label: DiagnosticOverlayMask['label']
+  path: string
+  sha256: string
+  byteLength: number
+  width: number
+  height: number
+}
+export type MaskWorkerRequest =
+  MaskEdgeWorkerRequest | { id: number; diagnosticOverlays: DiagnosticOverlayRequest }
 export interface MaskEdgeWorkerReply {
   id: number
   result?: MaskEdgeResult
   preview?: MaskPreviewWorkerResult
+  diagnosticOverlays?: DiagnosticOverlayImage[]
   error?: string
 }

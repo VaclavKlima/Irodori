@@ -14,6 +14,7 @@ import type { PhotoLibrary } from './library'
 import { AgentRequestGate } from './agent/request-gate'
 import type { EditorContextSnapshot } from '../shared/agent'
 import type { EditPatch } from '../shared/edits'
+import { validatePhotoDiagnosticsRequest } from '../shared/photo-diagnostics'
 
 /** Private, authenticated transport for enumerated operations. The application owns SQLite. */
 export async function startEditorEndpoint(
@@ -455,6 +456,33 @@ export async function startEditorEndpoint(
           case 'irodori_list_photos':
             result = library.list(offset)
             break
+          case 'irodori_get_photo_diagnostics': {
+            const diagnostics = { ...args }
+            delete diagnostics.operation
+            delete diagnostics.requestId
+            const inspection = gate?.context().inspection
+            const request = validatePhotoDiagnosticsRequest({
+              ...diagnostics,
+              region:
+                diagnostics.region ??
+                (inspection?.photoId === photoId ? inspection.region : undefined),
+            })
+            const lifetime = new AbortController()
+            const gone = () => {
+              if (!response.writableFinished)
+                lifetime.abort(new Error('Photo diagnostics client disconnected.'))
+            }
+            response.once('close', gone)
+            try {
+              result = await library.getPhotoDiagnostics(
+                request,
+                gate ? AbortSignal.any([gate.signal, lifetime.signal]) : lifetime.signal,
+              )
+            } finally {
+              response.removeListener('close', gone)
+            }
+            break
+          }
           case 'irodori_get_photo_statistics':
             result = await library.getPhotoStatistics(
               photoId,

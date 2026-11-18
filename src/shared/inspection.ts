@@ -172,6 +172,23 @@ export function resolveInspectionRegion(
     height: Math.max(1, Math.ceil(bottom) - y),
   }
 }
+export function validateNativeInspectionBounds(
+  bounds: InspectionBounds,
+  width: number,
+  height: number,
+): void {
+  if (
+    ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isSafeInteger) ||
+    bounds.x < 0 ||
+    bounds.y < 0 ||
+    bounds.width <= 0 ||
+    bounds.height <= 0 ||
+    bounds.width > width - bounds.x ||
+    bounds.height > height - bounds.y
+  )
+    throw new Error('The diagnostic region is outside the prepared photograph.')
+}
+
 export function resolveInspection(
   options: InspectionOptions,
   context: PreviewContext,

@@ -671,8 +671,8 @@ app
       mask: maskCapability
         ? {
             arithmeticSha256: maskCapability.arithmeticSha256,
-            acquireSource: (request, signal) =>
-              library!.fullPreviews.acquireCpuMaskWorkingSource(request, signal),
+            acquireSource: (request, signal, policy) =>
+              library!.fullPreviews.acquireCpuMaskWorkingSource(request, signal, policy),
             checkTarget: (request) => {
               const current = displayState.get()
               const expected = request.domain === 'working-hdr' ? SDR_TARGET : current

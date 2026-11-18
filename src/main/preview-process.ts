@@ -10,6 +10,7 @@ import type {
   NativeRawMainMessage,
   WhiteBalanceSampleJob,
   PreviewAnalysisFrame,
+  SdrDiagnosticsJob,
 } from './preview-types'
 import type { SampledWhiteBalanceProposal } from '../shared/white-balance-picker'
 import type { CropPreparationJob, CropPreparationResult } from './processing/crop-preparation'
@@ -330,6 +331,31 @@ export class PreviewProcess implements PreviewProcessor, FullPreviewProcessor, T
         this.scheduleIdle()
       },
     )
+  }
+
+  async sdrDiagnostics(
+    path: string,
+    frame: { width: number; height: number; sha256: string },
+    job: SdrDiagnosticsJob,
+    signal: AbortSignal,
+  ): Promise<ImageStatistics & { mask: Uint8Array }> {
+    this.assertIdle(await this.waitForWarmup(signal))
+    try {
+      const { mask: encoded, ...statistics } = await this.run<ImageStatistics & { mask: string }>(
+        'statistics',
+        path,
+        '',
+        signal,
+        undefined,
+        { width: frame.width, height: frame.height, sha256: frame.sha256, sdrDiagnostics: job },
+      )
+      const mask = Buffer.from(encoded, 'base64')
+      if (mask.length !== job.size.width * job.size.height || mask.some((bits) => bits > 3))
+        throw new Error('Invalid SDR diagnostic mask.')
+      return { ...statistics, mask }
+    } finally {
+      this.scheduleIdle()
+    }
   }
 
   async hdrStatistics(

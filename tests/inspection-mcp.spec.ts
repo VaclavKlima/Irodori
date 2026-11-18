@@ -13,6 +13,7 @@ import { DisplayState } from '../src/main/display-state'
 import { defaultExportOptions } from '../src/shared/export'
 import { inspectionHdrCapability } from '../src/shared/inspection'
 import type { PhotoLibrary } from '../src/main/library'
+import type { PhotoDiagnosticsRequest } from '../src/shared/photo-diagnostics'
 
 // This transport test isolates MCP member ordering, metadata and request fencing;
 // real source rendering and decoded proof fidelity belong to the GPU/service suites.
@@ -57,6 +58,8 @@ for (const managed of [false, true])
       notice,
     }
     const calls: unknown[] = []
+    const diagnosticCalls: PhotoDiagnosticsRequest[] = []
+    const frozenRegion = { units: 'pixels', gridIdentity, x: 2, y: 1, width: 6, height: 4 } as const
     const context = {
       photoId,
       revision: 3,
@@ -67,6 +70,24 @@ for (const managed of [false, true])
     }
     const library = {
       getEdits: async () => ({ revision: 3 }),
+      getPhotoDiagnostics: async (request: PhotoDiagnosticsRequest) => {
+        diagnosticCalls.push(request)
+        return {
+          ...context,
+          images: request.region
+            ? [
+                {
+                  label: 'clipping',
+                  mimeType: 'image/png',
+                  byteLength: Buffer.from(data, 'base64').length,
+                  width: 12,
+                  height: 8,
+                  data,
+                },
+              ]
+            : [],
+        }
+      },
       getPhotoPresentationContext: (request: Parameters<typeof readAgentPresentationContext>[0]) =>
         readAgentPresentationContext(request, {
           currentRevision: async () => 3,
@@ -120,6 +141,7 @@ for (const managed of [false, true])
         activePhotoId: photoId,
         selectedIds: [photoId],
         transient: { crop: false, saving: false },
+        inspection: { photoId, gridIdentity, region: frozenRegion },
       }),
       async () => 3,
       true,
@@ -196,6 +218,28 @@ for (const managed of [false, true])
               (m) => m.label,
             ),
           ).toEqual(['before', 'after'])
+      }
+      const diagArgs = { photoId, expectedRevision: 3, target: 'sdr' }
+      const initial = await call('irodori_get_photo_diagnostics', diagArgs)
+      expect(initial.isError).not.toBe(true)
+      expect(diagnosticCalls[0].region).toEqual(managed ? frozenRegion : undefined)
+      expect(initial.content.filter(({ type }) => type === 'image')).toHaveLength(managed ? 1 : 0)
+      const region = { ...frozenRegion, x: 3 }
+      const overridden = await call('irodori_get_photo_diagnostics', { ...diagArgs, region })
+      expect(overridden.isError, JSON.stringify(overridden.content)).not.toBe(true)
+      expect(diagnosticCalls[1]).toMatchObject({ ...diagArgs, region })
+      expect(overridden.content[1]).toMatchObject({ type: 'image', mimeType: 'image/png', data })
+      expect(JSON.stringify(overridden.structuredContent)).not.toContain(data)
+      if (managed) {
+        expect(
+          (await call('irodori_get_photo_diagnostics', { ...diagArgs, photoId: 'd'.repeat(64) }))
+            .isError,
+        ).toBe(true)
+        expect(
+          (await call('irodori_get_photo_diagnostics', { ...diagArgs, expectedRevision: 2 }))
+            .isError,
+        ).toBe(true)
+        expect(diagnosticCalls).toHaveLength(2)
       }
       expect(calls).toHaveLength(3)
       const legacy = await call('irodori_get_photo_preview', { photoId, expectedRevision: 3 })

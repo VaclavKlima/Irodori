@@ -248,6 +248,13 @@ const definitions: Suite[] = [
   { file: 'inspection-proof-gpu', group: 'raw-gpu', scopes: ['preview', 'mcp'], exclusive: true },
   { file: 'inspection-proof', group: 'service', scopes: ['preview', 'mcp'] },
   { file: 'inspection-mcp', group: 'service', scopes: ['mcp'] },
+  { file: 'photo-diagnostics', group: 'service', scopes: ['mcp', 'preview'] },
+  {
+    file: 'photo-diagnostics-runtime',
+    group: 'raw-gpu',
+    scopes: ['mcp', 'preview'],
+    exclusive: true,
+  },
   { file: 'mask-geometry', group: 'node', scopes: ['adjustments', 'preview'] },
   { file: 'masks-model', group: 'node', scopes: ['adjustments'] },
   { file: 'mask-ranges-model', group: 'node', scopes: ['adjustments'] },

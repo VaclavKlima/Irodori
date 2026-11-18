@@ -11,9 +11,8 @@ export interface PhotoStatistics extends ImageStatistics {
   revision: number
   renderingIdentity: string
 }
-/** Endpoints of the SDR display image, not a claim about RAW sensor saturation. */
-export function imageStatistics(data: Uint8Array | Uint8ClampedArray): ImageStatistics {
-  const result: ImageStatistics = {
+export function emptyImageStatistics(): ImageStatistics {
+  return {
     rgb: [Array(256).fill(0), Array(256).fill(0), Array(256).fill(0)],
     visiblePixels: 0,
     shadowClipped: 0,
@@ -21,12 +20,37 @@ export function imageStatistics(data: Uint8Array | Uint8ClampedArray): ImageStat
     colorSpace: 'srgb',
     dynamicRange: 'sdr',
   }
+}
+
+/** Endpoints of the SDR display image, not a claim about RAW sensor saturation. */
+export function sdrClippingBits(red: number, green: number, blue: number): number {
+  return (
+    Number(red === 0 && green === 0 && blue === 0) |
+    (Number(red === 255 || green === 255 || blue === 255) << 1)
+  )
+}
+
+export function addVisibleSdrPixel(
+  result: ImageStatistics,
+  red: number,
+  green: number,
+  blue: number,
+): number {
+  result.visiblePixels++
+  result.rgb[0][red]++
+  result.rgb[1][green]++
+  result.rgb[2][blue]++
+  const bits = sdrClippingBits(red, green, blue)
+  result.shadowClipped += bits & 1
+  result.highlightClipped += bits >> 1
+  return bits
+}
+
+export function imageStatistics(data: Uint8Array | Uint8ClampedArray): ImageStatistics {
+  const result = emptyImageStatistics()
   for (let i = 0; i < data.length; i += 4) {
     if (data[i + 3] === 0) continue
-    result.visiblePixels++
-    for (let c = 0; c < 3; c++) result.rgb[c][data[i + c]]++
-    if (data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 0) result.shadowClipped++
-    if (data[i] === 255 || data[i + 1] === 255 || data[i + 2] === 255) result.highlightClipped++
+    addVisibleSdrPixel(result, data[i], data[i + 1], data[i + 2])
   }
   return result
 }
@@ -55,9 +79,7 @@ export function clippingMask(
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4
       if (!data[i + 3]) continue
-      const bits =
-        Number(data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 0) |
-        (Number(data[i] === 255 || data[i + 1] === 255 || data[i + 2] === 255) << 1)
+      const bits = sdrClippingBits(data[i], data[i + 1], data[i + 2])
       if (bits) mask[Math.floor((y * h) / height) * w + Math.floor((x * w) / width)] |= bits
     }
   return { data: mask, width: w, height: h }

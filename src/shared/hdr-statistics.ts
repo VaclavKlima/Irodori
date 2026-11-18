@@ -1,3 +1,4 @@
+import type { InspectionBounds } from './inspection'
 import {
   rgbHistogram,
   contentRgbHistogram,
@@ -122,55 +123,64 @@ export function analyzeHdr(
   result: HdrStatistics,
   mask?: Uint8Array,
   maskOffset = 0,
+  region?: InspectionBounds & { frameWidth: number },
 ) {
   const wb = hdrAdjustmentMatrix(p, asset.whiteBalance) ?? undefined,
     creative = prepareCreativeColor(p)
-  for (let i = 0; i < data.length; i += 4) {
-    if (![data[i], data[i + 1], data[i + 2], data[i + 3]].every(Number.isFinite))
-      throw new Error('Invalid HDR analysis sample.')
-    if (data[i + 3] === 0) continue
-    const rgb = adjustHdr([data[i], data[i + 1], data[i + 2]], p, wb, creative),
-      y = luminance(rgb)
-    const content =
-      result.domain !== 'working-hdr' || mask ? contentHdr(rgb, asset.source) : undefined
-    const proof = content ? presentHdrContent(content.rgb, target) : undefined
-    const output = result.domain === 'output' ? outputHdr(rgb, target, asset.source) : undefined
-    const renderedY = content?.luminance ?? y
-    const beyond = target.headroom !== null && renderedY > target.headroom
-    const value =
-      result.domain === 'working-hdr'
-        ? y
-        : result.domain === 'content-hdr'
-          ? renderedY
-          : output!.luminance
-    if (result.rgbHistogram)
-      addRgbHistogram(
-        result.rgbHistogram,
-        result.domain === 'content-hdr' ? content!.rgb : output!.rgb,
-        data[i + 3],
-      )
-    result.visiblePixels++
-    result.aboveWhite += Number(value > 1)
-    if (result.domain !== 'working-hdr') {
-      if (result.exceedingHeadroom !== null) result.exceedingHeadroom += Number(beyond)
-      result.gamutCompressed! += Number(content!.gamutCompressed)
-      result.gamutLimited! += Number(proof!.gamutLimited)
-      result.outputClipped! += Number(proof!.clipped)
+  const frameWidth = region?.frameWidth ?? data.length / 4,
+    firstRow = region?.y ?? 0,
+    endRow = firstRow + (region?.height ?? 1),
+    width = region?.width ?? frameWidth
+  for (let row = firstRow; row < endRow; row++) {
+    const first = (row * frameWidth + (region?.x ?? 0)) * 4,
+      end = first + width * 4
+    for (let i = first; i < end; i += 4) {
+      if (![data[i], data[i + 1], data[i + 2], data[i + 3]].every(Number.isFinite))
+        throw new Error('Invalid HDR analysis sample.')
+      if (data[i + 3] === 0) continue
+      const rgb = adjustHdr([data[i], data[i + 1], data[i + 2]], p, wb, creative),
+        y = luminance(rgb)
+      const content =
+        result.domain !== 'working-hdr' || mask ? contentHdr(rgb, asset.source) : undefined
+      const proof = content ? presentHdrContent(content.rgb, target) : undefined
+      const output = result.domain === 'output' ? outputHdr(rgb, target, asset.source) : undefined
+      const renderedY = content?.luminance ?? y
+      const beyond = target.headroom !== null && renderedY > target.headroom
+      const value =
+        result.domain === 'working-hdr'
+          ? y
+          : result.domain === 'content-hdr'
+            ? renderedY
+            : output!.luminance
+      if (result.rgbHistogram)
+        addRgbHistogram(
+          result.rgbHistogram,
+          result.domain === 'content-hdr' ? content!.rgb : output!.rgb,
+          data[i + 3],
+        )
+      result.visiblePixels++
+      result.aboveWhite += Number(value > 1)
+      if (result.domain !== 'working-hdr') {
+        if (result.exceedingHeadroom !== null) result.exceedingHeadroom += Number(beyond)
+        result.gamutCompressed! += Number(content!.gamutCompressed)
+        result.gamutLimited! += Number(proof!.gamutLimited)
+        result.outputClipped! += Number(proof!.clipped)
+      }
+      if (value === 0) result.zero++
+      else if (value < 0) result.negative++
+      else {
+        const stops = Math.log2(value)
+        if (stops < -16) result.underflow++
+        else if (stops >= 16) result.overflow++
+        else result.bins[Math.floor((stops + 16) * 8)]++
+      }
+      if (mask)
+        mask[maskOffset + i / 4] =
+          Number(proof!.clipped) |
+          (Number(beyond) << 1) |
+          (Number(renderedY > 1) << 2) |
+          (Number(proof!.gamutLimited) << 3)
     }
-    if (value === 0) result.zero++
-    else if (value < 0) result.negative++
-    else {
-      const stops = Math.log2(value)
-      if (stops < -16) result.underflow++
-      else if (stops >= 16) result.overflow++
-      else result.bins[Math.floor((stops + 16) * 8)]++
-    }
-    if (mask)
-      mask[maskOffset + i / 4] =
-        Number(proof!.clipped) |
-        (Number(beyond) << 1) |
-        (Number(renderedY > 1) << 2) |
-        (Number(proof!.gamutLimited) << 3)
   }
 }
 export function reduceHdrMask(data: Uint8Array<ArrayBuffer>, width: number, height: number) {

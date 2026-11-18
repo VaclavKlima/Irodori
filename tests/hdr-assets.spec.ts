@@ -76,6 +76,53 @@ test('exact content statistics scan validated original working strips independen
   }
 })
 
+test('HDR output statistics use the exact region across consecutive strips', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'irodori-regional-hdr-')),
+    path = join(root, 'working'),
+    referencePath = join(root, 'reference')
+  const width = 4,
+    height = 130,
+    pixels = new Float32Array(width * height * 4)
+  for (let i = 0; i < pixels.length; i += 4) pixels.set([32, 32, 32, 1], i)
+  const samples = new Float32Array([
+    0, 0, 0, 1, 0.18, 0.18, 0.18, 1, 4, 4, 4, 1, 2, 2, 2, 0, 1, 1, 1, 1, 1, 0, 0, 0.5, 8, 8, 8, 1,
+    0.25, 0.25, 0.25, 1,
+  ])
+  for (let row = 0; row < 4; row++)
+    pixels.set(samples.subarray(row * 8, (row + 1) * 8), ((63 + row) * width + 1) * 4)
+  const bytes = Buffer.from(pixels.buffer),
+    reference = Buffer.from(samples.buffer),
+    asset = workingAsset(bytes, width, height),
+    job = {
+      adjustments: neutralAdjustments,
+      domain: 'output' as const,
+      target: {
+        ...SDR_TARGET,
+        mode: 'hdr' as const,
+        colorSpace: 'display-p3' as const,
+        headroom: 2,
+        peak: 2,
+      },
+    },
+    bounds = { x: 1, y: 63, width: 2, height: 4 }
+  try {
+    await writeFile(path, bytes)
+    await writeFile(referencePath, reference)
+    const expected = await scanHdr(referencePath, { ...job, asset: workingAsset(reference, 2, 4) })
+    const result = await scanHdr(path, { ...job, asset, bounds })
+    expect(result).toEqual(expected)
+    expect(result).toMatchObject({ visiblePixels: 7, exact: true, domain: 'output' })
+    await expect(scanHdr(path, { ...job, asset, bounds: { ...bounds, x: width } })).rejects.toThrow(
+      'outside the prepared photograph',
+    )
+    bytes[bytes.length - 1] = 0
+    await writeFile(path, bytes)
+    await expect(scanHdr(path, { ...job, asset, bounds })).rejects.toThrow('Damaged HDR strip.')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('HDR streams reject interrupted writes, damaged hashes and nonfinite samples', async () => {
   const root = await mkdtemp(join(tmpdir(), 'irodori-hdr-assets-')),
     path = join(root, 'pixels')

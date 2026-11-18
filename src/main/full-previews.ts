@@ -78,7 +78,7 @@ import type { HdrPhotoPixel } from '../shared/hdr-pixel'
 import { HDR_RENDERING_TABLE_HASHES } from '../shared/hdr-rendering-tables'
 import type { HdrAnalysisDomain, HdrPhotoStatistics } from '../shared/hdr-statistics'
 import type { LensSettings, ProcessingOptions } from '../shared/lens'
-import type { NativeHdrMaskRequest } from '../shared/native-hdr-mask'
+import { NATIVE_HDR_MASK_VERSION, type NativeHdrMaskRequest } from '../shared/native-hdr-mask'
 import {
   PREPARED_COMPARISON_VERSION,
   validatePreparedPreviewSourceRef,
@@ -97,6 +97,7 @@ import {
   type ResourcePolicySnapshot,
 } from '../shared/resource-policy'
 import type { PhotoStatistics } from '../shared/statistics'
+import type { InspectionBounds } from '../shared/inspection'
 import {
   validateWhiteBalanceSample,
   type PhotoWhiteBalanceProposal,
@@ -107,6 +108,7 @@ import type {
   NativeMaskController,
   PreparedHdrSourceLease,
 } from './native-mask-controller'
+import type { HdrDiagnosticMask } from './native-mask-diagnostics'
 import {
   preparedWorkingIdentity,
   validatePreparedPreviewLineage,
@@ -776,6 +778,7 @@ export class FullPreviews {
     options: ProcessingOptions,
     rendition: 'sdr' | 'hdr',
     rendererReservation?: ManagedImageBytes,
+    signal?: AbortSignal,
   ): Promise<DisplayPreview> {
     if (this.frozenPreviews.has(token) || !tokenPattern.test(token))
       throw new Error('Invalid frozen preview request.')
@@ -807,6 +810,7 @@ export class FullPreviews {
         true,
         undefined,
         owner,
+        signal,
       )
       owner.work = work
       const preview = await work
@@ -1218,6 +1222,7 @@ export class FullPreviews {
     geometryRead = false,
     editingParentRequestId?: string,
     frozen?: FrozenPreviewOwner,
+    readSignal?: AbortSignal,
   ): Promise<DisplayPreview | null> {
     if (
       this.closed ||
@@ -1256,6 +1261,9 @@ export class FullPreviews {
       geometryRead,
       frozenSnapshot: Boolean(frozen),
     }
+    const abortRead = () => request.abort.abort(readSignal?.reason)
+    if (readSignal?.aborted) abortRead()
+    else readSignal?.addEventListener('abort', abortRead, { once: true })
     if (frozen) frozen.request = request
     if (background) this.background.add(request)
     else this.active = request
@@ -1754,8 +1762,13 @@ export class FullPreviews {
         }),
       request.abort.signal,
     )
-    request.work = work
-    return work
+    request.work = readSignal
+      ? work.finally(() => {
+          readSignal.removeEventListener('abort', abortRead)
+          this.background.delete(request)
+        })
+      : work
+    return request.work
   }
 
   private async spatialAdmission(
@@ -2469,6 +2482,82 @@ export class FullPreviews {
     }
   }
 
+  sdrDiagnosticsRegion(
+    id: string,
+    expectedRevision: number,
+    bounds: InspectionBounds,
+    size: { width: number; height: number },
+    external: AbortSignal,
+  ): Promise<PhotoStatistics & { mask: Uint8Array }> {
+    return this.foreground(async () => {
+      const controller = new AbortController(),
+        signal = AbortSignal.any([controller.signal, external])
+      const check = async () => {
+        signal.throwIfAborted()
+        const options = await this.options?.(id, signal)
+        signal.throwIfAborted()
+        if (
+          !Number.isSafeInteger(expectedRevision) ||
+          expectedRevision < 0 ||
+          options?.revision !== expectedRevision ||
+          this.closed ||
+          this.blocked.has(id) ||
+          !this.original(id)
+        )
+          throw new Error('Statistics revision conflict or photo unavailable.')
+      }
+      await check()
+      const preview = await this.prepare(
+        id,
+        randomUUID(),
+        false,
+        false,
+        false,
+        true,
+        false,
+        true,
+        undefined,
+        undefined,
+        false,
+        undefined,
+        false,
+        undefined,
+        false,
+        undefined,
+        undefined,
+        signal,
+      )
+      signal.throwIfAborted()
+      if (preview?.format !== 'rgba8-srgb' || preview.settingsRevision !== expectedRevision)
+        throw new Error('Statistics frame unavailable.')
+      const lease = this.acquire(new URL(preview.url))
+      if (!lease) throw new Error('Statistics frame unavailable.')
+      this.analyses.set(controller, id)
+      try {
+        return await this.enqueue(async () => {
+          await check()
+          if (!this.processor.sdrDiagnostics) throw new Error('SDR diagnostics worker unavailable.')
+          const result = await this.processor.sdrDiagnostics(
+            lease.path,
+            preview,
+            { bounds, size },
+            signal,
+          )
+          await check()
+          return {
+            ...result,
+            photoId: id,
+            revision: expectedRevision,
+            renderingIdentity: preview.renderId,
+          }
+        })
+      } finally {
+        this.analyses.delete(controller)
+        lease.release()
+      }
+    }, external)
+  }
+
   settingsChanged(id: string): void {
     if (this.editingParent?.id === id) this.editingParent = undefined
     for (const [token, owner] of this.comparisons)
@@ -2491,6 +2580,100 @@ export class FullPreviews {
       if (!this.processor.hdrStatistics) throw new Error('HDR analysis worker unavailable.')
       return this.processor.hdrStatistics(path, job, signal)
     })
+  }
+
+  /** The native mask owner authenticates and drains its own lease before returning counts. */
+  async diagnosticHdrMask(
+    id: string,
+    expectedRevision: number,
+    target: DisplayTarget,
+    bounds: InspectionBounds,
+    size: { width: number; height: number },
+    external: AbortSignal,
+  ): Promise<HdrDiagnosticMask> {
+    const cpu = this.cpu,
+      admission = this.cropAdmission,
+      controller = new AbortController(),
+      signal = AbortSignal.any([controller.signal, external]),
+      token = randomUUID()
+    if (!cpu || !admission) throw new Error('The native HDR diagnostic mask is unavailable.')
+    const check = async () => {
+      signal.throwIfAborted()
+      const options = await this.options?.(id, signal)
+      signal.throwIfAborted()
+      if (
+        !Number.isSafeInteger(expectedRevision) ||
+        expectedRevision < 0 ||
+        options?.revision !== expectedRevision ||
+        options.processing !== 'hdr-v1' ||
+        this.closed ||
+        this.blocked.has(id) ||
+        !this.original(id)
+      )
+        throw new Error('HDR diagnostics revision conflict or photo unavailable.')
+      return options
+    }
+    this.analyses.set(controller, id)
+    try {
+      const options = await check()
+      const preview = await this.requestFrozen(id, token, options, 'hdr', undefined, signal)
+      if (
+        preview.format !== 'hdr-working' ||
+        !preview.sourceRef ||
+        preview.settingsRevision !== expectedRevision
+      )
+        throw new Error('The confirmed HDR diagnostic source is unavailable.')
+      const resources = await admission(signal)
+      await check()
+      const presentation = target.mode === 'hdr' ? target : SDR_TARGET,
+        result = await cpu.renderDiagnosticMask(
+          {
+            version: NATIVE_HDR_MASK_VERSION,
+            requestId: randomUUID(),
+            sessionId: token,
+            source: preview.sourceRef,
+            generation: presentation.generation,
+            expectedSettingsRevision: expectedRevision,
+            comparison: 'after',
+            domain: presentation.mode === 'hdr' ? 'output' : 'working-hdr',
+            target: presentation,
+            parameters: options.adjustments ?? neutralAdjustments,
+            existingOwners: resources.reservation,
+          },
+          bounds,
+          size,
+          resources.policy,
+          signal,
+        )
+      await check()
+      return result
+    } finally {
+      this.analyses.delete(controller)
+      await this.release(token)
+    }
+  }
+
+  hdrStatisticsRegion(
+    id: string,
+    expectedRevision: number,
+    target: DisplayTarget,
+    bounds: InspectionBounds,
+    signal: AbortSignal,
+  ): Promise<HdrPhotoStatistics> {
+    if (target.mode !== 'hdr')
+      return Promise.reject(new Error('HDR regional statistics require an HDR output target.'))
+    return this.hdrAnalysis(
+      id,
+      expectedRevision,
+      'output',
+      target,
+      (path, job, workerSignal) => {
+        if (!this.processor.hdrStatistics) throw new Error('HDR analysis worker unavailable.')
+        return this.processor.hdrStatistics(path, { ...job, bounds }, workerSignal)
+      },
+      false,
+      signal,
+    )
   }
 
   hdrPixel(
@@ -2627,9 +2810,11 @@ export class FullPreviews {
     target: DisplayTarget,
     work: (path: string, job: HdrStatisticsJob, signal: AbortSignal) => Promise<T>,
     sourceSpace = false,
+    external?: AbortSignal,
   ): Promise<T & { photoId: string; revision: number; renderingIdentity: string }> {
-    return this.foreground(() =>
-      this.analyzeHdr(id, expectedRevision, domain, target, work, sourceSpace),
+    return this.foreground(
+      () => this.analyzeHdr(id, expectedRevision, domain, target, work, sourceSpace, external),
+      external,
     )
   }
   private async analyzeHdr<T>(
@@ -2639,11 +2824,14 @@ export class FullPreviews {
     target: DisplayTarget,
     work: (path: string, job: HdrStatisticsJob, signal: AbortSignal) => Promise<T>,
     sourceSpace = false,
+    external?: AbortSignal,
   ): Promise<T & { photoId: string; revision: number; renderingIdentity: string }> {
-    const controller = new AbortController()
+    const controller = new AbortController(),
+      signal = external ? AbortSignal.any([controller.signal, external]) : controller.signal
     const check = async () => {
-      controller.signal.throwIfAborted()
-      const options = await this.options?.(id, controller.signal)
+      signal.throwIfAborted()
+      const options = await this.options?.(id, signal)
+      signal.throwIfAborted()
       if (
         !Number.isSafeInteger(expectedRevision) ||
         expectedRevision < 0 ||
@@ -2671,7 +2859,13 @@ export class FullPreviews {
       sourceSpace,
       undefined,
       sourceSpace,
+      undefined,
+      false,
+      undefined,
+      undefined,
+      external ? signal : undefined,
     )
+    signal.throwIfAborted()
     if (!preview?.linear?.hdr || !preview.linear.url)
       throw new Error('HDR working data unavailable.')
     if (domain === 'output' && target.mode === 'sdr' && preview.linear.hdr.source.display)
@@ -2692,7 +2886,7 @@ export class FullPreviews {
             domain,
             target,
           },
-          controller.signal,
+          signal,
         )
         await check()
         return {

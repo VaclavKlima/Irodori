@@ -7,12 +7,14 @@ import { RawGpuRenderer } from '../gpu/raw-renderer'
 import { prepareMaskEdgeCoverage } from './gpu'
 import { prepareMaskRangeBase } from '../mask-ranges/gpu'
 import { renderMaskPreviewGpu } from './preview-gpu'
+import { encodeDiagnosticOverlays } from './diagnostic-overlays'
 import { INSPECTION_IMAGE_LIMIT, INSPECTION_PAIR_LIMIT } from '../../shared/inspection'
 import type {
   MaskEdgeResult,
   MaskEdgeWorkerReply,
   MaskEdgeWorkerRequest,
   MaskPreviewWorkerResult,
+  MaskWorkerRequest,
 } from './types'
 
 let owner: RawGpuRenderer | undefined
@@ -144,15 +146,20 @@ async function prepare(request: MaskEdgeWorkerRequest): Promise<MaskEdgeResult> 
   }
 }
 
-process.on('message', (request: MaskEdgeWorkerRequest) => {
+process.on('message', (request: MaskWorkerRequest) => {
   void (async () => {
     if (busy) throw new Error('The mask edge worker is busy.')
     busy = true
     try {
       process.send?.(
-        request.inspection
-          ? ({ id: request.id, preview: await preview(request) } satisfies MaskEdgeWorkerReply)
-          : ({ id: request.id, result: await prepare(request) } satisfies MaskEdgeWorkerReply),
+        'diagnosticOverlays' in request
+          ? ({
+              id: request.id,
+              diagnosticOverlays: await encodeDiagnosticOverlays(request.diagnosticOverlays),
+            } satisfies MaskEdgeWorkerReply)
+          : request.inspection
+            ? ({ id: request.id, preview: await preview(request) } satisfies MaskEdgeWorkerReply)
+            : ({ id: request.id, result: await prepare(request) } satisfies MaskEdgeWorkerReply),
       )
     } finally {
       busy = false

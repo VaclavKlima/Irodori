@@ -145,6 +145,8 @@ import { identity } from './export/files'
 import { ExportJobs } from './export/jobs'
 import { AgentPhotoPreviews } from './agent/photo-previews'
 import { MaskPreviews } from './agent/mask-previews'
+import { PhotoDiagnostics } from './agent/photo-diagnostics'
+import type { PhotoDiagnosticsRequest } from '../shared/photo-diagnostics'
 import { readAgentPresentationContext } from './agent/presentation-context'
 import type { AgentPresentationRequest } from '../shared/agent-presentation'
 import type { MaskPreviewRequest } from '../shared/mask-preview'
@@ -283,6 +285,7 @@ export class PhotoLibrary {
   agentPreviews!: AgentPhotoPreviews
   editComparisons!: EditComparisons
   maskPreviews!: MaskPreviews
+  private photoDiagnostics!: PhotoDiagnostics
   outputProofs!: OutputProofs
   exports!: ExportJobs
   private db!: DatabaseSync
@@ -826,6 +829,27 @@ export class PhotoLibrary {
         this.agentPreviews.inspect(id, revision, inspection, signal),
       admission: (signal) => {
         if (!this.cropAdmission) throw new Error('Mask preview resource admission is unavailable.')
+        return this.cropAdmission(signal)
+      },
+      reserve: (bytes) => this.fullPreviews.reserveOutputProofBytes(bytes),
+    })
+    await rm(join(this.root, 'cache', 'photo-diagnostics'), { recursive: true, force: true })
+    this.photoDiagnostics = new PhotoDiagnostics(this.root, {
+      context: (id, revision, signal) => this.agentPreviews.context(id, revision, signal),
+      presentation: (id, revision) =>
+        this.getPhotoPresentationContext({ photoId: id, expectedRevision: revision }),
+      getDisplayTarget: () => this.displayTarget?.(),
+      hdrMap: (id, revision, target, bounds, size, signal) =>
+        this.fullPreviews.diagnosticHdrMask(id, revision, target, bounds, size, signal),
+      hdrStatistics: (id, revision, target, bounds, signal) =>
+        this.fullPreviews.hdrStatisticsRegion(id, revision, target, bounds, signal),
+      sdrStatistics: (id, revision, bounds, size, signal) =>
+        this.fullPreviews.sdrDiagnosticsRegion(id, revision, bounds, size, signal),
+      photo: (id, revision, inspection, signal) =>
+        this.agentPreviews.inspect(id, revision, inspection, signal),
+      admission: (signal) => {
+        if (!this.cropAdmission)
+          throw new Error('Photo diagnostics resource admission is unavailable.')
         return this.cropAdmission(signal)
       },
       reserve: (bytes) => this.fullPreviews.reserveOutputProofBytes(bytes),
@@ -1568,6 +1592,10 @@ export class PhotoLibrary {
     })
   }
 
+  getPhotoDiagnostics(request: PhotoDiagnosticsRequest, signal: AbortSignal) {
+    return this.admission.run(() => this.photoDiagnostics.get(request, signal))
+  }
+
   getMaskPreview(request: MaskPreviewRequest, signal?: AbortSignal) {
     return this.admission.run(() => this.maskPreviews.get(request, signal))
   }
@@ -2140,6 +2168,7 @@ export class PhotoLibrary {
         this.editComparisons.remove(photo.id),
         this.objectSelections.beginRemoval(photo.id),
         this.maskPreviews.beginRemoval(photo.id),
+        this.photoDiagnostics.beginRemoval(photo.id),
         this.maskEdges.beginRemoval(photo.id),
         this.maskRanges.beginRemoval(photo.id),
       ]),
@@ -2238,6 +2267,7 @@ export class PhotoLibrary {
           this.checkpointRemovals.delete(photo.id)
           this.objectSelections.endRemoval(photo.id)
           this.maskPreviews.endRemoval(photo.id)
+          this.photoDiagnostics.endRemoval(photo.id)
           this.maskEdges.endRemoval(photo.id)
           this.maskRanges.endRemoval(photo.id)
         }
@@ -3900,6 +3930,7 @@ export class PhotoLibrary {
       await closeServices([
         () => this.editComparisons?.close(),
         () => this.maskPreviews?.close(),
+        () => this.photoDiagnostics?.close(),
         () => this.maskEdges?.close(),
         () => this.objectSelections?.close(),
         () => this.outputProofs?.close(),

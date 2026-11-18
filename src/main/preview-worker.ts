@@ -1,5 +1,6 @@
 import { PreviewEngine } from './preview-engine'
 import { scanHdr, sampleHdrPixel } from './processing/hdr-processing'
+import { scanSdrDiagnostics } from './processing/sdr-diagnostics'
 import { sampleNeutralWhiteBalance } from './processing/white-balance-picker'
 import { sampleCurveTone } from './processing/curve-tone'
 import { prepareCropWorkingAsset } from './processing/crop-preparation'
@@ -185,6 +186,18 @@ process.on('message', async (data: PreviewWorkerRequest, handle) => {
         new AbortController().signal,
       )
       send({ type: 'result', result })
+      return
+    }
+    if (data.type === 'statistics' && data.frame?.sdrDiagnostics) {
+      const { mask, ...statistics } = await scanSdrDiagnostics(
+        data.path,
+        data.frame,
+        data.frame.sdrDiagnostics,
+      )
+      send({
+        type: 'result',
+        result: { ...statistics, mask: Buffer.from(mask).toString('base64') },
+      })
       return
     }
     const result =

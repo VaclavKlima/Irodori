@@ -4,10 +4,13 @@ import { dirname, join } from 'node:path'
 import { rm } from 'node:fs/promises'
 import type { ResolvedMask } from '../../shared/masks'
 import type {
+  DiagnosticOverlayImage,
+  DiagnosticOverlayRequest,
   MaskEdgeResult,
   MaskEdgeWorkerReply,
   MaskEdgeWorkerRequest,
   MaskPreviewWorkerResult,
+  MaskWorkerRequest,
 } from './types'
 import type { MaskRange } from '../../shared/mask-ranges'
 import type { MaskRangeSource } from '../mask-ranges/types'
@@ -101,8 +104,17 @@ export class MaskEdgeProcess {
     return reply.preview
   }
 
+  async diagnosticOverlays(
+    request: DiagnosticOverlayRequest,
+    signal: AbortSignal,
+  ): Promise<DiagnosticOverlayImage[]> {
+    const reply = await this.execute({ diagnosticOverlays: request }, signal)
+    if (!reply.diagnosticOverlays) throw new Error('Diagnostic overlay worker returned no result.')
+    return reply.diagnosticOverlays
+  }
+
   private async execute(
-    request: Omit<MaskEdgeWorkerRequest, 'id'>,
+    request: Omit<MaskEdgeWorkerRequest, 'id'> | { diagnosticOverlays: DiagnosticOverlayRequest },
     signal: AbortSignal,
   ): Promise<MaskEdgeWorkerReply> {
     signal.throwIfAborted()
@@ -141,7 +153,7 @@ export class MaskEdgeProcess {
           if (failure || signal.aborted)
             reject(failure ?? new Error('Mask edge processing cancelled.'))
           else if (reply.error) reject(new Error(reply.error))
-          else if (reply.result || reply.preview) resolve(reply)
+          else if (reply.result || reply.preview || reply.diagnosticOverlays) resolve(reply)
           else reject(new Error('Mask edge worker returned no result.'))
         }
         const timer = setTimeout(() => {
@@ -162,7 +174,7 @@ export class MaskEdgeProcess {
           {
             id,
             ...structuredClone(request),
-          } satisfies MaskEdgeWorkerRequest,
+          } satisfies MaskWorkerRequest,
           (error) => {
             if (error) failed(error)
           },
@@ -170,20 +182,25 @@ export class MaskEdgeProcess {
       })
     } catch (error) {
       await this.close()
-      await Promise.allSettled([
-        ...[
-          request.outputPath,
-          `${request.outputPath}.tmp`,
-          ...(request.inspection
-            ? [
-                `${request.outputPath}.coverage.png`,
-                `${request.outputPath}.coverage.png.tmp`,
-                `${request.outputPath}.overlay.png`,
-                `${request.outputPath}.overlay.png.tmp`,
-              ]
-            : []),
-        ].map((path) => rm(path, { force: true })),
-      ])
+      const paths =
+        'diagnosticOverlays' in request
+          ? request.diagnosticOverlays.masks.flatMap(({ outputPath }) => [
+              outputPath,
+              `${outputPath}.tmp`,
+            ])
+          : [
+              request.outputPath,
+              `${request.outputPath}.tmp`,
+              ...(request.inspection
+                ? [
+                    `${request.outputPath}.coverage.png`,
+                    `${request.outputPath}.coverage.png.tmp`,
+                    `${request.outputPath}.overlay.png`,
+                    `${request.outputPath}.overlay.png.tmp`,
+                  ]
+                : []),
+            ]
+      await Promise.allSettled(paths.map((path) => rm(path, { force: true })))
       throw error
     } finally {
       this.busy = false

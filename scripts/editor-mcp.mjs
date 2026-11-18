@@ -634,6 +634,21 @@ let tools = [
     inputSchema: schema({ preference: { enum: ['auto', 'hdr', 'sdr'] } }),
   },
   {
+    name: 'irodori_get_photo_diagnostics',
+    description:
+      'Read exact histogram bins and clipping counts for the committed whole photo or inspection rectangle. Returns labeled SDR PNG overlays of selected output clipping and HDR content above reference white when available. Read presentation context for the current display generation or explicitly select a fixed SDR target. Uses the current Console turn’s frozen rectangle for the same photo when region is omitted. Changes no edits or display settings.',
+    inputSchema: schema(
+      {
+        photoId,
+        expectedRevision,
+        region: inspection.properties.region,
+        target: { enum: ['current', 'sdr'], default: 'current' },
+        targetGeneration: { type: 'integer', minimum: 0 },
+      },
+      ['photoId', 'expectedRevision'],
+    ),
+  },
+  {
     name: 'irodori_get_photo_statistics',
     description:
       'Exact committed statistics. Omit domain for compatible SDR sRGB bins. working-hdr is scene-linear; content-hdr is fixed Rec.2020 HDR content; output is the presented rendition. Current display diagnostics require targetGeneration from display state.',
@@ -1549,11 +1564,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         'irodori_get_output_proof',
         'irodori_get_mask_preview',
         'irodori_get_edit_comparison_preview',
+        'irodori_get_photo_diagnostics',
       ].includes(request.params.name)
     ) {
-      if (Array.isArray(result.result.members)) {
-        const { members, ...metadata } = result.result
-        if (members.length < 1 || members.length > 2) throw new Error('Invalid inspection members.')
+      const diagnostic = request.params.name === 'irodori_get_photo_diagnostics'
+      const key = diagnostic ? 'images' : 'members'
+      if (diagnostic && !Array.isArray(result.result[key]))
+        throw new Error('Invalid diagnostic overlays.')
+      if (Array.isArray(result.result[key])) {
+        const { [key]: members, ...metadata } = result.result
+        if (members.length < (diagnostic ? 0 : 1) || members.length > 2)
+          throw new Error('Invalid inspection members.')
+        if (
+          diagnostic &&
+          (new Set(members.map((member) => member.label)).size !== members.length ||
+            members.some(
+              (member) =>
+                !['clipping', 'above-white'].includes(member.label) ||
+                member.mimeType !== 'image/png',
+            ))
+        )
+          throw new Error('Invalid diagnostic overlay labels or formats.')
         if (
           request.params.name === 'irodori_get_edit_comparison_preview' &&
           (members.length !== 2 || members[0].label !== 'a' || members[1].label !== 'b')
@@ -1586,7 +1617,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           )
         }
         if (total > 16 * 1024 * 1024) throw new Error('Inspection pair exceeds 16 MiB.')
-        return { content, structuredContent: { ...metadata, members: labelled } }
+        const structuredContent = { ...metadata, [key]: labelled }
+        return {
+          content: content.length
+            ? content
+            : [{ type: 'text', text: JSON.stringify(structuredContent) }],
+          structuredContent,
+        }
       }
       if (request.params.name === 'irodori_get_mask_preview')
         throw new Error('Mask inspection members are missing.')

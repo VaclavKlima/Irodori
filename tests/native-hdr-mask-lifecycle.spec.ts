@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { neutralAdjustments } from '../src/shared/adjustments'
+import { SDR_TARGET, type DisplayTarget } from '../src/shared/hdr'
 import type {
   NativeHdrMaskDeclined,
   NativeHdrMaskRequest,
@@ -428,6 +429,87 @@ test('successful native output followed by source-release failure revokes its un
     await t.controller.releaseMask(output.sessionId, output.maskId)
   } finally {
     gate.resolve()
+    await t.close()
+  }
+})
+
+test('Console reduces only the native region, retains exact counts, and leaves no renderer receiver', async () => {
+  const t = await controllerFixture({ synthetic: {}, mask: { arithmeticSha256: syntheticMath } })
+  try {
+    const source = await t.source('console-region-across-mask-strips'),
+      bounds = { x: 2, y: 63, width: 3, height: 3 },
+      size = { width: 2, height: 2 },
+      signal = new AbortController().signal,
+      hdr: DisplayTarget = { ...SDR_TARGET, mode: 'hdr', requested: 'hdr', peak: 2, headroom: 2 }
+    const diagnose = (target: DisplayTarget) =>
+      t.controller.renderDiagnosticMask(
+        t.maskRequest(source, { target }),
+        bounds,
+        size,
+        resourcePolicy(),
+        signal,
+      )
+    expect(await diagnose(hdr)).toEqual({
+      mask: new Uint8Array([15, 13, 11, 11]),
+      aboveWhite: 3,
+      exceedingHeadroom: 5,
+      outputClipped: 5,
+      gamutLimited: 6,
+    })
+    expect(await diagnose(SDR_TARGET)).toEqual({
+      mask: new Uint8Array([4, 4, 0, 0]),
+      aboveWhite: 3,
+      exceedingHeadroom: null,
+      outputClipped: 0,
+      gamutLimited: 0,
+    })
+    expect(await scratchNames(t.directory)).toEqual([])
+    expect(source.releases).toBe(2)
+    const output = mask(await t.controller.renderMask(t.maskRequest(source)))
+    await t.controller.releaseMask(output.sessionId, output.maskId)
+  } finally {
+    await t.close()
+  }
+})
+
+test('Console yields to existing Editor work and drains before a superseding Editor mask starts', async () => {
+  const t = await controllerFixture({
+    synthetic: { maskHoldOutput: [1, 2] },
+    mask: { arithmeticSha256: syntheticMath },
+  })
+  try {
+    const source = await t.source('console-mask-priority'),
+      editor = observed(t.controller.renderMask(t.maskRequest(source))),
+      diagnose = () =>
+        t.controller.renderDiagnosticMask(
+          t.maskRequest(source),
+          { x: 1, y: 1, width: 3, height: 2 },
+          { width: 2, height: 1 },
+          resourcePolicy(),
+          new AbortController().signal,
+        )
+    await t.event('mask-held-before-output', 1)
+    await expect(diagnose()).rejects.toThrow(/busy with Editor presentation/)
+    expect(source.acquisitions).toBe(1)
+    await t.allow('output', 1)
+    const first = mask(await valueOf(editor))
+    await t.controller.releaseMask(first.sessionId, first.maskId)
+
+    const consoleWork = observed(diagnose()),
+      held = await t.event('mask-held-before-output', 2),
+      latest = observed(t.controller.renderMask(t.maskRequest(source)))
+    await t.event('mask-sigterm', 2)
+    expect(processExists(held.pid)).toBe(true)
+    expect(source.acquisitions).toBe(2)
+    expect(source.releases).toBe(1)
+    await t.allow('exit', 2)
+    await rejected(consoleWork, /superseded/)
+    const output = mask(await valueOf(latest))
+    expect(processExists(held.pid)).toBe(false)
+    expect(source.releases).toBe(3)
+    await t.controller.releaseMask(output.sessionId, output.maskId)
+    expect(await scratchNames(t.directory)).toEqual([])
+  } finally {
     await t.close()
   }
 })
