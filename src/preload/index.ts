@@ -268,6 +268,12 @@ const api: IrodoriApi = {
     if (reply.error) throw new Error(reply.error)
     return reply.result
   },
+  getPhotoDiagnostics: async (requestId, request) => {
+    const reply = await ipcRenderer.invoke('diagnostics:inspect', requestId, request)
+    if (reply.error) throw new Error(reply.error)
+    return reply.result
+  },
+  cancelPhotoDiagnostics: (requestId) => ipcRenderer.invoke('diagnostics:cancel', requestId),
   getMaskPreview: async (request) => {
     const reply = await ipcRenderer.invoke('masks:preview', request)
     if (reply.error) throw new Error(reply.error)

@@ -48,7 +48,8 @@ export interface DiagnosticOverlayMask {
   targetMode: 'hdr' | 'sdr'
 }
 export interface DiagnosticOverlayRequest {
-  basePath: string
+  /** Composite Console proofs use a registered SDR PNG. Editor flags have transparent backgrounds. */
+  basePath?: string
   masks: DiagnosticOverlayMask[]
 }
 export interface DiagnosticOverlayImage {

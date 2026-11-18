@@ -1,6 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { Eye } from 'lucide-react'
+import { Eye, RotateCw } from 'lucide-react'
+import type { DiagnosticImage, PhotoDiagnosticsResult } from '../../../shared/photo-diagnostics'
 import type { PreviewTools } from '../hooks/usePreviewTools'
+import type { DiagnosticScope, EditorDiagnosticsController } from '../hooks/useEditorDiagnostics'
 import { InspectorSection } from './InspectorSection'
 import styles from './Histogram.module.css'
 export function Histogram({
@@ -8,20 +10,35 @@ export function Histogram({
   ready,
   expanded: open,
   onToggle,
+  diagnostics,
+  onDiagnosticsScope,
 }: {
   tools: PreviewTools
   ready: boolean
   expanded: boolean
   onToggle: () => void
+  diagnostics: EditorDiagnosticsController
+  onDiagnosticsScope: (scope: DiagnosticScope) => void
 }) {
   const clippingStatusId = useId()
   const [bin, setBin] = useState(128)
-  const hdr = tools.analysis && 'domain' in tools.analysis ? tools.analysis : undefined
-  const data =
-    !tools.hdr && tools.analysis && !('domain' in tools.analysis) ? tools.analysis : undefined
+  const regional = diagnostics.scope !== 'whole-photo'
+  const diagnostic = diagnostics.result?.histogram
+  const analysis = regional
+    ? diagnostic?.status === 'available'
+      ? diagnostic.value.statistics
+      : undefined
+    : tools.analysis
+  const hdrScale = regional ? diagnostics.result?.target.mode === 'hdr' : tools.hdr
+  const hdr = analysis && 'domain' in analysis ? analysis : undefined
+  const data = !hdrScale && analysis && !('domain' in analysis) ? analysis : undefined
   const descriptor = hdr?.rgbHistogram
-  const channels = tools.analysisError ? undefined : (descriptor?.rgb ?? data?.rgb)
-  const bins = channels?.[0].length ?? (tools.hdr ? 512 : 256)
+  const error = regional
+    ? diagnostics.error || (diagnostic?.status === 'unavailable' ? diagnostic.reason : undefined)
+    : tools.analysisError
+  const pending = regional ? diagnostics.pending : tools.analysisPending
+  const channels = error ? undefined : (descriptor?.rgb ?? data?.rgb)
+  const bins = channels?.[0].length ?? (hdrScale ? 512 : 256)
   const activeBin = Math.min(bin, bins - 1)
   const paths = useRef<(SVGPathElement | null)[]>([])
   const curves = useRef<number[][]>([])
@@ -96,21 +113,33 @@ export function Histogram({
     // Publish a usable first curve even when a hidden surface has no idle paint.
     animate(performance.now())
   }, [channels, bins, open, hdr?.editSerial])
-  const label = tools.mode === 'before' ? 'Before' : 'After'
+  const label = regional
+    ? diagnostics.scope === 'region'
+      ? 'Inspection region'
+      : 'Saved mask'
+    : tools.mode === 'before'
+      ? 'Before'
+      : 'After'
   const percent = (count: number) =>
     `${((100 * count) / (data?.visiblePixels || descriptor?.visiblePixels || 1)).toFixed(2)}%`
   const readout = channels
     ? `${descriptor?.mode === 'hdr' && activeBin >= 256 ? `+${(((activeBin - 256) * descriptor.maxStops) / 256).toFixed(2)} stops` : `Value ${activeBin}`} · R ${percent(channels[0][activeBin])} · G ${percent(channels[1][activeBin])} · B ${percent(channels[2][activeBin])}`
-    : tools.analysisError
+    : error
       ? 'Histogram unavailable'
       : 'Preparing histogram…'
-  const status = tools.analysisError
-    ? 'Histogram unavailable'
+  const status = error
+    ? regional
+      ? error
+      : 'Histogram unavailable'
     : !channels
-      ? 'Preparing histogram…'
-      : tools.analysisPending
+      ? regional && !pending
+        ? diagnostics.waiting
+        : 'Preparing histogram…'
+      : pending
         ? 'Updating histogram…'
-        : `${label} / ${tools.hdr ? 'Rec.2020 · HDR content' : 'sRGB · SDR'}`
+        : regional
+          ? `${label} · Exact ${hdrScale ? 'HDR' : 'SDR'} · ${analysis?.visiblePixels.toLocaleString()} pixels`
+          : `${label} / ${hdrScale ? 'Rec.2020 · HDR content' : 'sRGB · SDR'}`
   return (
     <InspectorSection
       id="histogram"
@@ -121,7 +150,55 @@ export function Histogram({
       onToggle={onToggle}
       headerActions={
         <div className={styles.indicators}>
-          {tools.hdr && (
+          <select
+            className={styles.scope}
+            aria-label="Histogram scope"
+            value={diagnostics.scope}
+            disabled={!ready && !regional}
+            onChange={(event) => onDiagnosticsScope(event.currentTarget.value as DiagnosticScope)}
+          >
+            <option value="whole-photo">Whole photo</option>
+            <option value="region" disabled={!ready}>
+              Inspection region
+            </option>
+            {diagnostics.masks?.map((mask) => (
+              <option key={mask.id} value={`mask:${mask.id}`} disabled={!ready}>
+                {mask.name}
+              </option>
+            ))}
+          </select>
+          {regional &&
+            (['clipping', 'above-white'] as const).map((kind) => {
+              const label =
+                kind === 'clipping' ? 'Show diagnostic clipping' : 'Show above reference white'
+              const part =
+                kind === 'clipping' ? diagnostics.result?.clipping : diagnostics.result?.aboveWhite
+              const available = diagnostics.result?.images.some((image) => image.label === kind)
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  aria-label={label}
+                  aria-pressed={diagnostics.overlay === kind}
+                  disabled={!available}
+                  title={
+                    available
+                      ? label
+                      : (part?.status === 'unavailable'
+                          ? part.reason
+                          : diagnostics.result?.imagesUnavailable) || 'Waiting for diagnostics.'
+                  }
+                  onClick={() => diagnostics.toggleOverlay(kind)}
+                >
+                  {kind === 'clipping' ? (
+                    <span aria-hidden="true">▲</span>
+                  ) : (
+                    <Eye size={13} aria-hidden="true" />
+                  )}
+                </button>
+              )
+            })}
+          {!regional && tools.hdr && (
             <>
               <button
                 aria-label="Show HDR ranges"
@@ -143,7 +220,7 @@ export function Histogram({
               </button>
             </>
           )}
-          {!tools.hdr && (
+          {!regional && !tools.hdr && (
             <div className={styles.indicators}>
               {(['shadows', 'highlights'] as const).map((kind) => {
                 const count = data
@@ -176,9 +253,11 @@ export function Histogram({
       bodyClassName={styles.content}
       bodyProps={{
         'data-edit-serial': hdr?.editSerial,
-        'data-samples': hdr?.visiblePixels,
-        'aria-busy': !!tools.analysisPending,
-        'data-pending': !!tools.analysisPending,
+        'data-samples': regional ? analysis?.visiblePixels : hdr?.visiblePixels,
+        'aria-busy': !!pending,
+        'data-pending': !!pending,
+        'data-diagnostics-selection': regional ? diagnostics.scope : undefined,
+        'data-diagnostics-revision': diagnostics.result?.revision,
       }}
     >
       <figure className={styles.figure}>
@@ -221,7 +300,7 @@ export function Histogram({
           {[24, 48, 72].map((y) => (
             <line key={y} x1="0" x2="256" y1={y} y2={y} stroke="#333" strokeWidth="0.5" />
           ))}
-          {tools.hdr && (
+          {hdrScale && (
             <>
               <rect x="128" y="0" width="128" height="96" fill="#fff" fillOpacity="0.025" />
               <line x1="128" x2="128" y1="0" y2="96" stroke="#888" strokeWidth="0.6" />
@@ -283,10 +362,24 @@ export function Histogram({
           />
         </svg>
         <figcaption className={styles.caption}>
-          <span className={styles.status} role="status" title={tools.analysisError}>
+          <span className={styles.status} role="status" title={error}>
             {status}
           </span>
-          {tools.hdr && tools.hdrRanges && (
+          {regional && diagnostics.error && (
+            <button
+              type="button"
+              className={styles.retry}
+              aria-label="Retry diagnostics"
+              title="Retry diagnostics"
+              onClick={diagnostics.retry}
+            >
+              <RotateCw size={11} aria-hidden="true" />
+            </button>
+          )}
+          {regional && diagnostics.result && (
+            <DiagnosticDetails result={diagnostics.result} overlay={diagnostics.overlay} />
+          )}
+          {!regional && tools.hdr && tools.hdrRanges && (
             <details className={styles.legendDetails}>
               <summary aria-label="HDR range legend" title="HDR range legend">
                 ⓘ
@@ -316,7 +409,7 @@ export function Histogram({
             </details>
           )}
 
-          {tools.clippingError && (
+          {!regional && tools.clippingError && (
             <span
               id={clippingStatusId}
               className={styles.clippingStatus}
@@ -330,5 +423,76 @@ export function Histogram({
         </figcaption>
       </figure>
     </InspectorSection>
+  )
+}
+
+const warningColors: Record<string, string> = {
+  red: '#ff0000',
+  blue: '#0000ff',
+  magenta: '#ff00ff',
+  cyan: '#00ffff',
+}
+
+function DiagnosticDetails({
+  result,
+  overlay,
+}: {
+  result: PhotoDiagnosticsResult
+  overlay?: DiagnosticImage['label']
+}) {
+  const { clipping, aboveWhite, sourceSaturation, target } = result
+  const format = (value: number | null) => value?.toLocaleString() ?? 'Unavailable'
+  const legend = result.images.find((image) => image.label === overlay)?.legend
+  return (
+    <details className={styles.legendDetails}>
+      <summary aria-label="Diagnostic details" title="Diagnostic details">
+        ⓘ
+      </summary>
+      <div
+        className={`${styles.legend} ${styles.diagnosticLegend}`}
+        aria-label="Diagnostic details"
+      >
+        {clipping.status === 'available' ? (
+          'output' in clipping.value.counts ? (
+            <span>HDR output clipping {format(clipping.value.counts.output)} pixels</span>
+          ) : (
+            <>
+              <span>SDR highlight clipping {format(clipping.value.counts.highlights)} pixels</span>
+              <span>SDR shadow clipping {format(clipping.value.counts.shadows)} pixels</span>
+            </>
+          )
+        ) : (
+          <span>{clipping.reason}</span>
+        )}
+        {aboveWhite.status === 'available' ? (
+          <>
+            <span>Above HDR reference white {format(aboveWhite.value.count)} pixels</span>
+            <span>Exceeding reported headroom {format(aboveWhite.value.exceedingHeadroom)}</span>
+            <span>HDR gamut limited {format(aboveWhite.value.gamutLimited)}</span>
+          </>
+        ) : (
+          <span>{aboveWhite.reason}</span>
+        )}
+        {target.headroom !== null && (
+          <span>Reported display headroom {target.headroom.toFixed(2)}×</span>
+        )}
+        {sourceSaturation.status === 'available' ? (
+          <span>
+            Source saturation {format(sourceSaturation.value.saturatedSites)} of{' '}
+            {format(sourceSaturation.value.totalSites)} sensor sites
+          </span>
+        ) : (
+          <span>{sourceSaturation.reason}</span>
+        )}
+        {legend &&
+          Object.entries(legend).map(([color, warning]) => (
+            <span key={color}>
+              <i aria-hidden="true" style={{ background: warningColors[color] }} />
+              {warning}
+            </span>
+          ))}
+        {result.imagesUnavailable && <span>{result.imagesUnavailable}</span>}
+      </div>
+    </details>
   )
 }

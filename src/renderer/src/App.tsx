@@ -29,6 +29,7 @@ import { useEditCheckpoints } from './hooks/useEditCheckpoints'
 import { useMasks } from './hooks/useMasks'
 import { useMaskEdgeCoverage } from './hooks/useMaskEdgeCoverage'
 import { useInspectionRegion } from './hooks/useInspectionRegion'
+import { useEditorDiagnostics, type DiagnosticScope } from './hooks/useEditorDiagnostics'
 import { useWhiteBalancePicker } from './hooks/useWhiteBalancePicker'
 import { useToneCurves } from './hooks/useToneCurves'
 import { useCrop } from './hooks/useCrop'
@@ -423,6 +424,38 @@ export function App() {
     previewTools.update({ mode: 'after' })
     await inspection.start()
   }
+  const diagnostics = useEditorDiagnostics({
+    photoId: photo?.id,
+    edits: edits.confirmed ? edits.state : null,
+    inspection,
+    display: displayTarget,
+    unavailableReason:
+      previewTools.mode !== 'after' ? 'Return to After for regional diagnostics.' : undefined,
+    enabled:
+      workspace === 'editor' &&
+      !!photo &&
+      interactivePhoto === photo.id &&
+      previewTools.mode === 'after' &&
+      !crop.active &&
+      !crop.pending &&
+      !checkpoints.active &&
+      !edits.gesturing &&
+      !edits.saving &&
+      !masks.gesturing &&
+      !objectSelection.active &&
+      !mergeTargets &&
+      !importOpen &&
+      !settingsOpen &&
+      !exportProofActive,
+  })
+  const changeDiagnosticScope = (scope: DiagnosticScope) => {
+    diagnostics.select(scope)
+    if (scope === 'region') void startInspection()
+    else {
+      if (diagnostics.scope === 'region') inspection.close()
+      if (scope !== 'whole-photo') previewTools.update({ mode: 'after' })
+    }
+  }
   useEffect(() => {
     if (
       crop.active ||
@@ -516,6 +549,17 @@ export function App() {
           hover: null,
         }
       : previewTools
+  const previewPresentationTools =
+    diagnostics.scope === 'whole-photo'
+      ? presentationTools
+      : {
+          ...presentationTools,
+          hdrRanges: false,
+          hdrOverlay: 0,
+          shadows: false,
+          highlights: false,
+          hover: null,
+        }
   const [deleteTargets, setDeleteTargets] = useState<readonly PhotoReference[] | null>(null)
   const [contextMenu, setContextMenu] = useState<MenuState | null>(null)
   const contextMenuRef = useRef<MenuState | null>(null)
@@ -1545,6 +1589,7 @@ export function App() {
               maskEdgeCoverage={maskEdgeCoverage}
               objectSelection={objectSelection}
               inspection={{ ...inspection, start: startInspection }}
+              diagnostics={diagnostics}
               masks={{ ...masks, adjustments: maskEdgeCoverage.parameters }}
               crop={cropTool}
               toneCurves={toneCurves}
@@ -1566,7 +1611,7 @@ export function App() {
               confirmedEdits={
                 edits.confirmed && edits.state?.photoId === photo?.id ? edits.state : null
               }
-              tools={presentationTools}
+              tools={previewPresentationTools}
               gesturing={edits.gesturing || masks.gesturing}
               editingEpoch={edits.epoch + masks.epoch}
               gestureCommit={
@@ -1591,6 +1636,8 @@ export function App() {
 
         <Inspector
           checkpoints={checkpoints}
+          diagnostics={diagnostics}
+          onDiagnosticsScope={changeDiagnosticScope}
           objectSelection={objectSelection}
           masks={masks}
           presets={presetWorkspace}

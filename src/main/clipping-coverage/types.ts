@@ -19,6 +19,7 @@ export interface ClippingCoverageWorkerRequest {
   height: number
   key: string
   outputPath: string
+  storedMask?: boolean
 }
 
 export interface ClippingCoverageWorkerReply {

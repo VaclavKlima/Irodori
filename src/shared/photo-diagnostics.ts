@@ -4,18 +4,26 @@ import {
   type InspectionRegion,
 } from './inspection'
 import type { HdrPhotoStatistics } from './hdr-statistics'
+import { validateMaskId } from './masks'
 import type { PhotoStatistics } from './statistics'
 
 export interface PhotoDiagnosticsRequest {
   photoId: string
   expectedRevision: number
   region?: InspectionRegion
+  maskId?: string
+  gridIdentity?: string
   target?: 'current' | 'sdr'
   targetGeneration?: number
 }
 
 export type DiagnosticPart<T> =
   { status: 'available'; value: T } | { status: 'unavailable'; reason: string }
+
+export type DiagnosticSelection =
+  | { kind: 'whole-photo' }
+  | { kind: 'rectangle' }
+  | { kind: 'mask'; maskId: string; maskName: string; coverage: 'nonzero' }
 
 export interface DiagnosticImage {
   label: 'clipping' | 'above-white'
@@ -32,6 +40,7 @@ export interface PhotoDiagnosticsResult {
   photoId: string
   revision: number
   gridIdentity: string
+  selection: DiagnosticSelection
   bounds: InspectionBounds
   nativeGrid: { width: number; height: number }
   sourceDynamicRange: 'hdr' | 'sdr'
@@ -59,6 +68,11 @@ export interface PhotoDiagnosticsResult {
     exceedingHeadroom: number | null
     gamutLimited: number | null
   }>
+  sourceSaturation: DiagnosticPart<{
+    domain: 'source-sensor'
+    saturatedSites: number
+    totalSites: number
+  }>
   images: DiagnosticImage[]
   imagesUnavailable?: string
 }
@@ -70,11 +84,32 @@ export function validatePhotoDiagnosticsRequest(value: unknown): PhotoDiagnostic
     Array.isArray(value) ||
     Object.keys(value).some(
       (key) =>
-        !['photoId', 'expectedRevision', 'region', 'target', 'targetGeneration'].includes(key),
+        ![
+          'photoId',
+          'expectedRevision',
+          'region',
+          'maskId',
+          'gridIdentity',
+          'target',
+          'targetGeneration',
+        ].includes(key),
     )
   )
     throw new Error('Invalid photo diagnostics request.')
   const request = value as PhotoDiagnosticsRequest
+  if (request.maskId !== undefined) {
+    validateMaskId(request.maskId)
+    if (request.region !== undefined)
+      throw new Error('Choose one saved mask or one inspection rectangle.')
+  }
+  if (
+    request.gridIdentity !== undefined &&
+    (request.maskId === undefined ||
+      typeof request.gridIdentity !== 'string' ||
+      !request.gridIdentity ||
+      request.gridIdentity.length > 4096)
+  )
+    throw new Error('Use a matching gridIdentity for saved-mask diagnostics.')
   if (
     typeof request.photoId !== 'string' ||
     !/^[a-f0-9]{64}$/.test(request.photoId) ||

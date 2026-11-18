@@ -53,6 +53,7 @@ import { correctionPlan } from './lens-correction'
 import { writeHdrStrip } from './write-hdr-strip'
 import type { MaskGeometry } from '../../shared/mask-geometry'
 import { hasLocalMasks } from '../../shared/masks-gpu'
+import { openDiagnosticCoverage } from './diagnostic-coverage'
 
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const gpuPreparationTimingFields = [
@@ -74,25 +75,34 @@ export async function scanHdr(path: string, job: HdrStatisticsJob) {
   const result = hdrStatistics(job.domain, job.target, job.asset)
   const { bounds, asset } = job
   if (bounds) validateNativeInspectionBounds(bounds, asset.width, asset.height)
+  if (job.coverage && !bounds) throw new Error('Saved-mask diagnostics require native scan bounds.')
+  const coverage = job.coverage ? await openDiagnosticCoverage(job.coverage, asset) : undefined
   let top = 0
-  for await (const data of readHdrStrips(path, asset)) {
-    const rows = data.length / (asset.width * 4)
-    if (!bounds) analyzeHdr(data, job.adjustments, asset, job.target, result)
-    else {
-      const first = Math.max(top, bounds.y),
-        end = Math.min(top + rows, bounds.y + bounds.height)
-      if (first < end)
-        analyzeHdr(data, job.adjustments, asset, job.target, result, undefined, 0, {
-          x: bounds.x,
-          y: first - top,
-          width: bounds.width,
-          height: end - first,
-          frameWidth: asset.width,
-        })
+  try {
+    for await (const data of readHdrStrips(path, asset)) {
+      const rows = data.length / (asset.width * 4)
+      const include = await coverage?.strip(top, rows)
+      if (!bounds) analyzeHdr(data, job.adjustments, asset, job.target, result)
+      else {
+        const first = Math.max(top, bounds.y),
+          end = Math.min(top + rows, bounds.y + bounds.height)
+        if (first < end)
+          analyzeHdr(data, job.adjustments, asset, job.target, result, undefined, 0, {
+            x: bounds.x,
+            y: first - top,
+            width: bounds.width,
+            height: end - first,
+            frameWidth: asset.width,
+            include,
+          })
+      }
+      top += rows
     }
-    top += rows
+    coverage?.finish()
+    return result
+  } finally {
+    await coverage?.close()
   }
-  return result
 }
 
 export async function sampleHdrPixel(path: string, job: HdrPixelJob): Promise<HdrPixel> {

@@ -10,6 +10,27 @@ export interface RegionPoint {
 export type RegionHandle = 'create' | 'move' | 'nw' | 'ne' | 'se' | 'sw'
 const clamp = (n: number, low: number, high: number) => Math.max(low, Math.min(high, n))
 
+export function inspectionScreenPoint(
+  point: RegionPoint,
+  geometry: PresentedPreviewGeometry,
+  viewport: Size,
+): RegionPoint {
+  return {
+    x:
+      ((geometry.viewport.width / 2 +
+        geometry.view.x +
+        (point.x - geometry.image.width / 2) * geometry.view.scale) *
+        viewport.width) /
+      geometry.viewport.width,
+    y:
+      ((geometry.viewport.height / 2 +
+        geometry.view.y +
+        (point.y - geometry.image.height / 2) * geometry.view.scale) *
+        viewport.height) /
+      geometry.viewport.height,
+  }
+}
+
 /** Prepared and presented assets may omit the explicit identity crop; the mappings are equivalent. */
 export function inspectionGeometryMatches(
   a: MaskGeometry | undefined,

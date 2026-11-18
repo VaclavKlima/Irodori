@@ -27,6 +27,7 @@ import {
   type NativeHdrMaskOutcome,
   type NativeHdrMaskRequest,
 } from '../shared/native-hdr-mask'
+import { validatePhotoDiagnosticsRequest } from '../shared/photo-diagnostics'
 import { configureAppIdentity } from './app-identity'
 import { configureDesktopIdentity, desktopIcon } from './desktop-identity'
 import { DisplayState } from './display-state'
@@ -1094,6 +1095,44 @@ app
         (result) => ({ result }),
         (error) => ({ error: String(error) }),
       )
+    })
+    let editorDiagnostic:
+      | {
+          id: string
+          sender: Electron.WebContents
+          abort: AbortController
+          drained: Promise<unknown>
+        }
+      | undefined
+    handleLibraryRequest('diagnostics:inspect', async (event, id: unknown, value: unknown) => {
+      trusted(event)
+      if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id))
+        return { error: 'Invalid diagnostic request ID.' }
+      if (editorDiagnostic) return { error: 'Photo diagnostics are busy. Try again shortly.' }
+      const sender = event.sender
+      const abort = new AbortController()
+      const gone = () => abort.abort(new Error('The Editor window closed.'))
+      try {
+        const request = validatePhotoDiagnosticsRequest(value)
+        sender.once('destroyed', gone)
+        sender.once('render-process-gone', gone)
+        const work = library!.getPhotoDiagnostics(request, abort.signal, 'overlay')
+        editorDiagnostic = { id, sender, abort, drained: work.catch(() => undefined) }
+        return { result: await work }
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) }
+      } finally {
+        sender.removeListener('destroyed', gone)
+        sender.removeListener('render-process-gone', gone)
+        if (editorDiagnostic?.abort === abort) editorDiagnostic = undefined
+      }
+    })
+    handleLibraryRequest('diagnostics:cancel', async (event, id: unknown) => {
+      trusted(event)
+      const job = editorDiagnostic
+      if (job?.id !== id || job?.sender !== event.sender) return
+      job.abort.abort(new Error('The Editor analysis selection changed.'))
+      await job.drained
     })
     handleLibraryRequest('masks:preview', (event, request) => {
       trusted(event)

@@ -43,6 +43,19 @@ section.histogram.histogram {
   align-items: center;
   gap: 3px;
 }
+.scope {
+  width: 116px;
+  max-width: 116px;
+  height: 21px;
+  padding: 0 3px;
+  border: 1px solid var(--line-subtle);
+  border-radius: 3px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
 .indicators button {
   display: inline-flex;
   align-items: center;
@@ -107,6 +120,18 @@ section.histogram.histogram {
 }
 .legend .displayLimit {
   flex-basis: 100%;
+}
+.diagnosticLegend span {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+.retry {
+  flex: none;
+  margin-left: auto;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
 }
 .displayLimit i {
   background: repeating-linear-gradient(135deg, #f00 0 2px, #590505 2px 4px);

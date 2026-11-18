@@ -39,6 +39,49 @@ export interface MaskPreviewOwner {
   admission(signal: AbortSignal): Promise<CropAdmission>
   reserve(bytes: number): Promise<PreviewDiskReservation>
 }
+export async function prepareSavedMaskCoverage(
+  mask: ResolvedMask,
+  photoId: string,
+  revision: number,
+  prepare: MaskPreviewOwner['prepareCoverage'],
+  signal: AbortSignal,
+): Promise<ResolvedMask> {
+  const nodes = maskCoverageNodes(mask)
+  const needed = nodes.filter((node) => maskHasEdges(node) || node.range).map((node) => node.id)
+  const prepared = needed.length
+    ? await prepare(
+        {
+          requestId: randomUUID(),
+          photoId: photoId,
+          revision: revision,
+          maskIds: needed,
+        },
+        signal,
+      )
+    : undefined
+  if (prepared && (prepared.photoId !== photoId || prepared.revision !== revision))
+    throw new Error('Prepared mask preview coverage revision changed.')
+  return mapMaskCoverage(mask, (node) => {
+    const next: ResolvedMask = {
+      ...node,
+      preparedCoverage: undefined,
+      preparedRangeBase: undefined,
+    }
+    if (!nodes.some((active) => active.id === node.id)) return next
+    if (node.range) {
+      next.preparedRangeBase = prepared?.rangeBases?.[node.id]
+      if (!next.preparedRangeBase)
+        throw new Error('Range coverage is not ready. Retry GPU after preparation completes.')
+    }
+    if (maskHasEdges(node)) {
+      next.preparedCoverage = prepared?.coverages[node.id]
+      if (!next.preparedCoverage)
+        throw new Error('Mask edge coverage is not ready. Retry GPU after preparation completes.')
+    }
+    return next
+  })
+}
+
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 function validatePng(bytes: Buffer, width: number, height: number) {
@@ -130,43 +173,13 @@ export class MaskPreviews {
     )
       throw new Error('Mask preview photo geometry or revision changed. Refresh preview context.')
     const resolved = resolveMaskPreview(request, context)
-    const nodes = maskCoverageNodes(mask)
-    const needed = nodes.filter((node) => maskHasEdges(node) || node.range).map((node) => node.id)
-    const prepared = needed.length
-      ? await this.owner.prepareCoverage(
-          {
-            requestId: randomUUID(),
-            photoId: request.photoId,
-            revision: request.expectedRevision,
-            maskIds: needed,
-          },
-          signal,
-        )
-      : undefined
-    if (
-      prepared &&
-      (prepared.photoId !== request.photoId || prepared.revision !== request.expectedRevision)
+    const selected = await prepareSavedMaskCoverage(
+      mask,
+      request.photoId,
+      request.expectedRevision,
+      this.owner.prepareCoverage,
+      signal,
     )
-      throw new Error('Prepared mask preview coverage revision changed.')
-    const selected = mapMaskCoverage(mask, (node) => {
-      const next: ResolvedMask = {
-        ...node,
-        preparedCoverage: undefined,
-        preparedRangeBase: undefined,
-      }
-      if (!nodes.some((active) => active.id === node.id)) return next
-      if (node.range) {
-        next.preparedRangeBase = prepared?.rangeBases?.[node.id]
-        if (!next.preparedRangeBase)
-          throw new Error('Range coverage is not ready. Retry GPU after preparation completes.')
-      }
-      if (maskHasEdges(node)) {
-        next.preparedCoverage = prepared?.coverages[node.id]
-        if (!next.preparedCoverage)
-          throw new Error('Mask edge coverage is not ready. Retry GPU after preparation completes.')
-      }
-      return next
-    })
     const memory = maskPreviewMemoryPlan(
       request,
       context,

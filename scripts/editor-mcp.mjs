@@ -636,17 +636,23 @@ let tools = [
   {
     name: 'irodori_get_photo_diagnostics',
     description:
-      'Read exact histogram bins and clipping counts for the committed whole photo or inspection rectangle. Returns labeled SDR PNG overlays of selected output clipping and HDR content above reference white when available. Read presentation context for the current display generation or explicitly select a fixed SDR target. Uses the current Console turn’s frozen rectangle for the same photo when region is omitted. Changes no edits or display settings.',
-    inputSchema: schema(
-      {
-        photoId,
-        expectedRevision,
-        region: inspection.properties.region,
-        target: { enum: ['current', 'sdr'], default: 'current' },
-        targetGeneration: { type: 'integer', minimum: 0 },
-      },
-      ['photoId', 'expectedRevision'],
-    ),
+      'Read exact histogram bins and clipping counts for the committed whole photo, a rectangle, or the pixels covered by one saved root mask. Use irodori_get_edits for mask IDs and irodori_get_preview_context to verify the current grid. Choose region or maskId. The current Console turn’s frozen rectangle for the same photo applies only when both are omitted. Returns labeled SDR PNG overlays for available output clipping and HDR content above reference white. Read presentation context for the current display generation or select a fixed SDR target. This read leaves edits and display settings intact.',
+    inputSchema: {
+      ...schema(
+        {
+          photoId,
+          expectedRevision,
+          region: inspection.properties.region,
+          maskId: maskBrushIdSchema,
+          gridIdentity: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+          target: { enum: ['current', 'sdr'], default: 'current' },
+          targetGeneration: { type: 'integer', minimum: 0 },
+        },
+        ['photoId', 'expectedRevision'],
+      ),
+      not: { required: ['region', 'maskId'] },
+      dependencies: { gridIdentity: ['maskId'] },
+    },
   },
   {
     name: 'irodori_get_photo_statistics',
@@ -1496,10 +1502,14 @@ if (managed) {
     .filter((tool) => allowed.has(tool.name))
     .map((tool) => ({
       ...tool,
-      inputSchema: schema(
-        { ...tool.inputSchema.properties, requestId: { type: 'string', format: 'uuid' } },
-        [...tool.inputSchema.required, 'requestId'],
-      ),
+      inputSchema: {
+        ...tool.inputSchema,
+        properties: {
+          ...tool.inputSchema.properties,
+          requestId: { type: 'string', format: 'uuid' },
+        },
+        required: [...tool.inputSchema.required, 'requestId'],
+      },
     }))
 }
 const server = new Server(

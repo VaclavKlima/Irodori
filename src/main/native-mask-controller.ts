@@ -2,7 +2,7 @@ import { constants } from 'node:fs'
 import { ClippingCoverageProcess } from './clipping-coverage/process'
 import type { ClippingCoverageResult } from './clipping-coverage/types'
 import { nativeLocalMaskValues } from '../shared/native-local-mask-protocol'
-import { clippingCoverageMemory } from '../shared/clipping-coverage'
+import { CLIPPING_COVERAGE_ROWS, clippingCoverageMemory } from '../shared/clipping-coverage'
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import {
@@ -101,6 +101,7 @@ interface MaskDiagnostic {
   bounds: InspectionBounds
   size: { width: number; height: number }
   policy: Readonly<ResourcePolicySnapshot>
+  coverage?: ClippingCoverageResult
 }
 type MaskWorkResult = NativeHdrMaskResult | NativeHdrMaskDeclined | HdrDiagnosticMask
 interface MaskTicket extends TicketBase {
@@ -282,9 +283,10 @@ export class NativeMaskController {
     size: { width: number; height: number },
     policy: Readonly<ResourcePolicySnapshot>,
     signal: AbortSignal,
+    coverage?: ClippingCoverageResult,
   ): Promise<HdrDiagnosticMask> {
     signal.throwIfAborted()
-    const result = this.queueMask(request, structuredClone({ bounds, size, policy }))
+    const result = this.queueMask(request, structuredClone({ bounds, size, policy, coverage }))
     let drained: Promise<void> | undefined
     const cancel = () => {
       drained = this.cancelMask(request.sessionId, request.requestId)
@@ -400,11 +402,17 @@ export class NativeMaskController {
       validateHdrSource(lease.asset.source)
       if (diagnostic)
         validateNativeInspectionBounds(diagnostic.bounds, lease.asset.width, lease.asset.height)
+      const diagnosticStripBytes = diagnostic?.coverage
+        ? lease.asset.width * Math.min(lease.asset.height, CLIPPING_COVERAGE_ROWS) * 4
+        : 0
       // Always reserve the eight-participant envelope; execution can choose less.
       const plan = nativeHdrMaskMemory(
         lease.asset.width,
         lease.asset.height,
-        request.existingOwners,
+        {
+          ...request.existingOwners,
+          ramBytes: request.existingOwners.ramBytes + diagnosticStripBytes,
+        },
         policy,
         lease.replacesDrainedJsScan === true,
         lease.parameters,
@@ -486,6 +494,7 @@ export class NativeMaskController {
           diagnostic.size,
           request.target,
           signal,
+          diagnostic.coverage,
         )
         await lease.check(request.expectedSettingsRevision, signal)
         configuration.checkTarget(request)

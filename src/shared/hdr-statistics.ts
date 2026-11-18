@@ -123,7 +123,7 @@ export function analyzeHdr(
   result: HdrStatistics,
   mask?: Uint8Array,
   maskOffset = 0,
-  region?: InspectionBounds & { frameWidth: number },
+  region?: InspectionBounds & { frameWidth: number; include?: Float32Array },
 ) {
   const wb = hdrAdjustmentMatrix(p, asset.whiteBalance) ?? undefined,
     creative = prepareCreativeColor(p)
@@ -137,7 +137,7 @@ export function analyzeHdr(
     for (let i = first; i < end; i += 4) {
       if (![data[i], data[i + 1], data[i + 2], data[i + 3]].every(Number.isFinite))
         throw new Error('Invalid HDR analysis sample.')
-      if (data[i + 3] === 0) continue
+      if (data[i + 3] === 0 || (region?.include && region.include[i / 4] <= 0)) continue
       const rgb = adjustHdr([data[i], data[i + 1], data[i + 2]], p, wb, creative),
         y = luminance(rgb)
       const content =

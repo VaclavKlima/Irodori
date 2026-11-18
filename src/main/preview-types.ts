@@ -1,6 +1,7 @@
 import type { ImageStatistics } from '../shared/statistics'
 import type { InspectionBounds } from '../shared/inspection'
 import type { CurveTone, CurveToneRequest } from '../shared/curve-tone'
+import type { ClippingCoverageResult } from './clipping-coverage/types'
 
 /** Callable release with an atomic reduction after temporary preview files are removed. */
 export interface PreviewDiskReservation {
@@ -46,10 +47,12 @@ export interface PreviewAnalysisFrame {
 export interface SdrDiagnosticsJob {
   bounds: InspectionBounds
   size: { width: number; height: number }
+  coverage?: ClippingCoverageResult
 }
 
 export interface HdrStatisticsJob {
   bounds?: InspectionBounds
+  coverage?: ClippingCoverageResult
   asset: HdrWorkingAsset
   adjustments: AdjustmentParameters
   domain: HdrAnalysisDomain

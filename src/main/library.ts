@@ -144,7 +144,8 @@ import { verifyExportEncoder } from './export/encoder'
 import { identity } from './export/files'
 import { ExportJobs } from './export/jobs'
 import { AgentPhotoPreviews } from './agent/photo-previews'
-import { MaskPreviews } from './agent/mask-previews'
+import { MaskPreviews, type MaskPreviewOwner } from './agent/mask-previews'
+import { MaskDiagnosticCoverage } from './agent/mask-diagnostic-coverage'
 import { PhotoDiagnostics } from './agent/photo-diagnostics'
 import type { PhotoDiagnosticsRequest } from '../shared/photo-diagnostics'
 import { readAgentPresentationContext } from './agent/presentation-context'
@@ -286,6 +287,7 @@ export class PhotoLibrary {
   editComparisons!: EditComparisons
   maskPreviews!: MaskPreviews
   private photoDiagnostics!: PhotoDiagnostics
+  private diagnosticCoverage!: MaskDiagnosticCoverage
   outputProofs!: OutputProofs
   exports!: ExportJobs
   private db!: DatabaseSync
@@ -819,7 +821,7 @@ export class PhotoLibrary {
       reserve: (bytes) => this.fullPreviews.reserveOutputProofBytes(bytes),
     })
     await rm(join(this.root, 'cache', 'mask-previews'), { recursive: true, force: true })
-    this.maskPreviews = new MaskPreviews(this.root, {
+    const maskPreviewOwner: MaskPreviewOwner = {
       source: (id) => this.exportSource(id),
       edits: (id) => this.getEdits(id),
       masks: (state) => this.resolvedMasks(state.photoId, state.settings.maskStack),
@@ -832,19 +834,24 @@ export class PhotoLibrary {
         return this.cropAdmission(signal)
       },
       reserve: (bytes) => this.fullPreviews.reserveOutputProofBytes(bytes),
-    })
-    await rm(join(this.root, 'cache', 'photo-diagnostics'), { recursive: true, force: true })
+    }
+    this.maskPreviews = new MaskPreviews(this.root, maskPreviewOwner)
+    const diagnosticsRoot = join(this.root, 'cache', 'photo-diagnostics')
+    await rm(diagnosticsRoot, { recursive: true, force: true })
+    this.diagnosticCoverage = new MaskDiagnosticCoverage(diagnosticsRoot, maskPreviewOwner)
     this.photoDiagnostics = new PhotoDiagnostics(this.root, {
       context: (id, revision, signal) => this.agentPreviews.context(id, revision, signal),
       presentation: (id, revision) =>
         this.getPhotoPresentationContext({ photoId: id, expectedRevision: revision }),
       getDisplayTarget: () => this.displayTarget?.(),
-      hdrMap: (id, revision, target, bounds, size, signal) =>
-        this.fullPreviews.diagnosticHdrMask(id, revision, target, bounds, size, signal),
-      hdrStatistics: (id, revision, target, bounds, signal) =>
-        this.fullPreviews.hdrStatisticsRegion(id, revision, target, bounds, signal),
-      sdrStatistics: (id, revision, bounds, size, signal) =>
-        this.fullPreviews.sdrDiagnosticsRegion(id, revision, bounds, size, signal),
+      hdrMap: (id, revision, target, bounds, size, signal, coverage) =>
+        this.fullPreviews.diagnosticHdrMask(id, revision, target, bounds, size, signal, coverage),
+      hdrStatistics: (id, revision, target, bounds, signal, coverage) =>
+        this.fullPreviews.hdrStatisticsRegion(id, revision, target, bounds, signal, coverage),
+      sdrStatistics: (id, revision, bounds, size, signal, coverage) =>
+        this.fullPreviews.sdrDiagnosticsRegion(id, revision, bounds, size, signal, coverage),
+      maskSelection: (id, revision, maskId, context, signal) =>
+        this.diagnosticCoverage.prepare(id, revision, maskId, context, signal),
       photo: (id, revision, inspection, signal) =>
         this.agentPreviews.inspect(id, revision, inspection, signal),
       admission: (signal) => {
@@ -1592,8 +1599,12 @@ export class PhotoLibrary {
     })
   }
 
-  getPhotoDiagnostics(request: PhotoDiagnosticsRequest, signal: AbortSignal) {
-    return this.admission.run(() => this.photoDiagnostics.get(request, signal))
+  getPhotoDiagnostics(
+    request: PhotoDiagnosticsRequest,
+    signal: AbortSignal,
+    imageMode: 'composite' | 'overlay' = 'composite',
+  ) {
+    return this.admission.run(() => this.photoDiagnostics.get(request, signal, imageMode))
   }
 
   getMaskPreview(request: MaskPreviewRequest, signal?: AbortSignal) {
@@ -3931,6 +3942,7 @@ export class PhotoLibrary {
         () => this.editComparisons?.close(),
         () => this.maskPreviews?.close(),
         () => this.photoDiagnostics?.close(),
+        () => this.diagnosticCoverage?.close(),
         () => this.maskEdges?.close(),
         () => this.objectSelections?.close(),
         () => this.outputProofs?.close(),

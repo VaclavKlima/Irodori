@@ -2,11 +2,63 @@
 
 ## Status
 
-[Issue #59](https://github.com/VaclavKlima/Irodori/issues/59) delivered Console diagnostics. [Issue #129](https://github.com/VaclavKlima/Irodori/issues/129) tracks Editor histogram and overlay controls and mask-ID inspection. [Issue #128](https://github.com/VaclavKlima/Irodori/issues/128) tracks other-device Console verification. See the [versioned HDR processing contract](../hdr-processing.md) for the underlying analysis domains.
+[Issue #59](https://github.com/VaclavKlima/Irodori/issues/59) delivered Console diagnostics. [Issue #129](https://github.com/VaclavKlima/Irodori/issues/129) adds Editor histogram and overlay controls and saved-mask inspection. [Issue #128](https://github.com/VaclavKlima/Irodori/issues/128) tracks other-device Console verification. See the [versioned HDR processing contract](../hdr-processing.md) for the underlying analysis domains.
+
+## Editor diagnostics
+
+Choose **Whole photo**, **Inspection region**, or a named root mask from the
+Histogram scope control. The existing inspection fields and rectangle drawing
+define a committed region. **Done** closes the geometry controls and retains
+the rectangle. The clipping and above-white buttons show one registered overlay
+at a time. The histogram caption gives the domain and exact native pixel count.
+The histogram details give counts and explain unavailable components. Whole
+photo uses the existing interactive histogram and clipping controls.
+
+Saved masks use the existing ordered coverage, including range, edge, inversion
+and compound operations. Diagnostics count each visible native pixel with
+nonzero coverage once, using the shape of the saved root even when the root is
+disabled or has neutral adjustments. The image scan uses the confirmed edit of
+the photograph, including its enabled adjustments. It follows the same output
+grid through crop and lens correction. The overlay uses the presented geometry
+to follow pan and zoom. The preview uses a bounded transparent PNG, with native
+flags combined when several source pixels reduce to one overlay pixel.
+
+The Editor and Console share one bounded diagnostic job. The Editor cancels a
+superseded scan and hides its result on a photo, revision, or target change.
+Regional diagnostics use the confirmed After preview. Return to After to inspect
+a region from the comparison view. The existing exact HDR refusals apply to
+unsupported edits. Native sensor saturation is available only when the source
+provides applicable data. A rectangle or mask cannot use source-wide saturation
+as a regional count.
+
+### Bazzite Editor verification
+
+On Bazzite 45.20261115 with GNOME Wayland, Electron 44.3.0 and Mesa 26.2.7, the
+1100 × 700 Console-open Editor counted the independent 200-pixel rectangle and
+752-pixel stored mask exactly and displayed the registered transparent overlays.
+Switching scope discarded a held rectangle-context reply. The authored HDR JPEG
+test verified its 444 selected pixels through the SDR primary, including exact
+bins and the registered warning image. Stored compound coverage and the authored
+SDR test also passed with the integrated Radeon 610M selected. Compute readback
+identified the RX 7900 XTX and the 610M in their respective runs.
+
+The foreground report at
+`artifacts/verification/2026-11-18T19-13-03.139Z-check-tGQIxB/summary.md`
+records 1,124 passes with no failures or skips in 81.56 seconds. The background
+report at `artifacts/verification/2026-11-18T19-10-09.193Z-check-7J2icm/summary.md`
+records 1,138 passes and the real HDR-monitor case deferred in 76.82 seconds.
+The two integrated cases passed in 4.2 seconds. Real HDR monitor presentation
+and Windows remain separate device checks. The Bazzite display remained in SDR.
 
 ## Console diagnostics
 
 Use `irodori_get_photo_diagnostics` with `photoId` and `expectedRevision`. The region defaults to the frozen inspection rectangle for that photo, or the entire committed crop. An explicit inspection rectangle can override it. Pixel rectangles use the edit grid from `irodori_get_preview_context`. The default `current` target requires the matching presented frame and `targetGeneration` from `irodori_get_photo_presentation_context`. Use `target: "sdr"` for fixed SDR diagnostics.
+
+Pass an explicit `maskId` from the confirmed root mask list to inspect a saved
+mask. A saved mask is exclusive with `region` and takes precedence over the
+frozen Console rectangle. Include the current `gridIdentity` to reject a grid
+change. The result `selection` identifies the whole photograph, rectangle, or
+saved root, alongside the committed revision, grid and display target.
 
 - The histogram scans every pixel in the selected region. HDR reports the existing output histogram and logarithmic luminance descriptor for the selected target. SDR reports encoded RGB bins from the rendered SDR pixels, including the authored SDR primary when it remains in use.
 - The clipping PNG marks HDR output clipping in red. For SDR, it marks highlighted channels in red and black pixels in blue. Magenta marks reduced pixels containing both warnings.

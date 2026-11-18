@@ -1,11 +1,16 @@
 import { expect, test as base } from '@playwright/test'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import sharp from 'sharp'
 import { PhotoDiagnostics } from '../src/main/agent/photo-diagnostics'
 import { encodeDiagnosticOverlays } from '../src/main/mask-edges/diagnostic-overlays'
 import type { DiagnosticOverlayMask } from '../src/main/mask-edges/types'
+import { reduceNativeHdrMask } from '../src/main/native-mask-diagnostics'
+import { scanHdr } from '../src/main/processing/hdr-processing'
+import { scanSdrDiagnostics } from '../src/main/processing/sdr-diagnostics'
+import { neutralAdjustments } from '../src/shared/adjustments'
+import { CLIPPING_COVERAGE_ROWS } from '../src/shared/clipping-coverage'
 import { SDR_TARGET, type DisplayTarget } from '../src/shared/hdr'
 import { hdrStatistics } from '../src/shared/hdr-statistics'
 import type { PreviewPresentation } from '../src/shared/preview-diagnostics'
@@ -20,7 +25,7 @@ import {
 } from '../src/shared/inspection'
 import { emptyImageStatistics } from '../src/shared/statistics'
 import { cropAdmission } from './crop-frame.helpers'
-import { workingAsset } from './export.helpers'
+import { sha, workingAsset } from './export.helpers'
 
 const photoId = 'a'.repeat(64)
 const revision = 4
@@ -88,6 +93,7 @@ async function fixture() {
   }
   const state = {
     reserved: 0,
+    contextCalls: 0,
     histogramError: '',
     beforeOverlay: async (signal: AbortSignal) => signal.throwIfAborted(),
     afterOverlay: () => {},
@@ -98,7 +104,10 @@ async function fixture() {
   const diagnostics = new PhotoDiagnostics(
     root,
     {
-      context: async () => ({ ...context }),
+      context: async () => {
+        state.contextCalls++
+        return { ...context }
+      },
       presentation: async () => ({
         photoId,
         revision,
@@ -312,6 +321,185 @@ test('uses SDR clipping and retains HDR source coverage', async ({ f }) => {
   expect(fixed.images.map(({ label }) => label)).toEqual(['clipping'])
 })
 
+test('Editor overlays preserve native classification positions and transparent unflagged pixels', async ({
+  f,
+}) => {
+  const result = await f.diagnostics.get(sdrRequest(), new AbortController().signal, 'overlay')
+  expect(f.calls.map(([operation]) => operation)).toEqual(['hdr map', 'sdr statistics'])
+  expect(result.images.map(({ label }) => label)).toEqual(['clipping', 'above-white'])
+  const [clipping, aboveWhite] = await Promise.all(
+    result.images.map(({ data }) =>
+      sharp(Buffer.from(data, 'base64')).ensureAlpha().raw().toBuffer(),
+    ),
+  )
+  expect([...clipping]).toEqual([0, 0, 255, 180, 255, 0, 0, 180, ...Array<number>(4 * 10).fill(0)])
+  const expectedAboveWhite = Buffer.alloc(size.width * size.height * 4)
+  for (const index of [2, 6, 10]) expectedAboveWhite.set([0, 255, 255, 180], index * 4)
+  expect(aboveWhite).toEqual(expectedAboveWhite)
+})
+
+test('authenticated coverage gates SDR and HDR scans across strips before histogram and flag reduction', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-diagnostic-scan-'))
+  try {
+    const frameGrid = { width: 5, height: 66 }
+    const { width, height } = frameGrid
+    const area = { x: 1, y: 62, width: 3, height: 4 }
+    const reduced = { width: 2, height: 2 }
+    const rgba = Buffer.alloc(width * height * 4)
+    const linear = Buffer.alloc(width * height * 16)
+    const native = Buffer.alloc(width * height)
+    const selected = Buffer.alloc(width * height * 4)
+    const pixels = [
+      { x: 1, y: 62, coverage: 0.25, rgb: [0, 0, 0], alpha: 255, light: 0, flags: 0 },
+      { x: 2, y: 63, coverage: 0.5, rgb: [255, 100, 30], alpha: 17, light: 3.5, flags: 7 },
+      { x: 3, y: 64, coverage: 0.125, rgb: [12, 64, 80], alpha: 255, light: 0.375, flags: 8 },
+      { x: 3, y: 65, coverage: 0.75, rgb: [255, 255, 255], alpha: 0, light: 16, flags: 0 },
+      { x: 1, y: 64, coverage: 0, rgb: [255, 255, 255], alpha: 255, light: 16, flags: 15 },
+      { x: 0, y: 64, coverage: 1, rgb: [255, 255, 255], alpha: 255, light: 16, flags: 15 },
+    ]
+    for (const { x, y, coverage, rgb, alpha, light, flags } of pixels) {
+      const i = y * width + x
+      rgba.set([...rgb, alpha], i * 4)
+      for (let channel = 0; channel < 3; channel++) linear.writeFloatLE(light, i * 16 + channel * 4)
+      linear.writeFloatLE(alpha / 255, i * 16 + 12)
+      native[i] = flags
+      selected.writeFloatLE(coverage, i * 4)
+    }
+    const sdrPath = join(directory, 'sdr.rgba'),
+      hdrPath = join(directory, 'hdr.f32'),
+      flagsPath = join(directory, 'flags.r8'),
+      coveragePath = join(directory, 'coverage.f32')
+    const sdrFrame = { ...frameGrid, sha256: sha(rgba) }
+    const asset = workingAsset(linear, width, height)
+    const nativeMask = { ...frameGrid, byteLength: native.length, sha256: sha(native) }
+    const stripBytes = width * CLIPPING_COVERAGE_ROWS * 4
+    const coverage = {
+      ...frameGrid,
+      path: coveragePath,
+      key: 'saved-diagnostic-coverage',
+      maskCount: 1,
+      byteLength: selected.length,
+      sha256: sha(selected),
+      stripSha256: [sha(selected.subarray(0, stripBytes)), sha(selected.subarray(stripBytes))],
+    }
+    await Promise.all([
+      writeFile(sdrPath, rgba),
+      writeFile(hdrPath, linear),
+      writeFile(flagsPath, native),
+      writeFile(coveragePath, selected),
+    ])
+    const target: DisplayTarget = {
+      ...SDR_TARGET,
+      requested: 'hdr',
+      mode: 'hdr',
+      colorSpace: 'display-p3',
+      peak: 4,
+      headroom: 2,
+      generation: 9,
+    }
+    const signal = new AbortController().signal
+    const sdr = await scanSdrDiagnostics(sdrPath, sdrFrame, {
+      bounds: area,
+      size: reduced,
+      coverage,
+    })
+    expect(sdr).toMatchObject({
+      dynamicRange: 'sdr',
+      visiblePixels: 3,
+      shadowClipped: 1,
+      highlightClipped: 1,
+      mask: Uint8Array.of(3, 0, 0, 0),
+    })
+    for (const [channel, values] of [
+      [0, 255, 12],
+      [0, 100, 64],
+      [0, 30, 80],
+    ].entries())
+      expect(sdr.rgb[channel]).toEqual(
+        Array.from({ length: 256 }, (_, bin) => Number(values.includes(bin))),
+      )
+
+    const hdrJob = { asset, target, coverage, adjustments: neutralAdjustments, bounds: area }
+    const working = await scanHdr(hdrPath, { ...hdrJob, domain: 'working-hdr' })
+    expect(working).toMatchObject({
+      domain: 'working-hdr',
+      colorSpace: 'rec2020',
+      exact: true,
+      visiblePixels: 3,
+      zero: 1,
+      aboveWhite: 1,
+      exceedingHeadroom: null,
+      outputClipped: null,
+    })
+    expect(working.bins).toEqual(
+      Array.from({ length: 256 }, (_, bin) =>
+        Number([0.375, 3.5].some((value) => bin === Math.floor((Math.log2(value) + 16) * 8))),
+      ),
+    )
+    const output = await scanHdr(hdrPath, { ...hdrJob, domain: 'output' })
+    expect(output).toMatchObject({
+      domain: 'output',
+      colorSpace: 'display-p3',
+      visiblePixels: 3,
+      rgbHistogram: { targetGeneration: 9, visiblePixels: 3 },
+    })
+    const hdrMap = await reduceNativeHdrMask(
+      flagsPath,
+      nativeMask,
+      area,
+      reduced,
+      target,
+      signal,
+      coverage,
+    )
+    expect(hdrMap).toEqual({
+      mask: Uint8Array.of(7, 0, 0, 8),
+      aboveWhite: 1,
+      exceedingHeadroom: 1,
+      outputClipped: 1,
+      gamutLimited: 1,
+    })
+    expect(
+      await reduceNativeHdrMask(flagsPath, nativeMask, area, reduced, SDR_TARGET, signal, coverage),
+    ).toEqual({
+      mask: Uint8Array.of(4, 0, 0, 0),
+      aboveWhite: 1,
+      exceedingHeadroom: null,
+      outputClipped: 0,
+      gamutLimited: 0,
+    })
+
+    await expect(
+      scanHdr(hdrPath, { ...hdrJob, domain: 'output', coverage: { ...coverage, width: 6 } }),
+    ).rejects.toThrow('coverage does not match the diagnostic grid')
+    await expect(
+      scanSdrDiagnostics(sdrPath, sdrFrame, {
+        bounds: area,
+        size: reduced,
+        coverage: { ...coverage, sha256: '0'.repeat(64) },
+      }),
+    ).rejects.toThrow('coverage hash changed')
+
+    // Corrupt a native pixel outside the requested bounds in the final strip.
+    // Even that unselected byte must be authenticated before counts can escape.
+    selected[selected.length - 1] = 1
+    await writeFile(coveragePath, selected)
+    await Promise.all([
+      expect(
+        scanSdrDiagnostics(sdrPath, sdrFrame, { bounds: area, size: reduced, coverage }),
+      ).rejects.toThrow('coverage strip hash changed'),
+      expect(scanHdr(hdrPath, { ...hdrJob, domain: 'output' })).rejects.toThrow(
+        'coverage strip hash changed',
+      ),
+      expect(
+        reduceNativeHdrMask(flagsPath, nativeMask, area, reduced, target, signal, coverage),
+      ).rejects.toThrow('coverage strip hash changed'),
+    ])
+  } finally {
+    await rm(directory, { force: true, recursive: true })
+  }
+})
+
 test('keeps diagnostic maps when the histogram fails', async ({ f }) => {
   f.state.histogramError = 'HDR statistics worker unavailable.'
   const result = await f.diagnostics.get(currentRequest(), new AbortController().signal)
@@ -326,6 +514,7 @@ test('refuses stale grids, display targets, and revisions', async ({ f }) => {
   await expect(
     f.diagnostics.get({ ...currentRequest(), targetGeneration: 6 }, signal),
   ).rejects.toThrow('display or photo revision changed')
+  expect(f.state.contextCalls).toBe(0)
   await expect(
     f.diagnostics.get(
       {
@@ -335,6 +524,7 @@ test('refuses stale grids, display targets, and revisions', async ({ f }) => {
       signal,
     ),
   ).rejects.toThrow('inspection grid changed')
+  expect(f.state.contextCalls).toBe(1)
   expect(f.calls).toEqual([])
   f.state.afterOverlay = () => {
     f.context.revision++

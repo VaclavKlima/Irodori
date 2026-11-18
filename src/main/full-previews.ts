@@ -109,6 +109,7 @@ import type {
   PreparedHdrSourceLease,
 } from './native-mask-controller'
 import type { HdrDiagnosticMask } from './native-mask-diagnostics'
+import type { ClippingCoverageResult } from './clipping-coverage/types'
 import {
   preparedWorkingIdentity,
   validatePreparedPreviewLineage,
@@ -2488,6 +2489,7 @@ export class FullPreviews {
     bounds: InspectionBounds,
     size: { width: number; height: number },
     external: AbortSignal,
+    coverage?: ClippingCoverageResult,
   ): Promise<PhotoStatistics & { mask: Uint8Array }> {
     return this.foreground(async () => {
       const controller = new AbortController(),
@@ -2540,7 +2542,7 @@ export class FullPreviews {
           const result = await this.processor.sdrDiagnostics(
             lease.path,
             preview,
-            { bounds, size },
+            { bounds, size, coverage },
             signal,
           )
           await check()
@@ -2590,6 +2592,7 @@ export class FullPreviews {
     bounds: InspectionBounds,
     size: { width: number; height: number },
     external: AbortSignal,
+    coverage?: ClippingCoverageResult,
   ): Promise<HdrDiagnosticMask> {
     const cpu = this.cpu,
       admission = this.cropAdmission,
@@ -2644,6 +2647,7 @@ export class FullPreviews {
           size,
           resources.policy,
           signal,
+          coverage,
         )
       await check()
       return result
@@ -2659,6 +2663,7 @@ export class FullPreviews {
     target: DisplayTarget,
     bounds: InspectionBounds,
     signal: AbortSignal,
+    coverage?: ClippingCoverageResult,
   ): Promise<HdrPhotoStatistics> {
     if (target.mode !== 'hdr')
       return Promise.reject(new Error('HDR regional statistics require an HDR output target.'))
@@ -2669,7 +2674,7 @@ export class FullPreviews {
       target,
       (path, job, workerSignal) => {
         if (!this.processor.hdrStatistics) throw new Error('HDR analysis worker unavailable.')
-        return this.processor.hdrStatistics(path, { ...job, bounds }, workerSignal)
+        return this.processor.hdrStatistics(path, { ...job, bounds, coverage }, workerSignal)
       },
       false,
       signal,

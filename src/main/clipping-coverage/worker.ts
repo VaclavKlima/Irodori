@@ -19,19 +19,30 @@ async function prepare(request: ClippingCoverageWorkerRequest): Promise<Clipping
     throw new Error('Clipping coverage requires the isolated little-endian Node GPU worker.')
   if (typeof request.key !== 'string' || !request.key || request.key.length > 1024)
     throw new Error('Clipping coverage requires a frozen source and edit identity.')
-  const memory = clippingCoverageMemory(request.width, request.height, request.parameters)
+  const memory = clippingCoverageMemory(
+    request.width,
+    request.height,
+    request.parameters,
+    request.storedMask,
+  )
   if (!memory.maskCount) throw new Error('Clipping coverage requires active local adjustments.')
   owner ??= new RawGpuRenderer()
   const { device } = await owner.mergeDevice()
   const signal = new AbortController().signal
-  const prepared = await prepareNativeMaskEdges(
-    device,
-    request.parameters,
-    request.parameters.maskGeometry?.canonicalWidth ?? request.width,
-    request.parameters.maskGeometry?.canonicalHeight ?? request.height,
-    memory.vramBytes,
-    { signal },
-  )
+  // Stored-mask inspection receives confirmed range/edge preparation from its
+  // source owner, including preparation for roots with neutral adjustments.
+  const parameters = request.storedMask
+    ? request.parameters
+    : (
+        await prepareNativeMaskEdges(
+          device,
+          request.parameters,
+          request.parameters.maskGeometry?.canonicalWidth ?? request.width,
+          request.parameters.maskGeometry?.canonicalHeight ?? request.height,
+          memory.vramBytes,
+          { signal },
+        )
+      ).adjustments
   const temporary = `${request.outputPath}.tmp`
   let file: Awaited<ReturnType<typeof open>> | undefined
   try {
@@ -41,7 +52,7 @@ async function prepare(request: ClippingCoverageWorkerRequest): Promise<Clipping
     let byteLength = 0
     const maskCount = await sampleClippingCoverage(
       device,
-      prepared.adjustments,
+      parameters,
       request.width,
       request.height,
       signal,
@@ -62,6 +73,7 @@ async function prepare(request: ClippingCoverageWorkerRequest): Promise<Clipping
         }
         byteLength += bytes.byteLength
       },
+      request.storedMask,
     )
     if (owner.failure) throw new Error(owner.failure)
     if (maskCount !== memory.maskCount || byteLength !== memory.byteLength)

@@ -14,6 +14,7 @@ import {
   validatePhotoDiagnosticsRequest,
   type DiagnosticImage,
   type DiagnosticPart,
+  type DiagnosticSelection,
   type PhotoDiagnosticsRequest,
   type PhotoDiagnosticsResult,
 } from '../../shared/photo-diagnostics'
@@ -22,10 +23,19 @@ import type { AgentPresentationContext } from '../../shared/agent-presentation'
 import type { PhotoStatistics } from '../../shared/statistics'
 import type { HdrPhotoStatistics } from '../../shared/hdr-statistics'
 import type { CropAdmission } from '../../shared/crop-resources'
+import { CLIPPING_COVERAGE_ROWS } from '../../shared/clipping-coverage'
+import type { ClippingCoverageResult } from '../clipping-coverage/types'
 import type { PreviewDiskReservation } from '../preview-types'
 import { MaskEdgeProcess } from '../mask-edges/process'
 
 type Size = { width: number; height: number }
+export type DiagnosticCoverage = ClippingCoverageResult
+type DiagnosticImageMode = 'composite' | 'overlay'
+interface MaskSelection {
+  name: string
+  coverage: DiagnosticCoverage
+  release(): Promise<void> | void
+}
 type HdrMap = {
   mask: Uint8Array
   aboveWhite: number
@@ -45,6 +55,7 @@ interface PhotoDiagnosticOwners {
     bounds: InspectionBounds,
     size: Size,
     signal: AbortSignal,
+    coverage?: DiagnosticCoverage,
   ): Promise<HdrMap>
   hdrStatistics(
     id: string,
@@ -52,6 +63,7 @@ interface PhotoDiagnosticOwners {
     target: DisplayTarget,
     bounds: InspectionBounds,
     signal: AbortSignal,
+    coverage?: DiagnosticCoverage,
   ): Promise<HdrPhotoStatistics>
   sdrStatistics(
     id: string,
@@ -59,7 +71,15 @@ interface PhotoDiagnosticOwners {
     bounds: InspectionBounds,
     size: Size,
     signal: AbortSignal,
+    coverage?: DiagnosticCoverage,
   ): Promise<PhotoStatistics & { mask: Uint8Array }>
+  maskSelection?(
+    id: string,
+    revision: number,
+    maskId: string,
+    context: PreviewContext,
+    signal: AbortSignal,
+  ): Promise<MaskSelection>
   photo(
     id: string,
     revision: number,
@@ -73,6 +93,7 @@ interface PhotoDiagnosticOwners {
 const available = <T>(value: T): DiagnosticPart<T> => ({ status: 'available', value })
 const unavailable = (reason: string) => ({ status: 'unavailable' as const, reason })
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 
 async function part<T>(work: Promise<T>, signal: AbortSignal): Promise<DiagnosticPart<T>> {
   try {
@@ -95,7 +116,11 @@ export class PhotoDiagnostics {
     private runtime: Pick<MaskEdgeProcess, 'diagnosticOverlays' | 'close'> = new MaskEdgeProcess(),
   ) {}
 
-  get(value: PhotoDiagnosticsRequest, external: AbortSignal): Promise<PhotoDiagnosticsResult> {
+  get(
+    value: PhotoDiagnosticsRequest,
+    external: AbortSignal,
+    imageMode: DiagnosticImageMode = 'composite',
+  ): Promise<PhotoDiagnosticsResult> {
     const request = validatePhotoDiagnosticsRequest(value)
     if (this.closed || this.removing.has(request.photoId))
       throw new Error(
@@ -104,9 +129,11 @@ export class PhotoDiagnostics {
     if (this.active)
       throw new Error('Photo diagnostics are busy. Retry after the current request finishes.')
     const abort = new AbortController()
-    const work = this.run(request, AbortSignal.any([abort.signal, external])).finally(() => {
-      if (this.active?.abort === abort) this.active = undefined
-    })
+    const work = this.run(request, AbortSignal.any([abort.signal, external]), imageMode).finally(
+      () => {
+        if (this.active?.abort === abort) this.active = undefined
+      },
+    )
     this.active = { id: request.photoId, abort, work }
     return work
   }
@@ -165,16 +192,57 @@ export class PhotoDiagnostics {
   private async run(
     request: PhotoDiagnosticsRequest,
     signal: AbortSignal,
+    imageMode: DiagnosticImageMode,
   ): Promise<PhotoDiagnosticsResult> {
     const { photoId, expectedRevision: revision } = request
     signal.throwIfAborted()
-    const [context, selection] = await Promise.all([
-      this.owner.context(photoId, revision, signal),
-      this.target(request),
-    ])
+    // Reject stale display requests before reserving the cold photo context.
+    const selection = await this.target(request)
+    signal.throwIfAborted()
+    const context = await this.owner.context(photoId, revision, signal)
     signal.throwIfAborted()
     if (context.photoId !== photoId || context.revision !== revision)
       throw new Error('The diagnostics photo or revision changed.')
+    if (request.gridIdentity !== undefined && request.gridIdentity !== context.gridIdentity)
+      throw new Error('The diagnostic grid changed. Read the current preview context and retry.')
+    if (request.maskId === undefined)
+      return this.scan(request, signal, imageMode, context, selection, undefined)
+    if (!this.owner.maskSelection)
+      throw new Error('Saved-mask diagnostics are unavailable on this device.')
+    const selected = await this.owner.maskSelection(
+      photoId,
+      revision,
+      request.maskId,
+      context,
+      signal,
+    )
+    try {
+      signal.throwIfAborted()
+      if (
+        selected.coverage.width !== context.width ||
+        selected.coverage.height !== context.height ||
+        selected.coverage.maskCount !== 1
+      )
+        throw new Error('Saved-mask coverage does not match the committed photo grid.')
+      const { reservation, policy } = await this.owner.admission(signal)
+      const stripBytes = context.width * Math.min(CLIPPING_COVERAGE_ROWS, context.height) * 4
+      if (reservation.ramBytes + stripBytes > policy.ram.effectiveBytes)
+        throw new Error('Saved-mask diagnostics exceed the current image-memory budget.')
+      return await this.scan(request, signal, imageMode, context, selection, selected)
+    } finally {
+      await selected.release()
+    }
+  }
+
+  private async scan(
+    request: PhotoDiagnosticsRequest,
+    signal: AbortSignal,
+    imageMode: DiagnosticImageMode,
+    context: PreviewContext,
+    selection: Awaited<ReturnType<PhotoDiagnostics['target']>>,
+    selected: MaskSelection | undefined,
+  ): Promise<PhotoDiagnosticsResult> {
+    const { photoId, expectedRevision: revision, maskId } = request
     const options: InspectionOptions = { region: request.region, encoding: { format: 'png' } }
     const resolved = resolveInspection(options, context)
     const bounds = resolved.photoBounds
@@ -182,10 +250,15 @@ export class PhotoDiagnostics {
     const { target } = selection
     const hdrTarget = target.mode === 'hdr'
     const hdr = context.sourceDynamicRange === 'hdr'
+    const analysisSelection: DiagnosticSelection =
+      selected && maskId
+        ? { kind: 'mask', maskId, maskName: selected.name, coverage: 'nonzero' }
+        : { kind: request.region ? 'rectangle' : 'whole-photo' }
     const base = {
       photoId,
       revision,
       gridIdentity: context.gridIdentity,
+      selection: analysisSelection,
       bounds,
       nativeGrid: { width: context.width, height: context.height },
       sourceDynamicRange: context.sourceDynamicRange,
@@ -199,12 +272,20 @@ export class PhotoDiagnostics {
     }
 
     const hdrMap = hdr
-      ? await part(this.owner.hdrMap(photoId, revision, target, bounds, size, signal), signal)
+      ? await part(
+          this.owner.hdrMap(photoId, revision, target, bounds, size, signal, selected?.coverage),
+          signal,
+        )
       : unavailable('This photograph has an SDR source.')
     const result: PhotoDiagnosticsResult = {
       ...base,
       histogram: unavailable('Histogram unavailable.'),
       clipping: unavailable('Clipping map unavailable.'),
+      sourceSaturation: unavailable(
+        analysisSelection.kind === 'whole-photo'
+          ? 'Source sensor saturation is unavailable for this diagnostic target.'
+          : 'Source sensor saturation is unavailable on the selected photo grid.',
+      ),
       aboveWhite:
         hdrMap.status === 'available'
           ? available({
@@ -225,13 +306,22 @@ export class PhotoDiagnostics {
     }[] = []
     if (hdrTarget) {
       const statistics = await part(
-        this.owner.hdrStatistics(photoId, revision, target, bounds, signal),
+        this.owner.hdrStatistics(photoId, revision, target, bounds, signal, selected?.coverage),
         signal,
       )
       result.histogram =
         statistics.status === 'available'
           ? available({ domain: 'output-hdr', exact: true, statistics: statistics.value })
           : statistics
+      if (statistics.status === 'available' && analysisSelection.kind === 'whole-photo') {
+        const saturation = statistics.value.sourceSaturation
+        if (saturation)
+          result.sourceSaturation = available({
+            domain: 'source-sensor',
+            saturatedSites: saturation.saturatedSites,
+            totalSites: saturation.totalSites,
+          })
+      }
       result.clipping =
         hdrMap.status === 'available'
           ? available({ exact: true, counts: { output: hdrMap.value.outputClipped } })
@@ -244,7 +334,7 @@ export class PhotoDiagnostics {
         })
     } else {
       const sdr = await part(
-        this.owner.sdrStatistics(photoId, revision, bounds, size, signal),
+        this.owner.sdrStatistics(photoId, revision, bounds, size, signal, selected?.coverage),
         signal,
       )
       if (sdr.status === 'available') {
@@ -277,7 +367,7 @@ export class PhotoDiagnostics {
 
     if (maps.length) {
       const images = await part(
-        this.encode(request, context, options, bounds, size, target, maps, signal),
+        this.encode(request, context, options, bounds, size, target, maps, signal, imageMode),
         signal,
       )
       if (images.status === 'available') result.images = images.value
@@ -287,7 +377,11 @@ export class PhotoDiagnostics {
     const current = await this.owner.context(photoId, revision, signal)
     const finalTarget = await this.target(request)
     signal.throwIfAborted()
-    if (current.gridIdentity !== context.gridIdentity || current.revision !== revision)
+    if (
+      current.photoId !== photoId ||
+      current.gridIdentity !== context.gridIdentity ||
+      current.revision !== revision
+    )
       throw new Error('The diagnostic grid or revision changed.')
     if (
       finalTarget.generation !== selection.generation ||
@@ -309,53 +403,39 @@ export class PhotoDiagnostics {
     target: DisplayTarget,
     maps: { label: DiagnosticImage['label']; mask: Uint8Array; legend: Record<string, string> }[],
     signal: AbortSignal,
+    imageMode: DiagnosticImageMode,
   ): Promise<DiagnosticImage[]> {
     const { width, height } = size
     if (maps.some(({ mask }) => !(mask instanceof Uint8Array) || mask.length !== width * height))
       throw new Error('Diagnostic mask dimensions changed.')
-    const release = await this.owner.reserve(INSPECTION_IMAGE_LIMIT * (1 + maps.length))
+    const composite = imageMode === 'composite'
+    const release = await this.owner.reserve(
+      INSPECTION_IMAGE_LIMIT * (Number(composite) + maps.length),
+    )
     let directory: string | undefined
     try {
       const root = join(this.root, 'cache', 'photo-diagnostics')
       await mkdir(root, { recursive: true })
       directory = await mkdtemp(join(root, 'diagnostic-'))
-      const photo = await this.owner.photo(
-        request.photoId,
-        request.expectedRevision,
-        options,
-        signal,
-      )
-      const member = photo.members[0]
-      const shown = member?.photoBounds
-      if (
-        photo.photoId !== request.photoId ||
-        photo.revision !== request.expectedRevision ||
-        photo.gridIdentity !== context.gridIdentity ||
-        photo.members.length !== 1 ||
-        !member ||
-        member.width !== width ||
-        member.height !== height ||
-        member.mimeType !== 'image/png' ||
-        shown?.x !== bounds.x ||
-        shown.y !== bounds.y ||
-        shown.width !== bounds.width ||
-        shown.height !== bounds.height ||
-        member.byteLength > INSPECTION_IMAGE_LIMIT
-      )
-        throw new Error('The diagnostic image does not match the committed photo region.')
+      const member = composite
+        ? await this.compositeBase(request, context, options, bounds, size, signal)
+        : undefined
       const admission = await this.owner.admission(signal)
       // PNG transport strings, decoded RGBA, masks and sequential encode work.
       const ramBytes =
-        member.data.length * 2 +
+        (member?.data.length ?? 0) * 2 +
         INSPECTION_IMAGE_LIMIT * (3 + maps.length * 4) +
         width * height * (16 + maps.length * 5)
       if (admission.reservation.ramBytes + ramBytes > admission.policy.ram.effectiveBytes)
         throw new Error('Diagnostic overlays exceed the current managed image-memory budget.')
-      const basePath = join(directory, 'base.png')
-      const baseBytes = Buffer.from(member.data, 'base64')
-      if (baseBytes.length !== member.byteLength)
-        throw new Error('The diagnostic image is incomplete.')
-      await writeFile(basePath, baseBytes, { flag: 'wx' })
+      let basePath: string | undefined
+      if (member) {
+        basePath = join(directory, 'base.png')
+        const baseBytes = Buffer.from(member.data, 'base64')
+        if (baseBytes.length !== member.byteLength)
+          throw new Error('The diagnostic image is incomplete.')
+        await writeFile(basePath, baseBytes, { flag: 'wx' })
+      }
       const masks = maps.map(({ label, mask }) => ({
         label,
         ...size,
@@ -382,10 +462,19 @@ export class PhotoDiagnostics {
           )
             throw new Error('Invalid diagnostic overlay output.')
           const info = await lstat(output.path)
-          if (!info.isFile() || info.size !== output.byteLength)
+          if (!info.isFile() || info.size < 33 || info.size !== output.byteLength)
             throw new Error('Diagnostic overlay is incomplete.')
           const data = await readFile(output.path)
           if (sha(data) !== output.sha256) throw new Error('Diagnostic overlay hash changed.')
+          if (
+            data.length < 33 ||
+            !data.subarray(0, 8).equals(pngSignature) ||
+            data.toString('ascii', 12, 16) !== 'IHDR' ||
+            data.readUInt32BE(16) !== width ||
+            data.readUInt32BE(20) !== height ||
+            (!composite && data[25] !== 6)
+          )
+            throw new Error('Diagnostic overlay PNG dimensions or transparency changed.')
           return {
             label: output.label,
             width,
@@ -407,5 +496,35 @@ export class PhotoDiagnostics {
       }
       release()
     }
+  }
+
+  private async compositeBase(
+    request: PhotoDiagnosticsRequest,
+    context: PreviewContext,
+    options: InspectionOptions,
+    bounds: InspectionBounds,
+    size: Size,
+    signal: AbortSignal,
+  ) {
+    const photo = await this.owner.photo(request.photoId, request.expectedRevision, options, signal)
+    const member = photo.members[0]
+    const shown = member?.photoBounds
+    if (
+      photo.photoId !== request.photoId ||
+      photo.revision !== request.expectedRevision ||
+      photo.gridIdentity !== context.gridIdentity ||
+      photo.members.length !== 1 ||
+      !member ||
+      member.width !== size.width ||
+      member.height !== size.height ||
+      member.mimeType !== 'image/png' ||
+      shown?.x !== bounds.x ||
+      shown.y !== bounds.y ||
+      shown.width !== bounds.width ||
+      shown.height !== bounds.height ||
+      member.byteLength > INSPECTION_IMAGE_LIMIT
+    )
+      throw new Error('The diagnostic image does not match the committed photo region.')
+    return member
   }
 }

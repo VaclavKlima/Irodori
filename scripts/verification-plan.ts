@@ -250,6 +250,12 @@ const definitions: Suite[] = [
   { file: 'inspection-mcp', group: 'service', scopes: ['mcp'] },
   { file: 'photo-diagnostics', group: 'service', scopes: ['mcp', 'preview'] },
   {
+    file: 'editor-diagnostics-ui',
+    group: 'raw-gpu',
+    scopes: ['preview', 'ui'],
+    exclusive: true,
+  },
+  {
     file: 'photo-diagnostics-runtime',
     group: 'raw-gpu',
     scopes: ['mcp', 'preview'],

@@ -77,6 +77,7 @@ export class ClippingCoverageProcess {
     key: string,
     outputPath: string,
     signal: AbortSignal,
+    storedMask = false,
   ): Promise<ClippingCoverageResult> {
     signal.throwIfAborted()
     if (this.busy) throw new Error('Clipping coverage processing is already running.')
@@ -142,6 +143,7 @@ export class ClippingCoverageProcess {
             height,
             key,
             outputPath,
+            storedMask,
           } satisfies ClippingCoverageWorkerRequest,
           (error) => {
             if (error) failed(error)

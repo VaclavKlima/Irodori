@@ -26,6 +26,7 @@ export function useInspectionRegion(
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const opening = useRef(0)
   const current = useRef({ photoId, scope, available })
   useLayoutEffect(() => {
     current.current = { photoId, scope, available }
@@ -35,13 +36,18 @@ export function useInspectionRegion(
   const start = useCallback(async () => {
     if (!photoId || !available) return
     const key = scope
+    const request = ++opening.current
+    const ownsOpening = () =>
+      opening.current === request && current.current.scope === key && current.current.available
     setLoading(true)
     setError('')
     try {
       await flush()
+      if (!ownsOpening()) return
       const confirmed = await window.irodori.getEdits(photoId)
+      if (!ownsOpening()) return
       const context = await window.irodori.getPreviewContext(photoId, confirmed.revision)
-      if (current.current.scope !== key || !current.current.available) return
+      if (!ownsOpening()) return
       setStored((previous) => ({
         key,
         context,
@@ -52,9 +58,9 @@ export function useInspectionRegion(
       }))
       setOpen(true)
     } catch (reason) {
-      if (current.current.scope === key) setError(String(reason))
+      if (ownsOpening()) setError(String(reason))
     } finally {
-      setLoading(false)
+      if (opening.current === request) setLoading(false)
     }
   }, [photoId, available, scope, flush])
   // Revalidate after confirmed edits without allowing an old asynchronous lookup to retarget selection.
@@ -100,7 +106,11 @@ export function useInspectionRegion(
   const clear = useCallback(() => {
     setStored((previous) => (previous ? { ...previous, region: undefined } : previous))
   }, [])
-  const close = useCallback(() => setOpen(false), [])
+  const close = useCallback(() => {
+    opening.current++
+    setOpen(false)
+    setLoading(false)
+  }, [])
   const pending = useMemo<AgentInspectionRegion | undefined>(
     () =>
       value?.region && photoId

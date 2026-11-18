@@ -4,6 +4,7 @@ import { validateNativeInspectionBounds } from '../../shared/inspection'
 import { frameByteLength } from '../../shared/preview-frame'
 import { addVisibleSdrPixel, emptyImageStatistics } from '../../shared/statistics'
 import type { SdrDiagnosticsJob } from '../preview-types'
+import { openDiagnosticCoverage } from './diagnostic-coverage'
 
 export async function scanSdrDiagnostics(
   path: string,
@@ -27,8 +28,10 @@ export async function scanSdrDiagnostics(
     stride = frame.width * 4,
     strip = Buffer.alloc(Math.min(64, frame.height) * stride)
   const file = await open(path, 'r')
+  let coverage: Awaited<ReturnType<typeof openDiagnosticCoverage>> | undefined
   try {
     if ((await file.stat()).size !== length) throw new Error('Invalid statistics frame.')
+    if (job.coverage) coverage = await openDiagnosticCoverage(job.coverage, frame)
     for (let top = 0; top < frame.height; top += 64) {
       const rows = Math.min(64, frame.height - top),
         bytes = rows * stride
@@ -39,21 +42,23 @@ export async function scanSdrDiagnostics(
         read += bytesRead
       }
       digest.update(strip.subarray(0, bytes))
+      const include = await coverage?.strip(top, rows)
       const first = Math.max(top, bounds.y),
         end = Math.min(top + rows, bounds.y + bounds.height)
       for (let y = first; y < end; y++) {
         const outputRow = Math.floor(((y - bounds.y) * size.height) / bounds.height) * size.width
         let at = (y - top) * stride + bounds.x * 4
         for (let x = 0; x < bounds.width; x++, at += 4) {
-          if (!strip[at + 3]) continue
+          if (!strip[at + 3] || (include && include[at / 4] <= 0)) continue
           const bits = addVisibleSdrPixel(statistics, strip[at], strip[at + 1], strip[at + 2])
           if (bits) mask[outputRow + Math.floor((x * size.width) / bounds.width)] |= bits
         }
       }
     }
     if (digest.digest('hex') !== frame.sha256) throw new Error('Damaged statistics frame.')
+    coverage?.finish()
     return { ...statistics, mask }
   } finally {
-    await file.close()
+    await Promise.all([file.close(), coverage?.close()])
   }
 }

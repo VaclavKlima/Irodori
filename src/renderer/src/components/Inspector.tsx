@@ -13,6 +13,7 @@ import { ColorIntensity } from './ColorIntensity'
 import { DetailControls } from './DetailControls'
 import { ColorMixerControls, ColorGradingControls } from './CreativeColorControls'
 import type { PreviewTools } from '../hooks/usePreviewTools'
+import type { DiagnosticScope, EditorDiagnosticsController } from '../hooks/useEditorDiagnostics'
 import { Shadows } from './Shadows'
 import { Whites } from './Whites'
 import { Blacks } from './Blacks'
@@ -77,8 +78,12 @@ export function Inspector({
   masks,
   objectSelection,
   checkpoints,
+  diagnostics,
+  onDiagnosticsScope,
 }: {
   checkpoints: EditCheckpointsController
+  diagnostics: EditorDiagnosticsController
+  onDiagnosticsScope: (scope: DiagnosticScope) => void
   masks: MasksController
   objectSelection?: ObjectSelectionController
   group: InspectorGroup
@@ -159,6 +164,8 @@ export function Inspector({
         ) : (
           <Histogram
             tools={tools}
+            diagnostics={diagnostics}
+            onDiagnosticsScope={onDiagnosticsScope}
             ready={previewReady}
             expanded={sections.histogram}
             onToggle={() => toggle('histogram')}

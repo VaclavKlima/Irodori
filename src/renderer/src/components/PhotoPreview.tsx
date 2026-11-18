@@ -80,7 +80,9 @@ import styles from './PhotoPreview.module.css'
 import { ProgressSpinner } from './ProgressSpinner'
 import { IconButton } from './ui/Controls'
 import { InspectionRegion } from './InspectionRegion'
+import { DiagnosticOverlay } from './DiagnosticOverlay'
 import type { InspectionRegionController } from '../hooks/useInspectionRegion'
+import type { EditorDiagnosticsController } from '../hooks/useEditorDiagnostics'
 import type { ObjectSelectionController } from '../hooks/useObjectSelection'
 import { ObjectSelectionOverlay } from './ObjectSelection'
 import { inspectionGeometryMatches } from '../preview/inspection-geometry'
@@ -125,6 +127,7 @@ interface Props {
   crop?: CropController
   masks?: MasksController
   inspection?: InspectionRegionController
+  diagnostics?: Pick<EditorDiagnosticsController, 'scope' | 'result' | 'overlay'>
   objectSelection?: ObjectSelectionController
   maskEdgeCoverage?: { ready: boolean; pending: boolean; error: string; retry: () => void }
 }
@@ -238,6 +241,7 @@ function CurrentPhotoPreview({
   crop,
   masks,
   inspection,
+  diagnostics,
   objectSelection,
   maskEdgeCoverage,
 }: Props) {
@@ -2295,6 +2299,23 @@ function CurrentPhotoPreview({
                 data-testid="clipping-overlay"
                 style={{ visibility: gpuError ? 'hidden' : undefined }}
               />
+              {ready &&
+                !gpuError &&
+                !cropping &&
+                !suspended &&
+                mode === 'after' &&
+                maskPresentation &&
+                diagnostics?.overlay &&
+                diagnostics.result?.photoId === photo.id &&
+                diagnostics.result.revision === confirmedEdits?.revision &&
+                diagnostics.result.target.generation === displayTarget.generation && (
+                  <DiagnosticOverlay
+                    result={diagnostics.result}
+                    label={diagnostics.overlay}
+                    geometry={maskPresentation}
+                    viewport={model.viewport}
+                  />
+                )}
               {crop &&
                 cropping &&
                 ready &&
@@ -2316,6 +2337,7 @@ function CurrentPhotoPreview({
                 !toneCurves?.active && (
                   <InspectionRegion
                     inspection={inspection}
+                    diagnostics={diagnostics?.scope === 'region'}
                     geometry={maskPresentation}
                     viewport={model.viewport}
                     onLocate={(region) => {

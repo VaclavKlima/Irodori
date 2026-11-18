@@ -212,3 +212,77 @@ test('isolated coverage worker binds complete edge coverage and every streamed s
     await rm(directory, { force: true, recursive: true })
   }
 })
+
+test('stored-root coverage keeps a disabled neutral compound on the rotated crop grid', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'irodori-stored-coverage-'))
+  const worker = new ClippingCoverageProcess({
+    workerPath: resolve('out/main/clipping-coverage-worker.js'),
+  })
+  const width = 200,
+    height = 100
+  const crop = cropGeometry(
+    { width, height },
+    { ...identityCrop, centerX: 0.45, centerY: 0.5, width: 0.7, height: 0.6, quarterTurns: 1 },
+  )
+  const stored = {
+    ...compoundLeaf(0.15),
+    light: neutralMaskLight,
+    enabled: false,
+    operands: [
+      compoundOperand(compoundLeaf(-0.2), 'subtract'),
+      { ...compoundOperand(compoundLeaf(-0.5), 'intersect'), enabled: false },
+      compoundOperand(compoundLeaf(0.4), 'intersect'),
+    ],
+  }
+  const parameters = {
+    ...neutralAdjustments,
+    localMasks: [stored],
+    maskGeometry: croppedMaskGeometry(identityMaskGeometry(width, height), crop),
+  }
+  try {
+    expect(clippingCoverageMemory(crop.width, crop.height, parameters).maskCount).toBe(0)
+    expect(clippingCoverageMemory(crop.width, crop.height, parameters, true).maskCount).toBe(1)
+    expect(() => clippingCoverageMemory(width, height, parameters, true)).toThrow(
+      'authoritative working source grid',
+    )
+    expect(() =>
+      clippingCoverageMemory(crop.width, crop.height, { ...parameters, localMasks: [] }, true),
+    ).toThrow('exactly one saved root')
+
+    const coverage = await worker.prepare(
+      parameters,
+      crop.width,
+      crop.height,
+      'confirmed-disabled-root',
+      join(directory, 'coverage.f32'),
+      new AbortController().signal,
+      true,
+    )
+    expect(coverage).toMatchObject({
+      width: crop.width,
+      height: crop.height,
+      maskCount: 1,
+      byteLength: crop.width * crop.height * 4,
+    })
+    expect(coverage.stripSha256).toHaveLength(Math.ceil(crop.height / 64))
+    const bytes = await readFile(coverage.path)
+    const m = crop.outputToSource
+    let worst = 0,
+      fractional = 0
+    for (let y = 0; y < crop.height; y++)
+      for (let x = 0; x < crop.width; x++) {
+        const u = (m[0] * (x + 0.5) + m[1] * (y + 0.5) + m[4]) / width
+        const v = (m[2] * (x + 0.5) + m[3] * (y + 0.5) + m[5]) / height
+        const expected = compoundOracle(stored, u, v)
+        const actual = bytes.readFloatLE((y * crop.width + x) * 4)
+        worst = Math.max(worst, Math.abs(actual - expected) / (2e-6 + 2e-5 * Math.abs(expected)))
+        if (actual > 0 && actual < 1 && Math.abs(actual * 255 - Math.round(actual * 255)) > 1e-3)
+          fractional++
+      }
+    expect(worst).toBeLessThanOrEqual(1)
+    expect(fractional).toBeGreaterThan(100)
+  } finally {
+    await worker.close()
+    await rm(directory, { force: true, recursive: true })
+  }
+})

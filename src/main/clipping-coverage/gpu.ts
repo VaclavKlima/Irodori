@@ -24,13 +24,17 @@ export async function sampleClippingCoverage(
   height: number,
   signal: AbortSignal,
   consume: (bytes: Uint8Array) => Promise<void>,
+  storedMask = false,
 ): Promise<number> {
   signal.throwIfAborted()
-  const selected = { ...parameters, localMasks: clippingCoverageMasks(parameters) }
+  const selected = {
+    ...parameters,
+    localMasks: storedMask ? (parameters.localMasks ?? []) : clippingCoverageMasks(parameters),
+  }
   const count = selected.localMasks.length
   if (!count) throw new Error('Clipping coverage requires active local adjustments.')
-  const packed = packLocalMasks(selected, { width, height })
-  const plan = maskBaseAtlasPlan(selected)
+  const packed = packLocalMasks(selected, { width, height }, storedMask)
+  const plan = maskBaseAtlasPlan(selected, storedMask)
   for (const base of plan.bases) verifiedMaskBaseBytes(base)
   const resources: GPUBuffer[] = []
   let atlas: GPUTexture | undefined
@@ -55,7 +59,7 @@ export async function sampleClippingCoverage(
     const output = buffer(stripBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC)
     const readback = buffer(stripBytes, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ)
     device.queue.writeBuffer(descriptors, 0, packed)
-    atlas = await createMaskBaseAtlas(device, selected)
+    atlas = await createMaskBaseAtlas(device, selected, storedMask)
     signal.throwIfAborted()
     const module = device.createShaderModule({
       label: 'Exact clipping GPU coverage',

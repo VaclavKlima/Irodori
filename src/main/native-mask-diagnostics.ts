@@ -3,6 +3,8 @@ import { constants } from 'node:fs'
 import { open } from 'node:fs/promises'
 import type { DisplayTarget } from '../shared/hdr'
 import { validateNativeInspectionBounds, type InspectionBounds } from '../shared/inspection'
+import type { ClippingCoverageResult } from './clipping-coverage/types'
+import { openDiagnosticCoverage } from './processing/diagnostic-coverage'
 
 interface MaskGrid {
   width: number
@@ -24,6 +26,7 @@ export async function reduceNativeHdrMask(
   size: MaskGrid,
   target: DisplayTarget,
   signal: AbortSignal,
+  selection?: ClippingCoverageResult,
 ): Promise<HdrDiagnosticMask> {
   validateNativeInspectionBounds(bounds, native.width, native.height)
   if (
@@ -37,10 +40,12 @@ export async function reduceNativeHdrMask(
 
   signal.throwIfAborted()
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  let coverage: Awaited<ReturnType<typeof openDiagnosticCoverage>> | undefined
   try {
     const info = await file.stat()
     if (!info.isFile() || info.size !== native.byteLength)
       throw new Error('The native HDR diagnostic mask is incomplete.')
+    if (selection) coverage = await openDiagnosticCoverage(selection, native, signal)
 
     const output = target.mode === 'hdr',
       knownHeadroom = output && target.headroom !== null,
@@ -69,6 +74,7 @@ export async function reduceNativeHdrMask(
         offset += bytesRead
       }
       digest.update(strip.subarray(0, length))
+      const include = await coverage?.strip(row, rows)
       for (
         let y = Math.max(bounds.y, row);
         y < Math.min(bounds.y + bounds.height, row + rows);
@@ -77,9 +83,11 @@ export async function reduceNativeHdrMask(
         const sourceRow = (y - row) * native.width,
           outputRow = Math.floor(((y - bounds.y) * size.height) / bounds.height) * size.width
         for (let x = 0; x < bounds.width; x++) {
+          const index = sourceRow + bounds.x + x
+          if (include && include[index] <= 0) continue
           // The native sink already validated the mask flags. Authenticate those
           // same bytes below, and suppress target-specific bits in working HDR.
-          const flags = strip[sourceRow + bounds.x + x] & maskFlags
+          const flags = strip[index] & maskFlags
           aboveWhite += Number((flags & 4) !== 0)
           exceedingHeadroom += Number((flags & 2) !== 0)
           outputClipped += Number((flags & 1) !== 0)
@@ -91,6 +99,7 @@ export async function reduceNativeHdrMask(
     signal.throwIfAborted()
     if (digest.digest('hex') !== native.sha256)
       throw new Error('The native HDR diagnostic mask hash did not match.')
+    coverage?.finish()
     return {
       mask,
       aboveWhite,
@@ -99,6 +108,6 @@ export async function reduceNativeHdrMask(
       gamutLimited,
     }
   } finally {
-    await file.close()
+    await Promise.all([file.close(), coverage?.close()])
   }
 }

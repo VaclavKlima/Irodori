@@ -4,6 +4,7 @@ import {
   inspectionDrag,
   inspectionGeometryMatches,
   inspectionPoint,
+  inspectionScreenPoint,
   validInspectionRectangle,
   type RegionHandle,
   type RegionPoint,
@@ -18,11 +19,13 @@ export function InspectionRegion({
   geometry,
   viewport,
   onLocate,
+  diagnostics = false,
 }: {
   inspection: InspectionRegionController
   geometry?: PresentedPreviewGeometry
   viewport: Size
   onLocate: (region: InspectionRectangle) => void
+  diagnostics?: boolean
 }) {
   const root = useRef<HTMLDivElement>(null)
   const drag = useRef<{
@@ -138,22 +141,7 @@ export function InspectionRegion({
     cancel()
   }
   const project = (x: number, y: number) =>
-    geometry
-      ? {
-          x:
-            ((geometry.viewport.width / 2 +
-              geometry.view.x +
-              (x - geometry.image.width / 2) * geometry.view.scale) *
-              viewport.width) /
-            geometry.viewport.width,
-          y:
-            ((geometry.viewport.height / 2 +
-              geometry.view.y +
-              (y - geometry.image.height / 2) * geometry.view.scale) *
-              viewport.height) /
-            geometry.viewport.height,
-        }
-      : { x: 0, y: 0 }
+    geometry ? inspectionScreenPoint({ x, y }, geometry, viewport) : { x: 0, y: 0 }
   const topLeft = rectangle && project(rectangle.x, rectangle.y)
   const bottomRight =
     rectangle && project(rectangle.x + rectangle.width, rectangle.y + rectangle.height)
@@ -164,6 +152,7 @@ export function InspectionRegion({
         tabIndex={0}
         className={styles.overlay}
         data-testid="inspection-region-overlay"
+        data-region-draft={!!draft}
         aria-label="Select inspection region"
         onPointerDown={begin}
         onPointerMove={move}
@@ -238,7 +227,9 @@ export function InspectionRegion({
           </Button>
           <span>
             {matching
-              ? 'Drag an area; next Console prompt uses it.'
+              ? diagnostics
+                ? 'Drag an area or enter its pixel bounds.'
+                : 'Drag an area; next Console prompt uses it.'
               : 'Waiting for matching photograph…'}
           </span>
         </div>

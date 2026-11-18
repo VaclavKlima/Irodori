@@ -120,6 +120,15 @@
   height: 100%;
   pointer-events: none;
 }
+.diagnosticOverlay {
+  position: absolute;
+  max-width: none;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+.viewport:has([data-region-draft='true']) .diagnosticOverlay {
+  visibility: hidden;
+}
 .divider {
   position: absolute;
   top: 0;

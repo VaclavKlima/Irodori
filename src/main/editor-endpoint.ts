@@ -460,12 +460,13 @@ export async function startEditorEndpoint(
             const diagnostics = { ...args }
             delete diagnostics.operation
             delete diagnostics.requestId
-            const inspection = gate?.context().inspection
+            const inspection =
+              diagnostics.region === undefined && diagnostics.maskId === undefined
+                ? gate?.context().inspection
+                : undefined
             const request = validatePhotoDiagnosticsRequest({
               ...diagnostics,
-              region:
-                diagnostics.region ??
-                (inspection?.photoId === photoId ? inspection.region : undefined),
+              region: inspection?.photoId === photoId ? inspection.region : diagnostics.region,
             })
             const lifetime = new AbortController()
             const gone = () => {
