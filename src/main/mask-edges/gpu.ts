@@ -152,7 +152,7 @@ export async function prepareMaskEdgeCoverage(
       localMasks: [{ ...mask, edge: { featherPx: 0, shiftPx: 0 }, preparedCoverage: undefined }],
       maskGeometry: identityMaskGeometry(width, height),
     }
-    const packedMask = packLocalMasks(parameters, { width, height })
+    const packedMask = packLocalMasks(parameters, { width, height }, true)
     const maskData = buffer(packedMask.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
     const uniform = buffer(48, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
     const a = buffer(tileWidth * tileHeight * 4, GPUBufferUsage.STORAGE)
@@ -167,7 +167,7 @@ export async function prepareMaskEdgeCoverage(
     const readback = buffer(outputBytes, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ)
     device.queue.writeBuffer(maskData, 0, packedMask)
     device.queue.writeBuffer(weights, 0, coefficients)
-    base = await createMaskBaseAtlas(device, parameters)
+    base = await createMaskBaseAtlas(device, parameters, true)
     signal.throwIfAborted()
     const module = device.createShaderModule({
       code: localMasksWgsl(16, 18) + work,

@@ -12,6 +12,7 @@ import {
   sampleMaskRangePixels,
   validateMaskRange,
 } from '../src/shared/mask-ranges'
+import { maskBaseAtlasPlan, packLocalMasks } from '../src/shared/masks-gpu'
 import { prepareMaskMutation } from '../src/main/mask-store'
 import { initialSettings, SETTINGS_VERSION } from '../src/shared/edits'
 import {
@@ -28,10 +29,50 @@ import {
 } from '../src/shared/masks'
 import { validatePresetDefinition } from '../src/shared/presets'
 import { generatedMask } from './helpers/generated-mask'
+import { compoundOperand } from './helpers/mask-compound'
+import { gradientMask } from './helpers/mask-gradients'
 
 const color = () => defaultColorMaskRange(maskRangeColorFromHex('#19854A'))
 const gradient = { kind: 'linear' as const, start: { x: 0, y: 0 }, end: { x: 1, y: 1 } }
 const stroke = { mode: 'add' as const, radius: 0.1, feather: 0, points: [{ x: 0.5, y: 0.5 }] }
+
+test('photo rendering omits disabled compound ranges while explicit coverage still uses them', () => {
+  const image = { width: 40, height: 24 }
+  const active = gradientMask(gradient)
+  const part = {
+    ...compoundOperand(gradientMask(gradient), 'intersect'),
+    gradient: undefined,
+    range: defaultLuminanceMaskRange,
+  }
+  const disabled = {
+    ...active,
+    id: randomUUID(),
+    enabled: false,
+    operands: [part],
+  }
+  const activeOnly = { localMasks: [active] }
+  const stack = { localMasks: [active, disabled] }
+  expect(packLocalMasks(stack, image)).toEqual(packLocalMasks(activeOnly, image))
+  expect(maskBaseAtlasPlan(stack)).toEqual(maskBaseAtlasPlan(activeOnly))
+
+  const enabled = { localMasks: [{ ...disabled, enabled: true }] }
+  expect(() => packLocalMasks(enabled, image)).toThrow('Range coverage is not ready')
+  const inspection = { localMasks: [disabled] }
+  expect(() => packLocalMasks(inspection, image, true)).toThrow('Range coverage is not ready')
+
+  const preparedRangeBase = {
+    ...generatedMask(image.width, image.height, () => 128),
+    key: 'a'.repeat(64),
+  }
+  const prepared = {
+    localMasks: [{ ...disabled, operands: [{ ...part, preparedRangeBase }] }],
+  }
+  expect(maskBaseAtlasPlan(prepared, true).bases).toEqual([
+    expect.objectContaining({ hash: preparedRangeBase.hash }),
+  ])
+  expect(maskBaseAtlasPlan(prepared).bases).toEqual([])
+  expect(() => packLocalMasks(prepared, image, true)).not.toThrow()
+})
 
 test('range contracts bound sample counts and controls while preserving HDR and unbounded upper values', () => {
   expect(maskCapabilities.version).toBe(7)

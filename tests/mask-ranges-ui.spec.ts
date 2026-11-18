@@ -1,6 +1,10 @@
 import sharp from 'sharp'
 import { maskCanonicalPoint, maskOutputPoint } from '../src/shared/mask-geometry'
-import { defaultColorMaskRange, maskRangeColorFromHex } from '../src/shared/mask-ranges'
+import {
+  defaultColorMaskRange,
+  defaultLuminanceMaskRange,
+  maskRangeColorFromHex,
+} from '../src/shared/mask-ranges'
 import type { Page } from '@playwright/test'
 import { test, expect } from './electron.fixture'
 import { activateButton } from './button.helpers'
@@ -31,6 +35,76 @@ async function ready(page: Page, revision: number) {
     timeout: 60000,
   })
 }
+
+test('disabling an adjusted compound range preserves the RAW preview through restart', async ({
+  irodori,
+}, info) => {
+  test.setTimeout(120000)
+  let { page } = irodori
+  await page.evaluate(() => window.irodori.setPreviewPreference('sdr'))
+  await importPhotos(irodori.app, page, ['tests/fixtures/sony-zv1.ARW'], false, 'renderer')
+  const photoId = (await page.evaluate(() => window.irodori.listPhotos())).photos[0].id
+  const activeId = crypto.randomUUID()
+  const compoundId = crypto.randomUUID()
+  const partId = crypto.randomUUID()
+  const history = () => page.evaluate((id) => window.irodori.getEditHistory(id), photoId)
+  await ready(page, 0)
+  await page.evaluate(
+    ({ photoId, activeId, compoundId, partId, range }) =>
+      window.irodori.mutateMasks(photoId, 0, {
+        operations: [
+          { kind: 'create', id: activeId, name: 'Active range', range },
+          { kind: 'update', id: activeId, light: { exposureEv: 0.25 } },
+          {
+            kind: 'create',
+            id: compoundId,
+            name: 'Compound range',
+            gradient: { kind: 'linear', start: { x: 0, y: 0 }, end: { x: 1, y: 1 } },
+          },
+          {
+            kind: 'component-add',
+            id: compoundId,
+            componentId: partId,
+            operator: 'intersect',
+            name: 'Luminance part',
+            range,
+          },
+          { kind: 'update', id: compoundId, light: { exposureEv: 0.5 } },
+        ],
+      }),
+    { photoId, activeId, compoundId, partId, range: defaultLuminanceMaskRange },
+  )
+  await ready(page, 1)
+  await page.evaluate(
+    ({ photoId, compoundId }) =>
+      window.irodori.mutateMasks(photoId, 1, {
+        operations: [{ kind: 'update', id: compoundId, enabled: false }],
+      }),
+    { photoId, compoundId },
+  )
+  await ready(page, 2)
+  const saved = (await history()).settings
+  expect(saved.maskStack.find((mask) => mask.id === activeId)).toMatchObject({ enabled: true })
+  expect(saved.maskStack.find((mask) => mask.id === compoundId)).toMatchObject({
+    enabled: false,
+    operands: [{ id: partId, enabled: true, range: defaultLuminanceMaskRange }],
+  })
+
+  ;({ page } = await irodori.restart())
+  await ready(page, 2)
+  await expect(page.getByTestId('main-preview')).toHaveAttribute('data-backend', 'webgpu-hdr')
+  await expect(page.getByTestId('preview-gpu-error')).toHaveCount(0)
+  expect((await history()).settings).toEqual(saved)
+  const adapter = await page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="main-preview"]')
+    const info = canvas?.getContext('webgpu')?.getConfiguration()?.device.adapterInfo
+    return info && { vendor: info.vendor, architecture: info.architecture, device: info.device }
+  })
+  await info.attach('preview-adapter', {
+    body: JSON.stringify(adapter ?? null),
+    contentType: 'application/json',
+  })
+})
 
 test('range previews cancel without history and luminance bounds, soft transitions and restart share ordinary Undo', async ({
   irodori,

@@ -203,6 +203,7 @@ export function maskBaseAtlasPlan(
   const unique = new Map<string, MaskBaseContent>()
   for (const original of parameters.localMasks ?? []) {
     maskCoverageNodes(original, true)
+    if (!coverageOnly && !original.enabled) continue
     const mask = renderMask(original, coverageOnly)
     for (const node of maskCoverageNodes(mask)) {
       if (!node.base) continue
@@ -327,7 +328,10 @@ export function packLocalMasks(
   let totalNodes = 0
   for (const root of parameters.localMasks ?? []) totalNodes += maskCoverageNodes(root, true).length
   if (totalNodes > 256) throw new Error('The photograph exceeds its 256 coverage node limit.')
-  const roots = (parameters.localMasks ?? []).map((mask) => renderMask(mask, coverageOnly))
+  // Coverage inspection can explicitly sample a disabled root.
+  const roots = (parameters.localMasks ?? [])
+    .filter((mask) => coverageOnly || mask.enabled)
+    .map((mask) => renderMask(mask, coverageOnly))
   // Root descriptors retain Light/Color and output order. Extra descriptors hold coverage only.
   const masks = roots.map((mask) => ({ ...mask, inverted: false }))
   const programs: number[][] = roots.map(() => [])

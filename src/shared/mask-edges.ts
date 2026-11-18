@@ -98,6 +98,7 @@ export function maskEdgeOwnBytes(
           maskGeometry: identityMaskGeometry(width, height),
         },
         { width, height },
+        true,
       ).byteLength,
     )
   }

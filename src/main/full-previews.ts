@@ -1078,8 +1078,9 @@ export class FullPreviews {
     const packed = packLocalMasks(
       { localMasks: unfiltered, maskGeometry: croppedMaskGeometry(prepared.maskGeometry, crop) },
       crop,
+      true,
     )
-    const atlas = maskBaseAtlasPlan({ localMasks: unfiltered })
+    const atlas = maskBaseAtlasPlan({ localMasks: unfiltered }, true)
     const { canonicalWidth: width, canonicalHeight: height } = prepared.maskGeometry
     const layers = new Set(
       masks.flatMap((root) =>
