@@ -2129,6 +2129,7 @@ export class FullPreviews {
             const reservation = await this.reservePreviewDiskBytes(
               sourceEntry.width * sourceEntry.height * 24 + 128 * 1024,
               'Texture preview',
+              request,
             )
             request.textureDisk = reservation
             {
@@ -3461,9 +3462,12 @@ export class FullPreviews {
   private retainedPreviewBytes(): number {
     return [...this.entries.values()].reduce((sum, entry) => sum + entry.bytes, 0)
   }
-  private storageLimitError(label: string, requested: number): Error {
+  private isPreviewProtected(entry: Entry, protectRunning: boolean): boolean {
+    return Boolean(entry.pins || (protectRunning && entry.id === this.running?.id))
+  }
+  private storageLimitError(label: string, requested: number, protectRunning: boolean): Error {
     const protectedBytes = [...this.entries.values()]
-      .filter((entry) => entry.pins || entry.id === this.running?.id)
+      .filter((entry) => this.isPreviewProtected(entry, protectRunning))
       .reduce((sum, entry) => sum + entry.bytes, 0)
     const size = (bytes: number) => `${(bytes / 1024 ** 2).toFixed(1)} MiB`
     return new Error(
@@ -3478,11 +3482,17 @@ export class FullPreviews {
   reserveOutputProofBytes(bytes: number): Promise<PreviewDiskReservation> {
     return this.enqueue(() => this.reservePreviewDiskBytes(bytes, 'Output preview'))
   }
-  private reservePreviewDiskBytes(bytes: number, label: string): Promise<PreviewDiskReservation> {
+  private reservePreviewDiskBytes(
+    bytes: number,
+    label: string,
+    owner?: Request,
+  ): Promise<PreviewDiskReservation> {
     return this.diskOperation(async () => {
+      // The Texture build reserves after selecting and pinning its working source.
+      const protectRunning = !owner || this.running !== owner
       if (!Number.isSafeInteger(bytes) || bytes < 0 || this.closed)
         throw new Error(`${label} exceeds the preview storage limit (invalid or closed request).`)
-      if (bytes > this.budget) throw this.storageLimitError(label, bytes)
+      if (bytes > this.budget) throw this.storageLimitError(label, bytes, protectRunning)
       this.externalDiskBytes += bytes
       let released = false,
         reservedBytes = bytes
@@ -3503,12 +3513,12 @@ export class FullPreviews {
         },
       )
       try {
-        await this.pruneNow(0, true)
+        await this.pruneNow(0, protectRunning)
         if (this.closed) throw new Error(`${label} is unavailable because previews are closing.`)
         // A running preview may publish another entry while disk cleanup is awaiting I/O.
         if (this.retainedPreviewBytes() + this.externalDiskBytes > this.budget) {
           release()
-          throw this.storageLimitError(label, bytes)
+          throw this.storageLimitError(label, bytes, protectRunning)
         }
         return release
       } catch (error) {
@@ -3530,8 +3540,7 @@ export class FullPreviews {
       // Preparation validates cached candidates before pinning them. Keep its photo
       // protected while an independent range admission is reclaiming other entries.
       if (
-        entry.pins ||
-        (protectRunning && entry.id === this.running?.id) ||
+        this.isPreviewProtected(entry, protectRunning) ||
         (!entry.invalid && bytes <= this.budget)
       )
         continue

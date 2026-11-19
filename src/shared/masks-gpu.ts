@@ -51,6 +51,15 @@ export function maskCoverageNodes(mask: ResolvedMask, includeDisabled = false): 
 export function maskTreeHasEdges(mask: ResolvedMask): boolean {
   return maskCoverageNodes(mask).some((node) => maskHasEdges(node) || Boolean(node.range))
 }
+export function validateMaskCoverageSize(masks: readonly ResolvedMask[]): void {
+  if (masks.length > maskCapabilities.maxMasks) throw new Error('Too many local masks.')
+  let totalNodes = 0
+  for (const root of masks) totalNodes += maskCoverageNodes(root, true).length
+  if (totalNodes > maskCapabilities.maxNodesPerPhoto)
+    throw new Error(
+      `The photograph exceeds its ${maskCapabilities.maxNodesPerPhoto} coverage node limit.`,
+    )
+}
 function coverageFields(node: ResolvedMask): ResolvedMaskCoverage {
   const coverage = { ...node }
   Reflect.deleteProperty(coverage, 'light')
@@ -323,13 +332,10 @@ export function packLocalMasks(
   image: { width: number; height: number },
   coverageOnly = false,
 ) {
-  if ((parameters.localMasks?.length ?? 0) > maskCapabilities.maxMasks)
-    throw new Error('Too many local masks.')
-  let totalNodes = 0
-  for (const root of parameters.localMasks ?? []) totalNodes += maskCoverageNodes(root, true).length
-  if (totalNodes > 256) throw new Error('The photograph exceeds its 256 coverage node limit.')
+  const localMasks = parameters.localMasks ?? []
+  validateMaskCoverageSize(localMasks)
   // Coverage inspection can explicitly sample a disabled root.
-  const roots = (parameters.localMasks ?? [])
+  const roots = localMasks
     .filter((mask) => coverageOnly || mask.enabled)
     .map((mask) => renderMask(mask, coverageOnly))
   // Root descriptors retain Light/Color and output order. Extra descriptors hold coverage only.

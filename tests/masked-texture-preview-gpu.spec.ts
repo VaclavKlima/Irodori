@@ -8,14 +8,17 @@ import { PreviewProcess } from '../src/main/preview-process'
 import type { FullPreviewProcessor } from '../src/main/preview-types'
 import type { MaskStackPreparationJob } from '../src/main/processing/mask-stack-preparation'
 import { prepareMaskMutation } from '../src/main/mask-store'
-import { resolveMasks } from '../src/shared/masks'
+import { hasMaskAdjustments, neutralMaskEdge, resolveMasks } from '../src/shared/masks'
+import { defaultLuminanceMaskRange } from '../src/shared/mask-ranges'
+import { mapMaskCoverage } from '../src/shared/masks-gpu'
 import { neutralAdjustments, type AdjustmentParameters } from '../src/shared/adjustments'
 import type { ProcessingOptions } from '../src/shared/lens'
 import { identityCrop, fitCrop } from '../src/shared/crop'
 import { detailPreviewFixture } from './detail-preview.helpers'
+import { generatedMask } from './helpers/generated-mask'
 
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
-async function fixture(hdr = false, authored = false) {
+async function fixture(hdr = false, authored = false, budget?: number) {
   const source = await detailPreviewFixture(hdr, authored),
     root = join(source.root, 'texture-cache'),
     id = sha(source.originalBytes)
@@ -117,7 +120,7 @@ async function fixture(hdr = false, authored = false) {
       root,
       (photoId) => (photoId === id ? source.original : undefined),
       processor,
-      undefined,
+      budget,
       async () => structuredClone(options),
     )
     const admission = async () =>
@@ -261,6 +264,91 @@ test('cold frozen versions prepare each saved Texture stack after its own source
       await Promise.all(tokens.map((token) => f.previews.release(token)))
       await f.close()
     }
+  }
+})
+
+test('Texture preview reclaims idle versions of the same photo after hiding a mask', async ({}, info) => {
+  const budget = 8 * 1024 ** 2
+  const f = await fixture(true, false, budget)
+  const request = () => f.previews.requestHdr(f.id, randomUUID(), false, 'sdr')
+  let idleLease: ReturnType<FullPreviews['acquire']>
+  let displayedLease: ReturnType<FullPreviews['acquire']>
+  let releaseStorage: (() => void) | undefined
+  try {
+    const rangePart = {
+      id: randomUUID(),
+      name: 'Luminance part',
+      operator: 'intersect' as const,
+      enabled: true,
+      inverted: false,
+      head: null,
+      edge: neutralMaskEdge,
+      strokes: [],
+      range: defaultLuminanceMaskRange,
+    }
+    f.changePoint({
+      localMasks: f.options.adjustments!.localMasks!.map((mask) =>
+        mask.id === f.second ? { ...mask, operands: [rangePart] } : mask,
+      ),
+    })
+    const { width, height } = f.source.frame
+    const rangeCoverage = { ...generatedMask(width, height, () => 192), key: 'a'.repeat(64) }
+    f.previews.configureMaskRanges(async (_id, _options, masks) =>
+      masks.map((mask) =>
+        mask.enabled && hasMaskAdjustments(mask)
+          ? mapMaskCoverage(mask, (node) =>
+              node.range ? { ...node, preparedRangeBase: rangeCoverage } : node,
+            )
+          : mask,
+      ),
+    )
+    const idle = (await request())!
+    f.changePoint({ exposureEv: 0.25 })
+    const displayed = (await request())!
+    const idleCandidate = idle.linear.hdr.preparedMasks!.candidate
+    const displayedCandidate = displayed.linear.hdr.preparedMasks!.candidate
+    idleLease = f.previews.acquire(new URL(idleCandidate.url))
+    displayedLease = f.previews.acquire(new URL(displayedCandidate.url))
+    expect(idleLease).toBeDefined()
+    expect(displayedLease).toBeDefined()
+
+    const retainedBytes = (await f.entries()).reduce(
+      (total, entry) => total + entry.metadata.bytes,
+      0,
+    )
+    const requestedBytes = displayed.width * displayed.height * 24 + 128 * 1024
+    releaseStorage = await f.previews.reserveRangeCoverageBytes(
+      budget - retainedBytes - requestedBytes + idleCandidate.byteLength,
+    )
+    const localMasks = f.options.adjustments!.localMasks!.map((mask) =>
+      mask.id === f.second ? { ...mask, enabled: false } : mask,
+    )
+    f.changePoint({ localMasks })
+
+    await expect(request()).rejects.toThrow('Texture preview exceeds the preview storage limit')
+    idleLease!.release()
+    idleLease = undefined
+
+    const rebuilt = (await request())!
+    expect(rebuilt.settingsRevision).toBe(f.options.revision)
+    expect(rebuilt.adjustments?.localMasks?.find((mask) => mask.id === f.second)).toMatchObject({
+      enabled: false,
+      operands: [{ id: rangePart.id, enabled: true, range: defaultLuminanceMaskRange }],
+    })
+    expect(rebuilt.linear.sha256).toBe(displayed.linear.sha256)
+    expect(rebuilt.linear.hdr.preparedMasks!.key).not.toBe(displayed.linear.hdr.preparedMasks!.key)
+    expect(f.previews.acquire(new URL(idleCandidate.url))).toBeUndefined()
+    expect(sha(await readFile(displayedLease!.path))).toBe(displayedCandidate.sha256)
+    expect(f.counters.texture).toBe(3)
+    await info.attach('texture-adapter', {
+      body: JSON.stringify([...new Set(f.adapters)]),
+      contentType: 'application/json',
+    })
+  } finally {
+    idleLease?.release()
+    displayedLease?.release()
+    releaseStorage?.()
+    await f.close()
   }
 })
 

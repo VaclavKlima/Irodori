@@ -4,6 +4,8 @@ import { join, resolve } from 'node:path'
 import type { AdjustmentParameters, DisplayTransform } from '../../shared/adjustments'
 import type { DetailAdmission } from '../../shared/detail-resources'
 import { validateExportAdmission } from '../../shared/export-resources'
+import { hasMaskAdjustments } from '../../shared/masks'
+import { validateMaskCoverageSize } from '../../shared/masks-gpu'
 import { hasMaskedTexture, maskedTextureKey } from '../../shared/masked-texture'
 import { createTextureGpu } from '../gpu/masked-texture.mjs'
 import { createOrderedPointGpu, type TexturePointJob } from '../gpu/masked-texture-point.mjs'
@@ -56,6 +58,9 @@ export async function prepareMaskStack(
   signal.throwIfAborted()
   if (!hasMaskedTexture(job.adjustments)) return { skipped: true, textureJobs: 0 }
   validateExportAdmission(job.admission)
+  const resolvedMasks = job.adjustments.localMasks ?? []
+  validateMaskCoverageSize(resolvedMasks)
+  const masks = resolvedMasks.filter((mask) => mask.enabled && hasMaskAdjustments(mask))
   const asset = job.parent.asset,
     count = asset.width * asset.height,
     metadataBytes = Buffer.byteLength(JSON.stringify(job.adjustments)) * 4,
@@ -100,7 +105,7 @@ export async function prepareMaskStack(
     domain: job.domain,
     data,
     adjustments: job.adjustments,
-    maskParameters: job.adjustments,
+    maskParameters: { ...job.adjustments, localMasks: masks },
     transform: job.transform ?? asset.transform,
     whiteBalance: job.whiteBalance,
     admission,
@@ -128,18 +133,9 @@ export async function prepareMaskStack(
     let current = global.data
     let union = new Float32Array(count)
     const fullCoverage = new Float32Array(count).fill(1)
-    const masks = job.adjustments.localMasks ?? []
     for (let index = masks.length - 1; index >= 0; index--) {
       signal.throwIfAborted()
-      const root = masks[index],
-        amount = root.texture ?? 0
-      if (
-        !root.enabled ||
-        (amount === 0 &&
-          !Object.values(root.light).some(Boolean) &&
-          !Object.values(root.color).some(Boolean))
-      )
-        continue
+      const amount = masks[index].texture ?? 0
       const previous = current
       const probe = await point.root(
         { ...pointJob, previous, candidate: previous, maskIndex: index },
